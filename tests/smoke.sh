@@ -760,7 +760,7 @@ class SessionState(unittest.TestCase):
         self.now += 1
         self.pane = "Starting the next task"
         self.tick()
-        self.assertEqual(menu.state(self.seat), "needs you")
+        self.assertEqual(menu.state(self.seat), "done")   # output after an open answers no done
 
     def test_f_failed_usage_is_dash_and_real_zero_used_is_100_percent(self):
         def meter(used):
@@ -1166,13 +1166,13 @@ class Notifications(test_notify.Notifications):
         self.cli("done", "Another job, another summary")     # same word: the episode stands
         self.assertEqual(len(self.requests), count)
         self.open_and_progress()
-        self.assertEqual(menu.state({"name": "seat"}), "needs you")
+        # a done is no question: opening and reading it leave it, and its episode, standing
+        self.assertEqual(menu.state({"name": "seat"}), "done")
         self.cli("done", "Another job, another summary")
-        # the resolve ended the done episode: this declaration opens a new one
-        self.assertEqual(len(self.requests), count + 1)
+        self.assertEqual(len(self.requests), count)
         self.cli("needs", "One more decision?")
         self.cli("done", "Second job finished")
-        self.assertEqual(len(self.requests), count + 4)
+        self.assertEqual(len(self.requests), count + 3)
 
     def test_edit_failures_are_silent_and_do_not_block_completion(self):
         for status in (404, 500, 0):

@@ -149,9 +149,9 @@ dying within a fortnight is `needs you` on every seat; a run it launched that is
 or waiting for a slot, window, target change or login the tick lifts by itself, or an error with a scheduled retry, or
 parked `stalled` or `exhausted` and handed back for the orchestrator to resume; an error with no automatic resume that
 still needs attention (see below) is `needs you` (`run <id> parked: <reason>`); a harness turn in flight is `working`;
-nobody in the seat any more is `needs you` with `session closed: press N to reopen`; `ak notify done` is `done` with the
-summary's first line; otherwise it is at its prompt, which is `needs you` with the question it asked or `waiting for
-you`. `ak orch why <seat>` says what decided it, on what evidence, since when.
+nobody in the seat any more is `needs you` with `session closed: press N to reopen`; the seat's own `ak notify done` is
+`done` with the summary's first line until a newer notice, however often the session is opened, read or scrolled (a question on its screen, or typed text nobody sent, reads `needs you` over it; a job's `all N tasks finished` is no declaration of the seat's, though its card is still `Done`); otherwise it is at its prompt, which is `needs you`
+with the question it asked or `waiting for you`. `ak orch why <seat>` says what decided it, on what evidence, since when.
 
 A row is number, name, orchestrator, state, and one last column: the reason for `needs you` and `done`, and for
 `working` the plan bar (`tasks ██░░░ 2/5`, from `~/.agentkit/state/plan-<session>.md`, and what history says the rest takes: `· ~45m left`, `· ~5h left`, `· ~36d left`) else `N running` else empty. An

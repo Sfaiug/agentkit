@@ -389,17 +389,27 @@ def last(session, include_seen=False):
 
 
 def resolved(data):
-    """An orchestrator notice resolves after its seat was opened and produced fresh output.
+    """An orchestrator question resolves after its seat was opened and produced fresh output.
 
     These facts travel with the notice, so rendering never acknowledges it or depends on
     whether tmux reports a client attached. `seen` also covers explicit retirement and
-    guarded retraction of the watcher's own recovery alerts.
+    guarded retraction of the watcher's own recovery alerts.  A done is no question: opening
+    it, reading it and its redraws answer nothing, and only a newer notice replaces it.
     """
     if data.get("seen"):
         return True
+    if data.get("kind") == "done":
+        return False
     stamps = [data.get(key) for key in ("time", "opened_at", "last_progress_at")]
     return (all(isinstance(n, (int, float)) and not isinstance(n, bool) and math.isfinite(n)
                 for n in stamps) and stamps[0] <= stamps[1] < stamps[2])
+
+
+def job_done(notice):
+    """A job's `all N tasks finished`: done to its card, the way it always was, and no word of
+    the seat's, which only the seat says of itself."""
+    return bool(notice) and notice["kind"] == "done" and str(
+        notice.get("source") or "").startswith("job:")
 
 
 def opened(session, capture):
@@ -428,8 +438,8 @@ def progress(session, capture):
     """
     with session_lock(session) as session:
         previous = last(session)
-        if not previous or previous.get("opened_at") is None:
-            return
+        if not previous or previous.get("opened_at") is None or previous["kind"] == "done":
+            return                 # output after an open answers a question, never a done
         pane = capture()
         baseline = previous.get("opened_pane", "")
         if not pane or (baseline and (pane in baseline or pane.endswith(baseline))):
@@ -444,7 +454,6 @@ def progress(session, capture):
         record(session, previous["kind"], previous["text"], **extra)
         if resolved(extra):
             close_needs(previous, "Answered")
-            _end_done_episode(session, previous)
             return True
 
 
@@ -801,13 +810,17 @@ def _remember_card(event, previous=None):
     card = _card_read(session)
     receipt = event.get("receipt", {})
     current = last(session, include_seen=True)
+    # No done closes a question: while it is the word it outranks any done, standing or newer,
+    # and the card's own word is what ends it.  A done declared after the card only names how
+    # its question ended.
+    declared = (current is not None and current["kind"] == "done"
+                and current.get("time", 0) >= event["created_at"])
     if event["kind"] == "needs" and receipt.get("message_id"):
         pending = {**receipt, "embed": event["payload"]["embeds"][0]}
-        answered = current is not None and (resolved(current) or current["kind"] == "done")
+        answered = current is not None and resolved(current)
         if (card.get("episode") != event.get("episode") or card.get("closed")
                 or card.get("word") != "needs you" or answered):
-            finished = card.get("word") == "done" or (current is not None
-                                                      and current["kind"] == "done")
+            finished = card.get("word") == "done" or declared
             close_needs({"open_needs": [pending]}, "Done" if finished else "Answered")
         elif pending not in card.get("open_needs", []):
             card.setdefault("open_needs", []).append(pending)
@@ -933,12 +946,14 @@ def done_transition(session, card, answer, now):
     from . import watch
     if card.get("sent") or _history(card) or watch.seat_closed_by_owner(session):
         return 0
+    # A question a standing done was outranked by is finished when the word comes back to it,
+    # carded before or not.
+    _close_card(session, card, "Done")
     declared = last(session, include_seen=True)
     if declared and declared["kind"] == "done" and _carded(session, declared):
         card["sent"] = True
         _card_write(session, card)
         return 0
-    _close_card(session, card, "Done")
     return _send_card(session, "done", card, answer)
 
 
@@ -976,11 +991,14 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                     answer = None
             if answer is None:
                 previous = watch.seat_read(name)
-                # A screen may have observed an intervening episode since our last tick.
-                if card and (previous.get("word_since") or 0) <= card.get("since", 0):
+                # A screen may have observed an intervening episode since our last tick, but
+                # not while a job's done stands: the screens read no notice there, and their
+                # `needs you` is not the card's.
+                if card and ((previous.get("word_since") or 0) <= card.get("since", 0)
+                             or job_done(declared)):
                     previous = {"word": card["word"], "word_since": card["since"]}
                 answer = watch.session_state(name, now=at, session=seat, records=records,
-                                             previous=previous)
+                                             previous=previous, jobs=True)
             since = answer.get("since")
             since = since if isinstance(since, (int, float)) and math.isfinite(since) else at
             word = answer["word"]
@@ -1140,7 +1158,10 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         # event re-records nothing, but the latch is still evaluated: the first
         # attempt may have recorded without ever queueing the card.
         stamp = time.time()
-        answer = watch.session_state(name, now=stamp)
+        # While a job's done stood the screens' record was not the card's, as in `transition`.
+        card = _card_read(name) if job_done(previous) else {}
+        answer = watch.session_state(name, now=stamp, jobs=True, previous={
+            "word": card["word"], "word_since": card["since"]} if card else None)
         if answer["word"] == "needs you":
             since = answer.get("since")
             if not (isinstance(since, (int, float)) and math.isfinite(since)
