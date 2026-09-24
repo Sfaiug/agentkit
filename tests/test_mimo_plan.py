@@ -35,11 +35,13 @@ HOST, CONSOLE = "platform.xiaomimimo.com", "https://platform.xiaomimimo.com/cons
 REFUSED = {"ok": False, "stage": "usage", "http": 401, "code": 401, "host": HOST}
 
 # The fake bridge's venv python: the tab's fetch rounds answer `fetch-1`, `fetch-2`, ... in
-# turn, its page polls the lines of `pages` in turn, the last one standing, and every argv
-# lands in `asked-bridge`.  The fake curl refuses whatever it is asked, logged in `asked-curl`.
+# turn, its page polls the lines of `pages` in turn, the last one standing, every call after
+# the first takes `slow` seconds where that file is, and every argv lands in `asked-bridge`.
+# The fake curl refuses whatever it is asked, logged in `asked-curl`.
 FAKE_VENV = """#!/bin/sh
 dir="$HOME/fake"
 printf '%s\\n' "$*" >>"$dir/asked-bridge"
+[ -f "$dir/n-fetch" ] && [ -f "$dir/slow" ] && sleep "$(cat "$dir/slow")"
 case "$*" in
   *tokenPlan*) kind=fetch ;;
   *location.href*) exit 0 ;;
@@ -239,9 +241,10 @@ class MimoPlan(unittest.TestCase):
         self.assertEqual(usage.reset_when(plan, PLAN_RESET - 6 * 86400 - 60), "23 Oct")
         self.assertEqual(usage.reset_when(week, PLAN_RESET - 7 * 86400), "Fri 01:59")
 
-    def probe(self, fetches, pages, **env):
+    def probe(self, fetches, pages, slow=None, **env):
         """The adapter's `usage` over the fake bridge, whose tab's fetch rounds say `fetches`
-        in turn and whose page polls say `pages`: its answer, and what the bridge was asked."""
+        in turn and whose page polls say `pages`, each call after the first `slow` seconds
+        long: its answer, and what the bridge was asked."""
         self.endpoint(PLAN)
         fake, bridge, bin_dir = (self.root / "fake", self.root / ".local/share/browser-bridge",
                                  self.root / "bin")
@@ -254,6 +257,8 @@ class MimoPlan(unittest.TestCase):
         for n, payload in enumerate(fetches, 1):
             (fake / f"fetch-{n}").write_text(json.dumps(json.dumps(payload)) + "\n")
         (fake / "pages").write_text("".join(json.dumps(page) + "\n" for page in pages))
+        if slow is not None:
+            (fake / "slow").write_text(f"{slow}\n")
         # the caller gives the probe 30s, and bash counts SECONDS on from its environment's
         proc = subprocess.run(
             [str(REPO / "adapters/opencode.sh"), "usage"], capture_output=True, text=True,
@@ -308,9 +313,13 @@ class MimoPlan(unittest.TestCase):
         self.assertGreater(len(asked) - len(self.fetches(asked)), 3)   # polled, not slept
 
     def test_a_renewal_settling_past_the_budget_stays_inside_it(self):
-        # four seconds short of the budget: the renewal is cut off, it is never fetched
-        # again, and the sources behind it are noted untested, never tried
-        answer, asked = self.probe([REFUSED], ["", "account.xiaomi.com loading"], SECONDS="16")
+        # four seconds short of the budget, over a bridge whose every call runs its whole
+        # six seconds: the renewal is cut off at the budget, it is never fetched again, and
+        # the sources behind it are noted untested, never tried
+        start = time.monotonic()
+        answer, asked = self.probe([REFUSED], ["", "account.xiaomi.com loading"], slow=6,
+                                   SECONDS="16")
+        self.assertLess(time.monotonic() - start, 20 - 16 + 1)
         self.assertEqual((answer["meters"], answer["error"]), ([], None))
         for words in ("browser session expired, renewal unfinished (probe budget)",
                       "mimo CLI untested (probe budget)", "provider key untested (probe budget)"):
