@@ -6,6 +6,8 @@ tokens are paid from: a plain token-plan URL there is a subscription whatever co
 The adapter launches OpenCode with project config off, so no workspace can move it.  Offline:
 OpenCode's config is a temporary OPENCODE_CONFIG_DIR, HOME is a temporary directory, the
 adapter runs a stub `opencode`, and no real ~/.config/opencode or ~/.agentkit is read or written.
+The plan's meter is read through the shared browser, whose lapsed console session one page load
+renews: that browser is a fake bridge under the temporary HOME, beside a fake `curl`.
 """
 
 from contextlib import ExitStack
@@ -29,6 +31,32 @@ WEEK = 604800
 PLAN_RESET = 1792713599      # 23 Oct 2026 01:59:59 CEST, the owner's plan meter
 CET = "CET-1CEST,M3.5.0,M10.5.0/3"   # the owner's zone, spelled so no tzdata is needed
 PLAN, PAID = "https://token-plan-ams.xiaomimimo.com/v1", "https://api.xiaomimimo.com/v1"
+HOST, CONSOLE = "platform.xiaomimimo.com", "https://platform.xiaomimimo.com/console/plan-manage"
+REFUSED = {"ok": False, "stage": "usage", "http": 401, "code": 401, "host": HOST}
+
+# The fake bridge's venv python: the tab's fetch rounds answer `fetch-1`, `fetch-2`, ... in
+# turn, its page polls the lines of `pages` in turn, the last one standing, every call after
+# the first takes `slow` seconds where that file is, and every argv lands in `asked-bridge`.
+# The fake curl refuses whatever it is asked, logged in `asked-curl`.
+FAKE_VENV = """#!/bin/sh
+dir="$HOME/fake"
+printf '%s\\n' "$*" >>"$dir/asked-bridge"
+[ -f "$dir/n-fetch" ] && [ -f "$dir/slow" ] && sleep "$(cat "$dir/slow")"
+case "$*" in
+  *tokenPlan*) kind=fetch ;;
+  *location.href*) exit 0 ;;
+  *) kind=page ;;
+esac
+n=$(( $(cat "$dir/n-$kind" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$dir/n-$kind"
+case $kind in
+  fetch) cat "$dir/fetch-$n" ;;
+  page) awk -v n="$n" 'NR <= n { l = $0 } END { print l }' "$dir/pages" ;;
+esac
+"""
+FAKE_CURL = """#!/bin/sh
+printf '%s\\n' "$*" >>"$HOME/fake/asked-curl"
+printf '{"code":401,"message":"unauthorized"}\\n401\\n'
+"""
 
 
 class MimoPlan(unittest.TestCase):
@@ -212,6 +240,94 @@ class MimoPlan(unittest.TestCase):
         # week is as far off as it can ever be
         self.assertEqual(usage.reset_when(plan, PLAN_RESET - 6 * 86400 - 60), "23 Oct")
         self.assertEqual(usage.reset_when(week, PLAN_RESET - 7 * 86400), "Fri 01:59")
+
+    def probe(self, fetches, pages, slow=None, **env):
+        """The adapter's `usage` over the fake bridge, whose tab's fetch rounds say `fetches`
+        in turn and whose page polls say `pages`, each call after the first `slow` seconds
+        long: its answer, and what the bridge was asked."""
+        self.endpoint(PLAN)
+        fake, bridge, bin_dir = (self.root / "fake", self.root / ".local/share/browser-bridge",
+                                 self.root / "bin")
+        for folder in (fake, bridge / "venv/bin", bin_dir):
+            folder.mkdir(parents=True, exist_ok=True)
+        (bridge / "bridge.py").write_text("# fake bridge for tests/test_mimo_plan.py\n")
+        for path, text in ((bridge / "venv/bin/python", FAKE_VENV), (bin_dir / "curl", FAKE_CURL)):
+            path.write_text(text)
+            path.chmod(0o755)
+        for n, payload in enumerate(fetches, 1):
+            (fake / f"fetch-{n}").write_text(json.dumps(json.dumps(payload)) + "\n")
+        (fake / "pages").write_text("".join(json.dumps(page) + "\n" for page in pages))
+        if slow is not None:
+            (fake / "slow").write_text(f"{slow}\n")
+        # the caller gives the probe 30s, and bash counts SECONDS on from its environment's
+        proc = subprocess.run(
+            [str(REPO / "adapters/opencode.sh"), "usage"], capture_output=True, text=True,
+            timeout=30 - int(env.get("SECONDS", 0)),
+            env={"HOME": str(self.root), "PATH": f"{bin_dir}:/usr/bin:/bin",
+                 "OPENCODE_CONFIG_DIR": str(self.root / "opencode"), **env})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout), (fake / "asked-bridge").read_text().splitlines()
+
+    @staticmethod
+    def fetches(asked):
+        return [argv for argv in asked if "tokenPlan" in argv]
+
+    def test_a_refused_session_renews_and_reads_the_plan(self):
+        plan = json.loads((REPO / "tests/fixtures/mimo-tokenplan-usage.json").read_text())
+        detail = json.loads((REPO / "tests/fixtures/mimo-tokenplan-detail.json").read_text())
+        answer, asked = self.probe(
+            [REFUSED, {"ok": True, "usage": plan["data"], "detail": detail["data"], "host": HOST}],
+            ["", "account.xiaomi.com loading", f"{HOST} complete"])
+        self.assertEqual([(m["name"], m["used"]) for m in answer["meters"]],
+                         [("plan", 6.0), ("compensation", 5.0), ("month", 34.8)])
+        self.assertIsNone(answer["error"])
+        self.assertNotIn("none", answer)
+        # fetch, the tab sent to the console with its old page marked, three polls through
+        # the sign-in and back, and the fetch that reads the meters
+        self.assertEqual(len(asked), 6, asked)
+        self.assertEqual(self.fetches(asked), [asked[0], asked[5]])
+        self.assertIn(f"location.href = '{CONSOLE}'", asked[1])
+        self.assertIn("akRenew", asked[1])
+        self.assertFalse((self.root / "fake/asked-curl").exists())
+
+    def test_a_session_refused_twice_notes_the_login_missing(self):
+        answer, asked = self.probe([REFUSED, REFUSED], [f"{HOST} complete"])
+        self.assertEqual((answer["meters"], answer["error"]), ([], None))
+        for words in ("browser session refused (HTTP 401)", "provider key refused (HTTP 401)",
+                      f"log into {CONSOLE} in the shared browser", "ak browser login"):
+            self.assertIn(words, answer["none"])
+        self.assertEqual(len(self.fetches(asked)), 2)
+
+    def test_a_renewal_landing_on_another_host_notes_no_xiaomi_login(self):
+        # the sign-in page never goes back: the probe polls it out, 8s, and fetches once more
+        start = time.monotonic()
+        answer, asked = self.probe(
+            [REFUSED, {"ok": False, "stage": "usage", "http": 404, "host": "account.xiaomi.com"}],
+            ["", "account.xiaomi.com complete"])
+        self.assertLess(time.monotonic() - start, 15)
+        self.assertEqual((answer["meters"], answer["error"]), ([], None))
+        self.assertIn("browser has no Xiaomi login", answer["none"])
+        self.assertIn(f"log into {CONSOLE}", answer["none"])
+        self.assertNotIn("browser session refused", answer["none"])
+        self.assertEqual(len(self.fetches(asked)), 2)
+        self.assertGreater(len(asked) - len(self.fetches(asked)), 3)   # polled, not slept
+
+    def test_a_renewal_settling_past_the_budget_stays_inside_it(self):
+        # four seconds short of the budget, over a bridge whose every call runs its whole
+        # six seconds: the renewal is cut off at the budget, it is never fetched again, and
+        # the sources behind it are noted untested, never tried
+        start = time.monotonic()
+        answer, asked = self.probe([REFUSED], ["", "account.xiaomi.com loading"], slow=6,
+                                   SECONDS="16")
+        self.assertLess(time.monotonic() - start, 20 - 16 + 1)
+        self.assertEqual((answer["meters"], answer["error"]), ([], None))
+        for words in ("browser session expired, renewal unfinished (probe budget)",
+                      "mimo CLI untested (probe budget)", "provider key untested (probe budget)"):
+            self.assertIn(words, answer["none"])
+        self.assertNotIn("log into", answer["none"])
+        self.assertEqual(len(self.fetches(asked)), 1)
+        self.assertIn("location.href", asked[1])
+        self.assertFalse((self.root / "fake/asked-curl").exists())
 
 
 if __name__ == "__main__":

@@ -535,9 +535,11 @@ cat "$dir/bridge-eval"
                      "platform.xiaomimimo.com/console/plan-manage",
                      "ak browser login"):
             self.assertIn(word, usage["none"])
-        # the refused tab answers for the browser, so curl goes out once, for
-        # the key; a refused usage call is never followed by a detail call
-        self.assertEqual(len(self.asked_bridge()), 1)
+        # the refused tab is sent to the console once and refused again, which
+        # answers for the browser, so curl goes out once, for the key; a
+        # refused usage call is never followed by a detail call
+        self.assertEqual(len([a for a in self.asked_bridge() if "tokenPlan" in a]), 2)
+        self.assertIn("location.href", self.asked_bridge()[1])
         self.assertEqual(self.asked_urls(),
                          ["https://platform.xiaomimimo.com/api/v1/tokenPlan/usage"])
         # and a tab a login elsewhere left behind is moved to the console in

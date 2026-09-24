@@ -262,13 +262,17 @@ usage)
   BRIDGE_DIR="$HOME/.local/share/browser-bridge"
   BRIDGE_PY="$BRIDGE_DIR/bridge.py"; BRIDGE_VENV="$BRIDGE_DIR/venv/bin/python"
   SESS="agentkit-mimo-usage"
-  bexec=""; command -v timeout >/dev/null && bexec="timeout 6"
+  bexec=""; command -v timeout >/dev/null && bexec="timeout"
+  # bridge_eval <js> [by]: one eval, cut off after 6s or at second <by> of the
+  # probe, whichever comes first, and never started once <by> is past.
   bridge_eval() {
-    BRIDGE_SESSION="$SESS" $bexec "$BRIDGE_VENV" "$BRIDGE_PY" eval "$1" 2>/dev/null
+    left=$(( ${2:-99} - SECONDS )); [ "$left" -le 6 ] || left=6
+    [ "$left" -gt 0 ] || return 1
+    BRIDGE_SESSION="$SESS" ${bexec:+$bexec $left} "$BRIDGE_VENV" "$BRIDGE_PY" eval "$1" 2>/dev/null
   }
   JS="(async () => { const host = location.host; const get = async (p) => { const r = await fetch(p, {credentials: 'include'}); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch (e) { return {http: r.status, json: false}; } return {http: r.status, json: true, code: j.code, data: j.data}; }; try { const u = await get('/api/v1/tokenPlan/usage'); if (!u.json || u.code !== 0) return JSON.stringify({ok: false, stage: 'usage', http: u.http, code: u.code, host: host}); const d = await get('/api/v1/tokenPlan/detail'); if (!d.json || d.code !== 0) return JSON.stringify({ok: false, stage: 'detail', http: d.http, code: d.code, host: host}); return JSON.stringify({ok: true, usage: u.data, detail: d.data, host: host}); } catch (e) { return JSON.stringify({ok: false, stage: 'fetch', host: host}); } })()"
-  fetch_payload() {  # one fetch round in the remembered tab, as JSON or empty
-    out=$(bridge_eval "$JS" || true)
+  fetch_payload() {  # [by]: one fetch round in the remembered tab, as JSON or empty
+    out=$(bridge_eval "$JS" "${1:-}" || true)
     payload=$(printf '%s' "$out" | jq -r . 2>/dev/null || true)
     case "$payload" in '{'*) ;; *) payload="";; esac
   }
@@ -293,6 +297,26 @@ usage)
         [ -n "$payload" ] || fetch_payload
       fi
     fi
+    # A 401 on the console's own host is its session lapsed: the console keeps a
+    # short-lived one and the remembered tab never reloads, while the Xiaomi
+    # account login behind it outlasts both, so one page load of the console
+    # signs in again by itself.  The tab is sent there once -- its old page
+    # marked, so that page is never taken for the new one -- polled until it
+    # settles back on the console, 8s at most, and fetched again: only that
+    # round can say the login is missing.  The renewal counts toward the probe
+    # budget, and one still settling past it is left to finish for the next probe.
+    renewed=0
+    if [ "$SECONDS" -lt 20 ] \
+        && [ "$(printf '%s' "$payload" | jq -r '"\(.host) \(.http)"' 2>/dev/null)" = "$HOST 401" ]; then
+      settle=$((SECONDS + 8)); [ "$settle" -le 20 ] || settle=20; page=""
+      bridge_eval "window.akRenew = 1, location.href = '$CONSOLE'" "$settle" >/dev/null 2>&1 || true
+      while [ "$page" != "$HOST complete" ] && [ "$SECONDS" -lt "$settle" ]; do
+        sleep 0.5
+        page=$(bridge_eval "window.akRenew ? '' : location.host + ' ' + document.readyState" \
+          "$settle" | jq -r . 2>/dev/null || true)
+      done
+      [ "$SECONDS" -lt 20 ] && { fetch_payload 20; renewed=1; }
+    fi
     if [ -n "$payload" ] && [ "$(printf '%s' "$payload" | jq -r '.ok // false' 2>/dev/null)" = true ]; then
       u=$(printf '%s' "$payload" | jq -c '{code:0,data:.usage}' 2>/dev/null || true)
       t=$(printf '%s' "$payload" | jq -c '{code:0,data:.detail}' 2>/dev/null || true)
@@ -309,8 +333,10 @@ usage)
       http=$(printf '%s' "$payload" | jq -r '.http // empty' 2>/dev/null || true)
       stage=$(printf '%s' "$payload" | jq -r '.stage // empty' 2>/dev/null || true)
       if [ "$host" != "$HOST" ]; then
-        bridge_eval "location.href='$CONSOLE'" >/dev/null 2>&1 || true
+        bridge_eval "location.href='$CONSOLE'" 20 >/dev/null 2>&1 || true
         note "browser has no Xiaomi login"; login_missing=1
+      elif [ "$http" = 401 ] && [ "$renewed" = 0 ]; then
+        note "browser session expired, renewal unfinished (probe budget)"
       elif [ "$http" = 401 ]; then
         note "browser session refused (HTTP 401)"; login_missing=1
       elif [ "$stage" = fetch ]; then
