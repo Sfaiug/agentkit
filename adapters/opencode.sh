@@ -293,6 +293,27 @@ usage)
         [ -n "$payload" ] || fetch_payload
       fi
     fi
+    # A 401 on the console's own host is its session lapsed: the console keeps a
+    # short-lived one and the remembered tab never reloads, while the Xiaomi
+    # account login behind it outlasts both, so one page load of the console
+    # signs in again by itself.  The tab is sent there once -- its old page
+    # marked, so that page is never taken for the new one -- polled until it
+    # settles back on the console, 8s at most, and fetched again: only that
+    # round can say the login is missing.  The renewal counts toward the probe
+    # budget, and one still settling past it is left to finish for the next probe.
+    renewed=0
+    if [ "$SECONDS" -lt 20 ] \
+        && [ "$(printf '%s' "$payload" | jq -r '"\(.host) \(.http)"' 2>/dev/null)" = "$HOST 401" ]; then
+      bridge_eval "window.akRenew = 1, location.href = '$CONSOLE'" >/dev/null 2>&1 || true
+      settle=$((SECONDS + 8)); page=""
+      while [ "$page" != "$HOST complete" ] && [ "$SECONDS" -lt "$settle" ] \
+          && [ "$SECONDS" -lt 20 ]; do
+        sleep 0.5
+        page=$(bridge_eval "window.akRenew ? '' : location.host + ' ' + document.readyState" \
+          | jq -r . 2>/dev/null || true)
+      done
+      [ "$SECONDS" -lt 20 ] && { fetch_payload; renewed=1; }
+    fi
     if [ -n "$payload" ] && [ "$(printf '%s' "$payload" | jq -r '.ok // false' 2>/dev/null)" = true ]; then
       u=$(printf '%s' "$payload" | jq -c '{code:0,data:.usage}' 2>/dev/null || true)
       t=$(printf '%s' "$payload" | jq -c '{code:0,data:.detail}' 2>/dev/null || true)
@@ -311,6 +332,8 @@ usage)
       if [ "$host" != "$HOST" ]; then
         bridge_eval "location.href='$CONSOLE'" >/dev/null 2>&1 || true
         note "browser has no Xiaomi login"; login_missing=1
+      elif [ "$http" = 401 ] && [ "$renewed" = 0 ]; then
+        note "browser session expired, renewal unfinished (probe budget)"
       elif [ "$http" = 401 ]; then
         note "browser session refused (HTTP 401)"; login_missing=1
       elif [ "$stage" = fetch ]; then
