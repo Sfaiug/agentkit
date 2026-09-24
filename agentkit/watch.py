@@ -1460,7 +1460,7 @@ def plan_progress(name):
 
 def session_state(name, now=None, session=None, cfg=None, records=None, number=None,
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
-                  previous=None, auth_out=None, gh_out=None, token_out=None):
+                  previous=None, auth_out=None, gh_out=None, token_out=None, jobs=False):
     """`working`, `needs you` or `done` -- why, and since when.  The one decision.
 
     Every screen reads this and says one of those three words: the menu row, the project
@@ -1497,6 +1497,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     verbs answered per harness, `gh_out` what it found about `gh`, `token_out` what its daily
     worker-token ask found, and `previous` the record of
     the last word. `run_numbers` is kept for callers that still hand it down and is read no more.
+    `jobs` is the cards' alone: a job's `all N tasks finished` is `done` to its card, the way it
+    always was, and no word of the seat's to every screen.
 
     Deciding is the whole of it: nothing here captures a pane, writes a record, sets an
     option or tells anybody -- not even through a lookup, which is why the seat and its
@@ -1523,7 +1525,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
         except config.Error:
             harness = None
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
-                            silent, live, harness, auth_out, gh_out, token_out,
+                            silent, live, harness, auth_out, gh_out, token_out, jobs,
                             menu_mod, run_mod, terminal_mod)
     # `since` is the beginning of this run of this word, the way the classifier carries
     # `began`: unchanged, it keeps counting from where it started; changed, it starts now,
@@ -1607,7 +1609,8 @@ def hook_look(launched, heard=None):
 
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,
-                   found, harness, auth_out, gh_out, token_out, menu_mod, run_mod, terminal_mod):
+                   found, harness, auth_out, gh_out, token_out, jobs, menu_mod, run_mod,
+                   terminal_mod):
     """The ladder itself, top rung first, from the facts its caller gathered.
 
     The seat's own runs are gathered before the first rung, because a login the top rung
@@ -1733,11 +1736,12 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "needs you", "since": None,
                 "reason": f"{reason} · {told}" if told else reason}
     last = notify.last(name)
-    # Only the seat says it is done: a job's `all N tasks finished` is the job's word.  Opening
-    # the seat, reading it and its redraws leave the seat's own standing until a newer notice,
-    # but a question on its screen, or typed text nobody sent, outranks it.
-    if last and last["kind"] == "done" and (found.get("state") in ("asking", "draft") or
-                                            str(last.get("source") or "").startswith("job:")):
+    # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
+    # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
+    # seat's own standing until a newer notice, but a question on its screen, or typed text
+    # nobody sent, outranks it.
+    if last and last["kind"] == "done" and (found.get("state") in ("asking", "draft") or (
+            not jobs and str(last.get("source") or "").startswith("job:"))):
         last = None
     # 5. it said it was done, and nothing above it is still going
     if last and last["kind"] == "done":

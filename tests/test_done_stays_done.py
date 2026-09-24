@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import config, menu, notify, orch, terminal, watch, worker
+from agentkit import config, menu, notify, orch, run, terminal, watch, worker
 
 NOW = 1_800_000_000
 SEAT = "fix-api"
@@ -49,6 +49,18 @@ class DoneStaysDone(Sandbox):
                                               side_effect=lambda *_a, **_k: self.pane))
         self.stack.enter_context(patch.object(worker, "auth_ok",
                                               side_effect=lambda h, seat=False: (True, h)))
+        # Discord, faked: the title of every card posted, and every edit of one
+        self.posts, self.edits = [], []
+
+        def post(payload, files, message, receipt):
+            self.posts.append(payload["embeds"][0]["title"])
+            receipt.update(status="delivered", message_id=str(len(self.posts)), webhook="sink")
+
+        def close_needs(previous, status):
+            self.edits.extend((p["message_id"], status) for p in previous.get("open_needs", []))
+            return []
+        self.stack.enter_context(patch.object(notify, "post", side_effect=post))
+        self.stack.enter_context(patch.object(notify, "close_needs", side_effect=close_needs))
 
     def fact(self, event, kind="", text=""):
         """What this seat's own lifecycle hook would have written."""
@@ -67,6 +79,13 @@ class DoneStaysDone(Sandbox):
         notify.opened(SEAT, lambda: self.pane)
         self.pane = PROMPT + "\n  scrolled back through the summary"
         return notify.progress(SEAT, lambda: self.pane)
+
+    def tick(self, later=0):
+        """The watch tick's part in it, a moment after what came before: a look at the seat,
+        then its card's transition."""
+        with patch.object(menu.time, "time", return_value=menu.time.time() + 1 + later):
+            watch.look_at(self.seat, cfg=self.cfg)
+            notify.transition(SEAT, now=NOW + later, seat=self.seat)
 
     def row(self, width):
         """The seat's row on the menu, drawn at that many columns."""
@@ -132,16 +151,46 @@ class DoneStaysDone(Sandbox):
         self.pane = PROMPT
         self.assertEqual(self.decide()[0], "done")
 
+    def test_a_question_card_over_a_done_stays_open_until_the_done_is_back(self):
+        self.fact("Stop")
+        self.assertEqual(notify.shaped("done", SUMMARY, session=SEAT), 0)
+        self.assertEqual(self.posts, ["Done · fix-api"])
+        self.open_and_redraw()
+        self.fact("Notification", kind="permission_prompt",
+                  text="Claude needs your permission to use Bash")
+        self.pane = ASKING
+        self.tick()
+        self.tick(120)          # a minute of `needs you` with nobody attached
+        self.assertEqual(self.posts, ["Done · fix-api", "Needs you · fix-api"])
+        self.assertEqual(self.edits, [])    # the done from before answers nothing
+        self.fact("Stop")
+        self.pane = PROMPT
+        self.tick(240)
+        self.assertEqual(self.decide()[0], "done")
+        # the question's card is finished, and the declaration, carded once, is not again
+        self.assertEqual(self.edits, [("2", "Done")])
+        self.assertEqual(self.posts, ["Done · fix-api", "Needs you · fix-api"])
+
     def test_a_jobs_all_finished_is_no_word_of_the_seats(self):
         self.fact("Stop")
+        other = config.RUNS / "20260924-1250-fix-api"
+        other.mkdir(parents=True)
+        run.save_state(other, {"run_id": other.name, "state": "running",
+                               "launched_session": SEAT, "title": "Another task"})
         text = "job 20260924-1300-acme: all 3 tasks finished"
         self.assertEqual(notify.shaped("done", text, session=SEAT,
                                        event_id="job:20260924-1300-acme:1800000000"), 0)
         self.assertEqual(notify.last(SEAT)["text"], text)
+        # a run of its own still going holds the job's card back, as it always did
+        self.assertEqual(self.decide()[0], "working")
+        self.assertEqual(self.posts, [])
+        run.save_state(other, {**run.read_state(other), "state": "pass",
+                               "finished_at": NOW - 60})
         self.assertEqual(self.decide(), ("needs you", "waiting for you"))
-        # its card is the green one it always was
-        cards = [json.loads(path.read_text()) for path in notify.outbox().glob("*.json")]
-        self.assertEqual([(card["kind"], card["text"]) for card in cards], [("done", text)])
+        # its card is the green one it always was, once, and no question card follows it
+        self.tick()
+        self.tick(600)
+        self.assertEqual(self.posts, ["Done · fix-api"])
         # a question on its screen is still the reason, never the job's line
         self.fact("Notification", kind="permission_prompt",
                   text="Claude needs your permission to use Bash")

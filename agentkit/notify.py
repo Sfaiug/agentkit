@@ -803,13 +803,16 @@ def _remember_card(event, previous=None):
     card = _card_read(session)
     receipt = event.get("receipt", {})
     current = last(session, include_seen=True)
+    # Only a done declared after the card finishes its question: one standing from before is
+    # outranked by the question on the screen, which is what the card is about.
+    declared = (current is not None and current["kind"] == "done"
+                and current.get("time", 0) >= event["created_at"])
     if event["kind"] == "needs" and receipt.get("message_id"):
         pending = {**receipt, "embed": event["payload"]["embeds"][0]}
-        answered = current is not None and (resolved(current) or current["kind"] == "done")
+        answered = current is not None and (resolved(current) or declared)
         if (card.get("episode") != event.get("episode") or card.get("closed")
                 or card.get("word") != "needs you" or answered):
-            finished = card.get("word") == "done" or (current is not None
-                                                      and current["kind"] == "done")
+            finished = card.get("word") == "done" or declared
             close_needs({"open_needs": [pending]}, "Done" if finished else "Answered")
         elif pending not in card.get("open_needs", []):
             card.setdefault("open_needs", []).append(pending)
@@ -935,12 +938,14 @@ def done_transition(session, card, answer, now):
     from . import watch
     if card.get("sent") or _history(card) or watch.seat_closed_by_owner(session):
         return 0
+    # A question a standing done was outranked by is finished when the word comes back to it,
+    # carded before or not.
+    _close_card(session, card, "Done")
     declared = last(session, include_seen=True)
     if declared and declared["kind"] == "done" and _carded(session, declared):
         card["sent"] = True
         _card_write(session, card)
         return 0
-    _close_card(session, card, "Done")
     return _send_card(session, "done", card, answer)
 
 
@@ -982,7 +987,7 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                 if card and (previous.get("word_since") or 0) <= card.get("since", 0):
                     previous = {"word": card["word"], "word_since": card["since"]}
                 answer = watch.session_state(name, now=at, session=seat, records=records,
-                                             previous=previous)
+                                             previous=previous, jobs=True)
             since = answer.get("since")
             since = since if isinstance(since, (int, float)) and math.isfinite(since) else at
             word = answer["word"]
@@ -1142,11 +1147,7 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         # event re-records nothing, but the latch is still evaluated: the first
         # attempt may have recorded without ever queueing the card.
         stamp = time.time()
-        # A job's `all N tasks finished` cards done as it always did, though the seat's word
-        # stays its own: only the seat says it is done.
-        answer = ({"word": "done", "reason": text, "since": stamp}
-                  if kind == "done" and str(event_id or "").startswith("job:")
-                  else watch.session_state(name, now=stamp))
+        answer = watch.session_state(name, now=stamp, jobs=True)
         if answer["word"] == "needs you":
             since = answer.get("since")
             if not (isinstance(since, (int, float)) and math.isfinite(since)
