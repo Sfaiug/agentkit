@@ -25,6 +25,8 @@ DRAFT = (FIX / "claude-draft-pane.txt").read_text(encoding="utf-8", errors="repl
 # Claude's permission prompt has no capture (it needs a model): its hook is the authority
 ASKING = "Bash(rm -rf build)\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n"
 SUMMARY = "Merged #75: the parser reads both schemas\n\nThe loop pushes and merges now."
+JOB = ("job 20260924-1300-acme: all 3 tasks finished", "job:20260924-1300-acme:1800000000")
+BASH = "Claude needs your permission to use Bash"
 
 
 class DoneStaysDone(Sandbox):
@@ -49,10 +51,14 @@ class DoneStaysDone(Sandbox):
                                               side_effect=lambda *_a, **_k: self.pane))
         self.stack.enter_context(patch.object(worker, "auth_ok",
                                               side_effect=lambda h, seat=False: (True, h)))
-        # Discord, faked: the title of every card posted, and every edit of one
-        self.posts, self.edits = [], []
+        # Discord, faked: the title of every card it took, and every edit of one; while it is
+        # down it takes nothing, and the outbox retries
+        self.posts, self.edits, self.down = [], [], False
 
         def post(payload, files, message, receipt):
+            if self.down:
+                receipt.update(status="pending")
+                return
             self.posts.append(payload["embeds"][0]["title"])
             receipt.update(status="delivered", message_id=str(len(self.posts)), webhook="sink")
 
@@ -171,16 +177,43 @@ class DoneStaysDone(Sandbox):
         self.assertEqual(self.edits, [("2", "Done")])
         self.assertEqual(self.posts, ["Done · fix-api", "Needs you · fix-api"])
 
+    def late_question_card_under(self, text, event_id=None):
+        """A question's card Discord takes only after a newer done, the question still up."""
+        start = menu.time.time()
+        self.fact("Notification", kind="permission_prompt", text=BASH)
+        self.pane = ASKING
+        self.down = True
+        self.tick()
+        self.tick(120)
+        with patch.object(menu.time, "time", return_value=start + 200):
+            self.assertEqual(notify.shaped("done", text, session=SEAT, event_id=event_id), 0)
+        self.down = False
+        with patch.object(menu.time, "time", return_value=start + 900):
+            notify.retry_pending(log=lambda _line: None)
+        self.assertEqual(self.posts, ["Needs you · fix-api"])
+        # the newer done answers nothing while the question is the word: its card stays open
+        self.assertEqual(self.edits, [])
+        self.assertEqual([p["message_id"] for p in notify._card_read(SEAT)["open_needs"]], ["1"])
+        self.assertEqual(self.decide(), ("needs you", BASH))
+        self.fact("Stop")
+        self.pane = PROMPT
+        self.tick(1000)
+        self.assertEqual(self.edits, [("1", "Done")])
+
+    def test_a_newer_done_leaves_a_late_question_card_open(self):
+        self.late_question_card_under(SUMMARY)
+
+    def test_a_newer_job_done_leaves_a_late_question_card_open(self):
+        self.late_question_card_under(*JOB)
+
     def test_a_jobs_all_finished_is_no_word_of_the_seats(self):
         self.fact("Stop")
         other = config.RUNS / "20260924-1250-fix-api"
         other.mkdir(parents=True)
         run.save_state(other, {"run_id": other.name, "state": "running",
                                "launched_session": SEAT, "title": "Another task"})
-        text = "job 20260924-1300-acme: all 3 tasks finished"
-        self.assertEqual(notify.shaped("done", text, session=SEAT,
-                                       event_id="job:20260924-1300-acme:1800000000"), 0)
-        self.assertEqual(notify.last(SEAT)["text"], text)
+        self.assertEqual(notify.shaped("done", JOB[0], session=SEAT, event_id=JOB[1]), 0)
+        self.assertEqual(notify.last(SEAT)["text"], JOB[0])
         # a run of its own still going holds the job's card back, as it always did
         self.assertEqual(self.decide()[0], "working")
         self.assertEqual(self.posts, [])
@@ -191,17 +224,37 @@ class DoneStaysDone(Sandbox):
         self.tick()
         self.tick(600)
         self.assertEqual(self.posts, ["Done · fix-api"])
-        # a question on its screen is still the reason, never the job's line
-        self.fact("Notification", kind="permission_prompt",
-                  text="Claude needs your permission to use Bash")
+        # a question on its screen is still the reason, never the job's line, and its card is
+        # held its minute from when the card first reads it, not from the row's older word
+        watch.seat_write(SEAT, word="needs you", reason="waiting for you",
+                         word_since=notify._card_read(SEAT)["since"] + 1)
+        self.fact("Notification", kind="permission_prompt", text=BASH)
         self.pane = ASKING
-        self.assertEqual(self.decide(),
-                         ("needs you", "Claude needs your permission to use Bash"))
+        self.assertEqual(self.decide(), ("needs you", BASH))
+        self.tick(900)
+        self.assertEqual(self.posts, ["Done · fix-api"])
+        self.tick(1020)
+        self.assertEqual(self.posts, ["Done · fix-api", "Needs you · fix-api"])
         # and the seat's own declaration after it is done
         self.fact("Stop")
         self.pane = PROMPT
         notify.record(SEAT, "done", SUMMARY)
         self.assertEqual(self.decide()[0], "done")
+
+    def test_a_repeated_job_notice_holds_a_question_card_its_minute(self):
+        # the job's done stands and was carded; the row has read `needs you` since just after
+        start = menu.time.time()
+        notify.record(SEAT, "done", JOB[0], source=JOB[1])
+        notify._card_write(SEAT, {"word": "done", "since": start - 1000, "began": start - 1000,
+                                  "episode": "job", "sent": True, "open_needs": []})
+        watch.seat_write(SEAT, word="needs you", reason="waiting for you",
+                         word_since=start - 999)
+        self.fact("Notification", kind="permission_prompt", text=BASH)
+        self.pane = ASKING
+        watch.look_at(self.seat, cfg=self.cfg)
+        # run.py asks again with the same event: the question's card waits its minute
+        self.assertEqual(notify.shaped("done", JOB[0], session=SEAT, event_id=JOB[1]), 0)
+        self.assertEqual(self.posts, [])
 
     def test_a_needs_still_resolves_on_open_and_fresh_output(self):
         notify.record(SEAT, "needs", "Merge PR #7? yes/no")

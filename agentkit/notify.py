@@ -405,6 +405,13 @@ def resolved(data):
                 for n in stamps) and stamps[0] <= stamps[1] < stamps[2])
 
 
+def job_done(notice):
+    """A job's `all N tasks finished`: done to its card, the way it always was, and no word of
+    the seat's, which only the seat says of itself."""
+    return bool(notice) and notice["kind"] == "done" and str(
+        notice.get("source") or "").startswith("job:")
+
+
 def opened(session, capture):
     """Record the first interactive open of this notice, including its output baseline."""
     with session_lock(session) as session:
@@ -803,13 +810,14 @@ def _remember_card(event, previous=None):
     card = _card_read(session)
     receipt = event.get("receipt", {})
     current = last(session, include_seen=True)
-    # Only a done declared after the card finishes its question: one standing from before is
-    # outranked by the question on the screen, which is what the card is about.
+    # No done closes a question: while it is the word it outranks any done, standing or newer,
+    # and the card's own word is what ends it.  A done declared after the card only names how
+    # its question ended.
     declared = (current is not None and current["kind"] == "done"
                 and current.get("time", 0) >= event["created_at"])
     if event["kind"] == "needs" and receipt.get("message_id"):
         pending = {**receipt, "embed": event["payload"]["embeds"][0]}
-        answered = current is not None and (resolved(current) or declared)
+        answered = current is not None and resolved(current)
         if (card.get("episode") != event.get("episode") or card.get("closed")
                 or card.get("word") != "needs you" or answered):
             finished = card.get("word") == "done" or declared
@@ -983,8 +991,11 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                     answer = None
             if answer is None:
                 previous = watch.seat_read(name)
-                # A screen may have observed an intervening episode since our last tick.
-                if card and (previous.get("word_since") or 0) <= card.get("since", 0):
+                # A screen may have observed an intervening episode since our last tick, but
+                # not while a job's done stands: the screens read no notice there, and their
+                # `needs you` is not the card's.
+                if card and ((previous.get("word_since") or 0) <= card.get("since", 0)
+                             or job_done(declared)):
                     previous = {"word": card["word"], "word_since": card["since"]}
                 answer = watch.session_state(name, now=at, session=seat, records=records,
                                              previous=previous, jobs=True)
@@ -1147,7 +1158,10 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         # event re-records nothing, but the latch is still evaluated: the first
         # attempt may have recorded without ever queueing the card.
         stamp = time.time()
-        answer = watch.session_state(name, now=stamp, jobs=True)
+        # While a job's done stood the screens' record was not the card's, as in `transition`.
+        card = _card_read(name) if job_done(previous) else {}
+        answer = watch.session_state(name, now=stamp, jobs=True, previous={
+            "word": card["word"], "word_since": card["since"]} if card else None)
         if answer["word"] == "needs you":
             since = answer.get("since")
             if not (isinstance(since, (int, float)) and math.isfinite(since)

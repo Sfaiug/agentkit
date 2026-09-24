@@ -1741,7 +1741,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # seat's own standing until a newer notice, but a question on its screen, or typed text
     # nobody sent, outranks it.
     if last and last["kind"] == "done" and (found.get("state") in ("asking", "draft") or (
-            not jobs and str(last.get("source") or "").startswith("job:"))):
+            not jobs and notify.job_done(last))):
         last = None
     # 5. it said it was done, and nothing above it is still going
     if last and last["kind"] == "done":
