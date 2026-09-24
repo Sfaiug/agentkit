@@ -389,14 +389,17 @@ def last(session, include_seen=False):
 
 
 def resolved(data):
-    """An orchestrator notice resolves after its seat was opened and produced fresh output.
+    """An orchestrator question resolves after its seat was opened and produced fresh output.
 
     These facts travel with the notice, so rendering never acknowledges it or depends on
     whether tmux reports a client attached. `seen` also covers explicit retirement and
-    guarded retraction of the watcher's own recovery alerts.
+    guarded retraction of the watcher's own recovery alerts.  A done is no question: opening
+    it, reading it and its redraws answer nothing, and only a newer notice replaces it.
     """
     if data.get("seen"):
         return True
+    if data.get("kind") == "done":
+        return False
     stamps = [data.get(key) for key in ("time", "opened_at", "last_progress_at")]
     return (all(isinstance(n, (int, float)) and not isinstance(n, bool) and math.isfinite(n)
                 for n in stamps) and stamps[0] <= stamps[1] < stamps[2])
@@ -428,8 +431,8 @@ def progress(session, capture):
     """
     with session_lock(session) as session:
         previous = last(session)
-        if not previous or previous.get("opened_at") is None:
-            return
+        if not previous or previous.get("opened_at") is None or previous["kind"] == "done":
+            return                 # output after an open answers a question, never a done
         pane = capture()
         baseline = previous.get("opened_pane", "")
         if not pane or (baseline and (pane in baseline or pane.endswith(baseline))):
@@ -444,7 +447,6 @@ def progress(session, capture):
         record(session, previous["kind"], previous["text"], **extra)
         if resolved(extra):
             close_needs(previous, "Answered")
-            _end_done_episode(session, previous)
             return True
 
 
@@ -1140,7 +1142,11 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         # event re-records nothing, but the latch is still evaluated: the first
         # attempt may have recorded without ever queueing the card.
         stamp = time.time()
-        answer = watch.session_state(name, now=stamp)
+        # A job's `all N tasks finished` cards done as it always did, though the seat's word
+        # stays its own: only the seat says it is done.
+        answer = ({"word": "done", "reason": text, "since": stamp}
+                  if kind == "done" and str(event_id or "").startswith("job:")
+                  else watch.session_state(name, now=stamp))
         if answer["word"] == "needs you":
             since = answer.get("since")
             if not (isinstance(since, (int, float)) and math.isfinite(since)

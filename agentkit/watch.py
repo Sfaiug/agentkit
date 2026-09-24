@@ -1480,7 +1480,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * a harness turn is in flight, so the seat is working (a turn past three hours says so
       in its reason and keeps the word);
     * nobody is in the seat any more and its number is the way back in;
-    * it said it was done;
+    * it said it was done itself, a job never says it for it, and nothing on its screen asks him;
     * otherwise it is at its prompt with nothing running, which is him again -- with the
       question it asked, or the draft it never sent, for a reason.
 
@@ -1733,6 +1733,12 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "needs you", "since": None,
                 "reason": f"{reason} · {told}" if told else reason}
     last = notify.last(name)
+    # Only the seat says it is done: a job's `all N tasks finished` is the job's word.  Opening
+    # the seat, reading it and its redraws leave the seat's own standing until a newer notice,
+    # but a question on its screen, or typed text nobody sent, outranks it.
+    if last and last["kind"] == "done" and (found.get("state") in ("asking", "draft") or
+                                            str(last.get("source") or "").startswith("job:")):
+        last = None
     # 5. it said it was done, and nothing above it is still going
     if last and last["kind"] == "done":
         failed = notify.failed_declaration(last, mine)

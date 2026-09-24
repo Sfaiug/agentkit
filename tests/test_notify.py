@@ -154,13 +154,13 @@ class Notifications(unittest.TestCase):
         self.cli("done", "Another job, another summary")     # same word: the episode stands
         self.assertEqual(len(self.requests), count)
         self.open_and_progress()
-        self.assertEqual(menu.state({"name": "seat"}), "needs you")
+        # a done is no question: opening and reading it leave it, and its episode, standing
+        self.assertEqual(menu.state({"name": "seat"}), "done")
         self.cli("done", "Another job, another summary")
-        # the resolve ended the done episode: this declaration opens a new one
-        self.assertEqual(len(self.requests), count + 1)
+        self.assertEqual(len(self.requests), count)
         self.cli("needs", "One more decision?")
         self.cli("done", "Second job finished")
-        self.assertEqual(len(self.requests), count + 4)
+        self.assertEqual(len(self.requests), count + 3)
 
     def test_worker_guard_and_check_exception(self):
         log = self.root / "log.txt"
