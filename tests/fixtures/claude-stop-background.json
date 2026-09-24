@@ -1,0 +1,27 @@
+{
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "transcript_path": "/redacted/.claude/projects/-redacted/00000000-0000-0000-0000-000000000000.jsonl",
+  "cwd": "/redacted",
+  "prompt_id": "00000000-0000-0000-0000-000000000001",
+  "permission_mode": "bypassPermissions",
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "Started two checks. Do not wait and do not poll.",
+  "background_tasks": [
+    {
+      "id": "bgk0h39i9",
+      "type": "shell",
+      "status": "running",
+      "description": "sleep 20; echo SLEPT",
+      "command": "sleep 20; echo SLEPT"
+    },
+    {
+      "id": "ac6e931d9047f750b",
+      "type": "subagent",
+      "status": "running",
+      "description": "Slow check",
+      "agent_type": "general-purpose"
+    }
+  ],
+  "session_crons": []
+}

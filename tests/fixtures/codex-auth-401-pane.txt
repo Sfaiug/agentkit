@@ -1,0 +1,30 @@
+╭─────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.153.4)                  │
+│                                             │
+│ model:       gpt-6-astra   /model to change │
+│ directory:   ~                              │
+│ permissions: YOLO mode                      │
+╰─────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+
+› Say OK
+
+
+■ unexpected status 401 Unauthorized: Invalid API key, url: http://127.0.0.1:12345/codex/responses
+
+
+› Ask Codex to do anything
+
+  gpt-6-astra default · ~
+
+
+
+
+
+
+
+
+
+

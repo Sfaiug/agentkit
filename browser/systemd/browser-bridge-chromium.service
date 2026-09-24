@@ -1,0 +1,27 @@
+# Browser bridge host: @HOST@
+[Unit]
+Description=Browser bridge persistent Chromium with local CDP
+Wants=browser-bridge-openbox.service network-online.target
+After=browser-bridge-openbox.service network-online.target
+PartOf=browser-bridge-xvfb.service
+StartLimitIntervalSec=0
+
+[Service]
+User=@USER@
+Environment="HOME=@HOME@"
+Environment=DISPLAY=:99
+Environment="XAUTHORITY=@TARGET@/Xauthority"
+Environment=LANG=de_DE.UTF-8
+UMask=0077
+ExecStartPre=/usr/bin/python3 "@TARGET@/prepare-profile.py"
+ExecStart=/usr/bin/chromium --display=:99 "--user-data-dir=@TARGET@/profile" --remote-debugging-address=127.0.0.1 --remote-debugging-port=@CDP_PORT@ --remote-allow-origins=* --no-first-run --no-default-browser-check --window-size=1600,1000 --start-maximized --password-store=basic --lang=de-DE --restore-last-session
+ExecStartPost=/usr/bin/python3 "@TARGET@/wait-ready.py" cdp
+ExecStop="@TARGET@/venv/bin/python" "@TARGET@/stop-chromium.py" $MAINPID
+Restart=always
+RestartSec=3
+KillMode=mixed
+TimeoutStopSec=45
+TimeoutStartSec=150
+
+[Install]
+WantedBy=multi-user.target

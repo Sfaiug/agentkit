@@ -1,0 +1,1 @@
+{"payload": "{\"settings\": {\"subscription_tier_display\": \"SuperGrok\", \"subscription_usage\": [{\"name\": \"weekly\", \"used\": 42, \"resets_at\": 1999999999, \"window_secs\": 604800}, {\"name\": \"session\", \"used\": 10, \"resets_at\": 1999999999, \"window_secs\": 18000}]}}", "origin": "fixture"}

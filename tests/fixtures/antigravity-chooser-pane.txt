@@ -1,0 +1,30 @@
+
+      ▄▀▀▄        Antigravity CLI 1.2.9
+     ▀▀▀▀▀▀       owner@example.com (Antigravity Starter Quota)
+    ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (High)
+   ▄▀▀    ▀▀▄     /…/fixture-workspace
+  ▄▀▀      ▀▀▄
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+> /us
+────────────────────────────────────────────────────────────────────────────────────────────────────
+> /usage               View model quota usage
+  /statusline          Toggle the statusline
+  /agy-customizations  Comprehensive guide and reference for the Antigravity Customization Syste...
+
+  ↑/↓ Navigate · enter Select · tab Complete
+esc to cancel                                            agentkit (Gemini 3.8 Flash · high)  /agents
+
+
+
+
+
+
+
+
+
+
+
+
+
+

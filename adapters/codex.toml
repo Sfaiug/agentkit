@@ -1,0 +1,177 @@
+# adapters/codex.toml -- everything agentkit reads off a Codex seat's screen, and who has the
+# authority to say what that seat is doing.  Paired with adapters/codex.sh; the format is the
+# adapter contract in docs/guide.md, "Adding a harness".
+# Verified against Codex 0.153.4; see tests/fixtures/README.md for the captures.
+version = 1
+
+# How `ak update` moves this harness: npm installs a named version, so a failed upgrade goes
+# back by command.  `[usage] reset` says this adapter speaks `reset-status` and `reset`, which is
+# what lets a nearly spent week be read again as a fresh one; `[quota] reset_policy` below is the
+# same fact for the babysitter, which consults the policy before it types into a stalled seat.
+[update]
+version = ["codex", "--version"]
+upgrade = ["npm", "i", "-g", "@openai/codex@latest"]
+revert = ["npm", "i", "-g", "@openai/codex@{version}"]
+
+[usage]
+reset = true
+
+# A Codex seat owns only the thread its own launch's SessionStart hook reported, so its row is
+# recomputed rather than read: a seat tmux has lost keeps it, and one that owns no thread comes
+# back under its own name with no past.
+[conversation]
+fresh_words = "Codex ownership unverified; it starts fresh"
+always_offered = true
+
+[authority]
+working = "hooks"
+asking = "hooks"
+at_prompt = "hooks"
+
+# Codex's hooks are installed per launch by the seat wrapper (tools/codex-seat.py), which is
+# where its SessionStart receipt already lives; `adapters/codex.sh hooks` says so and writes
+# nothing.  These four are the events 0.153.4 emits that name a state.
+[[hooks.event]]
+name = "UserPromptSubmit"
+state = "working"
+
+[[hooks.event]]
+name = "Stop"
+state = "at_prompt"
+
+# A turn the user escapes out of has ended, and 0.153.4 has a turn-scoped hook of its own for
+# it (`interrupt.command.input`, carrying turn_id), so the row does not stay on `working`.
+[[hooks.event]]
+name = "Interrupt"
+state = "at_prompt"
+
+[[hooks.event]]
+name = "PermissionRequest"
+state = "asking"
+
+[screen]
+composer = '(?:[▌›]\s+Ask Codex\b.*|⏎ send\b.*|[\w.-]+ (?:default|low|medium|high|xhigh|max|ultra) · .+)$'
+footer = ['\? for shortcuts']
+
+# Every screen Codex stops on and waits -- the directory-trust prompt, the hook review, a
+# permission request -- is the same numbered chooser, so one rule covers them: the selected
+# option, a second option, and the key hint, in the last few lines with the hint newest.
+[[rule]]
+id = "asking.chooser"
+state = "asking"
+lines = 6
+all = ["› 1.", "2. ", "press enter to"]
+newest = '(?i)press enter to'
+
+[[rule]]
+id = "working.interrupt"
+state = "working"
+lines = 8
+any = ["esc to interrupt"]
+
+# A composer holding bright, typed text is a draft never sent. A composer whose
+# only content is dim -- the `Ask Codex …` placeholder -- is empty. Both are read
+# with `-e` attributes; see watch.has_dim. Draft before prompt.
+[[rule]]
+id = "prompt.draft"
+state = "draft"
+lines = 8
+at_composer = true
+none = ["esc to interrupt"]
+
+[[rule]]
+id = "prompt.suggestion"
+state = "at_prompt"
+lines = 8
+at_composer = true
+none = ["esc to interrupt"]
+
+[[rule]]
+id = "prompt.composer"
+state = "at_prompt"
+lines = 8
+at_composer = true
+none = ["esc to interrupt"]
+
+# 0.153.4's own refusals: "You've hit your usage limit." on its own and with each of its four
+# upgrade/credit tails, and "You've hit your usage limit for <model>. Switch to another model
+# now," -- every one of them carried by `usage limit` already.  The time it names it is safe to
+# come back is printed as " Try again at " / " or try again at " plus `%b %-d<ordinal>, %Y
+# %-I:%M %p`, which is the "Oct 12th, 2026 11:39 PM" agentkit/run.py parses.
+# `quotas` names the account; `refusals` carries the transient words beside them -- `at
+# capacity` the worker answers by typing `continue`, resuming the same session, never by
+# handing the round over.
+[stall]
+signatures = [
+  "Selected model is at capacity",
+  "Goal stalled",
+  "rate limit",
+  "usage limit",
+  "429 Too Many Requests",
+]
+refusals = ["at capacity", "rate limit", "usage limit", "insufficient_quota",
+            "try a different model", "429 Too Many Requests",
+            "500", "502", "503", "504", "Internal server error", "overloaded", "529"]
+quotas = ["rate limit", "usage limit", "429 Too Many Requests", "429", "insufficient_quota",
+          "insufficient quota", "payment required"]
+# `terminal` is the event log's terminal record kind: a refused turn ends with `turn.failed`,
+# which is the harness speaking about the run whether or not its kind names a failure.
+terminal = "turn.failed"
+
+# Codex in goal mode resumes its goal rather than the turn.
+[resume]
+when = 'goal stalled|goal mode|/goal'
+key = "/goal resume"
+
+# A ChatGPT subscription hands out usage-limit resets, and adapters/codex.sh can spend one, so
+# a spent window goes to that policy before the seat is ever typed into.
+[quota]
+reset_policy = true
+
+[auth]
+title = "Codex"
+remedy = "exit Codex, run codex login in the host shell, then reopen the session"
+signatures = [
+  "Your access token could not be refreshed. Please log out and sign in again.",
+  "Your access token could not be refreshed because you have since logged out or signed in to another account. Please sign in again.",
+  "Your access token could not be refreshed because your refresh token has expired. Please log out and sign in again.",
+  "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.",
+  "Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.",
+  "Your authentication session could not be refreshed automatically. Please log out and sign in again.",
+  "unexpected status 401 Unauthorized: Invalid API key",
+]
+
+# How a Codex seat compacts itself; the format is the `[compact]` table in docs/guide.md.
+# Verified against Codex 0.153.4: `/compact` -- "summarize conversation to prevent hitting the
+# context limit" -- is in its slash-command list, and hooks/seat-state.sh, which its seats run on
+# Stop through tools/codex-seat.py, gets a `transcript_path` pointing at the rollout file under
+# ~/.codex/sessions.  That file's last `event_msg` of type `token_count` carries
+# `info.last_token_usage.total_tokens` (15,217 on the launch that was read) beside
+# `info.model_context_window` (258,400): the input and output of the turn that just ended, which
+# is what the next one starts on.
+# The text and the return are separate keys: a TUI opens its slash-command chooser on the `/`
+# and a return that arrives in the same read is absorbed by it, leaving the command sitting
+# unsent in the composer -- seen on Codex 0.153.4 and Muse Code 1.2.1, and the pause between
+# them is tools/idle-compact.py's KEY_GAP.
+[compact]
+command = ["/compact", "\r"]
+signal = "hook"
+context = "codex-rollout"
+
+# The effort words this harness takes, in the order the menu's `c` screen cycles them.
+# The same words its status line shows beside the model name; see [screen] composer above.
+[effort]
+levels = ["low", "medium", "high", "xhigh", "max", "ultra"]
+
+# The models this harness runs when `codex debug models` cannot say: the listed models of the
+# catalog codex 0.153.4 ships (`codex debug models --bundled`), each with the reasoning levels
+# it supports, strongest last.  A ChatGPT login runs Codex's own model and no other -- any -m
+# is HTTP 400 there -- so the adapter offers it `default` alone, which takes the words above.
+[catalog]
+default = { label = "Codex's own model", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
+gpt-6-astra = { label = "GPT-6-Astra", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
+"gpt-5.6-sol" = { label = "GPT-5.6-Sol", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
+"gpt-5.6-terra" = { label = "GPT-5.6-Terra", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
+"gpt-5.6-luna" = { label = "GPT-5.6-Luna", efforts = ["low", "medium", "high", "xhigh", "max"] }
+"gpt-5.5" = { label = "GPT-5.5", efforts = ["low", "medium", "high", "xhigh"] }
+"gpt-5.2" = { label = "GPT-5.2", efforts = ["low", "medium", "high", "xhigh"] }

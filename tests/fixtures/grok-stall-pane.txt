@@ -1,0 +1,42 @@
+
+  /tmp/ak-grok-probe                                                                         5.1K / 500K │ [Dashboard]
+
+
+     ❯ Reply with the single word ok.                                                                        1:31 PM
+
+
+     ◆ Thought for 0.6s
+
+     ok                                                                                                      1:31 PM
+
+     Worked for 2.4s
+
+
+     ❯ Reply with the single word ok2.                                                                       1:31 PM
+
+
+     ◆ Thought for 0.5s
+
+     ok2                                                                                                     1:32 PM
+
+     Worked for 2.3s
+
+
+
+
+
+
+
+
+
+
+
+
+     You've hit the rate limit for your plan. Upgrade your account or try again later.
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                │
+  ╰────────────────────────────────────────────────────────────────────────────── Grok 4.7 (xhigh) · always-approve ─╯
+
+  Shift+Tab:mode  │  Ctrl+x:shortcuts
+

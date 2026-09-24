@@ -1,0 +1,7 @@
+  usage left
+  Claude   ████████████   98% left · resets Mon 16:13 · Fable 41%
+  MiMo     —  no reading yet
+  Muse     █████░░░░░░░   45% left · resets Mon 16:13
+  Gemini   —  no reading yet
+  ChatGPT  ░░░░░░░░░░░░    0% left · resets Mon 12:00
+  Grok     —  no reading yet

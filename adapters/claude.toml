@@ -1,0 +1,186 @@
+# adapters/claude.toml -- everything agentkit reads off a Claude Code seat's screen, and who
+# has the authority to say what that seat is doing.  Paired with adapters/claude.sh; the format
+# is the adapter contract in docs/guide.md, "Adding a harness".
+# Verified against Claude Code 2.1.263; see tests/fixtures/README.md for the captures.
+version = 1
+
+# How `ak update` moves this harness, and what `ak usage` needs beyond `<adapter> usage`:
+# `claude install <version>` is a versioned reinstall, so a failed upgrade goes back by command
+# and needs no snapshot, and the usage call is one plain adapter call with no reset to spend.
+[update]
+version = ["claude", "--version"]
+upgrade = ["claude", "install", "latest"]
+revert = ["claude", "install", "{version}"]
+
+# Its hooks live in a config file its launch reads (`adapters/claude.sh hooks` writes them
+# there), so a seat opened before the last install is missing whatever that install added and
+# says `restart to pick up updates`.
+[hooks]
+installed = "config"
+
+# "hooks" means adapters/claude.sh hooks installs something that reports this state; "screen"
+# means only the rules below can say it.  A hook fact still gives way to a rule that positively
+# names a different state: Claude reports a question going up and nothing when it comes down.
+[authority]
+working = "hooks"
+asking = "hooks"
+at_prompt = "hooks"
+
+# The events adapters/claude.sh hooks installs, and what each one means.  `kinds` matches the
+# hook's payload discriminator -- for Notification that is `notification_type`, which 2.1.263
+# builds alongside `message` and `title`.  An event listed with no `kinds` matches any.
+[[hooks.event]]
+name = "UserPromptSubmit"
+state = "working"
+
+# hooks/orchestrator-stop.sh writes each Stop down once it has judged it.  A Stop is a turn that
+# ended, except two: one with background work the seat started still in flight (`background_tasks`
+# in the payload; that work's task notification begins the next turn), and one the hook sent back
+# to work (`held`).  First match wins.
+[[hooks.event]]
+name = "Stop"
+state = "working"
+kinds = ["background", "held"]
+
+[[hooks.event]]
+name = "Stop"
+state = "at_prompt"
+
+[[hooks.event]]
+name = "Notification"
+state = "asking"
+kinds = ["permission_prompt", "worker_permission_prompt", "agent_needs_input"]
+
+[[hooks.event]]
+name = "Notification"
+state = "at_prompt"
+kinds = ["idle_prompt"]
+
+[screen]
+# fullmatch against a bottom line: the input box, which is chrome and not anything Claude said
+composer = '(?:(?:│\s*)?[>❯](?:\s+Try ["“].*["”])?\s*(?:│)?|⏵⏵ bypass permissions on \(shift\+tab to cycle\) · ← for agents|● \w+ · /effort|[✻✽✶✳✢] \w+ for .+ · done .+)$'
+# and the key hints under it, on top of the box-drawing and prompt footer every harness shares
+footer = [
+  '\? for shortcuts',
+  '(?:⏵⏵\s*)?bypass permissions on(?:\s*\(shift\+tab to cycle\))?(?:\s+[◯○]?\s*\d+% context left)?',
+  '\d+% context left(?:\s*·\s*\? for shortcuts)?',
+]
+
+# Read in file order, first match wins: the dialog before the spinner, the spinner before the
+# prompt, because the composer is still drawn while a turn runs.
+# The workspace-trust dialog: three of its own controls, in the last few lines, with its final
+# control line newest.  Transcript text quoting one of them is above a composer, not below it.
+[[rule]]
+id = "asking.trust"
+state = "asking"
+lines = 6
+all = ["❯ ", "enter to confirm", "esc to cancel"]
+newest = '(?i)enter to confirm'
+
+# Claude's permission prompt has no capture here -- it needs a tool call, which needs a model --
+# so its Notification hook is its authority and no screen rule guesses at its shape.
+[[rule]]
+id = "working.interrupt"
+state = "working"
+lines = 8
+any = ["esc to interrupt"]
+
+# A composer holding bright, typed text is a draft never sent. A composer whose
+# only content is dim -- Claude's suggested next prompt, the Try placeholder -- is
+# empty. Both are read with `-e` attributes; see watch.has_dim. Draft before prompt.
+[[rule]]
+id = "prompt.draft"
+state = "draft"
+lines = 8
+at_composer = true
+none = ["esc to interrupt"]
+
+[[rule]]
+id = "prompt.suggestion"
+state = "at_prompt"
+lines = 8
+at_composer = true
+none = ["esc to interrupt"]
+
+[[rule]]
+id = "prompt.composer"
+state = "at_prompt"
+lines = 8
+at_composer = true
+none = ["esc to interrupt"]
+
+# `quotas` names the account: a spent window rather than a fault.  `Usage limit
+# reached` is 2.1.263's own wording for one: its executable builds the notice as "Usage limit
+# reached" alone, or followed by " \xB7 continuing automatically at <time>", " \xB7 continuing
+# automatically when it resets", " \xB7 finishing up" or " \xB7 a little extra on us, then your
+# credits".  `rate_limit_error` is what the same limit reads as in a headless stream: `S(e)`
+# there tests `status === 429 || message.includes('"type":"rate_limit_error"')`.  `refusals`
+# carries the transient words beside them -- a 500 the worker answers by typing `continue`,
+# resuming the same session, never by handing the round over.
+[stall]
+signatures = ["API Error", "Overloaded", "rate limit", "rate_limit_error",
+              "Usage limit reached", "Can't reach the API server"]
+refusals = ["usage limit", "rate limit", "rate_limit_error", "overloaded", "529",
+            "500", "502", "503", "504", "Internal server error", "API Error",
+            "Can't reach the API server", "at capacity"]
+quotas = ["rate limit", "rate_limit_error", "Usage limit reached", "usage limit", "429",
+          "insufficient_quota", "insufficient quota", "payment required"]
+# `terminal` is the event log's terminal record kind: the stream ends with a `result` event,
+# which is what adapters/claude.sh reads final.md out of, failure or not.
+terminal = "result"
+
+[auth]
+title = "Claude Code"
+remedy = "run /login"
+# Claude's own auth wrapper precedes arbitrary 401/403 server text, so the wrapper itself is
+# the signature: matching a particular server message misses real expiry, revocation and new
+# wording.  The listed messages are the exact ones seen in the installed executable.
+wrapper = '\bPlease run /login\b'
+signatures = [
+  "Login expired · Please run /login",
+  "Please run /login",
+  "Invalid API key",
+  "Invalid API key · Please run /login",
+  "OAuth token has expired",
+  "Please run /login · API Error: 401 Invalid API key",
+  "OAuth token revoked · Please run /login",
+  "Not logged in · Please run /login",
+  "Invalid API key · Fix external API key",
+]
+
+# Auto-compaction belongs to the orchestrator seat and to no worker, and tools/idle-compact.py
+# performs it the same way whatever the harness; what differs is this table.  `command` is the
+# keystrokes that compact this TUI, `signal` how the end of a turn is known, `context` where the
+# context size is read.  Verified against Claude Code 2.1.263: `/compact` is in its slash-command
+# list, its Stop hook payload carries `transcript_path`, and the last assistant `usage` in that
+# transcript (input + cache_read + cache_creation) is how much context the next turn starts on.
+# The text and the return are separate keys, as they are for every harness: 2.1.263 does send
+# the command when both arrive in one read, but Codex and Muse do not -- their slash-command
+# chooser absorbs that return -- so the one shape that works everywhere is the one used here.
+[compact]
+command = ["/compact", "\r"]
+signal = "hook"
+context = "claude-transcript"
+
+# The effort words this harness takes, in the order the menu's `c` screen cycles them.
+[effort]
+levels = ["low", "medium", "high", "xhigh", "max", "ultra"]
+
+# The models this harness runs, for `adapters/claude.sh models`: claude has no command that
+# lists them, so this is the model table claude 2.1.280 ships, each model with the efforts its
+# capabilities (`effort`, `xhigh_effort`, `max_effort`) let it take, strongest last.  Haiku 4.5
+# has none of them: it runs at no effort, `none`, which claude warns of and ignores.
+[catalog]
+claude-fable-5-1 = { label = "Fable 5.1", efforts = ["low", "medium", "high", "xhigh", "max"] }
+claude-opus-5-5 = { label = "Opus 5.5", efforts = ["low", "medium", "high", "xhigh", "max"] }
+claude-sonnet-5 = { label = "Sonnet 5", efforts = ["low", "medium", "high", "xhigh", "max"] }
+claude-sonnet-4-6 = { label = "Sonnet 4.6", efforts = ["low", "medium", "high", "max"] }
+claude-haiku-4-5 = { label = "Haiku 4.5", efforts = ["none"] }
+
+# A worker credential of its own, apart from the seat's interactive login: `claude
+# setup-token` mints it, install.sh writes it here, `auth` dates it a year from this file,
+# and the tick warns on every seat from a fortnight out.  A harness with no such table
+# has no worker token, and nothing is asked about one.
+[worker_token]
+file = "claude_oauth_token"
+remedy = "run claude setup-token and replace ~/.agentkit/secrets/claude_oauth_token"

@@ -1,0 +1,30 @@
+
+ ▐▛███▛█   Claude Code v2.1.263
+▝▜██████▀  Opus 5 · API Usage Billing
+  ▝▝ ▝▝    /…/fixture-workspace
+
+
+❯ Say OK
+
+● Please run /login · API Error: 401 Invalid API key
+
+✻ Crunched for 2m 56s · done 3:14 PM
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents

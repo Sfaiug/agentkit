@@ -1,0 +1,30 @@
+╭─────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.153.4)                  │
+│                                             │
+│ model:       gpt-6-astra   /model to change │
+│ directory:   ~                              │
+│ permissions: YOLO mode                      │
+╰─────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+
+› Say OK
+
+
+■ exceeded retry limit, last status: 429 Too Many Requests
+
+
+› Ask Codex to do anything
+
+  gpt-6-astra default · ~
+
+
+
+
+
+
+
+
+
+

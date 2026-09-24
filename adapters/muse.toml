@@ -1,0 +1,156 @@
+# adapters/muse.toml -- everything agentkit reads off a Muse Code seat's screen.  Paired with
+# adapters/muse.sh; the format is the adapter contract in docs/guide.md, "Adding a harness".
+# Verified against Muse Code 1.2.1 (and the 1.0.3/1.1.1 captures); see tests/fixtures/README.md.
+version = 1
+
+# How `ak update` moves this harness.  `upgrade` is the launcher's own install path, the one
+# `install.sh` used; with MUSE_NO_AUTO_UPDATE=1 pinning it everywhere else, this is the only way
+# muse ever moves.  It offers no versioned reinstall, so there is no `revert` and `cannot` says
+# why; `snapshot_dir = "launcher"` is the rollback instead -- the directory of the resolved
+# `version` command, with its build, its metadata and its launch links, saved before anything
+# moves and put back when an upgrade or a gate fails.
+[update]
+version = ["muse", "--version"]
+upgrade = ["muse"]
+env = { MUSE_LAUNCHER_INSTALL = "1" }
+cannot = "its channel installer offers no versioned reinstall"
+snapshot_dir = "launcher"
+
+# What a seat launch tells this harness and no child of that seat may be told.  Muse takes its
+# rulebook from the environment (see `interactive` in adapters/muse.sh), and everything a seat
+# starts inherits its environment: a worker, a done-when command or another harness launched
+# from that seat would be handed the orchestrator's rules and refuse its own work.  Named here,
+# the core drops it from every child environment it builds -- config.seat_env_names().
+# `programs` is what a running Muse is called besides `muse`: its launcher execs the build it
+# installed, so a tmux session running `muse-bin-<build>` holds an agent -- orch.agent_programs().
+[launch]
+seat_env = ["TBH_EVAL_APPEND_SYSTEM_PROMPT_FILE"]
+programs = ["muse-bin-*"]
+
+# Its usage call runs a model, so it goes through the shared supervisor (`capture`) and comes
+# back without the moment it was measured (`strips_timestamp`); agentkit/harness/muse.py
+# matches the response against what was cached to date it.
+[usage]
+capture = true
+strips_timestamp = true
+
+# Muse has no lifecycle hooks -- `adapters/muse.sh hooks` says so and writes nothing -- so every
+# state it can be caught in is read off the screen.
+[authority]
+working = "screen"
+asking = "screen"
+at_prompt = "screen"
+
+# The end-of-turn rule -- a turn ends with a question, a done, or a run to wait on -- needs a
+# blocking end-of-turn hook to enforce itself, and Muse has none.  `nudge` asks the `ak watch`
+# tick to apply the same test to the screen instead and to type the continue keystroke once per
+# episode; Claude Code and Codex both take hooks/orchestrator-stop.sh and say nothing here.
+[stop]
+enforce = "nudge"
+
+[screen]
+# 1.2.1 draws `❯` where 1.0.3 drew `⟩`; the shared footer already reads both, so the composer
+# pattern is the one the babysitter has always used, unchanged.
+composer = '(?:⟩|[\w.-]+ · (?:none|minimal|low|medium|high|xhigh|max|ultra) · .+ · YOLO)$'
+
+# Muse's picker: both choices and the key hint, in the last few lines with the hint newest.
+[[rule]]
+id = "asking.picker"
+state = "asking"
+lines = 6
+all = ["enter to choose", "↓↑ to select", "esc to quit"]
+newest = '(?i)to select'
+
+[[rule]]
+id = "working.interrupt"
+state = "working"
+lines = 8
+any = ["esc to interrupt"]
+
+# A composer holding bright, typed text is a draft never sent. Muse has no
+# suggestion feature: its suggestion fixture is its placeholder, the empty box.
+# Both are read with `-e` attributes; see watch.has_dim. Draft before prompt.
+[[rule]]
+id = "prompt.draft"
+state = "draft"
+lines = 8
+at_composer = true
+none = ["esc to interrupt"]
+
+[[rule]]
+id = "prompt.suggestion"
+state = "at_prompt"
+lines = 8
+at_composer = true
+none = ["esc to interrupt"]
+
+[[rule]]
+id = "prompt.composer"
+state = "at_prompt"
+lines = 8
+at_composer = true
+none = ["esc to interrupt"]
+
+# `429`/`quota exhausted` are the 1.0.3 capture's own words; `usage limit reached` is how the
+# installed 1.3.0 executable spells the same model failure, first in the list of reasons a
+# request did not run (`authentication failed`, `configuration error`, `response protocol
+# error`, `server error`, `rate limited` follow it).  Its neighbour `rate limited` is not
+# listed in quotas: the same executable uses those two words for a throttled feedback upload
+# too, which is nothing to do with the model's window.  `refusals` carries the transient words
+# beside the account ones -- `model stream idle timeout` the worker answers by typing
+# `continue`, resuming the same session, never by handing the round over.
+[stall]
+signatures = ["429", "quota exhausted", "usage limit reached"]
+refusals = ["429", "quota exhausted", "usage limit reached",
+            "500", "502", "503", "504", "Internal server error", "server error",
+            "overloaded", "529", "at capacity", "model stream idle timeout"]
+quotas = ["429", "quota exhausted", "usage limit reached", "usage limit", "rate limit",
+          "insufficient_quota", "insufficient quota", "payment required"]
+# `terminal` is the event log's terminal record kind: the stream ends with `run_terminal`,
+# which is what adapters/muse.sh reads final.md out of, failure or not.
+terminal = "run_terminal"
+
+[auth]
+title = "Muse"
+remedy = "exit Muse, run muse login in the host shell, then reopen the session"
+signatures = [
+  "not logged in: run /login to add an API key",
+  "still unauthorized after a token refresh; run `muse login` again",
+  "starting logged out (run `muse login`)",
+  "your login is no longer saved; run `muse login` again.",
+  "no login to refresh a key from; run `muse login` or set META_API_KEY",
+  "Log in with browser · Enter to choose Set an API key ↓↑ to select · Esc to quit",
+]
+
+# How a Muse seat compacts itself; the format is the `[compact]` table in docs/guide.md.
+# Verified against Muse Code 1.2.1 (1.2.1-R2847.1): `/compact` -- "Summarize the conversation to
+# free up context" -- is in its slash-command list.  Muse has no hooks, so the end of a turn is
+# the `prompt.composer` rule above coming true again, read off the seat's own output.  The
+# context size comes from the session.jsonl under ~/.local/share/muse/sessions whose
+# `runtime.session.route_facts` record names this seat's own pid -- never a neighbour's -- and is
+# the last `goal_usage_attribution` of a `main_root` owner with `usage_family = "provider"`:
+# `record.quantity.input_tokens` (25,364 on the session that was read), which already includes
+# the cached prefix and so is the whole context that turn sent.
+# The text and the return are separate keys: a TUI opens its slash-command chooser on the `/`
+# and a return that arrives in the same read is absorbed by it, leaving the command sitting
+# unsent in the composer -- seen on Codex 0.153.4 and Muse Code 1.2.1, and the pause between
+# them is tools/idle-compact.py's KEY_GAP.
+[compact]
+command = ["/compact", "\r"]
+signal = "screen"
+context = "muse-session"
+
+# The effort words this harness takes, in the order the menu's `c` screen cycles them.
+# The same words its status line shows beside the model name; see [screen] composer above.
+[effort]
+levels = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
+
+# The models this harness runs, for `adapters/muse.sh models`: muse has no command that lists
+# them, so this is the Meta provider's catalog muse 1.3.0 keeps under
+# ~/.local/share/muse/model-catalog, each model with its reasoning-effort variants, strongest
+# last.  Its labels are the ids themselves.
+[catalog]
+"muse-spark-1.3-contributor" = { efforts = ["minimal", "low", "medium", "high", "xhigh", "max"] }
+"muse-spark-1.3" = { efforts = ["minimal", "low", "medium", "high", "xhigh", "max"] }
+"muse-spark-1.2-contributor" = { efforts = ["minimal", "low", "medium", "high", "xhigh"] }
+"muse-spark-1.2" = { efforts = ["minimal", "low", "medium", "high", "xhigh"] }

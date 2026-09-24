@@ -1,0 +1,16 @@
+agentkit · new                     00:00
+────────────────────────────────────────
+
+  q back
+  1 ATOLL · 2 Company-Website-Redesign
+  3 Storefront-UI
+  4 customer-portal-web-app
+  5 newsletter-tool · 0 none
+Project [ATOLL]: 
+Name [atoll]: 
+  1 fable · 2 astra · 3 spark
+Orchestrator [fable]: 
+orch: fable (weekly_scoped (not reported))
+session atoll in ~/code/ATOLL (new)
+fake
+would attach atoll

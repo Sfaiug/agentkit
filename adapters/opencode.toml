@@ -1,0 +1,175 @@
+# adapters/opencode.toml -- everything agentkit reads off an OpenCode seat's screen, and
+# who has the authority to say what that seat is doing.  Paired with adapters/opencode.sh; the
+# format is the adapter contract in docs/guide.md, "Adding a harness".
+# Verified against OpenCode 2.0.13; see tests/fixtures/README.md for the captures.
+version = 1
+
+# How `ak update` moves this harness: `opencode upgrade [version]` installs the latest release
+# or the named one, so a failed upgrade goes back by command and needs no snapshot.  The
+# binary's own upgrade keeps it on the channel it came from: a 2.x install is never moved
+# by the v1 install script, and never below its installed version either way.
+[update]
+version = ["opencode", "--version"]
+upgrade = ["opencode", "upgrade"]
+revert = ["opencode", "upgrade", "{version}"]
+
+# What a seat launch tells this harness and no child of that seat may be told.  OpenCode takes
+# its rulebook and its seat plugin as a layered config document in the environment (see
+# `interactive` in adapters/opencode.sh), and everything a seat starts inherits its
+# environment: a worker, a done-when command or another harness launched from that seat would
+# be handed the orchestrator's rules and refuse its own work.  Named here, the core drops it
+# from every child environment it builds -- config.seat_env_names().  The launch's receipt
+# (agentkit/harness/opencode.py) is the seat's alone the same way.
+[launch]
+seat_env = ["OPENCODE_CONFIG_CONTENT", "AGENTKIT_OPENCODE_RECEIPT"]
+
+# MiMo's plan meter is the console page's own API, replayed as the page's own fetch
+# through a shared-browser tab (GET tokenPlan/usage and tokenPlan/detail): the login
+# stays the browser's, and no cookie of it is ever read out.  Behind it stand the mimo
+# CLI's own meter shape where one answers, and the provider key against the same calls
+# (which answers it with 401 today).  The inference host itself answers every
+# usage-shaped path with 404 and sends no rate-limit headers.  Once a provider key is
+# configured and no source answers, `adapters/opencode.sh usage` says so with the
+# reason and no error, so the provider is neutral; a missing key stays a failed probe.
+[usage]
+none = true
+
+# An OpenCode seat owns only the session its own server opened, and the launcher cannot hand
+# one out: the TUI takes `--session` for a conversation that already exists and has no flag
+# for one that does not, so `interactive` refuses a launcher-issued id.  The seat plugin
+# reports the id OpenCode made instead, into a receipt of that launch's own
+# (agentkit/harness/opencode.py), and a seat that dies comes back on it with `--session`.
+# One that died before its first prompt has nothing to come back to and starts a new session.
+[conversation]
+fresh_words = "no conversation recorded; it starts a new session"
+
+# The plugin adapters/opencode.sh names per launch (hooks/opencode-seat) reports all three
+# states, so the hook decides -- except where a rule positively names another one.  The
+# permission dialog below is that exception's shape: with `--auto` the seat is never asked,
+# but one opened without it still stops on it.
+[authority]
+working = "hooks"
+asking = "hooks"
+at_prompt = "hooks"
+
+# The names the seat plugin sends, translated from OpenCode 2.0.13's own event stream:
+# session.inbox.enqueued arrives as UserPromptSubmit, session.execution.{succeeded,failed,
+# interrupted} as Stop, and permission.asked as PermissionRequest.  The translation lives in
+# the plugin so that hooks/seat-state.sh keeps its one protocol for every harness.
+[[hooks.event]]
+name = "UserPromptSubmit"
+state = "working"
+
+[[hooks.event]]
+name = "Stop"
+state = "at_prompt"
+
+[[hooks.event]]
+name = "PermissionRequest"
+state = "asking"
+
+# The end-of-turn rule -- a turn ends with a question, a done, or a run to wait on -- needs a
+# blocking end-of-turn hook to enforce itself, and OpenCode's plugin API has none: its events
+# observe but do not admit a block decision.  `nudge` asks the `ak watch` tick to apply the
+# same test to the screen instead and to type the continue keystroke once per episode; Claude
+# Code and Codex both take hooks/orchestrator-stop.sh and say nothing here.
+[stop]
+enforce = "nudge"
+
+[screen]
+# fullmatch against a bottom line: the input box, whose edges are `┃` and `╹` and whose
+# model line reads `Build auto · mimo-v2.6-pro MiMo · high`.  The dialog that replaces it is
+# chrome too; the asking rule below matches first, so it never reads as a prompt.
+composer = '[┃╹].*'
+# and the key hints under it: the working, resting and fresh footers all end on this --
+# and the release stamp alone on the fresh prompt's last line, `2.0.13` bottom-right --
+# and the finished-turn footer under a turn's last line: `<agent> · <model> · <duration>`,
+# with an optional `· <tps> tok/s` tail and an optional `· interrupted`, all read out of the
+# installed executable's assistant-footer renderer (its error line is the `Error: ` the stall
+# words match).  Without it the footer hides those signatures from the babysitter: it is newer
+# than the error but says nothing.  2.0.14 leaves the duration out of a turn that never
+# completed -- an error before its first step, `Build · mimo-v2.6-pro` -- so it is optional.
+# Step lines (`+ Thought · 3.0s`) open on their mark, never on a bare word, so a turn still in
+# flight is never trimmed as chrome.
+footer = ['.*ctrl\+p commands', '.*\d+\.\d+\.\d+',
+          '[\w-]+ · [^·]+( · \d+(ms|\.\ds|m \d+s|h \d+m|d \d+h))?( · \d+\.\d+ tok/s)?( · interrupted)?']
+
+# Read in file order, first match wins: the dialog before the spinner, the spinner before the
+# prompt, because the composer is still drawn while a turn runs.
+# The permission dialog: its title, its three controls and its key hint, in the last few
+# lines.  There is no `newest` to anchor: the box edge below the controls is the newest line.
+[[rule]]
+id = "asking.permission"
+state = "asking"
+lines = 10
+all = ["permission required", "allow once", "enter confirm"]
+
+# `esc interrupt` is 2.0.13's own wording -- no `to`, unlike Claude, Codex and Muse.
+[[rule]]
+id = "working.interrupt"
+state = "working"
+lines = 8
+any = ["esc interrupt"]
+
+# No prompt.draft or prompt.suggestion rule: the generic draft machinery reads a `❯›⟩` mark
+# and SGR faint, and this composer is a `┃` box whose placeholder is grey (`38;2;128;128;128`)
+# rather than faint.  A typed-but-unsent line reads at_prompt, showing `waiting for you`.
+[[rule]]
+id = "prompt.composer"
+state = "at_prompt"
+lines = 8
+at_composer = true
+none = ["esc interrupt"]
+
+# 2.0.13 renders every failed turn as `Error: ` plus the provider's message (captured for an
+# expired key and, against a loopback 429, for a spent window), and its headless event for one
+# is `{"type":"error","error":{"type":"provider.*","message":...,"status":...}}`.  The
+# `provider.*` names and the 429 status are OpenCode's own -- the first two read out of the
+# installed executable, the rest off real runs -- while `rate limit` and `quota` are the
+# condition's own words, passed through from the provider.  MiMo's exact 429 text is not among
+# them: it was never observed, and no entry here depends on a guessed string.  The transient
+# words below arrive the same passed-through way, after 2.0.13's `Error: `, and the worker
+# answers them by typing `continue`, resuming the same session -- only `quotas` names the
+# account and hands the round over.
+[stall]
+signatures = ["Error: ", "provider.rate-limit", "provider.quota", "rate limit", "429", "quota"]
+refusals = ["provider.rate-limit", "provider.quota", "rate limit", "429", "quota",
+            "500", "502", "503", "504", "Internal server error", "overloaded", "529",
+            "at capacity"]
+quotas = ["provider.rate-limit", "provider.quota", "rate limit", "429", "quota"]
+# No `terminal`: a trivial turn ends on `text`, a tool turn on `step_finish`, a refused one on
+# `error` -- there is no single terminal kind, and the error record declares itself a failure.
+
+[auth]
+title = "OpenCode"
+remedy = "paste a fresh key with `opencode auth login`"
+# The one auth failure this stack has: a wrong key and a missing key both come back 401 with
+# this message, headless and on the seat's screen alike.
+signatures = [
+  "Invalid API Key",
+]
+
+# How an OpenCode seat compacts itself; the format is the `[compact]` table in docs/guide.md.
+# Verified against OpenCode 2.0.13: `/compact` -- "Compact session" -- is in its slash-command
+# list.  The end of a turn is the seat plugin's Stop fact, and the context size rides that
+# same fact: the plugin tallies the last step's input, output, reasoning and cache tokens and
+# hands the total to hooks/seat-state.sh as `.context_tokens`, which stamps it for the
+# wrapper.  There is no transcript file to read it from afterwards -- the session lives in
+# OpenCode's sqlite store -- so the stamp is the only place it is kept.
+# The text and the return are separate keys: the TUI opens its slash-command chooser on the `/`
+# and a return that arrives in the same read is absorbed by it, leaving the command sitting
+# unsent in the composer -- seen on Codex 0.153.4 and Muse Code 1.2.1, and the pause between
+# them is tools/idle-compact.py's KEY_GAP.
+[compact]
+command = ["/compact", "\r"]
+signal = "hook"
+context = "opencode-plugin"
+
+# The models this harness runs when `opencode models` cannot say: the MiMo models opencode
+# 2.0.14 listed for the shipped `mimo` provider.  That listing names no labels and no efforts,
+# so it takes both from here for the ids this table knows.  The MiMo provider defines no model
+# variants, and OpenCode runs any variant it is handed at the model's default: MiMo runs at no
+# effort, `none`, which the adapter hands as the bare model.
+[catalog]
+"mimo/mimo-v2.6-pro" = { label = "MiMo V2.6 Pro", efforts = ["none"] }
+"mimo/mimo-v2.6-flash" = { label = "MiMo V2.6 Flash", efforts = ["none"] }

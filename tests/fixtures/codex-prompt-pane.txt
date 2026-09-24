@@ -1,0 +1,22 @@
+╭─────────────────────────────────────────────────╮
+│ ✨ Update available! 0.153.4 -> 0.154.0         │
+│ Run npm install -g @openai/codex to update.     │
+│                                                 │
+│ See full release notes:                         │
+│ https://github.com/openai/codex/releases/latest │
+╰─────────────────────────────────────────────────╯
+
+╭─────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.153.4)              │
+│                                         │
+│ model:       default   /model to change │
+│ directory:   ~                          │
+│ permissions: YOLO mode                  │
+╰─────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+
+› Ask Codex to do anything
+
+  default default · ~

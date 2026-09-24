@@ -1,0 +1,21 @@
+# Browser bridge host: @HOST@
+[Unit]
+Description=Browser bridge window manager
+Wants=browser-bridge-xvfb.service
+After=browser-bridge-xvfb.service
+PartOf=browser-bridge-xvfb.service
+StartLimitIntervalSec=0
+
+[Service]
+User=@USER@
+Environment="HOME=@HOME@"
+Environment=DISPLAY=:99
+Environment="XAUTHORITY=@TARGET@/Xauthority"
+Environment=LANG=de_DE.UTF-8
+UMask=0077
+ExecStart=/usr/bin/openbox
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

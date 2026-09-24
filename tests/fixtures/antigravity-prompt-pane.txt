@@ -1,0 +1,30 @@
+
+      ▄▀▀▄        Antigravity CLI 1.2.9
+     ▀▀▀▀▀▀       owner@example.com (Antigravity Starter Quota)
+    ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (Low)
+   ▄▀▀    ▀▀▄     /…/fixture-workspace
+  ▄▀▀      ▀▀▄
+
+────────────────────────────────────────────────────────────
+> Say hello in one short sentence.
+
+  PAMPLEMOUSSE Hello there, it is wonderful to meet you! ZUCCHINI
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+? for shortcuts                                           agentkit (Gemini 3.8 Flash · low)  /agents
+
+
+
+
+
+
+
+
+
+
+
+
+
+

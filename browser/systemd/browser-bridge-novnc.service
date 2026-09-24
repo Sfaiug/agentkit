@@ -1,0 +1,18 @@
+# Browser bridge host: @HOST@
+[Unit]
+Description=Browser bridge noVNC on Tailscale only
+Wants=browser-bridge-x11vnc.service network-online.target tailscaled.service
+After=browser-bridge-x11vnc.service network-online.target tailscaled.service
+PartOf=browser-bridge-xvfb.service
+StartLimitIntervalSec=0
+
+[Service]
+User=@USER@
+Environment="HOME=@HOME@"
+UMask=0077
+ExecStart=/usr/bin/websockify --web=/usr/share/novnc @TAILSCALE_IPV4@:@NOVNC_PORT@ 127.0.0.1:@VNC_PORT@
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

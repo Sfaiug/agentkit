@@ -1,0 +1,30 @@
+
+      ▄▀▀▄        Antigravity CLI 1.2.9
+     ▀▀▀▀▀▀       owner@example.com (Antigravity Starter Quota)
+    ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (Low)
+   ▄▀▀    ▀▀▄     /…/fixture-workspace
+  ▄▀▀      ▀▀▄
+
+────────────────────────────────────────────────────────────
+> Say hello in one short sentence, and name the model you are.
+
+⚠ You have exhausted your quota on this model.
+Error ID: 4b2dfd88-49e6-427b-a8ec-6140e96b28b7-1
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+? for shortcuts                                           agentkit (Gemini 3.8 Flash · low)  /agents
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,1 @@
+{"code":0,"message":"","data":{"monthUsage":{"percent":0.3483,"items":[{"name":"month_total_token","used":3483000,"limit":10000000,"percent":0.3483}]},"usage":{"percent":0.06,"items":[{"name":"plan_total_token","used":480000,"limit":8000000,"percent":0.06},{"name":"compensation_total_token","used":100000,"limit":2000000,"percent":0.05}]}}}

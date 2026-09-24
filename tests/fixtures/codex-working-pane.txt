@@ -1,0 +1,24 @@
+╭─────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.153.4)              │
+│                                         │
+│ model:       default   /model to change │
+│ directory:   ~                          │
+│ permissions: YOLO mode                  │
+╰─────────────────────────────────────────╯
+
+  Tip: When the composer is empty, press Esc to step back and edit your last message; Enter
+  confirms.
+
+
+› Say OK
+
+
+⚠ Model metadata for `default` not found. Defaulting to fallback metadata; this can degrade
+  performance and cause issues.
+
+◦ Working (0s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  default default · ~

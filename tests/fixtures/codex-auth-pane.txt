@@ -1,0 +1,30 @@
+╭─────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.153.4)                  │
+│                                             │
+│ model:       gpt-6-astra   /model to change │
+│ directory:   ~                              │
+│ permissions: YOLO mode                      │
+╰─────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+
+› Say OK
+
+
+■ Your access token could not be refreshed. Please log out and sign in again.
+
+
+› Ask Codex to do anything
+
+  gpt-6-astra default · ~
+
+
+
+
+
+
+
+
+
+

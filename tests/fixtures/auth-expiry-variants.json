@@ -1,0 +1,17 @@
+{
+  "claude": [
+    "OAuth token revoked · Please run /login",
+    "Not logged in · Please run /login",
+    "Invalid API key · Fix external API key"
+  ],
+  "codex": [
+    "Your access token could not be refreshed because your refresh token has expired. Please log out and sign in again.",
+    "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.",
+    "Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.",
+    "Your authentication session could not be refreshed automatically. Please log out and sign in again."
+  ],
+  "muse": [
+    "your login is no longer saved; run `muse login` again.",
+    "no login to refresh a key from; run `muse login` or set META_API_KEY"
+  ]
+}

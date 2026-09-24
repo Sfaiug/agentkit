@@ -1,0 +1,20 @@
+# Browser bridge host: @HOST@
+[Unit]
+Description=Browser bridge authenticated localhost VNC
+Wants=browser-bridge-chromium.service
+After=browser-bridge-chromium.service
+PartOf=browser-bridge-xvfb.service
+StartLimitIntervalSec=0
+
+[Service]
+User=@USER@
+Environment="HOME=@HOME@"
+Environment=DISPLAY=:99
+Environment="XAUTHORITY=@TARGET@/Xauthority"
+UMask=0077
+ExecStart=/usr/bin/x11vnc -display :99 -auth "@TARGET@/Xauthority" -localhost -listen 127.0.0.1 -no6 -noipv6 -rfbportv6 -1 -forever -shared -rfbport @VNC_PORT@ -rfbauth "@SECRETS@/browser-bridge-vnc.rfbauth" -noxdamage
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

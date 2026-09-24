@@ -1,0 +1,30 @@
+
+      ▄▀▀▄        Antigravity CLI 1.2.9
+     ▀▀▀▀▀▀       owner@example.com (Antigravity Starter Quota)
+    ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (High)
+   ▄▀▀    ▀▀▄     /…/fixture-workspace
+  ▄▀▀      ▀▀▄
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+> Please look at the failing test in the
+────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                         agentkit (Gemini 3.8 Flash · high)  /agents
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

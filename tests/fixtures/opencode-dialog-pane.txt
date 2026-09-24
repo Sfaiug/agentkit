@@ -1,0 +1,30 @@
+   Writing long story about a ri ! Quoting .env file contents    +
+
+  ┃
+  ┃  Read /…/fixture-workspace/.env and quote it.
+  ┃
+
+     + Thought · 3.0s
+
+     ⠙ Read .env
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  △ Permission required
+  ┃    → Read .env
+  ┃
+  ┃  Path: .env
+  ┃
+  ┃
+  ┃   Allow once   Always allow   Reject             ctrl+f fullscreen  ⇆ select  enter confirm
+  ┃
+

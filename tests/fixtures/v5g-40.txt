@@ -1,0 +1,21 @@
+agentkit                           14:02
+────────────────────────────────────────
+
+your projects · 3 need you
+
+atoll
+  1  atoll-fix    fable  ! needs you
+    waiting for you
+  2  atoll-proxy  fable  ! needs you
+    session closed: press 2 to reopen
+
+no project
+  4  scribe       fable  ! needs you
+    waiting for you
+
+agentkit
+  3  herdr        fable  ● working
+    1 running
+
+  n new   x stop   c config   i info
+  q leave

@@ -1,0 +1,4 @@
+name    project     state        tally                 orchestrator  workers                 age
+atoll   atoll       ● working    1 running · 1 merged  fable         opus,astra              5d
+scribe  no project  ! needs you  no runs yet           astra         spark,opus,fable,astra  1h
+slice agentkit.slice · 12 tasks · 30% of its ceiling

@@ -1,0 +1,19 @@
+# Browser bridge host: @HOST@
+[Unit]
+Description=Browser bridge virtual X display
+StartLimitIntervalSec=0
+
+[Service]
+User=@USER@
+Environment="HOME=@HOME@"
+Environment=DISPLAY=:99
+Environment="XAUTHORITY=@TARGET@/Xauthority"
+UMask=0077
+ExecStart=/usr/bin/Xvfb :99 -screen 0 1600x1000x24 -nolisten tcp -noreset -auth "@TARGET@/Xauthority"
+ExecStartPost=/usr/bin/python3 "@TARGET@/wait-ready.py" x11
+Restart=always
+RestartSec=3
+TimeoutStartSec=150
+
+[Install]
+WantedBy=multi-user.target

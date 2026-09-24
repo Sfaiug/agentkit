@@ -1,0 +1,21 @@
+agentkit                           14:02
+────────────────────────────────────────
+
+your projects · 3 need you
+
+ATOLL
+  2  atoll-plan  fable  ! needs you
+    waiting for you
+  1  atoll-fix   fable  ● working
+    1 running
+
+agentkit
+  3  menu        fable  ! needs you
+    waiting for you
+
+newsletter-tool
+  4  rent        fable  ! needs you
+    waiting for you
+
+  n new   x stop   c config   i info
+  q leave

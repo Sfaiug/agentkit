@@ -1,0 +1,13 @@
+usage: ak [command]
+
+  ak       the menu
+  run      execute a task file to a merged PR
+  notify   record a needs-you question or a job summary
+  usage    show provider usage and worker pick order
+  browser  inspect the shared browser, sign in, register MCP tools, or install the stack
+  fetch    copy requested Mac files to this host
+
+internal:  orch  worker  watch  update  macbridge  attach  doctor
+
+Use -h or --help after any command.
+Example: ak run task.md --bg

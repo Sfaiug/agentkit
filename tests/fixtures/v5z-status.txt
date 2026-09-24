@@ -1,0 +1,9 @@
+host: 8 cpus · load 1 · 4 G free · a run is admitted while ≥ 3.2 G free and load ≤ 8
+id                                 title                     state        worker      round      age
+20260101-0900-ship-the-tally       Ship the tally so every   ● working    opus/astra  round 2/3  7m
+                                   seat row says what the …
+  3 processes · 1.2 GB
+20260101-0830-fix-the-parser       Fix the parser            ! needs you  opus/astra  round 0/2  30m
+  0 processes · 0 KB
+20260101-0700-write-release-notes  Write release notes       ✓ done       opus/astra  round 2/2  1h
+0 older run(s) hidden; ak run status --history [--json] shows full history

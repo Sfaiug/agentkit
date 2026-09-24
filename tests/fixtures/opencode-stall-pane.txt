@@ -1,0 +1,30 @@
+   New session                   +
+
+  ┃
+  ┃  Reply with the single word ok.
+  ┃
+
+     Error: 429 Too Many Requests
+
+     Build · mimo-v2.6-pro · 166ms
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · mimo-v2.6-pro MiMo · high
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /…/fixture-workspace                                              shift+tab agents  ctrl+p commands
+

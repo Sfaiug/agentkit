@@ -1,0 +1,151 @@
+# Grok Build: the TUI's own flags, its own error words, and its own hook events.
+# The captures behind the screen rules are tests/fixtures/grok-*.txt; the trust dialog's
+# words are the executable's own strings (1.0.40), because no fresh folder on this host was
+# still untrusted enough to paint it.  Every other string here was seen on the wire.
+version = 1
+
+# `ak update` reads the version off the TUI, upgrades it with the TUI's own command, and
+# puts a bad build back with the versioned reinstall -- so the plan takes no snapshot.
+[update]
+version = ["grok", "--version"]
+upgrade = ["grok", "update"]
+revert = ["grok", "update", "--version", "{version}"]
+
+# A launcher-issued conversation id, opened with --session-id and continued with --resume,
+# exactly like a claude seat's: the defaults answer everything, so this table declares
+# nothing.
+[conversation]
+
+# The weekly subscription window is the credits form of the billing endpoint, the
+# response the TUI's Usage limit tab reads.  `grok usage` itself reports per-session
+# tokens only.  A seat whose credits response carries no usage percent, and whose
+# settings cache has no subscription_usage entries, answers no meter: the budget stays
+# neutral (1.0, shown as `in step`), the menu row reads `Grok -- no meter`, and the
+# picker ranks it by its normal rules, never last; only a failed probe ranks last.
+[usage]
+none = true
+
+[hooks]
+installed = "config"
+
+[authority]
+working = "hooks"
+asking = "hooks"
+at_prompt = "hooks"
+
+# A prompt submitted is a turn in flight; a turn ended is the prompt again.  The kinds are
+# the Notification types grok names: idle_prompt about a minute after the session settles
+# (captured), permission_prompt when its permission UI waits (documented).  task_complete
+# and the StopCancelled/StopFailure rounds name no entry, so the screen decides those.
+[[hooks.event]]
+name = "UserPromptSubmit"
+state = "working"
+
+[[hooks.event]]
+name = "Stop"
+state = "at_prompt"
+
+[[hooks.event]]
+name = "Notification"
+state = "asking"
+kinds = ["permission_prompt"]
+
+[[hooks.event]]
+name = "Notification"
+state = "at_prompt"
+kinds = ["idle_prompt"]
+
+# The composer is grok's box: an empty `│ ❯` line, and the border underneath it carrying
+# the model, the effort and the permission mode.  The pattern matches the empty box only,
+# so typed text still reads as a draft.  The key hints underneath change with the state --
+# Enter:send appears with a draft, Ctrl+c:cancel mid-turn -- and both shapes are chrome.
+[screen]
+composer = '(?:│ ❯\s*│|╰─+ .* ─╯)$'
+footer = ['Shift\+Tab:mode.*', 'Enter:send.*']
+
+# Its trust dialog: the question with the pair of controls.  Words from the executable's
+# own strings; no fresh folder on this host was still untrusted enough to paint it, so the
+# layout is assumed.  No newest anchor: the composer and its key hints stay painted under
+# every grok dialog (the spinner line proves it), so a dialog line is never the newest one;
+# the full question with both controls is not something a transcript plausibly quotes.
+[[rule]]
+id = "asking.trust"
+state = "asking"
+lines = 8
+all = ["do you trust the contents of this directory?", "yes, proceed", "no, quit"]
+
+# A turn in flight: the spinner line above the composer (`⠼ Responding… 0.8s … [stop]`)
+# and the footer turning to Ctrl+c:cancel.  Esc never cancels a grok turn, so none of the
+# other harnesses' interrupt words appear here.
+[[rule]]
+id = "working.turn"
+state = "working"
+lines = 8
+any = ["responding…", "ctrl+c:cancel"]
+
+# A composer holding bright, typed text is a draft never sent.  Grok has no
+# suggestion feature: its suggestion fixture is its placeholder, the empty box.
+# A dim-only composer is empty, so the suggestion rule reads at_prompt like the
+# other harnesses' -- the rule's dim shape is exercised by Codex's real placeholder.
+[[rule]]
+id = "prompt.draft"
+state = "draft"
+lines = 8
+at_composer = true
+none = ["responding…", "ctrl+c:cancel"]
+
+[[rule]]
+id = "prompt.suggestion"
+state = "at_prompt"
+lines = 8
+at_composer = true
+none = ["responding…", "ctrl+c:cancel"]
+
+[[rule]]
+id = "prompt.composer"
+state = "at_prompt"
+lines = 8
+at_composer = true
+none = ["responding…", "ctrl+c:cancel"]
+
+# Its own error words: the terminal `result` event ends the stream, a rate limit or a spent
+# quota hands the turn over and parks the provider, and a busy or unavailable service is
+# transient -- the worker answers by typing `continue`, resuming the same session, never by
+# handing the round over.  A spent SuperGrok week is a 402 with no events: `grok -p` exits 1
+# with only the `usage balance exhausted` stderr.
+[stall]
+terminal = "result"
+signatures = ["You've hit the rate limit", "Rate limited", "quota exceeded",
+  "Service unavailable", "The service is busy"]
+refusals = ["rate limit", "Rate limited", "quota exceeded", "too many requests", "429",
+  "402", "Payment Required", "usage balance exhausted", "Service unavailable",
+  "The service is busy",
+  "500", "502", "503", "504", "Internal server error", "overloaded", "529", "at capacity"]
+quotas = ["rate limit", "Rate limited", "quota exceeded", "too many requests", "429",
+  "402", "Payment Required", "usage balance exhausted", "usage limit",
+  "insufficient_quota", "insufficient quota", "payment required"]
+
+# Its login screen, in its own words: the session token in ~/.grok/auth.json went stale.
+[auth]
+title = "Grok"
+remedy = "exit Grok, run grok login in the host shell, then reopen the session"
+signatures = ["Session expired. Run `grok login` to re-authenticate.",
+  "Your session has expired. Run `grok login` to sign in again"]
+
+# /compact is a slash command, a turn's end arrives over the Stop hook, and the update
+# stream it names carries the turn's own total tokens -- input with output, a conservative
+# stand-in for the context the next turn starts on.
+[compact]
+command = ["/compact", "\r"]
+signal = "hook"
+context = "grok-updates"
+
+# The models this harness runs, for `adapters/grokbuild.sh models`: `grok models` names them and
+# no effort, so their efforts come from here -- the list grok 1.0.40 keeps in
+# ~/.grok/models_cache.json, each model with the reasoning efforts it offers, strongest last --
+# and so does the whole list when that listing fails.
+[catalog]
+"grok-4.7" = { label = "Grok 4.7", efforts = ["low", "medium", "high", "xhigh"] }
+"grok-4.7-build-fast" = { label = "Grok 4.7 Fast", efforts = ["low", "medium", "high", "xhigh"] }
+"grok-4.6" = { label = "Grok 4.6", efforts = ["low", "medium", "high", "xhigh"] }
+"grok-4.5" = { label = "Grok 4.5", efforts = ["low", "medium", "high"] }

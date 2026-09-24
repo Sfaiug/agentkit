@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""agentkit entry point: `ak` is the menu; `ak <usage|worker|run|notify|orch|attach|update|watch|browser> [args]`"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from agentkit import command_help, config  # noqa: E402
+
+SUBS = ("usage", "worker", "run", "notify", "orch", "attach", "update", "watch", "browser",
+        "fetch", "macbridge", "doctor")
+# `ak attach` is the menu under the name the phone key uses; a bare `ak` is the menu too, and
+# `ak doctor` is the tick's own check-up, which is where the tick lives
+ENTRY = {"attach": ("menu", "main"), "fetch": ("macbridge", "fetch_main"),
+         "doctor": ("watch", "doctor")}
+
+
+def main():
+    argv = sys.argv[1:]
+    if not argv or argv[0].startswith("-"):
+        sub, rest = "attach", argv        # `ak`, `ak --client`, `ak --overlay`, `ak --dry-run`
+    else:
+        sub, rest = argv[0], argv[1:]
+    if sub not in SUBS:
+        print(f"ak: unknown subcommand {sub!r}; expected one of {', '.join(SUBS)}", file=sys.stderr)
+        return 2
+    if command_help.show(sub if argv and argv[0] == sub else "", rest):
+        return 0
+    mod_name, entry = ENTRY.get(sub, (sub, "main"))
+    module = __import__(f"agentkit.{mod_name}", fromlist=[entry])
+    try:
+        return getattr(module, entry)(rest)
+    except config.Error as exc:
+        print(f"ak {sub}: {exc}", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        print(f"\nak {sub}: interrupted", file=sys.stderr)
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main())

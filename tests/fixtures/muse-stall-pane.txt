@@ -1,0 +1,29 @@
+
+  Muse Code 1.0.3
+
+  model muse-spark-1.3-contributor not in catalog — using assumed limits
+
+⟩ Say OK
+
+◆ model failed: API error 429: rate limit reached: quota exhausted (rate_limit_error) (after 10 provider attempts)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+⟩
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  muse-spark-1.3-contributor · high · ~ · YOLO
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

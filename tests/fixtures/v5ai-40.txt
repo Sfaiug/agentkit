@@ -1,0 +1,7 @@
+  usage left
+  Claude   ██████   98% left · Fable 41%
+  MiMo     —  no reading yet
+  Muse     ███░░░   45% left
+  Gemini   —  no reading yet
+  ChatGPT  ░░░░░░    0% left
+  Grok     —  no reading yet

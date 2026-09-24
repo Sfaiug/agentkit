@@ -1,0 +1,61 @@
+# tests/fixtures/adapters/echo.toml -- the screen, the update and the usage of a fourth harness.
+# Paired with echo.sh; the format is the adapter contract in docs/guide.md, "Adding a harness".
+# Everything agentkit does with this harness it does from here: there is no agentkit/harness/
+# echo.py, so every Python hook is the default one.
+version = 1
+
+# `ak update` reads its version off a command that always answers, upgrades it with one that
+# always succeeds, and has no versioned reinstall to put it back -- so the plan says it cannot,
+# in these words, and takes no snapshot either.
+[update]
+version = ["echo", "1.0.0"]
+upgrade = ["echo", "already-current"]
+cannot = "it is a fixture and has no installer at all"
+
+# No lifecycle hooks and no captured usage probe: `[usage]` and `[conversation]` are left out
+# entirely, which is how a harness says it needs none of that.
+[authority]
+working = "screen"
+asking = "screen"
+at_prompt = "screen"
+
+[screen]
+composer = '(?:❯|echo · [\w.-]+ · .+)$'
+footer = ['\? for shortcuts']
+
+# Its chooser: both controls in the last few lines, with the key hint newest.
+[[rule]]
+id = "asking.chooser"
+state = "asking"
+lines = 6
+all = ["1. yes", "2. no", "press enter to choose"]
+newest = '(?i)press enter to choose'
+
+[[rule]]
+id = "working.interrupt"
+state = "working"
+lines = 8
+any = ["esc to interrupt"]
+
+[[rule]]
+id = "prompt.draft"
+state = "draft"
+lines = 8
+at_composer = true
+none = ["esc to interrupt"]
+
+[[rule]]
+id = "prompt.composer"
+state = "at_prompt"
+lines = 8
+at_composer = true
+none = ["esc to interrupt"]
+
+[stall]
+signatures = ["echo error", "quota spent"]
+quotas = ["quota spent"]
+
+[auth]
+title = "Echo"
+remedy = "nothing: the echo fixture has no login"
+signatures = ["echo is not logged in"]
