@@ -40,7 +40,7 @@ CODE = Path.home() / "code"                # where the checkouts live, and where
 RENAME_HOPS = 8                            # how many renames a session name is followed through
 DEFAULT_MODEL = "default"                  # config.toml: the harness runs its own model, no -m
 SESSION_STALE = 7 * 86400                  # a record whose session has been gone this long goes
-RUN_DEFAULTS = {"max_runs": 0}
+RUN_DEFAULTS = {"max_runs": 0, "max_gates": 3}
 CONFIG_NAME = "config.toml"                # the one config file, under HOME: never in the checkout
 DEFAULT_CONFIG_NAME = "config.default.toml"   # ... whose shipped default install.sh copies there
 EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")   # the effort words for a
@@ -59,16 +59,26 @@ def max_runs():
         if not override.isascii() or not override.isdigit():
             raise Error("AK_MAX_RUNS must be a non-negative integer (0 disables the cap for tests)")
         return int(override)
+    return _count_setting("max_runs")
+
+
+def max_gates():
+    """How many done-when gates of one repository run at once, host-wide; zero means no cap."""
+    return _count_setting("max_gates")
+
+
+def _count_setting(key):
+    """A non-negative integer at the top of the home config file, or the shipped default."""
     path = HOME / CONFIG_NAME
     try:
         with path.open("rb") as fh:
-            value = tomllib.load(fh).get("max_runs", RUN_DEFAULTS["max_runs"])
+            value = tomllib.load(fh).get(key, RUN_DEFAULTS[key])
     except FileNotFoundError:
-        return RUN_DEFAULTS["max_runs"]
+        return RUN_DEFAULTS[key]
     except (OSError, ValueError) as exc:
         raise Error(f"{path}: {exc}") from exc
     if type(value) is not int or value < 0:
-        raise Error(f"{path}: max_runs must be a non-negative integer")
+        raise Error(f"{path}: {key} must be a non-negative integer")
     return value
 
 
@@ -503,7 +513,7 @@ def _ordered(items, first):
 SAVE_HEADER = ("# agentkit's config, written by the menu's `c` screen. It is rewritten whole on "
                "every change,",
                "# so a comment left here would not survive it; unknown keys are kept as they are.")
-_TOP_ORDER = ("max_runs", "min_free_mb", "max_load", "run_memory_max_mb", "pace_margin")
+_TOP_ORDER = ("max_runs", "max_gates", "min_free_mb", "max_load", "run_memory_max_mb", "pace_margin")
 _DEFAULTS_ORDER = ("orchestrator", "workers")
 _MODEL_ORDER = ("harness", "model", "effort", "provider", "reviews_own_provider", "meter")
 _PROVIDER_ORDER = ("mode", "usage_model", "usage_effort")

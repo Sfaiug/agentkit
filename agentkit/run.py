@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 from collections import Counter
-from contextlib import contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
@@ -1421,6 +1421,98 @@ def dirty_paths(wt):
     return [p for p in f"{tracked}\0{untracked}".split("\0") if p]
 
 
+GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each rewrites its log line
+
+
+def gate_lock(repo, slot):
+    """The lock file of one of a repository's gate turns: its main checkout, whichever worktree."""
+    digest = hashlib.sha256(str(repo).encode()).hexdigest()
+    return config.RUNS / f".gate-{digest}-{slot}.lock"
+
+
+def take_slot(slots):
+    """The first of the open slot files this call locks, or None while a gate holds each."""
+    for slot in slots:
+        try:
+            fcntl.flock(slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            continue
+        return slot
+    return None
+
+
+def mark_gate_wait(run_dir, of):
+    """Put `waiting for a gate turn of <repo>` on the record, or take it off (`of` None).
+
+    With this process's pid, as the merge turn's mark is: one a kill left behind says nothing.
+    """
+    try:
+        with recovery_lock(run_dir):
+            state = read_state(run_dir)
+            if state and state.get("state") == "running":
+                if of:
+                    state["gate_turn"] = {"pid": os.getpid(), "of": of}
+                else:
+                    state.pop("gate_turn", None)
+                save_state(run_dir, state)
+    except OSError:
+        pass            # an unmarked record costs a status line, never the turn
+
+
+def gate_turn_note(state):
+    """`waiting for a gate turn of <repo>` while a run waits in `gate_turn`, else ""."""
+    turn = state.get("gate_turn")
+    if (state.get("state") != "running" or not isinstance(turn, dict)
+            or turn.get("pid") != state.get("pid")):
+        return ""
+    return f"waiting for a gate turn of {turn.get('of')}"
+
+
+@contextmanager
+def gate_turn(run_dir, log_path, log):
+    """One of the repository's `max_gates` done-when turns, held for as long as the list runs.
+
+    The host is disk-bound and a gate writes tens of gigabytes: three gates of one repository
+    each take as long as one alone, five take four times as long, and nothing capped them.  So
+    the gates of one main checkout -- whichever worktree, seat or process -- take turns,
+    `max_gates` at once.  A turn is a flock on one of the repository's slot files, which the
+    kernel lets go of when its holder dies, so a killed gate never blocks the next.  A waiting
+    gate rewrites its own log every poll, so the stall ladder reads the wait as life, and says
+    so on its record for `ak run status`; the ceiling starts once the turn is its own, and a
+    stop lands while it waits as it does mid-list.  A run without a repository, a direct caller
+    with no record, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0` all take no turn.
+    """
+    repo = (read_state(run_dir) or {}).get("repo") if run_dir else None
+    limit = config.max_gates() if repo and os.environ.get("AK_MAX_RUNS") != "0" else 0
+    if not limit:
+        yield
+        return
+    config.RUNS.mkdir(parents=True, exist_ok=True)
+    with ExitStack() as files:
+        slots = [files.enter_context(gate_lock(repo, i).open("a")) for i in range(limit)]
+        if take_slot(slots) is None:
+            name, began = Path(repo).name, time.monotonic()
+            said = f"waiting for a gate turn · {limit} of {name} running"
+            if log is not None:
+                log(f"done-when: {said}")
+            mark_gate_wait(run_dir, name)
+            step = history.close_step(run_dir.name)     # the wait is no step's work
+            try:
+                while True:
+                    log_path.write_text(said + "\n")
+                    stop_check(run_dir)
+                    time.sleep(GATE_POLL)
+                    if take_slot(slots) is not None:
+                        break
+            finally:
+                mark_gate_wait(run_dir, None)
+            history.open_step(run_dir.name, step)
+            if log is not None:
+                log(f"done-when: took a gate turn of {name} after "
+                    f"{orch.span(time.monotonic() - began)}")
+        yield
+
+
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None):
     """Run commands while they produce output, with a ceiling on the whole list.
@@ -1439,41 +1531,45 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
 
     No command starts on a stopped run: each one asks first, so a stop that lands
     mid-list aborts the gate instead of running commands no record wants anymore.
+
+    The list runs on one of the repository's gate turns (`gate_turn`), taken before its first
+    command and let go however the list ends; the ceiling counts from the turn, not the wait.
     """
     limit = 3600 * CEILING_HOURS if limit is None else limit
     silence = 60 * SILENCE_MINUTES if silence is None else silence
     before = set(dirty_paths(cwd))
     chunks, ok = [], True
-    deadline = time.monotonic() + limit
     spent, killed, kept = None, False, ""   # the command the limit ran out on, whether it had
                                             # begun, and the output it had produced by then
     reason = []
-    log_path.write_text("")
-    for cmd in cmds:
-        stop_check(run_dir)
-        left = deadline - time.monotonic()
-        if left <= 0:
-            # the list is out of time: starting this command would give it a limit of its own
-            spent, killed, kept = cmd, False, ""
-            chunks.append(f"$ {cmd}\n[not run: the done-when limit was already spent]")
-            break
-        with log_path.open("ab") as progress:
-            progress.write(f"$ {cmd}\n".encode())
-            progress.flush()
-            offset = progress.tell()
-            code, _, killed = worker.limited(
-                ["bash", "-c", cmd], left, silence=silence, activity=log_path,
-                on_timeout=reason.append, cwd=str(cwd), output=progress,
-                stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=run_child_env())
-        with log_path.open("rb") as progress:
-            progress.seek(max(offset, log_path.stat().st_size - OUT_CAP))
-            out = progress.read().decode("utf-8", errors="replace")
-        ok &= code == 0
-        chunks.append(f"$ {cmd}\n[{'killed at the limit' if killed else f'exit {code}'}]\n"
-                      f"{out[-OUT_CAP:]}".rstrip())
-        if killed:
-            spent, kept = cmd, out
-            break
+    with gate_turn(run_dir, log_path, log):
+        deadline = time.monotonic() + limit
+        log_path.write_text("")
+        for cmd in cmds:
+            stop_check(run_dir)
+            left = deadline - time.monotonic()
+            if left <= 0:
+                # the list is out of time: starting this command would give it a limit of its own
+                spent, killed, kept = cmd, False, ""
+                chunks.append(f"$ {cmd}\n[not run: the done-when limit was already spent]")
+                break
+            with log_path.open("ab") as progress:
+                progress.write(f"$ {cmd}\n".encode())
+                progress.flush()
+                offset = progress.tell()
+                code, _, killed = worker.limited(
+                    ["bash", "-c", cmd], left, silence=silence, activity=log_path,
+                    on_timeout=reason.append, cwd=str(cwd), output=progress,
+                    stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=run_child_env())
+            with log_path.open("rb") as progress:
+                progress.seek(max(offset, log_path.stat().st_size - OUT_CAP))
+                out = progress.read().decode("utf-8", errors="replace")
+            ok &= code == 0
+            chunks.append(f"$ {cmd}\n[{'killed at the limit' if killed else f'exit {code}'}]\n"
+                          f"{out[-OUT_CAP:]}".rstrip())
+            if killed:
+                spent, kept = cmd, out
+                break
     if spent is not None:
         ok = False
         if killed:
@@ -8404,6 +8500,8 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
         lines.append(f"  {slot_note(state)}")
     elif merge_turn_note(state):
         lines.append(f"  {merge_turn_note(state)}")
+    elif gate_turn_note(state):
+        lines.append(f"  {gate_turn_note(state)}")
     if needs_recovery(state):
         reason = recovery_reason(state)
         wait = waiting(state, providers=providers, cfg=cfg)
@@ -8606,6 +8704,8 @@ def cmd_status(argv):
                 print(f"  {slot_note(state)}")
             elif merge_turn_note(state):
                 print(f"  {merge_turn_note(state)}")
+            elif gate_turn_note(state):
+                print(f"  {gate_turn_note(state)}")
             living, ended = alive_line(state), stop_note(state)
             if living or ended:
                 from . import terminal as _terminal
@@ -8659,6 +8759,8 @@ def cmd_status(argv):
                     print(f"  {slot_note(state)}")
                 elif merge_turn_note(state):
                     print(f"  {merge_turn_note(state)}")
+                elif gate_turn_note(state):
+                    print(f"  {gate_turn_note(state)}")
                 elif blocked_note(state):
                     word = status_state_word(state, index)
                     print("  " + terminal.styled(blocked_note(state, word), "dim"))
