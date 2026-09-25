@@ -26,8 +26,8 @@ this host, handed over by its adapter for that launch only (Antigravity's as the
 conventions, read the way any checkout is read, and is never the place for agentkit's rules.
 
 At every turn's end `hooks/orchestrator-stop.sh` sends the turn back with *Continue: decide the next step and do it*
-unless the last paragraph asks something, `ak notify needs` or `ak notify done` was recorded, or a run of this seat's is
-going; it blocks at most twice a turn. On Claude Code, background work the seat started counts as a run until it reports
+unless the last paragraph asks something, `ak notify needs` or `ak notify done` was recorded, a run of this seat's is
+going, or its `ak wait <session>` names a session that is working; it blocks at most twice a turn. On Claude Code, background work the seat started counts as a run until it reports
 back, a bare *shall I continue?* as the last sentence is no question, and a stop sent back reads `working`. A harness
 with no blocking end-of-turn hook declares `[stop] enforce = "nudge"`, and the tick types `continue` instead.
 
@@ -147,7 +147,7 @@ orch why`, the status bar and the window title. A seat's own hook event (a turn 
 or the one a run it launched is parked on, or `gh` while a run owes a push) is `needs you`; the Claude worker token
 dying within a fortnight is `needs you` on every seat; a run it launched that is unfinished is `working`, whether going
 or waiting for a slot, window, target change or login the tick lifts by itself, or an error with a scheduled retry, or
-parked `stalled` or `exhausted` and handed back for the orchestrator to resume; an error with no automatic resume that
+parked `stalled` or `exhausted` and handed back for the orchestrator to resume; a seat that ended its turn on `ak wait <session>` is `working` with `waiting on <session>` while that session itself reads `working` by its own runs or turn, never by a wait of its own, until the seat's next `ak wait` or `ak notify`; an error with no automatic resume that
 still needs attention (see below) is `needs you` (`run <id> parked: <reason>`); a harness turn in flight is `working`;
 nobody in the seat any more is `needs you` with `session closed: press N to reopen`; the seat's own `ak notify done` is
 `done` with the summary's first line until a newer notice, however often the session is opened, read or scrolled (a question on its screen, or typed text nobody sent, reads `needs you` over it; a job's `all N tasks finished` is no declaration of the seat's, though its card is still `Done`); otherwise it is at its prompt, which is `needs you`

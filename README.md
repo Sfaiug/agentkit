@@ -35,7 +35,7 @@ A session is one of three things, and nothing else:
 
 ```
 ! needs you   it asked you something, or it cannot go on without you
-● working     a run of its own is going, or a turn is
+● working     a run of its own is going, or a turn is, or a session it waits on works
 ✓ done        it said so, and the row carries its summary
 ```
 

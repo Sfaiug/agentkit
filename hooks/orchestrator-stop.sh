@@ -3,7 +3,9 @@
 #
 # An orchestrator turn ends in exactly one of three ways -- a question the user must answer,
 # `ak notify done` because the job is finished, or a run it is waiting on, which includes the
-# background work it started in its own harness while the harness still lists it in flight.
+# background work it started in its own harness while the harness still lists it in flight, and
+# another session's work it said it waits on with `ak wait`, for as long as `watch.waiting_on`
+# says that session is working.
 # Anything else is sent back to work with the harness's own block decision, which Claude Code
 # 2.1.263, Codex 0.153.4 and Grok Build 1.0.40 spell the same way: `{"decision": "block",
 # "reason": "..."}` on stdout.  "Here is my recommendation, let me know if I should continue"
@@ -52,6 +54,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit.run import going
+from agentkit.watch import waiting_on
 
 HOPS = 8            # how many renames a seat name is followed through, as agentkit/config does
 LIMIT = 2           # blocks in one turn; the third stop stands
@@ -247,7 +250,7 @@ def held(launched, payload):
     seat = resolve(launched)
     said = last_message(payload)
     if (said is None or asks(said, leave=tells(payload)) or told(seat, turn)
-            or waiting(seat, turn)):
+            or waiting(seat, turn) or waiting_on(seat)):
         return False
     blocks = record.get("blocks")
     blocks = blocks + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1
