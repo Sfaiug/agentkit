@@ -52,6 +52,7 @@ MATRIX = [
      {"--session", "--dry-run"}),
     ("notify done", "usage: ak notify done", ["Summary", "--pr"],
      {"--session", "--dry-run", "--pr"}),
+    ("wait", "usage: ak wait SESSION", ["fix-api"], set()),
     ("update", "usage: ak update [--dry-run]", ["--dry-run"], {"--dry-run"}),
     ("watch", "usage: ak watch [--dry-run]", ["--dry-run"], {"--dry-run"}),
     ("doctor", "usage: ak doctor", ["unexpected"], set()),
@@ -76,7 +77,8 @@ def probe():
     assert config.HOME == root / ".agentkit"
     module = None
     if mode == "module":
-        name = {"attach": "menu", "fetch": "macbridge", "doctor": "watch"}.get(args[0], args[0])
+        name = {"attach": "menu", "fetch": "macbridge", "doctor": "watch",
+                "wait": "watch"}.get(args[0], args[0])
         module = importlib.import_module(f"agentkit.{name}")
     elif mode == "notify":
         from agentkit import notify
@@ -129,8 +131,8 @@ def probe():
         try:
             if module:
                 # the same entry points bin/ak's ENTRY names, under the same names
-                entry = getattr(module, {"fetch": "fetch_main",
-                                         "doctor": "doctor"}.get(args[0], "main"))
+                entry = getattr(module, {"fetch": "fetch_main", "doctor": "doctor",
+                                         "wait": "wait_main"}.get(args[0], "main"))
                 try:
                     code = entry(args[1:])
                 except config.Error as exc:

@@ -1151,6 +1151,8 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                                      if run.launched_session(state) == name and
                                      (run.going(state) or run.unfinished(state))]
                 record(name, kind, text, **extra)
+                if event_id is None:
+                    watch.seat_write(name, wait=None)   # the seat's newer word ends its `ak wait`
         # A command is the visible start of the episode. Decide from now's facts, and
         # evaluate a hold later, so the recorder's own question is not left waiting
         # for the three-minute watcher tick; deciding at the later clock would date

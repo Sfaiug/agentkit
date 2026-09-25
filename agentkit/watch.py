@@ -1697,6 +1697,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                   and not isinstance(s.get("started_at"), bool)]
         return {"word": "working", "reason": " · ".join(parts),
                 "since": min(starts) if starts else None}
+    # 2a. ... or it ended its turn on `ak wait`, and the session it named is working
+    wait = waiting_on(name, records, at, cfg)
+    if wait:
+        return {"word": "working", "reason": f"waiting on {wait['on']}", "since": wait["at"]}
     gone = any(session.get(key) for key in orch.CLOSED)
     # 2b. ... or a run of its own is parked with no scheduled resume: then it is
     # him the run waits for, only while the same ending still counts in his tally.
@@ -1775,6 +1779,78 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     asked = found.get("evidence") if found.get("state") in ("asking", "draft") else ""
     return {"word": "needs you", "reason": " ".join(str(asked).split()) or "waiting for you",
             "since": found.get("began")}
+
+
+def waiting_on(name, records=None, now=None, cfg=None):
+    """That seat's own `ak wait`, while the session it names is working; else None.
+
+    The wait is the seat's word, kept in its record's `wait` by `ak wait` and dropped by its
+    next `ak notify`, and nothing that looks at a screen ever writes or ends it: this only says
+    whether it holds now.  It holds while the other session is working by its own runs or its
+    own turn -- never by a wait of its own, so two seats waiting on each other are both his.
+    The ladder, the stop hook and the tick's `stop_nudge` all ask this, so the word a seat
+    reads and the stop it is allowed are the same decision.
+    """
+    wait = seat_read(name).get("wait")
+    if not isinstance(wait, dict) or not isinstance(wait.get("on"), str):
+        return None
+    try:
+        other = config.resolve_session(wait["on"])
+    except config.Error:
+        return None
+    if other == name:
+        return None
+    from . import menu as menu_mod    # here, not at the top: the menu imports this module
+    from . import run as run_mod
+    at = time.time() if now is None else now
+    if records is None:
+        try:
+            records = menu_mod.run_records()
+        except (config.Error, OSError, ValueError):
+            records = []
+    held = {"on": other, "at": _stamp(wait.get("at"))}
+    for _, state in records:
+        try:
+            if run_mod.launched_session(state) == other and run_mod.going(state, now=at):
+                return held
+        except config.Error:
+            continue
+    try:
+        harness = seat_model(cfg if cfg is not None else config.load(), other)[0]
+    except config.Error:
+        return None
+    if not harness or not _turn_in_flight(harness, seat_read(other))[0]:
+        return None
+    # only a seat somebody is still in has a turn: a gone one's record is what it last showed
+    seat = next((s for s in orch.listing(reconcile=False) if s["name"] == other), None)
+    return held if seat and not any(seat.get(key) for key in orch.CLOSED) else None
+
+
+def wait_main(argv):
+    """`ak wait SESSION`: this seat ends its turn waiting on that session's work.
+
+    The seat is the one `ak notify` speaks for, and the wait is written to its own record and
+    nowhere else: no card, no notice.  Its next `ak wait` or `ak notify` replaces it.
+    """
+    if command_help.show("wait", argv):
+        return 0
+    if len(argv) != 1 or argv[0].startswith("-"):
+        raise config.Error(command_help.COMMANDS["wait"][0])
+    seat = config.current_session()
+    if not seat:
+        print("ak wait: no seat: run it inside an orchestrator session", file=sys.stderr)
+        return 1
+    other = config.resolve_session(argv[0])
+    if other == seat:
+        print(f"ak wait: {seat} cannot wait on itself", file=sys.stderr)
+        return 1
+    if other not in config.session_records():
+        print(f"ak wait: no session {argv[0]!r}; `ak orch list` shows them", file=sys.stderr)
+        return 1
+    if not seat_write(seat, wait={"on": other, "at": time.time()}):
+        return 1
+    print(f"{seat}: waiting on {other}")
+    return 0
 
 
 def opened_now(name):
@@ -2309,6 +2385,8 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
                 return
         except config.Error:
             continue    # a record whose seat cannot be resolved is nobody's run to wait on
+    if waiting_on(name, records):
+        return          # it ended its turn on `ak wait`, and that session is working
     if notice and notice["kind"] == "done" and done_holds(name, live, notice, began, said,
                                                           dry_run):
         return          # it said the job was finished, in the turn that has just ended

@@ -79,6 +79,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
     "notify done": (f"usage: {NOTIFY_DONE}",
                     "Report the finished job; --dry-run prints the payload without posting.",
                     'ak notify done "Parser fixed" --dry-run'),
+    "wait": ("usage: ak wait SESSION", "End this turn waiting on another session's work.",
+             "ak wait fix-api"),
     "update": ("usage: ak update [--dry-run]",
                "Upgrade harnesses and verify with acceptance gates; --dry-run prints the plan.",
                "ak update --dry-run"),
@@ -121,7 +123,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
 
 # `ak --help` is one screen: the menu, then the commands an orchestrator uses, one line
 # each, and under one dim `internal:` line the ones the toolkit runs for itself.
-ORCHESTRATOR = ("run", "notify", "usage", "browser", "fetch")
+ORCHESTRATOR = ("run", "notify", "wait", "usage", "browser", "fetch")
 INTERNAL = ("orch", "worker", "watch", "update", "macbridge", "attach", "doctor")
 
 PURPOSES = {
@@ -135,6 +137,7 @@ PURPOSES = {
     "watch": "check PRs and stalled sessions",
     "doctor": "show the slice, the tick, and any model set to an effort it does not take",
     "notify": "record a needs-you question or a job summary",
+    "wait": "end this turn waiting on another session's work",
     "fetch": "copy requested Mac files to this host",
     "macbridge": "macOS only: forward requested files to the server over SSH",
 }

@@ -31,7 +31,7 @@ You are one model in one terminal, talking to one person. Workers do the work; y
 
 ## Never stop
 
-Every turn ends in exactly one of three ways: a question the user must answer, `ak notify done "<summary>"` because the whole job is finished, or a launched run you are waiting on. "Here is my recommendation, let me know if I should continue" is forbidden. Time is the user's scarcest asset.
+Every turn ends in exactly one of three ways: a question the user must answer, `ak notify done "<summary>"` because the whole job is finished, or a run you are waiting on, yours or another session's (`ak wait <session>`). "Here is my recommendation, let me know if I should continue" is forbidden. Time is the user's scarcest asset.
 
 ## Talk to the user
 
