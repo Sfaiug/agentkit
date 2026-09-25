@@ -779,8 +779,10 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     """The projects and their seats, needing projects first, seats by state within.
 
     A project is a checkout under ~/code, or agentkit's own at ~/agentkit -- one of
-    `orch.checkouts()` -- and a seat is filed under the one its repo *is* (`orch.checkout_of`);
-    a seat working across projects from ~/code files under the fallback heading.
+    `orch.checkouts()` -- and a seat is filed under the one its repo *is* (`orch.checkout_of`):
+    the project most of its runs vote for, a queued run's included (`run.join_session_project`),
+    whether it works in one checkout or across them from ~/code. Only a seat none of whose runs
+    votes files under the fallback heading.
     A run makes no project and no row: no worktree, no throwaway repo under
     ~/.agentkit/tmp and no run id is ever a heading. A project with no offered seat
     is not listed, unless its AGENTS.md names its feature switches: that one is listed
@@ -1040,7 +1042,8 @@ def v5o_format_seats(infos, term_width, widths=None):
             for line in block]
 
 
-def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=None, look=True):
+def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=None, look=True,
+         records=None):
     """The menu at rest, and (page, pages) as drawn.
 
     The frame is the header (`agentkit` at the left, the clock at the right),
@@ -1066,7 +1069,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     is drawn under its row, its two answers left for `terminal.choose` to draw on the two
     lines under that, and `drawn["ask"]` is the screen row of the first.
 
-    `look` is whether the seats are looked at for this draw or drawn as recorded.
+    `look` is whether the seats are looked at for this draw or drawn as recorded, and
+    `records` the run records it is drawn from, read here when they are not handed in.
     """
     owned = drawn is not None
     if (not owned and sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
@@ -1074,7 +1078,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         print("\033[2J\033[H", end="")
     width, height = terminal.width(), terminal.height()
     layout = terminal.layout_width(width)
-    ordered, infos, total_needing, _silent = v5o_groups(cfg, found, look=look)
+    ordered, infos, total_needing, _silent = v5o_groups(cfg, found, records, look=look)
     words = {info["name"]: info["word"] for info in infos}
     # The heading of a project naming its feature switches is a row as well, its checkout the name.
     order = [name for project in ordered for name in
@@ -3152,6 +3156,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
         while True:
             found = orch.listing()
+            records = run_records()       # one pass over run.json a draw, filing and drawing
+            orch.file_projectless(found, [state for _, state in records])
             messages = orch.job_notices()
             if messages:
                 keyboard.give()           # a notice waits for its Enter, like any sub-screen
@@ -3162,7 +3168,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                 live.look(found)          # the clock's or a key's looks, LOOK_WAIT at most
             live.watch()                  # before the draw: a word that moves during it is news
             page, pages = draw(cfg, found, keys if drawn is None else f"{move_keys()}   {keys}",
-                               page, cursor, drawn, own, look=False)
+                               page, cursor, drawn, own, look=False, records=records)
             cursor = drawn["cursor"] if drawn else cursor   # the seat he sees highlighted
             live.probe()                  # after the draw, never before it: the cache is enough
             if ahead is not None:

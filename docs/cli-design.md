@@ -40,9 +40,10 @@ Projects and their seats, and nothing else. A project is a checkout under
 temporary repository under `~/.agentkit/tmp` and a run id are none of them a
 heading, and a checkout nobody sits in is not listed unless its `AGENTS.md`
 names its feature switches (`features:`). A seat is filed under
-the checkout most of its runs belong to; one none of whose runs belongs to a
-checkout sits under `no project`. There is no run row, ever: `ak run status` is where runs are
-looked up.
+the checkout most of its runs belong to, a run still queued for a slot among them, whether it
+works in one checkout or across several from `~/code`; a tie keeps the one it has. Only a seat
+none of whose runs belongs to a checkout sits under `no project`, and the next draw files it
+once one does. There is no run row, ever: `ak run status` is where runs are looked up.
 
 The question is answered once, on the top line -- `your projects · nothing
 needs you`, `· 1 needs you`, `· 3 need you` -- and on no other line. A project

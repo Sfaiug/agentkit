@@ -4153,12 +4153,15 @@ def revive_seats(cfg, log):
     state file, written before the launch so one that fails is not repeated every tick, and
     cleared when the seat is next seen live.  A seat the owner stopped stays stopped.  The
     owner hears only when the reopen fails.  tmux is asked only with something to do: a run
-    going, or a marker to clear.
+    going, or a marker to clear.  A seat the listing finds with no project is filed from the
+    records read here (`orch.file_projectless`).
     """
     from . import run as run_mod
-    going = {}
+    going, states = {}, []
     for run_dir in run_mod.run_dirs():
         state = run_mod.read_state(run_dir)
+        if state:
+            states.append(state)
         if not state or state.get("state") not in ("running", "queued"):
             continue
         try:
@@ -4170,7 +4173,9 @@ def revive_seats(cfg, log):
     if not going and not any(seat_read(name).get("reopened_at")
                              for name in config.session_records()):
         return
-    for session in orch.listing():
+    found = orch.listing()
+    orch.file_projectless(found, states)
+    for session in found:
         name = session["name"]
         marks = seat_read(name)
         if not any(session.get(key) for key in ("exited", "restart", "resumable")):

@@ -5105,14 +5105,24 @@ def launched_session(state):
 def run_project(state):
     """The checkout a run's work belongs to, or None when it belongs to none.
 
-    A repository run belongs to the checkout it works on.  A scratch run has none, so it
-    belongs to the checkout its task file's folder is named for: an orchestrator files a
-    project's tasks under ~/.agentkit/tasks/<project>/, whatever the task works in.
+    A repository run belongs to the checkout it works on.  A run whose record names none yet
+    -- one still queued for a slot -- belongs to the one its task's `repo:` names, which is
+    the checkout it works on once it starts.  A scratch run has none, and neither has a queued
+    one whose task names none, so it belongs to the checkout its task file's folder is named
+    for: an orchestrator files a project's tasks under ~/.agentkit/tasks/<project>/, whatever
+    the task works in.
     """
     if state.get("repo"):
         return orch.checkout_of(state["repo"])
+    if not state.get("scratch"):
+        try:
+            named = parse_task(config.RUNS / state["run_id"] / "task.md")[0].get("repo") or ""
+        except (KeyError, TypeError, OSError, ValueError, config.Error):
+            named = ""
+        if named and named.lower() != "none":
+            return orch.checkout_of(Path(named).expanduser())
     task_file = state.get("task_file")
-    if not state.get("scratch") or not isinstance(task_file, str) or not task_file:
+    if not isinstance(task_file, str) or not task_file:
         return None
     try:
         parts = Path(task_file).resolve().relative_to((config.HOME / "tasks").resolve()).parts
@@ -5128,9 +5138,8 @@ def join_session_project(session):
     """File a session under the project most of its runs belong to, again at each launch.
 
     Nobody chooses a session's project: the runs it launched vote, each for its
-    `run_project`, and a run that belongs to no checkout has no vote.  A tie keeps the
-    project the session has, else goes to the first by name; a session none of whose runs
-    votes keeps whatever it has.
+    `run_project` from the moment it is queued, and a run that belongs to no checkout has no
+    vote (`session_vote`).
     """
     if not session:
         return
@@ -5144,24 +5153,35 @@ def join_session_project(session):
         record = config.session_records().get(session)
         if record is None:
             return
-        votes = Counter()
-        for directory in run_dirs():
-            state = read_state(directory) or {}
-            try:
-                if launched_session(state) != session:
-                    continue
-            except config.Error:
+        repo = session_vote(session, (read_state(directory) or {} for directory in run_dirs()),
+                            record.get("repo"))
+        if repo != record.get("repo"):
+            config.update_session(session, repo=repo)
+
+
+def session_vote(session, states, repo=None):
+    """The project most of the runs `session` launched, among `states`, belong to.
+
+    `repo` is the project the session has: a tie keeps it, else goes to the first by name,
+    and a session none of whose runs votes keeps it too.
+    """
+    votes = Counter()
+    for state in states:
+        try:
+            if launched_session(state) != session:
                 continue
-            checkout = run_project(state)
-            if checkout is not None:
-                votes[str(checkout)] += 1
-        if not votes:
-            return
-        most = max(votes.values())
-        if votes.get(record.get("repo")) != most:
-            config.update_session(session, repo=min(
-                (repo for repo, count in votes.items() if count == most),
-                key=lambda repo: (Path(repo).name, repo)))
+        except config.Error:
+            continue
+        checkout = run_project(state)
+        if checkout is not None:
+            votes[str(checkout)] += 1
+    if not votes:
+        return repo
+    most = max(votes.values())
+    if votes.get(repo) == most:
+        return repo
+    return min((voted for voted, count in votes.items() if count == most),
+               key=lambda voted: (Path(voted).name, voted))
 
 
 def stamp_origin(state):
@@ -9493,6 +9513,7 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
         state.pop("slot_healthy_polls", None)
         save_state(run_dir, state)
     history_start(state)
+    join_session_project(session_at_launch)     # a queued run votes from its launch
     refresh_seat_tally(session_at_launch)   # the seat's bar counts it from the start
 
 
