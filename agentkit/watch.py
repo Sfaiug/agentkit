@@ -1875,13 +1875,19 @@ def tell_waits(cfg, log):
     again next tick.  The send that took the line is written on the wait as `told`, and that
     is the end of it: the wait counts for nothing afterwards, even when the other session
     works again, and only a new `ak wait` is a new wait.  Nothing here reads when a turn began.
+    tmux is asked only with something to do, as `revive_seats` asks it: a wait still untold.
     """
-    for session in orch.sessions():
-        if any(session.get(key) for key in orch.CLOSED):
-            continue
-        name = session["name"]
+    waiting = {}
+    for name in config.session_records():
         wait = seat_read(name).get("wait")
-        if not isinstance(wait, dict) or wait.get("told"):
+        if isinstance(wait, dict) and not wait.get("told"):
+            waiting[name] = wait
+    if not waiting:
+        return
+    for session in orch.sessions():
+        name = session["name"]
+        wait = waiting.get(name)
+        if wait is None or any(session.get(key) for key in orch.CLOSED):
             continue
         other, found = wait_peer(name, wait, cfg=cfg)
         if found is None or found["word"] == "working":
