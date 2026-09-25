@@ -1317,18 +1317,44 @@ def seat_write(name, **fields):
     """Merge fields into that seat's live-state record; a renamed seat is written under its name."""
     try:
         with seat_lock(name):
-            data = seat_read(name)
-            if all(data.get(key) == value for key, value in fields.items()):
-                return data
-            data.update(fields, session=name)
-            path = config.seat_state_path(name)
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(data) + "\n")
-            tmp.replace(path)
-            return data
+            return _seat_put(name, seat_read(name), fields)
     except (OSError, config.Error) as exc:
         print(f"WARN could not record what {name} is doing: {exc}", file=sys.stderr)
         return {}
+
+
+def _seat_put(name, data, fields):
+    """The write under `seat_lock`: merge fields into the record as it was just read."""
+    if all(data.get(key) == value for key, value in fields.items()):
+        return data
+    data.update(fields, session=name)
+    path = config.seat_state_path(name)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data) + "\n")
+    tmp.replace(path)
+    return data
+
+
+def wait_mark(name, wait, **marks):
+    """Put marks on that seat's wait, only while it is still that wait; True where it was.
+
+    The tick's one write about a wait: `typed` while the line is in the composer, `told` once
+    the confirmed send took it.  A wait the seat replaced meanwhile -- a newer `ak wait` is a
+    new wait, and `ak notify` ends one -- is left as the seat wrote it, so the compare and the
+    write are one stretch under the seat's lock.
+    """
+    try:
+        with seat_lock(name):
+            data = seat_read(name)
+            current = data.get("wait")
+            if not isinstance(current, dict) or any(
+                    current.get(key) != wait.get(key) for key in ("on", "at")):
+                return False
+            _seat_put(name, data, {"wait": dict(current, **marks)})
+            return True
+    except (OSError, config.Error) as exc:
+        print(f"WARN could not record what {name} is doing: {exc}", file=sys.stderr)
+        return False
 
 
 def announce(session, word):
@@ -1807,27 +1833,72 @@ def waiting_on(name, records=None, now=None, cfg=None):
     next `ak notify`, and nothing that looks at a screen ever writes or ends it: this only says
     whether it holds now.  It holds while the other session's own ladder says `working` --
     its runs or its turn, under every rung above them, such as a login its run is parked on --
-    and never by a wait of its own, so two seats waiting on each other are both his.  The
-    ladder, the stop hook and the tick's `stop_nudge` all ask this, so the word a seat reads
-    and the stop it is allowed are the same decision.
+    and never by a wait of its own, so two seats waiting on each other are both his.  A wait
+    the tick has told the seat the end of (`told`, see `tell_waits`) is over for good, however
+    the other session reads since.  The ladder, the stop hook and the tick's `stop_nudge` all
+    ask this, so the word a seat reads and the stop it is allowed are the same decision.
     """
     wait = seat_read(name).get("wait")
-    if not isinstance(wait, dict) or not isinstance(wait.get("on"), str):
+    if not isinstance(wait, dict) or wait.get("told"):
         return None
+    other, found = wait_peer(name, wait, records, now, cfg)
+    if found is None or found["word"] != "working":
+        return None
+    return {"on": other, "at": _stamp(wait.get("at"))}
+
+
+def wait_peer(name, wait, records=None, now=None, cfg=None):
+    """(the session that wait names, its own word) -- (None, None) where it names none."""
+    if not isinstance(wait.get("on"), str):
+        return None, None
     try:
         other = config.resolve_session(wait["on"])
     except config.Error:
-        return None
+        return None, None
     if other == name:
-        return None
+        return None, None
     # a session no listing holds has nobody in it: the turn its record last showed is no
     # turn now, though a run of its own still going is still its work
     seat = next((s for s in orch.listing(reconcile=False) if s["name"] == other),
                 {"name": other, "exited": True})
-    if session_state(other, now=now, session=seat, cfg=cfg, records=records,
-                     waits=False)["word"] != "working":
-        return None
-    return {"on": other, "at": _stamp(wait.get("at"))}
+    return other, session_state(other, now=now, session=seat, cfg=cfg, records=records,
+                                waits=False)
+
+
+def tell_waits(cfg, log):
+    """Tell a seat the session its `ak wait` names has stopped, once, and end the wait on it.
+
+    The other session's own word off its ladder, the moment it is no longer `working`: done,
+    needs you or closed, with its reason, so the seat decides on that and never on whether
+    the other remembers to write to it.  One line through the confirmed send, only at the
+    seat's own quiet prompt, the way a run's ending is handed back; a seat mid-turn is tried
+    again next tick.  The send that took the line is written on the wait as `told`, and that
+    is the end of it: the wait counts for nothing afterwards, even when the other session
+    works again, and only a new `ak wait` is a new wait.  Nothing here reads when a turn began.
+    tmux is asked only with something to do, as `revive_seats` asks it: a wait still untold.
+    """
+    waiting = {}
+    for name in config.session_records():
+        wait = seat_read(name).get("wait")
+        if isinstance(wait, dict) and not wait.get("told"):
+            waiting[name] = wait
+    if not waiting:
+        return
+    for session in orch.sessions():
+        name = session["name"]
+        wait = waiting.get(name)
+        if wait is None or any(session.get(key) for key in orch.CLOSED):
+            continue
+        other, found = wait_peer(name, wait, cfg=cfg)
+        if found is None or found["word"] == "working":
+            continue
+        reason = " ".join(str(found.get("reason") or "").split())
+        line = f"{other} is now {found['word']}: {reason}. Decide the next step."
+        if type_at_prompt(session, line, log, cfg=cfg, typed=wait.get("typed"),
+                          receipt=lambda mark, name=name, wait=wait:
+                          wait_mark(name, wait, typed=mark)):
+            if wait_mark(name, wait, told=time.time()):
+                log(f"{name}: told that {other} is now {found['word']}; its wait is over")
 
 
 def wait_main(argv):
@@ -4593,6 +4664,12 @@ def main(argv):
                 run.deliver_job_handbacks(log)
             except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
                 log(f"WARN a finished job was not handed back: {exc}")
+            # ... and a seat whose `ak wait` names a session that has stopped is told so, at
+            # its next quiet prompt, which ends the wait.
+            try:
+                tell_waits(config.load(), log)
+            except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
+                log(f"WARN the wait pass did not run: {exc}")
             # Cards are derived from every session's current three-state word, including
             # seats whose panes were not available to the health pass.
             try:
