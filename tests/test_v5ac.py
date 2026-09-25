@@ -143,7 +143,14 @@ sys.exit(0 if ok else 1)
     def events(self, kind=None):
         path = self.root / "events.jsonl"
         rows = [json.loads(l) for l in path.read_text().splitlines()] if path.exists() else []
-        return [r for r in rows if kind is None or r["kind"] == kind]
+        # a failing done-when runs once more at once, on the same commit: the pair is one gate
+        gates, rerun = [], False
+        for row in rows:
+            rerun = (not rerun and bool(gates) and row == gates[-1]
+                     and row["kind"] == "tests" and not row["ok"])
+            if not rerun:
+                gates.append(row)
+        return [r for r in gates if kind is None or r["kind"] == kind]
 
     def move_target(self, changes):
         for name, value in changes.items():

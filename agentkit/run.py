@@ -1550,6 +1550,13 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     No command starts on a stopped run: each one asks first, so a stop that lands
     mid-list aborts the gate instead of running commands no record wants anymore.
 
+    A command that exits non-zero runs once more at once, within the same ceiling, and the
+    re-run decides it: under load a timing test fails by chance far more often than a change
+    breaks it.  A pass that took the re-run is said, not hidden -- a `flaky:` record after
+    the command's keeps the first failure's last lines, and the repository's follow-ups file
+    gets a dated line (`note_flake`).  A killed command is not re-run: it spent the silence
+    window or the ceiling, which a second go would only spend again.
+
     The list runs on one of the repository's gate turns (`gate_turn`), taken before its first
     command and let go however the list ends; the ceiling counts from the turn, not the wait.
     """
@@ -1564,27 +1571,42 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
         deadline = time.monotonic() + limit
         log_path.write_text("")
         for cmd in cmds:
-            stop_check(run_dir)
-            left = deadline - time.monotonic()
-            if left <= 0:
+            first = None        # the output of a first run that failed, while its re-run decides
+            while True:
+                stop_check(run_dir)
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    break
+                with log_path.open("ab") as progress:
+                    progress.write(f"$ {cmd}\n".encode())
+                    progress.flush()
+                    offset = progress.tell()
+                    code, _, killed = worker.limited(
+                        ["bash", "-c", cmd], left, silence=silence, activity=log_path,
+                        on_timeout=reason.append, cwd=str(cwd), output=progress,
+                        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=run_child_env())
+                with log_path.open("rb") as progress:
+                    progress.seek(max(offset, log_path.stat().st_size - OUT_CAP))
+                    out = progress.read().decode("utf-8", errors="replace")
+                if code == 0 or killed or first is not None:
+                    break
+                first = out
+            if left <= 0 and first is None:
                 # the list is out of time: starting this command would give it a limit of its own
                 spent, killed, kept = cmd, False, ""
                 chunks.append(f"$ {cmd}\n[not run: the done-when limit was already spent]")
                 break
-            with log_path.open("ab") as progress:
-                progress.write(f"$ {cmd}\n".encode())
-                progress.flush()
-                offset = progress.tell()
-                code, _, killed = worker.limited(
-                    ["bash", "-c", cmd], left, silence=silence, activity=log_path,
-                    on_timeout=reason.append, cwd=str(cwd), output=progress,
-                    stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=run_child_env())
-            with log_path.open("rb") as progress:
-                progress.seek(max(offset, log_path.stat().st_size - OUT_CAP))
-                out = progress.read().decode("utf-8", errors="replace")
             ok &= code == 0
             chunks.append(f"$ {cmd}\n[{'killed at the limit' if killed else f'exit {code}'}]\n"
                           f"{out[-OUT_CAP:]}".rstrip())
+            if first is not None and code == 0:
+                # blank lines dropped: a record is what lies between two, and these are one
+                tail = [line for line in first.splitlines() if line.strip()][-20:]
+                chunks.append("\n".join([f"flaky: {cmd} failed, then passed on its re-run",
+                                         *tail]))
+                if log is not None:
+                    log(f"done-when: flaky: {cmd} failed, then passed on its re-run")
+                note_flake(run_dir, cmd, tail[-1] if tail else "(no output)")
             if killed:
                 spent, kept = cmd, out
                 break
@@ -1611,6 +1633,32 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=log)
     artifacts.update(set(dirty_paths(cwd)) - before)
     return ok, text
+
+
+def note_flake(run_dir, cmd, last):
+    """One dated line in the repository's follow-ups file: a done-when line passed on its re-run.
+
+    The gate let the flake through, so the orchestrator is the one told it happened: the run
+    id, the command and the last line its first failure printed.  Written under the lock
+    `append_followups` rewrites the file under, so neither loses the other's line.  A direct
+    caller with no record, or a run with no repository, has no file to write to.
+    """
+    repo = (read_state(run_dir) or {}).get("repo") if run_dir else None
+    if not repo:
+        return
+    if len(last) > 160:
+        last = last[:159] + "\u2026"
+    day = time.strftime("%Y-%m-%d", time.localtime())
+    directory = config.HOME / "followups"
+    try:
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with (directory / ".lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            with (directory / f"{Path(repo).name}.md").open("a", errors="replace") as out:
+                out.write(f"- {day} run {Path(run_dir).name}: flaky: {cmd} failed, then passed "
+                          f"on its re-run; its first failure ended: {last}\n")
+    except OSError:
+        pass              # the gate output already says it; the file is the copy
 
 
 def commit_leftovers(wt, log, artifacts):
@@ -2918,10 +2966,15 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                                for cmd in lp.once)
                     + "\nThese run after this review passes; their absence here is by design "
                       "and is never a finding.")
+    flaky = ""
+    if re.search(r"^flaky: ", dw_log or "", re.M):
+        flaky = ("A `flaky:` record is ak's own rule, not a weakened check: a done-when command "
+                 "that fails runs once more at once, and it passes if that re-run does.")
     lp.log(f"--- round {lp.rnd}: reviewer {lp.reviewer}")
     rbody = (f"{lp.body}\n\n{work}\n\n"
              f"## Executor summary\n{summary}\n\n{heading}\n"
              + (f"{deferred}\n" if deferred else "")
+             + (f"{flaky}\n" if flaky else "")
              + f"```\n{dw_log}\n```")
     if preface:
         rbody = f"{preface}\n\n{rbody}"
