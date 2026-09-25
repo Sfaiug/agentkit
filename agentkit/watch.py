@@ -1485,8 +1485,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       login no harness owns, and is said only on the seats whose runs cannot push without it;
     * a worker token dies within a fortnight or is dead -- every session says so, on any
       harness, because any seat's next turn on it can be the one that fails;
-    * typed text nobody sent, or a question on its screen, with no turn in flight and no
-      client attached, is him -- `unsent: <text>`, or the question -- whatever its runs do;
+    * a question on its screen, or typed text nobody sent while no client is attached, with
+      no turn in flight, is him -- the question, or `unsent: <text>` -- whatever its runs do;
     * a run it launched is unfinished and resumes itself, so the seat is working;
     * an error it launched is parked with no scheduled resume and still needs his
       attention -- recent, unacknowledged, not handed back or superseded;
@@ -1677,12 +1677,14 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "needs you", "reason": reason, "since": since}
     # 1d. typed text nobody sent, or a question on its screen, at a quiet prompt: that is
     # him, whatever its runs are doing.  Three seats read `working` over his own unsent
-    # text for nineteen hours while he believed each had his message.  Not while a client
-    # is attached to the seat, where the draft is his typing and the seat reads as its runs
-    # and its turn say; and a seat nobody is in has no screen, so its record is history.
+    # text for nineteen hours while he believed each had his message.  A draft is not that
+    # while a client is attached to the seat -- it is his typing, and the seat reads as its
+    # runs and its turn say -- but a question is his to answer wherever he is, and its card
+    # is held back while he is in the seat by the card rule itself.  A seat nobody is in has
+    # no screen, so its record is history.
     gone = any(session.get(key) for key in orch.CLOSED)
-    if (harness and not gone and not session.get("attached")
-            and found.get("state") in ("asking", "draft")
+    if (harness and not gone and found.get("state") in ("asking", "draft")
+            and (found["state"] == "asking" or not session.get("attached"))
             and not _turn_in_flight(harness, found)[0]):
         asked = " ".join(str(found.get("evidence") or "").split())
         if found.get("state") == "draft":

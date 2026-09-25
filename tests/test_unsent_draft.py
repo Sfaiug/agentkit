@@ -188,6 +188,18 @@ class UnsentDraft(Sandbox):
         self.assertEqual(self.edits, [("1", "Answered")])
         self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
 
+    def test_c2_a_question_is_his_wherever_he_is_and_no_card_goes_while_he_is_in(self):
+        # A question on the screen is not his typing: a client left attached to the seat
+        # never turns it into `working`, and the card rule alone holds the card while he is in
+        self.going()
+        self.fact("Notification", kind="permission_prompt", text=BASH)
+        self.pane = ASKING
+        self.attached = True
+        self.assertEqual(self.decide(), ("needs you", BASH))
+        self.tick()
+        self.tick(120)
+        self.assertEqual(self.posts, [])
+
     def test_d_a_draft_mid_turn_stays_working(self):
         # The composer is the turn's while it runs: Claude's hook says so, and no draft rule
         # talks the row out of it -- with runs going, and without
