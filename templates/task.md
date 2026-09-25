@@ -11,7 +11,8 @@ The outcome this task must achieve.
 - Three rounds is the budget (`rounds` defaults to 3).
 
 ## Done when
-Commands must exit 0. Mark the whole suite `# once` to run on the final commit.
+Commands must exit 0. When the repository's AGENTS.md declares `tests:`, list only the checks for this change:
+ak runs that suite once, on the final commit. Otherwise mark the whole suite `# once` to run there.
 
 ```bash
 python3 tests/test_foo.py

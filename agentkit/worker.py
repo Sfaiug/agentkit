@@ -192,7 +192,8 @@ PREAMBLES = {
         "single targeted command only when it is needed to establish or dismiss a finding. Judge "
         "the diff against the task and its done-when criteria. "
         "A check the executor weakened, skipped or deleted is a FAIL unless the task asked for "
-        "exactly that. "
+        "exactly that. The full suite a repository declares as `tests:` in its AGENTS.md runs "
+        "once, in the final check; a task whose done-when leaves it out has weakened no check. "
         f"{GATE} {ONE_PASS} Finish with a line "
         "exactly `VERDICT: PASS` or `VERDICT: FAIL`, then `## Findings` as a list of "
         "`path:line - issue - why it matters` for blocking findings only."),

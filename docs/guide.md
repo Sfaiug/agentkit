@@ -63,8 +63,10 @@ under `## Done when` whose every command must exit 0. Optional front matter: `re
 scratch workspace), `base` (the repo's default branch), `target` (the branch the PR merges into, default `base`), `from`
 (a local branch to cut from), `merge` (`squash`, `merge` or `rebase`), `rounds` (3, the most), `after` (a job
 dependency, repeatable). A check ending in `# once` runs only on the commit that ships; the reviewer sees it marked
-deferred. The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt, up to 4 KB;
-past that, the run's hand-back names the file and asks the orchestrator to tighten it.
+deferred. The full suite a repository names as `tests:` in its `AGENTS.md` front matter is such a check in every run
+there, and a done-when line with the same command runs once with it, so a task lists only the checks for its change.
+The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt, up to 4 KB; past
+that, the run's hand-back names the file and asks the orchestrator to tighten it.
 
 One behaviour per task. A launch is refused when the goal has more than three numbered points, the body more than 500
 words outside the checks block, the checks more than six commands or `rounds` more than three, whatever `--anyway` says;
@@ -291,8 +293,9 @@ was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-
   no workspace changes it. For Muse `usage_model` and `usage_effort`: the one cached request its meters come from.
 
 Secrets are in `~/.agentkit/secrets/`: `discord_webhook`, `discord_user_id` and `claude_oauth_token` (the worker token
-`claude setup-token` mints, dated a year from its file). A repository's `AGENTS.md` front matter holds `tests:` for
-reviewing others' PRs and `users:` (above); task files go by convention in `~/.agentkit/tasks/<repo>/`.
+`claude setup-token` mints, dated a year from its file). A repository's `AGENTS.md` front matter holds `tests:`, its
+full suite, which each run there runs once on the commit that ships and a review of others' PRs runs as its check, and
+`users:` (above); task files go by convention in `~/.agentkit/tasks/<repo>/`.
 
 ## Adding a model or a harness
 

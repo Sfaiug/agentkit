@@ -1,3 +1,7 @@
+---
+users: none
+tests: bash tests/smoke.sh
+---
 # agentkit, for an agent working on it
 
 - Python 3.11 standard library and bash. No dependency is added, ever.

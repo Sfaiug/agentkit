@@ -531,6 +531,19 @@ def done_when_groups(body, path):
     return group_commands(done_when(body, path))
 
 
+def with_suite(cmds, wt):
+    """The done-when commands plus the checkout's declared `tests:` suite as a `# once` line.
+
+    A repository names its full suite once, in AGENTS.md, rather than every task writing it
+    into every round: it runs in the final check on the commit about to ship and nowhere
+    else.  A task line that is the same command is that line, so it runs once, not twice.
+    """
+    suite = declared(wt, "tests")
+    if not suite:
+        return cmds
+    return [cmd for cmd in cmds if split_once(cmd)[0] != suite] + [f"{suite}  # once"]
+
+
 def task_points(body):
     """Numbered points in the task's `## Goal` section: `1.` or `1)` with text after it."""
     section = re.search(r"^##\s+Goal\s*$(.*?)(?=^##\s|\Z)", body, re.S | re.M | re.I)
@@ -4527,7 +4540,9 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         target = state.get("target") or state["base"]
         where = (f"Repo checkout: {wt}\nBranch: {state['branch']} (based on {state['base']}"
                  + (f", to be merged into {target}" if target != state["base"] else "") + ")")
-    every, once = done_when_groups(body, task_path)
+    if not state.get("scratch"):
+        cmds = with_suite(cmds, wt)
+    every, once = group_commands(cmds)
     body += project_lessons(repo, state, log)
     save_state(run_dir, state)
     context = (f"{where}\n\n{body}\n\n"
@@ -9777,7 +9792,7 @@ def cmd_merge(argv):
     if state.get("pr") and not head:
         raise config.Error(f"{argv[0]}: no recorded delivery SHA; cannot safely retry the merge")
     _, body, _ = parse_task(run_dir / "task.md")
-    cmds = done_when(body, run_dir / "task.md")
+    cmds = with_suite(done_when(body, run_dir / "task.md"), state["worktree"])
     body += project_lessons(state.get("repo") or None, state, log)
     lp = Loop(cfg, run_dir, state, {}, log, Path(state["worktree"]),
               body, cmds, f"Repo checkout: {state['worktree']}\n\n{body}", [])
