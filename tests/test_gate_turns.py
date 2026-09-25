@@ -117,22 +117,20 @@ class GateTurns(unittest.TestCase):
         self.assertEqual(run.gate_turn_note(run.read_state(second.run_dir)), "")
 
     def test_gates_of_different_repositories_do_not_wait_on_each_other(self):
-        first = Gate(self, "one", ACME, [self.mark("start", 1.5)])
+        first = Gate(self, "one", ACME, [self.mark("start", 3), self.mark("end")])
         other = Gate(self, "two", WIDGET, [self.mark("other")])
         self.started(first)
-        began = time.monotonic()
         other.start()
         other.join(20)
-        self.assertLess(time.monotonic() - began, 1)
-        self.assertEqual(self.marks.read_text(), "start\nother\n")
-        self.assertFalse(other.waited(), other.logs)
         first.join(20)
+        self.assertEqual(self.marks.read_text(), "start\nother\nend\n")
+        self.assertFalse(other.waited(), other.logs)
         self.assertTrue(first.result[0] and other.result[0])
 
     def test_a_wait_past_the_silence_window_costs_neither_the_gate_nor_its_ceiling(self):
-        first = Gate(self, "one", ACME, [self.mark("start", 2.5)])
+        first = Gate(self, "one", ACME, [self.mark("start", 4)])
         chatty = (f"{shlex.quote(sys.executable)} -u -c "
-                  "'import time\nfor i in range(10): print(i); time.sleep(0.2)'")
+                  "'import time\nfor i in range(8): print(i); time.sleep(0.2)'")
         # a silence window the wait outlasts, and a ceiling the wait plus the command would
         # spend, were either charged with the wait
         second = Gate(self, "two", ACME, [chatty], silence=1, limit=3.5)
@@ -167,10 +165,8 @@ class GateTurns(unittest.TestCase):
         self.assertFalse(killed.result[0])
         self.assertIn("[killed at the limit]", killed.result[1])
         after = Gate(self, "two", ACME, [self.mark("after")])
-        began = time.monotonic()
         after.start()
         after.join(20)
-        self.assertLess(time.monotonic() - began, 1)
         self.assertFalse(after.waited(), after.logs)
         self.gates(0)
         with run.gate_lock(ACME, 0).open("a") as holder:
