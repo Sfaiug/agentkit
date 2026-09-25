@@ -1,8 +1,8 @@
 """A seat is filed under its project while its runs still wait for a slot.
 
 A run votes for the seat that launched it from the moment it is queued: for the checkout its
-task works in, else for the one its task folder is named for, settled once by the launch and
-the same once it starts.  A seat whose record says no project is filed at the next menu draw or
+task's `repo:` names, else for the one its task folder is named for, never for one it merely
+inherits, and for the same one once it starts.  A seat whose record says no project is filed at the next menu draw or
 `ak watch` tick once one of its runs votes, from the run records that pass has read anyway.
 """
 
@@ -62,12 +62,12 @@ class QueuedRunFilesSeat(Sandbox):
         self.assertEqual(run.read_state(directory)["state"], "queued")
         return directory
 
-    def waiting(self, name, repo, state="queued"):
+    def waiting(self, name, repo, **extra):
         """A receipt from before a queued run had a vote: nothing filed its seat."""
         directory = self.task(name, repo)
-        run.save_state(directory, {"run_id": name, "state": state, "slot_waiting": True,
+        run.save_state(directory, {"run_id": name, "state": "queued", "slot_waiting": True,
                                    "launched_session": "fix-api", "started_at": 9000,
-                                   "queued_at": 9000, **run.process_owner()})
+                                   "queued_at": 9000, **run.process_owner(), **extra})
         return directory
 
     def repo(self):
@@ -138,7 +138,7 @@ class QueuedRunFilesSeat(Sandbox):
                 ("named", self.acme, None, REPO, self.acme),
                 ("scratch", "none", tasks / "check.md", REPO, self.acme),
                 ("relative", ".", None, self.acme, self.acme),
-                ("inherited", None, tasks / "check.md", self.beta, self.beta)):
+                ("inherited", None, tasks / "check.md", self.beta, self.acme)):
             with self.subTest(name):
                 shutil.rmtree(config.RUNS)                # this run the seat's only one
                 config.update_session("fix-api", repo=None)
@@ -167,6 +167,10 @@ class QueuedRunFilesSeat(Sandbox):
                              {"--rounds": "1", "--no-worktree": False, "--no-merge": True,
                               "--exec": None, "--review": None}, lambda _: None)
                 self.assertEqual(seen, [(project, str(project))])
+        # A receipt from before the field: the same vote queued and once it works in `beta`.
+        legacy = run.read_state(self.waiting("legacy", None, task_file=str(tasks / "check.md")))
+        for state in (legacy, {**legacy, "repo": str(self.beta), "scratch": False}):
+            self.assertEqual(run.run_project(state), self.acme)
 
 
 if __name__ == "__main__":

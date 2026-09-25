@@ -5105,24 +5105,21 @@ def launched_session(state):
 def run_project(state):
     """The checkout a run's work belongs to, or None when it belongs to none.
 
-    `project` is settled once, by the process that launched the run (`preflight`), so the run
-    votes for the same checkout while it waits for a slot and once it works, whoever reads it
-    from wherever.  A run launched before the field existed belongs to the repository it works
-    on; still queued, it has none yet and belongs to the one its task's `repo:` names -- only
-    as an absolute path, since a relative one meant the launch's directory, which nobody
-    recorded -- and otherwise to its task folder's (`task_project`).
+    A run belongs to the checkout its task's `repo:` names, else to its task folder's
+    (`task_project`), never to one it merely inherits from where it was launched.  `project`
+    is that answer, settled once by the process that launched the run (`preflight`), where a
+    relative `repo:` still means something; so the run votes the same while it waits for a slot
+    and once it works, whoever reads it from wherever.  A run launched before the field existed
+    is read the same way from its task, a relative `repo:` naming nothing any more; one with no
+    task to read belongs to the repository it works on.
     """
     if "project" in state:
         return orch.checkout_of(state["project"])
-    if state.get("repo"):
-        return orch.checkout_of(state["repo"])
-    named = Path()
-    if not state.get("scratch"):
-        try:
-            named = Path(parse_task(config.RUNS / state["run_id"] / "task.md")[0].get("repo")
-                         or "").expanduser()
-        except (KeyError, TypeError, OSError, ValueError, config.Error):
-            pass
+    try:
+        meta = parse_task(config.RUNS / state["run_id"] / "task.md")[0]
+    except (KeyError, TypeError, OSError, ValueError, config.Error):
+        return task_project(state.get("repo"), state.get("task_file"))
+    named = Path(meta.get("repo") or "").expanduser()
     return task_project(named if named.is_absolute() else None, state.get("task_file"))
 
 
@@ -9661,7 +9658,7 @@ def preflight(run_dir, opts, log):
         # same queued and once it works (`run_project`), and the seat is filed now.  Resolved
         # here because only the process that launched the run stands in the checkout the task
         # inherits when it names none, or the one a relative `repo:` means.
-        checkout = task_project(repo, state.get("task_file"))
+        checkout = task_project(repo if meta.get("repo") else None, state.get("task_file"))
         save_state(run_dir, {**(read_state(run_dir) or {}),
                              "no_merge": bool(opts["--no-merge"]) or repo is None,
                              "project": str(checkout) if checkout else None})
