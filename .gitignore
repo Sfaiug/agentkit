@@ -4,6 +4,7 @@ __pycache__/
 .acceptance-*
 .phone-*
 # test sandboxes: a killed suite leaves these inside the checkout; the loop never commits them
+.after-from-pass-*
 .auth-watch-*
 .cards-*
 .changed-checks-*
