@@ -152,7 +152,7 @@ A session is `● working`, `! needs you` or `✓ done`, and nothing else exists
 decides which, and every screen reads that answer: the menu row, the project heading, the top line, `ak orch list`, `ak
 orch why`, the status bar and the window title. A seat's own hook event (a turn begun or ended, a question) decides it again at once, in the background, and an open menu draws again, as recorded, within two seconds of any seat's record changing. Its ladder, top first: a login this harness needs has expired (its own,
 or the one a run it launched is parked on, or `gh` while a run owes a push) is `needs you`; the Claude worker token
-dying within a fortnight is `needs you` on every seat; a run it launched that is unfinished is `working`, whether going
+dying within a fortnight is `needs you` on every seat; typed text nobody sent, or a question on its screen, with no turn in flight and no client attached, is `needs you` (`unsent: <text>`, or the question) whatever its runs are doing, and with a client attached it is his typing, which reads as the rungs below say; a run it launched that is unfinished is `working`, whether going
 or waiting for a slot, window, target change or login the tick lifts by itself, or an error with a scheduled retry, or
 parked `stalled` or `exhausted` and handed back for the orchestrator to resume; a seat that ended its turn on `ak wait <session>` is `working` with `waiting on <session>` while that session itself reads `working` by its own runs or turn, never by a wait of its own, until the seat's next `ak wait` or `ak notify`; an error with no automatic resume that
 still needs attention (see below) is `needs you` (`run <id> parked: <reason>`); a harness turn in flight is `working`;

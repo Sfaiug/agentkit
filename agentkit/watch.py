@@ -1485,6 +1485,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       login no harness owns, and is said only on the seats whose runs cannot push without it;
     * a worker token dies within a fortnight or is dead -- every session says so, on any
       harness, because any seat's next turn on it can be the one that fails;
+    * typed text nobody sent, or a question on its screen, with no turn in flight and no
+      client attached, is him -- `unsent: <text>`, or the question -- whatever its runs do;
     * a run it launched is unfinished and resumes itself, so the seat is working;
     * an error it launched is parked with no scheduled resume and still needs his
       attention -- recent, unacknowledged, not handed back or superseded;
@@ -1673,6 +1675,20 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     reason, since = token_alert(token_out)
     if reason:
         return {"word": "needs you", "reason": reason, "since": since}
+    # 1d. typed text nobody sent, or a question on its screen, at a quiet prompt: that is
+    # him, whatever its runs are doing.  Three seats read `working` over his own unsent
+    # text for nineteen hours while he believed each had his message.  Not while a client
+    # is attached to the seat, where the draft is his typing and the seat reads as its runs
+    # and its turn say; and a seat nobody is in has no screen, so its record is history.
+    gone = any(session.get(key) for key in orch.CLOSED)
+    if (harness and not gone and not session.get("attached")
+            and found.get("state") in ("asking", "draft")
+            and not _turn_in_flight(harness, found)[0]):
+        asked = " ".join(str(found.get("evidence") or "").split())
+        if found.get("state") == "draft":
+            asked = f"unsent: {asked}"
+        return {"word": "needs you", "reason": asked or "waiting for you",
+                "since": found.get("began")}
     # 2. a run of its own is unfinished and resumes itself: the seat is working
     going = [(run_dir, state) for run_dir, state in mine if run_mod.going(state, now=at)]
     if going:
@@ -1703,7 +1719,6 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     wait = waiting_on(name, records, at, cfg) if waits else None
     if wait:
         return {"word": "working", "reason": f"waiting on {wait['on']}", "since": wait["at"]}
-    gone = any(session.get(key) for key in orch.CLOSED)
     # 2b. ... or a run of its own is parked with no scheduled resume: then it is
     # him the run waits for, only while the same ending still counts in his tally.
     # An acknowledged, handed-back, superseded or aged-out error is nobody's new
