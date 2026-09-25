@@ -111,7 +111,8 @@ class SeatBar(Sandbox):
         self.job("job-new", "fix-api", ["merged", "passed", "running", "queued"])
         self.job("job-old-name", "api-fix", ["skipped", "failed", "waiting"])   # resolves here
         self.job("job-finished", "fix-api", ["merged"] * 5, finished_at=NOW - DAY)
-        self.job("job-elsewhere", "web-portal", ["merged", "queued"])
+        # another seat's job is never this one's, even in a directory named after it
+        self.job("fix-api", "web-portal", ["merged", "queued"])
         word, last, row, bar = self.drawn(seat)
         self.assertEqual(word, "working")
         # merged, passed and skipped are done, of every task of the two unfinished jobs
@@ -119,6 +120,7 @@ class SeatBar(Sandbox):
         self.assertEqual(last, f"tasks {terminal.progress_bar(3, 7)}")
         self.assertIn(last, row)
         self.assertIn(last, bar)
+        self.assertEqual(menu.seat_progress("web-portal"), (1, 2))
         # a plan, once there is one, is what the bar reads
         self.plan("fix-api", 1, 2)
         self.assertIn("1/2", self.drawn(seat)[1])
@@ -142,7 +144,7 @@ class SeatBar(Sandbox):
         seat = self.seat("fix-api")
         self.going("20260101-0900-going", "fix-api")
         self.job("job-finished", "fix-api", ["merged"], finished_at=NOW - DAY)
-        self.job("job-elsewhere", "web-portal", ["queued"])
+        self.job("fix-api", "web-portal", ["queued"])      # its directory's name is no owner
         word, last, row, bar = self.drawn(seat)
         self.assertEqual(word, "working")
         self.assertEqual(last, "")

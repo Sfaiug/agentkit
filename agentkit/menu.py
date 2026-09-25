@@ -552,8 +552,9 @@ def job_for_seat(seat_name):
     """(done, total, waiting_on) over the seat's unfinished jobs, or None without one. No fake bar.
 
     Reads ~/.agentkit/jobs/*/job.json when present, nothing when absent. A job is the seat's
-    until it records `finished_at`, when the seat it names leads here through rename
-    pointers: an orchestrator renamed since launched it under its old name. `done` is
+    until it records `finished_at`, when its `seat` -- that field alone, never the job's
+    directory name -- leads here through rename pointers: an orchestrator renamed since
+    launched it under its old name. `done` is
     tasks merged, passed or skipped of all those jobs' tasks; `waiting_on` is the first
     job's `waiting on <dep>` sentence. Unreadable or task-less jobs are no job at all.
     """
@@ -574,12 +575,11 @@ def job_for_seat(seat_name):
             continue
         if not isinstance(job, dict) or job.get("finished_at"):
             continue
-        owner = job.get("seat") or job.get("session") or job.get("owner")
         try:
-            owner = config.resolve_session(owner) if isinstance(owner, str) else owner
+            owner = config.resolve_session(job["seat"]) if isinstance(job.get("seat"), str) else None
         except config.Error:
-            pass
-        if owner != seat_name and entry.name != seat_name:
+            owner = None
+        if owner != seat_name:
             continue
         said = (job.get("waiting_on") or job.get("waiting") or
                 job.get("waiting_for") or job.get("blocked_on"))
