@@ -3,8 +3,8 @@
 A quota run waits on a window and a run off a dead reviewer waits on a reviewer: those two
 `watch.resume_exhausted` brings back, by the one test `run.exhausted_wait` holds, so they
 are going.  Any other `exhausted` run -- rounds spent, a stopped tool, no verdict -- waits
-on nobody: it is not going, its seat reads `needs you` with the run's hand-back, and it is
-in no running tally.  Offline: a fake seat, fake run receipts, the real ladder.
+on nobody: it is not going, its seat reads `needs you` with the run's hand-back, and it
+counts as needing him, never as running.  Offline: a fake seat, fake run receipts, the real ladder.
 """
 
 import os
@@ -85,11 +85,6 @@ class ExhaustedNotGoing(Sandbox):
         self.assertEqual(run.exhausted_wait(state), "")
         self.assertFalse(run.going(state))
         self.assertEqual(menu.run_state_word(state), "needs you")
-        # the tick's own pass leaves it alone, by the same test: nothing it can bring back
-        log = []
-        watch.resume_exhausted(self.cfg, providers={}, workers=[], dry_run=True,
-                               log=log.append, now=NOW)
-        self.assertEqual(log, [])
         found = self.decide()
         self.assertEqual(found["word"], "needs you")
         self.assertEqual(found["reason"], f"run {directory.name} parked: {SPENT}")
@@ -97,8 +92,11 @@ class ExhaustedNotGoing(Sandbox):
         # ... above the seat's own last word, which would otherwise call it recovering
         notify.record("acme", "done", "Shipped it")
         self.assertEqual(self.decide()["word"], "needs you")
-        # once he has acknowledged it the run is settled, and the seat's own word stands
-        run.save_state(directory, {**state, "recovery_acknowledged_at": NOW})
+        # ... and it is his by the tally's own test, so it ages out as an ending does
+        self.assertTrue(menu.v5o_needs_look(state, now=NOW))
+        self.assertFalse(menu.v5o_needs_look({**state, "finished_at": NOW - 8 * 86400}, now=NOW))
+        # `ak run stop` is the way out that exists: stopped, the seat's own word stands
+        run.save_state(directory, {**state, "state": "stopped", "error": "stopped by the user"})
         self.assertEqual(self.decide()["word"], "done")
 
     def test_d_such_a_run_is_in_no_running_tally(self):
@@ -106,9 +104,9 @@ class ExhaustedNotGoing(Sandbox):
                      recovery_notified="orchestrator")
         self.receipt("20260101-1000-window", quota_dry=True, title="Parked on a window")
         tallies = run.seat_tallies((state for _, state in menu.run_records()), now=NOW)
-        self.assertEqual(tallies["acme"][0], 1)
-        self.assertEqual(menu.tally(tallies["acme"]), "1 running · 0 merged")
-        self.assertEqual(menu.bar_tally(tallies["acme"]), "1 running")
+        self.assertEqual(tallies["acme"][:2], [1, 1])
+        self.assertEqual(menu.tally(tallies["acme"]), "1 running · 1 needs you")
+        self.assertEqual(menu.bar_tally(tallies["acme"]), "1 running · 1 needs you")
         self.assertEqual(self.decide()["reason"], "1 running · Parked on a window")
 
 

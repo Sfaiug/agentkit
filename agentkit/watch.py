@@ -1751,19 +1751,17 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # him the run waits for, only while the same ending still counts in his tally.
     # An acknowledged, handed-back, superseded or aged-out error is nobody's new
     # question. A merge wait whose admission expired is history, not a new error.
-    # An exhausted run the tick cannot resume is not an ending: told or not, the seat
-    # keeps it unfinished until he resumes or acknowledges it, so it is his now.
+    # An exhausted run the tick cannot resume is no ending: told or not, it stays
+    # unfinished until he resumes or stops it, so it is his -- by the tally's own test,
+    # so it ages out and is superseded as an error is.
     # A gone seat still names its own number below instead: the number
     # is the way back to the run, never the run itself.
     if not gone:
         if index is None:
             index = run_mod.supersession_index(records)
         parked = [(run_dir, state) for run_dir, state in mine
-                  if state.get("state") == "error"
-                  and menu_mod.v5o_needs_look(state, index=index, now=at)
-                  or state.get("state") == "exhausted"
-                  and not run_mod.going(state, now=at)
-                  and not state.get("recovery_acknowledged_at")]
+                  if state.get("state") in ("error", "exhausted")
+                  and menu_mod.v5o_needs_look(state, index=index, now=at)]
         if parked:
             run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
             return {"word": "needs you", "since": first.get("finished_at"),

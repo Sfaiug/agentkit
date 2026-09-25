@@ -689,10 +689,11 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
     """Whether an ending is still his: unreplaced, unacknowledged and this week's.
 
     Five endings are his -- a FAIL, an unscheduled error, a `blocked`, an interruption
-    and a PASS nobody merged -- and nothing else is, and only while nobody else has
-    it. A run
-    parked `exhausted` or `stalled` is the
-    loop's, the tick's or the seat's to take on when a window refills or a stall
+    and a PASS nobody merged -- and so is an `exhausted` run the tick cannot resume
+    (`run.exhausted_wait`), which is no ending: told or not, it stays unfinished until
+    `ak run resume` or `ak run stop`. Nothing else is, and only while nobody else has
+    it. A run parked `exhausted` on a window or a dead reviewer, or `stalled`, is the
+    tick's to take on when the window refills, the reviewer is back or the stall
     is recovered, an error with a scheduled retry is the tick's the same way, and
     a `queued` or `running` one is nobody's problem yet. An
     ending older than run.GC_AGE has aged out and counts for nobody, acknowledged
@@ -708,13 +709,15 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
     from . import run as _run
     if state.get("recovery_acknowledged_at"):
         return False
-    if state.get("state") == "error" and _run.going(state, now=now):
-        return False  # the tick owns its retry; nothing here needs him
-    if state.get("handed_back") or state.get("handback_pending"):
-        return False
+    if state.get("state") in ("error", "exhausted") and _run.going(state, now=now):
+        return False  # the tick owns its retry or its resume; nothing here needs him
+    if state.get("state") != "exhausted" and (state.get("handed_back")
+                                              or state.get("handback_pending")):
+        return False  # a hand-back settles an ending; an exhausted run stays unfinished
     if state.get("merged"):
         return False
-    if state.get("state") not in ("fail", "error", "blocked", "interrupted", "pass"):
+    if state.get("state") not in ("fail", "error", "blocked", "interrupted", "pass",
+                                  "exhausted"):
         return False
     at = time.time() if now is None else now
     ended = (state.get("finished_at") or state.get("interrupted_at")
@@ -1782,9 +1785,10 @@ def run_state_word(state):
     """The listings' word for a run, read from terminal.STATES.
 
     A run is working, needs you or done, like everything else here. Still queued or
-    running, and parked on a provider window, a stall or a scheduled error retry it
-    resumes itself from, is `working`; an interruption, a FAIL, an unscheduled error
-    and a `blocked` are `needs you`, because nobody is going to take them up unless
+    running, and parked on a provider window, a dead reviewer, a stall or a scheduled
+    error retry it resumes itself from, is `working`; an interruption, a FAIL, an
+    unscheduled error, a `blocked` and an `exhausted` run nothing resumes are `needs
+    you`, because nobody is going to take them up unless
     he does; a run that passed, one stopped on purpose, or a merge wait the tick no
     longer admits is `done`. The last is history, not a fresh ending to page him for. What it is
     waiting for, what failed, or what blocked it, lives on its note line, since the
@@ -1864,8 +1868,9 @@ def run_row(number, run_dir, state, providers=None, cfg=None):
     outcome = (run.whereabouts(state, short=True) if word == "done" else
                state.get("state") or "" if word != "working" else "")
     if state.get("state") in ("exhausted", "waiting_login"):
-        # the run waits for a provider window or an expired login, and lifts by itself;
-        # its drill-down keeps the state word
+        # the run waits for a provider window, a reviewer or an expired login and lifts by
+        # itself -- or, exhausted with nothing to resume it, for him; its drill-down keeps
+        # the state word
         outcome = run.waiting_word(state, providers=providers, cfg=cfg)
     elif state.get("state") == "queued":
         # The host reason belongs to `ak run status`; menu rows retain only `waiting`.
