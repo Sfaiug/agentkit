@@ -13,7 +13,7 @@ your projects · 3 need you
 
 ATOLL
   2  atoll-plan  fable  ! needs you  waiting for you
-  1  atoll-fix   fable  ● working    1 running
+  1  atoll-fix   fable  ● working
 
 agentkit
   3  menu        fable  ! needs you  waiting for you

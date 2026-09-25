@@ -154,7 +154,7 @@ nobody in the seat any more is `needs you` with `session closed: press N to reop
 with the question it asked or `waiting for you`. `ak orch why <seat>` says what decided it, on what evidence, since when.
 
 A row is number, name, orchestrator, state, and one last column: the reason for `needs you` and `done`, and for
-`working` the plan bar (`tasks ██░░░ 2/5`, from `~/.agentkit/state/plan-<session>.md`, and what history says the rest takes: `· ~45m left`, `· ~5h left`, `· ~36d left`) else `N running` else empty. An
+`working` the tasks bar (`tasks ██░░░ 2/5`, from `~/.agentkit/state/plan-<session>.md` under the seat's name or any name it was renamed from, the newest such plan winning, else from its unfinished jobs' tasks, and what history says the rest takes: `· ~45m left`, `· ~5h left`, `· ~36d left`) else empty, never `N running`. An
 ended run is its orchestrator's business. `needs you` and `done` are messages, and opening the session is reading them.
 Runs keep those row words in `ak run status`, with the parked state and its retry on the dim line; a wait that lifts
 itself has an open circle (`○ waiting for claude login`), which is not a fourth session state.

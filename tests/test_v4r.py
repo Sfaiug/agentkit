@@ -116,8 +116,9 @@ class UsageLeft(Sandbox):
                 self.assertNotIn("scratch", sessions)
                 self.assertNotIn("11 runs", sessions)
                 self.assertIn("\n  n new" if width == 100 else "n new", sessions)
-                # A working seat without a plan reads `N running`; titles fold away.
-                self.assertIn("1 running", text)
+                # A working seat without a plan or a job reads empty, never `N running`;
+                # titles fold away.
+                self.assertNotIn("1 running", text)
                 self.assertNotIn("Hidden active work-run", text)
                 self.assertNotRegex(text, "smoke|more · r|no runs going")
                 self.assertNotIn("opus/astra", text)

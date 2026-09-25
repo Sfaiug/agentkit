@@ -62,9 +62,10 @@ a heading seats sort needs you, then working, then done, then by name, and
 numbers stay global by seat name. The seat row's last column is the reason for
 `needs you` and `done` -- `session closed: press 2 to reopen`, the question
 the seat asked, `waiting for you`, the done summary's first line -- and for
-`working` the plan bar when the session has one (`tasks ██░░░ 2/5` from
-`~/.agentkit/state/plan-<session>.md`), else `N running` when runs are going,
-else empty. No row ever names a run: an ended run is its orchestrator's
+`working` the tasks bar (`tasks ██░░░ 2/5`) from the session's plan,
+`~/.agentkit/state/plan-<session>.md` under its name or any name it was renamed
+from (the newest wins), else from its unfinished jobs' tasks, else empty --
+never `N running`. No row ever names a run: an ended run is its orchestrator's
 business.
 
 ## Keys

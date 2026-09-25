@@ -1,13 +1,20 @@
 agentkit                           14:02
 ────────────────────────────────────────
 
+  usage left
+  Claude   ███░░░░░░░░░   21% left
+  MiMo     —  no reading yet
+  Muse     ██████░░░░░░   50% left
+  Gemini   —  no reading yet
+  ChatGPT  ████████░░░░   69% left
+  Grok     —  no reading yet
+
 your projects · 3 need you
 
 ATOLL
   2  atoll-plan  fable  ! needs you
     waiting for you
   1  atoll-fix   fable  ● working
-    1 running
 
 agentkit
   3  menu        fable  ! needs you
