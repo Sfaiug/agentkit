@@ -23,9 +23,8 @@ project is filed at the next menu draw or `ak watch` tick once one of its runs c
 
 The orchestrator is launched with `orchestrator.md` as its rulebook, plus `~/.agentkit/rules.md` where you wrote one on
 this host, handed over by its adapter for that launch only (Antigravity's as the body of an `--agent` definition in
-`~/.agentkit/state/antigravity`) and never written into your own `~/.claude`, `~/.codex` or `~/.gemini` (what
-`install.sh` does write there is under The installer). A project's own `AGENTS.md` or `CLAUDE.md` holds that project's
-conventions, read the way any checkout is read, and is never the place for agentkit's rules.
+`~/.agentkit/state/antigravity`) and never written into your own `~/.claude`, `~/.codex` or `~/.gemini`. A project's own
+`AGENTS.md` or `CLAUDE.md` holds its conventions and is never the place for agentkit's rules.
 
 At every turn's end `hooks/orchestrator-stop.sh` sends the turn back with *Continue: decide the next step and do it*
 unless the last paragraph asks something, `ak notify needs` or `ak notify done` was recorded, a run of this seat's is
@@ -43,10 +42,9 @@ at or above 40,000 tokens, the harness's own compact command is typed once at a 
 does a harness with no compact command or no reported context size; `ak orch list --why` says why.
 
 Any harness can hold the seat: `--model astra` opens Codex, `--model spark` opens Muse. A Claude seat owns its
-conversation from launch by a uuid, a Codex seat proves its thread through a launch receipt, an OpenCode seat's own
-plugin writes the session OpenCode opened for it into a receipt of that launch, and Muse and Antigravity open a new
-conversation each time. A seat whose harness exited keeps its window, its row saying `session closed: press N to
-reopen`. A dead, detached seat nobody has opened for seven days is retired, and a record seven days gone from tmux is
+conversation from launch by a uuid, a Codex seat proves its thread, and an OpenCode seat's plugin the session OpenCode
+opened, through a launch receipt, and Muse and Antigravity open a new one each time. A seat whose harness exited keeps
+its window. A dead, detached seat nobody has opened for seven days is retired, and a record seven days gone from tmux is
 swept, unless a run of the seat's is unfinished or a question in it is unread; then the name is free again.
 
 Stopping a session (`x` on its highlighted row, after its one question under the row, `Keep` or `Stop`; `x` on a done session and `ak orch stop <name>` ask
@@ -78,49 +76,45 @@ smaller of 4 GB and 40% of the slice ceiling unless `run_memory_max_mb` sets it,
 A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run
 scope and cap; one run from a terminal runs its tasks in its own process.
 
-The worktree is `~/.agentkit/wt/<id>` on branch `ak/<slug>`, the first name free both locally and on `origin`. The
-executor writes and commits, running its commands in the foreground. The loop runs the checks itself and hands the diff
-and their output to the reviewer, a different model, on another provider where the selected workers allow it; it never
-re-runs them and answers `VERDICT: PASS` or `VERDICT: FAIL`, and one with no verdict is asked once more, never failed. A
-round is FAIL only for a blocking finding: a correctness defect, a safety or data-loss risk, a weakened check, or work
-outside the task. Everything else goes under `## Follow-ups`, which never fails a round; the loop writes those into the
-PR description and appends them to `~/.agentkit/followups/<repo>.md`, which the orchestrator reads before the next task.
-An item at the `path:line` of an open one, or in its words, is not appended again; a file of the same name in another
-case is merged in once; and past 24 KB the oldest items move to `<repo>.archive.md`, which keeps them all. A FAIL starts
-a fix round with the findings. Three rounds is the budget: at the third FAIL the run ends `fail`, hands back its open
-findings (their first 600 characters) with `three rounds spent: split or re-scope`, and goes no further: no `--rounds`
-above three starts or resumes, and a job gives it no more rounds and no rerun on another model.
+The worktree is `~/.agentkit/wt/<id>` on branch `ak/<slug>`, the first name free locally and on `origin`. The executor
+writes and commits, its commands in the foreground. The loop runs the checks itself and hands the diff and their output
+to the reviewer, a different model; it never re-runs them and answers `VERDICT: PASS` or `VERDICT: FAIL`, and one with
+no verdict is asked once more, never failed. A round is FAIL only for a blocking finding: a correctness defect, a safety
+or data-loss risk, a weakened check, or work outside the task. Everything else goes under `## Follow-ups`; the loop
+writes those into the PR description and appends them to `~/.agentkit/followups/<repo>.md`, which the orchestrator reads
+before the next task. An item at the `path:line` of an open one, or in its words, is not appended again; a file of the
+same name in another case is merged in once; and past 24 KB the oldest items move to `<repo>.archive.md`, which keeps
+them all. A FAIL starts a fix round with the findings. Three rounds is the budget: at the third FAIL the run ends
+`fail`, hands back its open findings (their first 600 characters) with `three rounds spent: split or re-scope`: no
+`--rounds` above three starts or resumes, and a job gives it no more rounds and no rerun on another model.
 
 On PASS the run brings the branch up to date with `origin/<target>` (a rebase, or a merge where `merge: merge` is asked
 or the branch already carries merge commits), pushes, opens the PR, waits out the required checks and merges it, squash
 by default. A clean integration keeps its review if the done-when passes again; an empty one ends PASS. A conflict or a
 failing `# once` check gets up to three fixer rounds, never task rounds, then parks `waiting` on the target ref and SHA
-until the tick sees it move (a check names its first failing line), as does a target moving under three integrations. A
-host lands one run per repository and target branch at a time, and that merge turn covers only a fetch, the push, the
-PR, its required checks and the merge: the rebase, the done-when and final check re-runs, and every fixer and re-review
-they need run before it, outside the turn. A target still on the verified commit lands; one moved only by commits
-touching none of the branch's files is rebased onto and lands on the verified checks; any other move releases the turn
-to verify again, and a third such lap parks `waiting`. A run queued for the turn shows `waiting for the merge turn of
-<repo> <branch>`, holding no slot and never read as silent; a dead holder's turn passes on. A failed integration,
-conflict or final-check review gets a fixer with the whole review (and a failing done-when's output) while rounds are
-left, and at the budget ends `fail` with its findings, or with why the loop overrode a PASS. A base-branch merge race
-re-fetches, rechecks the PR head and target, verifies and pushes changes and retries three times with growing waits
-before parking, sending no hand-back or card. Without push rights it forks, opens the PR upstream and ends `PASS, not
-merged: waiting for the maintainer`, exiting 0; the tick follows the PR and hands the decision to the seat. `--no-merge`
-stops at the verdict. Other ended `merged: no` runs name their reason and exit 1.
+until the tick sees it move (a check names its first failing line). A host lands one run per repository and target
+branch at a time, and that merge turn covers only a fetch, the push, the PR, its required checks and the merge: the
+rebase, the done-when and final check re-runs, and every fixer and re-review they need run before it. A target still on
+the verified commit lands; one moved only by commits touching none of the branch's files is rebased onto and lands on
+the verified checks; any other move releases the turn to verify again, and a third such lap parks `waiting`. A run
+queued for the turn shows `waiting for the merge turn of <repo> <branch>`, holding no slot and never read as silent; a
+dead holder's turn passes on. A failed integration, conflict or final-check review gets a fixer with the whole review
+(and a failing done-when's output) while rounds are left, and at the budget ends `fail` with its findings, or with why
+the loop overrode a PASS. A base-branch merge race re-fetches, rechecks the PR head and target, verifies and pushes
+changes and retries three times with growing waits before parking. Without push rights it forks, opens the PR upstream
+and ends `PASS, not merged: waiting for the maintainer`, exiting 0; the tick follows the PR and hands the decision to
+the seat. `--no-merge` stops at the verdict. Other ended `merged: no` runs name their reason and exit 1.
 
-A run ends `blocked` when the task itself is wrong: an executor or fixer ends its turn with a
-`## Blocked` section instead of `## Summary`, or a fix round leaves exactly the same checks
-failing the same way (or no harness can run it, see Resumption). No checks, no reviewer, no further round.
-`result.md` opens `# BLOCKED — <title>`, `ak run resume` refuses it, and the orchestrator writes a new task.
+A run ends `blocked` when the task is wrong: an executor or fixer ends its turn with `## Blocked` instead of `##
+Summary`, or a fix round leaves the same checks failing the same way (or no harness can run it, see Resumption). No
+checks, no reviewer, no further round. `result.md` opens `# BLOCKED — <title>`, and the orchestrator writes a new task.
 
-Scheduled errors and merge waits send no ending. Every ending goes back to the seat that launched the run as one line
-typed at its next quiet prompt: `run <id> finished <PASS merged|PASS not merged|FAIL|BLOCKED|ERROR>: <why>. Result:
-<path>. Decide the next step.` A seat mid-turn gets it from the tick; each ending is said once: its line is typed once,
-and one still sitting in the seat's composer gets only its Enter. A seat that has died is
-reopened by the run and told `continue <task>`; only when that fails does a `Needs you` card go to you. A run you launch
-by hand has no seat: its result is on the terminal and in `ak run status`. Nothing below the loop carries the seat's
-name: workers and checks run with `$AGENTKIT_UNATTENDED`, so a run one of them starts belongs to nobody.
+Scheduled errors and merge waits send no ending. Every ending goes to the launching seat as one line typed at its next
+quiet prompt: `run <id> finished <PASS merged|PASS not merged|FAIL|BLOCKED|ERROR>: <why>. Result: <path>. Decide the
+next step.` A seat mid-turn gets it from the tick; its line is typed once, and one still sitting in the seat's composer
+gets only its Enter. A seat that has died is reopened by the run and told `continue <task>`; only when that fails does a
+`Needs you` card go to you. A run you launch by hand has no seat: its result is on the terminal and in `ak run status`.
+Workers and checks run with `$AGENTKIT_UNATTENDED`, so a run one of them starts belongs to nobody.
 
 Several task files run as one job: `ak run a.md b.md [--parallel N] [--bg]`, one card at the end, receipt in
 `~/.agentkit/jobs/<id>/job.json`. An `after:` task starts once its dependencies merged, or at once when the one left has
@@ -135,11 +129,10 @@ title, or a relaunch `from:` its branch) reads `done`, and a job's tasks read th
 0 on PASS, 1 on FAIL, `exhausted`, `blocked` or an unfinished merge, 2 on error.
 
 A run never waits forever. A check with no output for 20 minutes is killed with everything it spawned and fails the
-round; the whole checks list has a six-hour ceiling. A model turn with no harness event for 20 minutes is killed and
-retried on the same conversation. Every `git` and `gh` call runs under 120 seconds with prompts disabled; one that stops
-ends the run `exhausted` with the remedy, or `pass` with `merge_failed` while the review still stands. Before the first
-turn the run adds build junk (`__pycache__/`, `node_modules/`, …) to the repo's `.git/info/exclude`.
-`~/.agentkit/env/<repo>.env` is exported into every worker and check for that repo.
+round; the checks have a six-hour ceiling. A model turn with no harness event for 20 minutes is killed and retried on
+the same conversation. Every `git` and `gh` call runs under 120 seconds with prompts disabled; one that stops ends the
+run `exhausted` with the remedy, or `pass` with `merge_failed` while the review still stands. Before the first turn it
+adds build junk to the repo's `.git/info/exclude`. `~/.agentkit/env/<repo>.env` is exported into every worker and check.
 
 ### New features in live projects
 
@@ -187,18 +180,17 @@ At launch a session's run saves its worker list in `run.json`, names it in statu
 every role and handover even if the session changes. Workers rank by budget: the fraction of allowance left plus a week
 per reset held, divided by the fraction of window left, using the smallest provider non-session meter. The executor is
 highest budget, with Fable preferred only if listed and its meter trails the shared Claude week; the reviewer is highest
-budget on another provider, else a different model on the same provider unless its `reviews_own_provider = false`, never
-the executor's own model. A meter at 100% used excludes a worker, and so does a harness not installed or not logged in
-(no adapter or program, or its `auth` verb says no, asked at every pick a run or the tick makes), with one `skipped
-<model>: <harness> is not logged in` line in the run's log per pick; `--exec` or `--review` naming one is refused, as is
-a resume whose saved executor no other model can take over. An unknown budget ranks last, a pay-as-you-go provider joins
-only while every subscription that can run is ahead of pace by more than `pace_margin`, and a run with no eligible pair
-parks `exhausted`, but a launch no refill can pair (skipped harnesses, or workers with no allowed pair) is refused in
-one sentence, by a `--bg` launch's parent too. The orchestrator choice ignores pace (see `n`; every model spent launches
-the default with a WARN); a run without a session uses the default workers. Meters are cached for five minutes and each
-provider is probed at most once a minute host-wide, a refused worker or a spent reset included (Muse's billed probe once
-in ten, whatever its meters do); a spent-window refusal parks the provider until it refills (spending a Codex reset
-first when held), and a handover re-picks both roles under these rules, same worktree; `ak usage` shows the choices.
+budget on another provider, else a different model on the same provider unless its `reviews_own_provider = false`. A
+meter at 100% used excludes a worker, and so does a harness not installed or not logged in (no adapter or program, or
+its `auth` verb says no, asked at every pick), with one `skipped <model>: <harness> is not logged in` line in the run's
+log per pick; `--exec` or `--review` naming one is refused, as is a resume whose saved executor no other model can take
+over. An unknown budget ranks last, a pay-as-you-go provider joins only while every subscription that can run is ahead
+of pace by more than `pace_margin`, and a run with no eligible pair parks `exhausted`, but a launch no refill can pair
+(skipped harnesses, or workers with no allowed pair) is refused, by a `--bg` launch's parent too. The orchestrator
+choice ignores pace (see `n`; every model spent launches the default with a WARN); a run without a session uses the
+default workers. Meters are cached for five minutes and each provider is probed at most once a minute host-wide, a
+refused worker or a spent reset included (Muse's billed probe once in ten, whatever its meters do); a spent-window
+refusal parks the provider until it refills (spending a Codex reset first when held); `ak usage` shows the choices.
 
 ## The tick
 
@@ -220,16 +212,15 @@ once. A job whose launcher dies is relaunched by the next tick in its launch dir
 order, while that directory is there, its seat's session exists and you did not close it, its launcher was alive (its
 heartbeat) under 24 hours ago, no unfinished task whose run stopped short of its ending was handed back, carded or
 acknowledged, none was stopped, and this is not a third death within an hour; otherwise `ak run status` names `ak run
-resume <job>` under it. A run with no output for 20 minutes has its step stopped and the loop carries on; a second
-silence resumes the loop with both roles re-picked from its worker list and execution on another provider; a third parks
-it `stalled` for `ak run resume <id>`. Quota `exhausted` resumes when its window refills, a reviewer-transport one as
-below; other `exhausted` runs (a stopped `git`, no verdict) wait for `ak run resume <id>`; an expired login parks
-`waiting_login` until the harness's `auth` verb answers `yes`. A transient fault (`API Error`, `Overloaded`, a 5xx, an
-empty answer) retries the same session after 1, 5, 15, 30 and 60 minutes, then hourly, however long the outage: the
-tick's silence clock starts where each wait ends. An empty answer whose stderr (the adapter's own included) says the
-harness never ran (not installed, an unknown flag or model, a refused login, even quoted as `API Error`) and names no
-5xx, overload or capacity error goes to another provider at once, or ends the run, a PR review included, `blocked` on
-that line. A refusal that names the account re-picks both roles by budget from its worker list, same worktree and round.
+resume <job>` under it. A second 20-minute silence resumes the loop with both roles re-picked from its worker list and
+execution on another provider; a third parks it `stalled` for `ak run resume <id>`. Quota `exhausted` resumes when its
+window refills, a reviewer-transport one as below; other `exhausted` runs wait for `ak run resume <id>`; an expired
+login parks `waiting_login` until the harness's `auth` verb answers `yes`. A transient fault (`API Error`, `Overloaded`,
+a 5xx, an empty answer) retries the same session after 1, 5, 15, 30 and 60 minutes, then hourly; the tick's silence
+clock starts where each wait ends. An empty answer whose stderr (the adapter's own included) says the harness never ran
+(not installed, an unknown flag or model, a refused login, even quoted as `API Error`) and names no 5xx, overload or
+capacity error goes to another provider at once, or ends the run, a PR review included, `blocked` on that line. A
+refusal that names the account re-picks both roles by budget from its worker list, same worktree and round.
 
 `ak run resume <id> [--rounds N] [--bg]` resumes the worktree, the worker sessions and the options a run left; it
 refuses `blocked` and `stopped`, and needs the worktree, which lives seven days. `ak run merge <id>` retries the
@@ -240,37 +231,35 @@ mid-turn to continue it, as a run is, over at most three ticks, so it reads `wor
 
 ### When a run goes silent
 
-On `ak run status`'s dim line (`error · retry 14:32`, `waiting · retry after the next merge to origin/main`, `exhausted
-· resumes when a reviewer is eligible`) an admitted ending also says why: its launch session still exists, it ended
-under 24 hours ago, and it was not handed back, carded or acknowledged. Only those endings may be parked from a conflict
-FAIL or resumed from `error` or `waiting`, an older tick's waits included; by-hand runs and older endings wait for a
-person. The tick retries an admitted error on the loop's ladder above while it qualifies, an `exhausted` run after
-reviewer transport failures as soon as a reviewer is eligible (at most hourly while it keeps dying), and an admitted
-conflict `waiting` after main moves, task rounds spent or not. `ak run status <id>` on a scheduled error keeps its retry
-and admission. When admission ends, an error loses its retry stamps, and it or a merge wait reads `run <id> parked:
-<reason>` at once, before the tick clears an old stamp. An error with no automatic resume reads `needs you · run <slug>
-parked: <reason>` only while recent, unacknowledged, not handed back or awaiting hand-back, and not superseded. A merge
+On `ak run status`'s dim line (`error · retry 14:32`, `waiting · retry after the next merge to origin/main`) an admitted
+ending says why: its launch session still exists, it ended under 24 hours ago, and it was not handed back, carded or
+acknowledged. Only those endings may be parked from a conflict FAIL or resumed from `error` or `waiting`, an older
+tick's waits included; by-hand runs and older endings wait for a person. The tick retries an admitted error on the
+ladder above, an `exhausted` run after reviewer transport failures once a reviewer is eligible (at most hourly while it
+keeps dying), and an admitted conflict `waiting` after main moves, task rounds spent or not. `ak run status <id>` on a
+scheduled error keeps its retry and admission. When admission ends, an error loses its retry stamps, and it or a merge
+wait reads `run <id> parked: <reason>` at once, before the tick clears an old stamp. An error with no automatic resume
+reads `needs you` only while recent, unacknowledged, neither handed back nor awaiting it, and not superseded. A merge
 wait that no longer qualifies is inactive history: its row reads `done` with the parked reason, it adds no owner alert
-or attention tally, neither the stop hook nor the tick counts it as work going, and it can still be resumed by hand.
+or attention tally, neither the stop hook nor the tick counts it as work, and it can still be resumed by hand.
 
 ## Cleanup
 
-A merged run's worktree and local branch go with the merge. A stop takes the checkout and the branch at once, or with
-`--keep` the checkout after seven days. A failed, blocked or errored checkout goes when its seat has been told or after
-seven days, unless a resume can still take it; its local branch stays until the 30-day removal, because a run that never
-pushed holds its only copy there. A pass whose delivery ended without a merge loses its checkout after seven days, its
-branch kept, and a checkout with no run record goes after a day. A run directory older than 30 days goes whole, with
-whatever checkout and branch it still has, unless the session that launched it still exists; a scratch run's workspace
-goes only with it. `~/.agentkit/tmp` entries older than a day go, finished jobs after a week, and a state file named for
-a seat with no record, or an idle-compact stamp whose wrapper is gone, a day after its last write. Trust and MCP entries
-in `~/.claude.json` and `~/.codex/config.toml` that point into a gone `smoke-*` sandbox or `~/.agentkit/wt` checkout go
-in an atomic rewrite of just those entries, in any layout; a file that does not parse is left alone. The collector runs
-from the tick at most once a day, writes `~/.agentkit/state/gc.log`, and never touches a checkout under `~/code` or a
-live loop. A checkout goes with whatever it holds, uncommitted work included; a tree holding what this user cannot
-remove is reported once, on any path, and never retried. `ak run gc --dry-run` gives each item's reason; `ak run gc`
-also sweeps every merged worktree, regardless of repository or git registration, and day-old `smoke-*` sandboxes,
-reporting their count and space freed. The tick takes a leftover merged tree only when clean and registered. A passing
-smoke suite removes its sandbox; a failed one keeps the newest failed sandbox and removes older ones whose suites ended.
+A merged run's worktree and local branch go with the merge. A stop takes both at once, or with `--keep` the checkout
+after seven days. A failed, blocked or errored checkout goes when its seat has been told or after seven days, unless a
+resume can take it; its local branch stays until the 30-day removal, because a run that never pushed holds its only copy
+there. A pass whose delivery ended without a merge loses its checkout after seven days, its branch kept, and a checkout
+with no run record goes after a day. A run directory older than 30 days goes whole, with its checkout and branch, unless
+the session that launched it still exists; a scratch run's workspace goes only with it. `~/.agentkit/tmp` entries older
+than a day go, finished jobs after a week, and a state file named for a seat with no record, or an idle-compact stamp
+whose wrapper is gone, a day after its last write. Trust and MCP entries in `~/.claude.json` and `~/.codex/config.toml`
+that point into a gone `smoke-*` sandbox or `~/.agentkit/wt` checkout go in an atomic rewrite of just those entries; a
+file that does not parse is left alone. The collector writes `~/.agentkit/state/gc.log` and never touches a checkout
+under `~/code` or a live loop. A checkout goes with its uncommitted work; a tree holding what this user cannot remove is
+reported once, on any path, and never retried. `ak run gc --dry-run` gives each item's reason; `ak run gc` also sweeps
+every merged worktree, regardless of repository or git registration, and day-old `smoke-*` sandboxes, reporting count
+and space freed. The tick takes a leftover merged tree only if clean and registered. A passing smoke suite removes its
+sandbox; a failed one keeps the newest failed sandbox and removes older ones whose suites ended.
 
 ## The config file
 
@@ -320,12 +309,11 @@ token, since grok renews its six-hour key itself. Antigravity's `usage` reads th
 panel off that panel's endpoint. Refused, both `usage` verbs let their harness renew (`grok models`, `agy models`) and
 ask again, and a renewed grok key still refused is `no login` until grok holds another or the endpoint answers it.
 
-`interactive` is where the rulebook goes in: `python3 tools/rulebook.py "$AGENTKIT_SESSION"`
-writes the rulebook file and prints its path, and the command line hands it to the harness by
-whatever means it has, for that launch only. A harness must inject the rulebook through that
-shared helper and may not add instructions of its own, so an orchestrator behaves one way
-whatever runs it. A variable the seat's launch sets is named under `[launch] seat_env`, and the
-core drops it from every child environment. What the harness runs as besides its `[update] version` program, such as Muse's `muse-bin-<build>`, is named under `[launch] programs`: a tmux session made by hand is a seat only while one of those runs in it.
+`interactive` is where the rulebook goes: `python3 tools/rulebook.py "$AGENTKIT_SESSION"` writes it and prints its path,
+and the command line hands it to the harness, adding no instructions of its own, so an orchestrator behaves one way
+whatever runs it. A variable the seat's launch sets goes under `[launch] seat_env`, and the core drops it from child
+environments. What the harness runs as besides its `[update] version` program, such as Muse's `muse-bin-<build>`, is
+named under `[launch] programs`: a tmux session made by hand is a seat only while one of those runs in it.
 
 The manifest is everything else, as data: `[update]` (version, upgrade, revert commands), `[usage]` flags,
 `[conversation]` (what a seat owns), `[hooks] installed`, `[stop] enforce`, `[authority]` and `[[hooks.event]]` (which
@@ -340,18 +328,16 @@ default (`tokens` reads `events.jsonl`; Muse's are in its session store).
 ## The installer and updating
 
 The README's one command works on a fresh macOS or Linux machine, safe to run again; `--server` and `--client [alias]`
-set the role when the default is wrong, and `--phone-key KEY|FILE` appends the phone's key with the `ak attach` forced
-command. It makes the directories under `~/.agentkit` and `~/code`, puts `ak` on PATH, and copies the config once. It
-installs what is missing: tmux, mosh, git, gh, jq, python3 3.11 or newer, node, cron; on Linux also chromium,
-security-only unattended upgrades and Tailscale. With no harness installed it asks once which to install and log in, or
-`all`, one provider being enough, and each adapter installs and logs its own in, in a terminal; a harness already
-installed is never installed again, wherever its binary lives, and on a machine that has one it checks and logs in only
-those installed, adding none unasked. `gh auth login`, the Claude worker token, and the Discord webhook and user id are
+set the role when the default is wrong, and `--phone-key KEY|FILE` appends the phone's key. It makes the directories
+under `~/.agentkit` and `~/code` and puts `ak` on PATH. It installs what is missing: tmux, mosh, git, gh, jq, python3
+3.11 or newer, node, cron; on Linux also chromium, security-only unattended upgrades and Tailscale. With no harness
+installed it asks once which to install and log in, or `all`, one provider being enough, and each adapter installs and
+logs its own in, in a terminal; on a machine that has one it checks and logs in only those installed, wherever their
+binaries live, adding none unasked. `gh auth login`, the Claude worker token, and the Discord webhook and user id are
 each asked for once, only where missing and there is a terminal; the git credential helper and author are set from `gh`
-without asking. On a server it also writes, without asking: the bypass defaults and update pins into
-`~/.claude/settings.json` (backed up beside itself when it changes) and `~/.codex/config.toml`, each harness's lifecycle
-hooks through `adapters/<h>.sh hooks`, and the browser MCP registration. A client records the server's ssh alias; the
-server installs the three-minute cron and, where a user systemd manager exists, writes
+without asking. On a server it also writes: the bypass defaults and update pins into `~/.claude/settings.json` (backed
+up beside itself) and `~/.codex/config.toml`, each harness's lifecycle hooks through `adapters/<h>.sh hooks`, and the
+browser MCP registration. The server installs the three-minute cron and, where a user systemd manager exists, writes
 `~/.config/systemd/user/agentkit.slice.d/limits.conf` once: seats in `agentkit-seats.slice`, runs in the lower-weight
 `agentkit-runs.slice`, both under `agentkit.slice`. Under a HOME not the account's own it touches nothing outside it.
 
@@ -363,12 +349,10 @@ failed pull or `install.sh`, is said once per origin commit, in the tick's log a
 foreground and says per harness whether it was upgraded, reverted, kept or left unchanged. The `c` screen's Update row
 runs it too, and refuses while a session works; `--dry-run` prints the plan. Harnesses never update themselves.
 
-`tests/smoke.sh` and `tests/e2e-fresh.sh` keep private `<login>/agentkit-smoke` and `<login>/agentkit-e2e`, created only when missing with the scopes `gh auth login` grants.
-Each gate resets its repository under the host-wide lock: force-push `main` to its seed commit and delete leftover `ak/*` branches. The remote and provider logins are shared.
+`tests/smoke.sh` and `tests/e2e-fresh.sh` keep private `<login>/agentkit-smoke` and `<login>/agentkit-e2e`, created only when missing with the scopes `gh auth login` grants; each gate resets its repository under the host-wide lock: force-push `main` to its seed commit and delete leftover `ak/*` branches.
 The smoke suite holds the lock for every check; the e2e gate holds it from its GitHub run through exit. A suite that cannot take the lock stops before its checks. Cleanup is registered before HOME setup, so setup failures finish their retention receipt and keep the sandbox.
 The smoke suite reads shipped `config.default.toml` in its sandbox HOME and ignores the host's own agentkit config. It links individual credentials: `.claude/.credentials.json`, `.codex/auth.json`, `.config/muse/auth.json`, `.grok/auth.json`, `.local/share/opencode/auth.json`, Antigravity's `.gemini/antigravity-cli/antigravity-oauth-token`, GitHub's `.config/gh/hosts.yml`, `.agentkit/secrets/claude_oauth_token` and the desktop's `.local/share/browser-bridge/Xauthority`. Grok's `auth.json.lock` is shared too, so refreshers use the caller's lock. Harness login sources honor `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `GROK_HOME` and `GH_CONFIG_DIR` before those overrides are cleared for the sandbox. No caller directory is linked.
-It copies `.claude.json` for the account and MCP fields, `.gitconfig` and `.config/gh/config.yml` for GitHub access, `.config/opencode/opencode.json` for installations storing static API keys there (honoring `OPENCODE_CONFIG_DIR` or `OPENCODE_CONFIG`), and `.agentkit/secrets/discord_webhook` for check 5's GET; the notification sink blocks posts. Installer binaries stay on PATH without linking their directories, and Muse's raw cached readings are copied with their original age to avoid another paid probe. Claude's direct MCP call uses the worker token when available, as its workers do. A harness in the sandbox renews the caller's login as it would at home. If Claude or Grok renames over a credential link, `tests/merge_logins.py` returns only valid tokens with a later expiry than the caller's current login before either the suite or `--claude-stream` removes its sandbox, writing the whole file beside the caller's and renaming it over the path that file resolves to. Cleared, invalid, expired or older logins never overwrite the caller's; a write failure preserves the sandbox and fails the gate. Settings, hooks, project trust, caches and MCP registration stay in the sandbox: the suite writes nothing outside its sandbox but refreshed logins.
-Runs whose task or repo lives under `~/.agentkit/tmp/smoke-<stamp>/` are excluded from seat tallies and offers; `smoke-` in a run id or title has no effect.
+It copies `.claude.json` for the account and MCP fields, `.gitconfig` and `.config/gh/config.yml` for GitHub access, `.config/opencode/opencode.json` for installations storing static API keys there (honoring `OPENCODE_CONFIG_DIR` or `OPENCODE_CONFIG`), and `.agentkit/secrets/discord_webhook` for check 5's GET; the notification sink blocks posts. Installer binaries stay on PATH without linking their directories, and Muse's raw cached readings are copied with their original age to avoid another paid probe. Claude's direct MCP call uses the worker token when available, as its workers do. A harness in the sandbox renews the caller's login as it would at home. If Claude or Grok renames over a credential link, `tests/merge_logins.py` returns only valid tokens with a later expiry than the caller's current login before either the suite or `--claude-stream` removes its sandbox, writing the whole file beside the caller's and renaming it over the path that file resolves to. Cleared, invalid, expired or older logins never overwrite the caller's; a write failure preserves the sandbox and fails the gate. Settings, hooks, project trust, caches and MCP registration stay in the sandbox: the suite writes nothing outside its sandbox but refreshed logins, and a run is the suite's by its task or repo under `~/.agentkit/tmp/smoke-<stamp>/`, never by a `smoke-` id or title, and counts in no seat's tallies or offers.
 Checks needing an uninstalled harness, a missing login, a Discord secret, a user systemd manager or the shared browser skip as not on this host and count as passed, like a throttled meter's; the suite fails only when check 3 makes no real call and no adapter's `auth` confirmed a login in one line within the 20 seconds `worker.auth_ok` allows (check 3 calls Claude, Codex and Muse; Grok Build, OpenCode or Antigravity count too; a settings file with no key in it, such as OpenCode's `opencode.json`, is no login). `tests/e2e-fresh.sh` links every harness's login the same way, from the same overrides, returns a renamed-over one the same way, finds each harness binary on the caller's PATH or in its installer's directory, asks each adapter's `auth` whether it can log in, bounded alike (Claude's worker token counts), and skips what the host lacks likewise; a lent login that is refused or unanswered fails. Its menu seat needs Claude's own pair and its GitHub run Claude and Codex. An exhausted model skips with the reason and leaves the gate incomplete; expired, malformed or unreadable saved logins fail. Exhaustion is checked per model. The GitHub run skips before resetting its remote when either required model is unavailable or exhausted; each MCP check applies the same rule.
 `bash tests/smoke.sh --claude-stream <out-dir>` captures events for the offline reader fixture; its sandbox HOME is a separate temporary directory removed on exit, leaving no credential links in the output.
 
@@ -383,9 +367,8 @@ The server runs one Chromium on a virtual display whose profile holds the real l
 and five system units keep it up across reboots. Agents reach it through the `browser` and `desktop` MCP servers `ak
 browser mcp-register` registers for Claude Code and Codex, and Muse through `browser/bridge.py` from the shell. `ak
 browser status` shows the units, the tabs and the noVNC URL; `ak browser login` prints the URL and password for signing
-a site in by hand, from a device on the Tailnet; `ak browser install` stands it up where there is none. The tick closes
-a tab idle for an hour or past twelve open, and one a run or seat opened closes when it ends or stops; Chromium itself
-is never restarted. CDP is bound to loopback and noVNC to the Tailscale address, and the profile is credentials.
+a site in by hand; `ak browser install` stands it up where there is none. The tick closes a tab idle for an hour or past
+twelve open; Chromium itself is never restarted. noVNC is bound to the Tailscale address.
 
 ## The history
 
@@ -404,8 +387,7 @@ retry), `result.md` (linking a scratch run's files) and `round-<r>/<role>/{promp
 
 ## Troubleshooting
 
-- A harness login expired: open the seat and log in there; for `gh login expired`, run `gh auth login` on the server. Parked runs resume by themselves.
-- `claude worker token expires in N days`: run `claude setup-token` and replace `~/.agentkit/secrets/claude_oauth_token`.
+- A harness login expired: open the seat and log in there; for `gh login expired`, run `gh auth login` on the server. Parked runs resume by themselves. For `claude worker token expires in N days`, run `claude setup-token` and replace `~/.agentkit/secrets/claude_oauth_token`.
 - A dropped Mac file the server cannot read: open a new Mac terminal tab or run `ak macbridge --reader` there, then fetch again.
 - Test one headless turn: `ak worker opus prompt.md --workspace ~/code/foo`.
 - A stale usage reading: open the menu; it reads each provider again within a minute.
