@@ -1156,12 +1156,12 @@ def session_projects(kept):
 
 
 def file_projectless(found, runs):
-    """File each seat `listing` found with no project under the one its runs vote for.
+    """File each seat in `found` with no project under the one its runs vote for.
 
     A seat whose runs were all still queued when it last launched had nothing to vote then,
-    and its record says no project until one of its runs votes (`run.session_vote`, a
-    launch's own rules).  `runs` are the run records the menu's draw or the tick has read
-    anyway, so no run.json is read twice; a seat with no record is left alone, as always.
+    and its record says no project until one of its runs votes.  `runs` are the run records
+    the menu's draw or the tick has read anyway, so no run.json is read twice; the filing is
+    `run.join_session_project`'s, under its lock, and a seat with no record is left alone.
     """
     from . import run
     orphans = {session["name"]: [] for session in found if not session.get("repo")}
@@ -1172,9 +1172,9 @@ def file_projectless(found, runs):
             except config.Error:
                 continue
     for session in found:
-        repo = run.session_vote(session["name"], orphans.get(session["name"]) or ())
-        if repo and config.update_session(session["name"], repo=repo) is not None:
-            session["repo"] = repo
+        states = orphans.get(session["name"])
+        if states and run.session_vote(session["name"], states):
+            session["repo"] = run.join_session_project(session["name"], states)
 
 
 BACK = object()  # `q` at a new-seat question: back to the menu, nothing created

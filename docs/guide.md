@@ -16,10 +16,10 @@ orchestrator` (shipped `opus`), or while it is spent the first model in config o
 workers` (`opus astra`) not spent. From a pipe it asks `Orchestrator:` and `Workers:`, Enter taking each default, and
 `--dry-run` starts no session. The seat opens in `~/code`; `ak orch <name>` keeps the shell's directory and reopens an
 existing seat. Nobody picks its project: each run it launches refiles it under the project most of its runs belong to,
-counting a repository run for its checkout under `~/code` or `~/agentkit` (agentkit's own), a run still queued for a
-slot for the checkout its task's `repo:` names, a scratch run or a queued one naming none for its task's
-`~/.agentkit/tasks/<project>/`, and a worktree, sandbox or scratch workspace for nothing; a tie keeps its project. A
-seat with no project is filed at the next menu draw or `ak watch` tick once one of its runs counts.
+counting a repository run for its checkout under `~/code` or `~/agentkit` (agentkit's own), a scratch run for its task's
+`~/.agentkit/tasks/<project>/`, and a worktree, sandbox or scratch workspace for nothing, each as its launch settles it,
+so a run still queued for a slot counts too; a tie keeps its project. A seat with no project is filed at the next menu
+draw or `ak watch` tick once one of its runs counts.
 
 The orchestrator is launched with `orchestrator.md` as its rulebook, plus `~/.agentkit/rules.md` where you wrote one on
 this host, handed over by its adapter for that launch only (Antigravity's as the body of an `--agent` definition in

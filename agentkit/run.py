@@ -5105,23 +5105,36 @@ def launched_session(state):
 def run_project(state):
     """The checkout a run's work belongs to, or None when it belongs to none.
 
-    A repository run belongs to the checkout it works on.  A run whose record names none yet
-    -- one still queued for a slot -- belongs to the one its task's `repo:` names, which is
-    the checkout it works on once it starts.  A scratch run has none, and neither has a queued
-    one whose task names none, so it belongs to the checkout its task file's folder is named
-    for: an orchestrator files a project's tasks under ~/.agentkit/tasks/<project>/, whatever
-    the task works in.
+    `project` is settled once, by the process that launched the run (`preflight`), so the run
+    votes for the same checkout while it waits for a slot and once it works, whoever reads it
+    from wherever.  A run launched before the field existed belongs to the repository it works
+    on; still queued, it has none yet and belongs to the one its task's `repo:` names -- only
+    as an absolute path, since a relative one meant the launch's directory, which nobody
+    recorded -- and otherwise to its task folder's (`task_project`).
     """
+    if "project" in state:
+        return orch.checkout_of(state["project"])
     if state.get("repo"):
         return orch.checkout_of(state["repo"])
+    named = Path()
     if not state.get("scratch"):
         try:
-            named = parse_task(config.RUNS / state["run_id"] / "task.md")[0].get("repo") or ""
+            named = Path(parse_task(config.RUNS / state["run_id"] / "task.md")[0].get("repo")
+                         or "").expanduser()
         except (KeyError, TypeError, OSError, ValueError, config.Error):
-            named = ""
-        if named and named.lower() != "none":
-            return orch.checkout_of(Path(named).expanduser())
-    task_file = state.get("task_file")
+            pass
+    return task_project(named if named.is_absolute() else None, state.get("task_file"))
+
+
+def task_project(repo, task_file):
+    """The checkout a task belongs to: the repository it works in, else its task folder's.
+
+    A task with no repository belongs to the checkout its task file's folder is named for: an
+    orchestrator files a project's tasks under ~/.agentkit/tasks/<project>/, whatever the task
+    works in.
+    """
+    if repo:
+        return orch.checkout_of(repo)
     if not isinstance(task_file, str) or not task_file:
         return None
     try:
@@ -5134,29 +5147,36 @@ def run_project(state):
                  if checkout.name.lower() == parts[0].lower()), None)
 
 
-def join_session_project(session):
+def join_session_project(session, runs=None):
     """File a session under the project most of its runs belong to, again at each launch.
 
     Nobody chooses a session's project: the runs it launched vote, each for its
     `run_project` from the moment it is queued, and a run that belongs to no checkout has no
-    vote (`session_vote`).
+    vote (`session_vote`).  Returns the project the session has after the count.
+
+    `runs` are run records a draw or a tick has already read, and from them only a session
+    that still has no project when its turn at the lock comes is filed: a launch's own count,
+    taken from disk, is never overwritten by one read before that launch's run was there.
     """
     if not session:
-        return
+        return None
     try:
         session = config.resolve_session(session)
     except config.Error:
-        return
+        return None
     # One count at a time per session: a count taken before a later launch's run was on
     # disk must not be written after that launch's, or the minority wins until the next.
     with notify.session_lock(session) as session:
         record = config.session_records().get(session)
         if record is None:
-            return
-        repo = session_vote(session, (read_state(directory) or {} for directory in run_dirs()),
-                            record.get("repo"))
-        if repo != record.get("repo"):
-            config.update_session(session, repo=repo)
+            return None
+        repo = record.get("repo")
+        if runs is None or not repo:
+            repo = session_vote(session, (read_state(directory) or {} for directory in run_dirs())
+                                if runs is None else runs, repo)
+            if repo != record.get("repo"):
+                config.update_session(session, repo=repo)
+        return repo
 
 
 def session_vote(session, states, repo=None):
@@ -9513,7 +9533,6 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
         state.pop("slot_healthy_polls", None)
         save_state(run_dir, state)
     history_start(state)
-    join_session_project(session_at_launch)     # a queued run votes from its launch
     refresh_seat_tally(session_at_launch)   # the seat's bar counts it from the start
 
 
@@ -9638,10 +9657,15 @@ def preflight(run_dir, opts, log):
         # What this run will deliver, settled before it ever waits for a slot: a scratch task
         # and `--no-merge` both push nothing, and the receipt is read long before the loop
         # writes the same answer into the full state -- `ak watch` reads it to know which
-        # seats a logged-out gh is holding up.  Resolved here because only the process that
-        # launched the run stands in the checkout the task inherits when it names none.
+        # seats a logged-out gh is holding up.  So is the project its seat is filed under, the
+        # same queued and once it works (`run_project`), and the seat is filed now.  Resolved
+        # here because only the process that launched the run stands in the checkout the task
+        # inherits when it names none, or the one a relative `repo:` means.
+        checkout = task_project(repo, state.get("task_file"))
         save_state(run_dir, {**(read_state(run_dir) or {}),
-                             "no_merge": bool(opts["--no-merge"]) or repo is None})
+                             "no_merge": bool(opts["--no-merge"]) or repo is None,
+                             "project": str(checkout) if checkout else None})
+        join_session_project(state.get("launched_session"))
         base = (meta.get("base") or default_base(repo, log)) if repo else "none"
         target, method = meta.get("target") or base, meta.get("merge") or "squash"
         branch = (git(repo, "rev-parse", "--abbrev-ref", "HEAD") if repo and opts["--no-worktree"]

@@ -1,15 +1,16 @@
 """A seat is filed under its project while its runs still wait for a slot.
 
 A run votes for the seat that launched it from the moment it is queued: for the checkout its
-task's `repo:` names, else for the one its task folder is named for, and for that same one once
-it starts.  A seat whose record says no project is filed at the next menu draw or `ak watch`
-tick once one of its runs votes, from the run records that pass has read anyway.
+task works in, else for the one its task folder is named for, settled once by the launch and
+the same once it starts.  A seat whose record says no project is filed at the next menu draw or
+`ak watch` tick once one of its runs votes, from the run records that pass has read anyway.
 """
 
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import chdir, redirect_stderr, redirect_stdout
 import io
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from unittest.mock import patch
@@ -26,39 +27,45 @@ class QueuedRunFilesSeat(Sandbox):
         super().setUp()
         for name in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG"):
             os.environ.pop(name, None)     # Sandbox's patch.dict puts them back
-        self.acme = config.CODE / "acme"
-        self.acme.mkdir(parents=True)
-        subprocess.run(["git", "init", "-q", "-b", "main", str(self.acme)], check=True)
-        subprocess.run(["git", "-C", str(self.acme), "-c", "user.name=Fixture", "-c",
-                        "user.email=fixture@localhost", "commit", "-q", "--allow-empty", "-m",
-                        "fixture"], check=True)
+        self.acme, self.beta = self.checkout("acme"), self.checkout("beta")
         config.save_session(self.cfg, "fix-api", "fable", ["opus"],
                             {"cwd": str(config.CODE), "repo": None})
         self.seat = {"name": "fix-api", "path": str(config.CODE), "created": 9000,
                      "attached": False, "exited": False, "legacy": False, "resumable": False}
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[self.seat]))
 
+    def checkout(self, name):
+        checkout = config.CODE / name
+        checkout.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", "-b", "main", str(checkout)], check=True)
+        subprocess.run(["git", "-C", str(checkout), "-c", "user.name=Fixture", "-c",
+                        "user.email=fixture@localhost", "commit", "-q", "--allow-empty", "-m",
+                        "fixture"], check=True)
+        return checkout
+
     def task(self, name, repo):
         directory = config.RUNS / name
         directory.mkdir(parents=True)
-        (directory / "task.md").write_text(f"---\nrepo: {repo}\n---\n# Fix the API\n\n"
+        front = f"---\nrepo: {repo}\n---\n" if repo is not None else ""
+        (directory / "task.md").write_text(f"{front}# Fix the API\n\n"
                                            "## Done when\n```bash\ntrue\n```\n")
         return directory
 
-    def launch(self, name, repo, task_file=None):
-        """`ak run` from the seat: the receipt waits for a slot, as the three seats' did."""
+    def launch(self, name, repo, task_file=None, where=REPO):
+        """`ak run` from the seat, standing in `where`: the receipt waits for a slot."""
         directory = self.task(name, repo)
-        with patch.dict(os.environ, {config.SESSION_ENV: "fix-api", "AK_RUN_DEPTH": "0",
-                                     "AK_MAX_RUNS": "4"}), \
-                patch.object(run, "refresh_seat_tally"):
-            run.capture_launch(directory, {}, task_file=task_file)
+        opts = {"--no-merge": False, "--no-worktree": False, "--anyway": False, "--bg": False}
+        with chdir(where), patch.dict(os.environ, {config.SESSION_ENV: "fix-api",
+                                                   "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "4"}), \
+                patch.object(run, "refresh_seat_tally"), redirect_stdout(io.StringIO()):
+            run.prepare(directory, opts, lambda _: None, task_file=task_file)
         self.assertEqual(run.read_state(directory)["state"], "queued")
         return directory
 
-    def waiting(self, name, repo):
-        """A receipt queued before a queued run had a vote: nothing filed its seat."""
+    def waiting(self, name, repo, state="queued"):
+        """A receipt from before a queued run had a vote: nothing filed its seat."""
         directory = self.task(name, repo)
-        run.save_state(directory, {"run_id": name, "state": "queued", "slot_waiting": True,
+        run.save_state(directory, {"run_id": name, "state": state, "slot_waiting": True,
                                    "launched_session": "fix-api", "started_at": 9000,
                                    "queued_at": 9000, **run.process_owner()})
         return directory
@@ -81,6 +88,7 @@ class QueuedRunFilesSeat(Sandbox):
                 patch.object(menu, "wait_key", return_value="q"), \
                 patch.object(menu, "read", return_value="q"), \
                 patch.object(menu.Live, "look"), \
+                patch.object(menu.Live, "probe", return_value=False), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(terminal, "width", return_value=100), \
                 redirect_stdout(io.StringIO()) as out:
@@ -93,10 +101,18 @@ class QueuedRunFilesSeat(Sandbox):
         self.assertLess(lines.index("acme"),
                         next(at for at, line in enumerate(lines) if "fix-api" in line))
 
-    def test_a_projectless_seat_whose_queued_runs_name_one_checkout_is_filed_at_the_next_tick(self):
-        self.waiting("q1", self.acme)
+    def test_a_projectless_seat_is_filed_at_the_next_tick_with_no_run_going(self):
+        # Its queued run ended before it ever started: nothing is going, and it still votes.
+        self.waiting("q1", self.acme, state="error")
         watch.revive_seats(self.cfg, lambda _: None)
         self.assertEqual(self.repo(), str(self.acme))
+
+    def test_a_draw_read_before_a_launch_never_overwrites_its_count(self):
+        self.waiting("q1", self.acme)
+        found, runs = orch.listing(), [state for _, state in menu.run_records()]
+        config.update_session("fix-api", repo=str(self.beta))   # a launch counted meanwhile
+        orch.file_projectless(found, runs)
+        self.assertEqual(self.repo(), str(self.beta))
 
     def test_a_seat_with_no_voting_runs_stays_no_project(self):
         # A task naming no repository, filed under no folder or one no checkout is named for.
@@ -117,22 +133,29 @@ class QueuedRunFilesSeat(Sandbox):
 
     def test_a_started_run_still_votes_for_the_same_project(self):
         tasks = config.HOME / "tasks" / "acme"
-        for name, repo, task_file in (("named", self.acme, None),
-                                      ("scratch", "none", tasks / "check.md")):
+        # (run, task's repo:, task file, where it is launched, the project it votes for)
+        for name, repo, task_file, where, project in (
+                ("named", self.acme, None, REPO, self.acme),
+                ("scratch", "none", tasks / "check.md", REPO, self.acme),
+                ("relative", ".", None, self.acme, self.acme),
+                ("inherited", None, tasks / "check.md", self.beta, self.beta)):
             with self.subTest(name):
+                shutil.rmtree(config.RUNS)                # this run the seat's only one
                 config.update_session("fix-api", repo=None)
-                directory = self.launch(name, repo, task_file)
-                self.assertEqual(run.run_project(run.read_state(directory)), self.acme)
-                self.assertEqual(self.repo(), str(self.acme))
+                directory = self.launch(name, repo, task_file, where)
+                # read from anywhere, by a draw, a tick or a later launch: the same vote
+                with chdir(self.beta if where != self.beta else self.acme):
+                    self.assertEqual(run.run_project(run.read_state(directory)), project)
+                self.assertEqual(self.repo(), str(project))
                 worktree = self.root / f"wt-{name}"
                 worktree.mkdir()
                 seen = []
 
                 def rounds(lp):
-                    seen.append((lp.state["repo"], run.run_project(lp.state), self.repo()))
+                    seen.append((run.run_project(lp.state), self.repo()))
 
-                with patch.dict(os.environ, {config.SESSION_ENV: "other", "AK_RUN_DEPTH": "0",
-                                             "AK_MAX_RUNS": "0"}), \
+                with chdir(where), patch.dict(os.environ, {
+                            config.SESSION_ENV: "other", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}), \
                         patch.object(run, "disk_pressure", return_value=False), \
                         patch.object(run, "make_worktree", return_value=(worktree, "ak/fixture")), \
                         patch.object(run, "exclude_junk"), \
@@ -143,8 +166,7 @@ class QueuedRunFilesSeat(Sandbox):
                     run.loop(self.cfg, directory, directory / "task.md",
                              {"--rounds": "1", "--no-worktree": False, "--no-merge": True,
                               "--exec": None, "--review": None}, lambda _: None)
-                started = str(self.acme) if repo != "none" else None
-                self.assertEqual(seen, [(started, self.acme, str(self.acme))])
+                self.assertEqual(seen, [(project, str(project))])
 
 
 if __name__ == "__main__":
