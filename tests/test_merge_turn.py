@@ -1,11 +1,13 @@
-"""Passed runs of one repository take turns from the rebase to the merge.  Entirely offline.
+"""Passed runs of one repository verify on their own and take turns only to land.  Offline.
 
 Real throwaway git repos under a temp dir with bare `origin`s; no network, no real harness.
-The done-when is a stub that counts its re-checks, and the PR steps are stubs whose merge
-squashes the branch into the bare origin the way GitHub would, so the target really moves.
+The done-when is a stub that counts its re-checks, the fixer and reviewer are stubs, and the
+PR steps are stubs whose merge squashes the branch into the bare origin the way GitHub would,
+so the target really moves.  The merge turn is the real one, watched: a re-check or a fixer
+turn taken while its own run holds the turn is recorded, and none may be.
 """
 
-from contextlib import ExitStack, redirect_stdout
+from contextlib import ExitStack, contextmanager, redirect_stdout
 import io
 import os
 from pathlib import Path
@@ -59,13 +61,18 @@ def make_origin(root):
     return remote, owner
 
 
-def make_run(root, remote, name):
-    """A passed run of `remote` on ak/<name>, its record in the runs directory."""
+def make_run(root, remote, name, edits=None):
+    """A passed run of `remote` on ak/<name>, its record in the runs directory.
+
+    Its work is `<name>.txt`, and whatever `edits` writes besides.
+    """
     wt = root / name
     run.git(root, "clone", str(remote), str(wt))
     run.git(wt, "config", "user.name", "fixture")
     run.git(wt, "config", "user.email", "fixture@localhost")
     run.git(wt, "checkout", "-b", f"ak/{name}")
+    for path, text in (edits or {}).items():
+        (wt / path).write_text(text)
     commit(wt, f"{name}.txt", name)
     run_dir = config.RUNS / f"{root.name}-{name}"
     run_dir.mkdir(parents=True)
@@ -124,18 +131,68 @@ class MergeTurn(unittest.TestCase):
         config.ensure_dirs()
         self.rechecks = {}      # worktree -> the files its re-checks saw
         self.checking = None    # called inside every re-check, when a test wants one
+        self.failing = set()    # worktrees whose next re-check fails
+        self.fixer = None       # a fixer turn, when a test expects one
+        self.landing = None     # called inside the required checks, holding the turn
+        self.queuing = None     # called as a verified run queues for its turn
+        self.events = []        # (what, worktree), in the order they happened
+        self.holding = set()    # the worktrees whose run holds its merge turn now
+        self.inside = []        # re-checks and fixer turns taken while their run held it
+        real_turn = run.merge_turn
+
+        @contextmanager
+        def turn(lp, upstream):
+            if self.queuing:
+                self.queuing(lp)
+            with real_turn(lp, upstream):
+                self.events.append(("turn", lp.wt))
+                self.holding.add(lp.wt)
+                try:
+                    yield
+                finally:
+                    self.holding.discard(lp.wt)
+        self.stack.enter_context(patch.object(run, "merge_turn", turn))
         self.stack.enter_context(patch.object(run, "run_done_when", side_effect=self.recheck))
+        self.stack.enter_context(patch.object(run, "execute", side_effect=self.fix))
+        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=self.reviewer))
         self.stack.enter_context(patch.object(run, "rights", return_value=(None, None)))
         self.stack.enter_context(patch.object(run, "open_pr", return_value=URL))
-        self.stack.enter_context(patch.object(run, "wait_checks", return_value=True))
+        self.stack.enter_context(patch.object(run, "wait_checks", side_effect=self.required))
         self.stack.enter_context(patch.object(run, "do_merge", side_effect=self.squash))
 
     def recheck(self, cmds, wt, out, *args, **kwargs):
+        wt = Path(wt)
         out.parent.mkdir(parents=True, exist_ok=True)
-        self.rechecks.setdefault(Path(wt), []).append(sorted(p.name for p in Path(wt).glob("*.txt")))
+        self.rechecks.setdefault(wt, []).append(sorted(p.name for p in wt.glob("*.txt")))
+        self.events.append(("recheck", wt))
+        if wt in self.holding:
+            self.inside.append(("recheck", wt))
         if self.checking:
-            self.checking(Path(wt))
+            self.checking(wt)
+        if wt in self.failing:
+            self.failing.discard(wt)
+            return False, "$ true\n[exit 1]\n"
         return True, "$ true\n[exit 0]\n"
+
+    def fix(self, lp, role, text, name):
+        if lp.wt in self.holding:
+            self.inside.append(("fixer", lp.wt))
+        if not self.fixer:
+            raise AssertionError(f"unexpected {name} turn in {lp.wt.name}")
+        return self.fixer(lp)
+
+    def reviewer(self, cfg, name, body, workspace, out, *args, **kwargs):
+        answer = "VERDICT: PASS\n\n## Findings\n- none\n"
+        out.mkdir(parents=True)
+        (out / "final.md").write_text(answer)
+        return 0, answer, None, False
+
+    def required(self, lp, url):
+        """The PR's required checks: a moment, unless a test holds a run in them."""
+        self.events.append(("checks", lp.wt))
+        if self.landing:
+            self.landing(lp)
+        return True
 
     def squash(self, lp, url, upstream):
         """GitHub's squash merge of the pushed branch into main, in the bare origin."""
@@ -170,24 +227,74 @@ class MergeTurn(unittest.TestCase):
             time.sleep(0.05)
         self.fail(f"{lp.state['run_id']} never waited for its merge turn")
 
-    def test_two_passed_runs_of_one_repo_both_land_with_one_recheck_each(self):
+    def test_a_failing_recheck_and_its_fixer_hold_no_turn_while_another_run_lands(self):
+        remote, owner = make_origin(self.root)
+        one, two = make_run(self.root, remote, "one"), make_run(self.root, remote, "two")
+        commit(owner, "outside.txt", "outside")   # main moved since both were cut
+        run.git(owner, "push", "origin", "main")
+        self.failing.add(one.wt)                  # the first run's re-check on it fails
+        fixing, release = threading.Event(), threading.Event()
+
+        def fixer(lp):
+            fixing.set()
+            release.wait(20)
+            return "## Summary\nFixed."
+        self.fixer = fixer
+        results = {}
+        first = self.land(one, results)
+        try:
+            self.assertTrue(fixing.wait(20), "the first run never reached its fixer round")
+            self.land(two, results).join(60)
+            # the second landed whole while the first sat in its fixer round, never waiting
+            self.assertEqual(results, {two.state["run_id"]: True})
+            self.assertNotIn("waiting for the merge turn", (two.run_dir / "log.txt").read_text())
+        finally:
+            release.set()
+            first.join(60)
+        self.assertEqual(results, {one.state["run_id"]: True, two.state["run_id"]: True})
+        self.assertEqual(self.inside, [])
+        # the failing re-check, the fixer's, and one on the main the second landed on
+        self.assertEqual(self.rechecks[one.wt], [["base.txt", "one.txt", "outside.txt"]] * 2
+                         + [["base.txt", "one.txt", "outside.txt", "two.txt"]])
+        self.assertIn("fixer opus (findings after the rebase of origin/main)",
+                      (one.run_dir / "log.txt").read_text())
+        run.git(owner, "pull", "--ff-only", "origin", "main")
+        self.assertTrue((owner / "one.txt").exists() and (owner / "two.txt").exists())
+
+    def test_an_unchanged_target_lands_directly(self):
+        remote, owner = make_origin(self.root)
+        lp = make_run(self.root, remote, "one")
+        commit(owner, "outside.txt", "outside")   # verified on, and still there to land on
+        run.git(owner, "push", "origin", "main")
+        self.assertTrue(run.merge(lp))
+        self.assertEqual(self.events, [("recheck", lp.wt), ("turn", lp.wt), ("checks", lp.wt)])
+        self.assertNotIn(" moved ", (lp.run_dir / "log.txt").read_text())
+        state = run.read_state(lp.run_dir)
+        self.assertEqual(run.git(lp.wt, "rev-parse", f"origin/{state['branch']}"),
+                         state["review"]["head_sha"])       # the commit re-checked is the one pushed
+        self.assertEqual(state["delivery_sha"], state["review"]["head_sha"])
+
+    def test_a_queued_run_lands_on_a_disjoint_move_without_a_recheck(self):
         remote, owner = make_origin(self.root)
         one, two = make_run(self.root, remote, "one"), make_run(self.root, remote, "two")
         commit(owner, "outside.txt", "outside")   # main moved since both were cut
         run.git(owner, "push", "origin", "main")
         inside, release = threading.Event(), threading.Event()
 
-        def hold(wt):
-            if wt == one.wt:
+        def hold(lp):
+            if lp is one:
                 inside.set()
                 release.wait(20)
-        self.checking = hold
+        self.landing = hold                       # the first run sits in its required checks
         results = {}
         first = self.land(one, results)
         try:
-            self.assertTrue(inside.wait(20), "the first run never reached its re-check")
+            self.assertTrue(inside.wait(20), "the first run never reached its required checks")
             second = self.land(two, results)
             state = self.waiting(two)
+            # it verified before it queued, on the main the first has not landed on yet
+            self.assertEqual(self.rechecks[two.wt], [["base.txt", "outside.txt", "two.txt"]])
+            verified = run.git(two.wt, "rev-parse", "HEAD")
             # the waiting run is on screen as such, and owns no slot while it waits
             self.assertEqual(run.merge_turn_note(state),
                              f"waiting for the merge turn of {two.wt.name} main")
@@ -196,7 +303,6 @@ class MergeTurn(unittest.TestCase):
             with redirect_stdout(shown):
                 run.cmd_status([])
             self.assertIn(f"waiting for the merge turn of {two.wt.name} main", shown.getvalue())
-            self.assertEqual(self.rechecks.get(two.wt), None)    # it has not even rebased
             # nor is it silent: a wait as long as the stall allowance never reads as a stall
             old = time.time() - 3600
             for path in two.run_dir.rglob("*"):
@@ -209,15 +315,65 @@ class MergeTurn(unittest.TestCase):
             first.join(60)
         second.join(60)
         self.assertEqual(results, {one.state["run_id"]: True, two.state["run_id"]: True})
-        # one re-check each, the second on a main that already carries the first
+        self.assertEqual(self.inside, [])
+        # one re-check each: the first's move touched only one.txt, so the second lands on it
         self.assertEqual(self.rechecks[one.wt], [["base.txt", "one.txt", "outside.txt"]])
-        self.assertEqual(self.rechecks[two.wt],
-                         [["base.txt", "one.txt", "outside.txt", "two.txt"]])
-        self.assertNotIn("moved to", (two.run_dir / "log.txt").read_text())
+        self.assertEqual(self.rechecks[two.wt], [["base.txt", "outside.txt", "two.txt"]])
+        self.assertIn("--- merge: origin/main moved 1 commits, none touching this branch's files; "
+                      "landing on the verified checks", (two.run_dir / "log.txt").read_text())
+        state = run.read_state(two.run_dir)
+        self.assertEqual(state["review"]["rebased_from"], verified)
+        self.assertEqual(state["delivery_sha"], state["review"]["head_sha"])
         run.git(owner, "pull", "--ff-only", "origin", "main")
         self.assertTrue((owner / "one.txt").exists() and (owner / "two.txt").exists())
-        self.assertNotIn("merge_turn", run.read_state(two.run_dir))
+        self.assertNotIn("merge_turn", state)
         self.assertEqual(run.slot_counts({"run_id": "probe"}), (2, 0))
+
+    def overlapping(self, owner, *lines):
+        """A `queuing` that sets main's last line of shared.txt to the next of `lines` each time."""
+        remaining = list(lines)
+
+        def move(lp):
+            if remaining:
+                (owner / "shared.txt").write_text(f"1\n2\n3\n4\n{remaining.pop(0)}\n")
+                run.git(owner, "commit", "-am", "main edits shared")
+                run.git(owner, "push", "origin", "main")
+        return move
+
+    def test_an_overlapping_move_verifies_again_outside_the_turn(self):
+        remote, owner = make_origin(self.root)
+        commit(owner, "shared.txt", "1\n2\n3\n4\n5")
+        run.git(owner, "push", "origin", "main")
+        lp = make_run(self.root, remote, "one", {"shared.txt": "one\n2\n3\n4\n5\n"})
+        commit(owner, "outside.txt", "outside")   # so every lap has a rebase to re-check
+        run.git(owner, "push", "origin", "main")
+        self.queuing = self.overlapping(owner, "five")   # main edits the branch's file meanwhile
+        self.assertTrue(run.merge(lp))
+        self.assertEqual(self.inside, [])
+        self.assertEqual(self.events, [("recheck", lp.wt), ("turn", lp.wt),
+                                       ("recheck", lp.wt), ("turn", lp.wt), ("checks", lp.wt)])
+        log = (lp.run_dir / "log.txt").read_text()
+        self.assertIn("touching this branch's files; verifying again outside the merge turn", log)
+        self.assertNotIn("none touching", log)
+        run.git(owner, "pull", "--ff-only", "origin", "main")
+        self.assertEqual((owner / "shared.txt").read_text(), "one\n2\n3\n4\nfive\n")
+
+    def test_three_overlapping_moves_park_waiting(self):
+        remote, owner = make_origin(self.root)
+        commit(owner, "shared.txt", "1\n2\n3\n4\n5")
+        run.git(owner, "push", "origin", "main")
+        lp = make_run(self.root, remote, "one", {"shared.txt": "one\n2\n3\n4\n5\n"})
+        commit(owner, "outside.txt", "outside")   # so every lap has a rebase to re-check
+        run.git(owner, "push", "origin", "main")
+        self.queuing = self.overlapping(owner, "5a", "5b", "5c")
+        self.assertFalse(run.merge(lp))
+        self.assertEqual(self.inside, [])
+        self.assertEqual(self.events, [("recheck", lp.wt), ("turn", lp.wt)] * 3)
+        state = run.read_state(lp.run_dir)
+        self.assertEqual(state["state"], "waiting")
+        self.assertEqual(state["waiting_on"]["ref"], "origin/main")
+        self.assertIn("moved three times", state["merge_note"])
+        self.assertNotIn("merge_turn", state)
 
     def test_one_repository_is_one_turn_however_its_origin_is_spelled(self):
         same = {run.merge_turn_lock(url, "origin/main") for url in (
@@ -250,7 +406,7 @@ class MergeTurn(unittest.TestCase):
         self.assertEqual(holder.wait(20), 1)           # dead, the lock file left behind
         thread.join(60)
         self.assertEqual(results, {lp.state["run_id"]: True})
-        self.assertEqual(len(self.rechecks[lp.wt]), 1)
+        self.assertEqual(len(self.rechecks[lp.wt]), 1)          # verified before it queued
         self.assertIn("took the merge turn", (lp.run_dir / "log.txt").read_text())
         # and the next run finds the dead holder's file, and no wait at all
         again = make_run(self.root, remote, "two")
