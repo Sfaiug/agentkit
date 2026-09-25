@@ -1,7 +1,7 @@
 """A repository's done-when gates take turns, `max_gates` at a time, host-wide.  Offline.
 
-A temporary HOME, repositories that are only paths on the run records, and short shell
-commands; nothing here touches the real ~/.agentkit or any real process.
+A temporary HOME, repositories that are only paths on the run records or fake ones made
+here, and short shell commands; nothing here touches the real ~/.agentkit or any real process.
 """
 
 from contextlib import ExitStack
@@ -82,6 +82,23 @@ class GateTurns(unittest.TestCase):
 
     def mark(self, word, seconds=0):
         return f"echo {word} >> {shlex.quote(str(self.marks))}; sleep {seconds}"
+
+    def hold(self, word):
+        """A command that writes its mark, then keeps its turn until `self.release()`."""
+        go = shlex.quote(str(self.root / "go"))
+        return f"{self.mark(word)}; until [ -e {go} ]; do sleep 0.05; done"
+
+    def release(self):
+        (self.root / "go").touch()
+
+    def checkout(self):
+        """A fake repository under the sandbox and a linked worktree added from it, as recorded."""
+        main, linked = self.root / "acme", self.root / "acme-topic"
+        run.git(self.root, "init", "-q", str(main))
+        run.git(main, "-c", "user.name=fixture", "-c", "user.email=fixture@localhost",
+                "commit", "-q", "--allow-empty", "-m", "baseline")
+        run.git(main, "worktree", "add", "-q", str(linked), "-b", "topic")
+        return str(main), str(linked)
 
     def until(self, check, what, seconds=20):
         deadline = time.monotonic() + seconds
@@ -189,6 +206,45 @@ class GateTurns(unittest.TestCase):
                 suite.join(20)
         self.assertEqual(self.marks.read_text(), "scratch\nsuite\n")
         self.assertFalse(scratch.waited() or suite.waited(), scratch.logs + suite.logs)
+
+    def test_a_gate_recorded_in_a_linked_worktree_waits_for_a_gate_of_its_main_checkout(self):
+        main, linked = self.checkout()
+        first = Gate(self, "one", main, [self.hold("start")])
+        second = Gate(self, "two", linked, [self.mark("linked")])
+        self.started(first)
+        second.start()
+        gate_log = second.run_dir / "donewhen.log"
+        self.until(lambda: gate_log.is_file() and gate_log.read_text() == WAITING + "\n",
+                   "the linked worktree's gate to wait")
+        self.assertEqual(run.gate_turn_note(run.read_state(second.run_dir)),
+                         "waiting for a gate turn of acme")
+        self.assertEqual(self.marks.read_text(), "start\n")
+        self.release()
+        first.join(20)
+        second.join(20)
+        self.assertEqual(self.marks.read_text(), "start\nlinked\n")
+        self.assertTrue(first.result[0] and second.result[0], (first.result, second.result))
+        self.assertRegex(second.logs[1], r"^done-when: took a gate turn of acme after \d+s$")
+
+    def test_a_bad_config_runs_the_gate_under_the_default_and_names_the_problem(self):
+        path = config.HOME / config.CONFIG_NAME
+        path.write_text('max_gates = "x"\n')
+        with ExitStack() as held:
+            for slot in range(config.RUN_DEFAULTS["max_gates"]):
+                holder = held.enter_context(run.gate_lock(ACME, slot).open("a"))
+                fcntl.flock(holder, fcntl.LOCK_EX)
+            gate = Gate(self, "one", ACME, [self.mark("ran")])
+            gate.start()
+            gate_log = gate.run_dir / "donewhen.log"
+            self.until(lambda: gate_log.is_file()
+                       and gate_log.read_text() == "waiting for a gate turn · 3 of acme running\n",
+                       "the gate to wait on the default's three turns")
+        gate.join(20)
+        self.assertTrue(gate.result[0], gate.result[1])
+        self.assertEqual(self.marks.read_text(), "ran\n")
+        problem = f"{path}: max_gates must be a non-negative integer"
+        self.assertEqual(gate.logs[0], f"done-when: {problem} · the gate takes one of the shipped "
+                                       "default's 3 turns")
 
 
 if __name__ == "__main__":
