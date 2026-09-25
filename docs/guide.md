@@ -115,7 +115,7 @@ Workers and checks run with `$AGENTKIT_UNATTENDED`, so a run one of them starts 
 
 Several task files run as one job: `ak run a.md b.md [--parallel N] [--bg]`, one card at the end, receipt in
 `~/.agentkit/jobs/<id>/job.json`. An `after:` task starts once its dependencies merged, or at once when the one left has
-passed review in its repository: cut from that reviewed tip, which it records, it lands after that merge, rebasing only
+passed review in its repository: cut from that reviewed tip, which it records, it waits as `waiting for <dep> to merge`, never read as silent, then lands, rebasing only
 its own commits (`git rebase --onto <target> <tip>`), so a squash merge cannot conflict. A dependency parked `waiting`
 keeps it waiting; one ending unmerged skips it (`skipped: <dep> did not merge`), its branch kept. `repo: none` delivers
 files in `~/.agentkit/work/<id>`, which its hand-back names, not a PR. `ak run --review-pr URL` reviews somebody else's

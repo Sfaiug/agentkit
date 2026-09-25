@@ -3299,6 +3299,19 @@ def on_pass(lp):
     return after["task"] if after and lp.base_sha == after.get("tip") else None
 
 
+def dep_wait_note(state):
+    """`waiting for <dep> to merge` while a run waits in `wait_for_dependency`, else "".
+
+    The mark names the process that waits, so one a kill left on the record, or a resume
+    carried forward to a new process, says nothing.
+    """
+    wait = state.get("dep_wait")
+    if (state.get("state") != "running" or not isinstance(wait, dict)
+            or wait.get("pid") != state.get("pid")):
+        return ""
+    return f"waiting for {wait.get('of')} to merge"
+
+
 def wait_for_dependency(lp):
     """Hold a branch cut from a dependency's passed branch until the dependency has merged.
 
@@ -3319,13 +3332,18 @@ def wait_for_dependency(lp):
             break
         if word is None or word in (*JOB_UNDELIVERED, "skipped"):
             lp.state["skipped_dep"] = dep
+            lp.state.pop("dep_wait", None)
             return note(lp, f"{dep} did not merge; this branch stands on its work and is kept")
         if not waited:
+            lp.state["dep_wait"] = {"pid": os.getpid(), "of": dep}
+            save_state(lp.run_dir, lp.state)
             lp.log(f"--- merge: waiting for {dep} to merge before landing on it")
             step = history.close_step(lp.state.get("run_id"), log=lp.log)   # a wait, not work
             waited = True
         time.sleep(JOB_TICK)
     if waited:
+        lp.state.pop("dep_wait", None)
+        save_state(lp.run_dir, lp.state)
         history.open_step(lp.state.get("run_id"), step, log=lp.log)
         lp.log(f"--- merge: {dep} merged; landing")
     return True
@@ -8587,6 +8605,8 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
         lines.append(f"  {slot_note(state)}")
     elif merge_turn_note(state):
         lines.append(f"  {merge_turn_note(state)}")
+    elif dep_wait_note(state):
+        lines.append(f"  {dep_wait_note(state)}")
     elif gate_turn_note(state):
         lines.append(f"  {gate_turn_note(state)}")
     if needs_recovery(state):
@@ -8791,6 +8811,8 @@ def cmd_status(argv):
                 print(f"  {slot_note(state)}")
             elif merge_turn_note(state):
                 print(f"  {merge_turn_note(state)}")
+            elif dep_wait_note(state):
+                print(f"  {dep_wait_note(state)}")
             elif gate_turn_note(state):
                 print(f"  {gate_turn_note(state)}")
             living, ended = alive_line(state), stop_note(state)
@@ -8846,6 +8868,8 @@ def cmd_status(argv):
                     print(f"  {slot_note(state)}")
                 elif merge_turn_note(state):
                     print(f"  {merge_turn_note(state)}")
+                elif dep_wait_note(state):
+                    print(f"  {dep_wait_note(state)}")
                 elif gate_turn_note(state):
                     print(f"  {gate_turn_note(state)}")
                 elif blocked_note(state):
