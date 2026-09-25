@@ -85,6 +85,7 @@ class GateTurns(unittest.TestCase):
 
     def hold(self, word):
         """A command that writes its mark, then keeps its turn until `self.release()`."""
+        self.addCleanup(self.release)      # a test that fails first must not leave it running
         go = shlex.quote(str(self.root / "go"))
         return f"{self.mark(word)}; until [ -e {go} ]; do sleep 0.05; done"
 

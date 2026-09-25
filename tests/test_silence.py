@@ -152,18 +152,20 @@ class Silence(unittest.TestCase):
             "if len(sys.argv) == 7:\n time.sleep(600)\n"
             "(out / 'final.md').write_text('## Summary\\nFinished')\n")
         logs = []
+        # two levels under the sandbox, as a round's out dir sits under its run: the turn reads
+        # the run directory as the out dir's grandparent, and one level up here is the checkout
         with patch.object(worker.time, "monotonic", side_effect=Clock(600)), \
                 patch.object(run, "TRANSIENT_BACKOFF", (0, 0)):
             code, text, sid, dead = run.call_retrying(
-                cfg, "fixture", "do it", self.root, self.root / "executor", "executor",
-                None, logs.append)
+                cfg, "fixture", "do it", self.root, self.root / "turns" / "executor",
+                "executor", None, logs.append)
         self.assertEqual((code, sid, dead), (0, "sid", False))
         self.assertIn("Finished", text)
         self.assertTrue(any("emitted no event for 20m" in line and "resuming session sid" in line
                             for line in logs), logs)
         self.assertEqual(sum("retrying in 0s" in line for line in logs), 1)
-        self.assertTrue((self.root / "executor-retry1" / "final.md").exists())
-        self.assertFalse((self.root / "executor" / "final.md").exists())
+        self.assertTrue((self.root / "turns" / "executor-retry1" / "final.md").exists())
+        self.assertFalse((self.root / "turns" / "executor" / "final.md").exists())
 
     def test_chatty_turn_has_no_total_cap(self):
         cfg = self.adapter(
@@ -174,8 +176,8 @@ class Silence(unittest.TestCase):
         clock = Clock(4 * 3600)
         with patch.object(worker.time, "monotonic", side_effect=clock):
             code, text, _, dead = run.call_retrying(
-                cfg, "fixture", "do it", self.root, self.root / "executor", "executor",
-                None, lambda _: None)
+                cfg, "fixture", "do it", self.root, self.root / "turns" / "executor",
+                "executor", None, lambda _: None)
         self.assertEqual((code, dead), (0, False))
         self.assertIn("Finished", text)
         self.assertGreater(clock.now, 3600 * run.CEILING_HOURS)

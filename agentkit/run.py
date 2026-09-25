@@ -1447,9 +1447,11 @@ def main_checkout(repo):
 
     A run launched from inside a linked worktree without `repo:` records that worktree, and a
     gate keyed on it would take a second set of turns for the same repository.  A path git
-    cannot read as a checkout -- gone, or never one -- keys on itself.
+    cannot read as a checkout -- gone, never one, or a git that never answered -- keys on
+    itself: a turn's key is not worth stopping the run over.
     """
-    common = git(repo, "rev-parse", "--git-common-dir", check=False)
+    code, out, _ = tool_run(["git", "-C", str(repo), "rev-parse", "--git-common-dir"])
+    common = out.strip() if code == 0 else ""
     return (Path(repo) / common).resolve().parent if common else Path(repo)
 
 
