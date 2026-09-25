@@ -104,7 +104,7 @@ class ExhaustedNotGoing(Sandbox):
                      recovery_notified="orchestrator")
         self.receipt("20260101-1000-window", quota_dry=True, title="Parked on a window")
         tallies = run.seat_tallies((state for _, state in menu.run_records()), now=NOW)
-        self.assertEqual(tallies["acme"][:2], [1, 1])
+        self.assertEqual(tallies["acme"][:2], (1, 1))
         self.assertEqual(menu.tally(tallies["acme"]), "1 running · 1 needs you")
         self.assertEqual(menu.bar_tally(tallies["acme"]), "1 running · 1 needs you")
         self.assertEqual(self.decide()["reason"], "1 running · Parked on a window")
