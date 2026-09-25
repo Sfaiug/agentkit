@@ -265,7 +265,7 @@ was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-
 
 - `max_runs` (0, no count cap; `ak run status` names the cap in force), `min_free_mb`, `max_load` (0 disables that
   gate), `run_memory_max_mb` (one run's cap in MiB); `AK_MAX_RUNS`, `AK_MIN_FREE_MB` and `AK_MAX_LOAD` override them.
-- `max_gates` (3; 0 no cap): done-when gates of one main checkout at once, host-wide, whichever worktree or seat; the rest wait, shown `waiting for a gate turn of <repo>`, the wait charged to neither silence window nor ceiling.
+- `max_gates` (3; 0 no cap): done-when gates of one main checkout at once, host-wide, whichever worktree or seat; the rest wait, shown `waiting for a gate turn of <repo>`, the wait charged to neither silence window nor ceiling; a `config.toml` a gate cannot read means the default, named in the run log.
 - `pace_margin` (10): the picker's pay-as-you-go margin above. `[defaults]`: `orchestrator` and `workers`; an older
   file's `[tiers]` reads as the first of `A` over `B` without it, and `c` writes `[defaults]` on its next save.
 - `[models.<name>]`: `harness`, `model`, `effort` (one that model takes, per `adapters/<h>.sh models`, or `none`), `provider`,

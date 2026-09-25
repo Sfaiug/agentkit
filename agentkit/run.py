@@ -100,7 +100,7 @@ JUNK = ("__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/
 SANDBOX_PREFIXES = (
     ".acceptance-", ".auth-watch-", ".cards-", ".changed-checks-", ".codex-seat-",
     ".command-help-", ".config-home-", ".deferred-checks-", ".deferred-result-",
-    ".gate-tolerance-", ".handback-", ".lessons-", ".login-", ".macbridge-",
+    ".gate-tolerance-", ".gate-turns-", ".handback-", ".lessons-", ".login-", ".macbridge-",
     ".muse-probe-", ".no-sandbox-commit-", ".notify-", ".notify-smoke-",
     ".one-provider-", ".one-rulebook-", ".phone-", ".pins-", ".recover-runs-", ".refusal-",
     ".retention-", ".retry-notify-", ".review-contract-", ".review-gate-", ".rulebook-",
@@ -1442,6 +1442,19 @@ def dirty_paths(wt):
 GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each rewrites its log line
 
 
+def main_checkout(repo):
+    """The main checkout of the repository at `repo`: itself, or what a linked worktree was added from.
+
+    A run launched from inside a linked worktree without `repo:` records that worktree, and a
+    gate keyed on it would take a second set of turns for the same repository.  A path git
+    cannot read as a checkout -- gone, never one, or a git that never answered -- keys on
+    itself: a turn's key is not worth stopping the run over.
+    """
+    code, out, _ = tool_run(["git", "-C", str(repo), "rev-parse", "--git-common-dir"])
+    common = out.strip() if code == 0 else ""
+    return (Path(repo) / common).resolve().parent if common else Path(repo)
+
+
 def gate_lock(repo, slot):
     """The lock file of one of a repository's gate turns: its main checkout, whichever worktree."""
     digest = hashlib.sha256(str(repo).encode()).hexdigest()
@@ -1513,15 +1526,26 @@ def gate_turn(run_dir, log_path, log):
     with no record, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0` all take no turn.
     A `--first` run takes the next free turn ahead of gates already waiting: a gate
     without it lets a free slot go while one waits.
+    A home config this cannot read -- it is read here, mid-run, so one hand-edit typo would
+    fail the next gate of every running run -- means the shipped default, and a log line
+    naming the problem.
     """
     record = read_state(run_dir) or {} if run_dir else {}
     repo = record.get("repo")
     is_first = bool(record.get("first"))
     self_id = run_dir.name if run_dir else None
-    limit = config.max_gates() if repo and os.environ.get("AK_MAX_RUNS") != "0" else 0
+    limit = 0
+    if repo and os.environ.get("AK_MAX_RUNS") != "0":
+        try:
+            limit = config.max_gates()
+        except config.Error as exc:
+            limit = config.RUN_DEFAULTS["max_gates"]
+            if log is not None:
+                log(f"done-when: {exc} · the gate takes one of the shipped default's {limit} turns")
     if not limit:
         yield
         return
+    repo = main_checkout(repo)
     config.RUNS.mkdir(parents=True, exist_ok=True)
     name = Path(repo).name
     with ExitStack() as files:

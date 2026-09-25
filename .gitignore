@@ -14,6 +14,7 @@ __pycache__/
 .deferred-checks-*
 .deferred-result-*
 .gate-tolerance-*
+.gate-turns-*
 .handback-*
 .install-question-*
 .lessons-*
