@@ -531,14 +531,19 @@ def done_when_groups(body, path):
     return group_commands(done_when(body, path))
 
 
-def with_suite(cmds, wt):
-    """The done-when commands plus the checkout's declared `tests:` suite as a `# once` line.
+def with_suite(cmds, wt, target=None):
+    """The done-when commands plus the declared `tests:` suite as a `# once` line.
 
     A repository names its full suite once, in AGENTS.md, rather than every task writing it
     into every round: it runs in the final check on the commit about to ship and nowhere
     else.  A task line that is the same command is that line, so it runs once, not twice.
+    The checkout's own declaration wins; a checkout branched before the repository
+    declared one reads the target branch as fetched instead (`origin/<target>`).
     """
     suite = declared(wt, "tests")
+    if not suite and target:
+        ref = target if target.startswith("origin/") else f"origin/{target}"
+        suite = declared_at(wt, ref, "tests")
     if not suite:
         return cmds
     return [cmd for cmd in cmds if split_once(cmd)[0] != suite] + [f"{suite}  # once"]
@@ -4541,7 +4546,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         where = (f"Repo checkout: {wt}\nBranch: {state['branch']} (based on {state['base']}"
                  + (f", to be merged into {target}" if target != state["base"] else "") + ")")
     if not state.get("scratch"):
-        cmds = with_suite(cmds, wt)
+        cmds = with_suite(cmds, wt, target)
     every, once = group_commands(cmds)
     body += project_lessons(repo, state, log)
     save_state(run_dir, state)
@@ -9817,7 +9822,8 @@ def cmd_merge(argv):
     if state.get("pr") and not head:
         raise config.Error(f"{argv[0]}: no recorded delivery SHA; cannot safely retry the merge")
     _, body, _ = parse_task(run_dir / "task.md")
-    cmds = with_suite(done_when(body, run_dir / "task.md"), state["worktree"])
+    cmds = with_suite(done_when(body, run_dir / "task.md"), state["worktree"],
+                      state.get("target") or state.get("base"))
     body += project_lessons(state.get("repo") or None, state, log)
     lp = Loop(cfg, run_dir, state, {}, log, Path(state["worktree"]),
               body, cmds, f"Repo checkout: {state['worktree']}\n\n{body}", [])
@@ -10362,6 +10368,11 @@ def declared(wt, key):
         text = (Path(wt) / "AGENTS.md").read_text(errors="replace")
     except OSError:
         return None
+    return front_value(text, key)
+
+
+def front_value(text, key):
+    """`key`'s value in AGENTS.md front matter text as written, or None."""
     match = FRONT.match(text)
     if not match:
         return None
@@ -10370,6 +10381,23 @@ def declared(wt, key):
         if sep and name.strip() == key and value.strip():
             return value.strip()
     return None
+
+
+def declared_at(wt, ref, key):
+    """`key`'s value in the front matter of AGENTS.md at `ref`, or None.
+
+    A read that fails or runs slow is no declaration, never a failed run: the ref may
+    not exist yet, the file may not be there, or git may be waiting on a prompt or a
+    network nobody here can answer, and any of those leaves the run with what its own
+    checkout says.
+    """
+    try:
+        text = git(wt, "show", f"{ref}:AGENTS.md", check=False)
+    except Exception:
+        return None
+    if not text:
+        return None
+    return front_value(text, key)
 
 
 def users_declared(wt):

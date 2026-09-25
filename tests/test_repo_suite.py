@@ -66,6 +66,12 @@ class RepoSuite(unittest.TestCase):
         self.git("add", "AGENTS.md")
         self.git("commit", "-q", "-m", "fixture")
 
+    def add_origin(self):
+        origin = self.root / "origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True,
+                       capture_output=True, text=True)
+        self.git("remote", "add", "origin", str(origin))
+
     def worker(self, cfg, name, body, workspace, out_dir, role, session, **kwargs):
         text = ("VERDICT: PASS\n## Findings\n- none" if role.startswith("reviewer")
                 else "## Summary\nFixture execution.")
@@ -114,6 +120,37 @@ class RepoSuite(unittest.TestCase):
         self.assertTrue(self.rounds())
         self.assertTrue(all(cmds == ["true"] for cmds in self.rounds()), self.gates)
         self.assertEqual(self.finals(), [["true", "test -d ."]])
+
+    def test_checkout_without_tests_falls_back_to_origin_main(self):
+        self.add_origin()
+        self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")
+        self.git("push", "-q", "-u", "origin", "main")
+        self.git("fetch", "-q", "origin")
+        self.commit("# acme\n\nNo front matter here.\n")
+        for name, line in (("fallback-plain", SUITE),
+                           ("fallback-marked", f"{SUITE}  # once")):
+            with self.subTest(line=line):
+                self.gates.clear()
+                self.launch(name, ["true", line])
+                ran = [cmd for _, cmds in self.gates for cmd in cmds]
+                self.assertEqual(ran.count(SUITE), 1, self.gates)
+                self.assertTrue(all(SUITE not in cmds for cmds in self.rounds()),
+                                self.gates)
+                self.assertEqual(self.finals(), [["true", SUITE]])
+
+    def test_checkout_tests_wins_over_origin_main(self):
+        origin_suite = "test -d ."
+        self.add_origin()
+        self.commit(f"---\ntests: {origin_suite}\n---\n# acme\n")
+        self.git("push", "-q", "-u", "origin", "main")
+        self.git("fetch", "-q", "origin")
+        self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")
+        self.launch("own-wins", ["true"])
+        self.assertTrue(self.rounds())
+        self.assertTrue(all(SUITE not in cmds for cmds in self.rounds()), self.gates)
+        self.assertEqual(self.finals(), [["true", SUITE]])
+        ran = [cmd for _, cmds in self.gates for cmd in cmds]
+        self.assertNotIn(origin_suite, ran, self.gates)
 
     def test_review_pr_still_runs_declared_tests(self):
         self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")

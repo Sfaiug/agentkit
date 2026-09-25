@@ -62,7 +62,7 @@ scratch workspace), `base` (the repo's default branch), `target` (the branch the
 (a local branch to cut from), `merge` (`squash`, `merge` or `rebase`), `rounds` (3, the most), `after` (a job
 dependency, repeatable). A check ending in `# once` runs only on the commit that ships; the reviewer sees it marked
 deferred. The full suite a repository names as `tests:` in its `AGENTS.md` front matter is such a check in every run
-there, and a done-when line with the same command runs once with it, so a task lists only the checks for its change.
+there, from the target branch where the checkout predates it, and a done-when line with the same command runs once with it, so a task lists only the checks for its change.
 The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt, up to 4 KB; past
 that, the run's hand-back names the file and asks the orchestrator to tighten it.
 
