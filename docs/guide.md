@@ -34,8 +34,7 @@ with no blocking end-of-turn hook declares `[stop] enforce = "nudge"`, and the t
 Inside a seat `Ctrl-b m` opens the same menu as a popup: a number switches to that session, `n`
 starts one, `r` renames this one, `x` stops it -- or, done, closes it at once -- and `q` closes the popup. The seat's status bar reads
 `<name> · <orchestrator> → <workers> · <state> · <last column>`, the same values as its menu row, cut with one `…` at 120 columns or where it would reach the key on any client, a phone included, with `Ctrl-b m  menu` on the right (`Ctrl-b m  x close` once it is done), and the
-window title is `<name> · <state>`. Agentkit's tmux config is `~/.agentkit/state/tmux.conf`;
-`~/.tmux.conf` is never read or written.
+window title is `<name> · <state>`. Agentkit's tmux config is `~/.agentkit/state/tmux.conf`; `~/.tmux.conf` is never read or written.
 
 Every seat compacts alike, whatever its harness: forty minutes after the last turn, with no input since and the context
 at or above 40,000 tokens, the harness's own compact command is typed once at a quiet prompt. Workers never compact, nor
@@ -279,6 +278,7 @@ was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-
 
 - `max_runs` (0, no count cap; `ak run status` names the cap in force), `min_free_mb`, `max_load` (0 disables that
   gate), `run_memory_max_mb` (one run's cap in MiB); `AK_MAX_RUNS`, `AK_MIN_FREE_MB` and `AK_MAX_LOAD` override them.
+- `max_gates` (3; 0 no cap): done-when gates of one main checkout at once, host-wide, whichever worktree or seat; the rest wait, shown `waiting for a gate turn of <repo>`, the wait charged to neither silence window nor ceiling.
 - `pace_margin` (10): the picker's pay-as-you-go margin above. `[defaults]`: `orchestrator` and `workers`; an older
   file's `[tiers]` reads as the first of `A` over `B` without it, and `c` writes `[defaults]` on its next save.
 - `[models.<name>]`: `harness`, `model`, `effort` (one that model takes, per `adapters/<h>.sh models`, or `none`), `provider`,

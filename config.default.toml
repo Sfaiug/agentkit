@@ -3,6 +3,7 @@
 # then on.  Edit the copy in the home directory, not this file.
 
 max_runs = 0              # no count cap; host memory and load are the gates
+max_gates = 3             # done-when gates of one repository at once, host-wide; 0 = no cap
 # min_free_mb and max_load default from this host's RAM and processor count.
 # Set either to 0 to disable that one resource check.
 # run_memory_max_mb, when set, is one run's memory cap in MiB. Unset, the cap is
