@@ -201,10 +201,11 @@ class V5oMenu(Sandbox):
             self.assertLessEqual(terminal.cells(terminal.plain(line)), 100, line)
 
     def test_v5o_c_sentence_wraps_word_boundaries(self):
-        # A working seat without a plan reads `N running`: short, never wrapped.
+        # A working seat without a plan reads its unfinished job's bar: short, never wrapped.
         screen, _ = self.draw(100, 30)
         job = next(line for line in screen.splitlines() if "atoll-job" in line)
-        self.assertIn("2 running", job)
+        self.assertIn("tasks ", job)
+        self.assertNotIn("2 running", job)
         # A last column too long for two lines is cut with … on the continuation.
         info = {"number": "1", "name": "atoll-job", "count": "needs you",
                 "orchestrator": "fable", "worker": "fable",
@@ -225,17 +226,16 @@ class V5oMenu(Sandbox):
         long_turn = next(line for line in screen.splitlines() if "herdr-long" in line)
         self.assertTrue(long_turn.rstrip().endswith("● working"))
         self.assertNotIn("Fix the", long_turn)
+        # Runs going without a plan or a job read empty, never `N running`.
         quiet = next(line for line in screen.splitlines() if "atoll-solo" in line)
-        self.assertIn("running", quiet)
-        # A working seat without a plan reads `N running`, the orchestrator, no title.
+        self.assertTrue(quiet.rstrip().endswith("● working"))
+        # A working seat without a plan reads its unfinished job's bar, the orchestrator,
+        # no title.
         job = next(line for line in screen.splitlines() if "atoll-job" in line)
-        self.assertIn("2 running", job)
+        self.assertRegex(job, r"tasks █+░+\s+3/7")
         self.assertIn("fable", job)
         self.assertNotIn("Rebuild the dashboard filters", screen)
-        # The old job file is read no more: no bar without a plan.
-        self.assertNotIn("3/7", screen)
-        self.assertNotIn("tasks ", screen)
-        # A plan draws the bar; without one there is no bar and no fake one.
+        # A plan draws the bar; without a plan or a job there is no bar and no fake one.
         (config.STATE / "plan-atoll-job.md").write_text("- [x] a\n- [x] b\n- [x] c\n"
                                                         "- [ ] d\n- [ ] e\n- [ ] f\n"
                                                         "- [ ] g\n")
@@ -245,7 +245,7 @@ class V5oMenu(Sandbox):
         self.assertRegex(screen, r"tasks █+░+\s+3/7")
         solo_idx = screen.index("atoll-solo")
         solo_block = screen[solo_idx:solo_idx + 300]
-        self.assertIn("2 running", solo_block)
+        self.assertNotIn("2 running", solo_block)
         self.assertNotIn("tasks ", solo_block)
         self.assertNotIn("0/0", solo_block)
         solo_lines = [line for line in screen.splitlines() if "atoll-solo" in line]
@@ -255,8 +255,8 @@ class V5oMenu(Sandbox):
         screen, _ = self.draw(100, 30)
         # No `↳` row, ever: not a running one, not a failed one, not an orphan.
         self.assertNotIn("↳", screen)
-        # A working seat without a plan reads `N running`; no title is ever a row.
-        self.assertIn("2 running", screen)
+        # A working seat never reads `N running`; no title is ever a row.
+        self.assertNotIn("2 running", screen)
         # A merged run, an orphan and a run of a throwaway or worktree repo are
         # none of them a row, and none of them a project.
         for title in ("Rebuild the dashboard filters", "Shipped dashboard filters",
@@ -349,8 +349,8 @@ class V5oMenu(Sandbox):
                               state="running", finished_at=None, started_at=NOW - 600,
                               rounds=2, round_summaries=[], executor="opus")
         screen, _ = self.draw(100, 30)
-        # The menu reads `N running`; the state function keeps silent for `ak orch why`.
-        self.assertIn("4 running", screen)
+        # The menu reads no `N running`; the state function keeps silent for `ak orch why`.
+        self.assertNotIn("4 running", screen)
         self.assertNotIn("silent 2h", screen)
         self.assertNotIn("Silent gate work", screen)
         found = watch.session_state("atoll-solo", NOW, cfg=self.cfg,
@@ -456,7 +456,7 @@ class V5oMenu(Sandbox):
         # A seat row is two lines on a phone: head plus its last column indented.
         idx = next(i for i, line in enumerate(screen.splitlines()) if "atoll-job" in line)
         self.assertTrue(screen.splitlines()[idx + 1].startswith("    "))
-        self.assertIn("2 running", screen.splitlines()[idx + 1])
+        self.assertIn("tasks ", screen.splitlines()[idx + 1])
 
     def test_v5o_n_no_age_in_seconds(self):
         for width in (40, 100, 170):

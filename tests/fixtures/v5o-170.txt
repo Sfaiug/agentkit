@@ -19,7 +19,7 @@ no project
   5  scribe       fable  ! needs you  session closed: press 5 to reopen
 
 atoll
-  1  atoll-job    fable  ● working    2 running
-  2  atoll-solo   fable  ● working    2 running
+  1  atoll-job    fable  ● working    tasks ███░░░░░ 3/7
+  2  atoll-solo   fable  ● working
 
   n new   x stop   c config   i info   q leave

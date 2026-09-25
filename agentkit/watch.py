@@ -1441,10 +1441,20 @@ def plan_progress(name):
 
     The orchestrator keeps `~/.agentkit/state/plan-<session>.md` as a markdown list;
     lines starting with `- [x]` are done, `- [ ]` plus `- [x]` are the total. No plan
-    or zero total means no bar. The menu row reads this one helper.
+    or zero total means no bar. An orchestrator renamed with `ak orch rename` still
+    writes under the name it was launched with, so a plan under any name whose rename
+    pointers lead here is this session's, and of several the one written last wins.
+    The menu row and the status bar read this through `menu.seat_progress`.
     """
+    plans = []
+    for each in [name] + [old for old, now in config.session_aliases().items() if now == name]:
+        try:
+            path = config.plan_path(each)
+            plans.append((path.stat().st_mtime, path))
+        except (OSError, config.Error):
+            continue
     try:
-        text = (config.STATE / f"plan-{name}.md").read_text(encoding="utf-8")
+        text = max(plans)[1].read_text(encoding="utf-8") if plans else ""
     except OSError:
         return (0, 0)
     done = total = 0

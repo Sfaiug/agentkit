@@ -14,9 +14,8 @@ no project
 
 atoll
   1  atoll-job    fable  ● working
-    2 running
+    tasks ██░░ 3/7
   2  atoll-solo   fable  ● working
-    2 running
 
   n new   x stop   c config   i info
   q leave

@@ -143,7 +143,7 @@ class MenuRows(Sandbox):
         self.assertNotIn("press r", screen)
 
     def test_reason_column_working(self):
-        # Plan wins over runs; runs win over empty.
+        # Plan wins over runs; runs going are never the last column, which stays empty.
         planned = self.seat("planned-work", "atoll", live="working")
         self.plan("planned-work", 1, 3)
         self.record("planned-going", owner=planned["name"], repo=planned["repo"],
@@ -160,8 +160,8 @@ class MenuRows(Sandbox):
         screen, _ = self.draw(100, 30)
         self.assertIn("tasks ", next(line for line in screen.splitlines() if "planned-work" in line))
         row = next(line for line in screen.splitlines() if "running-work" in line)
-        self.assertIn("2 running", row)
-        self.assertNotIn("tasks ", row)
+        self.assertNotIn("2 running", row)
+        self.assertTrue(row.rstrip().endswith("● working"))
         idle_row = next(line for line in screen.splitlines() if "idle-work" in line)
         self.assertTrue(idle_row.rstrip().endswith("● working"))
 

@@ -19,6 +19,6 @@ no project
   4  scribe       fable  ! needs you  waiting for you
 
 agentkit
-  3  herdr        fable  ● working    1 running
+  3  herdr        fable  ● working
 
   n new   x stop   c config   i info   q leave

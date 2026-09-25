@@ -28,9 +28,10 @@ one answer: the row, the top line, `ak orch list`, `ak orch why`, the
 seat's own status bar and its window title.  `ak orch why <seat>` says what decided it.
 
 A row is number, name, orchestrator, state, and one last column: for `needs you` the reason
-from the state function, for `working` the plan bar when the session has one (`tasks ██░░░
-2/5` from `~/.agentkit/state/plan-<session>.md`), else `N running` when runs are going, else
-empty, for `done` the first line of the done summary. Never two state words on one row.
+from the state function, for `working` the tasks bar (`tasks ██░░░ 2/5` from
+`~/.agentkit/state/plan-<session>.md`, under any name a rename led from, else from its
+unfinished jobs), else empty, for `done` the first line of the done summary. Never two
+state words on one row, and never `N running`.
 
 `ak orch list` carries, after the word, a tally of the runs that seat launched, read from
 their run.json records and nothing else: `<n> running`, then one finished figure -- `<n> needs
@@ -548,17 +549,21 @@ def jobs_root():
 
 
 def job_for_seat(seat_name):
-    """(done, total, waiting_on) for the seat's job, or None without one. No fake bar.
+    """(done, total, waiting_on) over the seat's unfinished jobs, or None without one. No fake bar.
 
-    Reads ~/.agentkit/jobs/*/job.json when present, nothing when absent. `done` is
-    tasks merged, passed or skipped of all tasks; `waiting_on` is the current job's
-    `waiting on <dep>` sentence. Unreadable or task-less jobs are no job at all.
+    Reads ~/.agentkit/jobs/*/job.json when present, nothing when absent. A job is the seat's
+    until it records `finished_at`, when the seat it names leads here through rename
+    pointers: an orchestrator renamed since launched it under its old name. `done` is
+    tasks merged, passed or skipped of all those jobs' tasks; `waiting_on` is the first
+    job's `waiting on <dep>` sentence. Unreadable or task-less jobs are no job at all.
     """
     root = jobs_root()
     try:
         candidates = sorted(root.iterdir()) if root.exists() else []
     except OSError:
         return None
+    done = total = 0
+    waiting = ""
     for entry in candidates:
         path = entry / "job.json" if entry.is_dir() else entry
         if path.suffix != ".json":
@@ -567,29 +572,32 @@ def job_for_seat(seat_name):
             job = json.loads(path.read_text())
         except (OSError, ValueError):
             continue
-        if not isinstance(job, dict):
+        if not isinstance(job, dict) or job.get("finished_at"):
             continue
         owner = job.get("seat") or job.get("session") or job.get("owner")
+        try:
+            owner = config.resolve_session(owner) if isinstance(owner, str) else owner
+        except config.Error:
+            pass
         if owner != seat_name and entry.name != seat_name:
             continue
-        waiting = (job.get("waiting_on") or job.get("waiting") or
-                   job.get("waiting_for") or job.get("blocked_on"))
-        if isinstance(waiting, dict):
-            waiting = waiting.get("dep") or waiting.get("name")
-        waiting = str(waiting).strip() if waiting else ""
+        said = (job.get("waiting_on") or job.get("waiting") or
+                job.get("waiting_for") or job.get("blocked_on"))
+        if isinstance(said, dict):
+            said = said.get("dep") or said.get("name")
+        waiting = waiting or (str(said).strip() if said else "")
         tasks = job.get("tasks")
         if isinstance(tasks, dict):
             tasks = tasks.get("items", [])
         if not isinstance(tasks, list):
-            done = job.get("done", job.get("merged"))
-            total = job.get("total", job.get("tasks_total"))
             try:
-                done, total = int(done), int(total)
+                counted = (int(job.get("done", job.get("merged"))),
+                           int(job.get("total", job.get("tasks_total"))))
             except (TypeError, ValueError):
-                return (None, 0, waiting) if waiting else None
-            return (done, total, waiting) if total > 0 or waiting else None
-        total = len(tasks)
-        done = 0
+                continue
+            done, total = done + counted[0], total + counted[1]
+            continue
+        total += len(tasks)
         for task in tasks:
             if not isinstance(task, dict):
                 continue
@@ -598,10 +606,24 @@ def job_for_seat(seat_name):
             if status in ("merged", "pass", "passed", "skipped", "done",
                           "ok", "complete", "completed"):
                 done += 1
-        if total <= 0 and not waiting:
-            return None
-        return (done, total, waiting)
-    return None
+    return (done, total, waiting) if total > 0 or waiting else None
+
+
+def seat_progress(name):
+    """(done, total) behind a working seat's bar: its plan, else its unfinished jobs.
+
+    (0, 0) with neither. The menu row and the seat's own status bar both read this one
+    helper, so the two always draw the same bar.
+    """
+    from . import watch as _watch
+    try:
+        done, total = _watch.plan_progress(name)
+    except (OSError, ValueError):
+        done, total = 0, 0
+    if total > 0:
+        return done, total
+    job = job_for_seat(name)
+    return (job[0], job[1]) if job else (0, 0)
 
 
 def seat_estimate(seat_name, session=None, job=None):
@@ -711,41 +733,28 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
 
 
 def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, index=None,
-                  owner_of=None, run_numbers=None, look=True):
+                  run_numbers=None, look=True):
     """Number, name, orchestrator, state and one last column for one offered seat.
 
     The word is `watch.session_state`'s and no screen's own: `working`, `needs you` or
     `done`. The last column is the reason for `needs you` and `done`, and for `working`
-    the plan bar when the session has one, else `N running` when runs are going, else
+    the tasks bar from `seat_progress` -- its plan, else its unfinished jobs -- else
     empty -- never two state words on one row. Every seat `orch.listing` offers gets
     a row: the ones tmux holds, and the ones only their record does -- a seat whose tmux
     instance is gone keeps its row and its number opens the conversation where it stopped.
     Seats with nothing to resume into never reach `found`. `jobs_cache` and `run_numbers`
-    are kept for callers that still hand them down; the plan bar replaced the job bar and
+    are kept for callers that still hand them down; `seat_progress` reads the jobs itself and
     gone seats name their own number now.
     """
-    if owner_of is None:
-        owner_of = _safe_owner
     name = session["name"]
     found = seat_row_state(cfg, session, look=look, records=records, now=now, number=number,
                            run_numbers=run_numbers, index=index, silent=silent_map)
-    from . import run as _run
-    from . import watch as _watch
-    going = 0
-    for _, state in records:
-        if owner_of(state) != name:
-            continue
-        if _run.going(state):
-            going += 1
     try:
         selection = config.load_session(cfg, name, required=False)
     except config.Error:
         selection = None
     orchestrator = selection["orchestrator"] if selection else "-"
-    try:
-        done, total = _watch.plan_progress(name)
-    except (OSError, ValueError):
-        done, total = 0, 0
+    done, total = seat_progress(name)
     bar = (done, total) if total > 0 else None
     estimate = seat_estimate(name, session=session, job=(done, total, ""))
     word = found["word"]
@@ -753,7 +762,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     sentence = "" if word == "working" else reason
     return {"number": str(number), "name": name, "session": session,
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
-            "sentence": sentence, "bar": bar, "running": going, "estimate": estimate,
+            "sentence": sentence, "bar": bar, "estimate": estimate,
             "needs": reason if word == "needs you" else "",
             "word": word, "since": found["since"], "repo": session.get("repo")}
 
@@ -763,14 +772,6 @@ def _progress_text(info, narrow=False):
         return ""
     text = terminal.progress_bar(info["bar"][0], info["bar"][1], narrow=narrow)
     return f"{text} · {info['estimate']}" if info.get("estimate") else text
-
-
-def _safe_owner(state):
-    from . import run as _run
-    try:
-        return _run.launched_session(state)
-    except config.Error:
-        return None
 
 
 def v5o_groups(cfg, found, records=None, now=None, look=True):
@@ -795,17 +796,6 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     records = run_records() if records is None else list(records)
     all_states = [state for _, state in records]
     index = _run.supersession_index(all_states)
-    # Owner names resolve from disk: read each record's seat once per draw, not
-    # once per seat per record. States stay alive in `records` for the whole draw,
-    # so id() keys cannot be reused under us.
-    owner_cache = {}
-
-    def owner_of(state):
-        key = id(state)
-        if key not in owner_cache:
-            owner_cache[key] = _safe_owner(state)
-        return owner_cache[key]
-
     silent_map = {}
     for run_dir, state in records:
         age = silent_for_run(run_dir, state, now=at)
@@ -815,7 +805,7 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     infos = []
     for number, session in enumerate(found, 1):
         infos.append(v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache,
-                                   at, index, owner_of, None, look))
+                                   at, index, None, look))
     # Grouped by the checkout the seat's repo is, so a project can never be listed
     # twice and a run can never make one.
     groups = {}
@@ -866,12 +856,12 @@ def _styled_cell(plain_text, width, kind=None, right=False):
     return space + styled if right else styled + space
 
 
-def last_column(word, reason, done, total, running, estimate=None, narrow=False):
+def last_column(word, reason, done, total, estimate=None, narrow=False):
     """The one last column of a seat's row, and of its status bar.
 
     For `needs you` and `done` the reason from the state function; for `working`
-    `tasks ` plus the bar plus ` <done>/<total>` when the session has a plan, else
-    `N running` when runs are going, else empty. The bar shortens to 4 cells on a
+    `tasks ` plus the bar plus ` <done>/<total>` when `seat_progress` finds a plan or
+    an unfinished job, else empty -- never `N running`. The bar shortens to 4 cells on a
     narrow screen, and carries the remaining-plan estimate where history knows one.
     The row and the bar read this one function, so the two can never disagree.
     Never two state words on one row.
@@ -881,24 +871,22 @@ def last_column(word, reason, done, total, running, estimate=None, narrow=False)
     if total > 0:
         text = terminal.progress_bar(done, total, narrow=narrow)
         return f"tasks {text} · {estimate}" if estimate else f"tasks {text}"
-    if running:
-        return f"{running} running"
     return ""
 
 
 def _last_text(info, narrow=False):
-    """The row's one last column: reason, plan bar, `N running`, or empty.
+    """The row's one last column: reason, tasks bar, or empty.
 
     For `needs you` and `done` the reason from the state function; for `working`
-    `tasks ` plus the bar plus ` <done>/<total>` when the session has a plan, else
-    `N running` when runs are going, else empty. The bar shortens to 4 cells on a
+    `tasks ` plus the bar plus ` <done>/<total>` when `seat_progress` finds a plan or
+    an unfinished job, else empty. The bar shortens to 4 cells on a
     narrow screen, and carries the remaining-plan estimate where history knows one.
     Never two state words on one row.
     """
     bar = info.get("bar")
     done, total = bar if bar and len(bar) == 2 else (0, 0)
     return last_column(info.get("word"), info.get("sentence"), done, total,
-                       info.get("running", 0), info.get("estimate"), narrow)
+                       info.get("estimate"), narrow)
 
 
 def redress(session, answer, cfg=None, records=None):
@@ -907,11 +895,11 @@ def redress(session, answer, cfg=None, records=None):
     The one writer: the watch tick, every menu draw and a seat's own hook come through here --
     all call `watch.announce_state`, which calls this -- so the bar says what the row says, in the
     same words, from the same function: the state function's word and reason, the session's
-    workers, and `last_column` over the plan helper's fraction, its estimate and the runs
-    still going. A change of
+    workers, and `last_column` over `seat_progress`'s fraction and its estimate. A change of
     word or progress lands on the next tick or draw, whichever comes first. A legacy seat
     lives on the user's own server, where nothing is written; a seat tmux has lost, and a
-    draw under test, fail their `set-option` quietly.
+    draw under test, fail their `set-option` quietly. `records` is kept for callers that
+    still hand it down; the bar counts no runs.
     """
     try:
         if not orch.on_own_server(session):
@@ -923,21 +911,9 @@ def redress(session, answer, cfg=None, records=None):
             selection = config.load_session(cfg, name, required=False)
         except config.Error:
             selection = None
-        from . import run as _run
-        from . import watch as _watch
-        try:
-            done, total = _watch.plan_progress(name)
-        except (OSError, ValueError):
-            done, total = 0, 0
-        if records is None:
-            try:
-                records = run_records()
-            except (config.Error, OSError, ValueError):
-                records = []
-        going = sum(1 for _, state in records
-                    if _safe_owner(state) == name and _run.going(state))
+        done, total = seat_progress(name)
         estimate = seat_estimate(name, session=session, job=(done, total, ""))
-        last = last_column(answer.get("word"), answer.get("reason"), done, total, going, estimate)
+        last = last_column(answer.get("word"), answer.get("reason"), done, total, estimate)
         left, right, title = orch.bar(name, selection["orchestrator"] if selection else "-",
                                       answer.get("word"), last,
                                       selection["workers"] if selection else ())

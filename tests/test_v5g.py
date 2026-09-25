@@ -196,11 +196,13 @@ class Tallies(Sandbox):
         screen, pages = self.draw(100, 30)
         self.assertEqual(screen, (REPO / "tests/fixtures/v5g-100.txt").read_text())
         self.assertEqual(pages, (0, 1))
-        # Seat rows carry number, name, orchestrator, state and one last column.
-        for row in ("3  herdr", "1 running", "fable",
+        # Seat rows carry number, name, orchestrator, state and one last column, and a
+        # working seat's is never `N running`.
+        for row in ("3  herdr", "fable",
                     "2  atoll-proxy", "session closed: press 2 to reopen",
                     "1  atoll-fix", "4  scribe"):
             self.assertIn(row, screen)
+        self.assertNotIn("1 running", screen)
         self.assertNotIn("Ship the tally", screen)
         self.assertNotIn("run proxy-failed", screen)
         self.assertNotIn("press r", screen)
@@ -228,8 +230,8 @@ class Tallies(Sandbox):
         screen, pages = self.draw(40, 24)
         self.assertEqual(screen, (REPO / "tests/fixtures/v5g-40.txt").read_text())
         self.assertEqual(pages, (0, 1))
-        # The count stays: running work, never merges, never a run reason.
-        self.assertIn("1 running", screen)
+        # No count of running work, never merges, never a run reason.
+        self.assertNotIn("1 running", screen)
         self.assertIn("session closed: press 2 to reopen", screen)
         self.assertNotIn("merged", screen)
         self.assertNotIn("no runs yet", screen)
@@ -237,7 +239,6 @@ class Tallies(Sandbox):
         # Narrow rows keep the head line and put the last column below it.
         self.assertIn("atoll-proxy", screen)
         self.assertIn("    session closed: press 2 to reopen\n", screen)
-        self.assertIn("    1 running\n", screen)
         self.assertTrue(all(terminal.cells(line) <= 40 for line in screen.splitlines()))
         # At every width the last column is drawn whole beside whole names, and every
         # line still fits; merges stay off the menu at every width.
@@ -245,7 +246,7 @@ class Tallies(Sandbox):
             with self.subTest(width=width):
                 screen, _ = self.draw(width, 40)
                 self.assertTrue(all(terminal.cells(line) <= width for line in screen.splitlines()), screen)
-                self.assertIn("1 running", screen)
+                self.assertNotIn("1 running", screen)
                 self.assertRegex(screen, r"session\s+closed:\s+press\s+2")
                 self.assertNotIn("merged", screen)
         # A long note beside the new columns wraps onto one indented line, never past
@@ -255,7 +256,7 @@ class Tallies(Sandbox):
             screen, _ = self.draw(100, 30)
         self.assertIn("Should the dashboard filter by workspace", screen)
         self.assertIn("by default when there are more than twenty items", screen)
-        self.assertIn("1 running", screen)
+        self.assertNotIn("1 running", screen)
         self.assertTrue(all(terminal.cells(line) <= 100 for line in screen.splitlines()))
 
     def test_v5g_g_ak_orch_list_shows_the_tally(self):
@@ -312,9 +313,9 @@ class Tallies(Sandbox):
         self.assertTrue(screen.startswith("agentkit"), screen[:60])
         self.assertIn("14:02", screen.splitlines()[0])
         self.assertGreaterEqual(records, 300)
-        # Endings never reach a row; the going run still reads running, merged stays off.
+        # Endings never reach a row, nor does the going run's count; merged stays off.
         self.assertEqual(pages, (0, 1))
-        self.assertIn("1 running", screen)
+        self.assertNotIn("1 running", screen)
         self.assertNotIn("failed: press", screen)
         self.assertNotIn("press r", screen)
         self.assertNotIn("merged", screen)
