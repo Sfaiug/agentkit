@@ -5110,8 +5110,10 @@ def run_project(state):
     is that answer, settled once by the process that launched the run (`preflight`), where a
     relative `repo:` still means something; so the run votes the same while it waits for a slot
     and once it works, whoever reads it from wherever.  A run launched before the field existed
-    is read the same way from its task, a relative `repo:` naming nothing any more; one with no
-    task to read belongs to the repository it works on.
+    is read from its task: an absolute `repo:` is that checkout; a relative one is the checkout
+    its record says it works in, once it has started, and no vote before, nobody else knowing
+    what `.` meant; no `repo:` is its task folder's.  One with no task to read belongs to the
+    repository it works on.
     """
     if "project" in state:
         return orch.checkout_of(state["project"])
@@ -5119,8 +5121,11 @@ def run_project(state):
         meta = parse_task(config.RUNS / state["run_id"] / "task.md")[0]
     except (KeyError, TypeError, OSError, ValueError, config.Error):
         return task_project(state.get("repo"), state.get("task_file"))
-    named = Path(meta.get("repo") or "").expanduser()
-    return task_project(named if named.is_absolute() else None, state.get("task_file"))
+    named = meta.get("repo") or ""
+    named = Path(named).expanduser() if named.lower() not in ("", "none") else None
+    if named and not named.is_absolute():
+        return orch.checkout_of(state.get("repo"))
+    return task_project(named, state.get("task_file"))
 
 
 def task_project(repo, task_file):

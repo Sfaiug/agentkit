@@ -172,6 +172,17 @@ class QueuedRunFilesSeat(Sandbox):
         for state in (legacy, {**legacy, "repo": str(self.beta), "scratch": False}):
             self.assertEqual(run.run_project(state), self.acme)
 
+    def test_legacy_runs_with_a_relative_repo_keep_the_checkout_they_worked_in(self):
+        # Two runs from before `project`, whose task says `repo: .`, worked in `acme`: they vote
+        # for the checkout their record names, and one new `beta` run does not refile their seat.
+        # Before such a run starts nobody else knows what `.` meant, and it has no vote.
+        self.assertIsNone(run.run_project(run.read_state(self.waiting("q1", "."))))
+        for name in ("l1", "l2"):
+            directory = self.waiting(name, ".", state="pass", slot_waiting=False)
+            run.save_state(directory, {**run.read_state(directory), "repo": str(self.acme)})
+        self.launch("b1", self.beta)
+        self.assertEqual(self.repo(), str(self.acme))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
