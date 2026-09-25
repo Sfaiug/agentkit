@@ -3175,6 +3175,48 @@ def set_base(lp, tip):
     save_state(lp.run_dir, lp.state)
 
 
+def on_pass(lp):
+    """The dependency whose passed branch this branch still stands on, or None.
+
+    From the cut until the first integration puts the branch on a target commit instead: the
+    dependency's commits are under it, and reach the target only with its own merge.
+    """
+    after = lp.state.get("from_pass")
+    return after["task"] if after and lp.base_sha == after.get("tip") else None
+
+
+def wait_for_dependency(lp):
+    """Hold a branch cut from a dependency's passed branch until the dependency has merged.
+
+    Landing first would deliver the dependency's work under this task's name, so the run
+    waits for its job to settle that task, then `integrate` replays only its own commits.
+    A dependency settled without merging leaves nothing to stand on: the run stops before
+    landing, its branch kept, and the job skips the task as `after:` always did.
+    """
+    dep = on_pass(lp)
+    if not dep:
+        return True
+    waited, step = False, None
+    while True:
+        stop_check(lp.run_dir)
+        job = read_job(config.JOBS / str(lp.state.get("job_id")))
+        word = (job_task_by_name(job, dep) or {}).get("state") if job else None
+        if word in ("merged", "passed"):
+            break
+        if word is None or word in (*JOB_UNDELIVERED, "skipped"):
+            lp.state["skipped_dep"] = dep
+            return note(lp, f"{dep} did not merge; this branch stands on its work and is kept")
+        if not waited:
+            lp.log(f"--- merge: waiting for {dep} to merge before landing on it")
+            step = history.close_step(lp.state.get("run_id"), log=lp.log)   # a wait, not work
+            waited = True
+        time.sleep(JOB_TICK)
+    if waited:
+        history.open_step(lp.state.get("run_id"), step, log=lp.log)
+        lp.log(f"--- merge: {dep} merged; landing")
+    return True
+
+
 def abort_integration(lp, how):
     """Put the branch back, and drop the re-review the abandoned integration asked for.
 
@@ -3350,7 +3392,10 @@ def integrate(lp, upstream):
             return note(lp, f"{upstream} does not exist on origin; nothing to merge into",
                         failed=True)
         tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
-        how = how_to_integrate(lp)
+        # a branch cut from a dependency's passed branch replays only its own commits: the
+        # dependency most often lands squashed, its commits on the target under other names
+        onto = ("--onto", tip, lp.base_sha) if on_pass(lp) else (tip,)
+        how = "rebase" if on_pass(lp) else how_to_integrate(lp)
         try:
             pre_identity = commit_identity(lp.wt)
         except Stopped:
@@ -3378,7 +3423,7 @@ def integrate(lp, upstream):
                 rc, out = git_out(lp.wt, "merge", "--no-edit", tip)
             else:
                 lp.log(f"--- merge: rebasing {lp.state['branch']} onto {upstream} ({tip[:12]})")
-                rc, out = git_out(lp.wt, "rebase", tip)
+                rc, out = git_out(lp.wt, "rebase", *onto)
         except Stopped:
             abort_stopped_integration(lp, how)
             raise
@@ -3990,8 +4035,11 @@ def land(lp, upstream, verify, deliver):
     touch none of this branch's files is rebased onto under the turn and lands on the
     verified checks.  Any other move gives the turn to the next run while this one verifies
     again, and a third such lap parks the run `waiting`, as a target moving under three
-    integrations does.
+    integrations does.  A branch cut from a dependency's passed branch first waits for that
+    dependency to merge (`wait_for_dependency`).
     """
+    if not wait_for_dependency(lp):
+        return False
     for lap in (1, 2, 3):
         if not verify():
             return False
@@ -4243,6 +4291,10 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                                        "is not a local branch")
                 wt, branch = make_worktree(repo, run_dir.name, slugify(title), from_branch)
             else:
+                if receipt.get("from_pass"):
+                    # a dependency's passed branch that has not merged yet: the run stands on
+                    # its reviewed tip, so its own diff, and later its rebase, start there
+                    base_sha = receipt["from_pass"]["tip"]
                 wt, branch = make_worktree(repo, run_dir.name, slugify(title), base_sha)
         # run.json names the worktree before anything else can fail: a step that ends the run here
         # -- exclude_junk does -- would otherwise leave a worktree `ak run clean` cannot find
@@ -4267,6 +4319,9 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 log(f"worktree {wt} on {branch} from {from_branch}, "
                     f"base {base} ({base_sha[:12]})"
                     + (f", merging into {target}" if target != base else ""))
+            elif state.get("from_pass"):
+                log(f"worktree {wt} on {branch} from {state['from_pass']['task']}'s passed "
+                    f"branch ({base_sha[:12]}), landing on {target} after it merges")
             else:
                 log(f"worktree {wt} on {branch} from {base} ({base_sha[:12]})"
                     + (f", merging into {target}" if target != base else ""))
@@ -10697,7 +10752,7 @@ def job_next_executor(cfg, current, workers=None):
 
 def job_classify(run_state, cfg):
     """A finished run's job state: merged, passed (no merge was asked, or the target already
-    had the work), blocked or failed.
+    had the work), skipped (the dependency it was cut from never merged), blocked or failed.
 
     `blocked` is a failure a dependant treats like any other -- see `JOB_UNDELIVERED` -- and
     it keeps its own word because no resume, rerun or larger budget can move it: the task
@@ -10711,6 +10766,8 @@ def job_classify(run_state, cfg):
     if review_pass(run_state, cfg):
         if run_state.get("merged"):
             return "merged"
+        if run_state.get("skipped_dep"):
+            return "skipped"    # cut from a dependency's passed branch that never merged
         if run_state.get("no_merge") or run_state.get("scratch") or run_state.get("on_target"):
             return "passed"
         if str(run_state.get("target") or "").lower() == "none":
@@ -10723,7 +10780,8 @@ def job_verdict_line(task, run_state=None):
     """The one per-task line for the job log and `ak run status`."""
     name = task["name"]
     if task["state"] == "skipped":
-        dep = task.get("skipped_dep") or (task.get("after") or ["?"])[0]
+        dep = (task.get("skipped_dep") or (run_state or {}).get("skipped_dep")
+               or (task.get("after") or ["?"])[0])
         return f"{name}: skipped: {dep} did not merge"
     if task["state"] == "stopped":
         return f"{name}: stopped"
@@ -11056,6 +11114,29 @@ def job_wait_login(job_dir, job, task, log, lock, run_state, where):
     return True
 
 
+def job_passed_branch(cfg, job, task, dep):
+    """Where `task` starts before its one unmerged dependency `dep` lands, or None: it waits.
+
+    A dependency whose review passed has only its landing left, which on a busy repository
+    takes hours.  Its reviewed tip is what the dependant is cut from when both work in one
+    repository; `wait_for_dependency` holds the dependant's own landing until `dep` merged.
+    """
+    dep_task = job_task_by_name(job, dep) or {}
+    state = read_state(config.RUNS / dep_task["run_id"]) if dep_task.get("run_id") else None
+    if (not state or state.get("state") not in ("running", "waiting", "pass")
+            or state.get("no_merge") or not state.get("branch") or not review_pass(state, cfg)):
+        return None
+    try:
+        path = Path(task["task_file"])
+        meta = parse_task(path)[0]
+        repo = None if meta.get("from") else task_repo(meta, path)
+    except (config.Error, OSError):
+        return None
+    if repo is None or str(repo) != state.get("repo"):
+        return None
+    return {"task": dep, "branch": state["branch"], "tip": state["review"]["head_sha"]}
+
+
 def job_start_task(cfg, job_dir, task, opts, log):
     """Allocate an ordinary run directory and launch it; the caller marks running first."""
     task_path = Path(task["task_file"])
@@ -11078,6 +11159,8 @@ def job_start_task(cfg, job_dir, task, opts, log):
             log(f"{task['name']}: {exc}; the rerun will pick another reviewer")
             run_opts["--review"] = None
     prepare(run_dir, run_opts, logger(run_dir, True), cfg, job_id=job_dir.name, task_file=task_path)
+    if task.get("from_pass"):
+        save_state(run_dir, {**(read_state(run_dir) or {}), "from_pass": task["from_pass"]})
     log(f"{task['name']} start: {run_dir.name}")
     return run_dir, run_opts
 
@@ -11183,6 +11266,15 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
     task["executor"] = run_state.get("executor") or task.get("executor")
     task["reviewer"] = run_state.get("reviewer") or task.get("reviewer")
     log(job_exit_line(task, run_dir, run_state, rc))
+    if run_state.get("state") == "waiting":
+        # a PASS parked on the next merge to its target is no ending: the tick resumes it
+        # then, and the task follows it there, so its dependants wait instead of skipping
+        log(f"{task['name']}: parked waiting ({run_state.get('error')}); following it")
+    while run_state.get("state") == "waiting" and tick_admission(run_state):
+        time.sleep(JOB_TICK)
+        run_state = read_state(run_dir) or run_state
+        if run_state.get("state") != "waiting":
+            run_state = job_await(run_dir)
     if job_wait_login(job_dir, job, task, log, lock, run_state, "mid-run"):
         return
     if run_state.get("state") == "stopped":
@@ -11210,7 +11302,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             log(task["verdict_line"])
             return
     outcome = job_classify(run_state, cfg)
-    if outcome in ("merged", "passed"):
+    if outcome in ("merged", "passed", "skipped"):
         job_settle(cfg, job_dir, job, task, run_dir, run_state, log, lock)
         return
     if run_state.get("state") == "pass" and run_state.get("merge_failed"):
@@ -11545,7 +11637,16 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
                 log(task["verdict_line"])
             elif states and all(state in ("merged", "passed") for state in states.values()):
                 task["state"] = "queued"
+                task.pop("from_pass", None)
                 save()
+            else:
+                unmerged = [dep for dep, state in states.items() if state not in ("merged", "passed")]
+                start = job_passed_branch(cfg, job, task, unmerged[0]) if len(unmerged) == 1 else None
+                if start:
+                    task.update(state="queued", from_pass=start)
+                    save()
+                    log(f"{task['name']}: starts from {start['task']}'s passed branch "
+                        f"({start['tip'][:12]}); lands after it merges")
         running = sum(1 for task in job["tasks"] if task["state"] == "running")
         # queued tasks with no brake start at once; dependencies and provider budgets only
         for task in job["tasks"]:

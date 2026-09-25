@@ -496,11 +496,12 @@ sys.exit(1)
         self.assertEqual(rc, 0)
         job = self.read_job(self.job_dirs()[0])
         by_name = {t["name"]: t for t in job["tasks"]}
-        # the merge gate is real: `after:` waited for a merged dependency, not a pass
+        # the merge gate is real: the dependant lands after its dependency, which it may have
+        # started from before that merged (tests/test_after_from_pass.py)
         self.assertEqual(by_name["ra.md"]["state"], "merged")
         self.assertIn("PASS, merged", by_name["ra.md"]["verdict_line"])
         self.assertEqual(by_name["rb.md"]["state"], "merged")
-        self.assertLessEqual(by_name["ra.md"]["finished_at"], by_name["rb.md"]["started_at"])
+        self.assertLessEqual(by_name["ra.md"]["finished_at"], by_name["rb.md"]["finished_at"])
 
     def test_v5q_two_repo_tasks_merge_in_separate_worktrees(self):
         repo = self.git_repo()
