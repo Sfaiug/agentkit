@@ -2,8 +2,10 @@
 
 The wait is the seat's own word, replaced only by its next one: `ak wait` writes it, a newer
 `ak notify` or `ak wait` replaces it, and the ladder, the stop hook and the tick's end-of-turn
-rule all ask `watch.waiting_on` whether it holds.  Offline: fake seats, fake tmux, fake run
-receipts and a throwaway HOME; the hook runs as its harness runs it, JSON on stdin.
+rule all ask `watch.waiting_on` whether it holds.  When the session it names stops, the tick
+types one line into the seat at its next quiet prompt, and that ends the wait.  Offline: fake
+seats, fake tmux, fake captures, fake run receipts and a throwaway HOME; the hook runs as its
+harness runs it, JSON on stdin.
 """
 
 from contextlib import redirect_stderr, redirect_stdout
@@ -21,6 +23,8 @@ from agentkit import config, notify, orch, run, watch, worker
 NOW = 1_800_000_000
 SEAT, OTHER = "acme-api", "fix-api"
 RECOMMENDATION = "Here is my recommendation. Let me know if I should continue."
+PROMPT = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text()
+TOLD = f"{OTHER} is now needs you: waiting for you. Decide the next step."
 
 
 class Wait(Sandbox):
@@ -83,6 +87,21 @@ class Wait(Sandbox):
         found = watch.session_state(name, NOW, session=self.seats[name], cfg=self.cfg,
                                     live=live, harness=harness)
         return found["word"], found["reason"]
+
+    def tick(self):
+        """The tick's wait pass, every seat's screen showing the Claude prompt: the lines the
+        fake tmux was given, in order."""
+        sent = []
+
+        def tmux(*args, socket=None, client=False):
+            if args[0] == "send-keys" and "-l" in args:
+                sent.append(args[-1])
+            return 0, ""
+        with patch.object(orch, "tmux_out", side_effect=tmux), \
+                patch.object(watch, "pane_text", return_value=PROMPT), \
+                patch.object(watch.time, "sleep", lambda _s: None):
+            watch.tell_waits(self.cfg, lambda line: None)
+        return sent
 
     def test_a_refuses_an_unknown_session_itself_and_no_seat_and_records_nothing(self):
         code, out, err = self.wait("no-such-seat")
@@ -224,6 +243,61 @@ class Wait(Sandbox):
             # ... and once the other's run is over, it is told to get on with it
             watch.stop_nudge(self.seats[SEAT], "muse", pane, None, [], False, logs.append)
             self.assertEqual(typed.call_count, 1, logs)
+
+    def test_h_the_line_is_typed_once_when_the_other_turns_done(self):
+        self.wait(OTHER)
+        self.turn(OTHER, "UserPromptSubmit")
+        self.assertEqual(self.tick(), [])       # the other is working: nothing to tell yet
+        with patch.dict(os.environ, {config.SESSION_ENV: OTHER}), \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(notify.main(["done", "Shipped the parser"]), 0)
+        self.turn(OTHER, "Stop")                # ... and its turn ends on that done
+        self.assertEqual(self.tick(),
+                         [f"{OTHER} is now done: Shipped the parser. Decide the next step."])
+        wait = watch.seat_read(SEAT)["wait"]
+        self.assertEqual(wait["on"], OTHER)
+        self.assertTrue(wait["told"])
+        self.assertEqual(self.tick(), [])       # once
+        self.assertEqual(self.decide(), ("needs you", "waiting for you"))
+        self.assertIsNone(notify.last(SEAT, include_seen=True))   # told, not notified
+
+    def test_i_nothing_is_typed_mid_turn_and_the_line_comes_at_the_next_quiet_prompt(self):
+        self.wait(OTHER)
+        self.turn(OTHER, "UserPromptSubmit")
+        self.turn(OTHER, "Stop")
+        self.turn(SEAT, "UserPromptSubmit")     # the waiting seat is in a turn of its own
+        self.assertEqual(self.tick(), [])
+        self.assertNotIn("told", watch.seat_read(SEAT)["wait"])
+        self.assertEqual(self.tick(), [])
+        self.turn(SEAT, "Stop")
+        self.assertEqual(self.tick(), [TOLD])
+        self.assertTrue(watch.seat_read(SEAT)["wait"]["told"])
+
+    def test_j_a_wait_a_newer_notify_done_replaced_is_told_nothing(self):
+        self.wait(OTHER)
+        self.turn(OTHER, "UserPromptSubmit")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(notify.main(["done", "Shipped the parser"]), 0)
+        self.turn(OTHER, "Stop")
+        self.assertEqual(self.tick(), [])
+        self.assertIsNone(watch.seat_read(SEAT).get("wait"))
+        self.assertEqual(self.decide(), ("done", "Shipped the parser"))
+
+    def test_k_once_told_the_other_working_again_is_nothing_and_a_new_wait_is_told_again(self):
+        self.wait(OTHER)
+        self.turn(OTHER, "UserPromptSubmit")
+        self.turn(OTHER, "Stop")
+        self.assertEqual(self.tick(), [TOLD])
+        self.turn(OTHER, "UserPromptSubmit")    # the other works again: the old wait is over
+        self.assertEqual(self.decide(), ("needs you", "waiting for you"))
+        self.assertIsNone(watch.waiting_on(SEAT))   # ... to the stop hook and the tick too
+        self.assertEqual(self.tick(), [])
+        self.wait(OTHER)                        # a new wait, told in its turn
+        self.assertEqual(self.decide(), ("working", f"waiting on {OTHER}"))
+        self.assertEqual(self.tick(), [])
+        self.turn(OTHER, "Stop")
+        self.assertEqual(self.tick(), [TOLD])
+        self.assertEqual(self.tick(), [])
 
 
 if __name__ == "__main__":

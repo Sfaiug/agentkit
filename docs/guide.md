@@ -154,7 +154,7 @@ orch why`, the status bar and the window title. A seat's own hook event (a turn 
 or the one a run it launched is parked on, or `gh` while a run owes a push) is `needs you`; the Claude worker token
 dying within a fortnight is `needs you` on every seat; a question on its screen, or typed text nobody sent while no client is attached, with no turn in flight, is `needs you` (the question, or `unsent: <text>`) whatever its runs are doing, and with a client attached the typed text is his typing, which reads as the rungs below say; a run it launched that is unfinished is `working`, whether going
 or waiting for a slot, window, target change or login the tick lifts by itself, or an error with a scheduled retry, or
-parked `stalled` or `exhausted` and handed back for the orchestrator to resume; a seat that ended its turn on `ak wait <session>` is `working` with `waiting on <session>` while that session itself reads `working` by its own runs or turn, never by a wait of its own, until the seat's next `ak wait` or `ak notify`; an error with no automatic resume that
+parked `stalled` or `exhausted` and handed back for the orchestrator to resume; a seat that ended its turn on `ak wait <session>` is `working` with `waiting on <session>` while that session itself reads `working` by its own runs or turn, never by a wait of its own, until the tick has told the seat that session stopped (below) or the seat's next `ak wait` or `ak notify`; an error with no automatic resume that
 still needs attention (see below) is `needs you` (`run <id> parked: <reason>`); a harness turn in flight is `working`;
 nobody in the seat any more is `needs you` with `session closed: press N to reopen`; the seat's own `ak notify done` is
 `done` with the summary's first line until a newer notice, however often the session is opened, read or scrolled (a question on its screen, or typed text nobody sent, reads `needs you` over it; a job's `all N tasks finished` is no declaration of the seat's, though its card is still `Done`); otherwise it is at its prompt, which is `needs you`
@@ -202,7 +202,7 @@ first when held), and a handover re-picks both roles under these rules, same wor
 `~/.agentkit/tmp/watch.log` and rolling it at 5 MB. Each tick: retries the notification outbox; reads every seat's
 screen and asks each harness's `auth` verb where a login looks gone; types `continue` into a seat that has shown its
 harness's own stall words for three quiet minutes, at most every three minutes, and after an hour of that asks you once;
-resumes, relaunches and brings back what Resumption says; types hand-backs waiting on a busy seat; closes idle browser
+resumes, relaunches and brings back what Resumption says; types hand-backs waiting on a busy seat; types `<session> is now <word>: <reason>. Decide the next step.` once into a seat whose `ak wait <session>` names a session that has stopped, at the seat's next quiet prompt, which ends that wait for good; closes idle browser
 tabs; reviews others' PRs on repos this account owns and follows its own PRs on repos it does not; and once a day asks
 the worker-token verb and schedules collection. A logged-out `gh` costs only the two GitHub passes. `ak watch --dry-run`
 lists what a tick would do; `ak doctor` shows the slice, the tick's state and any effort a model does not take.
