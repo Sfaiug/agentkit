@@ -22,7 +22,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -38,6 +38,21 @@ def meter(name, used, resets_at, window=WEEK):
 
 
 METERED = ("anthropic", "openai", "meta")
+
+
+class Clock:
+    """`time` as run.py sees it, with only run.py's own sleeps going to `sleep`.
+
+    Patching `time.sleep` itself would also record `subprocess`'s wait-polling under
+    every timed git, gh or adapter call -- hundreds of tiny sleeps whenever a child
+    outlives its first waitpid -- and the exact lists below would fail by host load.
+    """
+
+    def __init__(self, sleep):
+        self.sleep = sleep
+
+    def __getattr__(self, name):
+        return getattr(time, name)
 
 
 def scope_defaults(cfg):
@@ -65,7 +80,9 @@ class Quota(unittest.TestCase):
             "HOME": str(self.root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(self.root), "PYTHONDONTWRITEBYTECODE": "1",
-            "AK_RUN_ROLE": "orchestrator"}))
+            # top-level runs, whatever run the suite itself is nested in: a nested
+            # run's depth would claim a slot without the steady-readings poll pinned below
+            "AK_RUN_ROLE": "orchestrator", "AK_RUN_DEPTH": "0"}))
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
@@ -107,9 +124,9 @@ class Quota(unittest.TestCase):
                    (0, "## Summary\nDone.", "s1", False)]
         with patch.object(run.worker, "call",
                           side_effect=lambda *a, **k: calls.append(a) or answers[len(calls) - 1]), \
-                patch.object(run.time, "sleep", side_effect=sleeps.append):
+                patch.object(run, "time", Clock(sleeps.append)):
             code, text, session, dead = run.call_retrying(
-                self.cfg, "astra", "body", self.root, self.root / "out", "executor",
+                self.cfg, "astra", "body", self.root, self.root / "round-1" / "executor", "executor",
                 None, logs.append)
         self.assertEqual((code, dead, session), (0, False, "s1"))
         self.assertIn("Done.", text)
@@ -122,9 +139,9 @@ class Quota(unittest.TestCase):
         answers = [(1, "", None, False)] * 6 + [(0, "## Summary\nDone.", "s1", False)]
         with patch.object(run.worker, "call",
                           side_effect=lambda *a, **k: calls.append(a) or answers[len(calls) - 1]), \
-                patch.object(run.time, "sleep", side_effect=sleeps.append):
+                patch.object(run, "time", Clock(sleeps.append)):
             code, text, session, dead = run.call_retrying(
-                self.cfg, "astra", "body", self.root, self.root / "out", "executor",
+                self.cfg, "astra", "body", self.root, self.root / "round-1" / "executor", "executor",
                 None, logs.append)
         self.assertEqual((code, dead, session), (0, False, "s1"))
         self.assertEqual(len(calls), 7)
@@ -195,8 +212,8 @@ class Quota(unittest.TestCase):
         providers = self.providers(openai_used=100, anthropic_used=40, meta_used=50)
         with patch.object(run.worker, "call", side_effect=turn), \
                 patch.object(usage, "collect", return_value=providers), \
-                patch.object(run.time, "sleep",
-                             side_effect=AssertionError("quota waits on nothing")), \
+                patch.object(run, "time", Clock(
+                    MagicMock(side_effect=AssertionError("quota waits on nothing")))), \
                 redirect_stderr(io.StringIO()):
             self.assertEqual(run.execute(lp, "executor", "Do the task.", "executor"),
                              "## Summary\nDone.")
@@ -224,7 +241,7 @@ class Quota(unittest.TestCase):
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
         with patch.object(run.worker, "call", side_effect=turn), \
                 patch.object(usage, "collect", return_value=providers), \
-                patch.object(run.time, "sleep", side_effect=sleeps.append), \
+                patch.object(run, "time", Clock(sleeps.append)), \
                 patch.object(notify, "shaped",
                              side_effect=lambda *a, **k: sent.append((a, k)) or 0), \
                 redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
@@ -256,7 +273,7 @@ class Quota(unittest.TestCase):
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
         with patch.object(run.worker, "call", side_effect=turn), \
                 patch.object(usage, "collect", return_value=providers), \
-                patch.object(run.time, "sleep", side_effect=sleeps.append), \
+                patch.object(run, "time", Clock(sleeps.append)), \
                 patch.object(notify, "shaped",
                              side_effect=lambda *a, **k: sent.append((a, k)) or 0), \
                 patch.object(notify, "post", return_value=None), \
@@ -353,8 +370,8 @@ class Quota(unittest.TestCase):
         providers = self.providers(openai_used=100, anthropic_used=40, meta_used=100)
         with patch.object(run.worker, "call", side_effect=turn), \
                 patch.object(usage, "collect", return_value=providers), \
-                patch.object(run.time, "sleep",
-                             side_effect=AssertionError("quota waits on nothing")), \
+                patch.object(run, "time", Clock(
+                    MagicMock(side_effect=AssertionError("quota waits on nothing")))), \
                 redirect_stderr(io.StringIO()):
             with self.assertRaises(run.QuotaDry):
                 run.execute(lp, "executor", "Do the task.", "executor")
@@ -410,7 +427,7 @@ class QuotaDry(unittest.TestCase):
             "HOME": str(self.root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "PYTHONDONTWRITEBYTECODE": "1",
-            "QUOTA_FIXTURE": str(self.root)}))
+            "QUOTA_FIXTURE": str(self.root), "AK_RUN_DEPTH": "0"}))
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
@@ -425,7 +442,8 @@ class QuotaDry(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(run.notify, "shaped",
                                               side_effect=AssertionError("notification")))
-        self.sleep = self.stack.enter_context(patch.object(run.time, "sleep"))
+        self.sleep = MagicMock()
+        self.stack.enter_context(patch.object(run, "time", Clock(self.sleep)))
         self.now = time.mktime(time.strptime("2026-09-15 07:00", "%Y-%m-%d %H:%M"))
         self.stack.enter_context(patch.object(usage.time, "time", side_effect=lambda: self.now))
 

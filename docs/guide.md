@@ -148,8 +148,8 @@ orch why`, the status bar and the window title. A seat's own hook event (a turn 
 or the one a run it launched is parked on, or `gh` while a run owes a push) is `needs you`; the Claude worker token
 dying within a fortnight is `needs you` on every seat; a question on its screen, or typed text nobody sent while no client is attached, with no turn in flight, is `needs you` (the question, or `unsent: <text>`) whatever its runs are doing, and with a client attached the typed text is his typing, which reads as the rungs below say; a run it launched that is unfinished is `working`, whether going
 or waiting for a slot, window, target change or login the tick lifts by itself, or an error with a scheduled retry, or
-parked `stalled` or `exhausted` and handed back for the orchestrator to resume; a seat that ended its turn on `ak wait <session>` is `working` with `waiting on <session>` while that session itself reads `working` by its own runs or turn, never by a wait of its own, until the tick has told the seat that session stopped (below) or the seat's next `ak wait` or `ak notify`; an error with no automatic resume that
-still needs attention (see below) is `needs you` (`run <id> parked: <reason>`); a harness turn in flight is `working`;
+parked `stalled`, or `exhausted` on a window or a dead reviewer the tick resumes by itself; a seat that ended its turn on `ak wait <session>` is `working` with `waiting on <session>` while that session itself reads `working` by its own runs or turn, never by a wait of its own, until the tick has told the seat that session stopped (below) or the seat's next `ak wait` or `ak notify`; an error with no automatic resume that
+still needs attention (see below), or an `exhausted` run the tick cannot resume (rounds spent, a stopped `git`, no verdict), handed back or not, until `ak run resume <id>` or `ak run stop <id>`, is `needs you` (`run <id> parked: <reason>`); a harness turn in flight is `working`;
 nobody in the seat any more is `needs you` with `session closed: press N to reopen`; the seat's own `ak notify done` is
 `done` with the summary's first line until a newer notice, however often the session is opened, read or scrolled (a question on its screen, or typed text nobody sent, reads `needs you` over it; a job's `all N tasks finished` is no declaration of the seat's, though its card is still `Done`); otherwise it is at its prompt, which is `needs you`
 with the question it asked or `waiting for you`. `ak orch why <seat>` says what decided it, on what evidence, since when.
@@ -233,7 +233,7 @@ ladder above, an `exhausted` run after reviewer transport failures once a review
 keeps dying), and an admitted conflict `waiting` after main moves, task rounds spent or not. `ak run status <id>` on a
 scheduled error keeps its retry and admission. When admission ends, an error loses its retry stamps, and it or a merge
 wait reads `run <id> parked: <reason>` at once, before the tick clears an old stamp. An error with no automatic resume
-reads `needs you` only while recent, unacknowledged, neither handed back nor awaiting it, and not superseded. A merge
+reads `needs you` only while recent, unacknowledged, neither handed back nor awaiting it, and not superseded; an `exhausted` run the tick cannot resume reads the same, handed back, replaced or old, until `ak run resume <id>` or `ak run stop <id>`, and counts as `needs you` in the tally, never as `running`. A merge
 wait that no longer qualifies is inactive history: its row reads `done` with the parked reason, it adds no owner alert or attention tally, neither the stop hook nor the tick counts it as work, and it can still be resumed by hand.
 
 ## Cleanup

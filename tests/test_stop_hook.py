@@ -195,7 +195,7 @@ class StopHook(unittest.TestCase):
                 self.setUp()
                 (self.state / f"session-{SEAT}.json").write_text("{}\n")
                 self.run_json("old", state=state, started_at=self.turn - 9000,
-                              finished_at=self.turn - 60)
+                              finished_at=self.turn - 60, quota_dry=state == "exhausted")
                 self.assertEqual(self.stop(), "")
 
     def test_another_seats_run_is_no_reason_to_stop(self):

@@ -6910,9 +6910,12 @@ def settled(state, index=None):
     """Whether an ending is already its orchestrator's: handed back to the seat that launched
     it or waiting for that seat's next quiet prompt, acknowledged, or superseded by later work.
 
-    These are the endings `menu.v5o_needs_look` counts as nobody's question.  `index` is a
-    `supersession_index`; without one supersession is not read.
+    These are the endings `menu.v5o_needs_look` counts as nobody's question, and as there
+    an `exhausted` run the tick cannot resume is no ending: only an acknowledgement settles
+    it.  `index` is a `supersession_index`; without one supersession is not read.
     """
+    if state.get("state") == "exhausted":
+        return bool(state.get("recovery_acknowledged_at"))
     return bool(state.get("handed_back") or state.get("handback_pending")
                 or state.get("recovery_acknowledged_at")
                 or (index is not None and is_superseded(state, None, index)))
@@ -7924,16 +7927,39 @@ def park_error(run_dir, state, now=None):
     return state
 
 
+def exhausted_wait(state):
+    """What the tick brings back to an `exhausted` run: `window`, `reviewer`, or nothing.
+
+    A quota run waits on a provider window; a run off a dead reviewer -- which carries
+    no quota mark, because no window was ever spent -- waits on a reviewer being
+    eligible again.  `watch.resume_exhausted` resumes those two by itself and no other:
+    rounds spent, a stopped tool or a reviewer stuck without a verdict wait on nobody
+    until `ak run resume`, so `going` reads this too, and a run nothing will move keeps
+    no seat working.
+    """
+    if state.get("state") != "exhausted":
+        return ""
+    if state.get("quota_dry"):
+        return "window"
+    if reviewer_transport_dead(state.get("error")):
+        return "reviewer"
+    return ""
+
+
 def going(state, now=None):
     """Whether the run keeps its seat working while it lasts.
 
     The GOING states -- queued, running, waiting, exhausted, stalled,
     waiting_login -- which resume themselves or are already running, plus an
     error the tick will retry. Errors and merge waits also need current admission:
-    an old stamp cannot keep a seat working after its retry stopped being allowed.
+    an old stamp cannot keep a seat working after its retry stopped being allowed,
+    and an exhausted run keeps one working only while the tick can resume it
+    (`exhausted_wait`): one that waits on nobody is his, not going.
     """
     if state.get("state") in ("error", "waiting") and not tick_admission(state, now=now):
         return False
+    if state.get("state") == "exhausted":
+        return bool(exhausted_wait(state))
     if state.get("state") in watch.GOING:
         return True
     if state.get("state") != "error":
@@ -8059,8 +8085,7 @@ def parked_line(state, run_id=None, now=None):
     if word == "waiting":
         ref = (state.get("waiting_on") or {}).get("ref") or conflict_upstream(state)
         return f"waiting · retry after the next merge to {ref}" + admitted
-    if (word == "exhausted" and not state.get("quota_dry")
-            and reviewer_transport_dead(state.get("error"))):
+    if word == "exhausted" and exhausted_wait(state) == "reviewer":
         return "exhausted · resumes when a reviewer is eligible"
     return ""
 

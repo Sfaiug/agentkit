@@ -157,7 +157,7 @@ class ThreeStates(Sandbox):
         self.receipt("20260101-0900-first", state="running", finished_at=None,
                      started_at=NOW - 900, title="Rebuild the dashboard filters")
         self.receipt("20260101-1000-second", state="exhausted", finished_at=None,
-                     started_at=NOW - 600, title="Parked on a window")
+                     started_at=NOW - 600, title="Parked on a window", quota_dry=True)
         # ... and an ending of its own, which a working seat never reads
         self.receipt("20260101-0100-broken", state="fail", verdict="FAIL")
         found = self.decide()

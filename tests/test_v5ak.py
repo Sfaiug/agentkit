@@ -244,7 +244,8 @@ class Projects(Sandbox):
         for name, word in (("parked", "exhausted"), ("stuck-run", "stalled")):
             self.record(name, owner=seat["name"], repo=seat["repo"], title=f"{word} work",
                         state=word, error="provider quota spent", finished_at=None,
-                        started_at=NOW - 4 * 3600, rounds=2, round_summaries=[])
+                        started_at=NOW - 4 * 3600, rounds=2, round_summaries=[],
+                        quota_dry=word == "exhausted")
         screen = self.draw(100, 30)
         self.assertIn("nothing needs you", screen)
         self.assertNotIn("press", screen.split("n new")[0])
@@ -264,7 +265,7 @@ class Projects(Sandbox):
         self.record("old-fail", owner=seat["name"], repo=seat["repo"], state="fail",
                     verdict="FAIL", finished_at=NOW - 8 * DAY)
         self.record("parked", owner=seat["name"], repo=seat["repo"], state="exhausted",
-                    finished_at=None, started_at=NOW - 4 * 3600)
+                    finished_at=None, started_at=NOW - 4 * 3600, quota_dry=True)
         self.record("acknowledged", owner=seat["name"], repo=seat["repo"], state="error",
                     finished_at=NOW - DAY, recovery_acknowledged_at=NOW - 3600)
         self.record("unmerged", owner=seat["name"], repo=seat["repo"], state="pass",

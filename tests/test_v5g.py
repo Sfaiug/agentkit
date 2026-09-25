@@ -131,7 +131,8 @@ class Tallies(Sandbox):
         # and it is still going -- the figure the seat's own reason counts, so `1 running`
         # on the row and `1 running` here can never be about different runs
         for word in ("exhausted", "stalled"):
-            parked = {"launched_session": "s", "state": word, "finished_at": NOW - 2 * DAY}
+            parked = {"launched_session": "s", "state": word, "finished_at": NOW - 2 * DAY,
+                      "quota_dry": word == "exhausted"}
             self.assertEqual(run.seat_tallies([parked], now=NOW), {"s": (1, 0, 0)}, word)
         # an ending ages out with the week, acknowledged or not: after run.GC_AGE it
         # counts for nobody, and r is where it is still listed
