@@ -42,10 +42,10 @@ at or above 40,000 tokens, the harness's own compact command is typed once at a 
 does a harness with no compact command or no reported context size; `ak orch list --why` says why.
 
 Any harness can hold the seat: `--model astra` opens Codex, `--model spark` opens Muse. A Claude seat owns its
-conversation from launch by a uuid, a Codex seat proves its thread, and an OpenCode seat's plugin the session OpenCode
-opened, through a launch receipt, and Muse and Antigravity open a new one each time. A seat whose harness exited keeps
-its window. A dead, detached seat nobody has opened for seven days is retired, and a record seven days gone from tmux is
-swept, unless a run of the seat's is unfinished or a question in it is unread; then the name is free again.
+conversation from launch by a uuid, a Codex seat proves its thread through a launch receipt, an OpenCode seat's plugin
+writes its session into one, and Muse and Antigravity open a new conversation each time. A seat whose harness exited
+keeps its window. A dead, detached seat nobody has opened for seven days is retired, and a record seven days gone from
+tmux is swept, unless a run of the seat's is unfinished or a question in it is unread; then the name is free again.
 
 Stopping a session (`x` on its highlighted row, after its one question under the row, `Keep` or `Stop`; `x` on a done session and `ak orch stop <name>` ask
 nothing, so a finished session closes with one `x`) stops every run it launched, removes each run's worktree and local branch, deletes every
@@ -85,7 +85,7 @@ writes those into the PR description and appends them to `~/.agentkit/followups/
 before the next task. An item at the `path:line` of an open one, or in its words, is not appended again; a file of the
 same name in another case is merged in once; and past 24 KB the oldest items move to `<repo>.archive.md`, which keeps
 them all. A FAIL starts a fix round with the findings. Three rounds is the budget: at the third FAIL the run ends
-`fail`, hands back its open findings (their first 600 characters) with `three rounds spent: split or re-scope`: no
+`fail`, hands back its open findings (their first 600 characters) with `three rounds spent: split or re-scope`; no
 `--rounds` above three starts or resumes, and a job gives it no more rounds and no rerun on another model.
 
 On PASS the run brings the branch up to date with `origin/<target>` (a rebase, or a merge where `merge: merge` is asked
@@ -129,10 +129,11 @@ title, or a relaunch `from:` its branch) reads `done`, and a job's tasks read th
 0 on PASS, 1 on FAIL, `exhausted`, `blocked` or an unfinished merge, 2 on error.
 
 A run never waits forever. A check with no output for 20 minutes is killed with everything it spawned and fails the
-round; the checks have a six-hour ceiling. A model turn with no harness event for 20 minutes is killed and retried on
-the same conversation. Every `git` and `gh` call runs under 120 seconds with prompts disabled; one that stops ends the
-run `exhausted` with the remedy, or `pass` with `merge_failed` while the review still stands. Before the first turn it
-adds build junk to the repo's `.git/info/exclude`. `~/.agentkit/env/<repo>.env` is exported into every worker and check.
+round; the whole checks list has a six-hour ceiling. A model turn with no harness event for 20 minutes is killed and
+retried on the same conversation. Every `git` and `gh` call runs under 120 seconds with prompts disabled; one that stops
+ends the run `exhausted` with the remedy, or `pass` with `merge_failed` while the review still stands. Before the first
+turn the run adds build junk (`__pycache__/`, `node_modules/`, …) to the repo's `.git/info/exclude`.
+`~/.agentkit/env/<repo>.env` is exported into every worker and check for that repo.
 
 ### New features in live projects
 
@@ -212,15 +213,16 @@ once. A job whose launcher dies is relaunched by the next tick in its launch dir
 order, while that directory is there, its seat's session exists and you did not close it, its launcher was alive (its
 heartbeat) under 24 hours ago, no unfinished task whose run stopped short of its ending was handed back, carded or
 acknowledged, none was stopped, and this is not a third death within an hour; otherwise `ak run status` names `ak run
-resume <job>` under it. A second 20-minute silence resumes the loop with both roles re-picked from its worker list and
-execution on another provider; a third parks it `stalled` for `ak run resume <id>`. Quota `exhausted` resumes when its
-window refills, a reviewer-transport one as below; other `exhausted` runs wait for `ak run resume <id>`; an expired
-login parks `waiting_login` until the harness's `auth` verb answers `yes`. A transient fault (`API Error`, `Overloaded`,
-a 5xx, an empty answer) retries the same session after 1, 5, 15, 30 and 60 minutes, then hourly; the tick's silence
-clock starts where each wait ends. An empty answer whose stderr (the adapter's own included) says the harness never ran
-(not installed, an unknown flag or model, a refused login, even quoted as `API Error`) and names no 5xx, overload or
-capacity error goes to another provider at once, or ends the run, a PR review included, `blocked` on that line. A
-refusal that names the account re-picks both roles by budget from its worker list, same worktree and round.
+resume <job>` under it. A run with no output for 20 minutes has its step stopped and the loop carries on; a second
+silence resumes the loop with both roles re-picked from its worker list and execution on another provider; a third parks
+it `stalled` for `ak run resume <id>`. Quota `exhausted` resumes when its window refills, a reviewer-transport one as
+below; other `exhausted` runs wait for `ak run resume <id>`; an expired login parks `waiting_login` until the harness's
+`auth` verb answers `yes`. A transient fault (`API Error`, `Overloaded`, a 5xx, an empty answer) retries the same
+session after 1, 5, 15, 30 and 60 minutes, then hourly; the tick's silence clock starts where each wait ends. An empty
+answer whose stderr (the adapter's own included) says the harness never ran (not installed, an unknown flag or model, a
+refused login, even quoted as `API Error`) and names no 5xx, overload or capacity error goes to another provider at
+once, or ends the run, a PR review included, `blocked` on that line. A refusal that names the account re-picks both
+roles by budget from its worker list, same worktree and round.
 
 `ak run resume <id> [--rounds N] [--bg]` resumes the worktree, the worker sessions and the options a run left; it
 refuses `blocked` and `stopped`, and needs the worktree, which lives seven days. `ak run merge <id>` retries the
@@ -253,13 +255,13 @@ with no run record goes after a day. A run directory older than 30 days goes who
 the session that launched it still exists; a scratch run's workspace goes only with it. `~/.agentkit/tmp` entries older
 than a day go, finished jobs after a week, and a state file named for a seat with no record, or an idle-compact stamp
 whose wrapper is gone, a day after its last write. Trust and MCP entries in `~/.claude.json` and `~/.codex/config.toml`
-that point into a gone `smoke-*` sandbox or `~/.agentkit/wt` checkout go in an atomic rewrite of just those entries; a
-file that does not parse is left alone. The collector writes `~/.agentkit/state/gc.log` and never touches a checkout
-under `~/code` or a live loop. A checkout goes with its uncommitted work; a tree holding what this user cannot remove is
-reported once, on any path, and never retried. `ak run gc --dry-run` gives each item's reason; `ak run gc` also sweeps
-every merged worktree, regardless of repository or git registration, and day-old `smoke-*` sandboxes, reporting count
-and space freed. The tick takes a leftover merged tree only if clean and registered. A passing smoke suite removes its
-sandbox; a failed one keeps the newest failed sandbox and removes older ones whose suites ended.
+that point into a gone `smoke-*` sandbox or `~/.agentkit/wt` checkout go in an atomic rewrite of just those entries, in
+any layout; a file that does not parse is left alone. The collector writes `~/.agentkit/state/gc.log` and never touches
+a checkout under `~/code` or a live loop. A checkout goes with its uncommitted work; a tree holding what this user
+cannot remove is reported once, on any path, and never retried. `ak run gc --dry-run` gives each item's reason; `ak run
+gc` also sweeps every merged worktree, regardless of repository or git registration, and day-old `smoke-*` sandboxes,
+reporting count and space freed. The tick takes a leftover merged tree only if clean and registered. A passing smoke
+suite removes its sandbox; a failed one keeps the newest failed sandbox and removes older ones whose suites ended.
 
 ## The config file
 
@@ -330,14 +332,14 @@ default (`tokens` reads `events.jsonl`; Muse's are in its session store).
 The README's one command works on a fresh macOS or Linux machine, safe to run again; `--server` and `--client [alias]`
 set the role when the default is wrong, and `--phone-key KEY|FILE` appends the phone's key. It makes the directories
 under `~/.agentkit` and `~/code` and puts `ak` on PATH. It installs what is missing: tmux, mosh, git, gh, jq, python3
-3.11 or newer, node, cron; on Linux also chromium, security-only unattended upgrades and Tailscale. With no harness
-installed it asks once which to install and log in, or `all`, one provider being enough, and each adapter installs and
-logs its own in, in a terminal; on a machine that has one it checks and logs in only those installed, wherever their
-binaries live, adding none unasked. `gh auth login`, the Claude worker token, and the Discord webhook and user id are
-each asked for once, only where missing and there is a terminal; the git credential helper and author are set from `gh`
-without asking. On a server it also writes: the bypass defaults and update pins into `~/.claude/settings.json` (backed
-up beside itself) and `~/.codex/config.toml`, each harness's lifecycle hooks through `adapters/<h>.sh hooks`, and the
-browser MCP registration. The server installs the three-minute cron and, where a user systemd manager exists, writes
+3.11+, node, cron; on Linux also chromium, security-only unattended upgrades and Tailscale. With no harness installed it
+asks once which to install and log in, or `all`, one provider being enough, and each adapter installs and logs its own
+in, in a terminal; on a machine that has one it checks and logs in only those installed, wherever their binaries live,
+adding none unasked. `gh auth login`, the Claude worker token, and the Discord webhook and user id are each asked for
+once, only where missing and there is a terminal; the git credential helper and author are set from `gh` without asking.
+On a server it also writes: the bypass defaults and update pins into `~/.claude/settings.json` (backed up beside itself
+when it changes) and `~/.codex/config.toml`, each harness's lifecycle hooks through `adapters/<h>.sh hooks`, and the
+browser MCP registration. The server installs the tick's cron and, where a user systemd manager exists, writes
 `~/.config/systemd/user/agentkit.slice.d/limits.conf` once: seats in `agentkit-seats.slice`, runs in the lower-weight
 `agentkit-runs.slice`, both under `agentkit.slice`. Under a HOME not the account's own it touches nothing outside it.
 
@@ -349,12 +351,9 @@ failed pull or `install.sh`, is said once per origin commit, in the tick's log a
 foreground and says per harness whether it was upgraded, reverted, kept or left unchanged. The `c` screen's Update row
 runs it too, and refuses while a session works; `--dry-run` prints the plan. Harnesses never update themselves.
 
-`tests/smoke.sh` and `tests/e2e-fresh.sh` keep private `<login>/agentkit-smoke` and `<login>/agentkit-e2e`, created only when missing with the scopes `gh auth login` grants; each gate resets its repository under the host-wide lock: force-push `main` to its seed commit and delete leftover `ak/*` branches.
-The smoke suite holds the lock for every check; the e2e gate holds it from its GitHub run through exit. A suite that cannot take the lock stops before its checks. Cleanup is registered before HOME setup, so setup failures finish their retention receipt and keep the sandbox.
-The smoke suite reads shipped `config.default.toml` in its sandbox HOME and ignores the host's own agentkit config. It links individual credentials: `.claude/.credentials.json`, `.codex/auth.json`, `.config/muse/auth.json`, `.grok/auth.json`, `.local/share/opencode/auth.json`, Antigravity's `.gemini/antigravity-cli/antigravity-oauth-token`, GitHub's `.config/gh/hosts.yml`, `.agentkit/secrets/claude_oauth_token` and the desktop's `.local/share/browser-bridge/Xauthority`. Grok's `auth.json.lock` is shared too, so refreshers use the caller's lock. Harness login sources honor `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `GROK_HOME` and `GH_CONFIG_DIR` before those overrides are cleared for the sandbox. No caller directory is linked.
-It copies `.claude.json` for the account and MCP fields, `.gitconfig` and `.config/gh/config.yml` for GitHub access, `.config/opencode/opencode.json` for installations storing static API keys there (honoring `OPENCODE_CONFIG_DIR` or `OPENCODE_CONFIG`), and `.agentkit/secrets/discord_webhook` for check 5's GET; the notification sink blocks posts. Installer binaries stay on PATH without linking their directories, and Muse's raw cached readings are copied with their original age to avoid another paid probe. Claude's direct MCP call uses the worker token when available, as its workers do. A harness in the sandbox renews the caller's login as it would at home. If Claude or Grok renames over a credential link, `tests/merge_logins.py` returns only valid tokens with a later expiry than the caller's current login before either the suite or `--claude-stream` removes its sandbox, writing the whole file beside the caller's and renaming it over the path that file resolves to. Cleared, invalid, expired or older logins never overwrite the caller's; a write failure preserves the sandbox and fails the gate. Settings, hooks, project trust, caches and MCP registration stay in the sandbox: the suite writes nothing outside its sandbox but refreshed logins, and a run is the suite's by its task or repo under `~/.agentkit/tmp/smoke-<stamp>/`, never by a `smoke-` id or title, and counts in no seat's tallies or offers.
-Checks needing an uninstalled harness, a missing login, a Discord secret, a user systemd manager or the shared browser skip as not on this host and count as passed, like a throttled meter's; the suite fails only when check 3 makes no real call and no adapter's `auth` confirmed a login in one line within the 20 seconds `worker.auth_ok` allows (check 3 calls Claude, Codex and Muse; Grok Build, OpenCode or Antigravity count too; a settings file with no key in it, such as OpenCode's `opencode.json`, is no login). `tests/e2e-fresh.sh` links every harness's login the same way, from the same overrides, returns a renamed-over one the same way, finds each harness binary on the caller's PATH or in its installer's directory, asks each adapter's `auth` whether it can log in, bounded alike (Claude's worker token counts), and skips what the host lacks likewise; a lent login that is refused or unanswered fails. Its menu seat needs Claude's own pair and its GitHub run Claude and Codex. An exhausted model skips with the reason and leaves the gate incomplete; expired, malformed or unreadable saved logins fail. Exhaustion is checked per model. The GitHub run skips before resetting its remote when either required model is unavailable or exhausted; each MCP check applies the same rule.
-`bash tests/smoke.sh --claude-stream <out-dir>` captures events for the offline reader fixture; its sandbox HOME is a separate temporary directory removed on exit, leaving no credential links in the output.
+`tests/smoke.sh` and `tests/e2e-fresh.sh` keep private `<login>/agentkit-smoke` and `<login>/agentkit-e2e`, created only when missing with the scopes `gh auth login` grants; each gate resets its repository under the host-wide lock: force-push `main` to its seed commit and delete leftover `ak/*` branches. The remote and provider logins are shared. The smoke suite holds the lock for every check; the e2e gate holds it from its GitHub run through exit. A suite that cannot take the lock stops before its checks. Cleanup is registered before HOME setup, so setup failures finish their retention receipt and keep the sandbox.
+The smoke suite reads shipped `config.default.toml` in its sandbox HOME and ignores the host's own agentkit config. It links individual credentials: `.claude/.credentials.json`, `.codex/auth.json`, `.config/muse/auth.json`, `.grok/auth.json`, `.local/share/opencode/auth.json`, Antigravity's `.gemini/antigravity-cli/antigravity-oauth-token`, GitHub's `.config/gh/hosts.yml`, `.agentkit/secrets/claude_oauth_token` and the desktop's `.local/share/browser-bridge/Xauthority`. Grok's `auth.json.lock` is shared too, so refreshers use the caller's lock. Harness login sources honor `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `GROK_HOME` and `GH_CONFIG_DIR` before those overrides are cleared for the sandbox. No caller directory is linked. It copies `.claude.json` for the account and MCP fields, `.gitconfig` and `.config/gh/config.yml` for GitHub access, `.config/opencode/opencode.json` for installations storing static API keys there (honoring `OPENCODE_CONFIG_DIR` or `OPENCODE_CONFIG`), and `.agentkit/secrets/discord_webhook` for check 5's GET; the notification sink blocks posts. Installer binaries stay on PATH without linking their directories, and Muse's raw cached readings are copied with their original age to avoid another paid probe. Claude's direct MCP call uses the worker token when available, as its workers do. A harness in the sandbox renews the caller's login as it would at home. If Claude or Grok renames over a credential link, `tests/merge_logins.py` returns only valid tokens with a later expiry than the caller's current login before either the suite or `--claude-stream` removes its sandbox, writing the whole file beside the caller's and renaming it over the path that file resolves to. Cleared, invalid, expired or older logins never overwrite the caller's; a write failure preserves the sandbox and fails the gate. Settings, hooks, project trust, caches and MCP registration stay in the sandbox: the suite writes nothing outside its sandbox but refreshed logins, and a run is the suite's by its task or repo under `~/.agentkit/tmp/smoke-<stamp>/`, never by a `smoke-` id or title, and counts in no seat's tallies or offers.
+Checks needing an uninstalled harness, a missing login, a Discord secret, a user systemd manager or the shared browser skip as not on this host and count as passed, like a throttled meter's; the suite fails only when check 3 makes no real call and no adapter's `auth` confirmed a login in one line within the 20 seconds `worker.auth_ok` allows (check 3 calls Claude, Codex and Muse; Grok Build, OpenCode or Antigravity count too; a settings file with no key in it, such as OpenCode's `opencode.json`, is no login). `tests/e2e-fresh.sh` links every harness's login the same way, from the same overrides, returns a renamed-over one the same way, finds each harness binary on the caller's PATH or in its installer's directory, asks each adapter's `auth` whether it can log in, bounded alike (Claude's worker token counts), and skips what the host lacks likewise; a lent login that is refused or unanswered fails. Its menu seat needs Claude's own pair and its GitHub run Claude and Codex. An exhausted model skips with the reason and leaves the gate incomplete; expired, malformed or unreadable saved logins fail. Exhaustion is checked per model. The GitHub run skips before resetting its remote when either required model is unavailable or exhausted; each MCP check applies the same rule. `bash tests/smoke.sh --claude-stream <out-dir>` captures events for the offline reader fixture; its sandbox HOME is a separate temporary directory removed on exit, leaving no credential links in the output.
 
 ## The Mac bridge and the shared browser
 
@@ -364,11 +363,11 @@ sends only requested files, so Remote Login stays off; a reader under the termin
 that app read, and a new terminal tab or `ak` starts both. It logs to the Mac's `~/.agentkit/macbridge/macbridge.log`.
 
 The server runs one Chromium on a virtual display whose profile holds the real logins; it speaks CDP on `127.0.0.1:9222`
-and five system units keep it up across reboots. Agents reach it through the `browser` and `desktop` MCP servers `ak
-browser mcp-register` registers for Claude Code and Codex, and Muse through `browser/bridge.py` from the shell. `ak
-browser status` shows the units, the tabs and the noVNC URL; `ak browser login` prints the URL and password for signing
-a site in by hand; `ak browser install` stands it up where there is none. The tick closes a tab idle for an hour or past
-twelve open; Chromium itself is never restarted. noVNC is bound to the Tailscale address.
+and five system units keep it up over reboots. Agents reach it through the `browser` and `desktop` MCP servers `ak
+browser mcp-register` registers for Claude Code and Codex, and Muse through `browser/bridge.py`. `ak browser status`
+shows the units, tabs and noVNC URL; `ak browser login` prints the URL and password for signing a site in by hand; `ak
+browser install` stands it up where there is none. The tick closes a tab idle for an hour or past twelve open, and one a
+run or seat opened closes when it ends or stops; Chromium is never restarted. noVNC binds to the Tailscale address.
 
 ## The history
 
