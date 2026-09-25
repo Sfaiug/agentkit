@@ -6910,9 +6910,12 @@ def settled(state, index=None):
     """Whether an ending is already its orchestrator's: handed back to the seat that launched
     it or waiting for that seat's next quiet prompt, acknowledged, or superseded by later work.
 
-    These are the endings `menu.v5o_needs_look` counts as nobody's question.  `index` is a
-    `supersession_index`; without one supersession is not read.
+    These are the endings `menu.v5o_needs_look` counts as nobody's question, and as there
+    an `exhausted` run the tick cannot resume is no ending: only an acknowledgement settles
+    it.  `index` is a `supersession_index`; without one supersession is not read.
     """
+    if state.get("state") == "exhausted":
+        return bool(state.get("recovery_acknowledged_at"))
     return bool(state.get("handed_back") or state.get("handback_pending")
                 or state.get("recovery_acknowledged_at")
                 or (index is not None and is_superseded(state, None, index)))

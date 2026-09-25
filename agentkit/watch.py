@@ -1751,9 +1751,9 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # him the run waits for, only while the same ending still counts in his tally.
     # An acknowledged, handed-back, superseded or aged-out error is nobody's new
     # question. A merge wait whose admission expired is history, not a new error.
-    # An exhausted run the tick cannot resume is no ending: told or not, it stays
-    # unfinished until he resumes or stops it, so it is his -- by the tally's own test,
-    # so it ages out and is superseded as an error is.
+    # An exhausted run the tick cannot resume is no ending: told, replaced or old, it
+    # stays unfinished until he resumes or stops it, so it is his -- by the tally's own
+    # test, which no hand-back, relaunch or age ends, or rung 5 would call it recovering.
     # A gone seat still names its own number below instead: the number
     # is the way back to the run, never the run itself.
     if not gone:

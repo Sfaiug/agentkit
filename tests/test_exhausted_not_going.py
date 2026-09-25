@@ -89,12 +89,19 @@ class ExhaustedNotGoing(Sandbox):
         self.assertEqual(found["word"], "needs you")
         self.assertEqual(found["reason"], f"run {directory.name} parked: {SPENT}")
         self.assertEqual(found["since"], NOW - 600)
-        # ... above the seat's own last word, which would otherwise call it recovering
+        # ... above the seat's own last word, which would otherwise call it recovering,
+        # and past a relaunch of the same task that merged, and its own age: nothing else
+        # will ever move it, so it stays his, and `ak run status` reads the same word
         notify.record("acme", "done", "Shipped it")
-        self.assertEqual(self.decide()["word"], "needs you")
-        # ... and it is his by the tally's own test, so it ages out as an ending does
-        self.assertTrue(menu.v5o_needs_look(state, now=NOW))
-        self.assertFalse(menu.v5o_needs_look({**state, "finished_at": NOW - 8 * 86400}, now=NOW))
+        self.receipt("20260101-1200-relaunch", state="pass", verdict="PASS", merged=True,
+                     title=state["title"], finished_at=NOW - 60)
+        run.save_state(directory, {**state, "finished_at": NOW - 8 * 86400})
+        found = self.decide()
+        self.assertEqual((found["word"], found["reason"]),
+                         ("needs you", f"run {directory.name} parked: {SPENT}"))
+        index = run.supersession_index(state for _, state in menu.run_records())
+        self.assertTrue(run.is_superseded(run.read_state(directory), None, index))
+        self.assertEqual(run.status_state_word(run.read_state(directory), index), "needs you")
         # `ak run stop` is the way out that exists: stopped, the seat's own word stands
         run.save_state(directory, {**state, "state": "stopped", "error": "stopped by the user"})
         self.assertEqual(self.decide()["word"], "done")

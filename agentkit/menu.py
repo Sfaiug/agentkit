@@ -690,8 +690,9 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
 
     Five endings are his -- a FAIL, an unscheduled error, a `blocked`, an interruption
     and a PASS nobody merged -- and so is an `exhausted` run the tick cannot resume
-    (`run.exhausted_wait`), which is no ending: told or not, it stays unfinished until
-    `ak run resume` or `ak run stop`. Nothing else is, and only while nobody else has
+    (`run.exhausted_wait`), which is no ending: told, replaced or old, it stays unfinished
+    -- and the seat's own word would call it recovering -- until `ak run resume` or
+    `ak run stop`. Nothing else is, and only while nobody else has
     it. A run parked `exhausted` on a window or a dead reviewer, or `stalled`, is the
     tick's to take on when the window refills, the reviewer is back or the stall
     is recovered, an error with a scheduled retry is the tick's the same way, and
@@ -711,13 +712,13 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
         return False
     if state.get("state") in ("error", "exhausted") and _run.going(state, now=now):
         return False  # the tick owns its retry or its resume; nothing here needs him
-    if state.get("state") != "exhausted" and (state.get("handed_back")
-                                              or state.get("handback_pending")):
-        return False  # a hand-back settles an ending; an exhausted run stays unfinished
+    if state.get("state") == "exhausted":
+        return True  # no ending: a hand-back, a relaunch or its age settles nothing
+    if state.get("handed_back") or state.get("handback_pending"):
+        return False
     if state.get("merged"):
         return False
-    if state.get("state") not in ("fail", "error", "blocked", "interrupted", "pass",
-                                  "exhausted"):
+    if state.get("state") not in ("fail", "error", "blocked", "interrupted", "pass"):
         return False
     at = time.time() if now is None else now
     ended = (state.get("finished_at") or state.get("interrupted_at")
