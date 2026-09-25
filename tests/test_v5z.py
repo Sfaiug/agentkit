@@ -322,9 +322,10 @@ class Listings(Sandbox):
                                    "started_at": NOW - 3600, "finished_at": None,
                                    **run.process_owner()})
         state = run.read_state(directory)
-        # no quota run waits on a window: the row keeps the state word
+        # no quota run waits on a window: the row keeps the state word, and with
+        # nothing to resume it the run is his
         self.assertEqual(run.waiting({**state, "quota_dry": False}), "")
-        self.assertEqual(menu.run_state_word({**state, "quota_dry": False}), "working")
+        self.assertEqual(menu.run_state_word({**state, "quota_dry": False}), "needs you")
         self.assertEqual(run.waiting({"state": "running"}), "")
         # the sandbox's empty usage cache leaves a spent window with no known
         # hour, straight through the real reader: nobody needs to act on it

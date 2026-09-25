@@ -1751,6 +1751,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # him the run waits for, only while the same ending still counts in his tally.
     # An acknowledged, handed-back, superseded or aged-out error is nobody's new
     # question. A merge wait whose admission expired is history, not a new error.
+    # An exhausted run the tick cannot resume is not an ending: told or not, the seat
+    # keeps it unfinished until he resumes or acknowledges it, so it is his now.
     # A gone seat still names its own number below instead: the number
     # is the way back to the run, never the run itself.
     if not gone:
@@ -1758,11 +1760,15 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             index = run_mod.supersession_index(records)
         parked = [(run_dir, state) for run_dir, state in mine
                   if state.get("state") == "error"
-                  and menu_mod.v5o_needs_look(state, index=index, now=at)]
+                  and menu_mod.v5o_needs_look(state, index=index, now=at)
+                  or state.get("state") == "exhausted"
+                  and not run_mod.going(state, now=at)
+                  and not state.get("recovery_acknowledged_at")]
         if parked:
             run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
             return {"word": "needs you", "since": first.get("finished_at"),
-                    "reason": run_mod.parked_line(first, run_dir.name, now=at)}
+                    "reason": run_mod.parked_line(first, run_dir.name, now=at)
+                    or f"run {run_dir.name} parked: {run_mod.handback_reason(first)}"}
     # 3. a turn is in flight.  Only a seat somebody is still in has a screen to read.
     if gone:
         found = {}
@@ -3774,13 +3780,13 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
             state = run_mod.read_state(run_dir)
             if not state or state.get("state") != "exhausted":
                 continue
-            # a quota run waits on a window; a run off a dead reviewer -- which carries
-            # no quota mark, because no window was ever spent -- waits on a reviewer
-            # being eligible again.  Anything else exhausted waits on nobody by itself.
-            transport = (not state.get("quota_dry") and run_mod.reviewer_transport_dead(
-                state.get("error")))
-            if not state.get("quota_dry") and not transport:
+            # a quota run waits on a window; a run off a dead reviewer waits on a reviewer
+            # being eligible again.  Anything else exhausted waits on nobody by itself, and
+            # `run.going` reads the same test, so it keeps no seat working either.
+            waits = run_mod.exhausted_wait(state)
+            if not waits:
                 continue  # only a run waiting on a window or a reviewer is tick-resumable
+            transport = waits == "reviewer"
             if not asked:
                 # every pick below gives a role, so each harness is asked whether it can run:
                 # once a pass, and only when a run waits on a pick, never on an empty tick
@@ -3794,10 +3800,10 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                 state = run_mod.read_state(run_dir) or state
                 if state.get("state") != "exhausted":
                     continue
-                transport = (not state.get("quota_dry") and run_mod.reviewer_transport_dead(
-                    state.get("error")))
-                if not state.get("quota_dry") and not transport:
+                waits = run_mod.exhausted_wait(state)
+                if not waits:
                     continue
+                transport = waits == "reviewer"
                 last = state.get("exhausted_resume_at")
                 if (isinstance(last, (int, float)) and not isinstance(last, bool)
                         and 0 <= now - last < RESUME_EVERY):
