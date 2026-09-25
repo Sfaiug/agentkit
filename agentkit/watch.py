@@ -1470,7 +1470,8 @@ def plan_progress(name):
 
 def session_state(name, now=None, session=None, cfg=None, records=None, number=None,
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
-                  previous=None, auth_out=None, gh_out=None, token_out=None, jobs=False):
+                  previous=None, auth_out=None, gh_out=None, token_out=None, jobs=False,
+                  waits=True):
     """`working`, `needs you` or `done` -- why, and since when.  The one decision.
 
     Every screen reads this and says one of those three words: the menu row, the project
@@ -1508,7 +1509,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     worker-token ask found, and `previous` the record of
     the last word. `run_numbers` is kept for callers that still hand it down and is read no more.
     `jobs` is the cards' alone: a job's `all N tasks finished` is `done` to its card, the way it
-    always was, and no word of the seat's to every screen.
+    always was, and no word of the seat's to every screen.  `waits` is `waiting_on`'s alone: it
+    asks about the session a wait names with that session's own wait left out.
 
     Deciding is the whole of it: nothing here captures a pane, writes a record, sets an
     option or tells anybody -- not even through a lookup, which is why the seat and its
@@ -1536,7 +1538,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
             harness = None
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
                             silent, live, harness, auth_out, gh_out, token_out, jobs,
-                            menu_mod, run_mod, terminal_mod)
+                            menu_mod, run_mod, terminal_mod, waits)
     # `since` is the beginning of this run of this word, the way the classifier carries
     # `began`: unchanged, it keeps counting from where it started; changed, it starts now,
     # because a fact older than the change is not when the word began.  Only the first
@@ -1620,7 +1622,7 @@ def hook_look(launched, heard=None):
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,
                    found, harness, auth_out, gh_out, token_out, jobs, menu_mod, run_mod,
-                   terminal_mod):
+                   terminal_mod, waits=True):
     """The ladder itself, top rung first, from the facts its caller gathered.
 
     The seat's own runs are gathered before the first rung, because a login the top rung
@@ -1698,7 +1700,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "working", "reason": " · ".join(parts),
                 "since": min(starts) if starts else None}
     # 2a. ... or it ended its turn on `ak wait`, and the session it named is working
-    wait = waiting_on(name, records, at, cfg)
+    wait = waiting_on(name, records, at, cfg) if waits else None
     if wait:
         return {"word": "working", "reason": f"waiting on {wait['on']}", "since": wait["at"]}
     gone = any(session.get(key) for key in orch.CLOSED)
@@ -1786,10 +1788,11 @@ def waiting_on(name, records=None, now=None, cfg=None):
 
     The wait is the seat's word, kept in its record's `wait` by `ak wait` and dropped by its
     next `ak notify`, and nothing that looks at a screen ever writes or ends it: this only says
-    whether it holds now.  It holds while the other session is working by its own runs or its
-    own turn -- never by a wait of its own, so two seats waiting on each other are both his.
-    The ladder, the stop hook and the tick's `stop_nudge` all ask this, so the word a seat
-    reads and the stop it is allowed are the same decision.
+    whether it holds now.  It holds while the other session's own ladder says `working` --
+    its runs or its turn, under every rung above them, such as a login its run is parked on --
+    and never by a wait of its own, so two seats waiting on each other are both his.  The
+    ladder, the stop hook and the tick's `stop_nudge` all ask this, so the word a seat reads
+    and the stop it is allowed are the same decision.
     """
     wait = seat_read(name).get("wait")
     if not isinstance(wait, dict) or not isinstance(wait.get("on"), str):
@@ -1798,32 +1801,10 @@ def waiting_on(name, records=None, now=None, cfg=None):
         other = config.resolve_session(wait["on"])
     except config.Error:
         return None
-    if other == name:
+    if other == name or session_state(other, now=now, cfg=cfg, records=records,
+                                      waits=False)["word"] != "working":
         return None
-    from . import menu as menu_mod    # here, not at the top: the menu imports this module
-    from . import run as run_mod
-    at = time.time() if now is None else now
-    if records is None:
-        try:
-            records = menu_mod.run_records()
-        except (config.Error, OSError, ValueError):
-            records = []
-    held = {"on": other, "at": _stamp(wait.get("at"))}
-    for _, state in records:
-        try:
-            if run_mod.launched_session(state) == other and run_mod.going(state, now=at):
-                return held
-        except config.Error:
-            continue
-    try:
-        harness = seat_model(cfg if cfg is not None else config.load(), other)[0]
-    except config.Error:
-        return None
-    if not harness or not _turn_in_flight(harness, seat_read(other))[0]:
-        return None
-    # only a seat somebody is still in has a turn: a gone one's record is what it last showed
-    seat = next((s for s in orch.listing(reconcile=False) if s["name"] == other), None)
-    return held if seat and not any(seat.get(key) for key in orch.CLOSED) else None
+    return {"on": other, "at": _stamp(wait.get("at"))}
 
 
 def wait_main(argv):

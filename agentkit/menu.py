@@ -121,7 +121,8 @@ INFO_KEYS = ("1 2 3   open that session",
              "i       show info",
              "q       leave")
 INFO_STATES = (("needs you", "it asked you something, or it cannot go on without you"),
-               ("working", "a run of its own is going, or a turn is"),
+               ("working",
+                "a run of its own is going, or a turn is, or a session it waits on works"),
                ("done", "it said so, and the row carries its summary"))
 OVERLAY_KEYS = "n start a session   r rename this session   x stop this session   q close"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done

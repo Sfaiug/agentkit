@@ -147,7 +147,7 @@ orch why`, the status bar and the window title. A seat's own hook event (a turn 
 or the one a run it launched is parked on, or `gh` while a run owes a push) is `needs you`; the Claude worker token
 dying within a fortnight is `needs you` on every seat; a run it launched that is unfinished is `working`, whether going
 or waiting for a slot, window, target change or login the tick lifts by itself, or an error with a scheduled retry, or
-parked `stalled` or `exhausted` and handed back for the orchestrator to resume; a seat that ended its turn on `ak wait <session>` is `working` with `waiting on <session>` while that session is working by its own runs or turn, never by a wait of its own, until the seat's next `ak wait` or `ak notify`; an error with no automatic resume that
+parked `stalled` or `exhausted` and handed back for the orchestrator to resume; a seat that ended its turn on `ak wait <session>` is `working` with `waiting on <session>` while that session itself reads `working` by its own runs or turn, never by a wait of its own, until the seat's next `ak wait` or `ak notify`; an error with no automatic resume that
 still needs attention (see below) is `needs you` (`run <id> parked: <reason>`); a harness turn in flight is `working`;
 nobody in the seat any more is `needs you` with `session closed: press N to reopen`; the seat's own `ak notify done` is
 `done` with the summary's first line until a newer notice, however often the session is opened, read or scrolled (a question on its screen, or typed text nobody sent, reads `needs you` over it; a job's `all N tasks finished` is no declaration of the seat's, though its card is still `Done`); otherwise it is at its prompt, which is `needs you`

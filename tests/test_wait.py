@@ -131,6 +131,14 @@ class Wait(Sandbox):
         self.assertEqual(self.decide(), ("needs you", "waiting for you"))
         # the wait itself is still the seat's word: nothing that looked ended it
         self.assertEqual(watch.seat_read(SEAT)["wait"]["on"], OTHER)
+        # ... and a run of the other's parked on a login makes the other his, not working:
+        # every rung above the other's runs counts, and so the wait on it is his too
+        self.seats[OTHER]["exited"] = False
+        self.turn(OTHER, "Stop")
+        self.receipt("20260101-0900-schema", OTHER, state="waiting_login",
+                     waiting_for="claude", finished_at=NOW - 300)
+        self.assertEqual(self.decide(OTHER)[0], "needs you")
+        self.assertEqual(self.decide(), ("needs you", "waiting for you"))
 
     def test_d_two_seats_waiting_on_each_other_are_both_his(self):
         self.wait(OTHER)
@@ -157,7 +165,8 @@ class Wait(Sandbox):
 
     def hook(self, said=RECOMMENDATION):
         """hooks/orchestrator-stop.sh on this seat's Stop, as Claude Code runs it."""
-        home = self.root / "hook-home"
+        home, sockets = self.root / "hook-home", self.root / "sockets"
+        sockets.mkdir(mode=0o700, exist_ok=True)
         for name, target in (("state", config.STATE), ("runs", config.RUNS)):
             link = home / ".agentkit" / name
             link.parent.mkdir(parents=True, exist_ok=True)
@@ -173,7 +182,8 @@ class Wait(Sandbox):
             input=json.dumps({"hook_event_name": "Stop", "session_id": "fake",
                               "transcript_path": str(transcript)}),
             env={"PATH": os.environ["PATH"], "HOME": str(home), "AGENTKIT_SESSION": SEAT,
-                 "AK_RUN_ROLE": "orchestrator", "AGENTKIT_TMUX_SOCKET": "agentkit-test"})
+                 "AK_RUN_ROLE": "orchestrator", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
+                 "TMUX_TMPDIR": str(sockets)})   # no tmux server this test did not make
         self.assertEqual(done.returncode, 0, done.stderr)
         return done.stdout
 
@@ -184,6 +194,9 @@ class Wait(Sandbox):
         self.assertIn('"block"', self.hook())      # the other is not working yet
         self.receipt("20260101-0900-schema", OTHER)
         self.assertEqual(self.hook(), "")
+        self.receipt("20260101-0900-schema", OTHER, state="waiting_login",
+                     waiting_for="claude", finished_at=NOW - 60)
+        self.assertIn('"block"', self.hook())      # the other is his, not working
         self.receipt("20260101-0900-schema", OTHER, state="pass", finished_at=NOW - 30)
         self.assertIn('"block"', self.hook())
 
