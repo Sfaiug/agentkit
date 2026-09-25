@@ -126,7 +126,7 @@ class Quota(unittest.TestCase):
                           side_effect=lambda *a, **k: calls.append(a) or answers[len(calls) - 1]), \
                 patch.object(run, "time", Clock(sleeps.append)):
             code, text, session, dead = run.call_retrying(
-                self.cfg, "astra", "body", self.root, self.root / "out", "executor",
+                self.cfg, "astra", "body", self.root, self.root / "round-1" / "executor", "executor",
                 None, logs.append)
         self.assertEqual((code, dead, session), (0, False, "s1"))
         self.assertIn("Done.", text)
@@ -141,7 +141,7 @@ class Quota(unittest.TestCase):
                           side_effect=lambda *a, **k: calls.append(a) or answers[len(calls) - 1]), \
                 patch.object(run, "time", Clock(sleeps.append)):
             code, text, session, dead = run.call_retrying(
-                self.cfg, "astra", "body", self.root, self.root / "out", "executor",
+                self.cfg, "astra", "body", self.root, self.root / "round-1" / "executor", "executor",
                 None, logs.append)
         self.assertEqual((code, dead, session), (0, False, "s1"))
         self.assertEqual(len(calls), 7)
