@@ -65,7 +65,9 @@ class Quota(unittest.TestCase):
             "HOME": str(self.root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(self.root), "PYTHONDONTWRITEBYTECODE": "1",
-            "AK_RUN_ROLE": "orchestrator"}))
+            # top-level runs, whatever run the suite itself is nested in: a nested
+            # run's depth would claim a slot without the steady-readings poll pinned below
+            "AK_RUN_ROLE": "orchestrator", "AK_RUN_DEPTH": "0"}))
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
@@ -410,7 +412,7 @@ class QuotaDry(unittest.TestCase):
             "HOME": str(self.root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "PYTHONDONTWRITEBYTECODE": "1",
-            "QUOTA_FIXTURE": str(self.root)}))
+            "QUOTA_FIXTURE": str(self.root), "AK_RUN_DEPTH": "0"}))
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
