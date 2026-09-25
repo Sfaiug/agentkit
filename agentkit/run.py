@@ -1486,6 +1486,18 @@ def gate_turn_note(state):
     return f"waiting for a gate turn of {turn.get('of')}"
 
 
+def _first_gate_waiters(of, exclude):
+    """Whether a `--first` run besides `exclude` waits for a gate turn of `of`."""
+    for directory in run_dirs():
+        if directory.name == exclude:
+            continue
+        other = read_state(directory) or {}
+        if (other.get("first") and
+                gate_turn_note(other) == f"waiting for a gate turn of {of}"):
+            return True
+    return False
+
+
 @contextmanager
 def gate_turn(run_dir, log_path, log):
     """One of the repository's `max_gates` done-when turns, held for as long as the list runs.
@@ -1499,17 +1511,27 @@ def gate_turn(run_dir, log_path, log):
     so on its record for `ak run status`; the ceiling starts once the turn is its own, and a
     stop lands while it waits as it does mid-list.  A run without a repository, a direct caller
     with no record, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0` all take no turn.
+    A `--first` run takes the next free turn ahead of gates already waiting: a gate
+    without it lets a free slot go while one waits.
     """
-    repo = (read_state(run_dir) or {}).get("repo") if run_dir else None
+    record = read_state(run_dir) or {} if run_dir else {}
+    repo = record.get("repo")
+    is_first = bool(record.get("first"))
+    self_id = run_dir.name if run_dir else None
     limit = config.max_gates() if repo and os.environ.get("AK_MAX_RUNS") != "0" else 0
     if not limit:
         yield
         return
     config.RUNS.mkdir(parents=True, exist_ok=True)
+    name = Path(repo).name
     with ExitStack() as files:
         slots = [files.enter_context(gate_lock(repo, i).open("a")) for i in range(limit)]
-        if take_slot(slots) is None:
-            name, began = Path(repo).name, time.monotonic()
+        slot = take_slot(slots)
+        if slot is None or (not is_first and slot is not None
+                            and _first_gate_waiters(name, self_id)):
+            if slot is not None:
+                fcntl.flock(slot, fcntl.LOCK_UN)
+            began = time.monotonic()
             said = f"waiting for a gate turn · {limit} of {name} running"
             if log is not None:
                 log(f"done-when: {said}")
@@ -1520,8 +1542,13 @@ def gate_turn(run_dir, log_path, log):
                     log_path.write_text(said + "\n")
                     stop_check(run_dir)
                     time.sleep(GATE_POLL)
-                    if take_slot(slots) is not None:
-                        break
+                    slot = take_slot(slots)
+                    if slot is None:
+                        continue
+                    if not is_first and _first_gate_waiters(name, self_id):
+                        fcntl.flock(slot, fcntl.LOCK_UN)
+                        continue
+                    break
             finally:
                 mark_gate_wait(run_dir, None)
             history.open_step(run_dir.name, step)
@@ -6091,7 +6118,8 @@ def slot_lock():
 
 
 def slot_order(state):
-    return (state.get("queued_at") or state.get("started_at") or 0,
+    return (not state.get("first"),
+            state.get("queued_at") or state.get("started_at") or 0,
             state.get("run_id") or "")
 
 
@@ -6301,7 +6329,8 @@ def slot_counts(state):
 
 def slot_note(state):
     running, ahead = slot_counts(state)
-    return state.get("slot_wait_reason") or f"waiting for a slot · {running + ahead} ahead"
+    shown = ahead if state.get("first") else running + ahead
+    return state.get("slot_wait_reason") or f"waiting for a slot · {shown} ahead"
 
 
 def _unit_memory(readings):
@@ -6372,14 +6401,18 @@ def claim_slot(state, limit, readings=None):
                      **process_owner())
         state.pop("resume_from", None)
         return True
-    if ahead or (limit and running >= limit):
+    is_first = bool(state.get("first"))
+    if ahead or (limit and running >= limit and not is_first):
         state["slot_waited"] = True
-        state["slot_wait_reason"] = f"waiting for a slot · {running + ahead} ahead"
+        shown = ahead if is_first else running + ahead
+        state["slot_wait_reason"] = f"waiting for a slot · {shown} ahead"
         state["slot_wait_kind"] = "count"
         state["slot_healthy_polls"] = 0
         return False
     readings = host_readings() if readings is None else readings
     minimum, maximum = resource_limits(readings)
+    if is_first:
+        maximum = 0
     reason, kind = _wait_reason(readings, minimum, maximum)
     if reason:
         state["slot_waited"] = True
@@ -8650,6 +8683,8 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
     if paths["workspace"]:
         location = workspace_location(state, paths["workspace_present"])
         lines.append(f"  workspace: {paths['workspace']} ({location})")
+    if state.get("first"):
+        lines.append("  first")
     stalled = stall_summary(state)
     if stalled:
         lines.append(f"  {stalled}")
@@ -8868,6 +8903,8 @@ def cmd_status(argv):
                 print(f"  {dep_wait_note(state)}")
             elif gate_turn_note(state):
                 print(f"  {gate_turn_note(state)}")
+            if state.get("first"):
+                print("  first")
             living, ended = alive_line(state), stop_note(state)
             if living or ended:
                 from . import terminal as _terminal
@@ -8932,6 +8969,8 @@ def cmd_status(argv):
                     print("  " + terminal.styled(handback_waiting(state), "dim"))
                 elif parked:
                     print("  " + terminal.styled(parked, "dim"))
+                if state.get("first"):
+                    print("  first")
                 living, ended = alive_line(state), stop_note(state)
                 if living:
                     print("  " + terminal.styled(living, "dim"))
@@ -9650,6 +9689,8 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
             state["job_id"] = job_id
         if task_file is not None:
             state["task_file"] = str(task_file)
+        if (opts or {}).get("--first"):
+            state["first"] = True
         claim_slot(state, limit)
         # Steadiness is counted by the waiter's own polls, not banked here: the
         # launch check only records an early reason, and admission still needs
@@ -11017,7 +11058,8 @@ def job_create(cfg, task_paths, opts, parallel):
     job = {"job_id": job_dir.name, "seat": seat, "started_at": time.time(), "finished_at": None,
            "parallel": parallel, "executor_history": [], **process_owner(), "cwd": os.getcwd(),
            "opts": {key: opts.get(key) for key in ("--rounds", "--exec", "--review",
-                                                   "--no-merge", "--no-worktree", "--anyway")},
+                                                   "--no-merge", "--no-worktree", "--anyway",
+                                                   "--first")},
            "tasks": [{"name": info["name"], "title": info["title"], "after": info["after"],
                       "state": "queued" if not info["after"] else "waiting",
                       "run_id": None, "executor": None, "reviewer": None,
@@ -11445,7 +11487,8 @@ def job_start_task(cfg, job_dir, task, opts, log):
                 "--review": task.get("review_override") or opts.get("--review"),
                 "--review-pr": None,
                 "--no-merge": bool(opts.get("--no-merge")), "--no-worktree": bool(opts.get("--no-worktree")),
-                "--anyway": bool(opts.get("--anyway")), "--bg": False}
+                "--anyway": bool(opts.get("--anyway")), "--first": bool(opts.get("--first")),
+                "--bg": False}
     if task.get("rerun_attempted") and run_opts["--review"]:
         try:
             review_providers(cfg, run_opts["--exec"], run_opts["--review"])
@@ -11511,7 +11554,7 @@ def job_drive(cfg, run_dir, run_opts, box, scoped=False):
             for key in ("--rounds", "--exec", "--review"):
                 if run_opts.get(key):
                     argv += [key, str(run_opts[key])]
-            argv += [key for key in ("--no-merge", "--anyway") if run_opts.get(key)]
+            argv += [key for key in ("--no-merge", "--anyway", "--first") if run_opts.get(key)]
             spawn_bg(run_dir, argv)
             box["state"] = job_await(run_dir)
             box["rc"] = 0 if job_classify(box["state"], cfg) in ("merged", "passed") else 1
@@ -12239,7 +12282,8 @@ def main(argv):
         return 2
     opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
             "--parallel": None}
-    flags = {"--no-worktree": False, "--no-merge": False, "--bg": False, "--anyway": False}
+    flags = {"--no-worktree": False, "--no-merge": False, "--bg": False, "--anyway": False,
+             "--first": False}
     positional, i = [], 0
     while i < len(argv):
         arg = argv[i]
@@ -12251,22 +12295,23 @@ def main(argv):
             flags[arg], i = True, i + 1
         elif arg.startswith("-"):
             raise config.Error(f"unknown flag {arg!r}; ak run <task.md> [--rounds N] [--exec MODEL] "
-                               "[--review MODEL] [--anyway] [--no-worktree] [--no-merge] [--bg] "
-                               "[--parallel N] | ak run --review-pr <url> [--review MODEL] [--bg]")
+                               "[--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] "
+                               "[--bg] [--parallel N] | ak run --review-pr <url> [--review MODEL] "
+                               "[--first] [--bg]")
         else:
             positional.append(arg)
             i += 1
     if opts["--review-pr"]:
         if positional or opts["--rounds"] or opts["--exec"] or flags["--no-worktree"] \
                 or opts["--parallel"] is not None:
-            raise config.Error("usage: ak run --review-pr <url> [--review MODEL] [--bg]: no task "
-                               "file, no executor, no rounds")
+            raise config.Error("usage: ak run --review-pr <url> [--review MODEL] [--first] [--bg]: "
+                               "no task file, no executor, no rounds")
         if not PR_PARTS.match(opts["--review-pr"]):
             raise config.Error(f"--review-pr needs a GitHub PR URL (got {opts['--review-pr']!r})")
     elif len(positional) < 1:
         raise config.Error("usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] "
-                           "[--anyway] [--no-worktree] [--no-merge] [--bg] [--parallel N] | "
-                           "ak run --review-pr <url> | "
+                           "[--anyway] [--first] [--no-worktree] [--no-merge] [--bg] "
+                           "[--parallel N] | ak run --review-pr <url> | "
                            "ak run status [<runid>] | ak run resume <runid> | "
                            "ak run stop <runid> [--keep] | ak run clean <runid> | ak run gc")
     if opts["--rounds"] is not None and not (opts["--rounds"].isdigit() and int(opts["--rounds"]) > 0):
@@ -12284,8 +12329,8 @@ def main(argv):
     cfg = config.load()
     if not opts["--review-pr"] and len(positional) == 1 and parallel is not None:
         raise config.Error("usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] "
-                           "[--anyway] [--no-worktree] [--no-merge] [--bg]: --parallel needs "
-                           "more than one task file")
+                           "[--anyway] [--first] [--no-worktree] [--no-merge] [--bg]: --parallel "
+                           "needs more than one task file")
     if not opts["--review-pr"] and len(positional) > 1:
         job_dir, job = job_create(cfg, positional, opts, parallel)
         if opts["--bg"]:

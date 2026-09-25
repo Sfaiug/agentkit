@@ -17,8 +17,8 @@ COMMANDS = {
     "worker": (WORKER_USAGE, "Run one headless model turn from a task or prompt file.",
                "ak worker MODEL task.md --role reviewer"),
     "run": ("""usage: ak run TASK [TASK ...] [--rounds N] [--exec MODEL] [--review MODEL]
-              [--anyway] [--no-worktree] [--no-merge] [--bg] [--parallel N]
-       ak run --review-pr URL [--review MODEL] [--no-merge] [--bg]
+              [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N]
+       ak run --review-pr URL [--review MODEL] [--first] [--no-merge] [--bg]
        ak run status [ID] [--history] [--why] [--plain] [--json]
        ak run resume ID [--rounds N] [--bg]
        ak run stop ID [--keep]
@@ -29,6 +29,7 @@ COMMANDS = {
 a task bigger than one behaviour or over 3 rounds is refused regardless.
 --no-worktree uses the repo's current branch; --no-merge keeps work local.
 --bg detaches and prints a launch receipt, run ID and result path.
+--first admits the run ahead of every queued run without it, skipping the count cap and the load gate, and takes its repository's next gate turn first.
 Several task files run as one job; after: names a dependency, --parallel caps it.
 max_runs caps the count when positive; 0 leaves host memory and load as the gates
 (config.toml or AK_MAX_RUNS).

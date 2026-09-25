@@ -75,6 +75,7 @@ regardless. Runs have no count cap and wait FIFO while free memory is under the 
 above the CPU count, or the nearest limited cgroup is past 75% of its `memory.high` outside reclaimable file cache; a
 worker's own test runs share the parent's slot, and a third level is refused. A run that hits its own memory cap, the
 smaller of 4 GB and 40% of the slice ceiling unless `run_memory_max_mb` sets it, ends `fail` with `killed: memory cap`.
+`ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the load gate but still waiting for the memory floor, and takes its repository's next gate turn first, marked `first` in `ak run status`.
 A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run
 scope and cap; one run from a terminal runs its tasks in its own process.
 
