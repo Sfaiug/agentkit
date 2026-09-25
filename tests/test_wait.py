@@ -129,6 +129,16 @@ class Wait(Sandbox):
         self.turn(OTHER, "UserPromptSubmit")
         self.seats[OTHER]["exited"] = True
         self.assertEqual(self.decide(), ("needs you", "waiting for you"))
+        # ... and so has one no listing holds at all, while a run of its own still counts
+        self.seats[OTHER]["exited"] = False
+        gone = self.seats.pop(OTHER)
+        self.assertEqual(self.decide(), ("needs you", "waiting for you"))
+        self.receipt("20260101-0800-absent", OTHER)
+        self.assertEqual(self.decide(), ("working", f"waiting on {OTHER}"))
+        run.save_state(config.RUNS / "20260101-0800-absent", {
+            **run.read_state(config.RUNS / "20260101-0800-absent"), "state": "pass",
+            "finished_at": NOW - 30})
+        self.seats[OTHER] = gone
         # the wait itself is still the seat's word: nothing that looked ended it
         self.assertEqual(watch.seat_read(SEAT)["wait"]["on"], OTHER)
         # ... and a run of the other's parked on a login makes the other his, not working:

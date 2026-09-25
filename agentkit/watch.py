@@ -1801,8 +1801,14 @@ def waiting_on(name, records=None, now=None, cfg=None):
         other = config.resolve_session(wait["on"])
     except config.Error:
         return None
-    if other == name or session_state(other, now=now, cfg=cfg, records=records,
-                                      waits=False)["word"] != "working":
+    if other == name:
+        return None
+    # a session no listing holds has nobody in it: the turn its record last showed is no
+    # turn now, though a run of its own still going is still its work
+    seat = next((s for s in orch.listing(reconcile=False) if s["name"] == other),
+                {"name": other, "exited": True})
+    if session_state(other, now=now, session=seat, cfg=cfg, records=records,
+                     waits=False)["word"] != "working":
         return None
     return {"on": other, "at": _stamp(wait.get("at"))}
 
