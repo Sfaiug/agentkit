@@ -3978,17 +3978,95 @@ def final_check(lp, upstream):
             return False
 
 
+def land(lp, upstream, verify, deliver):
+    """Verify without the merge turn, then hold it only for the minutes landing takes.
+
+    `verify` brings the branch onto a target commit and checks it there: the rebase, the
+    done-when and final check re-runs, and every conflict fixer, final-check fixer and
+    re-review they need.  On a loaded host that is an hour, and with fixer rounds a night,
+    and a turn held through it lands nothing for the runs queued behind.  So the turn covers
+    a fetch and `deliver` -- the push, the PR, its required checks and the merge.  A target
+    still on the commit the branch was verified on lands.  One moved only by commits that
+    touch none of this branch's files is rebased onto under the turn and lands on the
+    verified checks.  Any other move gives the turn to the next run while this one verifies
+    again, and a third such lap parks the run `waiting`, as a target moving under three
+    integrations does.
+    """
+    for lap in (1, 2, 3):
+        if not verify():
+            return False
+        verified = lp.base_sha
+        with merge_turn(lp, upstream):
+            rc, out = git_out(lp.wt, "fetch", "origin", "--prune")
+            if rc != 0:
+                return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
+            tip = git(lp.wt, "rev-parse", "--verify", "--quiet", f"{upstream}^{{commit}}",
+                      check=False)
+            if not tip:
+                return note(lp, f"{upstream} does not exist on origin; nothing to merge into",
+                            failed=True)
+            if tip == verified or disjoint_move(lp, upstream, verified, tip):
+                return deliver()
+        if lap < 3:
+            lp.log(f"--- merge: {upstream} moved to {tip[:12]}, touching this branch's files; "
+                   "verifying again outside the merge turn")
+    # parked on the tip the last lap verified, which origin is already past, so the tick's
+    # next pass retries it
+    return park_waiting(lp, f"{upstream} moved three times while this run verified",
+                        upstream, verified)
+
+
+def disjoint_move(lp, upstream, verified, tip):
+    """Bring the branch from `verified` onto `tip` under the turn, when no check can tell.
+
+    True when `tip` only adds commits to `verified` and they touch none of the files this
+    branch changes: the branch is rebased onto it (merged, where `how_to_integrate` says so)
+    and the review of the verified commit is carried onto the new one, as a clean
+    integration keeps its review.  False, the branch back where it was, for anything else.
+    """
+    if git_out(lp.wt, "merge-base", "--is-ancestor", verified, tip)[0] != 0:
+        return False
+    ours = git(lp.wt, "diff", "--no-renames", "--name-only", verified, "HEAD").splitlines()
+    theirs = git(lp.wt, "diff", "--no-renames", "--name-only", verified, tip).splitlines()
+    if set(ours) & set(theirs):
+        return False
+    how = how_to_integrate(lp)
+    old_head = git(lp.wt, "rev-parse", "HEAD")
+    kept = {"review": lp.state["review"], "verdict": lp.state["verdict"]}
+    # as in `integrate`: the PASS is withdrawn before git rewrites HEAD, so an interruption
+    # cannot leave one saved on a commit nothing checked
+    pending_review(lp, f"Re-review after the {how} of {upstream}.")
+    try:
+        rc, _ = git_out(lp.wt, *(("merge", "--no-edit", tip) if how == "merge"
+                                 else ("rebase", tip)))
+    except Stopped:
+        abort_stopped_integration(lp, how)
+        raise
+    if rc == 0:
+        set_base(lp, tip)
+        kept["review"] = {**kept["review"], **commit_identity(lp.wt),
+                          "rebased_from": old_head, "patch_id": patch_id(lp.wt, tip)}
+        moved = git(lp.wt, "rev-list", "--count", f"{verified}..{tip}")
+        lp.log(f"--- merge: {upstream} moved {moved} commits, none touching this branch's "
+               "files; landing on the verified checks")
+    else:
+        git_out(lp.wt, how, "--abort")
+    lp.state.update(kept)
+    lp.state.pop("review_pending", None)
+    lp.save()
+    return rc == 0
+
+
 @contextmanager
 def merge_turn(lp, upstream):
-    """This host's one run at a time from rebasing onto `upstream` to merging into it.
+    """This host's one run at a time landing on `upstream`, from its last fetch to the merge.
 
-    Passed runs of one repository that integrate together undo each other: each rebases,
-    re-runs its done-when, and finds the other's merge has moved the target again, until the
-    three laps are spent and neither has landed.  So the runs of one origin and target branch
-    take turns, and the others wait before they rebase; the laps are left for moves that come
-    from outside.  The turn is a flock, which the kernel lets go of when its holder dies, so
-    a run killed mid-merge never blocks the next.  A run waiting for it says so on its
-    record, and host admission does not count it as a running worker meanwhile.
+    Passed runs of one repository that land together undo each other: each pushes a branch
+    verified on a target the other's merge has just moved.  So the runs of one origin and
+    target branch take turns, and `land` keeps everything long outside them.  The turn is a
+    flock, which the kernel lets go of when its holder dies, so a run killed mid-merge never
+    blocks the next.  A run waiting for it says so on its record, and host admission does
+    not count it as a running worker meanwhile.
     """
     url = git(lp.wt, "remote", "get-url", "origin", check=False) or str(lp.state.get("repo"))
     config.RUNS.mkdir(parents=True, exist_ok=True)
@@ -4066,11 +4144,8 @@ def merge(lp):
     if branch == target_branch:
         return note(lp, f"this run works directly on {branch}, which is the branch it would merge "
                         "into, so there is no PR to open", failed=True)
-    with merge_turn(lp, upstream):
-        if not integrate(lp, upstream):
-            return False
-        if not final_check(lp, upstream):
-            return False
+
+    def deliver():
         require_review_pass(lp)
         lp.step("merge")        # integration may have spent rounds of its own on the way here
         upstream_repo, permission = rights(lp)
@@ -4082,6 +4157,8 @@ def merge(lp):
         if not url or not wait_checks(lp, url):
             return False
         return do_merge(lp, url, upstream)
+    return land(lp, upstream, lambda: integrate(lp, upstream) and final_check(lp, upstream),
+                deliver)
 
 
 def loop(cfg, run_dir, task_path, opts, log, prior=None):
@@ -9538,12 +9615,14 @@ def cmd_merge(argv):
                 log(f"no delivery PR: {stopped_on}; delivering again from integration")
                 merge(lp)
             else:
-                with merge_turn(lp, upstream):
-                    if (integrate(lp, upstream)
-                            and (git(lp.wt, "rev-parse", "HEAD") == head
-                                 or (final_check(lp, upstream) and push(lp)))
-                            and wait_checks(lp, state["pr"])):
-                        do_merge(lp, state["pr"], upstream)
+                # the delivered head was final-checked and pushed already; only a new one owes it
+                land(lp, upstream,
+                     lambda: (integrate(lp, upstream)
+                              and (git(lp.wt, "rev-parse", "HEAD") == head
+                                   or final_check(lp, upstream))),
+                     lambda: ((git(lp.wt, "rev-parse", "HEAD") == head or push(lp))
+                              and wait_checks(lp, state["pr"])
+                              and do_merge(lp, state["pr"], upstream)))
     except worker.LoginExpired as expired:
         # a conflict fixer's turn during delivery can hit an expired login like any other:
         # a retry would park it anyway, and letting it escape here would leave the receipt

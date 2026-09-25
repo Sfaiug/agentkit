@@ -93,14 +93,18 @@ or the branch already carries merge commits), pushes, opens the PR, waits out th
 by default. A clean integration keeps its review if the done-when passes again; an empty one ends PASS. A conflict or a
 failing `# once` check gets up to three fixer rounds, never task rounds, then parks `waiting` on the target ref and SHA
 until the tick sees it move (a check names its first failing line), as does a target moving under three integrations. A
-host lands one run per repository and target branch at a time, so only a move from outside ak costs a lap: the rest wait
-before rebasing, shown `waiting for the merge turn of <repo> <branch>`, holding no slot and never read as silent; a dead
-holder's turn passes on. A failed integration, conflict or final-check review gets a fixer with the whole review (and a
-failing done-when's output) while rounds are left, and at the budget ends `fail` with its findings, or with why the loop
-overrode a PASS. A base-branch merge race re-fetches, rechecks the PR head and target, verifies and pushes changes and
-retries three times with growing waits before parking, sending no hand-back or card. Without push rights it forks, opens
-the PR upstream and ends `PASS, not merged: waiting for the maintainer`, exiting 0; the tick follows the PR and hands
-the decision to the seat. `--no-merge` stops at the verdict. Other ended `merged: no` runs name their reason and exit 1.
+host lands one run per repository and target branch at a time, and that merge turn covers only a fetch, the push, the
+PR, its required checks and the merge: the rebase, the done-when and final check re-runs, and every fixer and re-review
+they need run before it, outside the turn. A target still on the verified commit lands; one moved only by commits
+touching none of the branch's files is rebased onto and lands on the verified checks; any other move releases the turn
+to verify again, and a third such lap parks `waiting`. A run queued for the turn shows `waiting for the merge turn of
+<repo> <branch>`, holding no slot and never read as silent; a dead holder's turn passes on. A failed integration,
+conflict or final-check review gets a fixer with the whole review (and a failing done-when's output) while rounds are
+left, and at the budget ends `fail` with its findings, or with why the loop overrode a PASS. A base-branch merge race
+re-fetches, rechecks the PR head and target, verifies and pushes changes and retries three times with growing waits
+before parking, sending no hand-back or card. Without push rights it forks, opens the PR upstream and ends `PASS, not
+merged: waiting for the maintainer`, exiting 0; the tick follows the PR and hands the decision to the seat. `--no-merge`
+stops at the verdict. Other ended `merged: no` runs name their reason and exit 1.
 
 A run ends `blocked` when the task itself is wrong: an executor or fixer ends its turn with a
 `## Blocked` section instead of `## Summary`, or a fix round leaves exactly the same checks
