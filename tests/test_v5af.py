@@ -233,7 +233,7 @@ class V5af(unittest.TestCase):
         self.assertTrue(any("## The final check failed. Fix the root cause." in prompt
                             for prompt in self.prompts()),
                         "no fixer turn ran on the final check output")
-        self.assertEqual(self.counts("once-fail"), 1)
+        self.assertEqual(self.counts("once-fail"), 2)     # the failing run and its re-run
         self.assertEqual(self.counts("once-pass"), 1)
         self.assertIn("final check: FAILED", self.log_text())
         self.assertIn("final check: all passed", self.log_text())

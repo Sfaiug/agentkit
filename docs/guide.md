@@ -63,6 +63,8 @@ scratch workspace), `base` (the repo's default branch), `target` (the branch the
 dependency, repeatable). A check ending in `# once` runs only on the commit that ships; the reviewer sees it marked
 deferred. The full suite a repository names as `tests:` in its `AGENTS.md` front matter is such a check in every run
 there, from the target branch where the checkout predates it, and a done-when line with the same command runs once with it, so a task lists only the checks for its change.
+A command that fails runs once more at once, within the same ceiling, and passes if the re-run does: the output keeps
+the first failure's last lines under `flaky:`, and a dated line goes into `~/.agentkit/followups/<repo>.md`.
 The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt, up to 4 KB; past
 that, the run's hand-back names the file and asks the orchestrator to tighten it.
 
