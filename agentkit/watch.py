@@ -1277,8 +1277,10 @@ def classify(harness, tail, fact, opened_at, previous, now):
     return {"state": state, "since": began, "began": began,   # None where nothing knows when
             "authority": source, "rule": why, "evidence": evidence,
             # what the hook alone said, kept even where a rule positively overrode it:
-            # `session_state` reads it for the one thing the manifest reserves to hooks
-            "hooked": hooked, "hooked_at": when}
+            # `session_state` reads it for the one thing the manifest reserves to hooks,
+            # and which event said it, so a Stop on background work is not a turn in flight
+            # for his own unsent text
+            "hooked": hooked, "hooked_at": when, "hooked_event": event if hooked else None}
 
 
 def seat_read(name):
@@ -1395,7 +1397,8 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
         # a manifest somebody is in the middle of writing is not a reason for a blank menu
         print(f"WARN cannot read what {name} is doing: {exc}", file=sys.stderr)
         return {"state": "at_prompt", "since": None, "began": None, "hooked": None,
-                "hooked_at": None, "authority": "", "rule": "none", "evidence": str(exc)[:160]}
+                "hooked_at": None, "hooked_event": None, "authority": "", "rule": "none",
+                "evidence": str(exc)[:160]}
     fields = dict(found, **stop_marks(harness, pane, found, previous, at))
     if any(previous.get(key) != value for key, value in fields.items()):
         seat_write(name, **fields)
@@ -1706,12 +1709,14 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # text for nineteen hours while he believed each had his message.  A draft is not that
     # while a client is attached to the seat -- it is his typing, and the seat reads as its
     # runs and its turn say -- but a question is his to answer wherever he is, and its card
-    # is held back while he is in the seat by the card rule itself.  A seat nobody is in has
-    # no screen, so its record is history.
+    # is held back while he is in the seat by the card rule itself.  A Stop on background
+    # work is a quiet prompt here: its composer is open, so a line typed there is not sent.
+    # A seat nobody is in has no screen, so its record is history.
     gone = any(session.get(key) for key in orch.CLOSED)
     if (harness and not gone and found.get("state") in ("asking", "draft")
             and (found["state"] == "asking" or not session.get("attached"))
-            and not _turn_in_flight(harness, found)[0]):
+            and (not _turn_in_flight(harness, found)[0]
+                 or found.get("hooked_event") == "Stop/background")):
         asked = " ".join(str(found.get("evidence") or "").split())
         if found.get("state") == "draft":
             asked = f"unsent: {asked}"
