@@ -1514,10 +1514,10 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * a question on its screen, or typed text nobody sent while no client is attached, with
       no turn in flight, is him -- the question, or `unsent: <text>` -- whatever its runs do;
     * a run it launched is unfinished and resumes itself, so the seat is working;
+    * a harness turn is in flight, so the seat is working (a turn past three hours says so
+      in its reason and keeps the word) -- parked run or not;
     * an error it launched is parked with no scheduled resume and still needs his
       attention -- recent, unacknowledged, not handed back or superseded;
-    * a harness turn is in flight, so the seat is working (a turn past three hours says so
-      in its reason and keeps the word);
     * nobody is in the seat any more and its number is the way back in;
     * it said it was done itself, a job never says it for it, and nothing on its screen asks him;
     * otherwise it is at its prompt with nothing running, which is him again -- with the
@@ -1747,7 +1747,20 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     wait = waiting_on(name, records, at, cfg) if waits else None
     if wait:
         return {"word": "working", "reason": f"waiting on {wait['on']}", "since": wait["at"]}
-    # 2b. ... or a run of its own is parked with no scheduled resume: then it is
+    # 2b. a turn is in flight: the seat is working, parked run or not.  Only a seat
+    # somebody is still in has a screen to read.  The parked run below keeps its
+    # word for the quiet prompt, but a turn answering him outranks it: the other
+    # way round the word swung with every turn and each swing sent a new card.
+    if gone:
+        found = {}
+    elif harness:
+        flight, began = _turn_in_flight(harness, found)
+        if flight:
+            long = (isinstance(began, (int, float)) and not isinstance(began, bool)
+                    and at - began > TURN_SECS)
+            return {"word": "working", "since": began, "reason":
+                    f"turn running {terminal_mod.format_age(at - began)}" if long else ""}
+    # 3. ... or a run of its own is parked with no scheduled resume: then it is
     # him the run waits for, only while the same ending still counts in his tally.
     # An acknowledged, handed-back, superseded or aged-out error is nobody's new
     # question. A merge wait whose admission expired is history, not a new error.
@@ -1767,16 +1780,6 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             return {"word": "needs you", "since": first.get("finished_at"),
                     "reason": run_mod.parked_line(first, run_dir.name, now=at)
                     or f"run {run_dir.name} parked: {run_mod.handback_reason(first)}"}
-    # 3. a turn is in flight.  Only a seat somebody is still in has a screen to read.
-    if gone:
-        found = {}
-    elif harness:
-        flight, began = _turn_in_flight(harness, found)
-        if flight:
-            long = (isinstance(began, (int, float)) and not isinstance(began, bool)
-                    and at - began > TURN_SECS)
-            return {"word": "working", "since": began, "reason":
-                    f"turn running {terminal_mod.format_age(at - began)}" if long else ""}
     # 4. nobody is in it: its number is the way back into the conversation.
     # An ended run is its orchestrator's to act on -- the run handed its ending back to
     # the seat that launched it -- so no reason ever says `press r` or names a run.
