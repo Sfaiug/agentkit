@@ -1790,9 +1790,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # him the run waits for, only while the same ending still counts in his tally.
     # An acknowledged, handed-back, superseded or aged-out error is nobody's new
     # question. A merge wait whose admission expired is history, not a new error.
-    # An exhausted run the tick cannot resume is no ending: told, replaced or old, it
+    # An exhausted run the tick cannot resume is no ending: told or old, it
     # stays unfinished until he resumes or stops it, so it is his -- by the tally's own
-    # test, which no hand-back, relaunch or age ends, or rung 5 would call it recovering.
+    # test, which no hand-back or age ends, or rung 5 would call it recovering --
+    # unless a later merged run replaced it, which ends the question outright.
     # A gone seat still names its own number below instead: the number
     # is the way back to the run, never the run itself.
     if not gone:
@@ -1835,10 +1836,14 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if last and last["kind"] == "done" and (found.get("state") in ("asking", "draft") or (
             not jobs and notify.job_done(last))):
         last = None
-    # 5. it said it was done, and nothing above it is still going
+    # 5. it said it was done, and nothing above it is still going. A run a later
+    # merged run replaced is neither failed nor unfinished: its work is done, elsewhere.
     if last and last["kind"] == "done":
-        failed = notify.failed_declaration(last, mine)
-        unfinished = [d.name for d, state in mine if run_mod.unfinished(state)]
+        if index is None:
+            index = run_mod.supersession_index(records)
+        failed = notify.failed_declaration(last, mine, index)
+        unfinished = [d.name for d, state in mine
+                      if run_mod.unfinished(state, index=index)]
         if failed:
             return {"word": "needs you", "reason":
                     f"run {failed[0]} failed; declaration dropped",
@@ -3782,6 +3787,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
     started stays `exhausted`: still waiting, still silent, never a notification.
     A transport resume that fails again waits out the hour like an error before the
     next one, so a dead reviewer costs reviewer turns by the hour, not by the tick.
+    A run a later merged run replaced is resumed never: its work is done, elsewhere.
     """
     from . import run as run_mod
     now = time.time() if now is None else now
@@ -3804,11 +3810,16 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
         except (config.Error, KeyError, TypeError, AttributeError) as exc:
             log(f"WARN the exhausted-resume pass did not run: {exc}")
             return
+    index = run_mod.supersession_index(
+        state for run_dir in run_mod.run_dirs()
+        for state in (run_mod.read_state(run_dir),) if state)
     for run_dir in run_mod.run_dirs():
         try:
             state = run_mod.read_state(run_dir)
             if not state or state.get("state") != "exhausted":
                 continue
+            if run_mod.is_superseded(state, None, index, merged_only=True):
+                continue  # a later merged run did the work; nothing resumes this one
             # a quota run waits on a window; a run off a dead reviewer waits on a reviewer
             # being eligible again.  Anything else exhausted waits on nobody by itself, and
             # `run.going` reads the same test, so it keeps no seat working either.
@@ -3960,14 +3971,20 @@ def resume_errored(dry_run=False, log=print, now=None):
     or loses its stamp here with one WARN, and reads parked for a person.
     A handed-back, carded or acknowledged ending, one at least a day old, or one
     with no launch session still on record loses its stamp and waits for a person.
+    An error a later merged run replaced is retried never: its work is done, elsewhere.
     """
     from . import run as run_mod
     now = time.time() if now is None else now
+    index = run_mod.supersession_index(
+        state for run_dir in run_mod.run_dirs()
+        for state in (run_mod.read_state(run_dir),) if state)
     for run_dir in run_mod.run_dirs():
         try:
             state = run_mod.read_state(run_dir)
             if not state or state.get("state") != "error":
                 continue
+            if run_mod.is_superseded(state, None, index, merged_only=True):
+                continue  # a later merged run did the work; no retry is scheduled
             with run_mod.recovery_lock(run_dir):
                 state = run_mod.read_state(run_dir) or state
                 if state.get("state") != "error":

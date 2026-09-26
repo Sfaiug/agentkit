@@ -780,14 +780,22 @@ def _attached(session, seat=None):
         any("\t" not in line for line in lines)
 
 
-def failed_declaration(notice, mine):
-    """A run the declaration waited on failed; earlier jobs do not invalidate a new done."""
+def failed_declaration(notice, mine, index=None):
+    """A run the declaration waited on failed; earlier jobs do not invalidate a new done.
+
+    A failure a later merged run replaced is not one: the work it waited on is done,
+    elsewhere. `index` is a `run.supersession_index` over the run records; without
+    one supersession is not read.
+    """
+    from . import run as run_mod    # here, not at the top: the loop imports this module
     stamp = notice.get("time", 0)
     return [directory.name for directory, state in mine
             if state.get("state") in ("fail", "error", "blocked")
             and (directory.name in notice.get("runs", []) or
                  (isinstance(state.get("finished_at"), (int, float))
-                  and state["finished_at"] >= stamp))]
+                  and state["finished_at"] >= stamp))
+            and not (index is not None
+                     and run_mod.is_superseded(state, None, index, merged_only=True))]
 
 
 def _close_card(session, card, status):
@@ -983,7 +991,8 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                 # Already dropped: no second log line, but later words still card.
                 declared = None
             if declared and declared["kind"] == "done":
-                failed = failed_declaration(declared, mine)
+                failed = failed_declaration(
+                    declared, mine, run.supersession_index(records))
                 if failed:
                     extra = {k: v for k, v in declared.items() if k not in ("session", "kind", "text")}
                     record(name, "done", declared["text"], **extra, seen=True)
