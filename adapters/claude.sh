@@ -79,6 +79,7 @@ interactive)
   # idle-compact.py wraps the TUI so a seat left open all day compacts itself instead of
   # filling its context; %q so a checkout path with a space still parses as one word
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+  python3 "$REPO/agentkit/harness/claude.py" --check || exit 2
   # the conversation this seat owns: --resume <id> opens the one it was given where it stopped,
   # and --session-id <uuid> opens a new one under an id the launcher made before the seat did,
   # which is what lets `ak orch` write down whose conversation it is before it exists

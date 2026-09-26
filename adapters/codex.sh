@@ -90,6 +90,9 @@ interactive)
       mkdir -p -- "$HOME/.codex/$store" || exit 2
       [ -e "$seat_home/$store" ] || ln -s -- "$HOME/.codex/$store" "$seat_home/$store" || exit 2
     done
+    if [ -f "$HOME/.codex/config.toml" ] && [ ! -e "$seat_home/config.toml" ]; then
+      ln -s -- "$HOME/.codex/config.toml" "$seat_home/config.toml" || exit 2
+    fi
   fi
   # `codex exec --session-id` is the headless spelling; the TUI takes no thread id of anyone
   # else's making (codex 0.153: `codex --help` has no such flag), so the launcher is told so
@@ -128,8 +131,9 @@ interactive)
   # wrapper, which still installs this launch's hooks and receipt and then execs codex in place,
   # so the process idle-compact.py forked is the harness itself.  Headless `ak worker` runs are
   # not wrapped: they are not seats.
-  printf 'env -u OPENAI_API_KEY -u CODEX_API_KEY -u CODEX_HOME '
-  [ -z "$account" ] || printf 'CODEX_HOME=%q ' "$seat_home"
+  if [ -n "$account" ]; then
+    printf 'env -u OPENAI_API_KEY -u CODEX_API_KEY CODEX_HOME=%q ' "$seat_home"
+  fi
   printf "python3 %q codex -- python3 %q --harness codex -- python3 %q %s-- codex %s--yolo %s-c 'model_reasoning_effort=\"%s\"'\n" \
       "$REPO/tools/trust.py" "$REPO/tools/idle-compact.py" "$REPO/tools/codex-seat.py" "$rules" \
       "$resume" "$mflag" "$2" ;;

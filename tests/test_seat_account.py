@@ -119,6 +119,7 @@ class SeatAccount(unittest.TestCase):
         return watch.session_state(NAME, session=self.seat, cfg=self.cfg, records=[])
 
     def test_spent_account_reopens_same_conversation_and_keeps_everything_owned(self):
+        self.pane = "Usage limit reached"
         before = config.session_records()[NAME]
         plan = config.plan_path(NAME).read_bytes()
         card = config.card_path(NAME).read_bytes()
@@ -176,6 +177,17 @@ class SeatAccount(unittest.TestCase):
         second.mkdir()
         (second / ".claude.json").write_text('{"oauthAccount":{"accountUuid":"second"}}')
         (second / "settings.json").write_text('{"custom":"keep"}')
+        settings = self.root / ".claude/settings.json"
+        shared = json.loads(settings.read_text())
+        shared.update(permissions={"allow": ["Read"]}, env={"ACME_MODE": "test"},
+                      statusLine={"type": "command", "command": "acme-status"})
+        settings.write_text(json.dumps(shared))
+        for name in ("CLAUDE.md", "agents", "skills", "commands", "plugins"):
+            source = self.root / ".claude" / name
+            if name == "CLAUDE.md":
+                source.write_text("Use the project conventions.\n")
+            else:
+                source.mkdir()
         fake = self.root / "fake-claude"
         fake.write_text('''#!/usr/bin/env python3
 import json, os
@@ -208,9 +220,26 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
             for event in ("UserPromptSubmit", "Stop", "Notification"):
                 self.assertIn("seat-state.sh", json.dumps(hooks[event]))
             self.assertIn("orchestrator-stop.sh", json.dumps(hooks["Stop"]))
+            for key in ("permissions", "env", "statusLine"):
+                self.assertEqual(result["settings"][key], shared[key])
             if account == "second":
                 self.assertEqual(result["settings"]["custom"], "keep")
                 self.assertEqual(result["global"]["oauthAccount"]["accountUuid"], "second")
+                for name in ("CLAUDE.md", "agents", "skills", "commands", "plugins"):
+                    self.assertEqual((second / name).resolve(), self.root / ".claude" / name)
+        shared["hooks"] = {"Stop": [{"hooks": [{"type": "command", "command": "new-hook"}]}]}
+        settings.write_text(json.dumps(shared))
+        with patch.dict(os.environ, {"AGENTKIT_ACCOUNT": "second"}):
+            from agentkit.harness.claude import account_config
+            account_config()
+        self.assertEqual(json.loads((second / "settings.json").read_text())["hooks"], shared["hooks"])
+
+    def test_invalid_claude_settings_leave_the_existing_pane_running(self):
+        (self.root / ".claude/settings.json").write_text("not json")
+        self.tick()
+        self.assertEqual(self.commands, [])
+        self.assertEqual(config.session_records()[NAME]["account"], "default")
+        self.assertIn("account reopen failed", self.answer()["reason"])
 
     def test_failed_reopen_keeps_the_account_and_retries_with_the_conversation(self):
         with patch.object(orch, "tmux_out", return_value=(1, "fake launch failure")):
@@ -341,6 +370,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
     def test_unowned_conversations_continue_in_place_after_their_account_refills(self):
         for model, provider in (("astra", "openai"), ("spark", "meta"), ("gemini", "google")):
             with self.subTest(model=model):
+                self.pane = "RESOURCE_EXHAUSTED" if model == "gemini" else "Usage limit reached"
                 config.save_session(self.cfg, NAME, model, ["opus"], {"cwd": str(self.root)})
                 self.cached(lambda p: p.update({provider: {
                     "resets": 0, "meters": [], "exhausted_until": self.now + 60}}))
@@ -363,6 +393,14 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertEqual(self.typed, ["continue"])
         self.assertFalse(usage.collect(self.cfg)["anthropic"]["accounts"]["default"]["exhausted"])
         self.assertEqual(self.commands, [])
+        self.now += watch.GIVE_UP
+        self.meters(30, 20)
+        with patch.object(notify, "shaped", return_value=0) as shaped:
+            self.tick()
+            self.tick()
+        self.assertEqual(shaped.call_count, 1)
+        self.assertEqual(self.typed, ["continue"])
+        self.assertFalse(usage.collect(self.cfg)["anthropic"]["accounts"]["default"]["exhausted"])
 
     def test_refusal_that_disappears_before_stall_wait_spends_nothing(self):
         self.meters(30, 20)
@@ -376,6 +414,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertFalse(usage.collect(self.cfg)["anthropic"]["accounts"]["default"]["exhausted"])
 
     def test_pending_continue_does_not_spend_the_new_account_on_old_transcript_text(self):
+        self.pane = "Usage limit reached"
         self.tick()
         self.pane = "Usage limit reached"
         with patch.object(watch, "type_into", return_value=False):
@@ -413,19 +452,114 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertEqual(config.session_records()[later["name"]]["account"], "second")
         self.assertEqual(config.session_records()[NAME]["account"], "default")
 
-    def test_manual_open_cancels_the_wait_and_refilling_does_not_respawn_the_owner(self):
+    def test_opening_to_look_preserves_recovery_but_a_draft_prevents_respawning(self):
         self.meters(100, 100)
         self.tick()
         watch.opened_now(NAME)
-        self.assertIsNone(watch.seat_read(NAME)["usage_wait"])
+        self.assertIsNotNone(watch.seat_read(NAME)["usage_wait"])
         watch.opened_now(NAME)
         self.meters(100, 0)
-        self.tick()
-        self.meters(0, 0)
         self.pane = "❯ the owner is typing"
         self.tick()
         self.assertEqual(self.commands, [])
         self.assertEqual(self.typed, [])
+        self.pane = "❯"
+        self.tick()
+        self.assertEqual(config.session_records()[NAME]["account"], "second")
+        self.assertFalse(watch.seat_read(NAME).get("midturn"))
+
+    def test_refusal_on_a_refilled_account_is_consumed_even_after_owner_opens(self):
+        for deadline in (None, self.now - 21600):
+            with self.subTest(deadline=deadline):
+                self.meters(100, 100)
+                self.pane = "Usage limit reached"
+                if deadline:
+                    self.pane += " Try again at " + time.strftime(
+                        "%Y-%m-%d %H:%M", time.localtime(deadline))
+                old = self.pane
+                self.tick()
+                watch.opened_now(NAME)
+                self.meters(0, 100)
+                self.tick()
+                watch.continue_turns(self.cfg, self.logs.append, accounts=True)
+                self.pane = old
+                for _ in range(3):
+                    self.now += watch.STALL_WAIT
+                    # Keep the fake meter probe current without overwriting a park.
+                    path = config.STATE / "usage.json"
+                    data = json.loads(path.read_text())
+                    data["fetched_at"] = self.now
+                    path.write_text(json.dumps(data))
+                    self.tick()
+                    self.assertFalse(usage.collect(self.cfg)["anthropic"]["accounts"]["default"]["exhausted"])
+                    self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
+
+    def test_past_codex_deadline_never_parks_usage_or_respawns_the_seat(self):
+        config.save_session(self.cfg, NAME, "astra", ["opus"], {"cwd": str(self.root)})
+        self.pane = "You've hit your usage limit. Try again at " + time.strftime(
+            "%Y-%m-%d %H:%M", time.localtime(self.now - 21600))
+        self.refusal_tick()
+        self.tick()
+        self.assertEqual(self.commands, [])
+        self.assertEqual(self.typed, ["continue"])
+        self.assertFalse(usage.collect(self.cfg)["openai"]["exhausted"])
+        self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
+
+    def test_exited_seats_never_reopen_on_quota(self):
+        self.seat["exited"] = True
+        self.tick()
+        self.assertEqual(self.commands, [])
+        self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
+
+    def test_owner_quitting_or_typing_during_meter_io_wins(self):
+        collect = usage.collect
+        for action in (lambda: self.seat.update(exited=True),
+                       lambda: setattr(self, "pane", "❯ the owner is typing")):
+            self.seat["exited"] = False
+            self.pane = "❯"
+            def readings(cfg):
+                result = collect(cfg)
+                action()
+                return result
+            with patch.object(usage, "collect", side_effect=readings):
+                self.tick()
+        self.assertEqual(self.commands, [])
+
+    def test_account_continue_waits_for_a_draft_and_never_claims_a_fresh_resume(self):
+        self.pane = "Usage limit reached"
+        with patch.object(orch, "resume", return_value="fresh"):
+            self.tick()
+        self.assertFalse(watch.seat_read(NAME).get("midturn"))
+        self.tick()
+        self.pane = "❯ the owner is typing"
+        watch.continue_turns(self.cfg, self.logs.append, accounts=True)
+        self.assertEqual(self.typed, [])
+        self.assertTrue(watch.seat_read(NAME).get("midturn"))
+        self.pane = "❯"
+        watch.continue_turns(self.cfg, self.logs.append, accounts=True)
+        self.assertEqual(self.typed, [watch.ACCOUNT_LINE])
+
+    def test_meter_recovery_at_an_idle_prompt_does_not_start_a_turn(self):
+        self.tick()
+        watch.continue_turns(self.cfg, self.logs.append, accounts=True)
+        self.assertEqual(len(self.commands), 1)
+        self.assertEqual(self.typed, [])
+        config.save_session(self.cfg, NAME, "astra", ["opus"], {"cwd": str(self.root)})
+        self.cached(lambda p: p["openai"].update(exhausted_until=self.now + 60))
+        self.tick()
+        self.now += 61
+        self.tick()
+        self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
+        self.assertEqual(self.typed, [])
+
+    def test_unknown_reset_never_reuses_a_past_deadline(self):
+        self.meters(100, 100)
+        self.cached(lambda p: [a["meters"][0].update(resets_at=None)
+                              for a in p["anthropic"]["accounts"].values()])
+        watch.seat_write(NAME, usage_wait={"reason": "old wait", "since": self.now - 3600,
+                                          "until": self.now - 60})
+        self.tick()
+        self.assertGreater(watch.seat_read(NAME)["usage_wait"]["until"], self.now)
 
     def test_manual_resume_and_owner_close_end_the_usage_wait(self):
         self.meters(100, 100)
@@ -451,10 +585,17 @@ print(json.dumps({"login": json.loads((home / "auth.json").read_text()), "args":
     "key": os.environ.get("OPENAI_API_KEY"), "exec_key": os.environ.get("CODEX_API_KEY")}))
 ''')
         fake.chmod(0o755)
-        for account in ("default", "second"):
-            folder = self.root / (".codex" if account == "default" else ".codex-second")
+        base = self.root / ".codex"
+        base.mkdir()
+        (base / "config.toml").write_text('model = "test-model"\n')
+        custom = self.root / "custom-codex"
+        custom.mkdir()
+        (custom / "auth.json").write_text('{"account":"default"}')
+        for account in ("default", None, "second"):
+            login = account or "default"
+            folder = self.root / (".codex" if login == "default" else ".codex-second")
             folder.mkdir(exist_ok=True)
-            (folder / "auth.json").write_text(json.dumps({"account": account}))
+            (folder / "auth.json").write_text(json.dumps({"account": login}))
             cmd = orch.command(self.cfg, "astra", CONVERSATION, account=account)
             at = cmd.index(str(REPO / "tools/idle-compact.py")) - 1
             wrapper = cmd.index(str(REPO / "tools/codex-seat.py")) - 1
@@ -462,17 +603,18 @@ print(json.dumps({"login": json.loads((home / "auth.json").read_text()), "args":
             harness = cmd.index("--", cmd.index(str(REPO / "tools/codex-seat.py"))) + 1
             cmd[harness] = str(fake)
             proc = subprocess.run(cmd, check=True, cwd=self.root, capture_output=True, text=True,
-                env={**os.environ, "CODEX_HOME": "/wrong", "OPENAI_API_KEY": "wrong",
-                     "CODEX_API_KEY": "wrong"})
+                env={**os.environ, "CODEX_HOME": str(custom), "OPENAI_API_KEY": "test-key",
+                     "CODEX_API_KEY": "test-exec-key"})
             result = json.loads(proc.stdout)
-            self.assertEqual(result["login"]["account"], account)
+            self.assertEqual(result["login"]["account"], login)
             self.assertIn(CONVERSATION, result["args"])
-            self.assertIsNone(result["key"])
-            self.assertIsNone(result["exec_key"])
+            self.assertEqual(result["key"], None if account == "second" else "test-key")
+            self.assertEqual(result["exec_key"], None if account == "second" else "test-exec-key")
             if account == "second":
                 self.assertIn('cli_auth_credentials_store="file"', result["args"])
                 self.assertIn(f'projects."{self.root}".trust_level="trusted"', result["args"])
                 self.assertEqual((folder / "sessions").resolve(), self.root / ".codex/sessions")
+                self.assertEqual((folder / "config.toml").resolve(), base / "config.toml")
 
 
 if __name__ == "__main__":

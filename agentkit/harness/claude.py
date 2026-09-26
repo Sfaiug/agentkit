@@ -22,11 +22,11 @@ def opened(cwd, conversation):
     return (Path.home() / ".claude" / "projects" / slug / f"{conversation}.jsonl").exists()
 
 
-def account_config():
-    """Keep an alternate login's settings, adding the trust and hooks every seat needs.
+def account_config(check=False):
+    """Keep the owner's configuration beside an alternate login's own credentials.
 
     Claude's config override moves both its user settings and its global .claude.json.
-    Only trust and hooks are shared; the account's identity and credentials stay its own.
+    Validate before respawning the pane; prepare trust again in the launch's actual cwd.
     """
     account = os.environ.get("AGENTKIT_ACCOUNT")
     if not account:
@@ -34,26 +34,36 @@ def account_config():
         return
     home = Path.home()
     directory = home / f".claude-{account}"
-    directory.mkdir(parents=True, exist_ok=True)
     settings = home / ".claude/settings.json"
-    hooks = json.loads(settings.read_text()).get("hooks", {}) if settings.exists() else {}
-    for path in (directory / ".claude.json", directory / "settings.json"):
-        data = json.loads(path.read_text()) if path.exists() else {}
+    paths = (settings, directory / ".claude.json", directory / "settings.json")
+    values = [json.loads(path.read_text()) if path.exists() else {} for path in paths]
+    if not all(isinstance(value, dict) for value in values):
+        raise ValueError("Claude settings and global config must be JSON objects")
+    if check:
+        return
+    directory.mkdir(parents=True, exist_ok=True)
+    for path, data in zip(paths[1:], values[1:]):
         if path.name == ".claude.json":
             data.setdefault("theme", "dark")
             data["hasCompletedOnboarding"] = True
             project = data.setdefault("projects", {}).setdefault(str(Path.cwd().resolve()), {})
             project["hasTrustDialogAccepted"] = True
         else:
-            for event, entries in hooks.items():
-                own = data.setdefault("hooks", {}).setdefault(event, [])
-                own.extend(entry for entry in entries if entry not in own)
+            data.update(values[0])
+            # Hooks belong to the current installation, not every past checkout.
+            data["hooks"] = values[0].get("hooks", {})
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data) + "\n")
         tmp.replace(path)
+    for name in ("CLAUDE.md", "agents", "skills", "commands", "plugins"):
+        source, target = home / ".claude" / name, directory / name
+        if source.exists() and not target.exists() and not target.is_symlink():
+            target.symlink_to(source, target_is_directory=source.is_dir())
     os.environ["CLAUDE_CONFIG_DIR"] = str(directory)
 
 
 if __name__ == "__main__":
-    account_config()
-    os.execvp(sys.argv[2], sys.argv[2:])
+    checking = sys.argv[1:] == ["--check"]
+    account_config(check=checking)
+    if not checking:
+        os.execvp(sys.argv[2], sys.argv[2:])

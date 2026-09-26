@@ -283,8 +283,8 @@ was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-
   part, a substitution, `OPENCODE_CONFIG`, a file not plain JSON -- is payg. OpenCode runs with project config off, so
   no workspace changes it. For Muse `usage_model` and `usage_effort`: the one cached request its meters come from.
   `accounts = ["default", "second"]` lists subscriptions, `default` the usual login; Claude keeps another's token in
-  `secrets/claude_oauth_token.second` or its login in `~/.claude-second`; a Codex seat uses `~/.codex-second/auth.json`. A turn runs on the one with most room, then the next.
-  A seat whose subscription runs out resumes its conversation on the next account of the same provider with room; if none has room, it reads `needs you` with `<provider> out of usage until <time>` once and recovers when usage returns (without a proven conversation id it waits for its current account and continues in place); opening it by hand cancels that recovery.
+  `secrets/claude_oauth_token.second` or its login in `~/.claude-second`. Claude turns use the account with most room, then the next; Codex named logins (`~/.codex-second/auth.json`) apply only to seats, not worker turns or meters.
+  A seat whose subscription runs out resumes its conversation on the next account of the same provider with room; if none has room, it reads `needs you` with `<provider> out of usage until <time>` once and recovers when usage returns (without a proven conversation id it waits for its current account and continues in place); opening it to look keeps recovery active, drafts and questions defer it, closed seats stay closed, and idle prompts stay idle.
 
 Secrets are in `~/.agentkit/secrets/`: `discord_webhook`, `discord_user_id` and `claude_oauth_token` (the worker token
 `claude setup-token` mints, dated a year from its file). A repository's `AGENTS.md` front matter holds `tests:`, its

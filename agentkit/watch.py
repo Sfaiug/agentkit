@@ -495,6 +495,8 @@ def continue_turns(cfg, log, accounts=False):
             if wait > 0:
                 time.sleep(min(wait, INBOX_WARMUP))   # the TUI has to be listening first
             harness, found = look_at(session, cfg=cfg)
+            if accounts and found.get("state") in ("draft", "asking"):
+                continue
             flight, began = _turn_in_flight(harness, found) if harness else (False, None)
             if not (flight and isinstance(began, (int, float)) and began > at):
                 tries = (mark.get("tries") or 0) + 1
@@ -1973,9 +1975,7 @@ def wait_main(argv):
 
 def opened_now(name):
     """Record the interactive open the live states are measured against.  Never a harness's."""
-    previous = seat_read(name)
-    seat_write(name, opened_at=time.time(), usage_wait=None, usage_refusal=None,
-               usage_taken=bool(previous.get("usage_wait") or previous.get("usage_taken")))
+    seat_write(name, opened_at=time.time())
 
 
 def stuck_notice(name, harness):
@@ -2528,16 +2528,19 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     """Keep a seat on its model's usable subscriptions, preserving its live conversation.
 
     Without a proven conversation id the running pane is the only copy: wait for its own
-    account, then continue in place. Exited panes can recover quota only with a proven id.
+    account, then continue in place. A closed pane is never a request to start a turn.
     """
     name = session["name"]
     record = config.session_records().get(name)
     if (not record or provider not in cfg.get("providers", {})
-            or session.get("legacy") or seat_closed_by_owner(name)):
+            or session.get("legacy") or any(session.get(key) for key in orch.CLOSED)
+            or seat_closed_by_owner(name)):
         return False
     live = seat_read(name)
     if (live.get("midturn") or {}).get("line") == ACCOUNT_LINE:
         return True       # its resumed transcript may still show the previous account's refusal
+    if live.get("state") in ("draft", "asking") or owner_question(notify.last(name)):
+        return True
     accounts = config.accounts(cfg, provider)
     current = record.get("account") or config.DEFAULT_ACCOUNT
     model = record["orchestrator"]
@@ -2553,15 +2556,15 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     def spent(account):
         return usage.model_exhausted(cfg, model, {provider: readings.get(account, {})})[0]
 
-    if live.get("usage_taken"):
-        if not spent(current) and not dry_run:
-            seat_write(name, usage_taken=None)
-        return True       # the owner took this wait up; refilling must not respawn their pane
     line = output_line(content_lines(harness, pane_tail(pane)))
     mark = stalled_on(harness, line, name, log) if line else None
     refusal = mark in quotas(harness) if mark else False
     now = time.time()
     observed = live.get("usage_refusal") or {}
+    until = run.try_again_at(line) if refusal else None
+    handled = observed.get("line") == line and observed.get("handled")
+    if handled and not waiting and not spent(current):
+        return True       # a consumed refusal is still history when its transcript is redrawn
     if refusal and not waiting and not spent(current):
         if observed.get("line") != line:
             if not dry_run:
@@ -2569,7 +2572,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
             return True
         if now - observed["at"] < STALL_WAIT:
             return True
-    elif not refusal and observed and not dry_run:
+    elif not refusal and observed and not observed.get("handled") and not dry_run:
         seat_write(name, usage_refusal=None)
     if not waiting and not refusal and not spent(current):
         return False
@@ -2578,21 +2581,41 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         return True
     with state_lock():
         # Slow meters must not undo a stop, rename, manual open or another launch.
+        current_seat = orch.find(name)
         if (seat_closed_by_owner(name) or config.session_records().get(name) != record
                 or seat_read(name).get("opened_at") != live.get("opened_at")
-                or not orch.find(name)):
+                or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
+                or pane_text(current_seat) != pane):
             return True
         if refusal and not waiting and not spent(current):
-            until = run.try_again_at(line)
+            # The host may have slept through the deadline. Never replace that old
+            # refusal with a new shared-cache park; retry it once in the existing pane.
+            if until is not None and until <= now:
+                if type_into(session, keystroke(harness, line), log):
+                    seat_write(name, usage_refusal={"line": line, "at": now, "handled": True})
+                return True
             # A bare 429/rate limit is not proof a subscription is empty. Retry the
             # stable error locally; only a quota refusal or deadline parks an account.
             if until is None and not re.search(r"usage|quota|exhaust|payment", mark, re.I):
-                type_into(session, keystroke(harness, line), log)
-                seat_write(name, usage_refusal={"line": line, "at": now})
+                if observed.get("told"):
+                    return True
+                if now - observed["at"] >= GIVE_UP:
+                    text = stuck_notice(name, harness)
+                    if notify.shaped("needs", text, session=name,
+                                     event_id=f"stall:{name}:{observed['at']}") == 0:
+                        seat_write(name, usage_refusal={**observed, "told": now})
+                elif now - observed.get("nudged_at", 0) >= NUDGE_EVERY:
+                    if type_into(session, keystroke(harness, line), log):
+                        seat_write(name, usage_refusal={**observed, "nudged_at": now})
                 return True
             until = usage.mark_exhausted(cfg, provider, until=until,
                                          account=current if accounts else None)
             readings[current] = {**readings.get(current, {}), "exhausted_until": until}
+        if refusal:
+            observed = {"line": line, "at": now, "handled": True}
+            seat_write(name, usage_refusal=observed)
+        continuing = bool((waiting or {}).get("continue") or refusal
+                          or _turn_in_flight(harness, live)[0])
         owned = orch.resumable(record)
         eligible = [a for a in (accounts or [current]) if a in readings and not spent(a)
                     and (owned or a == current)]
@@ -2600,19 +2623,21 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
             target = orch.account_order(cfg, model, {a: readings[a] for a in eligible})[0]
             try:
                 if owned:
-                    orch.resume(cfg, name, log=log, hand_over=False, account=target)
-                    seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
-                                             "line": ACCOUNT_LINE})
-                elif session.get("exited") or not type_into(session, keystroke(harness, line), log):
+                    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=target)
+                    if continuing and resumed == "resumed":
+                        seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
+                                                 "line": ACCOUNT_LINE})
+                elif continuing and not type_into(session, keystroke(harness, line), log):
                     return True
             except (config.Error, OSError) as exc:
                 reason = f"{provider} account reopen failed: {exc}"
                 if not waiting or waiting["reason"] != reason:
                     log(f"WARN {name}: {reason}")
                 seat_write(name, usage_wait={"reason": reason,
-                                            "since": waiting["since"] if waiting else now})
+                                            "since": waiting["since"] if waiting else now,
+                                            "continue": continuing})
                 return True
-            seat_write(name, usage_wait=None, usage_refusal=None)
+            seat_write(name, usage_wait=None, usage_refusal=observed or None)
             return True
         # Each account needs all of this model's spent windows back. Scoped meters
         # belonging to another model neither trigger a move nor postpone the reset.
@@ -2625,13 +2650,16 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
             ends = [end for end in ends if isinstance(end, (int, float)) and end > now]
             if ends:
                 resets.append(max(ends))
-        until = min(resets) if resets else (waiting or {}).get("until", now + usage.DRY_FOR)
+        until = min(resets) if resets else (waiting or {}).get("until", 0)
+        if until <= now:
+            until = now + usage.DRY_FOR
         when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until))
         reason = f"{provider} out of usage until {when}"
         if not waiting:
             log(f"{name}: {reason}")
         seat_write(name, usage_wait={"reason": reason, "until": until,
-                                    "since": waiting["since"] if waiting else now})
+                                    "since": waiting["since"] if waiting else now,
+                                    "continue": continuing})
         return True
 
 
@@ -2800,8 +2828,7 @@ def health(cfg, state, dry_run, log):
                 log(f"{name}: {entry.get('harness') or harness} can authenticate again; "
                     "cleared needs login")
                 entry = {}
-            # Quota can reopen an exited pane on its proven conversation; the
-            # generic nudges below still apply only to live, non-legacy panes.
+            # Account recovery, like other capacity recovery, leaves closed seats alone.
             if seat_account(cfg, session, harness, provider, pane, dry_run, log):
                 continue
             if blank:

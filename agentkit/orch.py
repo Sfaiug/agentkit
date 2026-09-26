@@ -1743,7 +1743,7 @@ def launch(name, model, cwd, cmd, conversation, session=None):
     from . import watch
     # launched under the name again: not the stopped one, and not the owner's closed one
     watch.seat_write(name, stopped_at=None, closed_by_owner=None,
-                     usage_wait=None, usage_refusal=None, usage_taken=None)
+                     usage_wait=None, usage_refusal=None)
 
 
 def stamp():
