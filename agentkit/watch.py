@@ -1444,6 +1444,27 @@ def _turn_in_flight(harness, found):
     return False, None
 
 
+def _background_stops(harness):
+    """Hook events the manifest marks as background waits, or ().  No names live here."""
+    try:
+        events = (config.manifest(harness).get("hooks") or {}).get("event") or ()
+    except config.Error:
+        return ()
+    stops = []
+    for entry in events:
+        if not isinstance(entry, dict) or not entry.get("background"):
+            continue
+        name = entry.get("name")
+        if not isinstance(name, str):
+            continue
+        kinds = entry.get("kinds")
+        if isinstance(kinds, list):
+            stops.extend(f"{name}/{kind}" for kind in kinds if isinstance(kind, str))
+        else:
+            stops.append(name)
+    return tuple(stops)
+
+
 def look_at(session, cfg=None, pane=None, now=None):
     """(harness, what its screen and hooks say) for one seat, recorded as it always was.
 
@@ -1716,7 +1737,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if (harness and not gone and found.get("state") in ("asking", "draft")
             and (found["state"] == "asking" or not session.get("attached"))
             and (not _turn_in_flight(harness, found)[0]
-                 or found.get("hooked_event") == "Stop/background")):
+                 or found.get("hooked_event") in _background_stops(harness))):
         asked = " ".join(str(found.get("evidence") or "").split())
         if found.get("state") == "draft":
             asked = f"unsent: {asked}"

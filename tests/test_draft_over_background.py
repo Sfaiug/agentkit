@@ -19,8 +19,11 @@ from agentkit import config, orch, watch
 NOW = 1_800_000_000
 SEAT = "fix-api"
 FIX = REPO / "tests/fixtures"
-DRAFT = (FIX / "claude-draft-pane.txt").read_text(encoding="utf-8", errors="replace")
-PROMPT = (FIX / "claude-prompt-pane.txt").read_text(encoding="utf-8", errors="replace")
+# A seat waiting on background work draws its count in the footer, never the plain one.
+DRAFT = (FIX / "claude-draft-pane.txt").read_text(encoding="utf-8", errors="replace").replace(
+    "(shift+tab to cycle)", "· 1 monitor · ← for agents")
+PROMPT = (FIX / "claude-prompt-pane.txt").read_text(encoding="utf-8", errors="replace").replace(
+    "(shift+tab to cycle) · ← for agents", "· 1 monitor · ← for agents")
 TEXT = "Fix the login redirect"
 
 
