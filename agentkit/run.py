@@ -179,6 +179,8 @@ MIN_FREE_MB = history.MIN_FREE_MB
 _RUN_CONTEXT = threading.local()  # job threads export their own depth and slot owner
 _DELIVERY_HELD = threading.local()   # the delivery locks this thread is already inside
 _RECOVERY_HELD = threading.local()   # the recovery locks this thread is already inside
+_PICKUP_START = None    # the installed agentkit this process started on, for in-flight pickup
+_PICKUP_HELD = threading.local()   # gate and merge turns this thread holds now
 STALL_RESUME_GRACE = 600        # the tick stopped this loop and its resume is on the way; reap
                                 # leaves the record alone until then, and the resume adopts it
 RESUME_VISIBLE = 3600           # ak run status names a mid-turn resume in the age column for this long
@@ -1579,7 +1581,12 @@ def gate_turn(run_dir, log_path, log):
             if log is not None:
                 log(f"done-when: took a gate turn of {name} after "
                     f"{orch.span(time.monotonic() - began)}")
-        yield
+        held = getattr(_PICKUP_HELD, "count", 0)
+        _PICKUP_HELD.count = held + 1
+        try:
+            yield
+        finally:
+            _PICKUP_HELD.count = held
 
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
@@ -3216,7 +3223,7 @@ def round_findings(lp, entry):
     return finding_count(whole) if whole is not None else None
 
 
-def rounds(lp):
+def rounds(lp, execv=None):
     """Executor -> done-when -> reviewer, until PASS or the round budget is spent.
 
     Only a recorded successful review by an eligible model can skip straight to delivery.
@@ -3236,6 +3243,7 @@ def rounds(lp):
         if resume_review(lp) == "PASS":
             return
     while lp.rnd < lp.rounds:
+        pickup_new_code(lp, execv=execv)
         lp.rnd += 1
         cut = continuation(lp)
         if cut in ("reviewer", "done-when"):
@@ -4259,7 +4267,7 @@ def final_check(lp, upstream):
             return False
 
 
-def land(lp, upstream, verify, deliver):
+def land(lp, upstream, verify, deliver, execv=None):
     """Verify without the merge turn, then hold it only for the minutes landing takes.
 
     `verify` brings the branch onto a target commit and checks it there: the rebase, the
@@ -4277,6 +4285,7 @@ def land(lp, upstream, verify, deliver):
     if not wait_for_dependency(lp):
         return False
     for lap in (1, 2, 3):
+        pickup_new_code(lp, execv=execv)
         if not verify():
             return False
         verified = lp.base_sha
@@ -4370,7 +4379,12 @@ def merge_turn(lp, upstream):
                 save_state(lp.run_dir, lp.state)
             history.open_step(lp.state.get("run_id"), step, log=lp.log)
             lp.log(f"--- merge: took the merge turn of {what}")
-        yield
+        held = getattr(_PICKUP_HELD, "count", 0)
+        _PICKUP_HELD.count = held + 1
+        try:
+            yield
+        finally:
+            _PICKUP_HELD.count = held
 
 
 def merge_turn_lock(url, upstream):
@@ -6076,6 +6090,76 @@ def process_active(state):
         return True
     return any(Path(arg).name == "ak" and args[i + 1:i + 2] == ["run"]
                for i, arg in enumerate(args))
+
+
+def installed_head():
+    """This process's checkout at `bin/ak`, as a short commit, or "" when it cannot be read.
+
+    A read that fails or runs slow is no version, never a failed run: the checkout may
+    be no checkout at all, or git waiting on a prompt or a network nobody here can answer.
+    """
+    try:
+        proc = subprocess.run(["git", "-C", str(config.REPO), "rev-parse", "--short", "HEAD"],
+                              capture_output=True, encoding="utf-8", errors="replace",
+                              timeout=10, stdin=subprocess.DEVNULL, env=tool_env())
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return ""
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def pickup_new_code(lp, execv=None, current=None):
+    """Replace this process with the installed agentkit when it has moved, at a safe boundary.
+
+    Before a round and before a landing lap's verify the run holds no gate turn, no merge
+    turn and no child, so the process can replace itself with `ak run resume <id>` and the
+    resume continues in place on the new code: the pid, the scope and the slot stay the
+    same, and a saved PASS is kept as a resume keeps it.  Any turn held or waited for, any
+    child still marked, or a version that cannot be read means no move, never a failed run.
+    `execv` and `current` are the injected exec and installed version the tests use.
+    """
+    global _PICKUP_START
+    if execv is None:
+        execv = os.execv
+    try:
+        now = installed_head() if current is None else current
+    except Exception:
+        return False
+    if not now:
+        return False
+    start = _PICKUP_START
+    if not start:
+        _PICKUP_START = now
+        return False
+    if now == start:
+        return False
+    try:
+        if gate_turn_note(lp.state) or merge_turn_note(lp.state):
+            return False
+    except Exception:
+        return False
+    if getattr(_PICKUP_HELD, "count", 0):
+        return False
+    try:
+        children = marker_pids(lp.state.get("run_id"))
+    except Exception:
+        return False
+    if children:
+        return False
+    if lp.state.get("state") != "running":
+        return False
+    try:
+        lp.state["pickup"] = {"pid": os.getpid(), "from": start, "to": now}
+        save_state(lp.run_dir, lp.state)
+    except StopRequested:
+        raise
+    except Exception:
+        return False
+    ak = str(config.REPO / "bin" / "ak")
+    try:
+        execv(ak, [ak, "run", "resume", lp.run_dir.name])
+    except OSError:
+        return False
+    return True
 
 
 @contextmanager
@@ -10151,6 +10235,42 @@ def resume_run(argv):
     child = (os.environ.get(config.RUN_DIR_ENV) == str(run_dir) and
              state.get("state") == "queued" and state.get("resume_from") and
              state.get("pid") == os.getpid() and process_active(state))
+    pickup = state.get("pickup") if isinstance(state.get("pickup"), dict) else None
+    in_place = (pickup is not None and not background and not child
+                and state.get("state") == "running"
+                and pickup.get("pid") == os.getpid()
+                and state.get("pid") == os.getpid())
+    if in_place:
+        # The same process, new code: the pickup before a round exec'd to this resume.
+        # The pid, the scope and the slot stay the same, so the run is not queued
+        # again, and a saved PASS is kept as a resume keeps it.
+        old, new = pickup.get("from"), pickup.get("to")
+        expected = dict(state)
+        wt = Path(state["worktree"]) if state.get("worktree") else None
+        if wt is not None and not wt.is_dir():
+            raise config.Error(f"{argv[0]}: its worktree {wt} is gone; there is nothing to resume")
+        if n_rounds is not None:
+            if n_rounds < (state.get("rounds") or 0):
+                raise config.Error("--rounds cannot reduce the saved round budget")
+            state["rounds"] = n_rounds
+        state.pop("pickup", None)
+        state.setdefault("merge_method", "squash")
+        state.setdefault("target", state.get("base"))
+        opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
+                "--no-merge": bool(state.get("no_merge")),
+                "--no-worktree": bool(state.get("repo")) and wt == Path(state["repo"]),
+                "--bg": False}
+        with slot_lock(), recovery_lock(run_dir):
+            if read_state(run_dir) != expected:
+                raise config.Error("the run changed while choosing recovery; select it again")
+            save_state(run_dir, state)
+        cfg = config.load()
+        log = logger(run_dir, True)
+        log(f"picked up agentkit {old}..{new}; continuing on it")
+        if state.get("review_pr"):
+            return drive(cfg, run_dir, opts, log,
+                         job=lambda: review_pr(cfg, run_dir, state["review_pr"], opts, log))
+        return drive(cfg, run_dir, opts, log, prior=state)
     if not child and state.get("state") in ("running", "queued"):
         if process_active(state):
             raise config.Error(f"{argv[0]} is still running as pid {state['pid']}")
@@ -10332,6 +10452,7 @@ def resume_run(argv):
         # the ordered resume has adopted the record, and no backoff outlives it
         state.pop("stall_resume_at", None)
         state.pop("resume_after", None)
+        state.pop("pickup", None)
         save_state(run_dir, state)
     log = logger(run_dir, not child)
     log(f"resume {run_dir.name}: {run_dir / 'task.md'}")
@@ -10376,6 +10497,11 @@ def record_result(run_dir, state, log=None, cfg=None):
 
 def drive(cfg, run_dir, opts, log, prior=None, job=None):
     """The loop plus every way it can end: one place decides the exit code and who is told."""
+    global _PICKUP_START
+    try:
+        _PICKUP_START = installed_head() or _PICKUP_START
+    except Exception:
+        pass
     existing = read_state(run_dir)
     if existing is not None and existing.get("state") == "stopped":
         return 1  # a stop landed before this attempt started; the record stands as left
