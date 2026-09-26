@@ -4719,11 +4719,13 @@ def after_merge_fallback(repo_key):
     return live[max(qualified, key=lambda name: (age(name), name))]
 
 
-def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None):
+def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed=None,
+                        receipt=lambda mark: None):
     """Type that target break into its seat, else the newest live one on the same repo.
 
     As a finished run is: only at its prompt, so a turn in flight means the next tick
-    tries again.  True when the line was told.
+    tries again, and with the composer's mark kept across retries, so a line whose Enter
+    did not land is entered and never typed a second time.  True when the line was told.
     """
     from . import run as run_mod   # here, not at the top: run imports this module
     try:
@@ -4736,11 +4738,29 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None):
         except (config.Error, OSError, ValueError, AttributeError):
             seat = None
         if after_merge_live(seat):
-            return bool(type_at_prompt(seat, line, log, cfg=cfg))
+            return bool(type_at_prompt(seat, line, log, cfg=cfg, typed=typed,
+                                       receipt=receipt))
     fallback = after_merge_fallback(repo_key)
     if fallback is None:
         return False
-    return bool(type_at_prompt(fallback, line, log, cfg=cfg))
+    return bool(type_at_prompt(fallback, line, log, cfg=cfg, typed=typed, receipt=receipt))
+
+
+def after_merge_seat(run_state, repo_key):
+    """The seat an after-merge notice goes to: its own when live, else the fallback."""
+    from . import run as run_mod   # here, not at the top: run imports this module
+    try:
+        session = run_mod.launched_session(run_state)
+    except config.Error:
+        session = None
+    if session:
+        try:
+            seat = orch.find(session)
+        except (config.Error, OSError, ValueError, AttributeError):
+            seat = None
+        if after_merge_live(seat):
+            return seat
+    return after_merge_fallback(repo_key)
 
 
 def after_merge_checks(state, dry_run, log, now=None):
@@ -4750,13 +4770,28 @@ def after_merge_checks(state, dry_run, log, now=None):
     its latest check runs from `gh`.  Only the newest commit with a failed check is
     handed back, and only once -- a `passed` commit newer than the break ends it, and a
     `gh` that could not say, for the merge commit or for a newer commit's checks, waits
-    a tick rather than saying anything on half an answer.
+    a tick rather than saying anything on half an answer.  A line whose Enter did not
+    land keeps its composer mark, as a finished run's does, so the next tick enters it
+    instead of typing it twice; a break already told stays told when its commit slides
+    out of the window, until a later green commit -- or quiet with no red left -- ends it.
     """
     from . import run as run_mod   # here, not at the top: run imports this module
     now = time.time() if now is None else now
     episodes = state.setdefault("after_merge", {})
     if not isinstance(episodes, dict):
         episodes = state["after_merge"] = {}
+
+    def _save():
+        try:
+            save_state(state)
+        except (config.Error, OSError, ValueError, AttributeError, KeyError,
+                TypeError) as exc:
+            log(f"WARN could not record the after-merge mark: {exc}")
+
+    def _when(value):
+        return (value if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else None)
+
     try:
         directories = run_mod.run_dirs()
     except OSError as exc:
@@ -4783,28 +4818,90 @@ def after_merge_checks(state, dry_run, log, now=None):
             continue
         grouped.setdefault(key, []).append(
             (finished, run_dir.name, run_dir, st, owner, repo, host, sha, pr_url))
-    for key, found in grouped.items():
-        found.sort()
+    for key in sorted(set(grouped) | set(episodes)):
+        found = sorted(grouped.get(key, []))
         statuses = []
         for finished, name, run_dir, st, owner, repo, host, sha, pr_url in found:
             verdict, check, url = after_merge_status(owner, repo, host, sha, log)
             statuses.append((finished, name, run_dir, st, sha, pr_url, verdict, check, url))
         episode = episodes.get(key)
-        notified = episode.get("notified") if isinstance(episode, dict) else episode
+        if isinstance(episode, str):
+            episode = episodes[key] = {"notified": episode} if episode else {}
+        elif not isinstance(episode, dict):
+            if episode is not None:
+                episodes.pop(key, None)
+            episode = {}
+        notified = episode.get("notified")
         if not isinstance(notified, str) or not notified:
             notified = None
         if notified:
+            ended = _when(episode.get("finished"))
+            if ended is None:
+                ended = _when(episode.get("at"))
             shas = [entry[4] for entry in statuses]
-            if notified not in shas:
-                episodes.pop(key, None)
-                notified = None
-            else:
+            if notified in shas:
                 at = max(i for i, sha in enumerate(shas) if sha == notified)
                 if any(entry[6] == "passed" for entry in statuses[at + 1:]):
                     episodes.pop(key, None)
                     notified = None
-        if notified:
-            continue
+                else:
+                    continue
+            elif ended is None:
+                episodes.pop(key, None)
+                notified = None
+            elif any(entry[6] == "passed" and entry[0] > ended for entry in statuses):
+                episodes.pop(key, None)
+                notified = None
+            elif not any(entry[6] in ("failed", "pending", "unknown")
+                         for entry in statuses):
+                episodes.pop(key, None)
+                notified = None
+            else:
+                continue
+            if notified:
+                continue
+            episode = {}
+        pending = episode.get("pending") if isinstance(episode.get("pending"), dict) else None
+        if pending:
+            line = pending.get("line")
+            typed = pending.get("typed")
+            sha = pending.get("sha")
+            finished = _when(pending.get("finished"))
+            run_name = pending.get("run")
+            check = pending.get("check")
+            target = pending.get("target") or "main"
+            session = pending.get("session")
+            if (not isinstance(line, str) or not line or typed is None
+                    or not isinstance(sha, str) or not sha or finished is None
+                    or not isinstance(run_name, str) or not run_name):
+                episode.pop("pending", None)
+                if not episode and episodes.get(key) is episode:
+                    episodes.pop(key, None)
+                pending = None
+            elif any(entry[6] == "passed" and entry[0] > finished for entry in statuses):
+                episodes.pop(key, None)
+                log(f"run {run_name}'s after-merge notice is over: {key} went green")
+                pending = None
+            elif dry_run:
+                log(f"would hand run {run_name} back for {check} on {target}: {line}")
+                continue
+            else:
+                def kept(mark, pending=pending):
+                    pending["typed"] = mark
+                    _save()
+
+                fake_state = {"launched_session": session} if session else {}
+                if after_merge_deliver(config.RUNS / run_name, fake_state, key, line, log,
+                                       typed=typed, receipt=kept):
+                    episodes[key] = {"notified": sha, "at": now, "run": run_name,
+                                     "check": check, "finished": finished}
+                    _save()
+                    log(f"handed run {run_name} back for {check} on {target} "
+                        "after its merge")
+                else:
+                    log(f"run {run_name}'s after-merge notice sits in a composer; "
+                        "the next tick presses Enter")
+                continue
         candidate, at = None, -1
         for i in range(len(statuses) - 1, -1, -1):
             if statuses[i][6] == "failed":
@@ -4818,16 +4915,36 @@ def after_merge_checks(state, dry_run, log, now=None):
             log(f"WARN {key}: a newer merge's checks are unreadable; "
                 "the after-merge notice waits a tick")
             continue
-        _, name, run_dir, st, _sha, pr_url, _, check, url = candidate
-        line = after_merge_line(check or "A check", after_merge_target(st), url or pr_url)
+        finished, name, run_dir, st, sha, pr_url, _, check, url = candidate
+        target = after_merge_target(st)
+        line = after_merge_line(check or "A check", target, url or pr_url)
         if dry_run:
-            log(f"would hand run {name} back for {check} on {after_merge_target(st)}: {line}")
+            log(f"would hand run {name} back for {check} on {target}: {line}")
             continue
-        if after_merge_deliver(run_dir, st, key, line, log):
-            episodes[key] = {"notified": candidate[4], "at": now, "run": name,
-                             "check": check}
-            log(f"handed run {name} back for {check} on {after_merge_target(st)} "
-                "after its merge")
+        try:
+            session = run_mod.launched_session(st)
+        except config.Error:
+            session = None
+        composed = []
+
+        def fresh(mark):
+            episodes[key] = {"pending": {"sha": sha, "line": line, "typed": mark,
+                                         "run": name, "check": check,
+                                         "finished": finished, "target": target,
+                                         "session": session}}
+            composed.append(True)
+            _save()
+
+        if after_merge_deliver(run_dir, st, key, line, log, typed=None, receipt=fresh):
+            episodes[key] = {"notified": sha, "at": now, "run": name, "check": check,
+                             "finished": finished}
+            _save()
+            log(f"handed run {name} back for {check} on {target} after its merge")
+        elif composed:
+            log(f"run {name}'s after-merge notice sits in a composer; "
+                "the next tick presses Enter")
+        elif after_merge_seat(st, key) is None:
+            log(f"no live seat for {key}; run {name}'s after-merge notice waits for one")
         else:
             log(f"run {name}'s after-merge notice waits for a live seat at its prompt")
 

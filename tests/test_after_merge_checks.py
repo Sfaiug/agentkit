@@ -143,6 +143,54 @@ class AfterMerge(unittest.TestCase):
         self.assertEqual((self.typed, [line for line in self.logs if "handed" in line]),
                          ([], []))
 
+    def test_composed_line_retries_with_its_mark_and_completes(self):
+        sha = "a" * 40
+        self.merged("run-old", sha)
+        self.set_checks({sha: [completed(CHECK, "failure")]})
+        self.rows = [self.live(SEAT, created=100)]
+        calls, marks = [], []
+
+        def flaky(session, text, log, cfg=None, typed=None, receipt=lambda mark: None):
+            calls.append((session.get("name"), text, typed))
+            if typed is None:
+                mark = {"line": text, "seat": session.get("created")}
+                marks.append(mark)
+                receipt(mark)
+                return False
+            self.typed.append((session.get("name"), text))
+            return True
+
+        with patch.object(watch, "type_at_prompt", flaky):
+            state = self.follow()
+            self.assertEqual(self.typed, [])
+            self.follow(state)
+        self.assertEqual(len(calls), 2)
+        self.assertIsNone(calls[0][2])
+        self.assertEqual(calls[1][2], marks[0])
+        self.assertEqual(len(self.typed), 1)
+        seat, line = self.typed[0]
+        self.assertEqual(seat, SEAT)
+        self.assertIn(CHECK, line)
+        self.assertIn(URL, line)
+        with patch.object(watch, "type_at_prompt", flaky):
+            self.follow(state)
+        self.assertEqual(len(self.typed), 1)
+
+    def test_notified_break_is_not_handed_back_again_when_it_ages_out(self):
+        old, new = "a" * 40, "b" * 40
+        old_age = 3 * 3600 + 600
+        self.merged("run-old", old, age=old_age)
+        self.merged("run-new", new, age=600)
+        self.set_checks({new: [completed(CHECK, "failure", URL + "/new")]})
+        self.rows = [self.live(SEAT)]
+        key = watch.after_merge_repo(PR)[3]
+        state = {"after_merge": {key: {"notified": old, "at": NOW - 1000,
+                                       "run": "run-old", "check": CHECK,
+                                       "finished": NOW - old_age}}}
+        self.follow(state)
+        self.assertEqual(self.typed, [])
+        self.assertEqual(state["after_merge"][key]["notified"], old)
+
 
 if __name__ == "__main__":
     unittest.main()
