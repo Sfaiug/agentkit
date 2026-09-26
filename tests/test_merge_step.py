@@ -134,6 +134,9 @@ class MergeStep(unittest.TestCase):
 
         self.stack.enter_context(patch.object(run, "run_done_when", side_effect=checks))
         self.stack.enter_context(patch.object(run, "call_retrying", side_effect=self.review_call))
+        # every failing gate here is the branch's own: the target is green, so the
+        # red-target probe never parks (tests/test_red_target.py covers a red tip)
+        self.stack.enter_context(patch.object(run, "target_fails", return_value=False))
 
     def review_call(self, cfg, name, body, workspace, out, role, session, log, limit=None):
         self.assertEqual(role, "reviewer")
