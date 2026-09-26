@@ -98,10 +98,10 @@ by default. Each landing lap takes its gate turn first, then rebases onto the ta
 that commit, letting the turn go before any fixer or reviewer starts. A clean integration keeps its review if the
 done-when passes again; an empty one ends PASS. A conflict or a failing `# once`
 check gets up to three fixer rounds, never task rounds, then parks `waiting` on the target ref and SHA until the tick sees it move (a check
-names its first failing line); one failing on the target's own tip too parks at once with `<target> itself fails: <line>`, spending no round. A host lands one run per repository and target branch at a time, and that merge turn covers only a fetch, the push, the PR, its required checks and the merge: the
+names its first failing line); one failing on the target's own tip too parks at once with `<target> itself fails: <line>`, spending no round. A host lands one run per repository and target branch at a time, and the first lap's merge turn covers only a fetch, the push, the PR, its required checks and the merge: the
 rebase, the done-when and final check re-runs, and every fixer and re-review they need run before it. A target still on
 the verified commit lands; one moved only by commits touching none of the branch's files is rebased onto and lands on
-the verified checks; any other move releases the turn to verify again, and a third such lap parks `waiting`. A run
+the verified checks; any other move releases the turn to verify again holding it, from before the rebase through the merge, and a third such lap parks `waiting`. A lap holding it shows `holding the merge turn of <repo> <branch> to land`, letting go before any fixer, reviewer or stop. A run
 queued for the turn shows `waiting for the merge turn of <repo> <branch>`, holding no slot and never read as silent; a
 dead holder's turn passes on. A failed integration, conflict or final-check review gets a fixer with the whole review
 (and a failing done-when's output) while rounds are left, and at the budget ends `fail` with its findings, or with why

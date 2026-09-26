@@ -141,10 +141,11 @@ class MergeTurn(unittest.TestCase):
         real_turn = run.merge_turn
 
         @contextmanager
-        def turn(lp, upstream):
-            if self.queuing:
+        def turn(lp, upstream, *args, **kwargs):
+            reserve = kwargs.get("reserve", args[0] if args else False)
+            if self.queuing and not reserve:
                 self.queuing(lp)
-            with real_turn(lp, upstream):
+            with real_turn(lp, upstream, *args, **kwargs):
                 self.events.append(("turn", lp.wt))
                 self.holding.add(lp.wt)
                 try:
@@ -340,7 +341,7 @@ class MergeTurn(unittest.TestCase):
                 run.git(owner, "push", "origin", "main")
         return move
 
-    def test_an_overlapping_move_verifies_again_outside_the_turn(self):
+    def test_an_overlapping_move_verifies_again_holding_the_turn(self):
         remote, owner = make_origin(self.root)
         commit(owner, "shared.txt", "1\n2\n3\n4\n5")
         run.git(owner, "push", "origin", "main")
@@ -349,12 +350,16 @@ class MergeTurn(unittest.TestCase):
         run.git(owner, "push", "origin", "main")
         self.queuing = self.overlapping(owner, "five")   # main edits the branch's file meanwhile
         self.assertTrue(run.merge(lp))
-        self.assertEqual(self.inside, [])
+        self.assertEqual(self.inside, [("recheck", lp.wt)])
         self.assertEqual(self.events, [("recheck", lp.wt), ("turn", lp.wt),
-                                       ("recheck", lp.wt), ("turn", lp.wt), ("checks", lp.wt)])
+                                       ("turn", lp.wt), ("recheck", lp.wt),
+                                       ("turn", lp.wt), ("checks", lp.wt)])
         log = (lp.run_dir / "log.txt").read_text()
-        self.assertIn("touching this branch's files; verifying again outside the merge turn", log)
+        self.assertIn("touching this branch's files; verifying again holding the merge turn", log)
         self.assertNotIn("none touching", log)
+        state = run.read_state(lp.run_dir)
+        self.assertNotIn("merge_turn", state)
+        self.assertNotIn("merge_hold", state)
         run.git(owner, "pull", "--ff-only", "origin", "main")
         self.assertEqual((owner / "shared.txt").read_text(), "one\n2\n3\n4\nfive\n")
 
@@ -367,13 +372,16 @@ class MergeTurn(unittest.TestCase):
         run.git(owner, "push", "origin", "main")
         self.queuing = self.overlapping(owner, "5a", "5b", "5c")
         self.assertFalse(run.merge(lp))
-        self.assertEqual(self.inside, [])
-        self.assertEqual(self.events, [("recheck", lp.wt), ("turn", lp.wt)] * 3)
+        self.assertEqual(self.inside, [("recheck", lp.wt), ("recheck", lp.wt)])
+        self.assertEqual(self.events, [("recheck", lp.wt), ("turn", lp.wt),
+                                       ("turn", lp.wt), ("recheck", lp.wt), ("turn", lp.wt),
+                                       ("turn", lp.wt), ("recheck", lp.wt), ("turn", lp.wt)])
         state = run.read_state(lp.run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["waiting_on"]["ref"], "origin/main")
         self.assertIn("moved three times", state["merge_note"])
         self.assertNotIn("merge_turn", state)
+        self.assertNotIn("merge_hold", state)
 
     def test_one_repository_is_one_turn_however_its_origin_is_spelled(self):
         same = {run.merge_turn_lock(url, "origin/main") for url in (
