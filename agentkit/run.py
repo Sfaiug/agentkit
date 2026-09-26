@@ -7840,6 +7840,8 @@ def gc(report, automatic=False):
                               else nullcontext()):
                             if not stale_worktree(path, time.time(), paths, leftovers()):
                                 continue
+                            if item["kind"] == "unmerged-worktree":
+                                run_repo_cleanup(path, directory)
                             clear_tree(path, report)
                             done = not left_behind(path, report)
                     elif item["kind"] == "harness-entries":
@@ -7934,6 +7936,7 @@ def gc(report, automatic=False):
                                     continue
                                 done = drop_tree(state, path, report)
                             else:
+                                run_repo_cleanup(path, directory)
                                 try:
                                     code, _ = git_out(state["repo"], "worktree", "remove",
                                                       str(path))
@@ -8025,6 +8028,9 @@ def sweep_checkout(state, wt, report):
     registration is left.  The local branch goes with a merged checkout, as everywhere.
     """
     repo = state["repo"]
+    run_id = state.get("run_id")
+    if isinstance(run_id, str) and run_id:
+        run_repo_cleanup(wt, config.RUNS / run_id)
     git_out(repo, "worktree", "remove", "--force", str(wt))
     if retention.present(wt):
         shutil.rmtree(wt)
@@ -9346,6 +9352,7 @@ def cmd_clean(argv):
     if wt == Path(repo):
         print(f"{argv[0]}: ran with --no-worktree; nothing to remove")
         return 0
+    run_repo_cleanup(wt, run_dir)
     code, out = git_out(repo, "worktree", "remove", "--force", str(wt))
     if code != 0 and wt.exists():
         raise config.Error(f"could not remove worktree {wt}: {out}")
@@ -9702,6 +9709,54 @@ def drop_unrecorded_checkout(repo, wt, branch, log):
     stop_checkout({"repo": str(repo), "worktree": str(wt), "branch": branch}, log)
 
 
+CLEANUP_LIMIT = 600
+
+
+def run_repo_cleanup(wt, run_dir):
+    """A repository's declared `cleanup:` line, once, in the checkout before it goes.
+
+    A repository already names its suite (`tests:`) and its switches (`features:`)
+    in its AGENTS.md front matter; `cleanup:` names the shell line that undoes what
+    its tools made outside the checkout -- a database, a cluster -- which no removal
+    of the checkout itself can reach.  Every path that takes a run's checkout calls
+    this first: a merge, `ak run stop`, `ak run clean`, and the collector.
+
+    The line runs once -- `cleanup.log` going up is the mark, claimed atomically, so
+    a removal that is retried never re-runs it -- with a ten-minute limit, its output
+    beside the run's own log.  Whatever it does, the removal goes ahead and the run's
+    record is untouched: a failing, missing or timed-out cleanup leaves one line in
+    the run's log and nothing else.  No declaration, no checkout, or no run directory
+    left to report into, and this is exactly as if it had never been called.
+    """
+    try:
+        cmd = declared(wt, "cleanup")
+        if not cmd or not Path(wt).is_dir():
+            return
+        target = Path(run_dir) / "cleanup.log"
+        try:
+            fh = target.open("x")
+        except FileExistsError:
+            return                      # it ran once already; a retry removes, never re-runs
+        with fh:
+            fh.write(f"$ {cmd}\n")
+            fh.flush()
+            try:
+                proc = subprocess.run(["bash", "-c", cmd], cwd=str(wt), stdout=fh,
+                                      stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                      timeout=CLEANUP_LIMIT)
+            except subprocess.TimeoutExpired:
+                outcome = f"timed out after {CLEANUP_LIMIT // 60} minutes"
+                fh.write(f"[{outcome}]\n")
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                outcome = f"could not run: {exc}"
+                fh.write(f"[{outcome}]\n")
+            else:
+                outcome = f"exited {proc.returncode}"
+        note_in(Path(run_dir) / "log.txt")(f"repo cleanup: {cmd} {outcome} (see cleanup.log)")
+    except Exception:
+        return                          # a cleanup never stops a removal, whatever it meets
+
+
 def stop_checkout(state, log, keep_branch=False):
     """Remove a stopped run's worktree, and its local branch unless kept.
 
@@ -9725,6 +9780,9 @@ def stop_checkout(state, log, keep_branch=False):
     if not pid_gone(state):
         log(f"WARN left worktree {wt}: the run is still going")
         return False
+    run_id = state.get("run_id")
+    if isinstance(run_id, str) and run_id:
+        run_repo_cleanup(wt, config.RUNS / run_id)
     try:
         code, out = git_out(repo, "worktree", "remove", "--force", str(wt))
     except Stopped as exc:

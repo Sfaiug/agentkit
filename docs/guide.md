@@ -282,7 +282,8 @@ was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-
 
 Secrets are in `~/.agentkit/secrets/`: `discord_webhook`, `discord_user_id` and `claude_oauth_token` (the worker token
 `claude setup-token` mints, dated a year from its file). A repository's `AGENTS.md` front matter holds `tests:`, its
-full suite, which a review of others' PRs runs as its check, and `users:` (above); task files go by convention in `~/.agentkit/tasks/<repo>/`.
+full suite, which a review of others' PRs runs as its check, `cleanup:`, one shell line ak runs once in a run's checkout
+before removing it, and `users:` (above); task files go by convention in `~/.agentkit/tasks/<repo>/`.
 
 ## Adding a model or a harness
 
