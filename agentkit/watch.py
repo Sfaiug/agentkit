@@ -326,7 +326,7 @@ def load_state():
         data = {}
     if not isinstance(data, dict):
         data = {}
-    for key in ("reviewed", "own", "stalls", "seen_at"):
+    for key in ("reviewed", "own", "stalls", "seen_at", "after_merge"):
         if not isinstance(data.get(key), dict):
             data[key] = {}
     data["seen_at"] = {name: generation(stamp) for name, stamp in data["seen_at"].items()}
@@ -4556,6 +4556,282 @@ def say(dry_run, log, text, url, session, merged=False):
     return True
 
 
+# --- after a merge: the target's own checks ---------------------------------
+# A merge to a repository's target starts that repository's own checks on the merge
+# commit -- for one project a release gate of 12-25 min that must pass before
+# production deploys.  The tick follows them for three hours, and a failed one goes
+# back to a seat that can fix the target, never to the owner.  One break is said
+# once, for its newest failing commit; a later commit all green ends the break.
+
+AFTER_MERGE_WINDOW = 3 * 3600  # seconds a merge commit's checks are followed
+AFTER_MERGE_PASS = ("success", "neutral", "skipped")  # the conclusions that mean green
+
+
+def after_merge_line(check, target, url):
+    """The one line a target break is handed back with: what failed, where, and to fix it."""
+    return f"{check} failed on {target} after this merge: {url}. Fix the target."
+
+
+def after_merge_repo(pr_url):
+    """(owner, repo, host, key) for that PR URL, or None when it names no repository."""
+    try:
+        pr = urlsplit(pr_url or "")
+    except ValueError:
+        return None
+    match = re.fullmatch(r"/([^/\s]+)/([^/\s]+)/pull/(\d+)/?", pr.path or "")
+    if (not match or pr.scheme != "https" or not pr.hostname or pr.username
+            or pr.query or pr.fragment):
+        return None
+    owner, repo, _ = match.groups()
+    host = pr.netloc
+    return owner, repo, host, f"{host}/{owner}/{repo}".lower()
+
+
+def after_merge_target(run_state):
+    """The branch the run merged into, short: `origin/main` is `main` on the line."""
+    target = run_state.get("target") or run_state.get("base") or "main"
+    if not isinstance(target, str) or not target:
+        return "main"
+    return target.removeprefix("origin/") or "main"
+
+
+def after_merge_sha(pr_url, run_state, log):
+    """The merge commit to follow: the record's own, else the PR's on GitHub, else None.
+
+    A `gh` that cannot say costs this tick for this run, never a notice: the next tick
+    asks again.
+    """
+    for key in ("merge_sha", "merge_commit", "merge_commit_sha"):
+        sha = run_state.get(key)
+        if isinstance(sha, str) and sha.strip():
+            return sha.strip()
+    data, why = gh_json(config.RUNS, "pr", "view", pr_url, "--json", "mergeCommit")
+    oid = None
+    if isinstance(data, dict) and isinstance(data.get("mergeCommit"), dict):
+        oid = data["mergeCommit"].get("oid")
+    if isinstance(oid, str) and oid.strip():
+        return oid.strip()
+    log(f"WARN {pr_url}: cannot read its merge commit: {' '.join((why or '').split())[:160]}")
+    return None
+
+
+def after_merge_status(owner, repo, host, sha, log):
+    """(verdict, name, url) for that merge commit's check runs.
+
+    `failed` carries the first failing check by name; `passed` means every check green;
+    `pending` is still running or not yet registered; `ignored` is only cancelled runs,
+    which GitHub leaves behind when a newer commit superseded them.  `unknown` is a `gh`
+    that could not say, which costs this tick and never a notice.
+    """
+    api = ("api",) if host == "github.com" else ("api", "--hostname", host)
+    data, why = gh_json(config.RUNS, *api, "--paginate",
+                        f"repos/{owner}/{repo}/commits/{sha}/check-runs"
+                        "?filter=latest&per_page=100")
+    try:
+        if not isinstance(data, list):
+            raise ValueError(why or "invalid check-runs response")
+        runs = [check for page in data for check in page["check_runs"]]
+    except (KeyError, TypeError, ValueError) as exc:
+        log(f"WARN {owner}/{repo}@{sha[:12]}: cannot read its checks: {exc}")
+        return "unknown", None, None
+    failed, pending, passed, seen = [], False, False, False
+    for check in runs:
+        if not isinstance(check, dict):
+            continue
+        seen = True
+        if check.get("status") != "completed":
+            pending = True
+            continue
+        if check.get("conclusion") == "cancelled":
+            continue
+        if check.get("conclusion") in AFTER_MERGE_PASS:
+            passed = True
+            continue
+        name = check.get("name") or "A check"
+        url = check.get("html_url") or check.get("details_url") or check.get("url") or ""
+        failed.append((str(name), str(url)))
+    if failed:
+        failed.sort()
+        return "failed", failed[0][0], failed[0][1]
+    if pending or not seen:
+        return "pending", None, None
+    if passed:
+        return "passed", None, None
+    return "ignored", None, None
+
+
+def after_merge_live(seat):
+    """Whether that seat is up to be typed into: what `say` asks before it types."""
+    return bool(seat) and not any(seat.get(key) for key in ("exited", "resumable", "restart"))
+
+
+def after_merge_fallback(repo_key):
+    """The newest live seat whose runs merged into that repository, or None.
+
+    Newest by the seat's own birth, by name where two share it: the seat most likely
+    to still be working the repository the target broke in.
+    """
+    from . import run as run_mod   # here, not at the top: run imports this module
+    try:
+        seats = orch.sessions()
+    except (config.Error, OSError, ValueError, AttributeError):
+        return None
+    live = {}
+    for seat in seats:
+        if not after_merge_live(seat):
+            continue
+        name = seat.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        try:
+            name = config.resolve_session(name)
+        except (config.Error, OSError):
+            pass
+        live[name] = seat
+    if not live:
+        return None
+    try:
+        directories = run_mod.run_dirs()
+    except OSError:
+        return None
+    qualified = set()
+    for run_dir in directories:
+        st = run_mod.read_state(run_dir)
+        if not st or not st.get("merged") or not st.get("pr"):
+            continue
+        try:
+            seat_name = run_mod.launched_session(st)
+        except config.Error:
+            continue
+        if seat_name not in live:
+            continue
+        parsed = after_merge_repo(st.get("pr"))
+        if parsed and parsed[3] == repo_key:
+            qualified.add(seat_name)
+    if not qualified:
+        return None
+
+    def age(name):
+        created = live[name].get("created")
+        return (created if isinstance(created, (int, float)) and not isinstance(created, bool)
+                else 0)
+
+    return live[max(qualified, key=lambda name: (age(name), name))]
+
+
+def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None):
+    """Type that target break into its seat, else the newest live one on the same repo.
+
+    As a finished run is: only at its prompt, so a turn in flight means the next tick
+    tries again.  True when the line was told.
+    """
+    from . import run as run_mod   # here, not at the top: run imports this module
+    try:
+        session = run_mod.launched_session(run_state)
+    except config.Error:
+        session = None
+    if session:
+        try:
+            seat = orch.find(session)
+        except (config.Error, OSError, ValueError, AttributeError):
+            seat = None
+        if after_merge_live(seat):
+            return bool(type_at_prompt(seat, line, log, cfg=cfg))
+    fallback = after_merge_fallback(repo_key)
+    if fallback is None:
+        return False
+    return bool(type_at_prompt(fallback, line, log, cfg=cfg))
+
+
+def after_merge_checks(state, dry_run, log, now=None):
+    """Follow merged runs' target checks, and hand one break per repository back to fix.
+
+    Each merge commit younger than three hours is read the way the loop reads a PR's:
+    its latest check runs from `gh`.  Only the newest commit with a failed check is
+    handed back, and only once -- a `passed` commit newer than the break ends it, and a
+    `gh` that could not say, for the merge commit or for a newer commit's checks, waits
+    a tick rather than saying anything on half an answer.
+    """
+    from . import run as run_mod   # here, not at the top: run imports this module
+    now = time.time() if now is None else now
+    episodes = state.setdefault("after_merge", {})
+    if not isinstance(episodes, dict):
+        episodes = state["after_merge"] = {}
+    try:
+        directories = run_mod.run_dirs()
+    except OSError as exc:
+        log(f"WARN merged runs were not followed this tick: {exc}")
+        return
+    grouped = {}
+    for run_dir in directories:
+        st = run_mod.read_state(run_dir)
+        if not st or not st.get("merged"):
+            continue
+        finished = st.get("finished_at")
+        if (not isinstance(finished, (int, float)) or isinstance(finished, bool)
+                or not 0 <= now - finished <= AFTER_MERGE_WINDOW):
+            continue
+        pr_url = st.get("pr")
+        if not isinstance(pr_url, str) or not pr_url:
+            continue
+        parsed = after_merge_repo(pr_url)
+        if not parsed:
+            continue
+        owner, repo, host, key = parsed
+        sha = after_merge_sha(pr_url, st, log)
+        if not sha:
+            continue
+        grouped.setdefault(key, []).append(
+            (finished, run_dir.name, run_dir, st, owner, repo, host, sha, pr_url))
+    for key, found in grouped.items():
+        found.sort()
+        statuses = []
+        for finished, name, run_dir, st, owner, repo, host, sha, pr_url in found:
+            verdict, check, url = after_merge_status(owner, repo, host, sha, log)
+            statuses.append((finished, name, run_dir, st, sha, pr_url, verdict, check, url))
+        episode = episodes.get(key)
+        notified = episode.get("notified") if isinstance(episode, dict) else episode
+        if not isinstance(notified, str) or not notified:
+            notified = None
+        if notified:
+            shas = [entry[4] for entry in statuses]
+            if notified not in shas:
+                episodes.pop(key, None)
+                notified = None
+            else:
+                at = max(i for i, sha in enumerate(shas) if sha == notified)
+                if any(entry[6] == "passed" for entry in statuses[at + 1:]):
+                    episodes.pop(key, None)
+                    notified = None
+        if notified:
+            continue
+        candidate, at = None, -1
+        for i in range(len(statuses) - 1, -1, -1):
+            if statuses[i][6] == "failed":
+                candidate, at = statuses[i], i
+                break
+        if candidate is None:
+            continue
+        if any(entry[6] == "passed" for entry in statuses[at + 1:]):
+            continue
+        if any(entry[6] == "unknown" for entry in statuses[at + 1:]):
+            log(f"WARN {key}: a newer merge's checks are unreadable; "
+                "the after-merge notice waits a tick")
+            continue
+        _, name, run_dir, st, _sha, pr_url, _, check, url = candidate
+        line = after_merge_line(check or "A check", after_merge_target(st), url or pr_url)
+        if dry_run:
+            log(f"would hand run {name} back for {check} on {after_merge_target(st)}: {line}")
+            continue
+        if after_merge_deliver(run_dir, st, key, line, log):
+            episodes[key] = {"notified": candidate[4], "at": now, "run": name,
+                             "check": check}
+            log(f"handed run {name} back for {check} on {after_merge_target(st)} "
+                "after its merge")
+        else:
+            log(f"run {name}'s after-merge notice waits for a live seat at its prompt")
+
+
 def doctor(argv):
     """`ak doctor`: where the agents run, whether the tick that watches them is alive, and any
     model set to an effort its model does not take.
@@ -4777,7 +5053,7 @@ def main(argv):
         me = user.get("login") if isinstance(user, dict) else None
         if not isinstance(me, str) or not me:
             # No GitHub is no reason to lose a tick: everything above has already run, and only
-            # the two GitHub passes are skipped.  gh's advice runs to several lines; one line
+            # the GitHub passes are skipped.  gh's advice runs to several lines; one line
             # is the whole point here.
             reason = " ".join((why or "gh api user failed").split())[:160]
             if not LOGGED_OUT.search(reason):
@@ -4797,6 +5073,7 @@ def main(argv):
             state.pop("gh_out", None)
         incoming(state, me, dry_run, log)
         outgoing(state, me, dry_run, log)
+        after_merge_checks(state, dry_run, log)
         if not dry_run:
             save_state(state)
         return 0
