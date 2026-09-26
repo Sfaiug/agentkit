@@ -181,6 +181,7 @@ _DELIVERY_HELD = threading.local()   # the delivery locks this thread is already
 _RECOVERY_HELD = threading.local()   # the recovery locks this thread is already inside
 _PICKUP_START = None    # the installed agentkit this process started on, for in-flight pickup
 _PICKUP_HELD = threading.local()   # gate and merge turns this thread holds now
+_GATE_HELD = threading.local()     # the gate turn this thread holds now, if any
 STALL_RESUME_GRACE = 600        # the tick stopped this loop and its resume is on the way; reap
                                 # leaves the record alone until then, and the resume adopts it
 RESUME_VISIBLE = 3600           # ak run status names a mid-turn resume in the age column for this long
@@ -1638,27 +1639,32 @@ def _gate_waiter_before(repo, exclude, is_first, since, is_landing=False):
     return False
 
 
-@contextmanager
-def gate_turn(run_dir, log_path, log):
-    """One of the repository's `max_gates` done-when turns, held for as long as the list runs.
+class _GateHold:
+    """One held gate turn: the open slot files and the one this thread locked.
 
-    The host is disk-bound and a gate writes tens of gigabytes: three gates of one repository
-    each take as long as one alone, five take four times as long, and nothing capped them.  So
-    the gates of one main checkout -- whichever worktree, seat or process -- take turns,
-    `max_gates` at once.  A turn is a flock on one of the repository's slot files, which the
-    kernel lets go of when its holder dies, so a killed gate never blocks the next.  A waiting
-    gate rewrites its own log every poll, so the stall ladder reads the wait as life, and says
-    so on its record for `ak run status`; the ceiling starts once the turn is its own, and a
-    stop lands while it waits as it does mid-list.  A run without a repository, a direct caller
-    with no record, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0` all take no turn.
-    A freed turn goes to the waiter that has waited longest among the highest rank,
-    a landing run before any round check and `--first` before the rest: a gate takes
-    a free turn only when no waiter ranks before it, and a lander's wait counts from
-    the start of its first landing wait.
-    A home config this cannot read -- it is read here, mid-run, so one hand-edit typo would
-    fail the next gate of every running run -- means the shipped default, and a log line
-    naming the problem.
+    The hold owns its files rather than the frame that waited for them: a landing lap
+    holds one turn across its rebase and its checks, and lets it go before a fixer or
+    a reviewer starts, from inside the frame that took it.  Releasing unlocks the slot
+    and closes the files, as leaving the frame would have.
     """
+
+    def __init__(self, files, slot):
+        self.files, self.slot = files, slot
+
+    def release(self):
+        try:
+            if self.slot is not None:
+                fcntl.flock(self.slot, fcntl.LOCK_UN)
+        finally:
+            self.slot = None
+            held = getattr(_PICKUP_HELD, "count", 0)
+            if held:
+                _PICKUP_HELD.count = held - 1
+            self.files.close()
+
+
+def _acquire_gate_turn(run_dir, log_path, log):
+    """Wait for and hold one of the repository's gate turns; None when no turn is taken."""
     record = read_state(run_dir) or {} if run_dir else {}
     repo = record.get("repo")
     is_first = bool(record.get("first"))
@@ -1674,12 +1680,12 @@ def gate_turn(run_dir, log_path, log):
             if log is not None:
                 log(f"done-when: {exc} · the gate takes one of the shipped default's {limit} turns")
     if not limit:
-        yield
-        return
+        return None
     repo = main_checkout(repo)
     config.RUNS.mkdir(parents=True, exist_ok=True)
     name = Path(repo).name
-    with ExitStack() as files:
+    files = ExitStack()
+    try:
         slots = [files.enter_context(gate_lock(repo, i).open("a")) for i in range(limit)]
         slot = take_slot(slots)
         me_since = landing_since if is_landing and landing_since is not None else time.time()
@@ -1713,12 +1719,67 @@ def gate_turn(run_dir, log_path, log):
             if log is not None:
                 log(f"done-when: took a gate turn of {name} after "
                     f"{orch.span(time.monotonic() - began)}")
-        held = getattr(_PICKUP_HELD, "count", 0)
-        _PICKUP_HELD.count = held + 1
-        try:
-            yield
-        finally:
-            _PICKUP_HELD.count = held
+    except BaseException:
+        files.close()
+        raise
+    held = getattr(_PICKUP_HELD, "count", 0)
+    _PICKUP_HELD.count = held + 1
+    return _GateHold(files, slot)
+
+
+@contextmanager
+def gate_turn(run_dir, log_path, log):
+    """One of the repository's `max_gates` done-when turns, held for as long as the list runs.
+
+    The host is disk-bound and a gate writes tens of gigabytes: three gates of one repository
+    each take as long as one alone, five take four times as long, and nothing capped them.  So
+    the gates of one main checkout -- whichever worktree, seat or process -- take turns,
+    `max_gates` at once.  A turn is a flock on one of the repository's slot files, which the
+    kernel lets go of when its holder dies, so a killed gate never blocks the next.  A waiting
+    gate rewrites its own log every poll, so the stall ladder reads the wait as life, and says
+    so on its record for `ak run status`; the ceiling starts once the turn is its own, and a
+    stop lands while it waits as it does mid-list.  A run without a repository, a direct caller
+    with no record, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0` all take no turn.
+    A freed turn goes to the waiter that has waited longest among the highest rank,
+    a landing run before any round check and `--first` before the rest: a gate takes
+    a free turn only when no waiter ranks before it, and a lander's wait counts from
+    the start of its first landing wait.
+    A home config this cannot read -- it is read here, mid-run, so one hand-edit typo would
+    fail the next gate of every running run -- means the shipped default, and a log line
+    naming the problem.
+    A check running while this thread already holds a turn takes no second one: a landing
+    lap holds one turn across its rebase and its checks, and the checks under it wait for
+    none.
+    """
+    if getattr(_GATE_HELD, "hold", None) is not None:
+        yield
+        return
+    hold = _acquire_gate_turn(run_dir, log_path, log)
+    if hold is None:
+        yield
+        return
+    _GATE_HELD.hold = hold
+    try:
+        yield
+    finally:
+        current, _GATE_HELD.hold = _GATE_HELD.hold, None
+        if current is not None:
+            current.release()
+
+
+@contextmanager
+def released_gate_turn():
+    """Let this thread's held gate turn go while slow work runs.
+
+    A rebase conflict, a failing check and a re-review all end in a fixer or a reviewer,
+    and a model turn held through them lands nothing for the runs queued behind.  The lap
+    goes again after the fix, as it does today; whoever needs the turn next takes it fresh,
+    which is also what a check does when no turn is held at all.
+    """
+    hold, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
+    if hold is not None:
+        hold.release()
+    yield
 
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
@@ -3750,12 +3811,16 @@ def integrate(lp, upstream):
     """Fetch origin and bring the branch up to date with it, resolving conflicts if there are any.
 
     A rebase, unless `how_to_integrate` says this branch's history has to survive the trip.
-    The tip is resolved once per lap and every check after it uses that pinned commit, never
+    Under a landing the lap's gate turn is already held, so the fetch and the rebase run on
+    the target's tip as it reads now, and the checks run on exactly that commit.  The tip is
+    resolved once per lap and every check after it uses that pinned commit, never
     the moving branch name again.  When origin moved while the lap landed, the lap goes round
     again, at most three laps; a move still unlanded after the third parks the run `waiting`,
     as a conflict does, and never ends it FAIL.  A re-check that fails on the target's own
     tip too parks on it at once, spending no fixer round.  A branch left with no diff is
     False too, a PASS noted as already on the target, so no caller pushes it.
+    A commit whose checks pass here is marked on the loop, so the final check runs only
+    what has not run on it yet, once.
 
     A fetch, merge or rebase that stops -- out of time, or refused its prompt -- is not a
     conflict and never reaches `resolve_conflicts`: `git_out` raises Stopped, the worktree
@@ -3809,8 +3874,12 @@ def integrate(lp, upstream):
             abort_stopped_integration(lp, how)
             raise
         if rc != 0:
-            if not resolve_conflicts(lp, upstream, out, how, tip):
+            with released_gate_turn():
+                resolved = resolve_conflicts(lp, upstream, out, how, tip)
+            if not resolved:
                 return False
+            # the conflict round re-tested this commit and the review passed on it
+            lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
         else:
             set_base(lp, tip)
             if current_review(lp):
@@ -3831,10 +3900,13 @@ def integrate(lp, upstream):
                     if post_identity is None:
                         if not lp.state.get("review_pending"):
                             pending_review(lp, f"Re-review after the {how} of {upstream}.")
-                        if (resume_review(lp) != "PASS"
-                                and not fix_after_failed_review(lp, upstream, how)):
+                        with released_gate_turn():
+                            passed = (resume_review(lp) == "PASS"
+                                      or fix_after_failed_review(lp, upstream, how))
+                        if not passed:
                             return note(lp, f"done-when or review after the {how} of {upstream} "
                                             "did not pass")
+                        lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
                     else:
                         pending = lp.state.get("review_pending")
                         pending_round = pending["round"] if pending else lp.rnd + 1
@@ -3848,10 +3920,13 @@ def integrate(lp, upstream):
                             if new_identity != post_identity:
                                 if not lp.state.get("review_pending"):
                                     pending_review(lp, f"Re-review after the {how} of {upstream}.")
-                                if (resume_review(lp, verified=(ok, dw_log)) != "PASS"
-                                        and not fix_after_failed_review(lp, upstream, how)):
+                                with released_gate_turn():
+                                    passed = (resume_review(lp, verified=(ok, dw_log)) == "PASS"
+                                              or fix_after_failed_review(lp, upstream, how))
+                                if not passed:
                                     return note(lp, f"done-when or review after the {how} of {upstream} "
                                                     "did not pass")
+                                lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
                             else:
                                 lp.log(f"--- merge: clean {how} of {upstream}; "
                                        "done-when passed again, review kept")
@@ -3863,6 +3938,7 @@ def integrate(lp, upstream):
                                 lp.state.pop("review_pending", None)
                                 lp.save()
                                 lp.rnd = old_rnd
+                                lp.lap_every_sha = new_identity["head_sha"]
                         else:
                             if target_fails(lp, upstream, dw_log):
                                 return park_waiting(
@@ -3870,17 +3946,23 @@ def integrate(lp, upstream):
                                     upstream, tip)
                             if not lp.state.get("review_pending"):
                                 pending_review(lp, f"Re-review after the {how} of {upstream}.")
-                            if (resume_review(lp, verified=(ok, dw_log)) != "PASS"
-                                    and not fix_after_failed_review(lp, upstream, how)):
+                            with released_gate_turn():
+                                passed = (resume_review(lp, verified=(ok, dw_log)) == "PASS"
+                                          or fix_after_failed_review(lp, upstream, how))
+                            if not passed:
                                 return note(lp, f"done-when or review after the {how} of {upstream} "
                                                 "did not pass")
+                            lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
                 else:
                     if not lp.state.get("review_pending"):
                         pending_review(lp, f"Re-review after the {how} of {upstream}.")
-                    if (resume_review(lp) != "PASS"
-                            and not fix_after_failed_review(lp, upstream, how)):
+                    with released_gate_turn():
+                        passed = (resume_review(lp) == "PASS"
+                                  or fix_after_failed_review(lp, upstream, how))
+                    if not passed:
                         return note(lp, f"done-when or review after the {how} of {upstream} "
                                         "did not pass")
+                    lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
         rc, out = git_out(lp.wt, "fetch", "origin", "--prune")
         if rc != 0:
             return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
@@ -4401,7 +4483,10 @@ def final_check(lp, upstream):
 
     True when the commit may be pushed.  A `# once` line runs nowhere else in the
     run, so this is its single execution; without one there is nothing to do and
-    today's evidence reuse stands.  The run is pinned the way `verify_work` pins
+    today's evidence reuse stands.  When the lap's integration already ran the
+    every-commands on this commit and they passed, only the once-commands run here:
+    each command runs once per commit per lap, all under the lap's one gate turn.
+    The run is pinned the way `verify_work` pins
     one: the commit and tree are recorded, and a checkout that changes during the
     check fails it.  The output goes to `<run dir>/final-check.log`.
 
@@ -4422,7 +4507,12 @@ def final_check(lp, upstream):
     fixed = 0       # the fixer rounds this run has spent on these commands here
     while True:
         sha = git(lp.wt, "rev-parse", "HEAD")
-        cmds = [*lp.every, *lp.once]
+        if getattr(lp, "lap_every_sha", None) == sha:
+            # the lap already ran the task checks on this commit and they passed;
+            # running them again would check nothing new
+            cmds = list(lp.once)
+        else:
+            cmds = [*lp.every, *lp.once]
         lp.log(f"--- merge: final check: {len(cmds)} commands "
                f"({len(lp.once)} once) on {sha[:12]}")
         identity = commit_identity(lp.wt)
@@ -4478,40 +4568,45 @@ def final_check(lp, upstream):
                                       "reason": "Re-review after the final check.",
                                       "record": False}
         lp.save()
-        summary = execute(lp, "fixer", fix, "final-fixer")
-        lp.state["review_pending"]["summary"] = summary
-        lp.save()
-        ok, dw_log = verify_work(lp)
-        lp.log(f"done-when after the final check: {'all passed' if ok else 'FAILED'}")
-        # This gate is not the one a fixer was asked to fix, and it has nothing to compare
-        # against: the last per-round gate passed, which is how the run reached the merge at
-        # all.  Recording it would only overwrite the rounds' own history with a merge
-        # pipeline's answer.  What this fixer was asked about is judged where it belongs, by
-        # the once-gate at the top of the next pass -- and the reviewer reads the rest.
-        if (review(lp, summary, ok, dw_log, "Re-review after the final check.",
-                   record=False) != "PASS"
-                and not fix_after_failed_review(lp, upstream, "final check")):
-            # the budget is spent on reviews that failed the work: a review FAIL like the
-            # rounds' own, with its findings -- a wait would only end in the same one
-            return note(lp, "done-when or review after the final check did not pass")
-        if not integrate(lp, upstream):
-            return False
+        with released_gate_turn():
+            summary = execute(lp, "fixer", fix, "final-fixer")
+            lp.state["review_pending"]["summary"] = summary
+            lp.save()
+            ok, dw_log = verify_work(lp)
+            lp.log(f"done-when after the final check: {'all passed' if ok else 'FAILED'}")
+            # This gate is not the one a fixer was asked to fix, and it has nothing to compare
+            # against: the last per-round gate passed, which is how the run reached the merge at
+            # all.  Recording it would only overwrite the rounds' own history with a merge
+            # pipeline's answer.  What this fixer was asked about is judged where it belongs, by
+            # the once-gate at the top of the next pass -- and the reviewer reads the rest.
+            if (review(lp, summary, ok, dw_log, "Re-review after the final check.",
+                       record=False) != "PASS"
+                    and not fix_after_failed_review(lp, upstream, "final check")):
+                # the budget is spent on reviews that failed the work: a review FAIL like the
+                # rounds' own, with its findings -- a wait would only end in the same one
+                return note(lp, "done-when or review after the final check did not pass")
+            if not integrate(lp, upstream):
+                return False
 
 
 def land(lp, upstream, verify, deliver, execv=None):
     """Verify without the merge turn, then hold it only for the minutes landing takes.
 
-    `verify` brings the branch onto a target commit and checks it there: the rebase, the
-    done-when and final check re-runs, and every conflict fixer, final-check fixer and
-    re-review they need.  On a loaded host that is an hour, and with fixer rounds a night,
-    and a turn held through it lands nothing for the runs queued behind.  So the turn covers
-    a fetch and `deliver` -- the push, the PR, its required checks and the merge.  A target
-    still on the commit the branch was verified on lands.  One moved only by commits that
-    touch none of this branch's files is rebased onto under the turn and lands on the
-    verified checks.  Any other move gives the turn to the next run while this one verifies
-    again, and a third such lap parks the run `waiting`, as a target moving under three
-    integrations does.  A branch cut from a dependency's passed branch first waits for that
-    dependency to merge (`wait_for_dependency`).  A pickup mid-landing resumes its lap
+    Each lap first takes one gate turn as a lander, and only then fetches and brings the
+    branch onto the target's tip, so the lap checks exactly that commit and the only window
+    for the target to move is the check itself.  The turn spans the rebase and the checks;
+    a conflict, a failing check or a re-review lets it go before any fixer or reviewer
+    starts, and the lap goes again after the fix.  `verify` is the rebase, the done-when
+    and final check re-runs, and every conflict fixer, final-check fixer and re-review
+    they need.  On a loaded host that is an hour, and with fixer rounds a night, and a
+    merge turn held through it lands nothing for the runs queued behind.  So the merge turn
+    covers a fetch and `deliver` -- the push, the PR, its required checks and the merge.
+    A target still on the commit the branch was verified on lands.  One moved only by
+    commits that touch none of this branch's files is rebased onto under the turn and lands
+    on the verified checks.  Any other move gives the turn to the next run while this one
+    verifies again, and a third such lap parks the run `waiting`, as a target moving under
+    three integrations does.  A branch cut from a dependency's passed branch first waits for
+    that dependency to merge (`wait_for_dependency`).  A pickup mid-landing resumes its lap
     count, so the three laps bound the run across the move.  While the run is inside
     this landing its gate waits rank ahead of every round check's, every lap counting
     from the start of the landing's first wait, so a run ready to land finishes
@@ -4533,8 +4628,16 @@ def land(lp, upstream, verify, deliver, execv=None):
     try:
         for lap in range(first_lap, 4):
             pickup_new_code(lp, execv=execv, extra={"land_lap": lap})
-            if not verify():
-                return False
+            turn_log = Path(lp.run_dir) / "landing-turn.log"
+            with gate_turn(lp.run_dir, turn_log, lp.log):
+                # the wait is over and the checks keep their own logs; the wait's own
+                # line has said all it will ever say
+                try:
+                    turn_log.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                if not verify():
+                    return False
             verified = lp.base_sha
             with merge_turn(lp, upstream):
                 rc, out = git_out(lp.wt, "fetch", "origin", "--prune")

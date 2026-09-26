@@ -151,6 +151,13 @@ class GateLanders(unittest.TestCase):
                     landing_since=2500)
         self.assertTrue(run._gate_waiter_before(repo, "old-lander", False, 1000, True))
         self.assertFalse(run._gate_waiter_before(repo, "lander-first", True, 2500, True))
+        # the ranking fixtures above never leave, and a real landing now takes its own
+        # gate turn first, so the laps below run after their marks are gone
+        for name in ("old-lander", "new-lander", "lander-first"):
+            directory = config.RUNS / name
+            ranked = run.read_state(directory)
+            ranked.pop("gate_turn", None)
+            run.save_state(directory, ranked)
         # across laps in a real landing: each lap waits, and a whole-record save of
         # the loop's own state between two waits keeps the landing's start
         run_dir = self.record("lap-run", ACME)
