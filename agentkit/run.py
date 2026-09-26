@@ -1477,19 +1477,26 @@ def take_slot(slots):
 def mark_gate_wait(run_dir, of):
     """Put `waiting for a gate turn of <repo>` on the record, or take it off (`of` None).
 
-    With this process's pid, as the merge turn's mark is: one a kill left behind says nothing.
+    `of` is the repository's main checkout; the note shows its folder name.  With this
+    process's pid, as the merge turn's mark is, and the wait's start, so a freed turn
+    goes to the waiter that has waited longest.  Returns the start it recorded, or None
+    when it recorded none.
     """
+    since = time.time()
     try:
         with recovery_lock(run_dir):
             state = read_state(run_dir)
             if state and state.get("state") == "running":
                 if of:
-                    state["gate_turn"] = {"pid": os.getpid(), "of": of}
+                    state["gate_turn"] = {"pid": os.getpid(), "of": str(of), "since": since}
                 else:
                     state.pop("gate_turn", None)
+                    since = None
                 save_state(run_dir, state)
+                return since
     except OSError:
         pass            # an unmarked record costs a status line, never the turn
+    return None
 
 
 def gate_turn_note(state):
@@ -1498,17 +1505,36 @@ def gate_turn_note(state):
     if (state.get("state") != "running" or not isinstance(turn, dict)
             or turn.get("pid") != state.get("pid")):
         return ""
-    return f"waiting for a gate turn of {turn.get('of')}"
+    return f"waiting for a gate turn of {Path(str(turn.get('of'))).name}"
 
 
-def _first_gate_waiters(of, exclude):
-    """Whether a `--first` run besides `exclude` waits for a gate turn of `of`."""
+def _gate_waiter_before(repo, exclude, is_first, since):
+    """Whether a live waiter for `repo` ranks before this gate.
+
+    Rank is `--first` before the rest, then the longest wait, then the run id, so a
+    freed turn goes to the waiter that has waited longest among the highest rank.  A
+    mark whose process is gone, or whose pid no longer matches its record -- a kill or
+    a resume left it behind -- holds nobody back, and a waiter counts only when its
+    mark names this main checkout, never a folder name two checkouts share.
+    """
+    me = (not is_first, since, exclude or "")
     for directory in run_dirs():
         if directory.name == exclude:
             continue
         other = read_state(directory) or {}
-        if (other.get("first") and
-                gate_turn_note(other) == f"waiting for a gate turn of {of}"):
+        if other.get("state") != "running":
+            continue
+        turn = other.get("gate_turn")
+        if not isinstance(turn, dict) or turn.get("pid") != other.get("pid"):
+            continue
+        if turn.get("of") != str(repo):
+            continue
+        if not process_active(other):
+            continue
+        waited = turn.get("since")
+        if not isinstance(waited, (int, float)) or isinstance(waited, bool):
+            waited = 0
+        if (not other.get("first"), waited, directory.name) < me:
             return True
     return False
 
@@ -1526,8 +1552,9 @@ def gate_turn(run_dir, log_path, log):
     so on its record for `ak run status`; the ceiling starts once the turn is its own, and a
     stop lands while it waits as it does mid-list.  A run without a repository, a direct caller
     with no record, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0` all take no turn.
-    A `--first` run takes the next free turn ahead of gates already waiting: a gate
-    without it lets a free slot go while one waits.
+    A freed turn goes to the waiter that has waited longest among the highest rank,
+    `--first` before the rest: a gate takes a free turn only when no waiter ranks
+    before it.
     A home config this cannot read -- it is read here, mid-run, so one hand-edit typo would
     fail the next gate of every running run -- means the shipped default, and a log line
     naming the problem.
@@ -1553,15 +1580,16 @@ def gate_turn(run_dir, log_path, log):
     with ExitStack() as files:
         slots = [files.enter_context(gate_lock(repo, i).open("a")) for i in range(limit)]
         slot = take_slot(slots)
-        if slot is None or (not is_first and slot is not None
-                            and _first_gate_waiters(name, self_id)):
+        if slot is None or _gate_waiter_before(repo, self_id, is_first, time.time()):
             if slot is not None:
                 fcntl.flock(slot, fcntl.LOCK_UN)
             began = time.monotonic()
             said = f"waiting for a gate turn · {limit} of {name} running"
             if log is not None:
                 log(f"done-when: {said}")
-            mark_gate_wait(run_dir, name)
+            waited_since = mark_gate_wait(run_dir, repo)
+            if waited_since is None:
+                waited_since = time.time()
             step = history.close_step(run_dir.name)     # the wait is no step's work
             try:
                 while True:
@@ -1571,7 +1599,7 @@ def gate_turn(run_dir, log_path, log):
                     slot = take_slot(slots)
                     if slot is None:
                         continue
-                    if not is_first and _first_gate_waiters(name, self_id):
+                    if _gate_waiter_before(repo, self_id, is_first, waited_since):
                         fcntl.flock(slot, fcntl.LOCK_UN)
                         continue
                     break
