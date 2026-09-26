@@ -2546,42 +2546,48 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if dry_run:
         log(f"would reopen {name} on a {provider} account with room, or wait for its reset")
         return True
-    if refusal and not waiting:
-        usage.mark_exhausted(cfg, provider, until=run.try_again_at(strip_sgr(pane)),
-                             account=current if accounts else None)
-        prov = usage.collect(cfg).get(provider) or {}
-        meters = (prov.get("accounts") or {}) if accounts else {current: prov}
-    target, room = (usage.account(cfg, provider) if accounts else
-                    (config.DEFAULT_ACCOUNT, not prov.get("exhausted")))
-    if room:
-        try:
-            orch.resume(cfg, name, log=log, hand_over=False, account=target)
-        except (config.Error, OSError) as exc:
-            log(f"WARN could not reopen {name} on {provider} account {target}: {exc}")
-            seat_write(name, usage_wait={"reason": f"{provider} account reopen failed: {exc}",
-                                        "since": waiting["since"] if waiting else time.time()})
+    with state_lock():
+        # Meter I/O may outlive a stop, rename or another launch. The same lock makes
+        # reopening and the owner's stop agree on which seat still exists.
+        if (seat_closed_by_owner(name) or config.session_records().get(name) != record
+                or not orch.find(name)):
             return True
-        seat_write(name, usage_wait=None,
-                   midturn={"boot": boot_id(), "at": time.time(), "name": name,
-                            "line": ACCOUNT_LINE})
+        if refusal and not waiting:
+            usage.mark_exhausted(cfg, provider, until=run.try_again_at(strip_sgr(pane)),
+                                 account=current if accounts else None)
+            prov = usage.collect(cfg).get(provider) or {}
+            meters = (prov.get("accounts") or {}) if accounts else {current: prov}
+        target, room = (usage.account(cfg, provider) if accounts else
+                        (config.DEFAULT_ACCOUNT, not prov.get("exhausted")))
+        if room:
+            try:
+                orch.resume(cfg, name, log=log, hand_over=False, account=target)
+            except (config.Error, OSError) as exc:
+                log(f"WARN could not reopen {name} on {provider} account {target}: {exc}")
+                seat_write(name, usage_wait={"reason": f"{provider} account reopen failed: {exc}",
+                                            "since": waiting["since"] if waiting else time.time()})
+                return True
+            seat_write(name, usage_wait=None,
+                       midturn={"boot": boot_id(), "at": time.time(), "name": name,
+                                "line": ACCOUNT_LINE})
+            return True
+        # Each account needs all its spent windows back; the first account to return wins.
+        now = time.time()
+        resets = []
+        for account in accounts or [current]:
+            reading = meters.get(account, {})
+            ends = [m.get("resets_at") for m in reading.get("meters") or [] if m.get("exhausted")]
+            ends.append(reading.get("exhausted_until"))
+            ends = [end for end in ends if isinstance(end, (int, float)) and end > now]
+            if ends:
+                resets.append(max(ends))
+        until = min(resets) if resets else now + usage.DRY_FOR
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until))
+        reason = f"{provider} out of usage until {when}"
+        if not waiting:
+            log(f"{name}: {reason}")
+        seat_write(name, usage_wait={"reason": reason, "since": waiting["since"] if waiting else now})
         return True
-    # Each account needs all its spent windows back; the first account to return wins.
-    now = time.time()
-    resets = []
-    for account in accounts or [current]:
-        reading = meters.get(account, {})
-        ends = [m.get("resets_at") for m in reading.get("meters") or [] if m.get("exhausted")]
-        ends.append(reading.get("exhausted_until"))
-        ends = [end for end in ends if isinstance(end, (int, float)) and end > now]
-        if ends:
-            resets.append(max(ends))
-    until = min(resets) if resets else now + usage.DRY_FOR
-    when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until))
-    reason = f"{provider} out of usage until {when}"
-    if not waiting:
-        log(f"{name}: {reason}")
-    seat_write(name, usage_wait={"reason": reason, "since": waiting["since"] if waiting else now})
-    return True
 
 
 def health(cfg, state, dry_run, log):

@@ -222,6 +222,17 @@ class SeatAccount(unittest.TestCase):
         self.tick()
         self.assertEqual(self.commands, [])
 
+    def test_owner_stopping_during_meter_io_wins_over_automatic_reopen(self):
+        collect = usage.collect
+        def stopped(cfg):
+            readings = collect(cfg)
+            orch.mark_owner_closed(NAME)
+            return readings
+        with patch.object(usage, "collect", side_effect=stopped):
+            self.tick()
+        self.assertEqual(self.commands, [])
+        self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
+
     def test_codex_refusal_waits_for_its_deadline_and_resumes_the_owned_thread(self):
         config.save_session(self.cfg, NAME, "astra", ["opus"], {"cwd": str(self.root)})
         transcript = self.root / "rollout.jsonl"
