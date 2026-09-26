@@ -94,9 +94,9 @@ them all. A FAIL starts a fix round with the findings. Three rounds is the budge
 
 On PASS the run brings the branch up to date with `origin/<target>` (a rebase, or a merge where `merge: merge` is asked
 or the branch already carries merge commits), pushes, opens the PR, waits out the required checks and merges it, squash
-by default. A clean integration keeps its review if the done-when passes again; an empty one ends PASS. A conflict or a
-failing `# once` check gets up to three fixer rounds, never task rounds, then parks `waiting` on the target ref and SHA
-until the tick sees it move (a check names its first failing line). A host lands one run per repository and target branch at a time, and that merge turn covers only a fetch, the push, the PR, its required checks and the merge: the
+by default. A clean integration keeps its review if the done-when passes again; an empty one ends PASS. A conflict or a failing `# once`
+check gets up to three fixer rounds, never task rounds, then parks `waiting` on the target ref and SHA until the tick sees it move (a check
+names its first failing line); one failing on the target's own tip too parks at once with `<target> itself fails: <line>`, spending no round. A host lands one run per repository and target branch at a time, and that merge turn covers only a fetch, the push, the PR, its required checks and the merge: the
 rebase, the done-when and final check re-runs, and every fixer and re-review they need run before it. A target still on
 the verified commit lands; one moved only by commits touching none of the branch's files is rebased onto and lands on
 the verified checks; any other move releases the turn to verify again, and a third such lap parks `waiting`. A run
