@@ -184,6 +184,46 @@ class RedTarget(unittest.TestCase):
         self.assertNotEqual(fixed, head)
         self.assert_on_branch_head_and_clean(wt, fixed)
 
+    def test_probe_droppings_colliding_with_the_branch_still_restore_it(self):
+        # the probe regenerates `gen`, which the branch tracks and the tip does not: the
+        # droppings are dropped before the checkout back, so they cannot block it and
+        # the worktree is back on the branch head, clean, with the branch file intact
+        _, _, wt = make_repos(self.root)
+        (wt / "gen").write_text("branch generated\n")
+        run.git(wt, "add", ".")
+        run.git(wt, "commit", "-m", "branch generated file")
+        lp, run_dir, _ = make_loop(self.root, wt, ["true", "touch gen && false  # once"])
+        head = run.git(wt, "rev-parse", "HEAD")
+        self.assertFalse(run.final_check(lp, "origin/main"))
+        self.assertEqual(self.turns, [])
+        state = run.read_state(run_dir)
+        self.assertEqual(state["state"], "waiting")
+        self.assertEqual(state["merge_note"],
+                         "origin/main itself fails: `touch gen && false`")
+        self.assert_on_branch_head_and_clean(wt, head)
+        self.assertEqual((wt / "gen").read_text(), "branch generated\n")
+
+    def test_stopped_restore_step_still_puts_the_branch_back(self):
+        # a git killed mid-restore raises Stopped even with `check=False`: the other
+        # half still runs, the stop still ends the probe, and the branch is back
+        _, _, wt = make_repos(self.root)
+        lp, run_dir, _ = make_loop(self.root, wt, ["true", "false  # once"])
+        head = run.git(wt, "rev-parse", "HEAD")
+        real_git = run.git
+        calls = []
+
+        def stopping_git(repo, *args, **kwargs):
+            calls.append(args)
+            if args[:1] == ("reset",):
+                raise run.Stopped("fixture stop")
+            return real_git(repo, *args, **kwargs)
+
+        with patch.object(run, "git", side_effect=stopping_git):
+            with self.assertRaises(run.Stopped):
+                run.target_fails(lp, "origin/main", "$ false\n[exit 1]\n")
+        self.assertIn(("checkout", "--quiet", "ak/fix-api"), calls)
+        self.assert_on_branch_head_and_clean(wt, head)
+
     def test_integration_recheck_failing_on_the_target_parks_without_a_fixer(self):
         # the target moved under a poison the branch took in on a clean rebase: the
         # re-check fails on the target's own tip too, so no review and no fixer run

@@ -4346,7 +4346,12 @@ def target_fails(lp, upstream, dw_log):
     before = set(dirty_paths(lp.wt))
     detached = False
     try:
-        if git_out(lp.wt, "checkout", "--quiet", "--detach", tip)[0] != 0:
+        try:
+            rc, _ = git_out(lp.wt, "checkout", "--quiet", "--detach", tip)
+        except Stopped:
+            detached = True     # may have switched mid-apply; put it back below
+            raise
+        if rc != 0:
             return False
         detached = True
         lp.log(f"--- merge: `{cmd}` failed; probing it once on {upstream} ({tip[:12]})")
@@ -4364,15 +4369,31 @@ def target_fails(lp, upstream, dw_log):
     finally:
         if detached:
             # the tree was clean when it was put aside, so every tracked edit and every
-            # new untracked path is the probe's own droppings: drop them, and put the
-            # branch back on its head
-            git(lp.wt, "reset", "--quiet", "--hard", "HEAD", check=False)
-            git(lp.wt, "checkout", "--quiet", branch or head, check=False)
-            if git(lp.wt, "rev-parse", "HEAD", check=False) != head:
-                git(lp.wt, "checkout", "--quiet", head, check=False)
-            new = sorted(set(dirty_paths(lp.wt)) - before)
-            if new:
-                git(lp.wt, "clean", "--quiet", "-fd", "--", *new, check=False)
+            # new untracked path is the probe's own droppings: drop them first, so none
+            # of them can block the checkout back, and put the branch back on its head.
+            # Each half runs even when the other stopped -- a stop still ends the run,
+            # but only after the worktree is put back as far as git still goes -- and a
+            # worktree that is still not back is said so, never claimed clean.
+            stopped = None
+            try:
+                git(lp.wt, "reset", "--quiet", "--hard", "HEAD", check=False)
+                new = sorted(set(dirty_paths(lp.wt)) - before)
+                if new:
+                    git(lp.wt, "clean", "--quiet", "-fd", "--", *new, check=False)
+            except Stopped as exc:
+                stopped = exc
+            try:
+                git(lp.wt, "checkout", "--quiet", branch or head, check=False)
+                if git(lp.wt, "rev-parse", "HEAD", check=False) != head:
+                    git(lp.wt, "checkout", "--quiet", head, check=False)
+                if (git(lp.wt, "rev-parse", "HEAD", check=False) != head
+                        or git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
+                    lp.log(f"WARN the probe of `{cmd}` on {upstream} left the worktree off "
+                           f"{head[:12]} or dirty; the retry starts from whatever it left behind")
+            except Stopped as exc:
+                stopped = stopped or exc
+            if stopped is not None:
+                raise stopped
 
 
 def final_check(lp, upstream):
