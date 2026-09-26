@@ -125,7 +125,7 @@ def probe_refused(error):
     return None
 
 
-def _probe(cfg, provider, now):
+def _probe(cfg, provider, now, account=None):
     try:
         harness, via = config.provider_harness(cfg, provider)
         adapter = config.adapter(harness)
@@ -134,12 +134,16 @@ def _probe(cfg, provider, now):
                 "pace": None, "resets": None, "exhausted": False, "probed_at": now}
     facts = harness_plugin(harness).usage
     said = None      # the adapter's own words for a call that ran; see the `auth` question below
+    argv = [str(adapter), "usage"]
+    if account is not None:
+        # one account's meters: named to the adapter, whatever a turn this runs under was named
+        argv = ["env", *(f"{k}={v}" for k, v in config.account_env(account).items()), *argv]
     try:
         if facts["capture"]:
             # a usage call that runs a model shares the caller's deadline, descendants included
-            proc = usage_probe.capture([str(adapter), "usage"])
+            proc = usage_probe.capture(argv)
         else:
-            proc = subprocess.run([str(adapter), "usage"], capture_output=True, timeout=30,
+            proc = subprocess.run(argv, capture_output=True, timeout=30,
                                   encoding="utf-8", errors="replace")
         data = json.loads(proc.stdout)
         if not isinstance(data, dict):
@@ -197,12 +201,14 @@ def _probe(cfg, provider, now):
         # ever puts `no login` on a row.  Only the adapter's own words are asked about: an
         # adapter that crashed, timed out or printed nothing usable was never reached at all, and
         # a probe the endpoint refused was asked with credentials it never complained about.
-        out["logged_in"] = worker.auth_ok(harness)[0]
+        out["logged_in"] = (worker.auth_ok(harness) if account is None
+                            else worker.auth_ok(harness, account=account))[0]
     return out
 
 
-def _cached_provider(provider):
-    """What the snapshot holds for this provider right now, or {} when it holds nothing.
+def _cached_provider(provider, account=None):
+    """What the snapshot holds for this provider -- or that account of it -- right now, or {}
+    when it holds nothing.
 
     Read off the file rather than from a caller's copy, because the whole point is to see what
     another process wrote while this one was waiting for its lock.
@@ -210,20 +216,29 @@ def _cached_provider(provider):
     try:
         blob = json.loads((config.STATE / "usage.json").read_text(encoding="utf-8"))
         prov = blob["providers"][provider]
+        if account is not None:
+            prov = prov["accounts"][account]
     except (OSError, ValueError, TypeError, KeyError):
         return {}
     return prov if isinstance(prov, dict) else {}
 
 
-def _cooling(provider):
+def _lock(provider, account=None):
+    """The file one provider's probe -- or one account's of it -- is taken under, and dated by."""
+    return config.STATE / (f"{provider}-probe.lock" if account is None
+                           else f"{provider}.{account}-probe.lock")
+
+
+def _cooling(provider, account=None):
     """Whether this provider's adapter was asked at all -- answered or not -- inside PROBE_EVERY.
 
     The moment is the one its lock file holds, written under that lock as the request goes out:
     not the snapshot's `probed_at`, which a caller that began its collection earlier can write
-    back over a newer one, and which goes with the snapshot when that is deleted.
+    back over a newer one, and which goes with the snapshot when that is deleted.  Each account
+    of a provider is asked on its own minute: they are different logins.
     """
     try:
-        asked = _number(float((config.STATE / f"{provider}-probe.lock").read_text()))
+        asked = _number(float(_lock(provider, account).read_text()))
     except (OSError, ValueError):
         return False
     return asked is not None and 0 <= time.time() - asked < PROBE_EVERY
@@ -253,7 +268,7 @@ def _kept(cached, fresh, now):
             "stale_since": now if since is None else since}
 
 
-def _probe_gently(cfg, provider):
+def _probe_gently(cfg, provider, account=None):
     """`_probe`, but at most once per PROBE_EVERY per provider across this whole host.
 
     Whoever asks -- the tick, an open menu, `ak usage`, a pick, a refused worker, a spent
@@ -270,28 +285,41 @@ def _probe_gently(cfg, provider):
     The answer goes into the cache the moment it exists rather than when the caller has finished
     reading the other providers, because that is what the caller waiting on this lock comes back
     to read: an answer nobody can see yet is an answer nobody can be spared a request by.
+
+    A provider that lists `accounts` is each of them read that way, every one with its own
+    mark, under the provider: the provider's own fields are then the account a worker turn
+    runs on next (`_gate_flags`).
     """
-    lock = config.STATE / f"{provider}-probe.lock"
+    names = config.accounts(cfg, provider) if account is None else []
+    if names:
+        now = time.time()
+        old = _cached_provider(provider).get("accounts")
+        old = old if isinstance(old, dict) else {}
+        read = {name: _carry_mark(old.get(name), _without_past(
+                    _probe_gently(cfg, provider, name), now, "the adapter"), now)
+                for name in names}
+        return _gate_flags({provider: {"provider": provider, "accounts": read}}, now, cfg)[provider]
+    lock = _lock(provider, account)
     try:
         config.ensure_dirs()
         handle = lock.open("a")          # never "w": the file keeps when it was last asked
     except OSError:
         now = time.time()                # no lock to take: still one probe
-        return _kept(_cached_provider(provider), _probe(cfg, provider, now), now)
+        return _kept(_cached_provider(provider, account), _probe(cfg, provider, now, account), now)
     with handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         # Whoever we waited for has written their answer by now, and it is this one.
-        cached = _cached_provider(provider)
-        if _cooling(provider):
+        cached = _cached_provider(provider, account)
+        if _cooling(provider, account):
             return cached
         now = time.time()
         lock.write_text(repr(now))
-        prov = _kept(cached, _probe(cfg, provider, now), now)
+        prov = _kept(cached, _probe(cfg, provider, now, account), now)
         # The mark travels with the record that replaces it, exactly as it does on the way out of
         # `collect`: a provider parked until it says it has capacity must not read as eligible in
         # the moment between this write and that one.  The caller still gets the bare reading, so
         # what the reset policy and a refusal's own re-read do with the mark is unchanged.
-        _patch(provider, _carry_mark(cached, prov, now), now)
+        _patch(provider, _carry_mark(cached, prov, now), now, account)
         return prov
 
 
@@ -457,6 +485,20 @@ def _gate_flags(providers, now, cfg):
     and headroom and budget are re-derived here with it.
     """
     for name, prov in providers.items():
+        listed = config.accounts(cfg, name)
+        accounts = prov.get("accounts") if listed else None
+        if isinstance(accounts, dict):
+            # Several subscriptions: each is flagged on its own, and the provider is the one a
+            # worker turn runs on next -- room before a spent one, then the most budget, then
+            # the order the config lists them in -- so it is spent only when all of them are.
+            accounts = _gate_flags({account: accounts[account] for account in listed
+                                    if isinstance(accounts.get(account), dict)}, now, cfg)
+            if accounts:
+                best = min(accounts, key=lambda a: (accounts[a]["exhausted"],
+                                                    accounts[a]["budget_reason"] is not None,
+                                                    -accounts[a]["budget"]))
+                prov.clear()
+                prov.update(accounts[best], accounts=accounts, account=best)
         # A quota the harness recorded when it refused a run is the reading at once: it is a
         # file and no request, so neither the snapshot's five minutes nor the probe's minute
         # stands between it and a pick.  It is normalized as a probed meter is, because every
@@ -519,8 +561,9 @@ def _store(cache, fetched_at, providers, reset_checked_at=None):
         tmp.unlink(missing_ok=True)
 
 
-def _patch(provider, prov, now):
-    """Put one freshly read provider into the cache, leaving the others and their age alone.
+def _patch(provider, prov, now, account=None):
+    """Put one freshly read provider -- or account of one -- into the cache, leaving the others
+    and their age alone.
 
     fetched_at stays put for exactly the reason `collect` keeps it when it re-reads one
     provider: reading one must not stamp the others, which were not read, as newly measured.
@@ -533,6 +576,10 @@ def _patch(provider, prov, now):
         providers = dict(blob["providers"])
     except (OSError, ValueError, TypeError, KeyError):
         blob, providers = {}, {}
+    if account is not None:
+        old = providers.get(provider) if isinstance(providers.get(provider), dict) else {}
+        accounts = old.get("accounts") if isinstance(old.get("accounts"), dict) else {}
+        prov = {**old, "accounts": {**accounts, account: prov}}
     providers[provider] = prov
     fetched, checked = _number(blob.get("fetched_at")), _number(blob.get("reset_checked_at"))
     try:
@@ -593,8 +640,10 @@ def collect(cfg, *, refresh=False):
                 # fresh its cached reading
                 providers = {name: prov for name, prov in blob["providers"].items()
                              if name in cfg["providers"]}
+                # ... and so is one read before the config listed the accounts it lists now
                 rolled = [name for name, prov in providers.items()
-                          if any(_past(m, now) for m in prov.get("meters") or [])]
+                          if any(_past(m, now) for m in prov.get("meters") or [])
+                          or list(prov.get("accounts") or []) != config.accounts(cfg, name)]
                 for name in rolled:
                     providers[name] = _reread(cfg, name, providers[name], now)
                 missing = [name for name, prov in providers.items()
@@ -711,8 +760,9 @@ def _next_window(prov, now):
     return min([end for end in ends if end is not None and end > now], default=None)
 
 
-def mark_exhausted(cfg, provider, until=None):
-    """Park a provider that has just refused a worker, until it says it has capacity again.
+def mark_exhausted(cfg, provider, until=None, account=None):
+    """Park a provider -- or that account of it -- that has just refused a worker, until it
+    says it has capacity again.
 
     `until` is the harness's own "try again at", when its refusal named one; otherwise the
     soonest of the provider's own windows still to roll over, which is its other way of saying
@@ -722,17 +772,35 @@ def mark_exhausted(cfg, provider, until=None):
 
     The mark lives in the usage cache beside the meters, so `pick_order` excludes this
     provider for every later pick in every run, and it is dropped the moment the deadline has
-    passed.  Returns the deadline recorded.
+    passed.  An account's mark is its own: the provider stays eligible on its other accounts.
+    Returns the deadline recorded.
     """
     now = time.time()
     try:
         prov = collect(cfg).get(provider) or {}
     except config.Error:
         prov = {}
+    if account is not None:
+        prov = (prov.get("accounts") or {}).get(account) or {}
     if _number(until) is None or until <= now:
         until = _next_window(prov, now) or now + DRY_FOR
-    _patch(provider, {**prov, "exhausted_until": float(until)}, now)
+    _patch(provider, {**prov, "exhausted_until": float(until)}, now, account)
     return float(until)
+
+
+def account(cfg, provider):
+    """(the account a worker turn on this provider runs on, whether it has room left).
+
+    The one `_gate_flags` put first: with room before a spent one, then the most budget, then
+    the order the config lists them in.  (None, None) for a provider that lists no accounts,
+    which is asked nothing: it is one login, exactly as it always was.
+    """
+    names = config.accounts(cfg, provider)
+    if not names:
+        return None, None
+    prov = collect(cfg).get(provider) or {}
+    return (prov["account"] if prov.get("account") in names else names[0],
+            not prov.get("exhausted"))
 
 
 def _split_week(cfg, provider, prov):
@@ -1194,22 +1262,33 @@ def outlook(prov):
     return "on track" if hours >= window_left else f"runs out in ~{max(1, round(hours / 24))}d"
 
 
+def _accounts(providers):
+    """(label, provider, record) per provider, and per account of one that lists several."""
+    for name, prov in providers.items():
+        accounts = prov.get("accounts")
+        if isinstance(accounts, dict) and accounts:
+            yield from ((f"{name}:{account}", name, record) for account, record in accounts.items())
+        else:
+            yield name, name, prov
+
+
 def rows(cfg, providers):
     """One row per provider, in plain words: what is left of its week and session, and how long.
 
     `left` is the tightest weekly meter, because that is what the picker ranks on;
     `resets` is the shared week's, because that is the week the menu row names and the two
     must say the same thing.  On a split allowance they can be different meters, which is why
-    the two lines under the table print both.
+    the two lines under the table print both.  A provider with several accounts is a row per
+    account, `anthropic:second`, each on its own meters.
     """
     now = time.time()
     out = []
-    for name, prov in providers.items():
+    for label, name, prov in _accounts(providers):
         week = _weekly(prov)
         session = _worst([m for m in prov.get("meters") or []
                           if m.get("window_secs") == SESSION_SECS])
         models = ", ".join(n for n, e in cfg["models"].items() if e.get("provider") == name)
-        out.append((name, models or "-", _pct(_left(week["used"] if week else None)),
+        out.append((label, models or "-", _pct(_left(week["used"] if week else None)),
                     reset_when(shared_week(cfg, name, prov, now), now) or "-",
                     _pct(week["elapsed"] if week else None),
                     _pct(_left(session["used"] if session else None)),
@@ -1241,7 +1320,10 @@ def render(cfg, providers, order, *, repo=None):
         table[0] = ("provider", "model(s)", "left", "resets", "elapsed", "session",
                     "held", "room", "budget", "outlook")
         widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
-        for i, cap in ((1, 14), (0, 12), (9, 18)):   # model(s), provider, outlook
+        # an account's row keeps its whole name: `anthropic:s…` would not say which one it is
+        named = max((terminal.cells(label) for label, name, _ in _accounts(providers)
+                     if label != name), default=0)
+        for i, cap in ((1, 14), (0, max(12, named)), (9, 18)):   # model(s), provider, outlook
             widths[i] = min(widths[i], cap)
     if sum(widths) + len(widths) - 1 <= width:
         lines = [" ".join(terminal.pad(cell, w) for cell, w in zip(row, widths)).rstrip()
@@ -1299,10 +1381,11 @@ def render(cfg, providers, order, *, repo=None):
         lines.append(f"{name}: {count:g} reset{'' if one else 's'} in hand counted as "
                      f"{'one full week' if one else f'{count:g} full weeks'} ({detail})")
     # the numbers say the provider is unknown; only the adapter can say why
-    lines += [f"note: {name} {prov['error']}" for name, prov in providers.items() if prov.get("error")]
+    lines += [f"note: {name} {prov['error']}" for name, _, prov in _accounts(providers)
+              if prov.get("error")]
     # ... and a probe the endpoint would not answer says so in the menu's own two words, and
     # what the endpoint said; the reading it could not replace stands in the row as it was
-    for name, prov in providers.items():
+    for name, _, prov in _accounts(providers):
         note = probe_refused(prov.get("probe_error"))
         if note is None:
             continue

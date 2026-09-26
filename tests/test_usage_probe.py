@@ -153,8 +153,8 @@ class GentleProbe(unittest.TestCase):
         # minute after NOW, alpha is due again and beta has 25 seconds to go.
         real = usage._probe
 
-        def slow(cfg, provider, now):
-            out = real(cfg, provider, now)
+        def slow(cfg, provider, now, account=None):
+            out = real(cfg, provider, now, account)
             self.now[0] += 25 if provider == "alpha" else 0
             return out
 

@@ -874,7 +874,7 @@ class QuotaDry(unittest.TestCase):
     def test_v5i_a_parked_provider_stays_out_across_probes_until_its_own_deadline(self):
         until = self.now + 3 * 3600
 
-        def probe(cfg, provider, now):
+        def probe(cfg, provider, now, account=None):
             return {"provider": provider, "error": None, "resets": 0.0, "pace": None,
                     "harness": config.provider_harness(cfg, provider)[0],
                     "exhausted": False, "meters": [self.meter(40)]}
@@ -1014,7 +1014,7 @@ class QuotaDry(unittest.TestCase):
         """The 5h window is a gate of its own: a spent one is not a spent week."""
         session, week = self.now + 100, self.now + 302400
 
-        def probe(cfg, provider, now):
+        def probe(cfg, provider, now, account=None):
             return {"provider": provider, "error": None, "resets": 0.0, "pace": None,
                     "harness": config.provider_harness(cfg, provider)[0], "exhausted": False,
                     "meters": [{**self.meter(100, usage.SESSION_SECS), "resets_at": session},
@@ -1033,7 +1033,7 @@ class QuotaDry(unittest.TestCase):
         """A fresh week is exactly the capacity the mark says is missing."""
         used, resets = [95], [0.0]
 
-        def probe(cfg, provider, now):
+        def probe(cfg, provider, now, account=None):
             return {"provider": provider, "error": None, "pace": None, "exhausted": False,
                     "resets": resets[0] if provider == "openai" else 0.0,
                     "harness": config.provider_harness(cfg, provider)[0],
@@ -1077,7 +1077,7 @@ class QuotaDry(unittest.TestCase):
 
         probed = []
 
-        def probe(cfg, provider, now):
+        def probe(cfg, provider, now, account=None):
             probed.append(provider)
             used = 5 if len(probed) > 1 else 12
             return {"provider": provider, "harness": "codex", "error": None, "resets": 1.0,

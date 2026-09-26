@@ -12,6 +12,8 @@
 #                       hooks        -> wire this harness's lifecycle hooks, idempotently
 #                       models       -> one `id<TAB>label<TAB>efforts` line per model it runs,
 #                                    from the [catalog] table of adapters/claude.toml
+#                       $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then
+#                       uses that subscription's own login, and no other
 set -uo pipefail
 command -v claude >/dev/null || PATH="$HOME/.local/bin${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
 TMPD="$HOME/.agentkit/tmp"
@@ -20,6 +22,19 @@ CREDS="$HOME/.claude/.credentials.json"
 # one never reads or refreshes the seat's own OAuth pair, so a refresh race between the seat and
 # a dozen workers cannot log everybody out at one in the morning.
 TOKEN="$HOME/.agentkit/secrets/claude_oauth_token"
+# An account other than the usual login keeps its worker token beside that one, under its own
+# name, and its interactive login in a config directory of its own, where `CLAUDE_CONFIG_DIR=
+# ~/.claude-<name> claude` puts it.  Nothing of the usual login -- its files, its Keychain entry,
+# a token exported for it -- ever answers for an account: that would spend the wrong
+# subscription, or read its meters as this one's.
+ACCOUNT=${AGENTKIT_ACCOUNT:-}
+if [ -n "$ACCOUNT" ]; then
+  TOKEN="$TOKEN.$ACCOUNT"
+  export CLAUDE_CONFIG_DIR="$HOME/.claude-$ACCOUNT"
+  CREDS="$CLAUDE_CONFIG_DIR/.credentials.json"
+  unset CLAUDE_CODE_OAUTH_TOKEN
+  security() { return 1; }   # the Keychain's `Claude Code-credentials` is the usual login's
+fi
 cmd=${1:-}; shift 2>/dev/null || true
 
 # jq is the tool most likely to be missing, so build the error object with printf
@@ -32,6 +47,13 @@ run)
   model=$1 effort=$2 ws=$3 pf=$4 out=$5 sid=${6:-}
   mkdir -p -- "$out" || exit 2
   cd -- "$ws" || { echo "claude.sh: no such workspace: $ws" >&2; exit 2; }
+  if [ -n "$ACCOUNT" ]; then
+    # Claude Code keeps conversations under its config directory's projects/: an account's is
+    # the usual one, so a conversation begun on one account is resumed on the next
+    mkdir -p -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR" || exit 2
+    [ -e "$CLAUDE_CONFIG_DIR/projects" ] ||
+      ln -s -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR/projects" || exit 2
+  fi
   # The long-lived worker token, where there is one: a headless turn authenticates with it and
   # never reads or refreshes the seat's ~/.claude/.credentials.json.  No file, and the turn
   # falls back to whatever the seat's own login leaves there, exactly as it always did.
@@ -84,7 +106,7 @@ usage)
     # pipe, not a here-string: a here-string would put the credentials in a temp file
     at=$(printf '%s' "${tok:-{\}}" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
   fi
-  [ -n "$at" ] || err "no Claude Code OAuth token ($TOKEN / macOS Keychain 'Claude Code-credentials' / ~/.claude/.credentials.json); run 'claude' once to log in"
+  [ -n "$at" ] || err "no Claude Code OAuth token ($TOKEN / macOS Keychain 'Claude Code-credentials' / $CREDS); run 'claude' once to log in"
   mkdir -p -- "$TMPD" && chmod 700 "$TMPD" 2>/dev/null   # BSD chmod has no -- option
   hf=$(mktemp "$TMPD/.hdr.XXXXXX") || err "cannot create header file in $TMPD"
   trap 'rm -f -- "$hf"' EXIT HUP INT TERM   # an interrupt must not leave the token on disk

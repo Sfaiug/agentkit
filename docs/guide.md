@@ -281,6 +281,8 @@ was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-
   plain `https://` token-plan URL is a subscription, and anything else -- another host or scheme, a backslash or user
   part, a substitution, `OPENCODE_CONFIG`, a file not plain JSON -- is payg. OpenCode runs with project config off, so
   no workspace changes it. For Muse `usage_model` and `usage_effort`: the one cached request its meters come from.
+  `accounts = ["default", "second"]` lists subscriptions, `default` the usual login; Claude keeps another's token in
+  `secrets/claude_oauth_token.second` or its login in `~/.claude-second`. A turn runs on the one with most room, then the next.
 
 Secrets are in `~/.agentkit/secrets/`: `discord_webhook`, `discord_user_id` and `claude_oauth_token` (the worker token
 `claude setup-token` mints, dated a year from its file). A repository's `AGENTS.md` front matter holds `tests:`, its
