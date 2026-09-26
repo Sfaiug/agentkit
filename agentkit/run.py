@@ -6351,6 +6351,25 @@ def slot_counts(state):
     return running, ahead
 
 
+def frozen_runs(state):
+    """Admitted runs the host has frozen: slot owners whose process is held.
+
+    A frozen run adds no load, so the load gate keeps refilling behind it and the
+    thaw lands every run at once. The same owners slot_counts counts, asked of the
+    process itself, so a dead run and a reused pid count nothing.
+    """
+    frozen = 0
+    for directory in run_dirs():
+        other = read_state(directory) or {}
+        if other.get("run_id") == state.get("run_id") or other.get("run_depth", 0):
+            continue
+        if (other.get("state") == "running" and process_active(other)
+                and not merge_turn_note(other)
+                and watch.frozen_cgroup(other.get("pid"))):
+            frozen += 1
+    return frozen
+
+
 def slot_note(state):
     running, ahead = slot_counts(state)
     shown = ahead if state.get("first") else running + ahead
@@ -6394,7 +6413,7 @@ def _unit_memory(readings):
     return None
 
 
-def _wait_reason(readings, minimum, maximum):
+def _wait_reason(readings, minimum, maximum, frozen=0):
     # An unreadable gate fails open, as the memory check before it did: a host
     # that cannot answer (no /proc on macOS, no cgroup file in a container)
     # must not queue every run forever.
@@ -6402,7 +6421,11 @@ def _wait_reason(readings, minimum, maximum):
     if minimum and free is not None and free < minimum:
         return f"waiting for memory · {_g(free)} G free, needs {_g(minimum)} G", "memory"
     load = _reading(readings, "load", "load1", "load_1m")
-    if maximum and load is not None and load > maximum:
+    if maximum and load is not None and load + frozen > maximum:
+        if frozen:
+            noun = "run" if frozen == 1 else "runs"
+            return (f"waiting for the host to calm · load {_load(load)} + {frozen} "
+                    f"frozen {noun}, limit {_load(maximum)}", "load")
         return f"waiting for the host to calm · load {_load(load)}, limit {_load(maximum)}", "load"
     unit = _unit_memory(readings)
     if unit and unit[0] > unit[1] * .75:
@@ -6437,7 +6460,14 @@ def claim_slot(state, limit, readings=None):
     minimum, maximum = resource_limits(readings)
     if is_first:
         maximum = 0
-    reason, kind = _wait_reason(readings, minimum, maximum)
+    frozen = 0
+    load = _reading(readings, "load", "load1", "load_1m")
+    if maximum and load is not None and load <= maximum:
+        # A frozen run adds no load, so the gate reads low behind it; each one
+        # counts 1 against the limit. Counted only while the load alone passes:
+        # past the limit the wait says so already, and no cgroup is read.
+        frozen = frozen_runs(state)
+    reason, kind = _wait_reason(readings, minimum, maximum, frozen)
     if reason:
         state["slot_waited"] = True
         state["slot_wait_reason"], state["slot_wait_kind"] = reason, kind

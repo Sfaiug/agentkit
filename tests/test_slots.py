@@ -29,6 +29,9 @@ class Slots(unittest.TestCase):
         self.counts = patch.object(run, "slot_counts", return_value=(0, 0))
         self.counts.start()
         self.addCleanup(self.counts.stop)
+        self.held = patch.object(run, "frozen_runs", return_value=0)
+        self.held.start()
+        self.addCleanup(self.held.stop)
 
     def claim(self, readings, state=None):
         state = {"run_id": "r", "run_depth": 0, **(state or {})}

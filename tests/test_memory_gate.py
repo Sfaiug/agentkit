@@ -117,6 +117,7 @@ class MemoryGate(unittest.TestCase):
         with patch.dict(os.environ, {"AK_MAX_RUNS": "1", "AK_MIN_FREE_MB": "3072",
                                      "AK_MAX_LOAD": "8"}), \
                 patch.object(run, "slot_counts", return_value=(0, 0)), \
+                patch.object(run, "frozen_runs", return_value=0), \
                 patch.object(run, "process_owner", return_value={"pid": 1}), \
                 patch.object(run, "host_readings", return_value=readings):
             self.assertFalse(run.claim_slot(state, 1))

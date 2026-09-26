@@ -72,7 +72,8 @@ One behaviour per task. A launch is refused when the goal has more than three nu
 words outside the checks block, the checks more than six commands or `rounds` more than three, whatever `--anyway` says;
 and when a run under way in the same repository names the same test or shares four title words, which `--anyway` starts
 regardless. Runs have no count cap and wait FIFO while free memory is under the larger of 3 GB and 20% of RAM, load is
-above the CPU count, or the nearest limited cgroup is past 75% of its `memory.high` outside reclaimable file cache; a
+above the CPU count with each run the host has frozen counting 1 against that limit while held, or the nearest limited
+cgroup is past 75% of its `memory.high` outside reclaimable file cache; a
 worker's own test runs share the parent's slot, and a third level is refused. A run that hits its own memory cap, the
 smaller of 4 GB and 40% of the slice ceiling unless `run_memory_max_mb` sets it, ends `fail` with `killed: memory cap`.
 `ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the load gate but still waiting for the memory floor, and takes its repository's next gate turn first, marked `first` in `ak run status`.
