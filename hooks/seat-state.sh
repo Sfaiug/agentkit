@@ -99,9 +99,19 @@ seat_state() {
   # A new prompt is a new turn: hooks/orchestrator-stop.sh judges that turn against this
   # moment, and the two blocks it is allowed start again from zero here.
   [[ $event = UserPromptSubmit ]] || return 0
+  # A prompt another session's message opened -- Claude Code wraps it in
+  # <cross-session-message> -- keeps the seat's standing done: the seat only
+  # acknowledged the message, so its done from before the turn still tells.
+  # The latch says which kind of prompt opened the turn.
+  peer=false
+  if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
+               | any(contains("<cross-session-message"))' \
+      <<<"$payload" >/dev/null 2>&1; then
+    peer=true
+  fi
   tmp="$dir/stop-$seat.json.tmp.$$"
-  "$jq" -n --arg session "$seat" --argjson turn "$ts" \
-    '{session: $session, turn: $turn, blocks: 0}' \
+  "$jq" -n --arg session "$seat" --argjson turn "$ts" --argjson peer "$peer" \
+    '{session: $session, turn: $turn, blocks: 0, peer: $peer}' \
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
   /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
 }
