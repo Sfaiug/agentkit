@@ -3787,7 +3787,8 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
     started stays `exhausted`: still waiting, still silent, never a notification.
     A transport resume that fails again waits out the hour like an error before the
     next one, so a dead reviewer costs reviewer turns by the hour, not by the tick.
-    A run a later merged run replaced is resumed never: its work is done, elsewhere.
+    A run a later merged run replaced is stood down, marked `replaced`, never
+    resumed: its work is done, elsewhere, and no wait survives on it.
     """
     from . import run as run_mod
     now = time.time() if now is None else now
@@ -3810,16 +3811,14 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
         except (config.Error, KeyError, TypeError, AttributeError) as exc:
             log(f"WARN the exhausted-resume pass did not run: {exc}")
             return
+    found = [(run_dir, run_mod.read_state(run_dir)) for run_dir in run_mod.run_dirs()]
     index = run_mod.supersession_index(
-        state for run_dir in run_mod.run_dirs()
-        for state in (run_mod.read_state(run_dir),) if state)
-    for run_dir in run_mod.run_dirs():
+        state for run_dir, state in found
+        if state and "smoke-" not in run_dir.name)
+    for run_dir, state in found:
         try:
-            state = run_mod.read_state(run_dir)
             if not state or state.get("state") != "exhausted":
                 continue
-            if run_mod.is_superseded(state, None, index, merged_only=True):
-                continue  # a later merged run did the work; nothing resumes this one
             # a quota run waits on a window; a run off a dead reviewer waits on a reviewer
             # being eligible again.  Anything else exhausted waits on nobody by itself, and
             # `run.going` reads the same test, so it keeps no seat working either.
@@ -3842,6 +3841,13 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                     continue
                 waits = run_mod.exhausted_wait(state)
                 if not waits:
+                    continue
+                if run_mod.is_superseded(state, None, index, merged_only=True):
+                    # a later merged run did the work: the tick stands down, marked
+                    # `replaced`, so `going` stops reading a wait nothing will lift
+                    if not dry_run and not state.get("replaced"):
+                        state["replaced"] = True
+                        run_mod.save_state(run_dir, state)
                     continue
                 transport = waits == "reviewer"
                 last = state.get("exhausted_resume_at")
@@ -3971,23 +3977,31 @@ def resume_errored(dry_run=False, log=print, now=None):
     or loses its stamp here with one WARN, and reads parked for a person.
     A handed-back, carded or acknowledged ending, one at least a day old, or one
     with no launch session still on record loses its stamp and waits for a person.
-    An error a later merged run replaced is retried never: its work is done, elsewhere.
+    An error a later merged run replaced is retried never: its retry stamps go the
+    way an inadmissible ending's do, and with them the wait they kept.
     """
     from . import run as run_mod
     now = time.time() if now is None else now
+    found = [(run_dir, run_mod.read_state(run_dir)) for run_dir in run_mod.run_dirs()]
     index = run_mod.supersession_index(
-        state for run_dir in run_mod.run_dirs()
-        for state in (run_mod.read_state(run_dir),) if state)
-    for run_dir in run_mod.run_dirs():
+        state for run_dir, state in found
+        if state and "smoke-" not in run_dir.name)
+    for run_dir, state in found:
         try:
-            state = run_mod.read_state(run_dir)
             if not state or state.get("state") != "error":
                 continue
-            if run_mod.is_superseded(state, None, index, merged_only=True):
-                continue  # a later merged run did the work; no retry is scheduled
             with run_mod.recovery_lock(run_dir):
                 state = run_mod.read_state(run_dir) or state
                 if state.get("state") != "error":
+                    continue
+                if run_mod.is_superseded(state, None, index, merged_only=True):
+                    # a later merged run did the work: the stamps go, as an
+                    # inadmissible ending's do, so `going` ends with them
+                    if not dry_run and ("error_retry_at" in state
+                                        or "error_retries" in state):
+                        state.pop("error_retry_at", None)
+                        state.pop("error_retries", None)
+                        run_mod.save_state(run_dir, state)
                     continue
                 reason = ("cannot be resumed where it stopped"
                           if not run_mod.error_resumable(state, run_dir) else

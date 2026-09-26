@@ -8060,8 +8060,12 @@ def exhausted_waits_for(state, providers, cfg=None, workers=None, now=None):
     spent eligible provider, comes back dry=False, and the row keeps the state word.
     Otherwise the answer is the spent eligible provider with the soonest future
     `resets_at` on any of its meters -- (None, None, True) when no spent provider
-    carries a future reset, which reads as a window with no known hour.
+    carries a future reset, which reads as a window with no known hour.  A run a
+    later merged run replaced waits on no window: the tick stood down, marked
+    `replaced`, and naming an hour would promise a resume that never comes.
     """
+    if state.get("replaced"):
+        return None, None, False
     if state.get("state") != "exhausted" or not state.get("quota_dry"):
         return None, None, False
     now = time.time() if now is None else now
@@ -8231,9 +8235,12 @@ def exhausted_wait(state):
     eligible again.  `watch.resume_exhausted` resumes those two by itself and no other:
     rounds spent, a stopped tool or a reviewer stuck without a verdict wait on nobody
     until `ak run resume`, so `going` reads this too, and a run nothing will move keeps
-    no seat working.
+    no seat working.  A run a later merged run replaced waits on neither: the tick
+    stands down, marked `replaced`, and the wait is over however the run parked.
     """
     if state.get("state") != "exhausted":
+        return ""
+    if state.get("replaced"):
         return ""
     if state.get("quota_dry"):
         return "window"

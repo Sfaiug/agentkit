@@ -7,6 +7,7 @@ on nobody: it is not going, its seat reads `needs you` with the run's hand-back,
 counts as needing him, never as running.  Offline: a fake seat, fake run receipts, the real ladder.
 """
 
+import json
 import os
 import unittest
 from unittest.mock import patch
@@ -107,6 +108,12 @@ class ExhaustedNotGoing(Sandbox):
         reread = run.read_state(directory)
         self.assertFalse(run.settled(reread, index))
         self.assertEqual(run.status_state_word(reread, index), "needs you")
+        # `ak run stop` is still a way out: stopped, the seat's own word stands
+        run.save_state(directory, {**reread, "state": "stopped",
+                                   "error": "stopped by the user"})
+        self.assertEqual(self.decide()["word"], "done")
+        # past the stop guard on purpose: the fixture goes back to parked
+        (directory / "run.json").write_text(json.dumps(reread))
         # ... but once that relaunch merges, the parked run is settled: the seat's own
         # word stands, and the status row reads done
         run.save_state(relaunch, {**run.read_state(relaunch), "merged": True})

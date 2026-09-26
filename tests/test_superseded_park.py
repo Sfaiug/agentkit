@@ -111,6 +111,26 @@ class SupersededPark(unittest.TestCase):
         self.assertTrue(menu.v5o_needs_look(state, index=index, now=self.now))
         self.assertEqual(run.status_state_word(state, index), "needs you")
 
+    def test_exhausted_run_with_an_unmerged_from_relaunch_still_needs_you(self):
+        parked = self.receipt("20260925-1257-parked", title="Fix the parser",
+                              branch="ak/parser")
+        self.receipt("20260925-1713-relaunch", title="Fix the parser (continued)",
+                     state="running", branch="ak/parser-2",
+                     **{"from": "ak/parser", "repo": str(self.root)},
+                     round_summaries=[{}], error=None,
+                     started_at=self.now - 300, finished_at=None)
+        records = self.records()
+        index = run.supersession_index(records)
+        state = run.read_state(parked)
+        # the orchestrator took the work up again, but it has not merged
+        self.assertEqual(run.superseded_by(state, records), "20260925-1713-relaunch")
+        self.assertIsNone(run.superseded_by(state, records, merged_only=True))
+        self.assertIsNone(run.superseded_by(state, None, index, merged_only=True))
+        self.assertFalse(run.settled(state, index))
+        self.assertTrue(run.unfinished(state, index=index))
+        self.assertTrue(menu.v5o_needs_look(state, index=index, now=self.now))
+        self.assertEqual(run.status_state_word(state, index), "needs you")
+
     def test_failed_run_with_a_merged_from_relaunch_does_not_block_notify_done(self):
         failed = self.receipt("20260925-1308-failed", title="Fix the parser",
                               state="fail", verdict="FAIL", branch="ak/parser",
@@ -153,6 +173,24 @@ class SupersededPark(unittest.TestCase):
         self.assertEqual(self.logs, [])
         self.assertEqual(run.read_state(quota)["state"], "exhausted")
         self.assertEqual(run.read_state(errored)["state"], "error")
+        # the stand-down ends what `going` reads: the wait is over, not parked
+        quota_state = run.read_state(quota)
+        self.assertTrue(quota_state["replaced"])
+        self.assertFalse(run.going(quota_state))
+        errored_state = run.read_state(errored)
+        self.assertNotIn("error_retry_at", errored_state)
+        self.assertNotIn("error_retries", errored_state)
+        self.assertFalse(run.going(errored_state))
+        index = run.supersession_index(self.records())
+        self.assertEqual(run.status_state_word(quota_state, index), "done")
+        self.assertEqual(run.status_state_word(errored_state, index), "done")
+        # ... and the seat's standing done is done, not working above it
+        notify.record("seat", "done", "Shipped it", time=self.now)
+        found = watch.session_state(
+            "seat", self.now, session={"name": "seat"}, cfg=self.cfg,
+            records=self.records(), live={}, harness="claude", auth_out={}, gh_out={},
+            token_out={}, previous={})
+        self.assertEqual((found["word"], found["reason"]), ("done", "Shipped it"))
 
 
 if __name__ == "__main__":
