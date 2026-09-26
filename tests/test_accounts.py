@@ -35,7 +35,8 @@ printf '%s\\n%s\\n' "$(sed -n '2,$p' "$resp")" "$(sed -n '1p' "$resp")"
 """
 
 # One JSON line per turn: the login it ran on and the conversation it resumed.  A token with a
-# `refuse-<token>` file is refused as a spent subscription is, in Claude's own words.
+# `refuse-<token>` file is refused as a spent subscription is, in Claude's own words; one with a
+# `dry-<token>` file fails with an answer that names its quota, which only `worker_dry` reads.
 FAKE_CLAUDE = """#!/usr/bin/env bash
 sid=""
 while [ $# -gt 0 ]; do [ "$1" = --resume ] && sid=$2; shift; done
@@ -45,6 +46,10 @@ jq -nc --arg resume "$sid" '{token: $ENV.CLAUDE_CODE_OAUTH_TOKEN, config: $ENV.C
 sid=${sid:-s1}
 if [ -f "$FAKE/refuse-${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
   printf '{"type":"result","is_error":true,"result":"Claude AI usage limit reached","session_id":"%s"}\\n' "$sid"
+  exit 1
+fi
+if [ -f "$FAKE/dry-${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+  printf '{"type":"result","result":"## Summary\\\\nStopped on insufficient_quota.","session_id":"%s"}\\n' "$sid"
   exit 1
 fi
 printf '{"type":"result","result":"## Summary\\\\nDone on %s.","session_id":"%s"}\\n' \\
@@ -217,6 +222,21 @@ class Accounts(unittest.TestCase):
         self.assertEqual(self.calls()[-1]["token"], "tok-second")
         self.assertEqual(usage.account(self.cfg, "anthropic")[1], False)
         self.assertTrue(usage.model_exhausted(self.cfg, "opus", usage.collect(self.cfg))[0])
+
+    def test_quota_only_a_failed_answer_names_goes_to_the_next_account_too(self):
+        self.configure()
+        self.meters("tok-default", 10)
+        self.meters("tok-second", 30)
+        (self.fake / "dry-tok-default").touch()
+        code, answer, session, _ = self.turn()
+        self.assertEqual((code, session), (0, "s1"))
+        self.assertIn("Done on tok-second", answer)
+        self.assertEqual([(c["token"], c["resume"]) for c in self.calls()],
+                         [("tok-default", ""), ("tok-second", "s1")])
+        self.assertTrue(any("ran dry on account default: ran dry on 'insufficient_quota'" in line
+                            for line in self.lines), self.lines)
+        self.assertEqual(usage.account(self.cfg, "anthropic"), ("second", True))
+        self.assertTrue(usage.collect(self.cfg)["anthropic"]["accounts"]["default"]["exhausted"])
 
     def test_a_provider_without_accounts_is_one_login_as_before(self):
         self.configure(accounts="")
