@@ -98,9 +98,11 @@ interactive)
   rules=$(printf -- '--append-system-prompt-file %q ' "$rb")
   # trust.py marks the session's directory trusted first, so the TUI opens on the prompt
   # instead of the "do you trust this folder?" dialog (whose default is "No, exit")
-  printf 'env -u CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR=%q ' "$HOME/.claude${ACCOUNT:+-$ACCOUNT}"
-  printf 'python3 %q claude -- python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions\n' \
-      "$REPO/tools/trust.py" "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" ;;
+  printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR python3 %q claude -- ' "$REPO/tools/trust.py"
+  # Account preparation runs in the seat's actual cwd, after trust.py, and before the TUI.
+  [ -z "$ACCOUNT" ] || printf 'python3 %q -- ' "$REPO/agentkit/harness/claude.py"
+  printf 'python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions\n' \
+      "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" ;;
 usage)
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
   # The worker token first, for the same reason `run` prefers it: this probe runs beside a

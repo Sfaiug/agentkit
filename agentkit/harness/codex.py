@@ -188,6 +188,11 @@ def main(argv):
     if not argv or argv[0] != "--" or len(argv) < 2:
         raise config.Error("usage: codex-seat.py [--rulebook <file>] -- <codex command> | capture")
     cmd = argv[1:]
+    if os.environ.get(config.ACCOUNT_ENV):
+        # A named CODEX_HOME must use its own file login, never the default Keychain
+        # entry, and trust must apply in this invocation's config as well.
+        cmd += ["-c", 'cli_auth_credentials_store="file"', "-c",
+                f'projects.{json.dumps(str(Path.cwd().resolve()))}.trust_level="trusted"']
     if rulebook:
         # The rulebook this seat is launched with.  Codex takes per-launch instructions only as
         # a config value, so the file's text goes in as one more -c here, where this launch's

@@ -81,6 +81,16 @@ run)
   exit $rc ;;
 interactive)
   [ $# -ge 2 ] || { echo "codex.sh interactive needs <model> <effort> [session-id [new]]" >&2; exit 2; }
+  # Keep each login's auth.json separate while every seat can still resume its transcript.
+  account=${AGENTKIT_ACCOUNT:-}
+  if [ -n "$account" ]; then
+    seat_home="$HOME/.codex-$account"
+    mkdir -p -- "$seat_home" || exit 2
+    for store in sessions archived_sessions; do
+      mkdir -p -- "$HOME/.codex/$store" || exit 2
+      [ -e "$seat_home/$store" ] || ln -s -- "$HOME/.codex/$store" "$seat_home/$store" || exit 2
+    done
+  fi
   # `codex exec --session-id` is the headless spelling; the TUI takes no thread id of anyone
   # else's making (codex 0.153: `codex --help` has no such flag), so the launcher is told so
   # rather than handed a command that would drop the id on the floor. The seat wrapper records
@@ -118,6 +128,8 @@ interactive)
   # wrapper, which still installs this launch's hooks and receipt and then execs codex in place,
   # so the process idle-compact.py forked is the harness itself.  Headless `ak worker` runs are
   # not wrapped: they are not seats.
+  printf 'env -u OPENAI_API_KEY -u CODEX_API_KEY -u CODEX_HOME '
+  [ -z "$account" ] || printf 'CODEX_HOME=%q ' "$seat_home"
   printf "python3 %q codex -- python3 %q --harness codex -- python3 %q %s-- codex %s--yolo %s-c 'model_reasoning_effort=\"%s\"'\n" \
       "$REPO/tools/trust.py" "$REPO/tools/idle-compact.py" "$REPO/tools/codex-seat.py" "$rules" \
       "$resume" "$mflag" "$2" ;;

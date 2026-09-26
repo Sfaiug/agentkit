@@ -143,6 +143,18 @@ def for_seat(name):
             os.environ[config.SESSION_ENV] = before
 
 
+def account_order(cfg, model, readings):
+    """Rank the configured subscriptions by this seat's model, never another model's cap."""
+    provider = config.model(cfg, model)["provider"]
+
+    def rank(account):
+        providers = {provider: readings[account]}
+        amount, unknown = usage.model_budget(cfg, model, providers)
+        return usage.model_exhausted(cfg, model, providers)[0], unknown is not None, -amount
+    accounts = config.accounts(cfg, provider) or list(readings)
+    return sorted((a for a in accounts if a in readings), key=rank)
+
+
 def command(cfg, name, conversation=None, fresh=False, account=None):
     """The TUI command line for this model, straight from its harness's adapter.
 
@@ -175,8 +187,7 @@ def command(cfg, name, conversation=None, fresh=False, account=None):
                            f"({exc}): {line[:200]}")
     if not cmd:
         raise config.Error(f"{adapter.name} interactive printed no command for {name}")
-    return (["env", *(f"{key}={value}" for key, value in config.account_env(account).items()),
-             *cmd] if account is not None else cmd)
+    return ["env", *(f"{key}={value}" for key, value in config.account_env(account).items()), *cmd]
 
 
 def fresh_command(cfg, name, seat=None, account=None):
@@ -1731,7 +1742,8 @@ def launch(name, model, cwd, cmd, conversation, session=None):
         start(name, cwd, cmd, model)
     from . import watch
     # launched under the name again: not the stopped one, and not the owner's closed one
-    watch.seat_write(name, stopped_at=None, closed_by_owner=None)
+    watch.seat_write(name, stopped_at=None, closed_by_owner=None,
+                     usage_wait=None, usage_refusal=None, usage_taken=None)
 
 
 def stamp():
@@ -2334,7 +2346,8 @@ def mark_owner_closed(name):
     reopening instead.  A launch under the name clears it again.
     """
     from . import watch
-    watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True)
+    watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True,
+                     usage_wait=None, usage_refusal=None)
 
 
 # Every per-seat file kind a stop removes, and the daily collector takes once the seat is
@@ -2447,7 +2460,8 @@ def cmd_stop(argv):
             # launched under the name again.  The hand-back reads `closed_by_owner` for the
             # same decision, and a pause script that ends a seat writes the same mark through
             # `mark_owner_closed`.
-            watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True)
+            watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True,
+                             usage_wait=None, usage_refusal=None)
         watch.forget(name)   # a new seat with this name must not inherit the old stop latch
         drop_aliases(name)
         # The mark and the latch above took the seat's and its notices' locks again, and a
@@ -2812,7 +2826,8 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     providers, (model, reason, workers) = selection
     provider = config.model(cfg, model)["provider"]
     accounts = config.accounts(cfg, provider)
-    account = (providers.get(provider, {}).get("account") or accounts[0]) if accounts else None
+    order = account_order(cfg, model, providers.get(provider, {}).get("accounts") or {})
+    account = (order or accounts)[0] if accounts else None
     cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
     # where and when, because that is what opens the seat again once tmux has lost it -- and the
     # conversation it owns, written down before it starts wherever its harness can be told one.
