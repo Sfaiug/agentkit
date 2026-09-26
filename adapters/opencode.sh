@@ -78,10 +78,26 @@ run)
   # The prompt goes as the message: `opencode run` reads neither stdin nor a prompt file, and
   # `--prompt` is not one of its flags.  `--session` continues that session; `--standalone`
   # keeps the turn on a private server rather than the shared background service.
-  msg=$(cat -- "$pf") || { echo "opencode.sh: cannot read $pf" >&2; exit 2; }
+  # A prompt over 100 KiB cannot go that way: Linux refuses a single argument over 128 KiB,
+  # and the exec fails at once with `Argument list too long`.  It is attached whole with
+  # --file instead, with a short message pointing to it; the message stays before --file,
+  # which swallows a trailing prompt as another filename.
+  psize=$(wc -c <"$pf" 2>/dev/null) || { echo "opencode.sh: cannot read $pf" >&2; exit 2; }
+  psize=${psize//[^0-9]/}
+  via_file=0
+  if [ "${psize:-0}" -gt 102400 ]; then
+    via_file=1
+    msg="The full prompt is attached. Read it whole and follow it as your task: $pf"
+  else
+    msg=$(cat -- "$pf") || { echo "opencode.sh: cannot read $pf" >&2; exit 2; }
+  fi
   set -- run --standalone --auto --format json -m "$tagged" --title "$title"
   [ -n "$sid" ] && set -- "$@" --session "$sid"
-  opencode "$@" "$msg" >"$out/events.jsonl" 2>"$out/stderr.log"
+  if [ "$via_file" = 1 ]; then
+    opencode "$@" "$msg" --file "$pf" >"$out/events.jsonl" 2>"$out/stderr.log"
+  else
+    opencode "$@" "$msg" >"$out/events.jsonl" 2>"$out/stderr.log"
+  fi
   rc=$?
   # Every text part in turn order: a tool turn speaks between its calls, and the last word
   # alone would drop what it said before them.  No fallback truncates this: jq writes the
