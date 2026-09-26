@@ -5546,7 +5546,7 @@ jq -e '.orchestrator == "mimo"' \
   "$OCHOME/.agentkit/state/session-oc-seat.json" >/dev/null || OCHRC=1
 python3 - "$WORK/oc-orch.log" <<'PY' || OCHRC=1
 import json, shlex, sys
-line = [ln for ln in open(sys.argv[1]).read().splitlines() if ln.startswith("python3 ")][0]
+line = [ln for ln in open(sys.argv[1]).read().splitlines() if "OPENCODE_CONFIG_CONTENT=" in ln][0]
 words = shlex.split(line)
 content = next(w for w in words if w.startswith("OPENCODE_CONFIG_CONTENT=")).split("=", 1)[1]
 doc = json.loads(content)
