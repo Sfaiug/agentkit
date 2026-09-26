@@ -603,7 +603,9 @@ def _fresh_window(prov, marked_at, now):
     for can start again first: the meter then reads a new window, begun after the mark
     was made, and that is the capacity the mark said was missing.  A meter that names
     no time, or none with room, is no such answer, and a spent replacement keeps the
-    mark exactly as a spent week does.
+    mark exactly as a spent week does.  The start has to have passed already: a length
+    can be nominal -- a calendar-month plan reported on 30 days -- and a start still
+    in the future is then the same window mismeasured, not a replacement.
     """
     if not isinstance(prov, dict):
         return False
@@ -619,7 +621,8 @@ def _fresh_window(prov, marked_at, now):
             continue
         if resets_at <= now:
             continue          # a window already rolled over answers for nothing
-        if resets_at - window > marked_at:
+        start = resets_at - window
+        if start > marked_at and start <= now:
             return True
     return False
 

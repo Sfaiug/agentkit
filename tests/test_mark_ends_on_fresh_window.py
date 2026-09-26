@@ -157,6 +157,23 @@ class FreshWindowEndsMark(unittest.TestCase):
             order = usage.pick_order(self.cfg, providers, ["one", "two"], quiet=True)
             self.assertNotIn("one", order)
 
+    def test_window_whose_start_is_still_in_the_future_keeps_the_mark(self):
+        # A calendar-month plan on a nominal 30 days: the reset a month out implies
+        # a start a day from now, after the mark, although no window restarted.
+        self.set_meters("alpha", [{"name": "plan", "used": 40,
+                                   "resets_at": NOW + 31 * 86400, "window_secs": 30 * 86400}])
+        self.set_meters("beta", self.old_window(used=10))
+        with patch.object(usage, "_probe", side_effect=self.fake_probe):
+            until = NOW + 5 * 86400
+            usage.mark_exhausted(self.cfg, "alpha", until)
+            self.now += usage.PROBE_EVERY + 1
+            self.stale_cache()
+            providers = usage.collect(self.cfg)
+            self.assertEqual(providers["alpha"]["exhausted_until"], until)
+            self.assertTrue(providers["alpha"]["exhausted"])
+            order = usage.pick_order(self.cfg, providers, ["one", "two"], quiet=True)
+            self.assertNotIn("one", order)
+
 
 if __name__ == "__main__":
     unittest.main()
