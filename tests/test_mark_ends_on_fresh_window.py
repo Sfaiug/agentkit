@@ -65,13 +65,13 @@ class FreshWindowEndsMark(unittest.TestCase):
 
     # --- the fixture ------------------------------------------------------
 
-    def set_meters(self, provider, meters):
-        self.probe_meters[provider] = meters
+    def set_meters(self, provider, meters, account=None):
+        self.probe_meters[provider, account] = meters
 
-    def fake_probe(self, cfg, provider, now):
+    def fake_probe(self, cfg, provider, now, account=None):
         harness, via = config.provider_harness(cfg, provider)
         meters = [usage._normalized(dict(meter), now)
-                  for meter in self.probe_meters.get(provider, [])]
+                  for meter in self.probe_meters.get((provider, account), [])]
         pace = None
         for meter in meters:
             value = meter.get("pace")
@@ -250,6 +250,41 @@ class FreshWindowEndsMark(unittest.TestCase):
                     self.assertNotIn("exhausted_until", providers["alpha"])
                     self.assertIn("one", usage.pick_order(
                         self.cfg, providers, ["one", "two"], quiet=True))
+
+    def test_a_fresh_account_window_leaves_the_other_accounts_mark_intact(self):
+        self.cfg["providers"]["alpha"]["accounts"] = ["first", "second"]
+        self.set_meters("alpha", self.old_window(), account="first")
+        self.set_meters("alpha", [{"name": "weekly", "used": 10,
+                                   "resets_at": NOW + WEEK / 4, "window_secs": WEEK}],
+                        account="second")
+        self.set_meters("beta", self.old_window(used=10))
+        with patch.object(usage, "_probe", side_effect=self.fake_probe):
+            until = NOW + 5 * 86400
+            usage.mark_exhausted(self.cfg, "alpha", until, account="first")
+            self.assertEqual(usage.account(self.cfg, "alpha"), ("second", True))
+            usage.mark_exhausted(self.cfg, "alpha", until, account="second")
+            providers = usage.collect(self.cfg)
+            accounts = providers["alpha"]["accounts"]
+            self.assertEqual(accounts["first"]["exhausted_ends"], {"weekly": NOW + WEEK / 2})
+            self.assertEqual(accounts["second"]["exhausted_ends"], {"weekly": NOW + WEEK / 4})
+            self.assertNotIn("one", usage.pick_order(
+                self.cfg, providers, ["one", "two"], quiet=True))
+
+            self.now += usage.PROBE_EVERY + 1
+            self.set_meters("alpha", [{"name": "weekly", "used": 0,
+                                       "resets_at": self.now + WEEK, "window_secs": WEEK}],
+                            account="first")
+            self.stale_cache()
+            providers = usage.collect(self.cfg)
+            self.assertFalse(providers["alpha"]["exhausted"])
+            self.assertIn("one", usage.pick_order(
+                self.cfg, providers, ["one", "two"], quiet=True))
+            stored = json.loads((config.STATE / "usage.json").read_text())
+            accounts = stored["providers"]["alpha"]["accounts"]
+            self.assertNotIn("exhausted_until", accounts["first"])
+            self.assertEqual(accounts["second"]["exhausted_until"], until)
+            self.assertTrue(accounts["second"]["exhausted"])
+            self.assertEqual(usage.account(self.cfg, "alpha"), ("first", True))
 
 
 if __name__ == "__main__":
