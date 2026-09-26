@@ -690,10 +690,11 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
 
     Five endings are his -- a FAIL, an unscheduled error, a `blocked`, an interruption
     and a PASS nobody merged -- and so is an `exhausted` run the tick cannot resume
-    (`run.exhausted_wait`), which is no ending: told, replaced or old, it stays unfinished
+    (`run.exhausted_wait`), which is no ending: told or old, it stays unfinished
     -- and the seat's own word would call it recovering -- until `ak run resume` or
-    `ak run stop`. Nothing else is, and only while nobody else has
-    it. A run parked `exhausted` on a window or a dead reviewer, or `stalled`, is the
+    `ak run stop`, unless a later merged run replaced it. Nothing else is, and only
+    while nobody else has it. A run parked `exhausted` on a window or a dead reviewer,
+    or `stalled`, is the
     tick's to take on when the window refills, the reviewer is back or the stall
     is recovered, an error with a scheduled retry is the tick's the same way, and
     a `queued` or `running` one is nobody's problem yet. An
@@ -713,7 +714,16 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
     if state.get("state") in ("error", "exhausted") and _run.going(state, now=now):
         return False  # the tick owns its retry or its resume; nothing here needs him
     if state.get("state") == "exhausted":
-        return True  # no ending: a hand-back, a relaunch or its age settles nothing
+        # no ending: a hand-back or its age settles nothing, but a later merged
+        # run does -- the work is done, elsewhere. Without the records that
+        # replacement cannot be read, and the run stays his.
+        if index is not None:
+            if _run.is_superseded(state, None, index, merged_only=True):
+                return False
+        elif all_states is not None and _run.is_superseded(state, all_states,
+                                                           merged_only=True):
+            return False
+        return True
     if state.get("handed_back") or state.get("handback_pending"):
         return False
     if state.get("merged"):

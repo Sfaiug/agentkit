@@ -7,6 +7,7 @@ on nobody: it is not going, its seat reads `needs you` with the run's hand-back,
 counts as needing him, never as running.  Offline: a fake seat, fake run receipts, the real ladder.
 """
 
+import json
 import os
 import unittest
 from unittest.mock import patch
@@ -90,21 +91,38 @@ class ExhaustedNotGoing(Sandbox):
         self.assertEqual(found["reason"], f"run {directory.name} parked: {SPENT}")
         self.assertEqual(found["since"], NOW - 600)
         # ... above the seat's own last word, which would otherwise call it recovering,
-        # and past a relaunch of the same task that merged, and its own age: nothing else
-        # will ever move it, so it stays his, and `ak run status` reads the same word
+        # and past its own age: nothing else will ever move it, so it stays his
         notify.record("acme", "done", "Shipped it")
-        self.receipt("20260101-1200-relaunch", state="pass", verdict="PASS", merged=True,
-                     title=state["title"], finished_at=NOW - 60)
         run.save_state(directory, {**state, "finished_at": NOW - 8 * 86400})
         found = self.decide()
         self.assertEqual((found["word"], found["reason"]),
                          ("needs you", f"run {directory.name} parked: {SPENT}"))
+        # ... and past a relaunch of the same task that has not merged: only a merged
+        # replacement ends the question, and `ak run status` reads the same word
+        relaunch, _ = self.receipt("20260101-1200-relaunch", state="pass", verdict="PASS",
+                                   title=state["title"], finished_at=NOW - 60)
+        found = self.decide()
+        self.assertEqual((found["word"], found["reason"]),
+                         ("needs you", f"run {directory.name} parked: {SPENT}"))
         index = run.supersession_index(state for _, state in menu.run_records())
-        self.assertTrue(run.is_superseded(run.read_state(directory), None, index))
-        self.assertEqual(run.status_state_word(run.read_state(directory), index), "needs you")
-        # `ak run stop` is the way out that exists: stopped, the seat's own word stands
-        run.save_state(directory, {**state, "state": "stopped", "error": "stopped by the user"})
+        reread = run.read_state(directory)
+        self.assertFalse(run.settled(reread, index))
+        self.assertEqual(run.status_state_word(reread, index), "needs you")
+        # `ak run stop` is still a way out: stopped, the seat's own word stands
+        run.save_state(directory, {**reread, "state": "stopped",
+                                   "error": "stopped by the user"})
         self.assertEqual(self.decide()["word"], "done")
+        # past the stop guard on purpose: the fixture goes back to parked
+        (directory / "run.json").write_text(json.dumps(reread))
+        # ... but once that relaunch merges, the parked run is settled: the seat's own
+        # word stands, and the status row reads done
+        run.save_state(relaunch, {**run.read_state(relaunch), "merged": True})
+        self.assertEqual(self.decide()["word"], "done")
+        index = run.supersession_index(state for _, state in menu.run_records())
+        reread = run.read_state(directory)
+        self.assertTrue(run.is_superseded(reread, None, index))
+        self.assertTrue(run.settled(reread, index))
+        self.assertEqual(run.status_state_word(reread, index), "done")
 
     def test_d_such_a_run_is_in_no_running_tally(self):
         self.receipt("20260101-0900-spent", error=SPENT, handed_back=NOW - 590,

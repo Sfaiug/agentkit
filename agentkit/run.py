@@ -7109,6 +7109,8 @@ def supersession_index(states):
     yields. Answers `{title: [(finished_when, run_id, display)]}` for merged runs
     with a title, and `{("from", repo, branch): [...]}` for every run relaunched
     `from:` a branch, each with a numeric finish (or start), newest first. Read-only.
+    A merged relaunch is also answered under `{("merged-from", repo, branch): [...]}`,
+    for the settled question, which only a merged replacement ends.
     """
     index = {}
     for item in states:
@@ -7123,14 +7125,17 @@ def supersession_index(states):
             index.setdefault(title, []).append(
                 (when, other.get("run_id"), other.get("run_id") or title))
         if other.get("from"):
-            index.setdefault(("from", other.get("repo"), other["from"]), []).append(
-                (when, other.get("run_id"), other.get("run_id") or other["from"]))
+            entry = (when, other.get("run_id"), other.get("run_id") or other["from"])
+            index.setdefault(("from", other.get("repo"), other["from"]), []).append(entry)
+            if other.get("merged"):
+                index.setdefault(("merged-from", other.get("repo"), other["from"]),
+                                 []).append(entry)
     for entries in index.values():
         entries.sort(key=lambda entry: entry[0], reverse=True)
     return index
 
 
-def superseded_by(state, records=None, index=None):
+def superseded_by(state, records=None, index=None, merged_only=False):
     """The later run that replaced this one, or None. Read-only.
 
     A `↳` row appears only for a run nobody has replaced: a later merged run of the
@@ -7141,7 +7146,8 @@ def superseded_by(state, records=None, index=None):
     A merged run never supersedes itself. `records` is an iterable of states already
     read; when omitted the runs on disk are read once, never written. `index` is a
     `supersession_index` over the same states: pass it when testing many runs, so one
-    draw scans the records once instead of once per run per seat.
+    draw scans the records once instead of once per run per seat. With `merged_only`
+    only a replacement that merged counts: a relaunch still running settles nothing.
     """
     title, branch = state.get("title"), state.get("branch")
     if not (title or branch) or state.get("merged"):
@@ -7150,8 +7156,10 @@ def superseded_by(state, records=None, index=None):
     if not isinstance(mine, (int, float)) or isinstance(mine, bool):
         mine = 0
     if index is not None:
+        relaunched = ("merged-from" if merged_only else "from",
+                      state.get("repo"), branch)
         later = [(when, display) for when, run_id, display in (
-                     *index.get(title, ()), *index.get(("from", state.get("repo"), branch), ()))
+                     *index.get(title, ()), *index.get(relaunched, ()))
                  if run_id != state.get("run_id") and when > mine]
         return max(later)[1] if later else None
     found = []
@@ -7169,6 +7177,8 @@ def superseded_by(state, records=None, index=None):
                 found.append(other)
     best, newest = None, mine
     for other in found:
+        if merged_only and not other.get("merged"):
+            continue
         if not ((title and other.get("merged") and other.get("title") == title) or
                 (branch and other.get("from") == branch
                  and other.get("repo") == state.get("repo"))):
@@ -7183,9 +7193,9 @@ def superseded_by(state, records=None, index=None):
     return (best.get("run_id") or best.get("title")) if best else None
 
 
-def is_superseded(state, records=None, index=None):
+def is_superseded(state, records=None, index=None, merged_only=False):
     """Whether a later run replaced this one (see `superseded_by`). Read-only."""
-    return superseded_by(state, records, index) is not None
+    return superseded_by(state, records, index, merged_only) is not None
 
 
 def settled(state, index=None):
@@ -7193,11 +7203,15 @@ def settled(state, index=None):
     it or waiting for that seat's next quiet prompt, acknowledged, or superseded by later work.
 
     These are the endings `menu.v5o_needs_look` counts as nobody's question, and as there
-    an `exhausted` run the tick cannot resume is no ending: only an acknowledgement settles
-    it.  `index` is a `supersession_index`; without one supersession is not read.
+    an `exhausted` run the tick cannot resume is no ending: neither a hand-back nor its
+    age settles it, only an acknowledgement -- or a later merged run taking the work up,
+    which ends the question however the run parked.  `index` is a `supersession_index`;
+    without one supersession is not read.
     """
     if state.get("state") == "exhausted":
-        return bool(state.get("recovery_acknowledged_at"))
+        return bool(state.get("recovery_acknowledged_at")
+                    or (index is not None
+                        and is_superseded(state, None, index, merged_only=True)))
     return bool(state.get("handed_back") or state.get("handback_pending")
                 or state.get("recovery_acknowledged_at")
                 or (index is not None and is_superseded(state, None, index)))
@@ -8046,8 +8060,12 @@ def exhausted_waits_for(state, providers, cfg=None, workers=None, now=None):
     spent eligible provider, comes back dry=False, and the row keeps the state word.
     Otherwise the answer is the spent eligible provider with the soonest future
     `resets_at` on any of its meters -- (None, None, True) when no spent provider
-    carries a future reset, which reads as a window with no known hour.
+    carries a future reset, which reads as a window with no known hour.  A run a
+    later merged run replaced waits on no window: the tick stood down, marked
+    `replaced`, and naming an hour would promise a resume that never comes.
     """
+    if state.get("replaced"):
+        return None, None, False
     if state.get("state") != "exhausted" or not state.get("quota_dry"):
         return None, None, False
     now = time.time() if now is None else now
@@ -8217,9 +8235,12 @@ def exhausted_wait(state):
     eligible again.  `watch.resume_exhausted` resumes those two by itself and no other:
     rounds spent, a stopped tool or a reviewer stuck without a verdict wait on nobody
     until `ak run resume`, so `going` reads this too, and a run nothing will move keeps
-    no seat working.
+    no seat working.  A run a later merged run replaced waits on neither: the tick
+    stands down, marked `replaced`, and the wait is over however the run parked.
     """
     if state.get("state") != "exhausted":
+        return ""
+    if state.get("replaced"):
         return ""
     if state.get("quota_dry"):
         return "window"
@@ -8610,10 +8631,20 @@ def step_word(state):
     return f"{state['step']} {orch.span(time.time() - at)}"
 
 
-def unfinished(state):
-    """Runs that still own an active seat or await an explicit recovery decision."""
-    return (state.get("state") in ("running", "queued") or
-            (needs_recovery(state) and not state.get("recovery_acknowledged_at")))
+def unfinished(state, records=None, index=None):
+    """Runs that still own an active seat or await an explicit recovery decision.
+
+    A run a later merged run replaced is neither: its work is done, elsewhere.
+    `records` is an iterable of states already read, `index` a `supersession_index`
+    over them; without either supersession is not read.
+    """
+    if state.get("state") in ("running", "queued"):
+        return True
+    if not (needs_recovery(state) and not state.get("recovery_acknowledged_at")):
+        return False
+    if records is None and index is None:
+        return True
+    return not is_superseded(state, records, index, merged_only=True)
 
 
 def actionable(state):
