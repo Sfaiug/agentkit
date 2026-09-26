@@ -113,6 +113,20 @@ class StopParked(unittest.TestCase):
         self.assertIn("run parked-exhausted parked: ", reason)
         self.assertIn("run parked-interrupted parked: the loop died mid-turn", reason)
 
+    def test_a_stalled_run_holds_the_turn_alone_and_beside_a_going_run(self):
+        # `going` counts `stalled`, but nothing resumes one -- the tick only told the seat --
+        # so it sits parked for `ak run resume` and holds the turn like any undecided run.
+        self.run_json("parked-stalled", state="stalled", started_at=self.turn - 9000,
+                      finished_at=self.turn - 60,
+                      error="stalled three times at done-when; parked: ak run resume parked-stalled")
+        reason = self.blocked(self.stop())["reason"]
+        self.assertIn("run parked-stalled parked: ", reason)
+        self.assertIn("ak run resume parked-stalled", reason)
+        self.run_json("going-running", state="running", started_at=self.turn - 9000)
+        self.latch(self.turn)
+        self.assertIn("run parked-stalled parked: ",
+                      self.blocked(self.stop())["reason"])
+
     def test_an_acknowledged_or_stopped_run_holds_nothing(self):
         for label, extra in (
                 ("acknowledged", {"recovery_acknowledged_at": time.time() - 30}),

@@ -243,8 +243,10 @@ def parked(seat):
     """(run, parked reason) for this seat's runs that sit parked and undecided.
 
     Undecided is `unfinished` whole -- the runs `ak notify done` refuses on -- read through
-    agentkit's own function, never a copy of its rule.  A run still going is not parked: it
-    resumes itself, and a stop that waits on it stands as it always did.
+    agentkit's own function, never a copy of its rule.  A run going somewhere is not parked:
+    it resumes itself, and a stop that waits on it stands as it always did.  `stalled` is the
+    exception: `going` counts it, but nothing resumes one -- the tick only told the seat --
+    so it sits parked for `ak run resume` and holds the turn like any undecided run.
     """
     try:
         directories = sorted(path for path in RUNS.iterdir() if path.is_dir())
@@ -257,7 +259,9 @@ def parked(seat):
         # the rename chain is only walked for a run whose recorded name is not already this one
         if not isinstance(owner, str) or not owner or (owner != seat and resolve(owner) != seat):
             continue
-        if going(state) or not unfinished(state):
+        if going(state) and state.get("state") != "stalled":
+            continue
+        if not unfinished(state):
             continue
         found.append((directory.name, handback_reason(state)))
     return found
