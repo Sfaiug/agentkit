@@ -35,6 +35,18 @@ if endpoint:
         mapping = {}
     print(json.dumps({"check_runs": mapping.get(sha, [])}))
     sys.exit(0)
+if args[:2] == ["pr", "view"]:
+    url = args[2] if len(args) > 2 else ""
+    try:
+        mapping = json.loads(open(os.environ["AFTER_MERGE_PRS"]).read())
+    except (OSError, ValueError, KeyError):
+        mapping = {}
+    oid = mapping.get(url)
+    if not isinstance(oid, str) or not oid or oid == "__FAIL__":
+        print("fake gh: pr view failed", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps({"mergeCommit": {"oid": oid}}))
+    sys.exit(0)
 print(f"fake gh: unexpected call: {args}", file=sys.stderr)
 sys.exit(1)
 """
@@ -64,9 +76,12 @@ class AfterMerge(unittest.TestCase):
         gh.chmod(0o755)
         self.checks_path = self.root / "checks.json"
         self.checks_path.write_text("{}")
+        self.prs_path = self.root / "prs.json"
+        self.prs_path.write_text("{}")
         self.stack.enter_context(patch.dict(os.environ, {
             "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
-            "AFTER_MERGE_CHECKS": str(self.checks_path)}))
+            "AFTER_MERGE_CHECKS": str(self.checks_path),
+            "AFTER_MERGE_PRS": str(self.prs_path)}))
         self.rows = []
         self.typed = []
         self.logs = []
@@ -88,18 +103,23 @@ class AfterMerge(unittest.TestCase):
     def live(self, name, created=100):
         return {"name": name, "created": created, "exited": False}
 
-    def merged(self, name, sha, age=600, seat=SEAT, pr=PR, target="origin/main"):
+    def merged(self, name, sha=None, age=600, seat=SEAT, pr=PR, target="origin/main"):
         directory = config.RUNS / name
         directory.mkdir()
         state = {"run_id": name, "title": f"Merge {name}", "state": "pass",
                  "verdict": "PASS", "merged": True, "pr": pr, "target": target,
-                 "base": "origin/main", "merge_sha": sha, "launched_session": seat,
+                 "base": "origin/main", "launched_session": seat,
                  "started_at": NOW - age - 60, "finished_at": NOW - age}
+        if sha is not None:
+            state["merge_sha"] = sha
         run.save_state(directory, state)
         return directory
 
     def set_checks(self, mapping):
         self.checks_path.write_text(json.dumps(mapping))
+
+    def set_prs(self, mapping):
+        self.prs_path.write_text(json.dumps(mapping))
 
     def follow(self, state=None):
         state = watch.load_state() if state is None else state
@@ -190,6 +210,24 @@ class AfterMerge(unittest.TestCase):
         self.follow(state)
         self.assertEqual(self.typed, [])
         self.assertEqual(state["after_merge"][key]["notified"], old)
+
+    def test_unreadable_merge_commit_keeps_the_told_break(self):
+        sha = "a" * 40
+        self.merged("run-old")
+        self.set_checks({sha: [completed(CHECK, "failure")]})
+        self.rows = [self.live(SEAT)]
+        key = watch.after_merge_repo(PR)[3]
+        state = {"after_merge": {key: {"notified": sha, "at": NOW - 1000,
+                                       "run": "run-old", "check": CHECK,
+                                       "finished": NOW - 600}}}
+        self.set_prs({PR: "__FAIL__"})
+        self.follow(state)
+        self.assertEqual(self.typed, [])
+        self.assertEqual(state["after_merge"][key]["notified"], sha)
+        self.set_prs({PR: sha})
+        self.follow(state)
+        self.assertEqual(self.typed, [])
+        self.assertEqual(state["after_merge"][key]["notified"], sha)
 
 
 if __name__ == "__main__":

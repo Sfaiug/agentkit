@@ -4814,14 +4814,16 @@ def after_merge_checks(state, dry_run, log, now=None):
             continue
         owner, repo, host, key = parsed
         sha = after_merge_sha(pr_url, st, log)
-        if not sha:
-            continue
         grouped.setdefault(key, []).append(
-            (finished, run_dir.name, run_dir, st, owner, repo, host, sha, pr_url))
+            (finished, run_dir.name, run_dir, st, owner, repo, host, sha or None, pr_url))
     for key in sorted(set(grouped) | set(episodes)):
         found = sorted(grouped.get(key, []))
         statuses = []
         for finished, name, run_dir, st, owner, repo, host, sha, pr_url in found:
+            if sha is None:
+                statuses.append((finished, name, run_dir, st, None, pr_url,
+                                 "unknown", None, None))
+                continue
             verdict, check, url = after_merge_status(owner, repo, host, sha, log)
             statuses.append((finished, name, run_dir, st, sha, pr_url, verdict, check, url))
         episode = episodes.get(key)
