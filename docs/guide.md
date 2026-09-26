@@ -106,6 +106,9 @@ dead holder's turn passes on. A failed integration, conflict or final-check revi
 the loop overrode a PASS. A base-branch merge race re-fetches, rechecks the PR head and target, verifies and pushes
 changes and retries three times with growing waits before parking. Without push rights it forks, opens the PR upstream
 and ends `PASS, not merged: waiting for the maintainer`, exiting 0; the tick follows the PR and hands the decision to the seat. `--no-merge` stops at the verdict. Other ended `merged: no` runs name their reason and exit 1.
+Before each round and each landing lap's verify, a run whose installed agentkit moved replaces itself in place with
+`ak run resume <id>` — same pid, slot and saved PASS — saying `picked up agentkit <old>..<new>; continuing on it`; it
+never moves holding a turn or a child, and a landing resumed mid-laps keeps its lap count.
 
 A run ends `blocked` when the task is wrong: an executor or fixer ends its turn with `## Blocked` instead of `##
 Summary`, or a fix round leaves the same checks failing the same way (or no harness can run it, see Resumption). No

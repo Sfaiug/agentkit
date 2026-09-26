@@ -61,7 +61,7 @@ Say what you want. The orchestrator asks until the goal is clear and checkable, 
 
 ## While you are away
 
-Agentkit does not stop until the work is merged, or until it truly needs you. Truly needs you means exactly two things: a question only you can answer, or a failure it has tried every way around. Everything else it handles itself: a provider running dry or down for hours, a crash, a reboot, main moving underneath (its own runs of one repository land one at a time), a reviewer that hesitates, a test budget that was too small, a stuck session.
+Agentkit does not stop until the work is merged, or until it truly needs you. Truly needs you means exactly two things: a question only you can answer, or a failure it has tried every way around. Everything else it handles itself: a provider running dry or down for hours, a crash, a reboot, main moving underneath (its own runs of one repository land one at a time), its own upgrade (a run takes the new code at its next round, saying `picked up agentkit <old>..<new>`), a reviewer that hesitates, a test budget that was too small, a stuck session.
 
 Every change is written by one model, checked by commands the orchestrator agreed with you, and reviewed by a different model before it merges, from a different company where your workers allow it. No model marks its own work. A task is one behaviour and three rounds: a bigger task or more rounds is refused before it starts, `--anyway` or not, and work its reviewer still fails after the third goes back to the orchestrator with the findings, to split or re-scope.
 
