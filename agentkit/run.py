@@ -1873,6 +1873,21 @@ def gate_turn(run_dir, log_path, log):
             current.release()
 
 
+def drop_reserved_turn():
+    """Let a reserved lap's verify turn go before slow work that cannot land.
+
+    The red-target probe re-runs the failing command after the lap has already failed,
+    and a fixer or reviewer follows that: the lap cannot land this pass, so holding the
+    merge turn through any of them only blocks the landers queued behind.  The gate turn
+    stays held for the probe, which is still this lap's own work.  A delivery keeps its
+    turn, here as under `released_gate_turn`.
+    """
+    hold = getattr(_MERGE_HELD, "hold", None)
+    if hold is not None and getattr(hold, "releasable", False):
+        _MERGE_HELD.hold = None
+        hold.release()
+
+
 @contextmanager
 def released_gate_turn():
     """Let this thread's held gate turn go while slow work runs.
@@ -1887,10 +1902,7 @@ def released_gate_turn():
     hold, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
     if hold is not None:
         hold.release()
-    merge_hold = getattr(_MERGE_HELD, "hold", None)
-    if merge_hold is not None and getattr(merge_hold, "releasable", False):
-        _MERGE_HELD.hold = None
-        merge_hold.release()
+    drop_reserved_turn()
     yield
 
 
@@ -4076,6 +4088,7 @@ def integrate(lp, upstream):
                                 lp.rnd = old_rnd
                                 lp.lap_every_sha = new_identity["head_sha"]
                         else:
+                            drop_reserved_turn()    # the lap failed; the probe runs unheld
                             if target_fails(lp, upstream, dw_log):
                                 return park_waiting(
                                     lp, f"{upstream} itself fails: {first_failure(dw_log)}",
@@ -4683,6 +4696,7 @@ def final_check(lp, upstream):
         lp.log("final check: FAILED")
         lp.state["final_check"] = {"outcome": "failed", "sha": sha, "line": failing}
         save_state(lp.run_dir, lp.state)
+        drop_reserved_turn()    # the lap failed; the probe runs unheld
         if target_fails(lp, upstream, text):
             return park_waiting(
                 lp, f"{upstream} itself fails: {failing}", upstream,

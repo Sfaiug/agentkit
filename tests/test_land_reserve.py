@@ -136,11 +136,13 @@ class LandReserve(unittest.TestCase):
         self.checks = []      # (worktree name, held at the check) in order
         self.rebases = []     # (worktree name, held at the rebase) in order
         self.merges = []      # (worktree name, held at the merge) in order
+        self.probes = []      # (worktree name, held during the red-target probe) in order
         self.fixer_seen = {}
         self.fixer = None
         real_turn = run.merge_turn
         real_done_when = run.run_done_when
         real_git_out = run.git_out
+        real_target_fails = run.target_fails
 
         @contextmanager
         def turn(lp, upstream, *args, **kwargs):
@@ -163,6 +165,14 @@ class LandReserve(unittest.TestCase):
                 self.rebases.append((Path(repo).name, own))
             return real_git_out(repo, *args)
         self.stack.enter_context(patch.object(run, "git_out", side_effect=git_out))
+
+        def probe(lp, upstream, dw_log):
+            own = getattr(run._MERGE_HELD, "hold", None) is not None
+            state = run.read_state(lp.run_dir) or {}
+            self.probes.append((lp.wt.name, own, merge_held(lp.wt),
+                                run.merge_hold_note(state)))
+            return real_target_fails(lp, upstream, dw_log)
+        self.stack.enter_context(patch.object(run, "target_fails", side_effect=probe))
 
         def fix(lp, role, text, name):
             self.fixer_seen["held"] = merge_held(lp.wt)
@@ -309,6 +319,8 @@ class LandReserve(unittest.TestCase):
         # lap 1 outside, lap 2's failing check holding, the re-check after the fix
         # outside again, racing like a first lap; the fetch then takes a fresh turn
         self.assertEqual(acme_checks, [False, True, False])
+        # the red-target probe runs after the lap failed, so without the turn too
+        self.assertEqual(self.probes, [("acme", False, False, "")])
         self.assertIn("held", self.fixer_seen)
         self.assertFalse(self.fixer_seen["held"])
         self.assertFalse(self.fixer_seen["own"])
