@@ -17,6 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, notify, orch, usage, watch
 from agentkit.harness import codex
+from agentkit.usage import replenish
 from agentkit.worker import auth_ok
 
 NAME = "fix-api"
@@ -53,6 +54,8 @@ class SeatAccount(unittest.TestCase):
         self.stack.enter_context(patch.object(watch, "poll_worker_token"))
         self.auth = self.stack.enter_context(patch.object(watch.worker, "auth_ok",
                                                          return_value=(True, "fake seat login")))
+        self.replenish = self.stack.enter_context(patch.object(usage, "replenish",
+                                                              return_value=(False, 0)))
         self.stack.enter_context(patch.object(usage, "_probe",
             side_effect=AssertionError("no real usage probes")))
         self.seat = {"name": NAME, "path": str(self.root), "created": self.now - 60,
@@ -321,6 +324,29 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertEqual(config.session_records()[NAME]["account"], "default")
         self.assertEqual(len(self.commands), 1)
 
+    def test_refilled_current_login_needs_no_auth_answer_or_other_account_probe(self):
+        for owned in (True, False):
+            with self.subTest(owned=owned):
+                self.auth.reset_mock()
+                self.auth.return_value = (None, "adapter unavailable")
+                config.save_session(self.cfg, NAME, "opus", ["astra"], {
+                    "cwd": str(self.root), "account": "default",
+                    "conversation": CONVERSATION if owned else None,
+                    "id_source": orch.LAUNCHER if owned else None})
+                self.meters(100, 0)
+                if not owned:
+                    self.tick()
+                    self.auth.assert_not_called()
+                self.meters(0, 0)
+                watch.seat_write(NAME, usage_wait={"reason": "waiting", "since": self.now,
+                                                  "until": self.now + 3600, "continue": True})
+                self.tick()
+                self.auth.assert_not_called()
+                self.assertIsNone(watch.seat_read(NAME)["usage_wait"])
+                watch.seat_write(NAME, midturn=None)
+        self.assertEqual(len(self.commands), 1)
+        self.assertEqual(self.typed, ["continue"])
+
     def test_preview_and_owner_closed_seats_never_reopen(self):
         before = config.session_records()[NAME]
         self.tick(dry=True)
@@ -373,6 +399,120 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.seat["exited"] = True
         orch.resume(self.cfg, NAME, hand_over=False, log=self.logs.append)
         self.assertIn("AGENTKIT_ACCOUNT=second", self.commands[-1])
+
+    def test_new_seat_skips_worker_only_account_and_refuses_when_no_login_answers(self):
+        (config.SECRETS / "claude_oauth_token.second").write_text("fake-worker-token")
+        self.auth.side_effect = lambda harness, seat=False, account=None: (
+            auth_ok(harness, seat=seat, account=account) if account == "second"
+            else (True, "fake default login"))
+        self.meters(30, 0)
+        with patch.object(orch, "start") as start:
+            orch.create(self.cfg, "new-api", self.root,
+                        selection=(usage.collect(self.cfg), ("opus", "chosen", ["astra"])))
+            self.assertEqual(config.session_records()["new-api"]["account"], "default")
+            self.assertNotIn("AGENTKIT_ACCOUNT=second", start.call_args.args[2])
+            for answer in (False, None):
+                self.auth.side_effect = None
+                self.auth.return_value = (answer, "no seat login")
+                with self.assertRaisesRegex(config.Error, "no account has a working seat login"):
+                    orch.create(self.cfg, "no-login", self.root,
+                        selection=(usage.collect(self.cfg), ("opus", "chosen", ["astra"])))
+                self.assertNotIn("no-login", config.session_records())
+            self.assertEqual(start.call_count, 1)
+
+    def codex_seat(self):
+        config.save_session(self.cfg, NAME, "astra", ["opus"], {
+            "cwd": str(self.root), "account": "default"})
+        transcript = self.root / "rollout.jsonl"
+        transcript.write_text(json.dumps({"type": "session_meta", "payload": {
+            "cwd": str(self.root), "id": CONVERSATION}}) + "\n")
+        receipt = codex.prepare(NAME, self.root, None)
+        codex.capture(receipt, {"hook_event_name": "SessionStart", "source": "startup",
+            "session_id": CONVERSATION, "transcript_path": str(transcript), "cwd": str(self.root)})
+
+    def test_codex_named_login_is_checked_for_creation_rollover_and_explicit_resume(self):
+        self.codex_seat()
+        self.cfg["providers"]["openai"]["accounts"] = ["default", "second", "third"]
+        login = self.root / ".codex/auth.json"
+        login.parent.mkdir()
+        login.write_text('{"tokens":{"access_token":"fake-default"}}')
+        self.auth.side_effect = auth_ok
+        def readings(providers):
+            providers["openai"] = {"resets": 0, "accounts": {
+                "default": {"resets": 0, "meters": [], "exhausted_until": self.now + 3600},
+                "second": {"resets": 0, "meters": []},
+                "third": {"resets": 0, "meters": []}}}
+        self.cached(readings)
+        for blob in (None, "not json", "[]", "{}", '{"tokens":{"access_token":""}}',
+                     '{"tokens":{"access_token":"fake","expires_at":1}}'):
+            with self.subTest(blob=blob):
+                second = self.root / ".codex-second/auth.json"
+                if blob is not None:
+                    second.parent.mkdir(exist_ok=True)
+                    second.write_text(blob)
+                self.assertFalse(codex.seat_auth("second")[0])
+                self.tick()
+                self.assertEqual(self.commands, [])
+                with self.assertRaisesRegex(config.Error, "cannot open a seat"):
+                    orch.resume(self.cfg, NAME, hand_over=False, account="second")
+                with patch.object(orch, "start"):
+                    orch.create(self.cfg, "new-api", self.root,
+                        selection=(usage.collect(self.cfg), ("astra", "chosen", ["opus"])))
+                self.assertEqual(config.session_records()["new-api"]["account"], "default")
+        third = self.root / ".codex-third/auth.json"
+        third.parent.mkdir()
+        third.write_text('{"tokens":{"access_token":"fake-third","expires_at":4102444800000}}')
+        login.unlink()     # the named login must not depend on the usual account's file
+        self.tick()
+        self.assertEqual(config.session_records()[NAME]["account"], "third")
+        self.assertIn(CONVERSATION, self.commands[0])
+        with patch.object(orch, "start"):
+            orch.create(self.cfg, "new-api", self.root,
+                selection=(usage.collect(self.cfg), ("astra", "chosen", ["opus"])))
+        self.assertEqual(config.session_records()["new-api"]["account"], "third")
+
+    def test_codex_reset_credit_is_tried_before_parking_or_moving(self):
+        self.codex_seat()
+        self.pane = "You've hit your usage limit"
+        reading = {"provider": "openai", "harness": "codex", "resets": 2,
+                   "meters": [usage._normalized({"name": "primary_window", "used": 95,
+                       "resets_at": self.now + 86400, "window_secs": 604800}, self.now)]}
+        self.cached(lambda p: p.update(openai=reading))
+        self.replenish.side_effect = replenish
+        with patch.object(usage, "_probe", return_value=reading), \
+                patch.object(usage, "_adapter_json", return_value={
+                    "code": "reset", "available": 1, "weekly_used": 5,
+                    "resets_at": self.now + 604800}) as adapter:
+            self.refusal_tick()
+            self.replenish.assert_called_once_with(self.cfg, "openai", depleted=False)
+            adapter.assert_called_once_with("codex", "reset", 60)
+            self.assertEqual(config.session_records()[NAME]["account"], "default")
+            self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
+            watch.continue_turns(self.cfg, self.logs.append, accounts=True)
+            self.pane = "You've hit your usage limit"
+            self.tick()
+            self.assertEqual(len(self.commands), 1)
+            self.assertEqual(self.typed, [watch.ACCOUNT_LINE])
+            self.assertEqual(self.replenish.call_count, 1)
+            # A fresh, nearly spent reading still cannot buy a second reset today.
+            self.now += usage.PROBE_EVERY + 1
+            self.assertFalse(replenish(self.cfg, "openai", depleted=False)[0])
+            adapter.assert_called_once_with("codex", "reset", 60)
+
+    def test_codex_reset_during_meter_read_is_not_parked_on_the_old_refusal(self):
+        self.codex_seat()
+        self.pane = "You've hit your usage limit"
+        collect = usage.collect
+        def readings(cfg):
+            usage._write_reset_state(config.STATE / "openai-reset.json", {"applied_at": self.now})
+            return collect(cfg)
+        with patch.object(usage, "collect", side_effect=readings):
+            self.tick()
+        self.now += watch.STALL_WAIT
+        self.tick()
+        self.replenish.assert_not_called()
+        self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
+        self.assertEqual(len(self.commands), 1)
 
     def scoped_meters(self):
         def add(providers):

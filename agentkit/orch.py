@@ -1617,6 +1617,10 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
             raise config.Error(f"{name}: no {provider} account {account!r}")
         if (session and session.get("legacy")) or not resumable(record):
             raise config.Error(f"{name}: cannot change accounts without an owned conversation")
+        if account != (record.get("account") or config.DEFAULT_ACCOUNT):
+            ok, why = harness_plugin(harness).seat_auth(account)
+            if ok is not True:
+                raise config.Error(f"{name}: {account} cannot open a seat: {why}")
     else:
         account = record.get("account")
     # the directory it ran in, unless that is gone -- a run's worktree, a checkout since
@@ -2827,7 +2831,13 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     provider = config.model(cfg, model)["provider"]
     accounts = config.accounts(cfg, provider)
     order = account_order(cfg, model, providers.get(provider, {}).get("accounts") or {})
-    account = (order or accounts)[0] if accounts else None
+    account = None
+    if accounts:
+        harness = harness_plugin(config.model(cfg, model)["harness"])
+        account = next((a for a in [*order, *(a for a in accounts if a not in order)]
+                        if harness.seat_auth(a)[0] is True), None)
+        if account is None:
+            raise config.Error(f"{provider}: no account has a working seat login")
     cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
     # where and when, because that is what opens the seat again once tmux has lost it -- and the
     # conversation it owns, written down before it starts wherever its harness can be told one.

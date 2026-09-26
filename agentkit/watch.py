@@ -2430,6 +2430,7 @@ def spend_reset(cfg, provider, log):
         return
     if spent:
         log(f"{provider}: usage-limit reset applied ({left:.0f} left)")
+    return spent
 
 
 def done_holds(name, live, notice, began, said, dry_run):
@@ -2545,6 +2546,10 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     current = record.get("account") or config.DEFAULT_ACCOUNT
     model = record["orchestrator"]
     waiting = live.get("usage_wait")
+    # Reading the meters can itself spend a reset. Keep that receipt so the old
+    # refusal cannot park the capacity it just restored.
+    reset_path = config.STATE / f"{provider}-reset.json"
+    reset_before = usage._reset_applied_at(reset_path)
     from . import run
     try:
         prov = (run._cached_providers() if dry_run else usage.collect(cfg)).get(provider) or {}
@@ -2568,7 +2573,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if refusal and not waiting and not spent(current):
         if observed.get("line") != line:
             if not dry_run:
-                seat_write(name, usage_refusal={"line": line, "at": now})
+                seat_write(name, usage_refusal={"line": line, "at": now, "reset_at": reset_before})
             return True
         if now - observed["at"] < STALL_WAIT:
             return True
@@ -2579,10 +2584,29 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if dry_run:
         log(f"would recover {name} on a {provider} account with room, or wait for its reset")
         return True
-    # A worker token can answer the meters without authenticating a seat. Ask before
-    # taking the lock, so a slow login check cannot undo the owner's stop or typing.
-    ready = [a for a in (accounts or [current]) if a in readings and not spent(a)
-             and worker.auth_ok(harness, seat=True, account=a)[0] is True]
+    # Reset credits still belong to the usual login: named logins are seat-only.
+    refilled = False
+    if (refusal and not waiting and reset_policy(harness) and current == config.DEFAULT_ACCOUNT
+            and (until is None or until > now)):
+        applied = usage._reset_applied_at(reset_path)
+        refilled = applied is not None and applied != observed.get("reset_at", reset_before)
+        if refilled:
+            log(f"{provider}: usage-limit reset applied")
+        else:
+            refilled = spend_reset(cfg, provider, log) is True
+        if refilled:
+            fresh = usage.collect(cfg).get(provider) or {}
+            readings = (fresh.get("accounts") or {}) if accounts else {current: fresh}
+    owned = orch.resumable(record)
+    eligible = {a: readings[a] for a in (accounts or [current]) if a in readings
+                and not spent(a) and (owned or a == current)
+                and (a != current or waiting or not refusal or refilled)}
+    # Keep the existing login when it has refilled. Probe only possible moves, in order,
+    # before the owner-action check: a slow adapter must not undo a stop or typing.
+    order = ([current] if current in eligible else []) + [
+        a for a in orch.account_order(cfg, model, eligible) if a != current]
+    target = next((a for a in order if a == current
+                   or orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
     with state_lock():
         # Slow meters must not undo a stop, rename, manual open or another launch.
         current_seat = orch.find(name)
@@ -2591,7 +2615,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                 or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
                 or pane_text(current_seat) != pane):
             return True
-        if refusal and not waiting and not spent(current):
+        if refusal and not waiting and not spent(current) and not refilled:
             # The host may have slept through the deadline. Never replace that old
             # refusal with a new shared-cache park; retry it once in the existing pane.
             if until is not None and until <= now:
@@ -2620,10 +2644,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
             seat_write(name, usage_refusal=observed)
         continuing = bool((waiting or {}).get("continue") or refusal
                           or _turn_in_flight(harness, live)[0])
-        owned = orch.resumable(record)
-        eligible = [a for a in ready if not spent(a) and (owned or a == current)]
-        if eligible:
-            target = orch.account_order(cfg, model, {a: readings[a] for a in eligible})[0]
+        if target is not None:
             try:
                 if owned:
                     resumed = orch.resume(cfg, name, log=log, hand_over=False, account=target)

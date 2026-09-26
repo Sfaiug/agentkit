@@ -112,6 +112,14 @@ class Harness:
 
     # --- the conversation a seat holds ------------------------------------
 
+    def seat_auth(self, account):
+        """Whether this account can open a seat, including logins only seats support."""
+        hook = self._hook("seat_auth")
+        if hook:
+            return hook(account)
+        from .. import worker
+        return worker.auth_ok(self.name, seat=True, account=account)
+
     def conversation(self, record, cwd=None):
         """The conversation this seat owns: by default the one its record was launched with."""
         hook = self._hook("conversation")
