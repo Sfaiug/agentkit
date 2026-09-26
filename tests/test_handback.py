@@ -899,6 +899,7 @@ class HandBack(Sandbox):
                              return_value={"head_sha": "a" * 40, "tree_sha": "b" * 40}), \
                 patch.object(run, "run_done_when",
                              return_value=(False, "$ bash tests/smoke.sh\n[exit 1]\nE no")), \
+                patch.object(run, "target_fails", return_value=False), \
                 patch.object(run, "save_state"), patch.object(run, "note", return_value=False), \
                 patch.object(run, "execute",
                              side_effect=lambda *a, **k: fixers.append(1) or "## Summary\nfix"), \
@@ -935,6 +936,7 @@ class HandBack(Sandbox):
                 patch.object(run, "commit_identity",
                              return_value={"head_sha": "a" * 40, "tree_sha": "b" * 40}), \
                 patch.object(run, "run_done_when", return_value=(False, failure)), \
+                patch.object(run, "target_fails", return_value=False), \
                 patch.object(run, "save_state"), patch.object(run, "note", return_value=False), \
                 patch.object(run, "execute",
                              side_effect=lambda *a, **k: fixers.append(1) or "## Summary\nfix"), \

@@ -3657,7 +3657,8 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
     handed back with them, never a wait that could only end in the same one.
 
     `upstream` names the branch for messages; every check uses `tip`, never the moving name
-    again.
+    again.  A re-test that fails on the target's own tip too parks `waiting` on it at
+    once, spending no round: the target is red, and the branch has nothing to fix.
     """
     tip = tip or upstream
     conflicts = [p for p in git(lp.wt, "diff", "--name-only", "--diff-filter=U",
@@ -3703,6 +3704,9 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
     lp.save()
     ok, dw_log = verify_work(lp)
     lp.log(f"done-when after the {how}: {'all passed' if ok else 'FAILED'}")
+    if not ok and target_fails(lp, upstream, dw_log):
+        return park_waiting(lp, f"{upstream} itself fails: {first_failure(dw_log)}",
+                            upstream, tip)
     # as after the final check: the rounds' history is the rounds' to write, and a gate that
     # passed before the merge began leaves this one nothing to be the same as -- and a
     # conflict round is no task round, so nothing of it enters that history either
@@ -3749,8 +3753,9 @@ def integrate(lp, upstream):
     The tip is resolved once per lap and every check after it uses that pinned commit, never
     the moving branch name again.  When origin moved while the lap landed, the lap goes round
     again, at most three laps; a move still unlanded after the third parks the run `waiting`,
-    as a conflict does, and never ends it FAIL.  A branch left with no diff is False too, a
-    PASS noted as already on the target, so no caller pushes it.
+    as a conflict does, and never ends it FAIL.  A re-check that fails on the target's own
+    tip too parks on it at once, spending no fixer round.  A branch left with no diff is
+    False too, a PASS noted as already on the target, so no caller pushes it.
 
     A fetch, merge or rebase that stops -- out of time, or refused its prompt -- is not a
     conflict and never reaches `resolve_conflicts`: `git_out` raises Stopped, the worktree
@@ -3859,6 +3864,10 @@ def integrate(lp, upstream):
                                 lp.save()
                                 lp.rnd = old_rnd
                         else:
+                            if target_fails(lp, upstream, dw_log):
+                                return park_waiting(
+                                    lp, f"{upstream} itself fails: {first_failure(dw_log)}",
+                                    upstream, tip)
                             if not lp.state.get("review_pending"):
                                 pending_review(lp, f"Re-review after the {how} of {upstream}.")
                             if (resume_review(lp, verified=(ok, dw_log)) != "PASS"
@@ -4303,6 +4312,90 @@ def require_review_pass(lp):
                         "resume the run to obtain review")
 
 
+def target_fails(lp, upstream, dw_log):
+    """Whether the landing check's first failing command fails on the target's own tip too.
+
+    Runs land in parallel, and one whose target moved only under other files lands on its
+    earlier checks without running them on the combined commit -- so the target can be red
+    while every run in flight passed alone.  A landing check failing on that red tip is not
+    the branch's to fix: the first failing command runs once, detached on the tip in this
+    worktree, and a failure there parks the run `waiting` on the target instead of spending
+    fixer rounds editing code its task never touched.  A pass means the branch broke it, and
+    the fixer rounds run as today.
+
+    False when the check names no failing command, when the tree is dirty, and when the tip
+    cannot be resolved or checked out: all of those leave the tree alone and run the fixer
+    rounds as today.  A stop propagates, after the worktree is put back on the branch head,
+    clean.
+    """
+    failed = failing_checks(dw_log)
+    if not failed:
+        return False
+    cmd = failed[0][0]
+    try:
+        tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
+        head = git(lp.wt, "rev-parse", "HEAD")
+    except Stopped:
+        raise
+    except config.Error:
+        return False
+    if git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0:
+        return False
+    branch = git(lp.wt, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
+    stop_check(lp.run_dir)
+    before = set(dirty_paths(lp.wt))
+    detached = False
+    try:
+        try:
+            rc, _ = git_out(lp.wt, "checkout", "--quiet", "--detach", tip)
+        except Stopped:
+            detached = True     # may have switched mid-apply; put it back below
+            raise
+        if rc != 0:
+            return False
+        detached = True
+        lp.log(f"--- merge: `{cmd}` failed; probing it once on {upstream} ({tip[:12]})")
+        probe_log = lp.run_dir / "target-probe.log"
+        with probe_log.open("ab") as progress:
+            progress.write(f"$ {cmd} (on {upstream} {tip})\n".encode())
+            progress.flush()
+            code, _, killed = worker.limited(
+                ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
+                activity=probe_log, output=progress, stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=run_child_env())
+        # as after a gate: a command that exited may still have left processes behind
+        worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
+        return bool(killed or code != 0)
+    finally:
+        if detached:
+            # the tree was clean when it was put aside, so every tracked edit and every
+            # new untracked path is the probe's own droppings: drop them first, so none
+            # of them can block the checkout back, and put the branch back on its head.
+            # Each half runs even when the other stopped -- a stop still ends the run,
+            # but only after the worktree is put back as far as git still goes -- and a
+            # worktree that is still not back is said so, never claimed clean.
+            stopped = None
+            try:
+                git(lp.wt, "reset", "--quiet", "--hard", "HEAD", check=False)
+                new = sorted(set(dirty_paths(lp.wt)) - before)
+                if new:
+                    git(lp.wt, "clean", "--quiet", "-fd", "--", *new, check=False)
+            except Stopped as exc:
+                stopped = exc
+            try:
+                git(lp.wt, "checkout", "--quiet", branch or head, check=False)
+                if git(lp.wt, "rev-parse", "HEAD", check=False) != head:
+                    git(lp.wt, "checkout", "--quiet", head, check=False)
+                if (git(lp.wt, "rev-parse", "HEAD", check=False) != head
+                        or git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
+                    lp.log(f"WARN the probe of `{cmd}` on {upstream} left the worktree off "
+                           f"{head[:12]} or dirty; the retry starts from whatever it left behind")
+            except Stopped as exc:
+                stopped = stopped or exc
+            if stopped is not None:
+                raise stopped
+
+
 def final_check(lp, upstream):
     """Run every-commands plus once-commands on the commit about to be pushed.
 
@@ -4321,6 +4414,8 @@ def final_check(lp, upstream):
     findings, within the round budget it may spend, and once that is spent a review FAIL
     handed back with them.  Still failing after the last one, the run parks `waiting`
     with the check's first failing line, retried after the next merge to `upstream`.
+    A failing command that fails on the target's own tip too parks on it at once,
+    spending no fixer round: the target is red, and the branch has nothing to fix.
     """
     if not lp.once:
         return True
@@ -4362,6 +4457,10 @@ def final_check(lp, upstream):
         lp.log("final check: FAILED")
         lp.state["final_check"] = {"outcome": "failed", "sha": sha, "line": failing}
         save_state(lp.run_dir, lp.state)
+        if target_fails(lp, upstream, text):
+            return park_waiting(
+                lp, f"{upstream} itself fails: {failing}", upstream,
+                git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False) or None)
         if fixed >= CONFLICT_ROUNDS:
             return park_waiting(
                 lp, f"the final check still fails after {CONFLICT_ROUNDS} fixer rounds: "

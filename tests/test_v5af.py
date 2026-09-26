@@ -55,6 +55,8 @@ if reviewer:
 elif "## The final check failed" in prompt:
     with (cwd / "fixed").open("a") as fh: fh.write("fixed\\n")
     git(cwd, "add", "fixed")
+    if (cwd / "regent").exists():
+        git(cwd, "rm", "-q", "regent")
     git(cwd, "commit", "-m", "fix the final check")
     record("final-fixer", cwd)
     text, code = "## Summary\\nFixed the root cause.", 0
@@ -224,9 +226,14 @@ class V5af(unittest.TestCase):
         self.assertIn(f"final check: passed on {state['delivery_sha']}", result)
 
     def test_v5af_failing_once_command_gets_a_fixer_turn_then_merges(self):
-        gate = ("if test -f fixed; then echo once-pass >> "
-                f"{shlex.quote(str(self.counter))}; else echo once-fail >> "
-                f"{shlex.quote(str(self.counter))}; exit 1; fi  # once")
+        # the branch carries a regression the target never had, so the failing gate
+        # passes on the target's tip and the fixer runs exactly as before
+        (self.wt / "regent").write_text("branch regression\n")
+        run.git(self.wt, "add", "regent")
+        run.git(self.wt, "commit", "-m", "branch regression")
+        gate = ("if test -f regent; then echo once-fail >> "
+                f"{shlex.quote(str(self.counter))}; exit 1; else echo once-pass >> "
+                f"{shlex.quote(str(self.counter))}; fi  # once")
         code, state = self.launch(self.every_cmd(), gate)
         self.assertEqual(code, 0, self.log_text())
         self.assertTrue(state["merged"])
@@ -234,15 +241,16 @@ class V5af(unittest.TestCase):
                             for prompt in self.prompts()),
                         "no fixer turn ran on the final check output")
         self.assertEqual(self.counts("once-fail"), 2)     # the failing run and its re-run
-        self.assertEqual(self.counts("once-pass"), 1)
+        self.assertEqual(self.counts("once-pass"), 2)     # the target probe and the recheck
         self.assertIn("final check: FAILED", self.log_text())
         self.assertIn("final check: all passed", self.log_text())
         result = (self.directory / "result.md").read_text()
         self.assertIn(f"final check: passed on {state['delivery_sha']}", result)
 
     def test_v5af_once_command_failing_at_the_budget_fails_with_a_continue_hint(self):
-        code, state = self.launch(self.every_cmd(),
-                                  f"{self.every_cmd('once')}; exit 1  # once", rounds=1)
+        # the branch's own file fails the gate where the target passes it, so the
+        # fixer still runs and the identical failure still blocks with its line
+        code, state = self.launch(self.every_cmd(), "test ! -f work.txt  # once", rounds=1)
         self.assertEqual(code, 1, self.log_text())
         # the check fails the same way after its own fixer round: blocked on the line it
         # fails on, never a FAIL that spends the budget and asks for `--rounds`
@@ -250,7 +258,7 @@ class V5af(unittest.TestCase):
         self.assertIn("final check: FAILED", self.log_text())
         result = (self.directory / "result.md").read_text()
         self.assertIn("final check: failed on ", result)
-        self.assertIn("the final check still fails on `echo once", state["error"])
+        self.assertIn("the final check still fails on `test ! -f work.txt`", state["error"])
         self.assertNotIn("--rounds", result)
 
     def test_v5af_no_once_commands_means_no_final_check(self):

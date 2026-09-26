@@ -173,6 +173,7 @@ class Lessons(unittest.TestCase):
                 patch.object(run, "merge", side_effect=deliver), \
                 patch.object(run, "integrate", return_value=True), \
                 patch.object(run, "finish", return_value=0), \
+                patch.object(run, "target_fails", return_value=False), \
                 patch.object(worker, "call", side_effect=fix):
             self.assertEqual(run.cmd_merge([directory.name]), 0)
         self.assertEqual([role for role, _ in self.prompts],
