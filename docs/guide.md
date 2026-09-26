@@ -27,8 +27,9 @@ this host, handed over by its adapter for that launch only (Antigravity's as the
 `AGENTS.md` or `CLAUDE.md` holds its conventions and is never the place for agentkit's rules.
 
 At every turn's end `hooks/orchestrator-stop.sh` sends the turn back with *Continue: decide the next step and do it*
-unless the last paragraph asks something, `ak notify needs` or `ak notify done` was recorded, a run of this seat's is
-going, or its `ak wait <session>` names a session that is working; it blocks at most twice a turn. On Claude Code, background work the seat started counts as a run until it reports
+unless the last paragraph asks something or `ak notify needs` was recorded; a run of this seat's going, `ak notify done`,
+or its `ak wait <session>` naming a session that is working ends the turn only while none of its runs sits parked and
+undecided, which names each run with its parked reason and is resumed, relaunched split or on another model, stopped, or asked of the owner; it blocks at most twice a turn. On Claude Code, background work the seat started counts as a run until it reports
 back, a bare *shall I continue?* as the last sentence is no question, and a stop sent back reads `working`. A harness
 with no blocking end-of-turn hook declares `[stop] enforce = "nudge"`, and the tick types `continue` instead.
 

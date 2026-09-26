@@ -5,7 +5,11 @@
 # `ak notify done` because the job is finished, or a run it is waiting on, which includes the
 # background work it started in its own harness while the harness still lists it in flight, and
 # another session's work it said it waits on with `ak wait`, for as long as `watch.waiting_on`
-# says that session is working.
+# says that session is working.  A run of its own that sits parked and undecided -- `unfinished`,
+# the runs `ak notify done` refuses on -- holds the turn past a done or a run going: the block
+# names each such run and its parked reason, and the seat resumes it, relaunches it split or on
+# another model, stops it, or asks the owner.  A question, `ak notify needs`, background work
+# and the third stop stand past it, as they always did.
 # Anything else is sent back to work with the harness's own block decision, which Claude Code
 # 2.1.263, Codex 0.153.4 and Grok Build 1.0.40 spell the same way: `{"decision": "block",
 # "reason": "..."}` on stdout.  "Here is my recommendation, let me know if I should continue"
@@ -53,7 +57,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
-from agentkit.run import going
+from agentkit.run import going, handback_reason, unfinished
 from agentkit.watch import waiting_on
 
 HOPS = 8            # how many renames a seat name is followed through, as agentkit/config does
@@ -205,11 +209,11 @@ def background(payload):
     return isinstance(tasks, list) and any(isinstance(task, dict) for task in tasks)
 
 
-def told(seat, turn):
-    """`ak notify needs` or `ak notify done` recorded for this seat during the turn."""
+def told(seat, turn, kind):
+    """`ak notify <kind>` recorded for this seat during the turn."""
     note = read(STATE / f"notify-{seat}.json")
     when = moment(note.get("time"))
-    return note.get("kind") in ("needs", "done") and when is not None and when >= turn
+    return note.get("kind") == kind and when is not None and when >= turn
 
 
 def waiting(seat, turn):
@@ -235,8 +239,47 @@ def waiting(seat, turn):
     return False
 
 
+def parked(seat):
+    """(run, parked reason) for this seat's runs that sit parked and undecided.
+
+    Undecided is `unfinished` whole -- the runs `ak notify done` refuses on -- read through
+    agentkit's own function, never a copy of its rule.  A run still going is not parked: it
+    resumes itself, and a stop that waits on it stands as it always did.
+    """
+    try:
+        directories = sorted(path for path in RUNS.iterdir() if path.is_dir())
+    except OSError:
+        return []
+    found = []
+    for directory in directories:
+        state = read(directory / "run.json")
+        owner = state.get("launched_session") or state.get("session")
+        # the rename chain is only walked for a run whose recorded name is not already this one
+        if not isinstance(owner, str) or not owner or (owner != seat and resolve(owner) != seat):
+            continue
+        if going(state) or not unfinished(state):
+            continue
+        found.append((directory.name, handback_reason(state)))
+    return found
+
+
+def parked_reason(found):
+    """The block where runs sit parked and undecided: each run and its reason, and the four ways out."""
+    runs = "; ".join(f"run {name} parked: {why}" for name, why in found)
+    resume = " / ".join(f"ak run resume {name}" for name, _ in found)
+    stop = " / ".join(f"ak run stop {name}" for name, _ in found)
+    return (f"{runs}. Continue: resume it ({resume}), relaunch it split or on another model, "
+            f"stop it ({stop}), or ask the owner.")
+
+
 def held(launched, payload):
-    """Send this stop back to work?  At most LIMIT times in one turn, which the latch counts."""
+    """The reason to send this stop back with, or "" where the stop stands.
+
+    At most LIMIT blocks in one turn, which the latch counts: a question, `ak notify needs`,
+    background work and the third stop stand past a parked run as they always did, while a
+    done, a run going or an `ak wait` ends the turn only with none of this seat's runs parked
+    and undecided.
+    """
     # The latch is this seat's own file, under the name its harness was launched with, the way
     # hooks/seat-state.sh writes it.  What it reads is the toolkit's, and that moved when the
     # seat was renamed.
@@ -244,22 +287,25 @@ def held(launched, payload):
     record = read(latch)
     turn = moment(record.get("turn"))
     if turn is None:
-        return False    # no turn was written down; nothing here can say what happened during it
+        return ""    # no turn was written down; nothing here can say what happened during it
     if background(payload):
-        return False
+        return ""
     seat = resolve(launched)
     said = last_message(payload)
-    if (said is None or asks(said, leave=tells(payload)) or told(seat, turn)
-            or waiting(seat, turn) or waiting_on(seat)):
-        return False
+    if said is None or asks(said, leave=tells(payload)) or told(seat, turn, "needs"):
+        return ""
+    undecided = parked(seat)
+    if not undecided and (told(seat, turn, "done") or waiting(seat, turn)
+                          or waiting_on(seat)):
+        return ""
     blocks = record.get("blocks")
     blocks = blocks + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1
     if blocks > LIMIT:
-        return False    # the third stop stands, and the state function shows it as `needs you`
+        return ""    # the third stop stands, and the state function shows it as `needs you`
     tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")
     tmp.write_text(json.dumps({"session": launched, "turn": turn, "blocks": blocks}) + "\n")
     tmp.replace(latch)
-    return True
+    return parked_reason(undecided) if undecided else REASON
 
 
 def written(launched, kind):
@@ -283,7 +329,7 @@ def main():
     if tells(payload):
         written(launched, "background" if background(payload) else "held" if back else "")
     if back:
-        print(json.dumps({"decision": "block", "reason": REASON}))
+        print(json.dumps({"decision": "block", "reason": back}))
 
 
 main()
