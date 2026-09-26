@@ -141,10 +141,10 @@ class MergeTurn(unittest.TestCase):
         real_turn = run.merge_turn
 
         @contextmanager
-        def turn(lp, upstream):
+        def turn(lp, upstream, *args, **kwargs):
             if self.queuing:
                 self.queuing(lp)
-            with real_turn(lp, upstream):
+            with real_turn(lp, upstream, *args, **kwargs):
                 self.events.append(("turn", lp.wt))
                 self.holding.add(lp.wt)
                 try:

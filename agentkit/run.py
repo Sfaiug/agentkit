@@ -182,6 +182,7 @@ _RECOVERY_HELD = threading.local()   # the recovery locks this thread is already
 _PICKUP_START = None    # the installed agentkit this process started on, for in-flight pickup
 _PICKUP_HELD = threading.local()   # gate and merge turns this thread holds now
 _GATE_HELD = threading.local()     # the gate turn this thread holds now, if any
+_MERGE_HELD = threading.local()    # the merge turn this thread holds now, if any
 STALL_RESUME_GRACE = 600        # the tick stopped this loop and its resume is on the way; reap
                                 # leaves the record alone until then, and the resume adopts it
 RESUME_VISIBLE = 3600           # ak run status names a mid-turn resume in the age column for this long
@@ -1724,6 +1725,47 @@ class _GateHold:
             self.files.close()
 
 
+class _MergeHold:
+    """One held merge turn: the open lock file and the record it marks while reserved.
+
+    The hold owns its file rather than the frame that waited for it: a reserved lap
+    holds one turn across its rebase, its checks and its merge, and lets it go before
+    a fixer or a reviewer starts, from inside the frame that took it.  Releasing closes
+    the file, as leaving the frame would have, and takes the holding mark off the record.
+    """
+
+    def __init__(self, lock, lp, reserved):
+        self.lock, self.lp, self.reserved = lock, lp, reserved
+        self._released = False
+
+    def release(self):
+        if self._released:
+            return
+        self._released = True
+        try:
+            if self.lock is not None:
+                try:
+                    self.lock.close()
+                except (OSError, ValueError):
+                    pass
+        finally:
+            self.lock = None
+            held = getattr(_PICKUP_HELD, "count", 0)
+            if held:
+                _PICKUP_HELD.count = held - 1
+            if self.reserved:
+                try:
+                    self.lp.state.pop("merge_turn", None)
+                    save_state(self.lp.run_dir, self.lp.state)
+                except (OSError, StopRequested):
+                    try:
+                        self.lp.state.pop("merge_turn", None)
+                    except Exception:
+                        pass
+            if getattr(_MERGE_HELD, "hold", None) is self:
+                _MERGE_HELD.hold = None
+
+
 def _acquire_gate_turn(run_dir, log_path, log):
     """Wait for and hold one of the repository's gate turns; None when no turn is taken."""
     record = read_state(run_dir) or {} if run_dir else {}
@@ -1835,11 +1877,16 @@ def released_gate_turn():
     A rebase conflict, a failing check and a re-review all end in a fixer or a reviewer,
     and a model turn held through them lands nothing for the runs queued behind.  The lap
     goes again after the fix, as it does today; whoever needs the turn next takes it fresh,
-    which is also what a check does when no turn is held at all.
+    which is also what a check does when no turn is held at all.  A reserved merge turn
+    goes with it, for the same reason, and the next lap takes it again.
     """
     hold, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
     if hold is not None:
         hold.release()
+    merge_hold, _MERGE_HELD.hold = getattr(_MERGE_HELD, "hold", None), None
+    if merge_hold is not None:
+        merge_hold.release()
+        _MERGE_HELD.hold = None
     yield
 
 
@@ -4684,17 +4731,20 @@ def land(lp, upstream, verify, deliver, execv=None):
     starts, and the lap goes again after the fix.  `verify` is the rebase, the done-when
     and final check re-runs, and every conflict fixer, final-check fixer and re-review
     they need.  On a loaded host that is an hour, and with fixer rounds a night, and a
-    merge turn held through it lands nothing for the runs queued behind.  So the merge turn
-    covers a fetch and `deliver` -- the push, the PR, its required checks and the merge.
-    A target still on the commit the branch was verified on lands.  One moved only by
-    commits that touch none of this branch's files is rebased onto under the turn and lands
-    on the verified checks.  Any other move gives the turn to the next run while this one
-    verifies again, and a third such lap parks the run `waiting`, as a target moving under
-    three integrations does.  A branch cut from a dependency's passed branch first waits for
-    that dependency to merge (`wait_for_dependency`).  A pickup mid-landing resumes its lap
-    count, so the three laps bound the run across the move.  While the run is inside
-    this landing its gate waits rank ahead of every round check's, every lap counting
-    from the start of the landing's first wait, so a run ready to land finishes
+    merge turn held through it lands nothing for the runs queued behind.  So the first
+    lap's merge turn covers a fetch and `deliver` -- the push, the PR, its required
+    checks and the merge.  A target still on the commit the branch was verified on lands.
+    One moved only by commits that touch none of this branch's files is rebased onto
+    under the turn and lands on the verified checks.  Any other move gives the turn to
+    the next run while this one verifies again holding it, from before its rebase
+    through its merge, so the lap lands when its check passes; a third such lap parks
+    the run `waiting`, as a target moving under three integrations does.  A reserved
+    turn is let go before any fixer or reviewer starts, and when the run stops, and the
+    next lap takes it again.  A branch cut from a dependency's passed branch first waits
+    for that dependency to merge (`wait_for_dependency`).  A pickup mid-landing resumes
+    its lap count, so the three laps bound the run across the move.  While the run is
+    inside this landing its gate waits rank ahead of every round check's, every lap
+    counting from the start of the landing's first wait, so a run ready to land finishes
     instead of queuing behind another round.
     """
     if not wait_for_dependency(lp):
@@ -4714,30 +4764,32 @@ def land(lp, upstream, verify, deliver, execv=None):
         for lap in range(first_lap, 4):
             pickup_new_code(lp, execv=execv, extra={"land_lap": lap})
             turn_log = Path(lp.run_dir) / "landing-turn.log"
-            with gate_turn(lp.run_dir, turn_log, lp.log):
-                # the wait is over and the checks keep their own logs; the wait's own
-                # line has said all it will ever say
-                try:
-                    turn_log.unlink(missing_ok=True)
-                except OSError:
-                    pass
-                if not verify():
-                    return False
-            verified = lp.base_sha
-            with merge_turn(lp, upstream):
-                rc, out = git_out(lp.wt, "fetch", "origin", "--prune")
-                if rc != 0:
-                    return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
-                tip = git(lp.wt, "rev-parse", "--verify", "--quiet", f"{upstream}^{{commit}}",
-                          check=False)
-                if not tip:
-                    return note(lp, f"{upstream} does not exist on origin; nothing to merge into",
-                                failed=True)
-                if tip == verified or disjoint_move(lp, upstream, verified, tip):
-                    return deliver()
+            reserved = lap > 1
+            with merge_turn(lp, upstream, reserve=True) if reserved else nullcontext():
+                with gate_turn(lp.run_dir, turn_log, lp.log):
+                    # the wait is over and the checks keep their own logs; the wait's own
+                    # line has said all it will ever say
+                    try:
+                        turn_log.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    if not verify():
+                        return False
+                verified = lp.base_sha
+                with merge_turn(lp, upstream):
+                    rc, out = git_out(lp.wt, "fetch", "origin", "--prune")
+                    if rc != 0:
+                        return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
+                    tip = git(lp.wt, "rev-parse", "--verify", "--quiet",
+                              f"{upstream}^{{commit}}", check=False)
+                    if not tip:
+                        return note(lp, f"{upstream} does not exist on origin; nothing to merge "
+                                        "into", failed=True)
+                    if tip == verified or disjoint_move(lp, upstream, verified, tip):
+                        return deliver()
             if lap < 3:
                 lp.log(f"--- merge: {upstream} moved to {tip[:12]}, touching this branch's files; "
-                       "verifying again outside the merge turn")
+                       "verifying again holding the merge turn")
         # parked on the tip the last lap verified, which origin is already past, so the tick's
         # next pass retries it
         return park_waiting(lp, f"{upstream} moved three times while this run verified",
@@ -4796,23 +4848,30 @@ def disjoint_move(lp, upstream, verified, tip):
 
 
 @contextmanager
-def merge_turn(lp, upstream):
+def merge_turn(lp, upstream, reserve=False):
     """This host's one run at a time landing on `upstream`, from its last fetch to the merge.
 
     Passed runs of one repository that land together undo each other: each pushes a branch
     verified on a target the other's merge has just moved.  So the runs of one origin and
-    target branch take turns, and `land` keeps everything long outside them.  The turn is a
-    flock, which the kernel lets go of when its holder dies, so a run killed mid-merge never
-    blocks the next.  A run waiting for it says so on its record, and host admission does
-    not count it as a running worker meanwhile.
+    target branch take turns, and `land` keeps everything long outside them, except a lap
+    after a lost one, which reserves the turn from before its rebase through its merge.
+    The turn is a flock, which the kernel lets go of when its holder dies, so a run killed
+    mid-merge never blocks the next.  A run waiting for it says so on its record, and host
+    admission does not count it as a running worker meanwhile; a reserved lap says it holds
+    the turn to land.  A check running while this thread already holds a turn takes no
+    second one: a reserved lap's fetch and merge run under the turn it already holds.
     """
+    if getattr(_MERGE_HELD, "hold", None) is not None:
+        yield
+        return
     url = git(lp.wt, "remote", "get-url", "origin", check=False) or str(lp.state.get("repo"))
     config.RUNS.mkdir(parents=True, exist_ok=True)
-    with merge_turn_lock(url, upstream).open("a") as lock:
+    what = f"{Path(lp.state.get('repo') or lp.wt).name} {upstream.removeprefix('origin/')}"
+    lock = merge_turn_lock(url, upstream).open("a")
+    try:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            what = f"{Path(lp.state.get('repo') or lp.wt).name} {upstream.removeprefix('origin/')}"
             lp.state["merge_turn"] = {"pid": os.getpid(), "of": what}
             save_state(lp.run_dir, lp.state)
             lp.log(f"--- merge: waiting for the merge turn of {what}; another run is landing on it")
@@ -4827,9 +4886,27 @@ def merge_turn(lp, upstream):
         held = getattr(_PICKUP_HELD, "count", 0)
         _PICKUP_HELD.count = held + 1
         try:
+            if reserve:
+                lp.state["merge_turn"] = {"pid": os.getpid(), "of": what, "holding": True}
+                save_state(lp.run_dir, lp.state)
+                lp.log(f"--- merge: holding the merge turn of {what} to land")
+        except BaseException:
+            _PICKUP_HELD.count = held
+            raise
+        hold = _MergeHold(lock, lp, reserve)
+        lock = None             # the hold owns the file from here
+        _MERGE_HELD.hold = hold
+        try:
             yield
         finally:
-            _PICKUP_HELD.count = held
+            if getattr(_MERGE_HELD, "hold", None) is hold:
+                hold.release()
+    finally:
+        if lock is not None:
+            try:
+                lock.close()
+            except (OSError, ValueError):
+                pass
 
 
 def merge_turn_lock(url, upstream):
@@ -4851,15 +4928,19 @@ def merge_turn_lock(url, upstream):
 
 
 def merge_turn_note(state):
-    """`waiting for the merge turn of <repo> <branch>` while a run waits in `merge_turn`, else "".
+    """`waiting for the merge turn of <repo> <branch>` while a run waits in `merge_turn`,
+    `holding the merge turn of <repo> <branch> to land` while a reserved lap holds it,
+    else "".
 
-    The mark names the process that waits, so one a kill left on the record, or a resume
-    carried forward to a new process, says nothing.
+    The mark names the process that waits or holds, so one a kill left on the record,
+    or a resume carried forward to a new process, says nothing.
     """
     turn = state.get("merge_turn")
     if (state.get("state") != "running" or not isinstance(turn, dict)
             or turn.get("pid") != state.get("pid")):
         return ""
+    if turn.get("holding"):
+        return f"holding the merge turn of {turn.get('of')} to land"
     return f"waiting for the merge turn of {turn.get('of')}"
 
 
