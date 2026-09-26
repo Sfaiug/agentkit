@@ -1538,13 +1538,29 @@ def take_slot(slots):
     return None
 
 
+def _first_landing_wait(run_dir):
+    """This run's first landing wait, or None when it never waited to land.
+
+    The start lives beside the record, not in it: a whole-record save of the loop's
+    own state would wipe it from run.json between two laps, and the next lap would
+    count from itself instead.  `land` clears it for a fresh landing and when the
+    landing ends.
+    """
+    try:
+        return float((Path(run_dir) / "landing_since").read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
 def mark_gate_wait(run_dir, of):
     """Put `waiting for a gate turn of <repo>` on the record, or take it off (`of` None).
 
     `of` is the repository's main checkout; the note shows its folder name.  With this
     process's pid, as the merge turn's mark is, and the wait's start, so a freed turn
-    goes to the waiter that has waited longest.  Returns the start it recorded, or None
-    when it recorded none.
+    goes to the waiter that has waited longest.  A landing run's mark says so; the
+    start of its first landing wait lives beside the record, where whole-record saves
+    cannot wipe it (see `_first_landing_wait`): that start is what this returns for a
+    lander, the wait's own start otherwise, and None when it recorded none.
     """
     since = time.time()
     try:
@@ -1552,6 +1568,18 @@ def mark_gate_wait(run_dir, of):
             state = read_state(run_dir)
             if state and state.get("state") == "running":
                 if of:
+                    if state.get("landing"):
+                        first = _first_landing_wait(run_dir)
+                        if first is None:
+                            first = since
+                            try:
+                                (Path(run_dir) / "landing_since").write_text(repr(since))
+                            except OSError:
+                                pass    # without the marker this wait still ranks as landing
+                        state["gate_turn"] = {"pid": os.getpid(), "of": str(of),
+                                              "since": since, "landing": True}
+                        save_state(run_dir, state)
+                        return first
                     state["gate_turn"] = {"pid": os.getpid(), "of": str(of), "since": since}
                 else:
                     state.pop("gate_turn", None)
@@ -1572,16 +1600,20 @@ def gate_turn_note(state):
     return f"waiting for a gate turn of {Path(str(turn.get('of'))).name}"
 
 
-def _gate_waiter_before(repo, exclude, is_first, since):
+def _gate_waiter_before(repo, exclude, is_first, since, is_landing=False):
     """Whether a live waiter for `repo` ranks before this gate.
 
-    Rank is `--first` before the rest, then the longest wait, then the run id, so a
-    freed turn goes to the waiter that has waited longest among the highest rank.  A
-    mark whose process is gone, or whose pid no longer matches its record -- a kill or
-    a resume left it behind -- holds nobody back, and a waiter counts only when its
-    mark names this main checkout, never a folder name two checkouts share.
+    Rank is a landing run before any round check, then `--first` before the rest,
+    then the longest wait, then the run id, so a freed turn finishes a run ready to
+    land before starting another round's check.  A lander's wait counts from the
+    start of its first landing wait, not from the lap; a mark from before landers
+    ranked carries no landing and reads as a round check.  A mark whose process is
+    gone, or whose
+    pid no longer matches its record -- a kill or a resume left it behind -- holds
+    nobody back, and a waiter counts only when its mark names this main checkout,
+    never a folder name two checkouts share.
     """
-    me = (not is_first, since, exclude or "")
+    me = (not is_landing, not is_first, since, exclude or "")
     for directory in run_dirs():
         if directory.name == exclude:
             continue
@@ -1595,10 +1627,13 @@ def _gate_waiter_before(repo, exclude, is_first, since):
             continue
         if not process_active(other):
             continue
-        waited = turn.get("since")
+        landing = bool(turn.get("landing"))
+        waited = _first_landing_wait(directory) if landing else turn.get("since")
         if not isinstance(waited, (int, float)) or isinstance(waited, bool):
-            waited = 0
-        if (not other.get("first"), waited, directory.name) < me:
+            waited = turn.get("since") if landing else 0
+            if not isinstance(waited, (int, float)) or isinstance(waited, bool):
+                waited = 0
+        if (not landing, not other.get("first"), waited, directory.name) < me:
             return True
     return False
 
@@ -1617,8 +1652,9 @@ def gate_turn(run_dir, log_path, log):
     stop lands while it waits as it does mid-list.  A run without a repository, a direct caller
     with no record, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0` all take no turn.
     A freed turn goes to the waiter that has waited longest among the highest rank,
-    `--first` before the rest: a gate takes a free turn only when no waiter ranks
-    before it.
+    a landing run before any round check and `--first` before the rest: a gate takes
+    a free turn only when no waiter ranks before it, and a lander's wait counts from
+    the start of its first landing wait.
     A home config this cannot read -- it is read here, mid-run, so one hand-edit typo would
     fail the next gate of every running run -- means the shipped default, and a log line
     naming the problem.
@@ -1626,6 +1662,8 @@ def gate_turn(run_dir, log_path, log):
     record = read_state(run_dir) or {} if run_dir else {}
     repo = record.get("repo")
     is_first = bool(record.get("first"))
+    is_landing = bool(record.get("landing"))
+    landing_since = _first_landing_wait(run_dir) if run_dir else None
     self_id = run_dir.name if run_dir else None
     limit = 0
     if repo and os.environ.get("AK_MAX_RUNS") != "0":
@@ -1644,7 +1682,8 @@ def gate_turn(run_dir, log_path, log):
     with ExitStack() as files:
         slots = [files.enter_context(gate_lock(repo, i).open("a")) for i in range(limit)]
         slot = take_slot(slots)
-        if slot is None or _gate_waiter_before(repo, self_id, is_first, time.time()):
+        me_since = landing_since if is_landing and landing_since is not None else time.time()
+        if slot is None or _gate_waiter_before(repo, self_id, is_first, me_since, is_landing):
             if slot is not None:
                 fcntl.flock(slot, fcntl.LOCK_UN)
             began = time.monotonic()
@@ -1653,7 +1692,7 @@ def gate_turn(run_dir, log_path, log):
                 log(f"done-when: {said}")
             waited_since = mark_gate_wait(run_dir, repo)
             if waited_since is None:
-                waited_since = time.time()
+                waited_since = me_since if is_landing else time.time()
             step = history.close_step(run_dir.name)     # the wait is no step's work
             try:
                 while True:
@@ -1663,7 +1702,8 @@ def gate_turn(run_dir, log_path, log):
                     slot = take_slot(slots)
                     if slot is None:
                         continue
-                    if _gate_waiter_before(repo, self_id, is_first, waited_since):
+                    if _gate_waiter_before(repo, self_id, is_first, waited_since,
+                                             is_landing):
                         fcntl.flock(slot, fcntl.LOCK_UN)
                         continue
                     break
@@ -4373,33 +4413,58 @@ def land(lp, upstream, verify, deliver, execv=None):
     again, and a third such lap parks the run `waiting`, as a target moving under three
     integrations does.  A branch cut from a dependency's passed branch first waits for that
     dependency to merge (`wait_for_dependency`).  A pickup mid-landing resumes its lap
-    count, so the three laps bound the run across the move.
+    count, so the three laps bound the run across the move.  While the run is inside
+    this landing its gate waits rank ahead of every round check's, every lap counting
+    from the start of the landing's first wait, so a run ready to land finishes
+    instead of queuing behind another round.
     """
     if not wait_for_dependency(lp):
         return False
-    for lap in range(lp.state.pop("land_lap", 1), 4):
-        pickup_new_code(lp, execv=execv, extra={"land_lap": lap})
-        if not verify():
-            return False
-        verified = lp.base_sha
-        with merge_turn(lp, upstream):
-            rc, out = git_out(lp.wt, "fetch", "origin", "--prune")
-            if rc != 0:
-                return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
-            tip = git(lp.wt, "rev-parse", "--verify", "--quiet", f"{upstream}^{{commit}}",
-                      check=False)
-            if not tip:
-                return note(lp, f"{upstream} does not exist on origin; nothing to merge into",
-                            failed=True)
-            if tip == verified or disjoint_move(lp, upstream, verified, tip):
-                return deliver()
-        if lap < 3:
-            lp.log(f"--- merge: {upstream} moved to {tip[:12]}, touching this branch's files; "
-                   "verifying again outside the merge turn")
-    # parked on the tip the last lap verified, which origin is already past, so the tick's
-    # next pass retries it
-    return park_waiting(lp, f"{upstream} moved three times while this run verified",
-                        upstream, verified)
+    first_lap = lp.state.pop("land_lap", 1)
+    lp.state["landing"] = True
+    if first_lap == 1:
+        # A fresh landing counts from its own first wait: a marker a crash left
+        # behind belongs to a landing that never finished.  A pickup resume keeps
+        # its marker with its lap count.
+        try:
+            (Path(lp.run_dir) / "landing_since").unlink(missing_ok=True)
+        except OSError:
+            pass
+    save_state(lp.run_dir, lp.state)
+    try:
+        for lap in range(first_lap, 4):
+            pickup_new_code(lp, execv=execv, extra={"land_lap": lap})
+            if not verify():
+                return False
+            verified = lp.base_sha
+            with merge_turn(lp, upstream):
+                rc, out = git_out(lp.wt, "fetch", "origin", "--prune")
+                if rc != 0:
+                    return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
+                tip = git(lp.wt, "rev-parse", "--verify", "--quiet", f"{upstream}^{{commit}}",
+                          check=False)
+                if not tip:
+                    return note(lp, f"{upstream} does not exist on origin; nothing to merge into",
+                                failed=True)
+                if tip == verified or disjoint_move(lp, upstream, verified, tip):
+                    return deliver()
+            if lap < 3:
+                lp.log(f"--- merge: {upstream} moved to {tip[:12]}, touching this branch's files; "
+                       "verifying again outside the merge turn")
+        # parked on the tip the last lap verified, which origin is already past, so the tick's
+        # next pass retries it
+        return park_waiting(lp, f"{upstream} moved three times while this run verified",
+                            upstream, verified)
+    finally:
+        lp.state.pop("landing", None)
+        try:
+            (Path(lp.run_dir) / "landing_since").unlink(missing_ok=True)
+        except OSError:
+            pass            # the next landing counts from its own first wait
+        try:
+            save_state(lp.run_dir, lp.state)
+        except (OSError, StopRequested):
+            pass            # the landing is over however the record ends
 
 
 def disjoint_move(lp, upstream, verified, tip):
