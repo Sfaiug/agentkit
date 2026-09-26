@@ -1562,8 +1562,18 @@ PY
 # alongside the real model calls, and check 9 collects them. Fake HOME + fake adapters: no
 # network, no real runs dir -- and --no-merge, because these throwaway repos have no origin
 # and check 4 owns the merge.
-retrylaunch() {   # retrylaunch <tag> <executor behaviour> <reviewer behaviour>
+retrylaunch() {   # retrylaunch <tag> <executor behaviour> <reviewer behaviour> [workers json]
   ( D="$WORK/ad-$1"; H="$WORK/home-$1"; mkdir -p -- "$D" "$H"; wideworkers "$H"
+    if [ -n "${4:-}" ]; then
+      # a run whose round has nobody else to hand to: the pinned pair alone, so the
+      # second transient failure waits out the backoff on its own session instead
+      python3 - "$H/.agentkit/config.toml" "$4" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+with open(sys.argv[1], "w") as fh:
+    fh.write(re.sub(r"(?m)^workers = .*$", "workers = " + sys.argv[2], text, count=1))
+PY
+    fi
     fakeadapter "$D" claude "$2"; fakeadapter "$D" codex "$3"; fakeadapter "$D" muse pass
     # no grokbuild or opencode fake here on purpose: every meter in this sandbox errors by
     # design, and a neutral meterless harness would steal check 9b's pinned fallback to spark
@@ -1575,7 +1585,8 @@ retrylaunch() {   # retrylaunch <tag> <executor behaviour> <reviewer behaviour>
       --review astra --no-merge
     echo "rc=$?" ) >"$WORK/$1.log" 2>&1 &
 }
-retrylaunch retry-exec flaky pass     # executor dies twice, then works
+# the executor's round has no spare pair to hand to, so it retries its own session twice
+retrylaunch retry-exec flaky pass '["opus", "astra"]'
 retrylaunch retry-review work dead    # reviewer never comes back -> fall back to another provider
 
 # --- 1: usage --------------------------------------------------------------
