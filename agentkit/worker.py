@@ -72,11 +72,12 @@ class LoginExpired(Exception):
         self.harness, self.why, self.session = harness, why, session
 
 
-def auth_ok(harness, seat=False, run_id=None):
+def auth_ok(harness, seat=False, run_id=None, account=None):
     """Whether that harness can authenticate right now, and the one line it said about it.
 
     `run_id` marks the probe as that run's own, so detached descendants die with the run
-    like any other child; a probe with no run to name runs unmarked, as before.
+    like any other child; a probe with no run to name runs unmarked, as before.  `account`
+    asks about that one of its provider's logins (`config.account_env`), never another's.
 
     `seat` asks about the interactive login instead of a headless turn's.  They are two
     logins wherever a harness has a worker credential of its own, and they expire apart: a
@@ -106,6 +107,8 @@ def auth_ok(harness, seat=False, run_id=None):
     env = config.child_env()
     if run_id:
         env[RUN_MARKER] = run_id
+    if account is not None:
+        env.update(config.account_env(account))
     try:
         # `input` rather than DEVNULL: the adapter gets a stdin that is closed at once, and
         # asking it a question opens no file of its own on a machine watching for that.
@@ -551,7 +554,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
         cap = shell_timeout_ms()
         extra = {"BASH_DEFAULT_TIMEOUT_MS": cap, "BASH_MAX_TIMEOUT_MS": cap}
     turn_env = {**config.seatless_env(), **extra, **(env or {})}
-    ok, why = auth_ok(entry["harness"], run_id=turn_env.get(RUN_MARKER))
+    ok, why = auth_ok(entry["harness"], run_id=turn_env.get(RUN_MARKER),
+                      account=turn_env.get(config.ACCOUNT_ENV))
     if ok is False:
         raise LoginExpired(entry["harness"], why)
     out_dir = Path(out_dir)
@@ -598,7 +602,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
             and time.monotonic() - began < AUTH_GRACE:
         # nothing streamed and it was over in a minute: this turn never reached the model, so
         # ask why before treating a silence as one -- the verb, not a guess at the stderr
-        authed, said = auth_ok(entry["harness"], run_id=turn_env.get(RUN_MARKER))
+        authed, said = auth_ok(entry["harness"], run_id=turn_env.get(RUN_MARKER),
+                               account=turn_env.get(config.ACCOUNT_ENV))
         mark = said if authed is False else None
     if mark:
         raise LoginExpired(entry["harness"], mark, session)

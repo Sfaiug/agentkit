@@ -1332,10 +1332,13 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     completion and retry behavior.  A second turn that ends the same way is carried on from
     with a WARN, as if it had been finished.
 
-    Only an answer that names the account hands the round over.  A spent window goes to the
-    reset policy first, at the moment of need: a credit spent buys a fresh week, so the same
-    worker goes again at once, on its own session and with no backoff.  Nothing to spend
-    leaves `RanDry` for the caller, whose job is another provider, not another try here.
+    Only an answer that names the account hands the round over.  A provider that lists
+    `accounts` runs each call on the one with the most room left, and one that refuses for
+    quota is marked spent on its own: the same worker goes again at once on the next account
+    with room, on its own session.  A spent window goes to the reset policy next, at the moment
+    of need: a credit spent buys a fresh week, so the same worker goes again at once, on its
+    own session and with no backoff.  Nothing to spend leaves `RanDry` for the caller, whose
+    job is another provider, not another try here.
     An empty exit whose stderr says the harness never ran the turn leaves `CannotRun` the
     same way, at once: another provider, or a run blocked on that line.
 
@@ -1354,7 +1357,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     # Every role (and retry) lives under <run>/round-N/<role> and inherits this audit log.
     env = {**run_child_env(), "AK_RUN_ROLE": "worker",
            "AK_RUN_LOG": str(out_dir.parent.parent / "log.txt")}
-    attempt, calls, refills, last_kill = 1, 0, 0, None
+    attempt, calls, refills, last_kill, account = 1, 0, 0, None, None
 
     def turn(text, target, session):
         """One call, with a login failure taken aside before it costs a wait.
@@ -1363,9 +1366,12 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         it, so a retry that outlived the sweep would otherwise run a whole turn no
         record wants anymore.
         """
+        nonlocal account
         stop_check(out_dir.parent.parent)
+        account = usage.account(cfg, entry["provider"])[0]
+        named = env if account is None else {**env, **config.account_env(account)}
         try:
-            return worker.call(cfg, name, text, workspace, target, role, session, env=env,
+            return worker.call(cfg, name, text, workspace, target, role, session, env=named,
                                limit=limit)
         except worker.LoginExpired as expired:
             log(f"{role} {name} cannot authenticate: {expired.why}; the run waits for that "
@@ -1453,6 +1459,13 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 attempt += 1
                 transient_wait(out_dir, delay)
                 continue
+            if account is not None:
+                usage.mark_exhausted(cfg, entry["provider"], try_again_at(said), account)
+                spare, room = usage.account(cfg, entry["provider"])
+                if room and spare != account:
+                    log(f"{role} {name} ran dry on account {account}: {message}; going on with "
+                        f"account {spare}" + (f", resuming session {session}" if session else ""))
+                    continue
             spent, left = (usage.replenish(cfg, entry["provider"])
                            if refills < MAX_REFILLS else (False, 0.0))
             if spent:

@@ -35,6 +35,8 @@ HARNESS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")   # a harness name is one pa
 RUN_DIR_ENV = "AGENTKIT_RUN_DIR"
 ADAPTER_DIR_ENV = "AGENTKIT_ADAPTER_DIR"   # adapters/ elsewhere: the offline smoke checks
 SESSION_ENV = "AGENTKIT_SESSION"
+ACCOUNT_ENV = "AGENTKIT_ACCOUNT"           # which of its provider's `accounts` an adapter call is for
+DEFAULT_ACCOUNT = "default"                # ... the login it has when it lists none: the empty name
 UNATTENDED_ENV = "AGENTKIT_UNATTENDED"   # set below a run loop: what it starts is machinery
 CODE = Path.home() / "code"                # where the checkouts live, and where a new seat opens
 RENAME_HOPS = 8                            # how many renames a session name is followed through
@@ -175,9 +177,11 @@ def child_env():
     seat's idle-compact state file; left in place a spawned worker's Stop hook would
     overwrite the seat's file with the worker's own context numbers.  A harness's own
     seat variables and AK_RUN_SCOPE go the same way and for the same reason: they are the
-    launch's, not its children's -- see `seat_env_names`.
+    launch's, not its children's -- see `seat_env_names`.  So does AGENTKIT_ACCOUNT: it names
+    the login one adapter call is for, and a turn on one account starts nothing that should
+    run on it unasked.
     """
-    dropped = {RUN_DIR_ENV, "AK_RUN_SCOPE", "IDLE_COMPACT_STATE", *seat_env_names()}
+    dropped = {RUN_DIR_ENV, "AK_RUN_SCOPE", "IDLE_COMPACT_STATE", ACCOUNT_ENV, *seat_env_names()}
     return {k: v for k, v in os.environ.items() if k not in dropped}
 
 
@@ -328,6 +332,14 @@ def load():
                     f"{', '.join(names)} (got {workers!r})")
     if not workers:
         defaults["workers"] = [names[0]]
+    for name, entry in cfg["providers"].items():
+        listed = entry.get("accounts", []) if isinstance(entry, dict) else []
+        # each name is a path component: the adapters keep that account's login under it
+        if (not isinstance(listed, list)
+                or not all(isinstance(one, str) and HARNESS.fullmatch(one) for one in listed)
+                or len(set(listed)) != len(listed)):
+            raise Error(f"{path}: [providers.{name}].accounts must list distinct names of "
+                        f"letters, digits, '.', '_' and '-' (got {listed!r})")
     return cfg
 
 
@@ -951,6 +963,22 @@ def plan_path(name):
 def stop_path(name):
     """Where hooks/seat-state.sh leaves this turn's start for the stop hook's rule."""
     return session_path(name).with_name(f"stop-{normalize_session(name)}.json")
+
+
+def accounts(cfg, provider):
+    """The subscriptions one provider lists as `accounts`, in the order they are tried.
+
+    [] for a provider that lists none, which is one login, exactly as a provider always was.
+    """
+    entry = cfg["providers"].get(provider)
+    listed = entry.get("accounts") if isinstance(entry, dict) else None
+    return list(listed) if isinstance(listed, list) else []
+
+
+def account_env(account):
+    """What an adapter call for that account is told: its name in AGENTKIT_ACCOUNT, and for
+    `default` the empty name -- the login the adapter uses when no account is named at all."""
+    return {ACCOUNT_ENV: "" if account in (None, DEFAULT_ACCOUNT) else account}
 
 
 def provider_harness(cfg, provider):
