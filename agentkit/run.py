@@ -955,6 +955,21 @@ class RanDry(Exception):
             state["refusal_retry"] = {"model": self.name, "at": self.until}
 
 
+class TransientHandover(Exception):
+    """This worker failed on the provider twice in a row and another took the role.
+
+    Not a death and not a FAIL -- nothing was executed and nothing was judged -- so the
+    turn goes to the next worker the way a spent window's does, and the failed provider
+    joins only that round's refused set.  The handover itself already happened inside
+    `call_retrying`'s `handover` callback; this only unwinds to the turn loop so it can
+    restart the role with the new worker, a fresh session and a fresh out dir.
+    """
+
+    def __init__(self, before, new, session, detail):
+        super().__init__(f"{before} failed on the provider twice; handed to {new}: {detail}")
+        self.before, self.new, self.session, self.detail = before, new, session, detail
+
+
 def killed_word(code):
     """How a worker exit by signal reads: `killed (SIGTERM)`, never an exit code.
 
@@ -1309,7 +1324,7 @@ def resume_failed(out_dir, killed, text):
 
 
 def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit=None,
-                  fresh_body=None, resume_note=None):
+                  fresh_body=None, resume_note=None, handover=None):
     """worker.call, retried while the harness keeps dying on the provider instead of the task.
 
     Returns (code, text, session, dead): `dead` stays False -- a transient answer is resumed
@@ -1344,6 +1359,13 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
 
     A worker exit by signal is neither: it reads as the signal, resumes once at once, and on
     a second kill inside a minute raises `Killed` for the run to park on.
+
+    `handover`, when the turn loop gives one, is what a second transient failure in a row
+    tries before its wait: called with the failure's detail, it moves the role to the next
+    worker the way a spent window's moves and returns the new worker, or None when no other
+    worker can take it.  A move raises `TransientHandover` at once, with no wait, so the
+    loop restarts the role fresh; None waits out the growing waits on the same session, as
+    without it, and tries only once -- the waits after that are the run's own.
     """
     limit = 60 * SILENCE_MINUTES if limit is None else limit
     out_dir = Path(out_dir)
@@ -1358,6 +1380,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     env = {**run_child_env(), "AK_RUN_ROLE": "worker",
            "AK_RUN_LOG": str(out_dir.parent.parent / "log.txt")}
     attempt, calls, refills, last_kill, account = 1, 0, 0, None, None
+    handover_tried = False
 
     def turn(text, target, session):
         """One call, with a login failure taken aside before it costs a wait.
@@ -1462,6 +1485,13 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             if not quota:
                 # A fault, not the account: the same session again, after the growing
                 # wait, indefinitely -- what a person answers by typing `continue`.
+                if handover is not None and attempt == 2 and not handover_tried:
+                    handover_tried = True
+                    detail = f"transient {mark!r}: {message} (twice in a row)"
+                    new = handover(detail)
+                    if new is not None:
+                        raise TransientHandover(name, new, session, detail)
+                    log(f"WARN {role} {name} {detail}; no other worker can take it")
                 delay = transient_delay(attempt)
                 log(f"WARN {role} {name} transient {mark!r}: {message} "
                     f"(attempt {attempt}); retrying in {delay}s"
@@ -1512,6 +1542,13 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         # The attempt failed and its children are not the next one's: whatever the dead
         # turn left behind dies before the retry, so a retry never inherits them.
         worker.kill_marked(env.get("AGENTKIT_RUN"), log=log)
+        if handover is not None and attempt == 2 and not handover_tried:
+            handover_tried = True
+            detail = f"{why} (twice in a row)"
+            new = handover(detail)
+            if new is not None:
+                raise TransientHandover(name, new, session, detail)
+            log(f"WARN {role} {name} {detail}; no other worker can take it")
         delay = transient_delay(attempt)
         log(f"WARN {role} {name} {why} (attempt {attempt}); retrying in {delay}s"
             + (f", resuming session {session}" if session else ""))
@@ -2602,8 +2639,9 @@ def execute(lp, role, text, name):
     A provider that runs dry mid-round does not end the round: the turn goes to a model
     on a provider that refused nothing yet, in a fresh out dir on a fresh session. Only
     when no provider is left does the round stop -- `exhausted` and resumable, never an
-    error for a window that refills.  A turn that died on a transient fault instead of the
-    quota never leaves this call: the same session is resumed, indefinitely, inside it.
+    error for a window that refills.  A turn that fails on the provider twice in a row
+    hands over the same way, told another model started it; with nobody else to take it
+    the same session is resumed, indefinitely, inside `call_retrying`.
 
     A harness that cannot authenticate is neither: no other provider is asked, because the
     work is fine and only the login is not, and the run parks `waiting_login` on the session
@@ -2628,6 +2666,9 @@ def execute(lp, role, text, name):
     rd = lp.dir(name).parent
     kind, sid = open_turn(rd, name) if rd.is_dir() else (None, None)
     out, body, dry = free_dir(lp, name), text, set()
+
+    def handover(detail):
+        return hand_executor(lp, "transient", detail, dry)
     # Only a turn whose body was replaced by the handover has a conversation that can be
     # refused, and only that turn hands the original prompt and the notice down.
     resume = {}
@@ -2651,7 +2692,8 @@ def execute(lp, role, text, name):
         try:
             code, summary, lp.exec_sid, dead = call_retrying(lp.cfg, lp.executor, body, lp.wt,
                                                              out, lp.role(role), lp.exec_sid,
-                                                             lp.log, lp.turn_limit, **resume)
+                                                             lp.log, lp.turn_limit,
+                                                             handover=handover, **resume)
         except worker.LoginExpired as expired:
             lp.exec_sid = expired.session or lp.exec_sid
             lp.save()           # the parked conversation is in run.json before the run parks
@@ -2683,6 +2725,12 @@ def execute(lp, role, text, name):
                                   else "resume when a meter refills. ") +
                                f"See {out}*/stderr.log")
             body = f"{HANDOVER.format(before=before)}\n\n{text}"
+            out = free_dir(lp, f"{name}-{lp.executor}")
+            continue
+        except TransientHandover as handed:
+            # hand_executor already moved the role inside the callback; the new model
+            # joins a round another started, in a fresh out dir on a fresh session.
+            body = f"{HANDOVER.format(before=handed.before)}\n\n{text}"
             out = free_dir(lp, f"{name}-{lp.executor}")
             continue
         finally:
@@ -3262,7 +3310,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     rd = lp.dir("reviewer").parent
     name = open_review(rd)[0] or "reviewer"
     def fall_back(reason, out):
-        """The path a dry or twice-silent reviewer takes: next spare, else Exhausted."""
+        """The path a dry, twice-silent or twice-transient reviewer takes: next spare, else Exhausted."""
         # Recheck at the point of fallback, including spares from saved/legacy callers, and
         # against the meters as they read now: a spare whose own provider has run dry is none.
         try:
@@ -3304,11 +3352,18 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             lp.state["resume_notice"] = note
         why = "died on API/transport errors"
         model = lp.reviewer     # a fallback below moves on from it before its tokens are read
+
+        def handover(detail, out=out):
+            try:
+                return fall_back(detail, out)
+            except Exhausted:
+                return None
         try:
             code, text, lp.review_sid, dead = call_retrying(lp.cfg, lp.reviewer, asked_body,
                                                             lp.wt, out, lp.role("reviewer"),
                                                             lp.review_sid, lp.log,
-                                                            lp.turn_limit, **resume)
+                                                            lp.turn_limit,
+                                                            handover=handover, **resume)
         except worker.LoginExpired as expired:
             lp.review_sid = expired.session or lp.review_sid
             lp.save()           # the parked conversation is in run.json before the run parks
@@ -3324,6 +3379,11 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                 name = fall_back(broken.detail, out)
             except Exhausted:
                 raise broken from None
+            continue
+        except TransientHandover as handed:
+            # fall_back already moved the role inside the callback; the spare reviews
+            # in a fresh out dir on a fresh session.
+            name = handed.new
             continue
         except RanDry as dry:
             # A spent window is the other way a reviewer stops without judging the diff, so it
