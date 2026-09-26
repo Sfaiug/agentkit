@@ -9,7 +9,9 @@
 # the runs `ak notify done` refuses on -- holds the turn past a done or a run going: the block
 # names each such run and its parked reason, and the seat resumes it, relaunches it split or on
 # another model, stops it, or asks the owner.  A question, `ak notify needs`, background work
-# and the third stop stand past it, as they always did.
+# and the third stop stand past it, as they always did.  A turn another session's message
+# opened keeps a done declared before it: the seat only acknowledged the message, so that
+# standing done ends the turn -- unless `ak notify` dropped it, or a run sits parked.
 # Anything else is sent back to work with the harness's own block decision, which Claude Code
 # 2.1.263, Codex 0.153.4 and Grok Build 1.0.40 spell the same way: `{"decision": "block",
 # "reason": "..."}` on stdout.  "Here is my recommendation, let me know if I should continue"
@@ -209,11 +211,21 @@ def background(payload):
     return isinstance(tasks, list) and any(isinstance(task, dict) for task in tasks)
 
 
-def told(seat, turn, kind):
-    """`ak notify <kind>` recorded for this seat during the turn."""
+def told(seat, turn, kind, peer=False):
+    """`ak notify <kind>` recorded for this seat during the turn.
+
+    On a turn another session's message opened, a done standing from before it
+    tells too: the seat only acknowledged the message, so it has nothing new to
+    declare.  That done is still its last notice, and one `ak notify` did not
+    drop -- a dropped done tells nothing on any such turn.
+    """
     note = read(STATE / f"notify-{seat}.json")
+    if note.get("kind") != kind:
+        return False
+    if peer and kind == "done":
+        return not note.get("seen") and moment(note.get("time")) is not None
     when = moment(note.get("time"))
-    return note.get("kind") == kind and when is not None and when >= turn
+    return when is not None and when >= turn
 
 
 def waiting(seat, turn):
@@ -294,20 +306,24 @@ def held(launched, payload):
         return ""    # no turn was written down; nothing here can say what happened during it
     if background(payload):
         return ""
+    peer = record.get("peer") is True    # another session's message opened the turn
     seat = resolve(launched)
     said = last_message(payload)
     if said is None or asks(said, leave=tells(payload)) or told(seat, turn, "needs"):
         return ""
     undecided = parked(seat)
-    if not undecided and (told(seat, turn, "done") or waiting(seat, turn)
+    if not undecided and (told(seat, turn, "done", peer) or waiting(seat, turn)
                           or waiting_on(seat)):
         return ""
     blocks = record.get("blocks")
     blocks = blocks + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1
     if blocks > LIMIT:
         return ""    # the third stop stands, and the state function shows it as `needs you`
+    kept = {"session": launched, "turn": turn, "blocks": blocks}
+    if peer:
+        kept["peer"] = True    # the turn it counts is still the peer's one
     tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")
-    tmp.write_text(json.dumps({"session": launched, "turn": turn, "blocks": blocks}) + "\n")
+    tmp.write_text(json.dumps(kept) + "\n")
     tmp.replace(latch)
     return parked_reason(undecided) if undecided else REASON
 
