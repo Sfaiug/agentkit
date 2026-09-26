@@ -987,15 +987,26 @@ def transient(code, text):
     return f"exited {code} on {hit.group(0)!r}" if hit else None
 
 
-def cannot_run(code, text, stderr):
+def cannot_run(code, text, stderr, out_dir=None):
     """The stderr line saying this harness never ran the turn at all, or None.
 
     Only for a non-zero exit, not a kill, that left final.md empty: whatever answered is an
     answer, and a kill takes its own road.  Never beside an OUTAGE line, which is waited out.
     `opencode.sh: opencode is not installed` is the case -- it was retried like a 500,
     hourly, for as long as nobody installed it.
+
+    Exit 126 or 127 with an empty event stream never ran either: the shell refused the
+    exec -- `Argument list too long` for a prompt over one argument's limit -- and no
+    wait starts what cannot start, whatever else stderr says.  The role goes to the next
+    worker, as a refused one does.
     """
-    if code == 0 or killed_word(code) or text.strip() or OUTAGE.search(stderr):
+    if code == 0 or killed_word(code) or text.strip():
+        return None
+    if code in (126, 127) and out_dir is not None and worker.said_nothing(out_dir):
+        line = next((" ".join(line.split()) for line in stderr.splitlines() if line.strip()),
+                     "")
+        return line or f"exited {code} with an empty event stream"
+    if OUTAGE.search(stderr):
         return None
     return next((" ".join(line.split()) for line in stderr.splitlines()
                  if HARNESS_FAULT.search(line)), None)
@@ -1404,7 +1415,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         # words below: a 404 for a model it does not have reads `API Error` like a 500, and
         # Codex's missing model suggests `try a different model` like its capacity refusal.
         # Not a wait: the caller hands the work over, or the run is blocked on this line.
-        fault = None if killed else cannot_run(code, text, tail(target / "stderr.log"))
+        fault = None if killed else cannot_run(
+            code, text, tail(target / "stderr.log"), target)
         if fault:
             worker.kill_marked(env.get("AGENTKIT_RUN"), log=log)
             log(f"WARN {role} {name} cannot run: {fault}")
