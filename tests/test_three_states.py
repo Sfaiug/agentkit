@@ -18,7 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import config, menu, notify, orch, run, terminal, watch, worker
+from agentkit import config, menu, notify, orch, run, terminal, usage, watch, worker
 
 NOW = 1_800_000_000
 DAY = 86400
@@ -28,6 +28,7 @@ STOP = ("seat-state.sh", "orchestrator-stop.sh")    # what Claude Code runs on S
 class ThreeStates(Sandbox):
     def setUp(self):
         super().setUp()
+        self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
         (config.CODE / "atoll" / ".git").mkdir(parents=True)
         self.repo = str(config.CODE / "atoll")

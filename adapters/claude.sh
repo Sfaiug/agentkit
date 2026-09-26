@@ -69,9 +69,17 @@ run)
   exit $rc ;;
 interactive)
   [ $# -ge 2 ] || { echo "claude.sh interactive needs <model> <effort> [session-id [new]]" >&2; exit 2; }
+  # The printed command runs later, outside this adapter's environment. Carry the login
+  # into it, sharing the same transcripts as worker turns on these accounts do.
+  if [ -n "$ACCOUNT" ]; then
+    mkdir -p -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR" || exit 2
+    [ -e "$CLAUDE_CONFIG_DIR/projects" ] ||
+      ln -s -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR/projects" || exit 2
+  fi
   # idle-compact.py wraps the TUI so a seat left open all day compacts itself instead of
   # filling its context; %q so a checkout path with a space still parses as one word
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+  python3 "$REPO/agentkit/harness/claude.py" --check || exit 2
   # the conversation this seat owns: --resume <id> opens the one it was given where it stopped,
   # and --session-id <uuid> opens a new one under an id the launcher made before the seat did,
   # which is what lets `ak orch` write down whose conversation it is before it exists
@@ -91,8 +99,11 @@ interactive)
   rules=$(printf -- '--append-system-prompt-file %q ' "$rb")
   # trust.py marks the session's directory trusted first, so the TUI opens on the prompt
   # instead of the "do you trust this folder?" dialog (whose default is "No, exit")
-  printf 'python3 %q claude -- python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions\n' \
-      "$REPO/tools/trust.py" "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" ;;
+  printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR python3 %q claude -- ' "$REPO/tools/trust.py"
+  # Account preparation runs in the seat's actual cwd, after trust.py, and before the TUI.
+  [ -z "$ACCOUNT" ] || printf 'python3 %q -- ' "$REPO/agentkit/harness/claude.py"
+  printf 'python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions\n' \
+      "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" ;;
 usage)
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
   # The worker token first, for the same reason `run` prefers it: this probe runs beside a

@@ -143,7 +143,19 @@ def for_seat(name):
             os.environ[config.SESSION_ENV] = before
 
 
-def command(cfg, name, conversation=None, fresh=False):
+def account_order(cfg, model, readings):
+    """Rank the configured subscriptions by this seat's model, never another model's cap."""
+    provider = config.model(cfg, model)["provider"]
+
+    def rank(account):
+        providers = {provider: readings[account]}
+        amount, unknown = usage.model_budget(cfg, model, providers)
+        return usage.model_exhausted(cfg, model, providers)[0], unknown is not None, -amount
+    accounts = config.accounts(cfg, provider) or list(readings)
+    return sorted((a for a in accounts if a in readings), key=rank)
+
+
+def command(cfg, name, conversation=None, fresh=False, account=None):
     """The TUI command line for this model, straight from its harness's adapter.
 
     Every harness can hold the seat: the adapter owns the flags, exactly as it does for a
@@ -160,7 +172,8 @@ def command(cfg, name, conversation=None, fresh=False):
     proc = subprocess.run([str(adapter), "interactive", entry["model"], entry["effort"],
                            *([conversation] if conversation else []),
                            *(["new"] if conversation and fresh else [])],
-                          capture_output=True, encoding="utf-8", errors="replace")
+                          capture_output=True, encoding="utf-8", errors="replace",
+                          env={**os.environ, **config.account_env(account)})
     if fresh and proc.returncode == CANNOT_PIN:
         return None
     line = proc.stdout.strip()
@@ -174,10 +187,10 @@ def command(cfg, name, conversation=None, fresh=False):
                            f"({exc}): {line[:200]}")
     if not cmd:
         raise config.Error(f"{adapter.name} interactive printed no command for {name}")
-    return cmd
+    return ["env", *(f"{key}={value}" for key, value in config.account_env(account).items()), *cmd]
 
 
-def fresh_command(cfg, name, seat=None):
+def fresh_command(cfg, name, seat=None, account=None):
     """(command, conversation) for a seat opening a conversation of its own.
 
     The id is generated here, before anything starts, and handed to the adapter as one its
@@ -188,10 +201,10 @@ def fresh_command(cfg, name, seat=None):
     """
     conversation = str(uuid.uuid4())
     with for_seat(seat):
-        cmd = command(cfg, name, conversation, fresh=True)
+        cmd = command(cfg, name, conversation, fresh=True, account=account)
         if cmd:
             return cmd, conversation
-        return command(cfg, name), None
+        return command(cfg, name, account=account), None
 
 
 # --- tmux sessions ----------------------------------------------------------
@@ -1559,7 +1572,8 @@ def attach(name, log=print, wait=False):
         raise config.Error(f"cannot attach the session {name}: {exc}")
 
 
-def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand_over=True):
+def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand_over=True,
+           account=None):
     """Put the orchestrator back in a seat whose process is gone, and hand the terminal over.
 
     Two ways in, and the same ownership check either way. A seat tmux is still holding -- the
@@ -1575,6 +1589,9 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     gone, the tick -- and it answers what came back instead of an exit code: "resumed" for
     the seat's own conversation, "fresh" for one under its name that has no past, and False
     for a seat that was live all along.
+
+    `account` reopens even a live pane on that subscription, without changing its selection
+    or surrendering its conversation. Ordinary resumes keep the account already recorded.
     """
     name = config.resolve_session(name)
     record = (config.session_records() if detached else records()).get(name) or {}
@@ -1584,7 +1601,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
             return 0       # automatic recovery never touches a surviving or legacy pane
         if not resumable(record):
             raise config.Error(f"{name}: conversation ownership is no longer verified")
-    if session and not session.get("exited"):
+    if session and not session.get("exited") and account is None:
         return attach(name, log=log, wait=wait) if hand_over else False
     if not session and not record:
         raise config.Error(f"no session {name!r} to resume and no record of one")
@@ -1594,6 +1611,18 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     orchestrator = selection["orchestrator"]
     harness = config.model(cfg, orchestrator)["harness"]
     recorded = seat_conversation(record, harness)
+    if account is not None:
+        provider = config.model(cfg, orchestrator)["provider"]
+        if account not in (config.accounts(cfg, provider) or [config.DEFAULT_ACCOUNT]):
+            raise config.Error(f"{name}: no {provider} account {account!r}")
+        if (session and session.get("legacy")) or not resumable(record):
+            raise config.Error(f"{name}: cannot change accounts without an owned conversation")
+        if account != (record.get("account") or config.DEFAULT_ACCOUNT):
+            ok, why = harness_plugin(harness).seat_auth(account)
+            if ok is not True:
+                raise config.Error(f"{name}: {account} cannot open a seat: {why}")
+    else:
+        account = record.get("account")
     # the directory it ran in, unless that is gone -- a run's worktree, a checkout since
     # deleted -- in which case the seat opens where a new one would rather than not at all.
     # Whether its harness has opened that conversation yet is still asked where it ran: a
@@ -1603,9 +1632,10 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
         raise config.Error(f"{name}: recorded directory is unavailable: {ran_in}")
     cwd = ran_in if ran_in.is_dir() else seat_cwd()
     if recorded:
-        cmd, conversation = resume_command(cfg, orchestrator, recorded, ran_in, seat=name), recorded
+        cmd = resume_command(cfg, orchestrator, recorded, ran_in, seat=name, account=account)
+        conversation = recorded
     else:
-        cmd, conversation = fresh_command(cfg, orchestrator, seat=name)
+        cmd, conversation = fresh_command(cfg, orchestrator, seat=name, account=account)
     where = "in the same window" if session else f"in {cwd}"
     log(f"orch: resuming {name} on {orchestrator} {where}"
         + (f" (conversation {recorded})" if recorded
@@ -1614,6 +1644,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
         print(shlex.join(cmd))
         return 0
     launch(name, orchestrator, cwd, cmd, conversation, session)
+    config.update_session(name, account=account)
     if not hand_over:
         # its own conversation only where the harness has opened it: an id nothing wrote
         # down is handed over as one to open, and the seat comes back with no past
@@ -1677,7 +1708,7 @@ def seat_conversation(record, harness=None):
     return plugin.conversation(record, record.get("cwd"))
 
 
-def resume_command(cfg, model, conversation, cwd, seat=None):
+def resume_command(cfg, model, conversation, cwd, seat=None, account=None):
     """The TUI command for a seat coming back on the conversation it owns.
 
     Its harness may never have opened one under that id, and then the id is handed over as one
@@ -1686,10 +1717,10 @@ def resume_command(cfg, model, conversation, cwd, seat=None):
     harness = config.model(cfg, model)["harness"]
     with for_seat(seat):
         if not opened(harness, cwd, conversation):
-            fresh = command(cfg, model, conversation, fresh=True)
+            fresh = command(cfg, model, conversation, fresh=True, account=account)
             if fresh:
                 return fresh
-        return command(cfg, model, conversation)
+        return command(cfg, model, conversation, account=account)
 
 
 def launch(name, model, cwd, cmd, conversation, session=None):
@@ -1715,7 +1746,8 @@ def launch(name, model, cwd, cmd, conversation, session=None):
         start(name, cwd, cmd, model)
     from . import watch
     # launched under the name again: not the stopped one, and not the owner's closed one
-    watch.seat_write(name, stopped_at=None, closed_by_owner=None)
+    watch.seat_write(name, stopped_at=None, closed_by_owner=None,
+                     usage_wait=None, usage_refusal=None)
 
 
 def stamp():
@@ -2318,7 +2350,8 @@ def mark_owner_closed(name):
     reopening instead.  A launch under the name clears it again.
     """
     from . import watch
-    watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True)
+    watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True,
+                     usage_wait=None, usage_refusal=None)
 
 
 # Every per-seat file kind a stop removes, and the daily collector takes once the seat is
@@ -2431,7 +2464,8 @@ def cmd_stop(argv):
             # launched under the name again.  The hand-back reads `closed_by_owner` for the
             # same decision, and a pause script that ends a seat writes the same mark through
             # `mark_owner_closed`.
-            watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True)
+            watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True,
+                             usage_wait=None, usage_refusal=None)
         watch.forget(name)   # a new seat with this name must not inherit the old stop latch
         drop_aliases(name)
         # The mark and the latch above took the seat's and its notices' locks again, and a
@@ -2794,11 +2828,24 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
             return None
         selection = providers, selected
     providers, (model, reason, workers) = selection
-    cmd, conversation = fresh_command(cfg, model, seat=name)
+    provider = config.model(cfg, model)["provider"]
+    accounts = config.accounts(cfg, provider)
+    order = account_order(cfg, model, providers.get(provider, {}).get("accounts") or {})
+    account = None
+    if accounts:
+        harness = harness_plugin(config.model(cfg, model)["harness"])
+        account = next((a for a in [*order, *(a for a in accounts if a not in order)]
+                        if harness.seat_auth(a)[0] is True), None)
+        if account is None and prompting and config.DEFAULT_ACCOUNT in accounts:
+            account = config.DEFAULT_ACCOUNT   # an owner can open the usual login to sign in
+        if account is None:
+            raise config.Error(f"{provider}: no account has a working seat login")
+    cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
     # where and when, because that is what opens the seat again once tmux has lost it -- and the
     # conversation it owns, written down before it starts wherever its harness can be told one.
     # Not for a dry run: a conversation nothing ever opened is nobody's to be resumed into.
-    extra = {"cwd": str(cwd), "repo": str(repo) if repo else None, "created": time.time()}
+    extra = {"cwd": str(cwd), "repo": str(repo) if repo else None, "created": time.time(),
+             "account": account}
     if conversation and not dry_run:
         extra["conversation"] = conversation
         extra["id_source"] = LAUNCHER

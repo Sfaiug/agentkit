@@ -1,11 +1,13 @@
 """Claude Code: a launcher-issued conversation, and the transcript it writes for it.
 
-Everything else about this harness is data -- adapters/claude.sh and adapters/claude.toml --
-so the one hook here is the one thing that needs a path rule: where its transcripts live.
+An alternate login also needs the seat's trust and hooks in its own config directory.
 """
 
 from pathlib import Path
+import json
+import os
 import re
+import sys
 
 
 def opened(cwd, conversation):
@@ -18,3 +20,50 @@ def opened(cwd, conversation):
     """
     slug = re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
     return (Path.home() / ".claude" / "projects" / slug / f"{conversation}.jsonl").exists()
+
+
+def account_config(check=False):
+    """Keep the owner's configuration beside an alternate login's own credentials.
+
+    Claude's config override moves both its user settings and its global .claude.json.
+    Validate before respawning the pane; prepare trust again in the launch's actual cwd.
+    """
+    account = os.environ.get("AGENTKIT_ACCOUNT")
+    if not account:
+        os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        return
+    home = Path.home()
+    directory = home / f".claude-{account}"
+    settings = home / ".claude/settings.json"
+    paths = (settings, directory / ".claude.json", directory / "settings.json")
+    values = [json.loads(path.read_text()) if path.exists() else {} for path in paths]
+    if not all(isinstance(value, dict) for value in values):
+        raise ValueError("Claude settings and global config must be JSON objects")
+    if check:
+        return
+    directory.mkdir(parents=True, exist_ok=True)
+    for path, data in zip(paths[1:], values[1:]):
+        if path.name == ".claude.json":
+            data.setdefault("theme", "dark")
+            data["hasCompletedOnboarding"] = True
+            project = data.setdefault("projects", {}).setdefault(str(Path.cwd().resolve()), {})
+            project["hasTrustDialogAccepted"] = True
+        else:
+            data.update(values[0])
+            # Hooks belong to the current installation, not every past checkout.
+            data["hooks"] = values[0].get("hooks", {})
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data) + "\n")
+        tmp.replace(path)
+    for name in ("CLAUDE.md", "agents", "skills", "commands", "plugins"):
+        source, target = home / ".claude" / name, directory / name
+        if source.exists() and not target.exists() and not target.is_symlink():
+            target.symlink_to(source, target_is_directory=source.is_dir())
+    os.environ["CLAUDE_CONFIG_DIR"] = str(directory)
+
+
+if __name__ == "__main__":
+    checking = sys.argv[1:] == ["--check"]
+    account_config(check=checking)
+    if not checking:
+        os.execvp(sys.argv[2], sys.argv[2:])

@@ -45,6 +45,8 @@ INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is
 # what a seat reopened after its process died mid-turn is told, in a run's mid-turn words
 MIDTURN_LINE = ("Your process was ended by the host, not by you, in the middle of a turn. "
                 "Continue that turn and finish it; do not start over.")
+ACCOUNT_LINE = ("Your subscription ran out. This seat has resumed the same conversation on "
+                "an account of the same provider with usage available. Continue where you stopped.")
 MIDTURN_TRIES = 3       # passes that may type it before a seat is left at its prompt
 MARKER = "agentkit review of"
 RETRY_BACKOFF = (600, 1800, 3600)  # after that, hourly; a head is never abandoned
@@ -469,8 +471,8 @@ def prompted_since(name, at):
     return isinstance(turn, (int, float)) and not isinstance(turn, bool) and turn > at
 
 
-def continue_turns(cfg, log):
-    """Type the mid-turn line into each seat this boot reopened mid-turn, until it lands.
+def continue_turns(cfg, log, accounts=False):
+    """Continue rebooted seats, or (`accounts`) seats reopened on another subscription.
 
     The mark goes on once the relaunch is back and comes off once the line has landed, so a
     send that failed -- or a tick killed in the warmup -- is tried again by the next tick,
@@ -484,7 +486,7 @@ def continue_turns(cfg, log):
     boot = boot_id()
     for name in config.session_records():
         mark = seat_read(name).get("midturn")
-        if not isinstance(mark, dict):
+        if not isinstance(mark, dict) or (mark.get("line") == ACCOUNT_LINE) != accounts:
             continue
         at = mark.get("at") if isinstance(mark.get("at"), (int, float)) else 0
         session = orch.find(name) if mark.get("boot") == boot else None
@@ -493,14 +495,16 @@ def continue_turns(cfg, log):
             if wait > 0:
                 time.sleep(min(wait, INBOX_WARMUP))   # the TUI has to be listening first
             harness, found = look_at(session, cfg=cfg)
+            if accounts and found.get("state") in ("draft", "asking"):
+                continue
             flight, began = _turn_in_flight(harness, found) if harness else (False, None)
             if not (flight and isinstance(began, (int, float)) and began > at):
                 tries = (mark.get("tries") or 0) + 1
 
                 def taken(held):
                     return held != mark.get("name") or prompted_since(held, at)
-                if type_into(session, MIDTURN_LINE, log, taken):
-                    log(f"told {name} to continue the turn it was in when the host went")
+                if type_into(session, mark.get("line") or MIDTURN_LINE, log, taken):
+                    log(f"told {name} to continue the turn it was in before reopening")
                 elif taken(config.resolve_session(name)):
                     log(f"{name} was prompted or renamed since it came back: no continue line")
                 elif tries < MIDTURN_TRIES:
@@ -1700,6 +1704,9 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     out = logged_out(harness, auth_out)
     if out:
         return {"word": "needs you", "reason": login_reason(harness), "since": out.get("at")}
+    waiting = seat_read(name).get("usage_wait")
+    if waiting and not any(session.get(key) for key in orch.CLOSED) and not seat_closed_by_owner(name):
+        return {"word": "needs you", "reason": waiting["reason"], "since": waiting["since"]}
     # 1a. ... and a run of this seat's parked on one is the same news about a login he has to
     # go and fix.  The run being parked is the evidence: nothing here re-asks the verb for it,
     # because the tick that can answer is the one that unparks it, and until it does the work
@@ -2423,6 +2430,7 @@ def spend_reset(cfg, provider, log):
         return
     if spent:
         log(f"{provider}: usage-limit reset applied ({left:.0f} left)")
+    return spent
 
 
 def done_holds(name, live, notice, began, said, dry_run):
@@ -2515,6 +2523,168 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     if type_into(session, keys, log):
         seat_write(name, stop_nudged=[began, said])
         log(f"{name}: stopped with no question, no done and no run; typed {keys!r}")
+
+
+def seat_account(cfg, session, harness, provider, pane, dry_run, log):
+    """Keep a seat on its model's usable subscriptions, preserving its live conversation.
+
+    Without a proven conversation id the running pane is the only copy: wait for its own
+    account, then continue in place. A closed pane is never a request to start a turn.
+    """
+    name = session["name"]
+    record = config.session_records().get(name)
+    if (not record or provider not in cfg.get("providers", {})
+            or session.get("legacy") or any(session.get(key) for key in orch.CLOSED)
+            or seat_closed_by_owner(name)):
+        return False
+    live = seat_read(name)
+    if (live.get("midturn") or {}).get("line") == ACCOUNT_LINE:
+        return True       # its resumed transcript may still show the previous account's refusal
+    if live.get("state") in ("draft", "asking") or owner_question(notify.last(name)):
+        return True
+    accounts = config.accounts(cfg, provider)
+    current = record.get("account") or config.DEFAULT_ACCOUNT
+    model = record["orchestrator"]
+    waiting = live.get("usage_wait")
+    # Reading the meters can itself spend a reset. Keep that receipt so the old
+    # refusal cannot park the capacity it just restored.
+    reset_path = config.STATE / f"{provider}-reset.json"
+    reset_before = usage._reset_applied_at(reset_path)
+    from . import run
+    try:
+        prov = (run._cached_providers() if dry_run else usage.collect(cfg)).get(provider) or {}
+    except (config.Error, OSError) as exc:
+        log(f"WARN {name}: could not read {provider} usage: {exc}")
+        return True
+    readings = (prov.get("accounts") or {}) if accounts else {current: prov}
+
+    def spent(account):
+        return usage.model_exhausted(cfg, model, {provider: readings.get(account, {})})[0]
+
+    line = output_line(content_lines(harness, pane_tail(pane)))
+    mark = stalled_on(harness, line, name, log) if line else None
+    refusal = mark in quotas(harness) if mark else False
+    now = time.time()
+    observed = live.get("usage_refusal") or {}
+    until = run.try_again_at(line) if refusal else None
+    handled = observed.get("line") == line and observed.get("handled")
+    if handled and not waiting and not spent(current):
+        return True       # a consumed refusal is still history when its transcript is redrawn
+    if refusal and not waiting and not spent(current):
+        if observed.get("line") != line:
+            if not dry_run:
+                seat_write(name, usage_refusal={"line": line, "at": now, "reset_at": reset_before})
+            return True
+        if now - observed["at"] < STALL_WAIT:
+            return True
+    elif not refusal and observed and not observed.get("handled") and not dry_run:
+        seat_write(name, usage_refusal=None)
+    if not waiting and not refusal and not spent(current):
+        return False
+    if dry_run:
+        log(f"would recover {name} on a {provider} account with room, or wait for its reset")
+        return True
+    # Reset credits still belong to the usual login: named logins are seat-only.
+    refilled = False
+    if (refusal and not waiting and reset_policy(harness) and current == config.DEFAULT_ACCOUNT
+            and (until is None or until > now)):
+        applied = usage._reset_applied_at(reset_path)
+        refilled = applied is not None and applied != observed.get("reset_at", reset_before)
+        if refilled:
+            log(f"{provider}: usage-limit reset applied")
+        else:
+            refilled = spend_reset(cfg, provider, log) is True
+        if refilled:
+            fresh = usage.collect(cfg).get(provider) or {}
+            readings = (fresh.get("accounts") or {}) if accounts else {current: fresh}
+    owned = orch.resumable(record)
+    eligible = {a: readings[a] for a in (accounts or [current]) if a in readings
+                and not spent(a) and (owned or a == current)
+                and (a != current or waiting or not refusal or refilled)}
+    # Keep the existing login when it has refilled. Probe only possible moves, in order,
+    # before the owner-action check: a slow adapter must not undo a stop or typing.
+    order = ([current] if current in eligible else []) + [
+        a for a in orch.account_order(cfg, model, eligible) if a != current]
+    target = next((a for a in order if a == current
+                   or orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
+    with state_lock():
+        # Slow meters must not undo a stop, rename, manual open or another launch.
+        current_seat = orch.find(name)
+        if (seat_closed_by_owner(name) or config.session_records().get(name) != record
+                or seat_read(name).get("opened_at") != live.get("opened_at")
+                or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
+                or pane_text(current_seat) != pane):
+            return True
+        if refusal and not waiting and not spent(current) and not refilled:
+            # The host may have slept through the deadline. Never replace that old
+            # refusal with a new shared-cache park; retry it once in the existing pane.
+            if until is not None and until <= now:
+                if type_into(session, keystroke(harness, line), log):
+                    seat_write(name, usage_refusal={"line": line, "at": now, "handled": True})
+                return True
+            # A bare 429/rate limit is not proof a subscription is empty. Retry the
+            # stable error locally; only a quota refusal or deadline parks an account.
+            if until is None and not re.search(r"usage|quota|exhaust|payment", mark, re.I):
+                if observed.get("told"):
+                    return True
+                if now - observed["at"] >= GIVE_UP:
+                    text = stuck_notice(name, harness)
+                    if notify.shaped("needs", text, session=name,
+                                     event_id=f"stall:{name}:{observed['at']}") == 0:
+                        seat_write(name, usage_refusal={**observed, "told": now})
+                elif now - observed.get("nudged_at", 0) >= NUDGE_EVERY:
+                    if type_into(session, keystroke(harness, line), log):
+                        seat_write(name, usage_refusal={**observed, "nudged_at": now})
+                return True
+            until = usage.mark_exhausted(cfg, provider, until=until,
+                                         account=current if accounts else None)
+            readings[current] = {**readings.get(current, {}), "exhausted_until": until}
+        if refusal:
+            observed = {"line": line, "at": now, "handled": True}
+            seat_write(name, usage_refusal=observed)
+        continuing = bool((waiting or {}).get("continue") or refusal
+                          or _turn_in_flight(harness, live)[0])
+        if target is not None:
+            try:
+                if owned:
+                    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=target)
+                    if continuing and resumed == "resumed":
+                        seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
+                                                 "line": ACCOUNT_LINE})
+                elif continuing and not type_into(session, keystroke(harness, line), log):
+                    return True
+            except (config.Error, OSError) as exc:
+                reason = f"{provider} account reopen failed: {exc}"
+                if not waiting or waiting["reason"] != reason:
+                    log(f"WARN {name}: {reason}")
+                seat_write(name, usage_wait={"reason": reason,
+                                            "since": waiting["since"] if waiting else now,
+                                            "continue": continuing})
+                return True
+            seat_write(name, usage_wait=None, usage_refusal=observed or None)
+            return True
+        # Each account needs all of this model's spent windows back. Scoped meters
+        # belonging to another model neither trigger a move nor postpone the reset.
+        resets = []
+        for account in (accounts or [current]) if owned else [current]:
+            reading = readings.get(account, {})
+            meters, _ = usage._gating_meters(cfg, model, {provider: reading})
+            ends = [m.get("resets_at") for m in meters if m.get("used", 0) >= 100]
+            ends.append(reading.get("exhausted_until"))
+            ends = [end for end in ends if isinstance(end, (int, float)) and end > now]
+            if ends:
+                resets.append(max(ends))
+        until = min(resets) if resets else (waiting or {}).get("until", 0)
+        if until <= now:
+            until = now + usage.DRY_FOR
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until))
+        reason = f"{provider} out of usage until {when}"
+        if not waiting:
+            log(f"{name}: {reason}")
+        seat_write(name, usage_wait={"reason": reason, "until": until,
+                                    "since": waiting["since"] if waiting else now,
+                                    "continue": continuing})
+        return True
 
 
 def health(cfg, state, dry_run, log):
@@ -2682,6 +2852,9 @@ def health(cfg, state, dry_run, log):
                 log(f"{name}: {entry.get('harness') or harness} can authenticate again; "
                     "cleared needs login")
                 entry = {}
+            # Account recovery, like other capacity recovery, leaves closed seats alone.
+            if seat_account(cfg, session, harness, provider, pane, dry_run, log):
+                continue
             if blank:
                 continue        # no screen: nothing below this can be decided on one
             if entry.get("kind") == "quiet" and (entry.get("pane") != pane or
@@ -5019,6 +5192,11 @@ def main(argv):
             health(config.load(), state, dry_run, log)
         except (config.Error, OSError) as exc:
             log(f"WARN the session health pass did not run: {exc}")
+        if not dry_run:
+            try:
+                continue_turns(config.load(), log, accounts=True)
+            except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+                log(f"WARN the mid-turn continue pass did not run: {exc}")
         # A dead loop is resumed before the stall ladder and before reap, so the same
         # tick continues it and reap does not turn it into an interruption.
         try:

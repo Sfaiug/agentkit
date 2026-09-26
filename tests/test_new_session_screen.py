@@ -45,7 +45,7 @@ def open_session(cfg, session, dry_run):
     print(f"<opened {session['name']}>", flush=True)
 
 orch.launch = refused
-orch.fresh_command = lambda cfg, name, seat=None: (["harness"], None)
+orch.fresh_command = lambda cfg, name, seat=None, account=None: (["harness"], None)
 dry_run = os.environ["SCREEN_DRY_RUN"] == "1"
 if not dry_run:     # a dry run keeps the real listing, rows, probe, notices, create and open
     orch.sessions = lambda: []

@@ -5053,14 +5053,19 @@ meta_window(3600)                   # muse's window is open, so its seat is not 
 state, said = {"stalls": {}}, []
 watch.health(cfg, state, False, said.append)
 stalled = {"stall-claude", "stall-codex-goal", "stall-codex-quota", "stall-muse"}
-assert set(state["stalls"]) == stalled, state
+assert set(state["stalls"]) == {"stall-claude", "stall-codex-goal"}, state
+assert watch.seat_read("stall-codex-quota")["usage_refusal"]["at"] > 0
+assert watch.seat_read("stall-muse")["usage_wait"]["until"] > time.time()
 assert all(typed_into(name) == "" for name in stalled), "typed into a stall three seconds old"
-assert all("stood for 3 minutes" in line for line in said), said
+assert all(any(name in line and "stood for 3 minutes" in line for line in said)
+           for name in state["stalls"]), said
 
 # three minutes on, and every stall but the one waiting on a window is typed back into motion
 for entry in state["stalls"].values():
     for key in ("since", "stall_at", "changed_at"):
         entry[key] -= 240
+refusal = watch.seat_read("stall-codex-quota")["usage_refusal"]
+watch.seat_write("stall-codex-quota", usage_refusal={**refusal, "at": refusal["at"] - 240})
 said = []
 watch.health(cfg, state, False, said.append)
 time.sleep(1.0)
@@ -5070,10 +5075,9 @@ assert typed_into("stall-codex-quota") == "continue\n", typed_into("stall-codex-
 assert typed_into("stall-muse") == "", "typed into a seat whose provider window is still open"
 assert typed_into("fine-seat") == "", "typed into a seat that is working"
 assert typed_into("by-hand") == "", "typed into a seat nothing here started"
-assert any("waiting until" in line for line in said), said
+assert "out of usage until" in watch.seat_read("stall-muse")["usage_wait"]["reason"]
 # the OpenAI quota went to the usage-limit reset policy before that seat was resumed
-assert any("usage-limit reset applied" in line for line in said), said
-assert (config.STATE / "openai-reset.json").exists()
+assert json.loads((config.STATE / "openai-reset.json").read_text())["outcome"] == "reset"
 
 # a second pass straight after types nothing: one resume per seat per three minutes
 watch.health(cfg, state, False, said.append)
@@ -5082,11 +5086,10 @@ assert typed_into("stall-claude") == "continue\n", typed_into("stall-claude")
 
 # Muse's window has passed, so now that seat is resumed too
 meta_window(-60)
-state["stalls"]["stall-muse"].update(since=time.time() - 240, nudged_at=0)
-state["stalls"]["stall-muse"]["resets_at"] = time.time() - 60
 watch.health(cfg, state, False, said.append)
 time.sleep(1.0)
 assert typed_into("stall-muse") == "continue\n", typed_into("stall-muse")
+assert watch.seat_read("stall-muse")["usage_wait"] is None
 
 # an hour of the same stall on seats at their prompts: nobody is asked, and nothing more
 # is typed -- an idle seat sends nothing, however long its stall line stands
@@ -5123,16 +5126,16 @@ assert typed_into("fine-seat") == "", "typed into a seat that is working"
 # Pruning the old name after a rename must leave the live seat's stall latch intact.
 # (The seat is idle, so there is no needs-you record: nothing was ever asked.)
 watch.save_state(state)
-assert not config.notify_path("stall-muse").exists()
-told = state["stalls"]["stall-muse"]["told"]
-renamed = orch.rename("stall-muse", "stall-muse-renamed")
-assert config.resolve_session("stall-muse") == renamed
+assert not config.notify_path("stall-codex-goal").exists()
+told = state["stalls"]["stall-codex-goal"]["told"]
+renamed = orch.rename("stall-codex-goal", "stall-codex-renamed")
+assert config.resolve_session("stall-codex-goal") == renamed
 watch.health(cfg, state, False, said.append)
 watch.save_state(state)
 migrated = watch.load_state()["stalls"]
-assert "stall-muse" not in migrated, migrated
+assert "stall-codex-goal" not in migrated, migrated
 assert migrated[renamed]["told"] == told, "pruning an alias cleared the live latch"
-assert typed_into("stall-muse") == before["stall-muse"], "typed into the renamed seat"
+assert typed_into("stall-codex-goal") == before["stall-codex-goal"], "typed into the renamed seat"
 print("ok")
 PY
 [ "$(wc -l <"$STALLAD/codex.calls" 2>/dev/null || echo 0)" -eq 1 ] || STALL=1
@@ -5546,7 +5549,7 @@ jq -e '.orchestrator == "mimo"' \
   "$OCHOME/.agentkit/state/session-oc-seat.json" >/dev/null || OCHRC=1
 python3 - "$WORK/oc-orch.log" <<'PY' || OCHRC=1
 import json, shlex, sys
-line = [ln for ln in open(sys.argv[1]).read().splitlines() if ln.startswith("python3 ")][0]
+line = [ln for ln in open(sys.argv[1]).read().splitlines() if "OPENCODE_CONFIG_CONTENT=" in ln][0]
 words = shlex.split(line)
 content = next(w for w in words if w.startswith("OPENCODE_CONFIG_CONTENT=")).split("=", 1)[1]
 doc = json.loads(content)

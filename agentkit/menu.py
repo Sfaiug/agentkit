@@ -3257,8 +3257,11 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                 else:
                     pause(f"no session {key}")
             elif key == "n":
-                if new_session(cfg, dry_run) and overlay:
-                    return 0
+                try:
+                    if new_session(cfg, dry_run) and overlay:
+                        return 0
+                except config.Error as exc:
+                    pause(f"new session: {exc}")
             elif key == "x":
                 if overlay:
                     stop_this_session(dry_run)
