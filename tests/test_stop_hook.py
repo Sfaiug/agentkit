@@ -190,7 +190,9 @@ class StopHook(unittest.TestCase):
         self.assertEqual(self.stop(), "")
 
     def test_an_unfinished_run_of_this_seat_allows_the_stop(self):
-        for state in ("queued", "running", "waiting", "exhausted", "stalled"):
+        # `stalled` is not here: nothing resumes one, so it sits parked undecided and now
+        # holds the stop, pinned in tests/test_stop_parked.py
+        for state in ("queued", "running", "waiting", "exhausted"):
             with self.subTest(state=state):
                 self.setUp()
                 (self.state / f"session-{SEAT}.json").write_text("{}\n")
