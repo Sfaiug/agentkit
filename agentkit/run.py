@@ -1544,7 +1544,7 @@ def mark_gate_wait(run_dir, of):
     `of` is the repository's main checkout; the note shows its folder name.  With this
     process's pid, as the merge turn's mark is, and the wait's start, so a freed turn
     goes to the waiter that has waited longest.  A landing run's mark says so, with
-    when its first landing wait began, which every lap of the landing keeps: that
+    when the landing began, which `land` records and every lap of it keeps: that
     start is what this returns for a lander, the wait's own start otherwise, and
     None when it recorded none.
     """
@@ -1589,8 +1589,8 @@ def _gate_waiter_before(repo, exclude, is_first, since, is_landing=False):
 
     Rank is a landing run before any round check, then `--first` before the rest,
     then the longest wait, then the run id, so a freed turn finishes a run ready to
-    land before starting another round's check.  A lander's wait counts from its
-    first landing wait, not from the lap; a mark from before landers ranked carries
+    land before starting another round's check.  A lander's wait counts from when
+    its landing began, not from the lap; a mark from before landers ranked carries
     no landing and reads as a round check.  A mark whose process is gone, or whose
     pid no longer matches its record -- a kill or a resume left it behind -- holds
     nobody back, and a waiter counts only when its mark names this main checkout,
@@ -1637,7 +1637,7 @@ def gate_turn(run_dir, log_path, log):
     A freed turn goes to the waiter that has waited longest among the highest rank,
     a landing run before any round check and `--first` before the rest: a gate takes
     a free turn only when no waiter ranks before it, and a lander's wait counts from
-    its first landing wait.
+    when its landing began.
     A home config this cannot read -- it is read here, mid-run, so one hand-edit typo would
     fail the next gate of every running run -- means the shipped default, and a log line
     naming the problem.
@@ -4399,13 +4399,17 @@ def land(lp, upstream, verify, deliver, execv=None):
     integrations does.  A branch cut from a dependency's passed branch first waits for that
     dependency to merge (`wait_for_dependency`).  A pickup mid-landing resumes its lap
     count, so the three laps bound the run across the move.  While the run is inside
-    this landing its gate waits rank ahead of every round check's, counting from the
-    first landing wait, so a run ready to land finishes instead of queuing behind
-    another round.
+    this landing its gate waits rank ahead of every round check's, every lap counting
+    from when the landing began, so a run ready to land finishes instead of queuing
+    behind another round.
     """
     if not wait_for_dependency(lp):
         return False
     lp.state["landing"] = True
+    # The landing's start rides the loop's own state, as the flag does: a wait's mark
+    # alone would not survive the whole-record saves between two laps, and the next
+    # lap would count from itself instead.  A resumed landing keeps its start.
+    lp.state.setdefault("landing_since", time.time())
     save_state(lp.run_dir, lp.state)
     try:
         for lap in range(lp.state.pop("land_lap", 1), 4):

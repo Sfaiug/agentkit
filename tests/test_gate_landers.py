@@ -150,20 +150,37 @@ class GateLanders(unittest.TestCase):
                     landing_since=2500)
         self.assertTrue(run._gate_waiter_before(repo, "old-lander", False, 1000, True))
         self.assertFalse(run._gate_waiter_before(repo, "lander-first", True, 2500, True))
-        # a lap's wait counts from the first landing wait, not from the lap
-        run_dir = self.record("lap-run", ACME, landing=True)
-        with patch.object(run.time, "time", side_effect=[1000.0, 1500.0, 2000.0]):
-            first = run.mark_gate_wait(run_dir, repo)
-            self.assertEqual(first, 1000.0)
-            self.assertEqual(self.turn("lap-run"),
-                             {"pid": run.read_state(run_dir)["pid"], "of": str(repo),
-                              "since": 1000.0, "landing": True, "landing_since": 1000.0})
+        # across laps in a real landing: each lap waits, and a whole-record save of
+        # the loop's own state between two waits keeps the landing's start
+        run_dir = self.record("lap-run", ACME)
+        state = run.read_state(run_dir)
+        state["base_sha"] = "base0001"
+        run.save_state(run_dir, state)
+        lp = SimpleNamespace(state=run.read_state(run_dir), run_dir=run_dir,
+                             wt=self.root / "wt", base_sha="base0001",
+                             log=lambda msg: None, no_pickup=True)
+        firsts = []
+
+        def verify():
+            began = run.mark_gate_wait(run_dir, repo)
+            firsts.append(began)
+            self.assertEqual(self.turn("lap-run")["landing_since"], began)
             run.mark_gate_wait(run_dir, None)
-            self.assertNotIn("gate_turn", run.read_state(run_dir))
-            second = run.mark_gate_wait(run_dir, repo)
-            self.assertEqual(second, 1000.0)
-            self.assertEqual(self.turn("lap-run")["since"], 2000.0)
-            self.assertEqual(self.turn("lap-run")["landing_since"], 1000.0)
+            run.save_state(run_dir, lp.state)   # an inner save, as final_check does
+            return True
+
+        with patch.object(run, "git", return_value="tip9999"), \
+                patch.object(run, "git_out", return_value=(0, "")), \
+                patch.object(run, "disjoint_move", return_value=False):
+            self.assertFalse(run.land(lp, "origin/main", verify, lambda: True,
+                                      execv=lambda *a: self.fail("no pickup here")))
+        self.assertEqual(len(firsts), 3)
+        self.assertEqual(firsts[1], firsts[0])
+        self.assertEqual(firsts[2], firsts[0])
+        # a landing mark with no recorded start still seeds one rather than failing
+        bare = self.record("bare-lander", ACME, landing=True)
+        began = run.mark_gate_wait(bare, repo)
+        self.assertEqual(self.turn("bare-lander")["landing_since"], began)
 
     def test_round_waiters_keep_wait_order_without_landers(self):
         self.waiter("early", ACME, 1000)
@@ -186,6 +203,8 @@ class GateLanders(unittest.TestCase):
         def verify():
             on_disk = run.read_state(run_dir)
             self.assertTrue(on_disk.get("landing"))
+            self.assertIn("landing_since", lp.state)
+            self.assertEqual(on_disk.get("landing_since"), lp.state["landing_since"])
             began = run.mark_gate_wait(run_dir, repo)
             mark = self.turn("landing-run")
             self.assertTrue(mark.get("landing"))
