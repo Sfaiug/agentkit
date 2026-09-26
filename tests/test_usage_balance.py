@@ -562,7 +562,8 @@ class WeeklyBalance(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix=".usage-test-", dir=REPO) as tmp:
             with patch.object(config, "STATE", Path(tmp)), patch.object(config, "ensure_dirs"), \
                     patch.object(usage.time, "time", return_value=self.now), \
-                    patch.object(usage, "_probe", side_effect=lambda cfg, name, now: raw[name]) as probe:
+                    patch.object(usage, "_probe",
+                                 side_effect=lambda cfg, name, now, account=None: raw[name]) as probe:
                 fresh = usage.collect(self.cfg)
                 self.assertEqual(fresh, providers)
                 self.assertEqual(probe.call_count, 4)

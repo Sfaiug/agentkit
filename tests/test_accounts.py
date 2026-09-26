@@ -154,9 +154,12 @@ class Accounts(unittest.TestCase):
     # --- the accounts -----------------------------------------------------
 
     def test_the_first_account_at_100_percent_runs_the_turn_on_the_second(self):
-        self.configure()
         self.meters("tok-default", 100)
         self.meters("tok-second", 20)
+        # a reading taken before the accounts were listed is read again, not trusted for minutes
+        self.configure(accounts="")
+        self.assertNotIn("accounts", usage.collect(self.cfg)["anthropic"])
+        self.configure()
         providers = usage.collect(self.cfg)
         anthropic = providers["anthropic"]
         self.assertTrue(anthropic["accounts"]["default"]["exhausted"])
