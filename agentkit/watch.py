@@ -2579,6 +2579,10 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if dry_run:
         log(f"would recover {name} on a {provider} account with room, or wait for its reset")
         return True
+    # A worker token can answer the meters without authenticating a seat. Ask before
+    # taking the lock, so a slow login check cannot undo the owner's stop or typing.
+    ready = [a for a in (accounts or [current]) if a in readings and not spent(a)
+             and worker.auth_ok(harness, seat=True, account=a)[0] is True]
     with state_lock():
         # Slow meters must not undo a stop, rename, manual open or another launch.
         current_seat = orch.find(name)
@@ -2617,8 +2621,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         continuing = bool((waiting or {}).get("continue") or refusal
                           or _turn_in_flight(harness, live)[0])
         owned = orch.resumable(record)
-        eligible = [a for a in (accounts or [current]) if a in readings and not spent(a)
-                    and (owned or a == current)]
+        eligible = [a for a in ready if not spent(a) and (owned or a == current)]
         if eligible:
             target = orch.account_order(cfg, model, {a: readings[a] for a in eligible})[0]
             try:

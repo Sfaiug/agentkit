@@ -17,6 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, notify, orch, usage, watch
 from agentkit.harness import codex
+from agentkit.worker import auth_ok
 
 NAME = "fix-api"
 CONVERSATION = "d6fae368-678c-444e-8032-9c5c5338c84e"
@@ -50,6 +51,8 @@ class SeatAccount(unittest.TestCase):
         self.stack.enter_context(patch.object(watch.time, "sleep"))
         self.stack.enter_context(patch.object(watch, "boot_id", return_value="test-boot"))
         self.stack.enter_context(patch.object(watch, "poll_worker_token"))
+        self.auth = self.stack.enter_context(patch.object(watch.worker, "auth_ok",
+                                                         return_value=(True, "fake seat login")))
         self.stack.enter_context(patch.object(usage, "_probe",
             side_effect=AssertionError("no real usage probes")))
         self.seat = {"name": NAME, "path": str(self.root), "created": self.now - 60,
@@ -257,6 +260,47 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertEqual(self.commands, [])
         self.assertEqual(self.typed, [])
         self.assertEqual(config.session_records()[NAME], before)
+
+    def test_worker_token_alone_never_receives_a_seat_and_login_allows_recovery(self):
+        (config.SECRETS / "claude_oauth_token.second").write_text("fake-worker-token")
+        self.assertTrue(auth_ok("claude", account="second")[0])
+        self.assertFalse(auth_ok("claude", seat=True, account="second")[0])
+        self.auth.side_effect = auth_ok
+        self.tick()
+        self.tick()
+        self.assertEqual(self.commands, [])
+        self.assertEqual(config.session_records()[NAME]["account"], "default")
+        self.assertEqual(self.answer()["word"], "needs you")
+        self.assertEqual(len([line for line in self.logs if "out of usage" in line]), 1)
+        credentials = self.root / ".claude-second/.credentials.json"
+        credentials.parent.mkdir()
+        credentials.write_text(json.dumps({"claudeAiOauth": {
+            "accessToken": "fake-seat-token", "expiresAt": 4_102_444_800_000}}))
+        self.tick()
+        self.assertEqual(config.session_records()[NAME]["account"], "second")
+        self.assertIn(CONVERSATION, self.commands[0])
+        self.assertIsNone(watch.seat_read(NAME)["usage_wait"])
+
+    def test_unanswered_seat_login_is_skipped_for_another_of_the_same_provider(self):
+        self.cfg["providers"]["anthropic"]["accounts"].append("third")
+        self.cached(lambda p: p["anthropic"]["accounts"].update(
+            third=p["anthropic"]["accounts"]["second"]))
+        self.auth.side_effect = lambda harness, seat=False, account=None: (
+            None if account == "second" else True, "fake seat login")
+        self.tick()
+        self.auth.assert_any_call("claude", seat=True, account="second")
+        self.auth.assert_any_call("claude", seat=True, account="third")
+        self.assertEqual(config.session_records()[NAME]["account"], "third")
+        self.assertIn(CONVERSATION, self.commands[0])
+
+    def test_owner_typing_during_seat_login_check_prevents_reopening(self):
+        def login(*args, **kwargs):
+            self.pane = "❯ the owner is typing"
+            return True, "fake seat login"
+        self.auth.side_effect = login
+        self.tick()
+        self.assertEqual(self.commands, [])
+        self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
 
     def test_screen_refusal_marks_only_its_account_despite_meters_with_room(self):
         self.meters(20, 40)
