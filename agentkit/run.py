@@ -1732,10 +1732,13 @@ class _MergeHold:
     holds one turn across its rebase, its checks and its merge, and lets it go before
     a fixer or a reviewer starts, from inside the frame that took it.  Releasing closes
     the file, as leaving the frame would have, and takes the holding mark off the record.
+    Only a reserved lap's verify lets go early; a delivery never does, so `releasable`
+    is true until the lap's check has passed.
     """
 
     def __init__(self, lock, lp, reserved):
         self.lock, self.lp, self.reserved = lock, lp, reserved
+        self.releasable = reserved
         self._released = False
 
     def release(self):
@@ -1755,11 +1758,11 @@ class _MergeHold:
                 _PICKUP_HELD.count = held - 1
             if self.reserved:
                 try:
-                    self.lp.state.pop("merge_turn", None)
+                    self.lp.state.pop("merge_hold", None)
                     save_state(self.lp.run_dir, self.lp.state)
                 except (OSError, StopRequested):
                     try:
-                        self.lp.state.pop("merge_turn", None)
+                        self.lp.state.pop("merge_hold", None)
                     except Exception:
                         pass
             if getattr(_MERGE_HELD, "hold", None) is self:
@@ -1877,16 +1880,17 @@ def released_gate_turn():
     A rebase conflict, a failing check and a re-review all end in a fixer or a reviewer,
     and a model turn held through them lands nothing for the runs queued behind.  The lap
     goes again after the fix, as it does today; whoever needs the turn next takes it fresh,
-    which is also what a check does when no turn is held at all.  A reserved merge turn
-    goes with it, for the same reason, and the next lap takes it again.
+    which is also what a check does when no turn is held at all.  A reserved lap's verify
+    lets its merge turn go with it, for the same reason, and the next lap takes it again;
+    a delivery keeps its turn through any retry.
     """
     hold, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
     if hold is not None:
         hold.release()
-    merge_hold, _MERGE_HELD.hold = getattr(_MERGE_HELD, "hold", None), None
-    if merge_hold is not None:
-        merge_hold.release()
+    merge_hold = getattr(_MERGE_HELD, "hold", None)
+    if merge_hold is not None and getattr(merge_hold, "releasable", False):
         _MERGE_HELD.hold = None
+        merge_hold.release()
     yield
 
 
@@ -4765,6 +4769,8 @@ def land(lp, upstream, verify, deliver, execv=None):
             pickup_new_code(lp, execv=execv, extra={"land_lap": lap})
             turn_log = Path(lp.run_dir) / "landing-turn.log"
             reserved = lap > 1
+            # the merge turn first: `do_merge` can wait for a gate turn while holding it,
+            # so the reverse order could deadlock two landers against each other
             with merge_turn(lp, upstream, reserve=True) if reserved else nullcontext():
                 with gate_turn(lp.run_dir, turn_log, lp.log):
                     # the wait is over and the checks keep their own logs; the wait's own
@@ -4775,6 +4781,9 @@ def land(lp, upstream, verify, deliver, execv=None):
                         pass
                     if not verify():
                         return False
+                held = getattr(_MERGE_HELD, "hold", None)
+                if held is not None:
+                    held.releasable = False   # the check passed; the merge keeps the turn
                 verified = lp.base_sha
                 with merge_turn(lp, upstream):
                     rc, out = git_out(lp.wt, "fetch", "origin", "--prune")
@@ -4857,9 +4866,9 @@ def merge_turn(lp, upstream, reserve=False):
     after a lost one, which reserves the turn from before its rebase through its merge.
     The turn is a flock, which the kernel lets go of when its holder dies, so a run killed
     mid-merge never blocks the next.  A run waiting for it says so on its record, and host
-    admission does not count it as a running worker meanwhile; a reserved lap says it holds
-    the turn to land.  A check running while this thread already holds a turn takes no
-    second one: a reserved lap's fetch and merge run under the turn it already holds.
+    admission does not count it as a running worker meanwhile; a reserved lap marks its
+    own hold to land.  A lap already holding the turn takes no second one: a reserved
+    lap's fetch and merge run under the turn it already holds.
     """
     if getattr(_MERGE_HELD, "hold", None) is not None:
         yield
@@ -4887,7 +4896,7 @@ def merge_turn(lp, upstream, reserve=False):
         _PICKUP_HELD.count = held + 1
         try:
             if reserve:
-                lp.state["merge_turn"] = {"pid": os.getpid(), "of": what, "holding": True}
+                lp.state["merge_hold"] = {"pid": os.getpid(), "of": what}
                 save_state(lp.run_dir, lp.state)
                 lp.log(f"--- merge: holding the merge turn of {what} to land")
         except BaseException:
@@ -4928,20 +4937,29 @@ def merge_turn_lock(url, upstream):
 
 
 def merge_turn_note(state):
-    """`waiting for the merge turn of <repo> <branch>` while a run waits in `merge_turn`,
-    `holding the merge turn of <repo> <branch> to land` while a reserved lap holds it,
-    else "".
+    """`waiting for the merge turn of <repo> <branch>` while a run waits in `merge_turn`, else "".
 
-    The mark names the process that waits or holds, so one a kill left on the record,
-    or a resume carried forward to a new process, says nothing.
+    The mark names the process that waits, so one a kill left on the record, or a resume
+    carried forward to a new process, says nothing.
     """
     turn = state.get("merge_turn")
     if (state.get("state") != "running" or not isinstance(turn, dict)
             or turn.get("pid") != state.get("pid")):
         return ""
-    if turn.get("holding"):
-        return f"holding the merge turn of {turn.get('of')} to land"
     return f"waiting for the merge turn of {turn.get('of')}"
+
+
+def merge_hold_note(state):
+    """`holding the merge turn of <repo> <branch> to land` while a reserved lap holds it, else "".
+
+    A hold of its own, not a wait: the run is working through its check and merge, so it
+    keeps its slot and its silence watch, unlike a waiter that only sits there.
+    """
+    hold = state.get("merge_hold")
+    if (state.get("state") != "running" or not isinstance(hold, dict)
+            or hold.get("pid") != state.get("pid")):
+        return ""
+    return f"holding the merge turn of {hold.get('of')} to land"
 
 
 def merge(lp):
@@ -9404,6 +9422,8 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
         lines.append(f"  {dep_wait_note(state)}")
     elif gate_turn_note(state):
         lines.append(f"  {gate_turn_note(state)}")
+    if merge_hold_note(state):
+        lines.append(f"  {merge_hold_note(state)}")
     if needs_recovery(state):
         reason = recovery_reason(state)
         wait = waiting(state, providers=providers, cfg=cfg)
@@ -9610,6 +9630,8 @@ def cmd_status(argv):
                 print(f"  {dep_wait_note(state)}")
             elif gate_turn_note(state):
                 print(f"  {gate_turn_note(state)}")
+            if merge_hold_note(state):
+                print(f"  {merge_hold_note(state)}")
             if state.get("first"):
                 print("  first")
             living, ended = alive_line(state), stop_note(state)
@@ -9676,6 +9698,8 @@ def cmd_status(argv):
                     print("  " + terminal.styled(handback_waiting(state), "dim"))
                 elif parked:
                     print("  " + terminal.styled(parked, "dim"))
+                if merge_hold_note(state):
+                    print(f"  {merge_hold_note(state)}")
                 if state.get("first"):
                     print("  first")
                 living, ended = alive_line(state), stop_note(state)

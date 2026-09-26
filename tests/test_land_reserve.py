@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import config, run, watch
 
 URL = "https://github.com/fixture/repo/pull/7"
 
@@ -144,7 +144,8 @@ class LandReserve(unittest.TestCase):
 
         @contextmanager
         def turn(lp, upstream, *args, **kwargs):
-            if self.queuing:
+            reserve = kwargs.get("reserve", args[0] if args else False)
+            if self.queuing and not reserve:
                 self.queuing(lp)
             with real_turn(lp, upstream, *args, **kwargs):
                 yield
@@ -166,7 +167,9 @@ class LandReserve(unittest.TestCase):
         def fix(lp, role, text, name):
             self.fixer_seen["held"] = merge_held(lp.wt)
             self.fixer_seen["own"] = getattr(run._MERGE_HELD, "hold", None) is not None
-            self.fixer_seen["note"] = run.merge_turn_note(run.read_state(lp.run_dir) or {})
+            state = run.read_state(lp.run_dir) or {}
+            self.fixer_seen["note"] = run.merge_turn_note(state)
+            self.fixer_seen["hold_note"] = run.merge_hold_note(state)
             if not self.fixer:
                 raise AssertionError(f"unexpected {name} turn in {lp.wt.name}")
             return self.fixer(lp)
@@ -235,10 +238,18 @@ class LandReserve(unittest.TestCase):
         results = {}
         first = self.land(one, results)
         try:
-            self.until(lambda: run.merge_turn_note(run.read_state(one.run_dir) or {}).startswith(
+            self.until(lambda: run.merge_hold_note(run.read_state(one.run_dir) or {}).startswith(
                 "holding the merge turn"), "the second lap to hold the turn")
-            holding_note = run.merge_turn_note(run.read_state(one.run_dir) or {})
-            self.assertEqual(holding_note, "holding the merge turn of acme main to land")
+            state = run.read_state(one.run_dir) or {}
+            self.assertEqual(run.merge_hold_note(state),
+                             "holding the merge turn of acme main to land")
+            self.assertEqual(run.merge_turn_note(state), "")
+            # a hold is work, not a wait: the run keeps its slot and its silence watch
+            self.assertEqual(run.slot_counts({"run_id": "probe"}), (2, 0))
+            old = time.time() - 3600
+            for path in one.run_dir.rglob("*"):
+                os.utime(path, (old, old))
+            self.assertLess(watch.stall_clock(one.run_dir, state), old + 1)
             second = self.land(two, results)
             second.join(60)
             self.assertFalse(second.is_alive(), "the second run never finished")
@@ -247,6 +258,8 @@ class LandReserve(unittest.TestCase):
         self.assertFalse(first.is_alive(), "the reserved run never finished")
         self.assertEqual(results.get(one.state["run_id"]), True)
         self.assertEqual(results.get(two.state["run_id"]), True)
+        self.assertNotIn("merge_hold", run.read_state(one.run_dir) or {})
+        self.assertEqual(run.merge_hold_note(run.read_state(one.run_dir) or {}), "")
         laps = [extra for run_id, extra in self.pickups if run_id == one.state["run_id"]]
         self.assertEqual(laps, [{"land_lap": 1}, {"land_lap": 2}])
         acme_checks = [held for name, held in self.checks if name == "acme"]
@@ -293,11 +306,15 @@ class LandReserve(unittest.TestCase):
         laps = [extra for run_id, extra in self.pickups if run_id == lp.state["run_id"]]
         self.assertEqual(laps, [{"land_lap": 1}, {"land_lap": 2}])
         acme_checks = [held for name, held in self.checks if name == "acme"]
-        self.assertEqual(acme_checks[:2], [False, True])
+        # lap 1 outside, lap 2's failing check holding, the re-check after the fix
+        # outside again, racing like a first lap; the fetch then takes a fresh turn
+        self.assertEqual(acme_checks, [False, True, False])
         self.assertIn("held", self.fixer_seen)
         self.assertFalse(self.fixer_seen["held"])
         self.assertFalse(self.fixer_seen["own"])
         self.assertEqual(self.fixer_seen["note"], "")
+        self.assertEqual(self.fixer_seen["hold_note"], "")
+        self.assertNotIn("merge_hold", run.read_state(lp.run_dir) or {})
 
     def test_first_lap_and_disjoint_landing_never_take_early(self):
         remote, owner = make_origin(self.root)
@@ -334,6 +351,26 @@ class LandReserve(unittest.TestCase):
         # disjoint move itself, rebased onto under the turn to land
         self.assertEqual([held for name, held in self.rebases if name == "bravo"],
                          [False, True])
+
+    def test_delivery_keeps_the_turn_through_a_retry(self):
+        remote, owner = make_origin(self.root)
+        lp = make_run(self.root, remote, "acme", ["true"])
+        with run.merge_turn(lp, "origin/main"):
+            self.assertTrue(merge_held(lp.wt))
+            with run.released_gate_turn():
+                self.assertTrue(merge_held(lp.wt))
+            self.assertTrue(merge_held(lp.wt))
+        self.assertFalse(merge_held(lp.wt))
+        with run.merge_turn(lp, "origin/main", reserve=True):
+            self.assertTrue(merge_held(lp.wt))
+            with run.released_gate_turn():
+                pass
+            self.assertFalse(merge_held(lp.wt))
+        with run.merge_turn(lp, "origin/main", reserve=True):
+            run._MERGE_HELD.hold.releasable = False
+            with run.released_gate_turn():
+                self.assertTrue(merge_held(lp.wt))
+            self.assertTrue(merge_held(lp.wt))
 
 
 if __name__ == "__main__":
