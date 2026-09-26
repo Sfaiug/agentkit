@@ -109,7 +109,7 @@ class DesktopAndBoot(Sandbox):
         # Interrupted work keeps its own receipt and explicit recovery action.
         self.ended("interrupted", state="interrupted", owner="claude")
         self.stack.enter_context(patch.object(orch, "command", side_effect=lambda cfg, model, conversation=None,
-            fresh=False: [model, "--session-id" if fresh else "--resume", conversation]))
+            fresh=False, account=None: [model, "--session-id" if fresh else "--resume", conversation]))
         self.started = self.stack.enter_context(patch.object(orch, "start"))
 
     def test_a_asking_notifies_other_client_and_suppresses_active_seat(self):
