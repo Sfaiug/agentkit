@@ -506,10 +506,14 @@ def _gate_flags(providers, now, cfg):
         recorded = harness_plugin(prov.get("harness")).usage_recorded(config.STATE, now)
         if recorded:
             prov.update(meters=[_normalized(meter, now) for meter in recorded], error=None)
-        # a provider that refused a worker is parked until it said it would have capacity
+        # a provider that refused a worker is parked until it said it would have
+        # capacity, or until its meters show a window that opened after the mark
         until = _number(prov.get("exhausted_until"))
-        if until is None or until <= now:
+        ends = prov.get("exhausted_ends")
+        if until is None or until <= now or _fresh_window(prov, ends, now):
             prov.pop("exhausted_until", None)
+            prov.pop("exhausted_at", None)
+            prov.pop("exhausted_ends", None)
             until = None
         prov["exhausted"] = until is not None
         for meter in prov.get("meters") or []:
@@ -589,19 +593,57 @@ def _patch(provider, prov, now, account=None):
         pass                 # a cache that cannot be written costs a re-probe, nothing more
 
 
+def _fresh_window(prov, ends, now):
+    """Whether a recorded meter now reports a later reset with room left.
+
+    Only reported reset times identify a replacement: a window's nominal length says
+    nothing about when it began.  Without a recorded reset there is nothing to compare.
+    """
+    if not isinstance(prov, dict) or not isinstance(ends, dict):
+        return False
+    for meter in prov.get("meters") or []:
+        if not isinstance(meter, dict):
+            continue
+        used = _number(meter.get("used"))
+        if used is None or used >= 100:
+            continue
+        resets_at = _number(meter.get("resets_at"))
+        if resets_at is None:
+            continue
+        if resets_at <= now:
+            continue          # a window already rolled over answers for nothing
+        old = _number(ends.get(meter.get("name")))
+        if old is None or resets_at <= old:
+            continue          # the window the mark was made in, mismeasured or not
+        return True
+    return False
+
+
 def _carry_mark(old, prov, now):
     """A refusal's deadline outlives the meters it was recorded beside, until it has passed.
 
     A provider that has just refused a worker is parked until it says it has capacity again,
     and the meters it reports meanwhile are not that answer: the one that is, is the time the
     refusal itself named.  Once that time is behind us the mark is gone and the probe decides.
+    A window that opened after the mark with room ends it sooner, and is that same answer.
 
     It is carried on the way *into* the reset policy and never on the way out, so a credit that
     opens a fresh week takes the mark with it: the meters a spend hands back are the capacity
     the mark said was missing, and re-applying it there would withhold what was just paid for.
     """
     until = _number((old or {}).get("exhausted_until"))
-    return prov if until is None or until <= now else {**prov, "exhausted_until": until}
+    if until is None or until <= now:
+        return prov
+    marked_at = _number((old or {}).get("exhausted_at"))
+    ends = (old or {}).get("exhausted_ends")
+    if _fresh_window(prov, ends, now):
+        return prov
+    mark = {**prov, "exhausted_until": until}
+    if marked_at is not None:
+        mark["exhausted_at"] = marked_at
+    if isinstance(ends, dict):
+        mark["exhausted_ends"] = ends
+    return mark
 
 
 def collect(cfg, *, refresh=False):
@@ -772,8 +814,9 @@ def mark_exhausted(cfg, provider, until=None, account=None):
 
     The mark lives in the usage cache beside the meters, so `pick_order` excludes this
     provider for every later pick in every run, and it is dropped the moment the deadline has
-    passed.  An account's mark is its own: the provider stays eligible on its other accounts.
-    Returns the deadline recorded.
+    passed, or a meter with room reports a later reset than recorded at marking.  An account's
+    mark is its own: the provider stays eligible on its other accounts.  Returns the deadline
+    recorded.
     """
     now = time.time()
     try:
@@ -784,7 +827,15 @@ def mark_exhausted(cfg, provider, until=None, account=None):
         prov = (prov.get("accounts") or {}).get(account) or {}
     if _number(until) is None or until <= now:
         until = _next_window(prov, now) or now + DRY_FOR
-    _patch(provider, {**prov, "exhausted_until": float(until)}, now, account)
+    ends = {}
+    for meter in prov.get("meters") or []:
+        if not isinstance(meter, dict) or not isinstance(meter.get("name"), str):
+            continue
+        end = _number(meter.get("resets_at"))
+        if end is not None:
+            ends[meter["name"]] = end
+    _patch(provider, {**prov, "exhausted_until": float(until), "exhausted_at": float(now),
+                      "exhausted_ends": ends}, now, account)
     return float(until)
 
 
@@ -1005,10 +1056,14 @@ def model_exhausted(cfg, name, providers):
     """
     meters, _ = _gating_meters(cfg, name, providers)
     provider = config.model(cfg, name)["provider"]
-    until = _number(providers.get(provider, {}).get("exhausted_until"))
-    if until is not None and until > time.time():
-        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until))
-        return True, f"{provider} ran dry; nothing is picked on it until {when}"
+    prov = providers.get(provider, {})
+    until = _number(prov.get("exhausted_until") if isinstance(prov, dict) else None)
+    now = time.time()
+    if until is not None and until > now:
+        ends = prov.get("exhausted_ends")
+        if not _fresh_window(prov, ends, now):
+            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until))
+            return True, f"{provider} ran dry; nothing is picked on it until {when}"
     spent = [m for m in meters if m["used"] >= 100]
     if not spent:
         return False, None
