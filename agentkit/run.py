@@ -533,14 +533,54 @@ def done_when_groups(body, path):
     return group_commands(done_when(body, path))
 
 
+def first_command(cmd):
+    """The shell line up to its first output plumbing: `2>&1`, `|`, `&&`, `||` or `;`.
+
+    A task ends its done-when with the suite's bare command while the repository declares
+    the same command with its log plumbing, and the two are the same run: this is the text
+    before the first plumbing operator outside any quotes and outside any `$(...)`, so a
+    pipe inside a substitution is the command's own argument, never the plumbing.
+    """
+    single = double = False
+    escaped = False
+    depth = 0
+    i, end = 0, len(cmd)
+    while i < end:
+        ch = cmd[i]
+        if escaped:
+            escaped = False
+        elif ch == "\\" and not single:
+            escaped = True
+        elif ch == "'" and not double:
+            single = not single
+        elif ch == '"' and not single:
+            double = not double
+        elif not single and not double:
+            if ch == "$" and cmd[i + 1:i + 2] == "(":
+                depth += 1
+                i += 1
+            elif ch == ")" and depth:
+                depth -= 1
+            elif not depth:
+                if cmd.startswith("2>&1", i) or ch in "|;":
+                    return cmd[:i]
+                if ch == "&" and cmd[i + 1:i + 2] == "&":
+                    return cmd[:i]
+        i += 1
+    return cmd
+
+
 def with_suite(cmds, wt, target=None):
     """The done-when commands plus the declared `tests:` suite as a `# once` line.
 
     A repository names its full suite once, in AGENTS.md, rather than every task writing it
     into every round: it runs in the final check on the commit about to ship and nowhere
-    else.  A task line that is the same command is that line, so it runs once, not twice.
-    The checkout's own declaration wins; a checkout branched before the repository
-    declared one reads the target branch as fetched instead (`origin/<target>`).
+    else.  A task line that is the same command is that line, so it runs once, not twice;
+    so is a line that is the suite's bare first command, without its output plumbing,
+    whitespace aside.  A line already marked `# once` keeps today's meaning: only one
+    identical to the suite is that line.  The checkout's own declaration wins; a checkout
+    branched before the repository declared one reads the target branch as fetched
+    instead (`origin/<target>`).
     """
     suite = declared(wt, "tests")
     if not suite and target:
@@ -548,7 +588,19 @@ def with_suite(cmds, wt, target=None):
         suite = declared_at(wt, ref, "tests")
     if not suite:
         return cmds
-    return [cmd for cmd in cmds if split_once(cmd)[0] != suite] + [f"{suite}  # once"]
+    targets = {" ".join(suite.split())}
+    first = " ".join(first_command(suite).split())
+    if first:
+        targets.add(first)
+    kept = []
+    for cmd in cmds:
+        bare, once = split_once(cmd)
+        if once:
+            if bare != suite:
+                kept.append(cmd)
+        elif " ".join(bare.split()) not in targets:
+            kept.append(cmd)
+    return kept + [f"{suite}  # once"]
 
 
 def task_points(body):
