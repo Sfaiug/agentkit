@@ -166,7 +166,18 @@ class FreshWindowEndsMark(unittest.TestCase):
         with patch.object(usage, "_probe", side_effect=self.fake_probe):
             until = NOW + 5 * 86400
             usage.mark_exhausted(self.cfg, "alpha", until)
+            self.assertEqual(usage.collect(self.cfg)["alpha"]["exhausted_ends"],
+                             {"plan": NOW + 31 * 86400})
             self.now += usage.PROBE_EVERY + 1
+            self.stale_cache()
+            providers = usage.collect(self.cfg)
+            self.assertEqual(providers["alpha"]["exhausted_until"], until)
+            self.assertTrue(providers["alpha"]["exhausted"])
+            order = usage.pick_order(self.cfg, providers, ["one", "two"], quiet=True)
+            self.assertNotIn("one", order)
+            # Past the implied start, with the meter itself unchanged and the
+            # deadline still pending: the same window, still parked.
+            self.now = NOW + 86401
             self.stale_cache()
             providers = usage.collect(self.cfg)
             self.assertEqual(providers["alpha"]["exhausted_until"], until)

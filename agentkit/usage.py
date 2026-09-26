@@ -510,13 +510,16 @@ def _gate_flags(providers, now, cfg):
         # capacity, or until its meters show a window that opened after the mark
         until = _number(prov.get("exhausted_until"))
         marked_at = _number(prov.get("exhausted_at"))
+        ends = prov.get("exhausted_ends")
         if until is None or until <= now:
             prov.pop("exhausted_until", None)
             prov.pop("exhausted_at", None)
+            prov.pop("exhausted_ends", None)
             until = None
-        elif marked_at is not None and _fresh_window(prov, marked_at, now):
+        elif marked_at is not None and _fresh_window(prov, marked_at, ends, now):
             prov.pop("exhausted_until", None)
             prov.pop("exhausted_at", None)
+            prov.pop("exhausted_ends", None)
             until = None
         prov["exhausted"] = until is not None
         for meter in prov.get("meters") or []:
@@ -596,18 +599,20 @@ def _patch(provider, prov, now, account=None):
         pass                 # a cache that cannot be written costs a re-probe, nothing more
 
 
-def _fresh_window(prov, marked_at, now):
+def _fresh_window(prov, marked_at, ends, now):
     """Whether a meter shows a window that opened after the mark with room left.
 
     A refusal parks the provider until the time it named, but the window it was refused
     for can start again first: the meter then reads a new window, begun after the mark
     was made, and that is the capacity the mark said was missing.  A meter that names
     no time, or none with room, is no such answer, and a spent replacement keeps the
-    mark exactly as a spent week does.  The start has to have passed already: a length
-    can be nominal -- a calendar-month plan reported on 30 days -- and a start still
-    in the future is then the same window mismeasured, not a replacement.
+    mark exactly as a spent week does.  The start has to have passed already, and the
+    window has to end later than the one of that name present when the mark was made:
+    a length can be nominal -- a calendar-month plan reported on 30 days -- and the
+    same window then mismeasures its start past the mark, first in the future and,
+    a day on, in the past.  Only a later end tells a replacement from it.
     """
-    if not isinstance(prov, dict):
+    if not isinstance(prov, dict) or not isinstance(ends, dict):
         return False
     for meter in prov.get("meters") or []:
         if not isinstance(meter, dict):
@@ -622,8 +627,12 @@ def _fresh_window(prov, marked_at, now):
         if resets_at <= now:
             continue          # a window already rolled over answers for nothing
         start = resets_at - window
-        if start > marked_at and start <= now:
-            return True
+        if start <= marked_at or start > now:
+            continue
+        old = _number(ends.get(meter.get("name")))
+        if old is None or resets_at <= old:
+            continue          # the window the mark was made in, mismeasured or not
+        return True
     return False
 
 
@@ -643,11 +652,15 @@ def _carry_mark(old, prov, now):
     if until is None or until <= now:
         return prov
     marked_at = _number((old or {}).get("exhausted_at"))
-    if marked_at is not None and _fresh_window(prov, marked_at, now):
+    ends = (old or {}).get("exhausted_ends")
+    if marked_at is not None and _fresh_window(prov, marked_at, ends, now):
         return prov
     if marked_at is None:
         return {**prov, "exhausted_until": until}
-    return {**prov, "exhausted_until": until, "exhausted_at": marked_at}
+    mark = {**prov, "exhausted_until": until, "exhausted_at": marked_at}
+    if isinstance(ends, dict):
+        mark["exhausted_ends"] = ends
+    return mark
 
 
 def collect(cfg, *, refresh=False):
@@ -830,8 +843,15 @@ def mark_exhausted(cfg, provider, until=None, account=None):
         prov = (prov.get("accounts") or {}).get(account) or {}
     if _number(until) is None or until <= now:
         until = _next_window(prov, now) or now + DRY_FOR
-    _patch(provider, {**prov, "exhausted_until": float(until), "exhausted_at": float(now)},
-           now, account)
+    ends = {}
+    for meter in prov.get("meters") or []:
+        if not isinstance(meter, dict) or not isinstance(meter.get("name"), str):
+            continue
+        end = _number(meter.get("resets_at"))
+        if end is not None:
+            ends[meter["name"]] = end
+    _patch(provider, {**prov, "exhausted_until": float(until), "exhausted_at": float(now),
+                      "exhausted_ends": ends}, now, account)
     return float(until)
 
 
@@ -1057,7 +1077,8 @@ def model_exhausted(cfg, name, providers):
     now = time.time()
     if until is not None and until > now:
         marked_at = _number(prov.get("exhausted_at"))
-        if marked_at is None or not _fresh_window(prov, marked_at, now):
+        ends = prov.get("exhausted_ends")
+        if marked_at is None or not _fresh_window(prov, marked_at, ends, now):
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until))
             return True, f"{provider} ran dry; nothing is picked on it until {when}"
     spent = [m for m in meters if m["used"] >= 100]
