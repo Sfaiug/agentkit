@@ -1,7 +1,7 @@
 """A refusal's mark ends when its provider's window starts again with room.
 
-Fake meters in a temporary HOME: the probe answers out of files this test
-writes, so nothing here reaches a real usage endpoint or a real credential.
+Fake meters in a temporary HOME: nothing here reaches a real usage endpoint
+or a real credential.
 """
 
 from contextlib import ExitStack
@@ -157,7 +157,7 @@ class FreshWindowEndsMark(unittest.TestCase):
             order = usage.pick_order(self.cfg, providers, ["one", "two"], quiet=True)
             self.assertNotIn("one", order)
 
-    def test_window_whose_start_is_still_in_the_future_keeps_the_mark(self):
+    def test_unchanged_reset_on_a_nominal_month_keeps_the_mark(self):
         # A calendar-month plan on a nominal 30 days: the reset a month out implies
         # a start a day from now, after the mark, although no window restarted.
         self.set_meters("alpha", [{"name": "plan", "used": 40,
@@ -184,6 +184,72 @@ class FreshWindowEndsMark(unittest.TestCase):
             self.assertTrue(providers["alpha"]["exhausted"])
             order = usage.pick_order(self.cfg, providers, ["one", "two"], quiet=True)
             self.assertNotIn("one", order)
+
+    def test_later_reset_needs_no_window_length_or_inferred_start(self):
+        self.set_meters("alpha", self.old_window())
+        self.set_meters("beta", self.old_window(used=10))
+        with patch.object(usage, "_probe", side_effect=self.fake_probe):
+            usage.mark_exhausted(self.cfg, "alpha", NOW + 5 * 86400)
+            cache = config.STATE / "usage.json"
+            marked = json.loads(cache.read_text())
+            self.now += usage.PROBE_EVERY + 1
+            # No length, an implied start before the mark, and a nominal month
+            # implying a start still in the future all describe a later reset.
+            for window, end in ((None, self.now + WEEK), (2 * WEEK, self.now + WEEK),
+                                (30 * 86400, self.now + 31 * 86400)):
+                for cached in (False, True):
+                    with self.subTest(window=window, cached=cached):
+                        meter = {"name": "weekly", "used": 0, "resets_at": end}
+                        if window is not None:
+                            meter["window_secs"] = window
+                        self.set_meters("alpha", [meter])
+                        blob = json.loads(json.dumps(marked))
+                        if cached:
+                            blob["providers"]["alpha"]["meters"] = [
+                                usage._normalized(meter, self.now)]
+                        else:
+                            blob["fetched_at"] = self.now - usage.CACHE_TTL - 1
+                            (config.STATE / "alpha-probe.lock").unlink(missing_ok=True)
+                        cache.write_text(json.dumps(blob))
+                        if cached:
+                            # Picks can also receive a snapshot before collect has
+                            # re-derived its flags, so they must agree with the table.
+                            self.assertIn("one", usage.pick_order(
+                                self.cfg, blob["providers"], ["one", "two"], quiet=True))
+                        providers = usage.collect(self.cfg)
+                        self.assertFalse(providers["alpha"]["exhausted"])
+                        for key in ("exhausted_until", "exhausted_at", "exhausted_ends"):
+                            self.assertNotIn(key, providers["alpha"])
+                        self.assertNotEqual(usage.outlook(providers["alpha"]), "exhausted")
+                        self.assertIn("one", usage.pick_order(
+                            self.cfg, providers, ["one", "two"], quiet=True))
+
+    def test_no_recorded_reset_keeps_the_mark_until_its_deadline(self):
+        self.set_meters("beta", self.old_window(used=10))
+        with patch.object(usage, "_probe", side_effect=self.fake_probe):
+            for meters in ([], [{"name": "weekly", "used": 80, "window_secs": WEEK}]):
+                with self.subTest(meters=meters):
+                    self.now += usage.CACHE_TTL + 1
+                    self.set_meters("alpha", meters)
+                    until = self.now + 3 * 3600
+                    usage.mark_exhausted(self.cfg, "alpha", until)
+                    self.assertEqual(usage.collect(self.cfg)["alpha"]["exhausted_ends"], {})
+                    self.now += usage.PROBE_EVERY + 1
+                    self.set_meters("alpha", [{"name": "weekly", "used": 0,
+                                               "resets_at": self.now + WEEK,
+                                               "window_secs": WEEK}])
+                    self.stale_cache()
+                    providers = usage.collect(self.cfg)
+                    self.assertEqual(providers["alpha"]["exhausted_until"], until)
+                    self.assertTrue(providers["alpha"]["exhausted"])
+                    self.assertNotIn("one", usage.pick_order(
+                        self.cfg, providers, ["one", "two"], quiet=True))
+                    self.now = until
+                    self.stale_cache()
+                    providers = usage.collect(self.cfg)
+                    self.assertNotIn("exhausted_until", providers["alpha"])
+                    self.assertIn("one", usage.pick_order(
+                        self.cfg, providers, ["one", "two"], quiet=True))
 
 
 if __name__ == "__main__":

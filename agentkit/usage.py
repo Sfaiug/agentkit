@@ -509,14 +509,8 @@ def _gate_flags(providers, now, cfg):
         # a provider that refused a worker is parked until it said it would have
         # capacity, or until its meters show a window that opened after the mark
         until = _number(prov.get("exhausted_until"))
-        marked_at = _number(prov.get("exhausted_at"))
         ends = prov.get("exhausted_ends")
-        if until is None or until <= now:
-            prov.pop("exhausted_until", None)
-            prov.pop("exhausted_at", None)
-            prov.pop("exhausted_ends", None)
-            until = None
-        elif marked_at is not None and _fresh_window(prov, marked_at, ends, now):
+        if until is None or until <= now or _fresh_window(prov, ends, now):
             prov.pop("exhausted_until", None)
             prov.pop("exhausted_at", None)
             prov.pop("exhausted_ends", None)
@@ -599,18 +593,11 @@ def _patch(provider, prov, now, account=None):
         pass                 # a cache that cannot be written costs a re-probe, nothing more
 
 
-def _fresh_window(prov, marked_at, ends, now):
-    """Whether a meter shows a window that opened after the mark with room left.
+def _fresh_window(prov, ends, now):
+    """Whether a recorded meter now reports a later reset with room left.
 
-    A refusal parks the provider until the time it named, but the window it was refused
-    for can start again first: the meter then reads a new window, begun after the mark
-    was made, and that is the capacity the mark said was missing.  A meter that names
-    no time, or none with room, is no such answer, and a spent replacement keeps the
-    mark exactly as a spent week does.  The start has to have passed already, and the
-    window has to end later than the one of that name present when the mark was made:
-    a length can be nominal -- a calendar-month plan reported on 30 days -- and the
-    same window then mismeasures its start past the mark, first in the future and,
-    a day on, in the past.  Only a later end tells a replacement from it.
+    Only reported reset times identify a replacement: a window's nominal length says
+    nothing about when it began.  Without a recorded reset there is nothing to compare.
     """
     if not isinstance(prov, dict) or not isinstance(ends, dict):
         return False
@@ -621,14 +608,10 @@ def _fresh_window(prov, marked_at, ends, now):
         if used is None or used >= 100:
             continue
         resets_at = _number(meter.get("resets_at"))
-        window = _number(meter.get("window_secs"))
-        if resets_at is None or window is None or window <= 0:
+        if resets_at is None:
             continue
         if resets_at <= now:
             continue          # a window already rolled over answers for nothing
-        start = resets_at - window
-        if start <= marked_at or start > now:
-            continue
         old = _number(ends.get(meter.get("name")))
         if old is None or resets_at <= old:
             continue          # the window the mark was made in, mismeasured or not
@@ -653,11 +636,11 @@ def _carry_mark(old, prov, now):
         return prov
     marked_at = _number((old or {}).get("exhausted_at"))
     ends = (old or {}).get("exhausted_ends")
-    if marked_at is not None and _fresh_window(prov, marked_at, ends, now):
+    if _fresh_window(prov, ends, now):
         return prov
-    if marked_at is None:
-        return {**prov, "exhausted_until": until}
-    mark = {**prov, "exhausted_until": until, "exhausted_at": marked_at}
+    mark = {**prov, "exhausted_until": until}
+    if marked_at is not None:
+        mark["exhausted_at"] = marked_at
     if isinstance(ends, dict):
         mark["exhausted_ends"] = ends
     return mark
@@ -831,8 +814,9 @@ def mark_exhausted(cfg, provider, until=None, account=None):
 
     The mark lives in the usage cache beside the meters, so `pick_order` excludes this
     provider for every later pick in every run, and it is dropped the moment the deadline has
-    passed, or a window that opened after the mark shows room.  An account's mark is its own:
-    the provider stays eligible on its other accounts.  Returns the deadline recorded.
+    passed, or a meter with room reports a later reset than recorded at marking.  An account's
+    mark is its own: the provider stays eligible on its other accounts.  Returns the deadline
+    recorded.
     """
     now = time.time()
     try:
@@ -1076,9 +1060,8 @@ def model_exhausted(cfg, name, providers):
     until = _number(prov.get("exhausted_until") if isinstance(prov, dict) else None)
     now = time.time()
     if until is not None and until > now:
-        marked_at = _number(prov.get("exhausted_at"))
         ends = prov.get("exhausted_ends")
-        if marked_at is None or not _fresh_window(prov, marked_at, ends, now):
+        if not _fresh_window(prov, ends, now):
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until))
             return True, f"{provider} ran dry; nothing is picked on it until {when}"
     spent = [m for m in meters if m["used"] >= 100]
