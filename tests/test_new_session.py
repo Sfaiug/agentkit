@@ -76,6 +76,18 @@ class NewSession(Sandbox):
         self.assertIsNone(self.new(["", "q"]))
         self.assertEqual(list(config.STATE.glob("session-*.json")), [])
 
+    def test_login_error_keeps_the_menu_open(self):
+        with self.answers(["", ""]), patch.object(menu, "read", return_value=""), \
+                patch.object(menu, "wait_key", side_effect=["n", "q"]) as keys, \
+                patch.object(menu, "Live"), patch.object(terminal.Keyboard, "take", return_value=False), \
+                patch.object(orch, "create", side_effect=config.Error("no working seat login")), \
+                patch.object(menu, "pause") as pause, redirect_stdout(io.StringIO()):
+            self.assertEqual(menu.loop(self.cfg), 0)
+        pause.assert_called_once_with("new session: no working seat login")
+        self.assertEqual(keys.call_count, 2)
+        menu.open_session.assert_not_called()
+        self.assertEqual(list(config.STATE.glob("session-*.json")), [])
+
     def test_the_automatic_name_keeps_its_number_inside_the_cap(self):
         long = "m" * orch.NAME_CAP
         self.assertEqual(orch.default_name(long, {long}), "m" * (orch.NAME_CAP - 2) + "-2")

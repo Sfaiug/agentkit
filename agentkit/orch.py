@@ -2836,6 +2836,8 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
         harness = harness_plugin(config.model(cfg, model)["harness"])
         account = next((a for a in [*order, *(a for a in accounts if a not in order)]
                         if harness.seat_auth(a)[0] is True), None)
+        if account is None and prompting and config.DEFAULT_ACCOUNT in accounts:
+            account = config.DEFAULT_ACCOUNT   # an owner can open the usual login to sign in
         if account is None:
             raise config.Error(f"{provider}: no account has a working seat login")
     cmd, conversation = fresh_command(cfg, model, seat=name, account=account)

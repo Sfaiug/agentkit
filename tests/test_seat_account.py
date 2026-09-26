@@ -415,10 +415,24 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
                 self.auth.side_effect = None
                 self.auth.return_value = (answer, "no seat login")
                 with self.assertRaisesRegex(config.Error, "no account has a working seat login"):
-                    orch.create(self.cfg, "no-login", self.root,
+                    orch.create(self.cfg, "no-login", self.root, prompting=False,
                         selection=(usage.collect(self.cfg), ("opus", "chosen", ["astra"])))
                 self.assertNotIn("no-login", config.session_records())
             self.assertEqual(start.call_count, 1)
+
+    def test_manual_new_seat_can_open_the_usual_login_to_sign_in(self):
+        with patch.object(orch, "start") as start:
+            for answer in (False, None):
+                self.auth.return_value = (answer, "login expired or check unavailable")
+                orch.create(self.cfg, "sign-in", self.root,
+                    selection=(usage.collect(self.cfg), ("opus", "chosen", ["astra"])))
+                self.assertEqual(config.session_records()["sign-in"]["account"], "default")
+                self.assertIn("AGENTKIT_ACCOUNT=", start.call_args.args[2])
+            self.cfg["providers"]["anthropic"]["accounts"] = ["second"]
+            with self.assertRaisesRegex(config.Error, "no account has a working seat login"):
+                orch.create(self.cfg, "no-login", self.root,
+                    selection=({}, ("opus", "chosen", ["astra"])))
+            self.assertEqual(start.call_count, 2)
 
     def codex_seat(self):
         config.save_session(self.cfg, NAME, "astra", ["opus"], {
