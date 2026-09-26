@@ -321,7 +321,7 @@ sys.exit(item.get("rc", 0))
         staged = lp.wt / "generated"
         staged.write_text("new staged file\n")
         run.git(lp.wt, "add", str(staged))
-        def reviewer(*args):
+        def reviewer(*args, **kwargs):
             self.assertEqual(tracked.read_text(), "PR version\n")
             self.assertFalse(staged.exists())
             self.assertIn("+PR version", args[2])

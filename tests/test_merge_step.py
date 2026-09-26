@@ -138,7 +138,7 @@ class MergeStep(unittest.TestCase):
         # red-target probe never parks (tests/test_red_target.py covers a red tip)
         self.stack.enter_context(patch.object(run, "target_fails", return_value=False))
 
-    def review_call(self, cfg, name, body, workspace, out, role, session, log, limit=None):
+    def review_call(self, cfg, name, body, workspace, out, role, session, log, limit=None, **kwargs):
         self.assertEqual(role, "reviewer")
         answer = "VERDICT: PASS\n\n## Findings\n- none\n"
         out.mkdir(parents=True)
@@ -259,7 +259,7 @@ class MergeStep(unittest.TestCase):
 
         verdicts = iter(["FAIL", "PASS"])
 
-        def fake_review(cfg, name, body, workspace, out, role, session, log, limit=None):
+        def fake_review(cfg, name, body, workspace, out, role, session, log, limit=None, **kwargs):
             verdict = next(verdicts)
             answer = (f"VERDICT: {verdict}\n\n## Findings\n"
                       + ("- fix1.txt:1 - the fix skips the gate\n" if verdict == "FAIL"
@@ -301,7 +301,7 @@ class MergeStep(unittest.TestCase):
             turns.append((name, lp2.rnd))
             return "## Summary\nNothing to change."
 
-        def fake_review(cfg, name, body, workspace, out, role, session, log, limit=None):
+        def fake_review(cfg, name, body, workspace, out, role, session, log, limit=None, **kwargs):
             answer = "VERDICT: FAIL\n\n## Findings\n- base.txt:1 - the gate is skipped\n"
             out.mkdir(parents=True)
             (out / "final.md").write_text(answer)
@@ -340,7 +340,7 @@ class MergeStep(unittest.TestCase):
                 return False, "$ bash tests/smoke.sh\n[exit 1]\nFAIL  2 the gate"
             return True, "$ true\n[exit 0]\n"
 
-        def fake_review(cfg, name, body, workspace, out, role, session, log, limit=None):
+        def fake_review(cfg, name, body, workspace, out, role, session, log, limit=None, **kwargs):
             answer = "VERDICT: PASS\n\n## Findings\n- none\n"
             out.mkdir(parents=True)
             (out / "final.md").write_text(answer)
@@ -419,7 +419,7 @@ class MergeStep(unittest.TestCase):
                     return "## Summary\nResolved both sides."
 
                 def fake_review(cfg, name, body, workspace, out, role, session, log,
-                                limit=None):
+                                limit=None, **kwargs):
                     answer = "VERDICT: FAIL\n\n## Findings\n- shared:1 - drops the target side\n"
                     out.mkdir(parents=True)
                     (out / "final.md").write_text(answer)
@@ -483,7 +483,7 @@ class MergeStep(unittest.TestCase):
 
         verdicts = iter(["FAIL", "PASS"])
 
-        def fake_review(cfg, name, body, workspace, out, role, session, log, limit=None):
+        def fake_review(cfg, name, body, workspace, out, role, session, log, limit=None, **kwargs):
             verdict = next(verdicts)
             answer = (f"VERDICT: {verdict}\n\n## Findings\n"
                       + ("- shared:1 - the merged tree breaks\n" if verdict == "FAIL"
@@ -513,7 +513,7 @@ class MergeStep(unittest.TestCase):
         lp, run_dir, _ = make_loop(self.root, wt, cfg=config.load())
         asked = []
 
-        def call(cfg, name, body, workspace, out, role, session, log, limit=None):
+        def call(cfg, name, body, workspace, out, role, session, log, limit=None, **kwargs):
             if role == "reviewer":
                 return self.review_call(cfg, name, body, workspace, out, role, session, log, limit)
             asked.append((name, body))
@@ -550,7 +550,7 @@ class MergeStep(unittest.TestCase):
             ok = next(gates)
             return ok, f"$ check\n[exit {0 if ok else 1}]\n"
 
-        def review_call(cfg, name, body, workspace, out, role, session, log, limit=None):
+        def review_call(cfg, name, body, workspace, out, role, session, log, limit=None, **kwargs):
             answer = next(answers)
             out.mkdir(parents=True)
             (out / "final.md").write_text(answer)

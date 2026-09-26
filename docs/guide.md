@@ -221,7 +221,8 @@ silence resumes the loop with both roles re-picked from its worker list and exec
 it `stalled` for `ak run resume <id>`. Quota `exhausted` resumes when its window refills, a reviewer-transport one as
 below; other `exhausted` runs wait for `ak run resume <id>`; an expired login parks `waiting_login` until the harness's
 `auth` verb answers `yes`. A transient fault (`API Error`, `Overloaded`, a 5xx, an empty answer) retries the same
-session after 1, 5, 15, 30 and 60 minutes, then hourly; the tick's silence clock starts where each wait ends. An empty
+session after a minute; a second failure in a row hands the role to the next worker, and with nobody else the same session
+is retried after 5, 15, 30 and 60 minutes, then hourly; the tick's silence clock starts where each wait ends. An empty
 answer whose stderr (the adapter's own included) says the harness never ran (not installed, an unknown flag or model, a
 refused login, even quoted as `API Error`) and names no 5xx, overload or capacity error goes to another provider at
 once, or ends the run, a PR review included, `blocked` on that line. A refusal that names the account re-picks both roles by budget from its worker list, same worktree and round.

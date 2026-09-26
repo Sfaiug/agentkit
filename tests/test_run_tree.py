@@ -442,7 +442,7 @@ class RunTree(unittest.TestCase):
             role=lambda name: name, dir=lambda name: round_dir / name)
         left, calls = [], []
 
-        def attempt(cfg_, name, body, workspace, out_dir, role, session, log, limit=None):
+        def attempt(cfg_, name, body, workspace, out_dir, role, session, log, limit=None, **kwargs):
             calls.append(name)
             if len(calls) == 1:
                 self._leave_marked_sleep(left)

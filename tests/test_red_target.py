@@ -117,7 +117,7 @@ class RedTarget(unittest.TestCase):
             run.git(lp.wt, "commit", "-m", "remove the branch's breakage")
         return "## Summary\nRemoved the breakage."
 
-    def review_call(self, cfg, name, body, workspace, out, role, session, log, limit=None):
+    def review_call(self, cfg, name, body, workspace, out, role, session, log, limit=None, **kwargs):
         self.reviews.append(role)
         self.assertEqual(role, "reviewer")
         answer = "VERDICT: PASS\n\n## Findings\n- none\n"
