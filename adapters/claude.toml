@@ -36,11 +36,18 @@ state = "working"
 # hooks/orchestrator-stop.sh writes each Stop down once it has judged it.  A Stop is a turn that
 # ended, except two: one with background work the seat started still in flight (`background_tasks`
 # in the payload; that work's task notification begins the next turn), and one the hook sent back
-# to work (`held`).  First match wins.
+# to work (`held`).  First match wins.  `background` marks the wait whose composer stays open,
+# so unsent text there is the owner's.
 [[hooks.event]]
 name = "Stop"
 state = "working"
-kinds = ["background", "held"]
+kinds = ["background"]
+background = true
+
+[[hooks.event]]
+name = "Stop"
+state = "working"
+kinds = ["held"]
 
 [[hooks.event]]
 name = "Stop"
@@ -58,11 +65,11 @@ kinds = ["idle_prompt"]
 
 [screen]
 # fullmatch against a bottom line: the input box, which is chrome and not anything Claude said
-composer = '(?:(?:│\s*)?[>❯](?:\s+Try ["“].*["”])?\s*(?:│)?|⏵⏵ bypass permissions on \(shift\+tab to cycle\) · ← for agents|● \w+ · /effort|[✻✽✶✳✢] \w+ for .+ · done .+)$'
+composer = '(?:(?:│\s*)?[>❯](?:\s+Try ["“].*["”])?\s*(?:│)?|⏵⏵ bypass permissions on(?: \(shift\+tab to cycle\))?(?: · \d+ \w+)? · ← for agents|● \w+ · /effort|[✻✽✶✳✢] \w+ for .+ · done .+)$'
 # and the key hints under it, on top of the box-drawing and prompt footer every harness shares
 footer = [
   '\? for shortcuts',
-  '(?:⏵⏵\s*)?bypass permissions on(?:\s*\(shift\+tab to cycle\))?(?:\s+[◯○]?\s*\d+% context left)?',
+  '(?:⏵⏵\s*)?bypass permissions on(?:\s*\(shift\+tab to cycle\))?(?:\s*·\s*\d+\s+\w+)?(?:\s+[◯○]?\s*\d+% context left)?',
   '\d+% context left(?:\s*·\s*\? for shortcuts)?',
 ]
 
