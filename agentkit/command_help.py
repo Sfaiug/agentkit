@@ -55,7 +55,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                "ak run gc --dry-run"),
     "orch": ("""usage: ak orch [NAME] [--model MODEL] [--workers A,B] [--dry-run]
        ak orch list [--why] | ak orch why NAME
-       ak orch stop NAME | ak orch rename [OLD] NEW
+       ak orch stop NAME | ak orch rename [--auto] [OLD] NEW
        ak orch project [SEAT] CHECKOUT""",
              "Start or attach to a named orchestrator session; --dry-run prints the launch plan.",
              "ak orch parser-fix"),
@@ -69,8 +69,9 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                  "ak orch why parser-fix"),
     "orch stop": ("usage: ak orch stop NAME", "Stop a session and remove its saved seat.",
                   "ak orch stop parser-fix"),
-    "orch rename": ("usage: ak orch rename [OLD] NEW",
-                    "Rename a session; omit OLD to rename the session this runs in.",
+    "orch rename": ("usage: ak orch rename [--auto] [OLD] NEW",
+                    "Rename a session; omit OLD to rename the session this runs in.\n"
+                    "--auto names only an unnamed seat; an already named seat is left alone.",
                     "ak orch rename parser-fix parser-review"),
     "orch project": ("usage: ak orch project [SEAT] CHECKOUT",
                      "File a seat under a checkout by name or path; omit SEAT for this session.\n"

@@ -43,7 +43,7 @@ def write(session):
     body = text()
     if config.session_records().get(session, {}).get("unnamed"):
         body = (f"{body.rstrip()}\n\nThis seat is unnamed. As soon as the conversation tells you "
-                "what the job is, name this seat with `ak orch rename <name>`. Choose the "
+                "what the job is, name this seat with `ak orch rename --auto <name>`. Choose the "
                 "shortest possible name, at most three words, saying what the work is.\n")
     path.write_text(body)
     return path

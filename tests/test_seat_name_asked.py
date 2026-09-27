@@ -4,7 +4,7 @@ Offline, under a temporary HOME: model commands write the real rulebook, but no 
 tmux session starts. The same records feed creation, resumption and both rename entry points.
 """
 
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 import io
 import os
 from pathlib import Path
@@ -48,6 +48,22 @@ class SeatNameAsked(Sandbox):
                 name = orch.attach.call_args.args[0] if orch.attach.called else None
         return name, out.getvalue()
 
+    def running(self, name):
+        seat = {"name": name, "legacy": False}
+
+        def tmux(*args, **kwargs):
+            if args[0] == "rename-session":
+                self.assertEqual(args[2], f"={seat['name']}")
+                seat["name"] = args[-1]
+            return 0, ""
+
+        self.stack.enter_context(patch.object(orch, "sessions", return_value=[seat]))
+        self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=tmux))
+        self.stack.enter_context(patch.object(watch, "announce_state"))
+        self.stack.enter_context(patch.object(watch, "sync_title"))
+        self.stack.enter_context(patch.dict(os.environ, {config.SESSION_ENV: name}))
+        return seat
+
     def test_typed_name_is_normalized_before_models_are_chosen(self):
         for entry, typed in (("menu", "Fix / API.v2"), ("orch", "Acme / Parser")):
             with self.subTest(entry=entry):
@@ -69,7 +85,7 @@ class SeatNameAsked(Sandbox):
                 self.assertTrue(config.load_session(self.cfg, name)["unnamed"])
                 self.assertIn(RULE, self.rules[-1])
                 self.assertIn("as the conversation tells you what the job is", self.rules[-1])
-                self.assertIn("`ak orch rename <name>`", self.rules[-1])
+                self.assertIn("`ak orch rename --auto <name>`", self.rules[-1])
                 self.assertIn("shortest possible name, at most three words", self.rules[-1])
 
     def test_taken_name_asks_again(self):
@@ -99,6 +115,11 @@ class SeatNameAsked(Sandbox):
         self.assertEqual(name, "new")
         self.assertNotIn("unnamed", config.load_session(self.cfg, name))
         self.assertNotIn(RULE, self.rules[-1])
+        seat = self.running(name)
+        with redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(orch.main(["rename", "--auto", "parser"]), 0)
+        self.assertIn("already named new", out.getvalue())
+        self.assertEqual(seat["name"], "new")
 
     def test_resume_repeats_the_rule_only_until_a_rename(self):
         self.start("menu", "\n\n\n")
@@ -134,6 +155,120 @@ class SeatNameAsked(Sandbox):
                             menu.rename_this_session(False)
                     self.assertNotIn("unnamed", config.load_session(self.cfg, new))
                     self.assertNotIn(RULE, rulebook.write(new).read_text())
+
+    def test_auto_gives_an_unnamed_seat_only_its_first_name(self):
+        self.start("menu", "\n\n\n")
+        seat = self.running("new")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(orch.main(["rename", "--auto", "fix-api"]), 0)
+        self.assertEqual(seat["name"], "fix-api")
+        self.assertNotIn("unnamed", config.load_session(self.cfg, "new"))
+        before = config.session_path("fix-api").read_bytes()
+        orch.tmux_out.reset_mock()
+        with redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(orch.main(["rename", "--auto", "new", "parser"]), 0)
+        self.assertIn("already named fix-api", out.getvalue())
+        self.assertEqual(config.session_path("fix-api").read_bytes(), before)
+        orch.tmux_out.assert_not_called()
+
+    def test_auto_keeps_an_owner_name_but_a_plain_rename_can_change_it(self):
+        for entry in ("orch", "menu"):
+            with self.subTest(entry=entry):
+                for path in config.STATE.glob("session-*.json"):
+                    path.unlink()
+                self.start("menu", "\n\n\n")
+                seat = self.running("new")
+                with patch.object(sys, "stdin", io.StringIO("fix-api\n")), \
+                        redirect_stdout(io.StringIO()):
+                    if entry == "orch":
+                        self.assertEqual(orch.main(["rename", "fix-api"]), 0)
+                    else:
+                        menu.rename_this_session(False)
+                # The running conversation still carries the placeholder in its environment.
+                os.environ[config.SESSION_ENV] = "new"
+                before = config.session_path("fix-api").read_bytes()
+                orch.tmux_out.reset_mock()
+                with redirect_stdout(io.StringIO()) as out:
+                    self.assertEqual(orch.main(["rename", "--auto", "parser"]), 0)
+                self.assertIn("already named fix-api", out.getvalue())
+                self.assertEqual(seat["name"], "fix-api")
+                self.assertEqual(config.session_path("fix-api").read_bytes(), before)
+                orch.tmux_out.assert_not_called()
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(orch.main(["rename", "parser"]), 0)
+                self.assertEqual(seat["name"], "parser")
+
+    def test_auto_rechecks_the_name_after_waiting_for_the_lock(self):
+        self.start("menu", "\n\n\n")
+        seat = self.running("new")
+        lock = watch.state_lock
+
+        @contextmanager
+        def owner_first():
+            with lock():
+                config.rename_session("new", "fix-api")
+                config.update_session("fix-api", unnamed=None)
+                seat["name"] = "fix-api"
+                yield
+
+        with patch.object(watch, "state_lock", owner_first), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(orch.main(["rename", "--auto", "parser"]), 0)
+        self.assertIn("already named fix-api", out.getvalue())
+        self.assertEqual(seat["name"], "fix-api")
+        orch.tmux_out.assert_not_called()
+
+    def test_cli_and_menu_can_take_back_the_seats_own_name(self):
+        for entry in ("orch", "menu"):
+            with self.subTest(entry=entry):
+                for path in config.STATE.glob("session-*.json"):
+                    path.unlink()
+                orch.sessions.return_value = []
+                self.start("menu", "foo\n\n\n")
+                seat = self.running("foo")
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(orch.main(["rename", "bar"]), 0)
+                    if entry == "orch":
+                        self.assertEqual(orch.main(["rename", "foo"]), 0)
+                    else:
+                        with patch.object(sys, "stdin", io.StringIO("foo\n")):
+                            menu.rename_this_session(False)
+                self.assertEqual(seat["name"], "foo")
+                self.assertEqual(set(config.session_records()), {"foo"})
+                self.assertEqual(config.resolve_session("foo"), "foo")
+                self.assertEqual(config.resolve_session("bar"), "foo")
+
+    def test_config_can_reclaim_a_name_through_a_chain_without_a_loop(self):
+        self.start("menu", "foo\n\n\n")
+        before = config.load_session(self.cfg, "foo")
+        for old, new in (("foo", "bar"), ("bar", "quay"), ("quay", "foo")):
+            config.rename_session(old, new)
+        for name in ("foo", "bar", "quay"):
+            self.assertEqual(config.resolve_session(name), "foo")
+            self.assertEqual(config.load_session(self.cfg, name), before)
+
+    def test_legacy_seat_can_reclaim_its_name_without_a_record_or_loop(self):
+        seat = self.running("foo")
+        seat["legacy"] = True
+        self.assertEqual(orch.rename("foo", "bar"), "bar")
+        self.assertEqual(orch.rename("bar", "foo"), "foo")
+        self.assertEqual(seat["name"], "foo")
+        self.assertEqual(config.resolve_session("foo"), "foo")
+        self.assertEqual(config.resolve_session("bar"), "foo")
+        self.assertEqual(config.session_records(), {})
+
+    def test_another_seats_former_name_is_still_reserved(self):
+        self.start("menu", "foo\n\n\n")
+        config.rename_session("foo", "bar")
+        self.start("menu", "quay\n\n\n")
+        seat = self.running("quay")
+        before = config.session_records()
+        with self.assertRaisesRegex(config.Error, "already spoken for"):
+            orch.main(["rename", "foo"])
+        with self.assertRaisesRegex(config.Error, "points at another session"):
+            config.rename_session("quay", "foo")
+        self.assertEqual(seat["name"], "quay")
+        self.assertEqual(config.session_records(), before)
+        self.assertEqual(config.resolve_session("foo"), "bar")
 
     def test_named_cli_and_ensure_still_skip_the_name_question(self):
         self.start("menu", "\n\n\n")

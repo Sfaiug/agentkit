@@ -183,17 +183,23 @@ screen), `terminal.scroll`, `terminal.hang`, `terminal.state_text`.
 
 ## The new-session screen
 
-`n` is `agentkit · new session`, read with the keys: `Orchestrator`, then `Workers`, titles in
-the accent style, every model once under each -- `●`/`○` for the one orchestrator, `■`/`□` for
+`n` is `agentkit · new session`. First it asks `Name (Enter: auto):`, then reads the keys:
+`Orchestrator`, then `Workers`, titles in the accent style,
+every model once under each -- `●`/`○` for the one orchestrator, `■`/`□` for
 the workers -- with its harness and effort dim beside it, the names no wider than a third of the
 screen, a longer one cut. The defaults are chosen when it opens;
 a spent model reads dim with `spent · resets <day HH:MM>`, on a line of its own under the name
 where the row does not fit, and is never chosen for him. ↑/↓, k/j and the wheel move one
 highlight through both lists and scroll them on a short screen; space or a click chooses, Enter
 starts from anywhere -- or, with every model spent and a list still empty, takes the highlight to
-it -- Esc or `q` goes back, and the last worker stays chosen. No name is asked:
-the seat is its orchestrator's (`opus`, then `opus-2`). From a pipe `n` asks `Orchestrator
-[opus]:` and `Workers [opus astra]:` a line at a time instead, Enter taking each default.
+it -- Esc or `q` goes back, and the last worker stays chosen. At the Name question, a taken
+name asks again and `q` goes back. Enter leaves `new`, then `new-2`, unnamed until its
+orchestrator knows the job and gives it the shortest name, at most three words, with
+`ak orch rename --auto <name>`. Once named, `--auto` changes nothing, prints the current name and exits 0;
+plain `ak orch rename` still renames. A seat can take back its own former name; another seat's
+former name stays reserved, with a variant chosen for a rename from Claude. From a pipe `n`
+asks `Name (Enter: auto):`, `Orchestrator [opus]:` and `Workers [opus astra]:` a line at a time,
+Enter or EOF taking each default.
 
 Helpers: `terminal.Keyboard`, `terminal.read_key`, `terminal.highlight`, `terminal.key_spans`.
 
