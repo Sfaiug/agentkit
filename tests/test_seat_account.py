@@ -226,8 +226,12 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
             for event in ("UserPromptSubmit", "Stop", "Notification"):
                 self.assertIn("seat-state.sh", json.dumps(hooks[event]))
             self.assertIn("orchestrator-stop.sh", json.dumps(hooks["Stop"]))
-            for key in ("permissions", "env", "statusLine"):
+            for key in ("env", "statusLine"):
                 self.assertEqual(result["settings"][key], shared[key])
+            self.assertEqual(result["settings"]["permissions"]["allow"], ["Read"])
+            self.assertEqual(result["settings"]["permissions"]["defaultMode"],
+                             "bypassPermissions")
+            self.assertIs(result["global"]["hasSeenAutoDefaultNudge"], True)
             if account == "second":
                 self.assertEqual(result["settings"]["custom"], "keep")
                 self.assertEqual(result["global"]["oauthAccount"]["accountUuid"], "second")

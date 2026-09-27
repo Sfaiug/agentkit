@@ -100,8 +100,9 @@ interactive)
   # trust.py marks the session's directory trusted first, so the TUI opens on the prompt
   # instead of the "do you trust this folder?" dialog (whose default is "No, exit")
   printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR python3 %q claude -- ' "$REPO/tools/trust.py"
-  # Account preparation runs in the seat's actual cwd, after trust.py, and before the TUI.
-  [ -z "$ACCOUNT" ] || printf 'python3 %q -- ' "$REPO/agentkit/harness/claude.py"
+  # Seat preparation runs in the seat's actual cwd, after trust.py, and before the TUI:
+  # bypass permissions and the answered auto-mode offer, on either login.
+  printf 'python3 %q -- ' "$REPO/agentkit/harness/claude.py"
   printf 'python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions\n' \
       "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" ;;
 usage)
