@@ -95,9 +95,13 @@ def session_title(record):
         cached = json.loads(cache.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         cached = None
-    if isinstance(cached, dict) and cached.get("stamp") == stamp:
+    # Older caches did not distinguish a readable transcript without a title from a bad read.
+    if (isinstance(cached, dict) and cached.get("stamp") == stamp
+            and isinstance(cached.get("readable"), bool)):
+        if not cached["readable"]:
+            return None
         title = cached.get("title")
-        return title if isinstance(title, str) and title.strip() else None
+        return title if isinstance(title, str) and title.strip() else ""
     title = None
     try:
         with path.open(encoding="utf-8") as transcript:
@@ -115,11 +119,13 @@ def session_title(record):
         return None
     except UnicodeError:
         title = None
+    else:
+        title = title if isinstance(title, str) and title.strip() else ""
     try:
-        _write(cache, {"stamp": stamp, "title": title})
+        _write(cache, {"stamp": stamp, "title": title, "readable": title is not None})
     except OSError:
         pass        # a cache that cannot be written must not hide the title
-    return title if isinstance(title, str) and title.strip() else None
+    return title
 
 
 def opened(cwd, conversation):
