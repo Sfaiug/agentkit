@@ -220,7 +220,7 @@ auth)
     echo "claude: the OAuth token in $CREDS expired; run /login" >&2; exit 1; }
   echo "claude: the OAuth token in $CREDS is still valid" ;;
 hooks)
-  # The three events Claude Code 2.1.263 emits that say what a seat is doing -- a turn began, a
+  # SessionStart follows /clear's new conversation. The other events say a turn began, a
   # turn ended, a prompt is waiting -- all to the one hook script, which writes the fact down and
   # decides nothing.  Stop also carries the idle auto-compact stamp, so a seat left open all day
   # compacts itself instead of filling its context, and the one hook that does decide something:
@@ -235,7 +235,8 @@ import json, os, pathlib, shutil, sys
 path, stamp, repo = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 # Which of our scripts runs on which event: the one that writes down what the seat is doing,
 # and on the end of a turn the one that decides whether that turn was allowed to end.
-EVENTS = {"UserPromptSubmit": ("seat-state.sh",),
+EVENTS = {"SessionStart": ("seat-state.sh",),
+          "UserPromptSubmit": ("seat-state.sh",),
           "Stop": ("seat-state.sh", "orchestrator-stop.sh"),
           "Notification": ("seat-state.sh",)}
 # The names each was generalised from: a settings.json written by an older checkout keeps its

@@ -1,4 +1,4 @@
-"""Claude Code: a launcher-issued conversation, and the transcript it writes for it.
+"""Claude Code: its launched conversation, followed across clears by its own hooks.
 
 An alternate login also needs the seat's trust and hooks in its own config directory.
 """
@@ -10,6 +10,65 @@ import os
 import re
 import sys
 import tempfile
+
+SOURCE = "claude-hook"
+
+
+def transcript_path(record, conversation):
+    account = record.get("account")
+    directory = Path.home() / (f".claude-{account}" if account and account != "default"
+                               else ".claude")
+    slug = re.sub(r"[^A-Za-z0-9]", "-", str(record["cwd"]))
+    return directory / "projects" / slug / f"{conversation}.jsonl"
+
+
+def resumable(record, cwd, conversation):
+    from . import LAUNCHER
+    return bool(conversation) and record.get("id_source") in (LAUNCHER, SOURCE)
+
+
+def reconcile(record):
+    return ({"conversation": None, "resumable": False}
+            if record.get("conversation") and not resumable(record, None, record["conversation"])
+            else {})
+
+
+def capture(launched, payload, pid):
+    """Only the seat's interactive process can report its replacement conversation.
+
+    Run while the hook's parent is still alive: an inherited seat name and pane alone
+    cannot distinguish a nested Claude from the one the owner is talking to.
+    """
+    from .. import config, notify, orch
+    if (os.environ.get("AK_RUN_ROLE") == "worker" or not isinstance(payload, dict)
+            or payload.get("agent_id") or payload.get("agent_type")
+            or payload.get("hook_event_name") != "SessionStart" or payload.get("source") != "clear"):
+        return
+    conversation, transcript = payload.get("session_id"), payload.get("transcript_path")
+    if (not isinstance(conversation, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", conversation)
+            or conversation.startswith("-") or not isinstance(transcript, str)):
+        return
+    record = config.session_records().get(config.resolve_session(launched), {})
+    if orch.seat_harness(record) != "claude" or record.get("conversation") == conversation:
+        return
+    with notify.session_lock(launched) as name:
+        record = config.session_records().get(name, {})
+        if (orch.seat_harness(record) != "claude" or not record.get("cwd")
+                or record.get("conversation") == conversation
+                or not resumable(record, record.get("cwd"), record.get("conversation"))
+                or Path(transcript).resolve() != transcript_path(record, conversation).resolve()):
+            return
+        session = orch.find(name)
+        if session and orch.owns_hook(session, pid, is_process):
+            config.update_session(name, conversation=conversation, id_source=SOURCE)
+
+
+def is_process(words):
+    """Both the native executable and npm's Node entry point run the seat's client."""
+    from .. import orch
+    program = orch.program(words, full=True)
+    return (Path(program).name == "claude"
+            or program.endswith("/@anthropic-ai/claude-code/cli.js"))
 
 
 def title_command(name):
@@ -24,11 +83,7 @@ def session_title(record):
     conversation, cwd = record.get("conversation"), record.get("cwd")
     if not conversation or not cwd:
         return None
-    account = record.get("account")
-    directory = Path.home() / (f".claude-{account}" if account and account != "default"
-                               else ".claude")
-    slug = re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
-    path = directory / "projects" / slug / f"{conversation}.jsonl"
+    path = transcript_path(record, conversation)
     try:
         found = path.stat()
     except OSError:
@@ -75,8 +130,12 @@ def opened(cwd, conversation):
     transcript at the first message and not at the prompt, so a seat nobody typed into has
     nothing to resume, and `--resume` on it is an error rather than a conversation.
     """
-    slug = re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
-    return (Path.home() / ".claude" / "projects" / slug / f"{conversation}.jsonl").exists()
+    from .. import config
+    # The exact owned id, rather than this caller's environment, selects the seat's login.
+    record = next((record for record in config.session_records().values()
+                   if record.get("conversation") == conversation and record.get("cwd") == str(cwd)),
+                  {"cwd": cwd})
+    return transcript_path(record, conversation).exists()
 
 
 def _write(path, data):
@@ -171,6 +230,11 @@ def account_config(check=False):
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--hook"]:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from agentkit.harness.claude import capture
+        capture(os.environ["AGENTKIT_SESSION"], json.load(sys.stdin), int(sys.argv[2]))
+        sys.exit(0)
     checking = sys.argv[1:] == ["--check"]
     account_config(check=checking)
     if not checking:

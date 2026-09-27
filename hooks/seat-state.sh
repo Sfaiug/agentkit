@@ -53,6 +53,13 @@ seat_state() {
 
   event=$("$jq" -r '.hook_event_name // empty' <<<"$payload" 2>/dev/null) || return 0
   [[ -n $event ]] || return 0
+  # Capture while the hook's caller still exists, before a background look can read the
+  # old conversation. Claude verifies the process and transcript; other harnesses do nothing.
+  if [[ $event = SessionStart && -n ${TMUX:-} && -n ${TMUX_PANE:-} ]]; then
+    /usr/bin/env python3 "${BASH_SOURCE[0]%/*}/../agentkit/harness/claude.py" \
+      --hook "$PPID" <<<"$payload" || true
+  fi
+  [[ $event != SessionStart ]] || return 0
   ts=$(/usr/bin/env python3 -c 'import time; print(time.time())' 2>/dev/null) || ts=$(/bin/date +%s)
   # A Stop that hands over the background work in flight -- Claude Code's -- is written down by
   # hooks/orchestrator-stop.sh, which runs beside this and is the one that knows whether the

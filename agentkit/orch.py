@@ -43,6 +43,7 @@ from . import command_help, config, retention, terminal, update, usage
 from .harness import LAUNCHER, load as harness_plugin
 
 MARK = "@ak_orch"          # the tmux session option that says agentkit opened this seat
+PANE_OPTION = "@ak_harness_pane"  # the pane our launch created, independent of the active window
 STATE_OPTION = "@ak_state"  # ... and the one that says what it is doing, for the bar and title
 RUNS_OPTION = "@ak_runs"    # ... and the one that says what its runs add up to, for the bar
 SOCKET_ENV = "AGENTKIT_TMUX_SOCKET"   # the test suite's way to a server of its own
@@ -851,24 +852,25 @@ def agent_programs():
     return found
 
 
-def program(words):
+def program(words, full=False):
     """What a process is running: its own program, or the script file an interpreter was handed.
 
     Only an interpreter's script operand is a program, read past its options by its own grammar
     -- `bash -e /opt/bin/claude` and `python3 -O /opt/bin/claude` run claude -- and nothing is
     one where the interpreter was handed no file: `bash -c 'claude || sleep 600'` outlives the
     claude it started, and is bash.  `ssh claude sleep 600` runs ssh, whatever its host is called.
+    `full` preserves the operand's path so a client can distinguish npm's entry point.
     """
     name = Path(words[0]).name if words else ""
     grammar = next((g for g in INTERPRETERS if g[0].fullmatch(name)), None)
     if grammar is None:
-        return name
+        return words[0] if full and words else name
     _, starts, takes, long_takes, modes, long_modes = grammar
     rest = iter(words[1:])
     for word in rest:
         if word == "--":
             word = next(rest, "")
-            return Path(word).name if word else name
+            return (word if full else Path(word).name) if word else name
         if word.startswith("--"):
             option = word.split("=", 1)[0]
             if option in long_modes:
@@ -887,7 +889,7 @@ def program(words):
                         next(rest, None)  # its argument is the next word, not the script
                     break                 # ... or the rest of this one
             continue
-        return Path(word).name
+        return word if full else Path(word).name
     return name
 
 
@@ -977,6 +979,37 @@ def agentless(socket, names):
         else:
             found.add(name)
     return found
+
+
+def owns_hook(session, pid, is_client):
+    """A hook must come from the client in the pane agentkit launched.
+
+    Other panes inherit AGENTKIT_SESSION, so the launch's saved pane must match first.
+    Nested clients inherit even TMUX_PANE; their ancestry names both clients.
+    """
+    here, pane = os.environ.get("TMUX", "").partition(",")[0], os.environ.get("TMUX_PANE", "")
+    if session.get("exited") or not here or not pane:
+        return False
+    rc, out = tmux_out("display-message", "-p", "-t", pane,
+                       f"#{{socket_path}}\t#{{session_name}}\t#{{pane_pid}}\t#{{{PANE_OPTION}}}",
+                       socket=seat_socket(session))
+    parts = out.split("\t")
+    if (rc or len(parts) != 4 or parts[:2] != [here, session["name"]]
+            or not parts[2].isdigit() or parts[3] != pane):
+        return False
+    root, table = int(parts[2]), processes() or {}
+    seen, clients = set(), 0
+    while pid in table and pid not in seen:
+        seen.add(pid)
+        parent, words = table[pid]
+        if is_client(words):
+            if "-p" in words or "--print" in words:
+                return False
+            clients += 1
+        if pid == root:
+            return clients == 1
+        pid = parent
+    return False
 
 
 def server_sessions(socket, marked_only, legacy):
@@ -1471,6 +1504,9 @@ def start(name, cwd, cmd, orchestrator):
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
     # set-option takes the session name plain: it is the one target that rejects `=name`
     tmux_out("set-option", "-t", name, MARK, "1")
+    # A server started as a systemd service writes its stdout to the journal, so tmux
+    # itself expands the launched pane rather than handing its id back to this caller.
+    tmux_out("set-option", "-F", "-t", f"={name}:", PANE_OPTION, "#{pane_id}")
     tmux_out("set-option", "-t", name, "remain-on-exit", "on")
     dress(name, orchestrator)
 
@@ -1666,7 +1702,8 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
 
 # --- the conversation a seat holds ------------------------------------------
 #
-# Claude owns a launcher-issued id. Codex owns only its launch hook's recorded thread.
+# Claude owns its launcher-issued id, following replacements from its own process's hooks.
+# Codex owns only its launch hook's recorded thread.
 # OpenCode owns the session its seat plugin reported into that launch's receipt.
 # Muse still starts fresh. Cwd and timestamps never establish ownership.
 
@@ -1744,13 +1781,16 @@ def launch(name, model, cwd, cmd, conversation, session=None):
     if env:
         cmd = ["env", *(f"{key}={value}" for key, value in env.items()), *cmd]
     if session:
-        # `=name:` -- the session, exactly, and its current window: respawn-pane wants a
-        # pane, on whichever server holds the seat, which for a legacy one is not ours
+        # Keep the launched pane even if another window is active; older seats without a
+        # saved pane keep their existing target until this launch records it.
         server = seat_socket(session)
-        rc, out = tmux_out("respawn-pane", "-k", "-t", f"={name}:", shlex.join(cmd),
+        rc, pane = tmux_out("show-options", "-qv", "-t", f"={name}:", PANE_OPTION, socket=server)
+        target = pane if rc == 0 and re.fullmatch(r"%[0-9]+", pane) else f"={name}:"
+        rc, out = tmux_out("respawn-pane", "-k", "-t", target, shlex.join(cmd),
                            socket=server)
         if rc != 0:
             raise config.Error(f"cannot resume the session {name}: {out}")
+        tmux_out("set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}", socket=server)
         dress(name, model, server)
     else:
         start(name, cwd, cmd, model)
