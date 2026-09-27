@@ -167,6 +167,108 @@ class RedTarget(unittest.TestCase):
         self.assertIn("$ test ! -f breakage (on origin/main",
                       (run_dir / "target-probe.log").read_text())
 
+    def check_branch_only_file(self, path, cmd, contents):
+        # the check runs a test file the branch adds: the file alone would fail any probe
+        # on the target, so there is none -- the fixer runs as today, the run lands, and
+        # the worktree never leaves the branch head
+        _, _, wt = make_repos(self.root)
+        (wt / "breakage").write_text("branch only\n")
+        check = wt / path
+        check.parent.mkdir(parents=True, exist_ok=True)
+        check.write_text(contents)
+        check.chmod(0o755)
+        run.git(wt, "add", ".")
+        run.git(wt, "commit", "-m", "branch test file and breakage")
+        head = run.git(wt, "rev-parse", "HEAD")
+        lp, run_dir, lines = make_loop(self.root, wt, ["true", f"{cmd}  # once"])
+        self.assertTrue(run.final_check(lp, "origin/main"))
+        self.assertEqual(self.turns, ["final-fixer"])
+        self.assertFalse((run_dir / "target-probe.log").exists())
+        self.assertFalse(any("probing it once" in line for line in lines))
+        self.assertIn(f"names {path}, which origin/main lacks", "\n".join(lines))
+        state = run.read_state(run_dir)
+        self.assertEqual(state["final_check"]["outcome"], "passed")
+        self.assertNotEqual(state["state"], "waiting")
+        self.assertEqual(run.git(wt, "rev-parse", "HEAD~1"), head)
+        self.assertEqual(run.git(wt, "diff", "--name-only", head), "breakage")
+        self.assertEqual(check.read_text(), contents)
+        fixed = run.git(wt, "rev-parse", "HEAD")
+        self.assert_on_branch_head_and_clean(wt, fixed)
+
+    def test_final_check_naming_a_branch_only_test_file_runs_the_fixer(self):
+        self.check_branch_only_file(
+            "tests/test_acme_sieve.py", "python3 tests/test_acme_sieve.py",
+            "import pathlib, sys\n"
+            "sys.exit(0 if not pathlib.Path('breakage').exists() else 1)\n")
+
+    def test_final_check_executing_a_branch_only_root_script_runs_the_fixer(self):
+        self.check_branch_only_file(
+            "check_acme.sh", "./check_acme.sh", "#!/bin/sh\ntest ! -f breakage\n")
+
+    def test_final_check_interpreting_a_branch_only_root_script_runs_the_fixer(self):
+        self.check_branch_only_file(
+            "check_acme.sh", "bash check_acme.sh", "test ! -f breakage\n")
+
+    def test_final_check_interpreting_a_branch_only_root_test_runs_the_fixer(self):
+        self.check_branch_only_file(
+            "check_acme.py", "python3 check_acme.py",
+            "import pathlib, sys\n"
+            "sys.exit(0 if not pathlib.Path('breakage').exists() else 1)\n")
+
+    def test_final_check_naming_a_test_file_on_both_sides_still_probes(self):
+        _, owner, wt = make_repos(self.root)
+        (owner / "tests").mkdir()
+        (owner / "tests/test_acme_existing.py").write_text("raise SystemExit(1)\n")
+        run.git(owner, "add", ".")
+        run.git(owner, "commit", "-m", "failing target test")
+        run.git(owner, "push", "origin", "main")
+        run.git(wt, "fetch", "origin")
+        run.git(wt, "rebase", "origin/main")
+        cmd = "python3 tests/test_acme_existing.py"
+        lp, run_dir, _ = make_loop(self.root, wt, [f"{cmd}  # once"])
+        head = run.git(wt, "rev-parse", "HEAD")
+        self.assertFalse(run.final_check(lp, "origin/main"))
+        self.assertEqual(self.turns, [])
+        self.assertEqual(self.reviews, [])
+        state = run.read_state(run_dir)
+        self.assertEqual(state["state"], "waiting")
+        self.assertEqual(state["merge_note"], f"origin/main itself fails: `{cmd}`")
+        self.assertIn(f"$ {cmd} (on origin/main", (run_dir / "target-probe.log").read_text())
+        self.assert_on_branch_head_and_clean(wt, head)
+
+    def test_branch_only_paths_in_shell_commands(self):
+        _, owner, wt = make_repos(self.root)
+        (owner / "tests").mkdir()
+        (owner / "tests/test_acme_existing.py").touch()
+        run.git(owner, "add", ".")
+        run.git(owner, "commit", "-m", "existing target test")
+        run.git(owner, "push", "origin", "main")
+        run.git(wt, "fetch", "origin")
+        run.git(wt, "rebase", "origin/main")
+        path = "tests/test_acme_new.py"
+        (wt / path).touch()
+        run.git(wt, "add", ".")
+        run.git(wt, "commit", "-m", "branch test")
+        head = run.git(wt, "rev-parse", "HEAD")
+        for cmd, expected in (
+                (f"python3 ./{path}", path),
+                (f"pytest {path}::test_acme", path),
+                (f"echo acme#sieve && python3 {path}", path),
+                (f"echo '#' && python3 {path}", path),
+                ("cd tests && python3 test_acme_new.py", path),
+                ("python3 tests/test_acme_*.py", path),
+                ("cd tests && python3 test_acme_*.py", path),
+                (f"(cd tests && true); python3 {path}", path),
+                ("python3 'tests/test_acme_*.py'", None),
+                (f"false # python3 {path}", None),
+                (f"test ! -f {path}", None),
+                (f"[ ! -e {path} ]", None),
+                (f"test ! -f {path} && python3 {path}", path),
+                (f"python3 -s {path}", path)):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(run._branch_only_path(wt, cmd, head, "origin/main"), expected)
+        self.assert_on_branch_head_and_clean(wt, head)
+
     def test_either_probe_leaves_the_worktree_on_the_branch_head_and_clean(self):
         # the red-target probe puts the worktree back exactly; the passing probe leaves
         # it on the branch head the fixer's own commit moved, clean either way
@@ -192,14 +294,15 @@ class RedTarget(unittest.TestCase):
         (wt / "gen").write_text("branch generated\n")
         run.git(wt, "add", ".")
         run.git(wt, "commit", "-m", "branch generated file")
-        lp, run_dir, _ = make_loop(self.root, wt, ["true", "touch gen && false  # once"])
+        cmd = "python3 -c \"open('gen', 'a').close(); exit(1)\""
+        lp, run_dir, _ = make_loop(self.root, wt, ["true", f"{cmd}  # once"])
         head = run.git(wt, "rev-parse", "HEAD")
         self.assertFalse(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, [])
         state = run.read_state(run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["merge_note"],
-                         "origin/main itself fails: `touch gen && false`")
+                         f"origin/main itself fails: `{cmd}`")
         self.assert_on_branch_head_and_clean(wt, head)
         self.assertEqual((wt / "gen").read_text(), "branch generated\n")
 
