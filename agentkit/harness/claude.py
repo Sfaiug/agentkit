@@ -4,6 +4,7 @@ An alternate login also needs the seat's trust and hooks in its own config direc
 """
 
 from pathlib import Path
+import hashlib
 import json
 import os
 import re
@@ -18,6 +19,8 @@ def title_command(name):
 
 def session_title(record):
     """Read only this seat's conversation, under the login its launch selected."""
+    from .. import config
+
     conversation, cwd = record.get("conversation"), record.get("cwd")
     if not conversation or not cwd:
         return None
@@ -25,11 +28,27 @@ def session_title(record):
     directory = Path.home() / (f".claude-{account}" if account and account != "default"
                                else ".claude")
     slug = re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
+    path = directory / "projects" / slug / f"{conversation}.jsonl"
+    try:
+        found = path.stat()
+    except OSError:
+        return None
+    stamp = [found.st_dev, found.st_ino, found.st_size, found.st_mtime_ns, found.st_ctime_ns]
+    # Cron starts a fresh process each tick, so the last reading lives on disk.
+    cache = config.STATE / f"claude-title-{hashlib.sha256(str(path).encode()).hexdigest()}.json"
+    try:
+        cached = json.loads(cache.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cached = None
+    if isinstance(cached, dict) and cached.get("stamp") == stamp:
+        title = cached.get("title")
+        return title if isinstance(title, str) and title.strip() else None
     title = None
     try:
-        with (directory / "projects" / slug / f"{conversation}.jsonl").open(
-                encoding="utf-8") as transcript:
+        with path.open(encoding="utf-8") as transcript:
             for line in transcript:
+                if '"custom-title"' not in line:
+                    continue
                 try:
                     event = json.loads(line)
                 except ValueError:
@@ -37,8 +56,14 @@ def session_title(record):
                 if (isinstance(event, dict) and event.get("type") == "custom-title"
                         and event.get("sessionId") == conversation):
                     title = event.get("customTitle")
-    except (OSError, UnicodeError):
+    except OSError:
         return None
+    except UnicodeError:
+        title = None
+    try:
+        _write(cache, {"stamp": stamp, "title": title})
+    except OSError:
+        pass        # a cache that cannot be written must not hide the title
     return title if isinstance(title, str) and title.strip() else None
 
 
