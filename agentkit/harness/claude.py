@@ -11,6 +11,11 @@ import sys
 import tempfile
 
 
+def title_command(name):
+    """Remote Control takes /rename live, including while a turn is running."""
+    return f"/rename {name}"
+
+
 def opened(cwd, conversation):
     """Has Claude Code written that conversation down yet, where it keeps them?
 

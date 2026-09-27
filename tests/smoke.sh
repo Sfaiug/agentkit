@@ -5018,7 +5018,7 @@ def seat(name, line, model, record=True):
     pane.write_text(line + "\n")
     if record:
         config.save_session(cfg, name, model, ["opus", "astra"],
-                            {"cwd": str(typed), "created": int(time.time())})
+                            {"cwd": str(typed), "created": int(time.time()), "session_title": name})
     orch.start(name, str(typed), ["sh", "-c",
                f"stty -echo; sleep .3; cat {shlex.quote(str(pane))}; "
                f"cat > {shlex.quote(str(typed / (name + '.txt')))}"], model)

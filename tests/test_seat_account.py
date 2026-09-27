@@ -70,7 +70,8 @@ class SeatAccount(unittest.TestCase):
         self.commands, self.typed, self.logs = [], [], []
         config.save_session(self.cfg, NAME, "opus", ["opus", "astra"], {
             "cwd": str(self.root), "repo": str(self.root), "created": self.now - 60,
-            "conversation": CONVERSATION, "id_source": orch.LAUNCHER, "account": "default"})
+            "conversation": CONVERSATION, "id_source": orch.LAUNCHER, "account": "default",
+            "session_title": NAME})
         slug = re.sub(r"[^A-Za-z0-9]", "-", str(self.root))
         transcript = self.root / ".claude/projects" / slug / f"{CONVERSATION}.jsonl"
         transcript.parent.mkdir(parents=True)

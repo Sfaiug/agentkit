@@ -55,7 +55,7 @@ Workers
   ■ Astra        codex · xhigh
 ```
 
-Every model is in both lists. ↑↓ move, space or a click chooses, Enter starts from anywhere, Esc goes back; one worker always stays chosen. A model whose provider is spent reads dim with `spent · resets Fri 14:00` and is never chosen for you. `n` and a bare `ak orch` first ask `Name (Enter: auto):`. Type a name, or press Enter for `new`, then `new-2`: the orchestrator names it as soon as it knows the job, as briefly as possible in at most three words. To name it yourself and end auto naming, use `r` in its `Ctrl-b m` menu or `ak orch rename <name>`. That is all. No project: the session files itself under the project most of its runs belong to.
+Every model is in both lists. ↑↓ move, space or a click chooses, Enter starts from anywhere, Esc goes back; one worker always stays chosen. A model whose provider is spent reads dim with `spent · resets Fri 14:00` and is never chosen for you. `n` and a bare `ak orch` first ask `Name (Enter: auto):`. Type a name, or press Enter for `new`, then `new-2`: the orchestrator names it as soon as it knows the job, as briefly as possible in at most three words. To name it yourself and end auto naming, use `r` in its `Ctrl-b m` menu or `ak orch rename <name>`. Claude's Remote Control session title follows the seat's name, waiting past any dialog or unsent draft. That is all. No project: the session files itself under the project most of its runs belong to.
 
 Say what you want. The orchestrator asks until the goal is clear and checkable, then goes. Close the terminal.
 

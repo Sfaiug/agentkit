@@ -161,6 +161,11 @@ class Harness:
                               id_source=LAUNCHER if conversation else None, before=None)
         return {}
 
+    def title_command(self, name):
+        """The line that changes a seat's launch title, or None for a harness without one."""
+        hook = self._hook("title_command")
+        return hook(name) if hook else None
+
     def forget(self, record):
         """Drop whatever else this harness kept for a seat that is ending."""
         hook = self._hook("forget")
