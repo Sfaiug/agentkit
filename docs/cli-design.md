@@ -39,11 +39,14 @@ Projects and their seats, and nothing else. A project is a checkout under
 `~/code`, or agentkit's own at `~/agentkit` -- so a run's worktree, a
 temporary repository under `~/.agentkit/tmp` and a run id are none of them a
 heading, and a checkout nobody sits in is not listed unless its `AGENTS.md`
-names its feature switches (`features:`). A seat is filed under
-the checkout most of its runs belong to, a run still queued for a slot among them, whether it
-works in one checkout or across several from `~/code`; a tie keeps the one it has. Only a seat
-none of whose runs belongs to a checkout sits under `no project`, and the next draw files it
-once one does. There is no run row, ever: `ak run status` is where runs are looked up.
+names its feature switches (`features:`). As soon as its project is known, the orchestrator
+files its seat with `ak orch project <checkout>` by checkout name or path. Names match in any
+case; an exact match wins, otherwise a name matching several checkouts is refused and lists
+the matches. Each launched run then files the seat under the checkout most of its runs belong
+to, a run still queued for a slot among them, whether it works in one checkout or across
+several from `~/code`; a tie keeps the one it has. A seat with no filing and no run belonging
+to a checkout sits under `no project`, and the next draw files it once a run counts. There is
+no run row, ever: `ak run status` is where runs are looked up.
 
 The question is answered once, on the top line -- `your projects · nothing
 needs you`, `· 1 needs you`, `· 3 need you` -- and on no other line. A project

@@ -5947,9 +5947,10 @@ def task_project(repo, task_file):
 def join_session_project(session, runs=None):
     """File a session under the project most of its runs belong to, again at each launch.
 
-    Nobody chooses a session's project: the runs it launched vote, each for its
-    `run_project` from the moment it is queued, and a run that belongs to no checkout has no
-    vote (`session_vote`).  Returns the project the session has after the count.
+    The orchestrator can file a session before its runs vote.  Its launched runs then vote,
+    each for its `run_project` from the moment it is queued; a run belonging to no checkout
+    has no vote (`session_vote`).  A tie or no votes keeps the filing.  Returns the project
+    the session has after the count.
 
     `runs` are run records a draw or a tick has already read, and from them only a session
     that still has no project when its turn at the lock comes is filed: a launch's own count,

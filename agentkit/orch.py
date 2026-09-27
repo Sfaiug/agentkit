@@ -1180,10 +1180,10 @@ def session_projects(kept):
 def file_projectless(found, runs):
     """File each seat in `found` with no project under the one its runs vote for.
 
-    A seat whose runs were all still queued when it last launched had nothing to vote then,
-    and its record says no project until one of its runs votes.  `runs` are the run records
-    the menu's draw or the tick has read anyway, so no run.json is read twice; the filing is
-    `run.join_session_project`'s, under its lock, and a seat with no record is left alone.
+    A seat not yet filed by its orchestrator stays under no project until one of its runs
+    votes.  `runs` are the run records the menu's draw or the tick has read anyway, so no
+    run.json is read twice.  `run.join_session_project` files it under its lock, and a seat
+    with no record is left alone.
     """
     from . import run
     orphans = {session["name"]: [] for session in found if not session.get("repo")}
@@ -2535,7 +2535,11 @@ def cmd_project(argv):
     found = checkouts()
     repo = next((path for path in found if path.name == checkout), None)
     if repo is None:
-        repo = checkout_of(os.path.expanduser(checkout))
+        matches = [path for path in found if path.name.casefold() == checkout.casefold()]
+        if len(matches) > 1:
+            known = ", ".join(str(path) for path in matches)
+            raise config.Error(f"ambiguous checkout: {checkout!r} (checkouts: {known})")
+        repo = matches[0] if matches else checkout_of(os.path.expanduser(checkout))
     if repo is None:
         known = ", ".join(str(path) for path in found) or "none"
         raise config.Error(f"not a checkout: {checkout!r} (checkouts: {known})")

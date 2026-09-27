@@ -45,7 +45,6 @@ class SeatProjectFiled(Sandbox):
         directory.mkdir()
         run.save_state(directory, {"run_id": name, "launched_session": "fix-api",
                                    "state": "queued", "project": str(project)})
-        return run.join_session_project("fix-api")
 
     def test_file_current_or_named_seat_by_name_or_path(self):
         for seat in ((), ("fix-api",)):
@@ -54,6 +53,28 @@ class SeatProjectFiled(Sandbox):
                     with self.subTest(seat=seat, checkout=value):
                         record = self.file(*seat, value)
                         self.assertEqual(record, {**self.record, "repo": str(checkout)})
+
+    def test_checkout_name_matches_in_any_case(self):
+        checkout = self.checkout(config.CODE / "CLOVER")
+        for seat in ((), ("fix-api",)):
+            for value in ("clover", "ClOvEr"):
+                with self.subTest(seat=seat, checkout=value):
+                    self.assertEqual(self.file(*seat, value)["repo"], str(checkout))
+
+    def test_exact_name_wins_and_ambiguous_case_is_refused(self):
+        upper = self.checkout(config.CODE / "ACME")
+        for seat in ((), ("fix-api",)):
+            for checkout in (self.acme, upper):
+                with self.subTest(seat=seat, checkout=checkout.name):
+                    self.assertEqual(self.file(*seat, checkout.name)["repo"], str(checkout))
+            before = config.session_path("fix-api").read_bytes()
+            for value in ("Acme", "aCmE"):
+                with self.subTest(seat=seat, checkout=value):
+                    with self.assertRaisesRegex(config.Error, "ambiguous checkout") as error:
+                        orch.main(["project", *seat, value])
+                    for checkout in (self.acme, upper):
+                        self.assertIn(str(checkout), str(error.exception))
+                    self.assertEqual(config.session_path("fix-api").read_bytes(), before)
 
     def test_home_path_and_agentkits_own_checkout(self):
         own = self.checkout(Path.home() / "agentkit")
@@ -98,15 +119,18 @@ class SeatProjectFiled(Sandbox):
     def test_first_run_elsewhere_moves_the_filed_seat(self):
         self.file("bramble")
         self.assertEqual(run.join_session_project("fix-api"), str(self.bramble))
-        self.assertEqual(self.vote("first", self.acme), str(self.acme))
+        self.vote("first", self.acme)
+        self.assertEqual(run.join_session_project("fix-api"), str(self.acme))
         self.assertEqual(config.load_session(self.cfg, "fix-api")["repo"], str(self.acme))
 
     def test_tie_keeps_the_filing_until_another_project_wins(self):
         self.file("bramble")
-        self.assertEqual(self.vote("first", self.bramble), str(self.bramble))
-        self.assertEqual(self.vote("second", self.acme), str(self.bramble))
+        self.vote("first", self.bramble)
+        self.vote("second", self.acme)
+        self.assertEqual(run.join_session_project("fix-api"), str(self.bramble))
         self.assertEqual(config.load_session(self.cfg, "fix-api")["repo"], str(self.bramble))
-        self.assertEqual(self.vote("third", self.acme), str(self.acme))
+        self.vote("third", self.acme)
+        self.assertEqual(run.join_session_project("fix-api"), str(self.acme))
 
 
 if __name__ == "__main__":
