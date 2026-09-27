@@ -34,7 +34,7 @@ back, a bare *shall I continue?* as the last sentence is no question, and a stop
 with no blocking end-of-turn hook declares `[stop] enforce = "nudge"`, and the tick types `continue` instead.
 
 Inside a seat `Ctrl-b m` opens the same menu as a popup: a number switches to that session, `n`
-starts one, `r` renames this one (as does `ak orch rename`; Claude's Remote Control session title follows the seat's name, waiting past any dialog or unsent draft; a rename in Claude renames the seat too), `x` stops it -- or, done, closes it at once -- and `q` closes the popup. The seat's status bar reads
+starts one, `r` renames this one (as does `ak orch rename`; Claude's Remote Control session title follows the seat's name, waiting past any dialog or unsent draft; a rename in Claude renames the seat too; unchanged transcripts are not reread, and title errors are logged for their seat without stopping health checks), `x` stops it -- or, done, closes it at once -- and `q` closes the popup. The seat's status bar reads
 `<name> · <orchestrator> → <workers> · <state> · <last column>`, the same values as its menu row, cut with one `…` at 120 columns or where it would reach the key on any client, a phone included, with `Ctrl-b m  menu` on the right (`Ctrl-b m  x close` once it is done), and the
 window title is `<name> · <state>`. Agentkit's tmux config is `~/.agentkit/state/tmux.conf`; `~/.tmux.conf` is never read or written.
 

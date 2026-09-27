@@ -1,6 +1,7 @@
 """Claude custom titles name seats; fake tmux and transcripts under a temporary HOME."""
 
 import json
+from importlib import reload
 import os
 from pathlib import Path
 import re
@@ -71,6 +72,83 @@ class SeatFollowsTitle(Sandbox):
         watch.health(self.cfg, state, dry, lambda _: None)
         if not dry:
             watch.save_state(state)
+
+    def title_failure(self, method):
+        seats = [self.seat, dict(self.seat, name="quay")]
+        config.save_session(self.cfg, "quay", "opus", ["opus"], {
+            "cwd": str(self.root), "conversation": "fake-quay", "id_source": orch.LAUNCHER,
+            "session_title": "quay", "account": "default"})
+        self.title("lagoon")
+        self.title("quay", self.path(conversation="fake-quay"), "fake-quay")
+        original = getattr(watch, method)
+
+        def fail_first(session, log):
+            if session["name"] == "lagoon":
+                raise config.Error("fake title failure")
+            return original(session, log)
+
+        def tmux(*args, **kwargs):
+            if args[0] == "capture-pane":
+                self.assertIn(args[-1], ("=lagoon:", "=quay:"))
+                return 0, self.pane
+            return self.tmux(*args, **kwargs)
+
+        logs = []
+        with patch.object(orch, "sessions", return_value=seats), \
+                patch.object(orch, "tmux_out", side_effect=tmux), \
+                patch.object(orch, "set_runs") as bars, \
+                patch.object(watch, method, side_effect=fail_first) as titles:
+            watch.health(self.cfg, watch.load_state(), False, logs.append)
+        self.assertEqual([call.args[0]["name"] for call in titles.call_args_list],
+                         ["lagoon", "quay"])
+        self.assertEqual([call.args[0] for call in bars.call_args_list], ["lagoon", "quay"])
+        for action, index in ((watch.seat_account, 1), (watch.stop_nudge, 0),
+                              (watch.announce_state, 0)):
+            self.assertEqual([call.args[index]["name"] for call in action.call_args_list],
+                             ["lagoon", "quay"])
+        self.assertTrue(any("lagoon" in line and "fake title failure" in line for line in logs))
+
+    def test_sync_title_failure_leaves_both_seats_health_work_running(self):
+        self.title_failure("sync_title")
+
+    def test_follow_title_failure_leaves_both_seats_health_work_running(self):
+        self.title_failure("follow_title")
+
+    def test_only_custom_title_candidates_are_parsed(self):
+        self.transcript.write_text('{"type":"user","message":"hello"}\n[]\n{"type":\n')
+        self.title("Checkout Bug")
+        record = self.record()
+        with patch.object(claude.json, "loads", wraps=json.loads) as loads:
+            self.assertEqual(claude.session_title(record), "Checkout Bug")
+        loads.assert_called_once()
+        self.assertEqual(json.loads(loads.call_args.args[0])["type"], "custom-title")
+
+    def test_unchanged_transcript_is_not_read_again_even_in_a_fresh_import(self):
+        record = self.record()
+        original = Path.open
+
+        def cached_only(path, *args, **kwargs):
+            self.assertNotEqual(path, self.transcript, "unchanged transcript was reopened")
+            return original(path, *args, **kwargs)
+
+        for title in (None, "Checkout Bug"):
+            with self.subTest(title=title):
+                self.transcript.write_text('{"type":"user","message":"hello"}\n')
+                if title:
+                    self.title(title)
+                self.assertEqual(claude.session_title(record), title)
+                reload(claude)
+                with patch.object(Path, "open", cached_only):
+                    self.assertEqual(claude.session_title(record), title)
+
+    def test_appended_title_is_found_even_with_the_same_mtime(self):
+        self.title("Checkout Bug")
+        record = self.record()
+        self.assertEqual(claude.session_title(record), "Checkout Bug")
+        before = self.transcript.stat()
+        self.title("Search Fix")
+        os.utime(self.transcript, ns=(before.st_atime_ns, before.st_mtime_ns))
+        self.assertEqual(claude.session_title(record), "Search Fix")
 
     def test_newest_custom_title_renames_and_normalizes_then_its_echo_is_ignored(self):
         self.title("Old Topic")
@@ -152,7 +230,8 @@ class SeatFollowsTitle(Sandbox):
 
         with patch.object(Path, "open", unreadable):
             self.tick()
-        self.transcript.write_bytes(b"\xff")
+        with self.transcript.open("ab") as handle:
+            handle.write(b"\xff")
         self.tick()
         self.assertEqual(self.record(), before)
         self.assertEqual(self.seat["name"], "lagoon")

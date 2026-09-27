@@ -2841,11 +2841,14 @@ def health(cfg, state, dry_run, log):
             if name in sync_seen(state, load_state()):
                 continue
             if not dry_run:
-                renamed = follow_title(session, log)
-                if renamed:
-                    session = dict(session, name=renamed)
-                    continue    # rename moved the state this pass had read under the old name
-                sync_title(session, log)
+                try:
+                    renamed = follow_title(session, log)
+                    if renamed:
+                        session = dict(session, name=renamed)
+                        continue    # rename moved the state this pass had read under the old name
+                    sync_title(session, log)
+                except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+                    log(f"WARN {name}: title update did not finish: {exc}")
             # captured, read and written down under the lock every publisher takes, so a look
             # the seat's own hook makes meanwhile lands wholly before this one or after it
             with nullcontext() if dry_run else announcing(name):
