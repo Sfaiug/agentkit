@@ -8,6 +8,7 @@ a temporary HOME, invented names, the real `account_config`.
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -74,6 +75,70 @@ class AccountNotices(unittest.TestCase):
         self.assertEqual(after["someCounter"], 7)
         for key in ("someName", "someFlag", "nested", "nothing", "one", "emptyList"):
             self.assertNotIn(key, after)
+
+    def test_seat_launch_pins_bypass_and_answers_auto_offer_on_either_login(self):
+        usual_settings = self.root / ".claude/settings.json"
+        named_settings = self.root / f".claude-{ACCOUNT}/settings.json"
+        for offer in ({}, {"hasSeenAutoDefaultNudge": False}):
+            with self.subTest(offer=offer):
+                usual_settings.write_text(json.dumps({
+                    "permissions": {"defaultMode": "auto", "allow": ["Read"]},
+                    "keep": "usual-keep"}))
+                self.usual.write_text(json.dumps({
+                    "oauthAccount": {"accountUuid": "usual-uuid"}, "userID": "usual-user",
+                    "projects": {"/invented/acme": {"hasTrustDialogAccepted": True}},
+                    "keep": 3, **offer}))
+                with patch.dict(os.environ, {"AGENTKIT_ACCOUNT": ""}):
+                    os.environ.pop("CLAUDE_CONFIG_DIR", None)
+                    account_config()
+                    self.assertNotIn("CLAUDE_CONFIG_DIR", os.environ)
+                settings = json.loads(usual_settings.read_text())
+                self.assertEqual(settings["permissions"]["defaultMode"], "bypassPermissions")
+                self.assertEqual(settings["permissions"]["allow"], ["Read"])
+                self.assertEqual(settings["keep"], "usual-keep")
+                global_data = json.loads(self.usual.read_text())
+                self.assertIs(global_data["hasSeenAutoDefaultNudge"], True)
+                self.assertEqual(global_data["oauthAccount"], {"accountUuid": "usual-uuid"})
+                self.assertEqual(global_data["userID"], "usual-user")
+                self.assertEqual(global_data["projects"],
+                                 {"/invented/acme": {"hasTrustDialogAccepted": True}})
+                self.assertEqual(global_data["keep"], 3)
+        for offer in ({}, {"hasSeenAutoDefaultNudge": False}):
+            with self.subTest(offer=offer):
+                usual_settings.write_text(json.dumps({
+                    "permissions": {"defaultMode": "auto", "allow": ["Read"]},
+                    "keep": "usual-keep"}))
+                self.usual.write_text(json.dumps({"userID": "usual-user"}))
+                named_settings.parent.mkdir(parents=True, exist_ok=True)
+                named_settings.write_text(json.dumps({
+                    "permissions": {"defaultMode": "auto"}, "custom": "named-keep"}))
+                self.named.write_text(json.dumps({
+                    "oauthAccount": {"accountUuid": "named-uuid"}, "userID": "named-user",
+                    "projects": {"/invented/acme": {"hasTrustDialogAccepted": True}},
+                    "someCounter": 7, **offer}))
+                os.environ.pop("CLAUDE_CONFIG_DIR", None)
+                account_config()
+                self.assertEqual(os.environ.pop("CLAUDE_CONFIG_DIR"), str(self.named.parent))
+                settings = json.loads(named_settings.read_text())
+                self.assertEqual(settings["permissions"]["defaultMode"], "bypassPermissions")
+                self.assertEqual(settings["permissions"]["allow"], ["Read"])
+                self.assertEqual(settings["keep"], "usual-keep")
+                self.assertEqual(settings["custom"], "named-keep")
+                global_data = json.loads(self.named.read_text())
+                self.assertIs(global_data["hasSeenAutoDefaultNudge"], True)
+                self.assertEqual(global_data["oauthAccount"], {"accountUuid": "named-uuid"})
+                self.assertEqual(global_data["userID"], "named-user")
+                self.assertEqual(global_data["projects"]["/invented/acme"],
+                                 {"hasTrustDialogAccepted": True})
+                self.assertEqual(global_data["someCounter"], 7)
+        for account in ("", ACCOUNT):
+            proc = subprocess.run(
+                [str(REPO / "adapters/claude.sh"), "interactive", "opus", "medium"],
+                capture_output=True, text=True, cwd=self.work,
+                env={**os.environ, "AGENTKIT_ACCOUNT": account, "HOME": str(self.root)})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("--dangerously-skip-permissions", proc.stdout)
+            self.assertIn("harness/claude.py", proc.stdout)
 
 
 if __name__ == "__main__":

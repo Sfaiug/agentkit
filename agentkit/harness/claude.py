@@ -27,10 +27,29 @@ def account_config(check=False):
 
     Claude's config override moves both its user settings and its global .claude.json.
     Validate before respawning the pane; prepare trust again in the launch's actual cwd.
+    Every seat runs bypass permissions: an accepted auto-mode offer writes `auto` into
+    the settings, so each launch pins it back and leaves the offer answered.
     """
     account = os.environ.get("AGENTKIT_ACCOUNT")
     if not account:
         os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        home = Path.home()
+        paths = (home / ".claude/settings.json", home / ".claude.json")
+        values = [json.loads(path.read_text()) if path.exists() else {} for path in paths]
+        if not all(isinstance(value, dict) for value in values):
+            raise ValueError("Claude settings and global config must be JSON objects")
+        if check:
+            return
+        permissions = values[0].setdefault("permissions", {})
+        if not isinstance(permissions, dict):
+            permissions = values[0]["permissions"] = {}
+        permissions["defaultMode"] = "bypassPermissions"
+        values[1]["hasSeenAutoDefaultNudge"] = True
+        paths[0].parent.mkdir(parents=True, exist_ok=True)
+        for path, data in zip(paths, values):
+            tmp = path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(data) + "\n")
+            tmp.replace(path)
         return
     home = Path.home()
     directory = home / f".claude-{account}"
@@ -55,6 +74,7 @@ def account_config(check=False):
             for key, value in usual.items():
                 if value is True:
                     data[key] = True
+            data["hasSeenAutoDefaultNudge"] = True
             data.setdefault("theme", "dark")
             data["hasCompletedOnboarding"] = True
             project = data.setdefault("projects", {}).setdefault(str(Path.cwd().resolve()), {})
@@ -63,6 +83,10 @@ def account_config(check=False):
             data.update(values[0])
             # Hooks belong to the current installation, not every past checkout.
             data["hooks"] = values[0].get("hooks", {})
+            permissions = data.setdefault("permissions", {})
+            if not isinstance(permissions, dict):
+                permissions = data["permissions"] = {}
+            permissions["defaultMode"] = "bypassPermissions"
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data) + "\n")
         tmp.replace(path)
