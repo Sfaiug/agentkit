@@ -43,6 +43,7 @@ from . import command_help, config, retention, terminal, update, usage
 from .harness import LAUNCHER, load as harness_plugin
 
 MARK = "@ak_orch"          # the tmux session option that says agentkit opened this seat
+PANE_OPTION = "@ak_harness_pane"  # the pane our launch created, independent of the active window
 STATE_OPTION = "@ak_state"  # ... and the one that says what it is doing, for the bar and title
 RUNS_OPTION = "@ak_runs"    # ... and the one that says what its runs add up to, for the bar
 SOCKET_ENV = "AGENTKIT_TMUX_SOCKET"   # the test suite's way to a server of its own
@@ -851,24 +852,25 @@ def agent_programs():
     return found
 
 
-def program(words):
+def program(words, full=False):
     """What a process is running: its own program, or the script file an interpreter was handed.
 
     Only an interpreter's script operand is a program, read past its options by its own grammar
     -- `bash -e /opt/bin/claude` and `python3 -O /opt/bin/claude` run claude -- and nothing is
     one where the interpreter was handed no file: `bash -c 'claude || sleep 600'` outlives the
     claude it started, and is bash.  `ssh claude sleep 600` runs ssh, whatever its host is called.
+    `full` preserves the operand's path so a client can distinguish npm's entry point.
     """
     name = Path(words[0]).name if words else ""
     grammar = next((g for g in INTERPRETERS if g[0].fullmatch(name)), None)
     if grammar is None:
-        return name
+        return words[0] if full and words else name
     _, starts, takes, long_takes, modes, long_modes = grammar
     rest = iter(words[1:])
     for word in rest:
         if word == "--":
             word = next(rest, "")
-            return Path(word).name if word else name
+            return (word if full else Path(word).name) if word else name
         if word.startswith("--"):
             option = word.split("=", 1)[0]
             if option in long_modes:
@@ -887,7 +889,7 @@ def program(words):
                         next(rest, None)  # its argument is the next word, not the script
                     break                 # ... or the rest of this one
             continue
-        return Path(word).name
+        return word if full else Path(word).name
     return name
 
 
@@ -979,33 +981,33 @@ def agentless(socket, names):
     return found
 
 
-def owns_hook(session, pid, harness):
-    """A hook's nearest harness must also be the only harness above it in this pane.
+def owns_hook(session, pid, is_client):
+    """A hook must come from the client in the pane agentkit launched.
 
-    Workers and nested interactive clients inherit TMUX_PANE and AGENTKIT_SESSION;
-    their process ancestry, unlike those environment variables, names both clients.
+    Other panes inherit AGENTKIT_SESSION, so the launch's saved pane must match first.
+    Nested clients inherit even TMUX_PANE; their ancestry names both clients.
     """
     here, pane = os.environ.get("TMUX", "").partition(",")[0], os.environ.get("TMUX_PANE", "")
     if session.get("exited") or not here or not pane:
         return False
     rc, out = tmux_out("display-message", "-p", "-t", pane,
-                       "#{socket_path}\t#{session_name}\t#{pane_pid}", socket=seat_socket(session))
+                       f"#{{socket_path}}\t#{{session_name}}\t#{{pane_pid}}\t#{{{PANE_OPTION}}}",
+                       socket=seat_socket(session))
     parts = out.split("\t")
-    if rc or len(parts) != 3 or parts[:2] != [here, session["name"]] or not parts[2].isdigit():
+    if (rc or len(parts) != 4 or parts[:2] != [here, session["name"]]
+            or not parts[2].isdigit() or parts[3] != pane):
         return False
     root, table = int(parts[2]), processes() or {}
-    seen, clients = set(), []
-    patterns = agent_programs()
+    seen, clients = set(), 0
     while pid in table and pid not in seen:
         seen.add(pid)
         parent, words = table[pid]
-        running = program(words)
-        if any(fnmatch.fnmatchcase(running, pattern) for pattern in patterns):
+        if is_client(words):
             if "-p" in words or "--print" in words:
                 return False
-            clients.append(running)
+            clients += 1
         if pid == root:
-            return clients == [harness]
+            return clients == 1
         pid = parent
     return False
 
@@ -1496,12 +1498,14 @@ def start(name, cwd, cmd, orchestrator):
     # Its answer is also what says whether this command is the one starting the server: only
     # that one can put the server, and every pane under it, in agentkit's slice.
     running = tmux_out("source-file", str(conf))[0] == 0
-    rc, out = tmux_out("-f", str(conf), "new-session", "-d", "-s", name, "-c", str(cwd),
+    rc, out = tmux_out("-f", str(conf), "new-session", "-d", "-P", "-F", "#{pane_id}",
+                       "-s", name, "-c", str(cwd),
                        *env, shlex.join(cmd), unit=None if running else f"agentkit-seat-{name}")
     if rc != 0:
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
     # set-option takes the session name plain: it is the one target that rejects `=name`
     tmux_out("set-option", "-t", name, MARK, "1")
+    tmux_out("set-option", "-t", name, PANE_OPTION, out)
     tmux_out("set-option", "-t", name, "remain-on-exit", "on")
     dress(name, orchestrator)
 
@@ -1776,13 +1780,16 @@ def launch(name, model, cwd, cmd, conversation, session=None):
     if env:
         cmd = ["env", *(f"{key}={value}" for key, value in env.items()), *cmd]
     if session:
-        # `=name:` -- the session, exactly, and its current window: respawn-pane wants a
-        # pane, on whichever server holds the seat, which for a legacy one is not ours
+        # Keep the launched pane even if another window is active; older seats without a
+        # saved pane keep their existing target until this launch records it.
         server = seat_socket(session)
-        rc, out = tmux_out("respawn-pane", "-k", "-t", f"={name}:", shlex.join(cmd),
+        rc, pane = tmux_out("show-options", "-qv", "-t", f"={name}", PANE_OPTION, socket=server)
+        target = pane if rc == 0 and re.fullmatch(r"%[0-9]+", pane) else f"={name}:"
+        rc, out = tmux_out("respawn-pane", "-k", "-t", target, shlex.join(cmd),
                            socket=server)
         if rc != 0:
             raise config.Error(f"cannot resume the session {name}: {out}")
+        tmux_out("set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}", socket=server)
         dress(name, model, server)
     else:
         start(name, cwd, cmd, model)

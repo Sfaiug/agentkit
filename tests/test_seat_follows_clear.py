@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import config, orch, watch
+from agentkit import config, notify, orch, watch
 from agentkit.harness import claude
 
 
@@ -36,6 +36,8 @@ class SeatFollowsClear(Sandbox):
         self.stack.enter_context(patch.object(watch, "announce_state"))
         self.stack.enter_context(patch.object(watch, "KEY_GAP", 0))
         self.typed = []
+        self.bound_pane = "%7"
+        self.tmux_calls = []
         config.save_session(self.cfg, "lagoon", "opus", ["opus"], {
             "cwd": str(self.root), "conversation": "before-clear", "id_source": orch.LAUNCHER,
             "session_title": "lagoon", "account": "default"})
@@ -62,8 +64,18 @@ class SeatFollowsClear(Sandbox):
         claude.capture("lagoon", self.payload(**extra), pid)
 
     def tmux(self, *args, **kwargs):
+        self.tmux_calls.append(args)
         if args[0] == "display-message":
-            return 0, f"/fake/agentkit-test\t{self.seat['name']}\t101"
+            root = {"%7": 101, "%8": 201, "%9": 301}[args[3]]
+            return 0, f"/fake/agentkit-test\t{self.seat['name']}\t{root}\t{self.bound_pane}"
+        if "new-session" in args:
+            return 0, "%7"
+        if args[0] == "show-options":
+            return 0, self.bound_pane
+        if args[0] == "respawn-pane":
+            return 0, args[args.index("-t") + 1]
+        if args[0] == "set-option" and orch.PANE_OPTION in args:
+            self.bound_pane = args[args.index("-t") + 1] if "-F" in args else args[-1]
         if args[0] == "rename-session":
             self.seat = dict(self.seat, name=args[-1])
         elif args[0] == "capture-pane":
@@ -120,7 +132,8 @@ class SeatFollowsClear(Sandbox):
 
     def test_nested_claude_and_workers_cannot_move_the_seat(self):
         before = self.record()
-        for words in (["claude"], ["claude", "-p"], ["claude", "--print"]):
+        for words in (["claude"], ["claude", "-p"], ["claude", "--print"],
+                      ["node", "/fake/node_modules/@anthropic-ai/claude-code/cli.js"]):
             with self.subTest(words=words):
                 self.table.update({104: (102, words), 105: (104, ["sh", "-c", "hook"])})
                 self.hook(pid=105)
@@ -141,16 +154,14 @@ class SeatFollowsClear(Sandbox):
         for fields in ({"TMUX": ""}, {"TMUX_PANE": ""}, {"TMUX": "/fake/other,1,0"}):
             with patch.dict(os.environ, fields):
                 self.hook()
-        with patch.object(orch, "tmux_out", return_value=(0, "/fake/agentkit-test\tother\t101")):
+        with patch.object(orch, "tmux_out", return_value=(0, "/fake/agentkit-test\tother\t101\t%7")):
             self.hook()
         self.assertEqual(self.record(), before)
 
     def test_renamed_seat_and_named_login_follow_repeated_clears(self):
         orch.rename("lagoon", "quay")
         config.update_session("quay", account="second")
-        directory = self.root / ".claude-second"
-        directory.mkdir()
-        (directory / "projects").symlink_to(self.root / ".claude/projects", target_is_directory=True)
+        self.title("after-clear", "quay")
         self.hook()
         self.title("next-clear", "quay")
         self.hook(conversation="next-clear")
@@ -158,7 +169,64 @@ class SeatFollowsClear(Sandbox):
         self.assertEqual(self.record()["account"], "second")
         self.assertEqual(config.resolve_session("lagoon"), "quay")
         self.assertEqual(claude.session_title(self.record()), "quay")
+        self.assertFalse(claude.transcript_path({**self.record(), "account": "default"},
+                                               "next-clear").exists())
         self.assert_resume("next-clear")
+
+    def test_second_window_and_split_pane_cannot_claim_the_conversation(self):
+        before = self.record()
+        for pane, root in (("%8", 201), ("%9", 301)):
+            with self.subTest(pane=pane), patch.dict(os.environ, {"TMUX_PANE": pane}):
+                self.table.update({root: (1, ["bash"]), root + 1: (root, ["claude"]),
+                                   root + 2: (root + 1, ["sh", "-c", "hook"])})
+                self.hook(pid=root + 2)
+                self.assertEqual(self.record(), before)
+        self.hook()
+        self.assertEqual(self.record()["conversation"], "after-clear")
+
+    def test_a_pane_without_launch_evidence_cannot_claim_the_conversation(self):
+        self.bound_pane = ""
+        before = self.record()
+        self.hook()
+        self.assertEqual(self.record(), before)
+
+    def test_launch_binds_the_pane_and_respawn_keeps_it_when_another_pane_is_active(self):
+        self.bound_pane = ""
+        orch.start("lagoon", self.root, ["claude"], "opus")
+        self.assertEqual(self.bound_pane, "%7")
+        with patch.dict(os.environ, {"TMUX_PANE": "%8"}):
+            orch.launch("lagoon", "opus", self.root, ["claude"], "before-clear", self.seat)
+        respawn = next(args for args in self.tmux_calls if args[0] == "respawn-pane")
+        self.assertEqual(respawn[respawn.index("-t") + 1], "%7")
+        self.assertEqual(self.bound_pane, "%7")
+
+    def test_other_harnesses_take_no_notify_lock(self):
+        for model in ("astra", "spark"):
+            with self.subTest(model=model):
+                config.update_session("lagoon", orchestrator=model)
+                before = self.record()
+                with patch.object(notify, "session_lock", side_effect=AssertionError("would block")):
+                    self.hook()
+                self.assertEqual(self.record(), before)
+
+    def test_in_session_resume_and_its_later_events_do_not_claim_another_seats_transcript(self):
+        config.save_session(self.cfg, "quay", "opus", ["opus"], {
+            "cwd": str(self.root), "conversation": "after-clear", "id_source": orch.LAUNCHER})
+        before = config.session_records()
+        for event in ("SessionStart", "UserPromptSubmit", "Stop", "Notification"):
+            with self.subTest(event=event):
+                self.hook(hook_event_name=event, source="resume")
+                self.assertEqual(config.session_records(), before)
+
+    def test_npm_claude_can_follow_clear_but_another_cli_script_cannot(self):
+        self.table[102] = (101, ["node", "/fake/other/cli.js"])
+        before = self.record()
+        self.hook()
+        self.assertEqual(self.record(), before)
+        self.table[102] = (101, ["node", "--no-warnings", "--",
+                                "/fake/node_modules/@anthropic-ai/claude-code/cli.js"])
+        self.hook()
+        self.assertEqual(self.record()["conversation"], "after-clear")
 
     def test_shell_hook_captures_before_returning_without_a_status_event(self):
         # Every external process query is fake; no real seat or process table is inspected.
@@ -170,7 +238,7 @@ if [[ $1 = -L && $2 = agentkit-test ]]; then shift 2; else exit 1; fi
 case $1 in
   list-sessions) printf 'lagoon\\t%s\\t100\\t1\\t1\\n' "$HOME" ;;
   list-panes) printf 'lagoon\\t0\\n' ;;
-  display-message) printf '/fake/agentkit-test\\tlagoon\\t101\\n' ;;
+  display-message) printf '/fake/agentkit-test\\tlagoon\\t101\\t%%7\\n' ;;
   *) exit 1 ;;
 esac
 ''')

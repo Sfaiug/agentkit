@@ -41,14 +41,15 @@ def capture(launched, payload, pid):
     """
     from .. import config, notify, orch
     if (os.environ.get("AK_RUN_ROLE") == "worker" or not isinstance(payload, dict)
-            or payload.get("agent_id") or payload.get("agent_type")):
+            or payload.get("agent_id") or payload.get("agent_type")
+            or payload.get("hook_event_name") != "SessionStart" or payload.get("source") != "clear"):
         return
     conversation, transcript = payload.get("session_id"), payload.get("transcript_path")
     if (not isinstance(conversation, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", conversation)
             or conversation.startswith("-") or not isinstance(transcript, str)):
         return
     record = config.session_records().get(config.resolve_session(launched), {})
-    if record.get("conversation") == conversation:
+    if orch.seat_harness(record) != "claude" or record.get("conversation") == conversation:
         return
     with notify.session_lock(launched) as name:
         record = config.session_records().get(name, {})
@@ -58,8 +59,16 @@ def capture(launched, payload, pid):
                 or Path(transcript).resolve() != transcript_path(record, conversation).resolve()):
             return
         session = orch.find(name)
-        if session and orch.owns_hook(session, pid, "claude"):
+        if session and orch.owns_hook(session, pid, is_process):
             config.update_session(name, conversation=conversation, id_source=SOURCE)
+
+
+def is_process(words):
+    """Both the native executable and npm's Node entry point run the seat's client."""
+    from .. import orch
+    program = orch.program(words, full=True)
+    return (Path(program).name == "claude"
+            or program.endswith("/@anthropic-ai/claude-code/cli.js"))
 
 
 def title_command(name):
@@ -121,8 +130,12 @@ def opened(cwd, conversation):
     transcript at the first message and not at the prompt, so a seat nobody typed into has
     nothing to resume, and `--resume` on it is an error rather than a conversation.
     """
-    slug = re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
-    return (Path.home() / ".claude" / "projects" / slug / f"{conversation}.jsonl").exists()
+    from .. import config
+    # The exact owned id, rather than this caller's environment, selects the seat's login.
+    record = next((record for record in config.session_records().values()
+                   if record.get("conversation") == conversation and record.get("cwd") == str(cwd)),
+                  {"cwd": cwd})
+    return transcript_path(record, conversation).exists()
 
 
 def _write(path, data):
