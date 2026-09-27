@@ -1,6 +1,7 @@
 # How agentkit works
 
-One interactive orchestrator plans with you and writes task files. Headless workers execute, a different model reviews,
+One interactive orchestrator plans with you, does small, clear work itself (its PR goes through `ak run --review-pr`) and
+writes task files for the rest. Headless workers execute, a different model reviews,
 and a script keeps going until the checks pass and the reviewer says PASS; then the run merges its own PR. Wired in:
 Claude Code, Codex CLI, Muse Code, Grok Build, OpenCode and Antigravity CLI. Standard library Python 3.11 and bash only.
 
