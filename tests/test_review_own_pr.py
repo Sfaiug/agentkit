@@ -360,27 +360,29 @@ class OwnPr(unittest.TestCase):
         self.assertEqual(len(inbox), 1)
         self.assertFalse(state["own_pr"])
 
-    def test_missing_writer_is_not_own_and_asks_inbox(self):
+    def test_missing_writer_stays_own_and_refuses_review(self):
         run_dir = self.launch_dir("20260927-0010-ghost-pick", session="ghost-seat")
         opts = {"--review": None, "--review-pr": URL}
         inbox, events = [], []
         with ExitStack() as mocks:
-            for m in self.base_patches(author=LOGIN, reviewer="PASS"):
-                mocks.enter_context(m)
+            entered = [mocks.enter_context(m)
+                       for m in self.base_patches(author=LOGIN, reviewer="PASS")]
+            review_mock = entered[9]
             mocks.enter_context(patch.object(run, "checks", return_value=(True, "")))
             mocks.enter_context(patch.object(
                 run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
-            mocks.enter_context(patch.object(run, "gh", side_effect=self.posting_gh(events)))
+            gh_mock = mocks.enter_context(patch.object(
+                run, "gh", side_effect=self.posting_gh(events)))
             mocks.enter_context(patch.object(
                 watch, "ask_inbox",
                 side_effect=lambda *a, **k: inbox.append(a) or 0))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "ghost-seat"}):
-                state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
-        self.assertFalse(state["own_pr"])
-        self.assertIsNone(state["own_orchestrator"])
-        self.assertEqual(state["reviewer"], "opus")
-        self.assertEqual(len(inbox), 1)
-        self.assertFalse(state["merged"])
+                with self.assertRaisesRegex(config.Error, "writer"):
+                    run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
+        self.assertEqual(review_mock.call_count, 0)
+        self.assertEqual(gh_mock.call_count, 0)
+        self.assertEqual(inbox, [])
+        self.assertEqual(events, [])
 
     def test_writer_is_preserved_when_the_record_changes(self):
         run_dir = self.launch_dir("20260927-0011-own-resume")
@@ -442,6 +444,20 @@ class OwnPr(unittest.TestCase):
                 if want_own:
                     self.assertEqual(saved.get("own_orchestrator"), "opus")
                 self.assertIn(want_line, "\n".join(lines))
+
+    def test_preflight_refuses_own_pr_without_a_writer(self):
+        run_dir = config.RUNS / "20260927-preflight-ghost"
+        run_dir.mkdir(parents=True)
+        (run_dir / "log.txt").touch()
+        with patch.dict(os.environ, {"AGENTKIT_SESSION": "ghost-seat"}):
+            run.capture_launch(run_dir, {"--review-pr": URL})
+        with patch.object(run, "pr_view", return_value=info(LOGIN)), \
+                patch.object(run, "viewer_login", return_value=LOGIN):
+            with self.assertRaisesRegex(config.Error, "writer"):
+                run.preflight(run_dir, {"--review-pr": URL}, lambda line: None)
+        saved = run.read_state(run_dir)
+        self.assertTrue(saved.get("own_pr"))
+        self.assertIsNone(saved.get("own_orchestrator"))
 
 
 if __name__ == "__main__":

@@ -10700,11 +10700,14 @@ def preflight(run_dir, opts, log):
             launched_cfg = config.load()
             is_own, orch = own_pr_orchestrator(
                 launched_cfg, state.get("launched_session"), info["author"])
-        except Exception:  # noqa: BLE001 - unknown writer is never the seat's own PR
+        except Exception:  # noqa: BLE001 - unknown login is never the seat's own PR
             is_own, orch = False, None
         state["own_pr"] = is_own
         state["own_orchestrator"] = orch if is_own else None
         save_state(run_dir, state)
+        if is_own and not orch:
+            raise config.Error(f"no session record names the writer of this PR; "
+                               f"review of the seat's own PR needs its orchestrator")
         repo, base, target = f"{owner}/{name}", info["baseRefName"], info["baseRefName"]
         if is_own:
             method, action = ("squash",
@@ -11432,12 +11435,12 @@ def own_pr_orchestrator(cfg, session_name, author):
     """(is_own, orchestrator) for a --review-pr of `author` launched from `session_name`.
 
     The seat's own PR is a review launched from a seat on a PR by this host's
-    GitHub login, with the seat's orchestrator known: that model did the work
-    itself and opened the PR, so its reviewer is picked against it as if it had
-    executed, through the same `review_providers` rule. Unknown login, unknown
-    author, no seat, no session record or an unknown orchestrator model is not
-    own: without the writer's identity there is no independence to enforce and
-    no automatic merge.
+    GitHub login: the orchestrator did the work itself and opened the PR, so its
+    reviewer is picked against that model as if it had executed, through the
+    same `review_providers` rule. Ownership is the launch plus the author; the
+    orchestrator is the writer whose identity the independence check needs. An
+    own PR with no session record or an unknown orchestrator model keeps its
+    classification but cannot be reviewed or merged until the writer is known.
     """
     if not session_name or not author or author == "?":
         return False, None
@@ -11451,10 +11454,10 @@ def own_pr_orchestrator(cfg, session_name, author):
         selection = config.load_session(cfg, session_name, required=False)
         orchestrator = (selection or {}).get("orchestrator")
         if not orchestrator:
-            return False, None
+            return True, None
         config.model(cfg, orchestrator)
     except (config.Error, OSError, ValueError, KeyError, TypeError):
-        return False, None
+        return True, None
     return True, orchestrator
 
 
@@ -11628,15 +11631,16 @@ def review_pr(cfg, run_dir, url, opts, log):
         # independence check would judge another model than the one that wrote this.
         is_own = bool(prior.get("own_pr"))
         orchestrator = prior.get("own_orchestrator")
-        if is_own:
+        if is_own and orchestrator:
             try:
-                if not orchestrator:
-                    raise config.Error("no recorded writer")
                 config.model(cfg, orchestrator)
             except (config.Error, OSError, ValueError, KeyError, TypeError):
-                is_own, orchestrator = False, None
+                orchestrator = None
     else:
         is_own, orchestrator = own_pr_orchestrator(cfg, session_at_launch, info["author"])
+    if is_own and not orchestrator:
+        raise config.Error("no session record names the writer of this PR; "
+                           "review of the seat's own PR needs its orchestrator")
     # Persist before fetch/checkout/provider work: the PR can move at any of those steps.
     save_state(run_dir, stamp_origin({**(read_state(run_dir) or {}), "run_id": run_dir.name,
                          "state": "running", **process_owner(),
