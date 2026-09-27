@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -139,6 +140,44 @@ class AccountNotices(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertIn("--dangerously-skip-permissions", proc.stdout)
             self.assertIn("harness/claude.py", proc.stdout)
+
+    def test_launch_keeps_file_modes_and_survives_launches_side_by_side(self):
+        usual_settings = self.root / ".claude/settings.json"
+        usual_settings.write_text(json.dumps({"permissions": {"defaultMode": "auto"}}))
+        self.usual.write_text(json.dumps({"userID": "usual-user"}))
+        for path in (usual_settings, self.usual):
+            os.chmod(path, 0o600)
+        with patch.dict(os.environ, {"AGENTKIT_ACCOUNT": ""}):
+            errors = []
+            barrier = threading.Barrier(8)
+            def launch():
+                try:
+                    barrier.wait(timeout=30)
+                    account_config()
+                except Exception as exc:
+                    errors.append(exc)
+            threads = [threading.Thread(target=launch) for _ in range(8)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=60)
+            self.assertEqual(errors, [])
+            self.assertFalse([thread for thread in threads if thread.is_alive()])
+        for path in (usual_settings, self.usual):
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        settings = json.loads(usual_settings.read_text())
+        self.assertEqual(settings["permissions"]["defaultMode"], "bypassPermissions")
+        self.assertIs(json.loads(self.usual.read_text())["hasSeenAutoDefaultNudge"], True)
+        named_settings = self.root / f".claude-{ACCOUNT}/settings.json"
+        named_settings.parent.mkdir(parents=True, exist_ok=True)
+        named_settings.write_text(json.dumps({"permissions": {"defaultMode": "auto"}}))
+        self.named.write_text(json.dumps({"userID": "named-user"}))
+        for path in (named_settings, self.named):
+            os.chmod(path, 0o600)
+        account_config()
+        os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        for path in (named_settings, self.named):
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
 
 if __name__ == "__main__":

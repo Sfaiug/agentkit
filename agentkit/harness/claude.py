@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 
 
 def opened(cwd, conversation):
@@ -20,6 +21,26 @@ def opened(cwd, conversation):
     """
     slug = re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
     return (Path.home() / ".claude" / "projects" / slug / f"{conversation}.jsonl").exists()
+
+
+def _write(path, data):
+    """Replace a config file from a temp file no other launch shares.
+
+    Seats open side by side, so a fixed temp name collides: one launch renames
+    it away while another is still writing.  A replace inherits the temp file's
+    mode rather than the old one's, so an existing file keeps the mode it had
+    and a new one stays as mkstemp made it, 0600.
+    """
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(json.dumps(data) + "\n")
+        if path.exists():
+            os.chmod(name, path.stat().st_mode & 0o777)
+        os.replace(name, path)
+    except BaseException:
+        Path(name).unlink(missing_ok=True)
+        raise
 
 
 def account_config(check=False):
@@ -47,9 +68,7 @@ def account_config(check=False):
         values[1]["hasSeenAutoDefaultNudge"] = True
         paths[0].parent.mkdir(parents=True, exist_ok=True)
         for path, data in zip(paths, values):
-            tmp = path.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(data) + "\n")
-            tmp.replace(path)
+            _write(path, data)
         return
     home = Path.home()
     directory = home / f".claude-{account}"
@@ -87,9 +106,7 @@ def account_config(check=False):
             if not isinstance(permissions, dict):
                 permissions = data["permissions"] = {}
             permissions["defaultMode"] = "bypassPermissions"
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(data) + "\n")
-        tmp.replace(path)
+        _write(path, data)
     for name in ("CLAUDE.md", "agents", "skills", "commands", "plugins"):
         source, target = home / ".claude" / name, directory / name
         if source.exists() and not target.exists() and not target.is_symlink():
