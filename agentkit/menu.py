@@ -16,9 +16,9 @@ the moment it is pressed, and from a pipe it is a line.
 
       ↑↓ move   ⏎ open   n new   x stop   c config   i info   q leave
 
-`n` is one screen: the orchestrator and the workers, the defaults chosen already, so Enter
-starts a session.  It is named for its orchestrator, and that name is the row, the status bar
-and the title of every message it sends until `r` renames it.
+`n` asks for a name, then shows the orchestrator and workers with the defaults chosen already.
+Enter leaves naming to the orchestrator once it knows the work. The name is the row, the
+status bar and the title of every message it sends until `r` renames it.
 
 A session is **working**, **needs you** or **done**, and nothing else exists: it works until
 it is done or it is blocked on him.  `watch.session_state` decides which, once, from the
@@ -1430,22 +1430,26 @@ def open_session(cfg, session, dry_run):
 
 
 def new_session(cfg, dry_run):
-    """`n`: the orchestrator and the workers on one screen, Enter starting it with what is
-    chosen there (`orch.pick`), or from a pipe the two questions; Esc or `q` goes back, nothing
-    created.  The seat is named for its orchestrator, and a dry run only says what it would
+    """`n`: the name, then the orchestrator and workers on one screen (`orch.pick`), or from
+    a pipe one question at a time; Esc or `q` goes back, nothing created. Enter at the name
+    leaves it for the orchestrator to choose, and a dry run only says what it would
     start: it creates no session, so neither its record nor its harness's rulebook."""
     terminal.frame("new session", [], "q back")
     if not cfg:
         return None               # no configuration means no models to offer
+    name = orch.ask_name(orch.taken_names(), auto=True)
+    if name is orch.BACK:
+        return None
+    unnamed = name is None
     providers = usage.collect(cfg)
     selected = orch.select(cfg, providers, prompting=True)
     if selected is orch.BACK:
         return None
-    name = orch.default_name(selected[0], orch.taken_names())
+    name = name or orch.unique_name("new", orch.taken_names())
     if dry_run:
         print(f"would start {name}: {selected[0]}, workers {' '.join(selected[2])}")
     elif orch.create(cfg, name, orch.seat_cwd(), prompting=True,
-                     selection=(providers, selected)) is None:
+                     selection=(providers, selected), unnamed=unnamed) is None:
         return None
     open_session(cfg, {"name": name}, dry_run)
     return name

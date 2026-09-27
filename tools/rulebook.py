@@ -40,7 +40,12 @@ def write(session):
     name = re.sub(r"[^A-Za-z0-9._-]+", "-", " ".join(str(session).split())).strip("-.") or "seat"
     path = config.STATE / f"rulebook-{name}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text())
+    body = text()
+    if config.session_records().get(session, {}).get("unnamed"):
+        body = (f"{body.rstrip()}\n\nThis seat is unnamed. As soon as the conversation tells you "
+                "what the job is, name this seat with `ak orch rename <name>`. Choose the "
+                "shortest possible name, at most three words, saying what the work is.\n")
+    path.write_text(body)
     return path
 
 

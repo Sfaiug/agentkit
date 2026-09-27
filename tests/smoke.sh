@@ -3406,21 +3406,21 @@ for key in r p b s u; do
 done
 printf 'q\n' | HOME="$MHOME" ak attach --dry-run >"$WORK/menu-attach.log" 2>&1 || MENU=1
 grep -q 'n new' "$WORK/menu-attach.log" || MENU=1
-# from a pipe `n` asks Orchestrator and Workers a line at a time, and no Name: Enter takes each
-# default, the seat is named for its orchestrator, and a dry run only says what it would start
-printf 'n\n\n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-n.log" 2>&1 || MENU=1
+# from a pipe `n` asks Name, Orchestrator and Workers a line at a time: Enter takes each
+# default, the seat starts as new, and a dry run only says what it would start
+printf 'n\n\n\n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-n.log" 2>&1 || MENU=1
 grep -q '^Workers \[opus astra\]:' "$WORK/menu-n.log" || MENU=1
 grep -q '^Orchestrator \[opus\]:' "$WORK/menu-n.log" || MENU=1
-grep -q '^Name' "$WORK/menu-n.log" && MENU=1
-MSESSION=$(sed -n 's/^would start \(opus\(-[0-9]*\)\{0,1\}\): opus, workers opus astra$/\1/p' "$WORK/menu-n.log")
+grep -q '^Name (Enter: auto):' "$WORK/menu-n.log" || MENU=1
+MSESSION=$(sed -n 's/^would start \(new\(-[0-9]*\)\{0,1\}\): opus, workers opus astra$/\1/p' "$WORK/menu-n.log")
 [ -n "$MSESSION" ] && grep -q "^would attach $MSESSION\$" "$WORK/menu-n.log" || MENU=1
 # EOF takes the defaults as well; and neither starts a session: no record, no rulebook
 printf 'n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-n-eof.log" 2>&1 || MENU=1
-grep -q '^would start opus' "$WORK/menu-n-eof.log" || MENU=1
+grep -q '^would start new' "$WORK/menu-n-eof.log" || MENU=1
 ls "$MHOME/.agentkit/state" | grep -qE '^(session|rulebook)-' && MENU=1
 printf 'zz\nq\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-bad.log" 2>&1 || MENU=1
 grep -q "not a key: 'zz'" "$WORK/menu-bad.log" || MENU=1
-[ "$MENU" = 0 ] && ok "20 the menu: numbers and n/x/c/i/q on the line, c placeholder and i info, r/p/b/s/u refused, q quits, n asks Orchestrator and Workers with defaults and would start ${MSESSION:-?} creating no session, and a stray key is refused" \
+[ "$MENU" = 0 ] && ok "20 the menu: numbers and n/x/c/i/q on the line, c placeholder and i info, r/p/b/s/u refused, q quits, n asks Name, Orchestrator and Workers with defaults and would start ${MSESSION:-?} creating no session, and a stray key is refused" \
               || no "20 the menu"; [ "$MENU" = 0 ] || sed 's/^/      /' "$WORK/menu-n.log" | head -12
 
 # --- 20c: the menu offers only what makes sense, and works from any terminal (offline) ---
@@ -3440,10 +3440,10 @@ with open(sys.argv[1], "w") as fh:
     json.dump({"fetched_at": time.time(), "providers": providers}, fh)
 PY
 OFFER=0
-printf 'n\n\n\n' | HOME="$OHOME" ak --dry-run >"$WORK/offer-n.log" 2>&1 || OFFER=1
+printf 'n\n\n\n\n' | HOME="$OHOME" ak --dry-run >"$WORK/offer-n.log" 2>&1 || OFFER=1
 grep -q '^Workers \[opus astra\]:' "$WORK/offer-n.log" || OFFER=1
 grep -q '^Orchestrator \[opus\]:' "$WORK/offer-n.log" || OFFER=1
-grep -q '^would start opus\(-[0-9]*\)\{0,1\}: opus, workers opus astra$' "$WORK/offer-n.log" || OFFER=1
+grep -q '^would start new\(-[0-9]*\)\{0,1\}: opus, workers opus astra$' "$WORK/offer-n.log" || OFFER=1
 # the orchestrator choices are every model in file order, no sol
 grep -q ' 1 fable ' "$WORK/offer-n.log" || OFFER=1
 grep -q ' 2 opus ' "$WORK/offer-n.log" || OFFER=1

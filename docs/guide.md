@@ -11,9 +11,9 @@ and the orchestrator's process too. A bare `ak` is the menu on the server, on a 
 --client` recorded) and as the phone key's forced command `ak attach`. A tmux session there that agentkit did not start
 and that runs no agent anywhere in its pane, such as a watcher loop, is not a session: no row, no card, no count.
 
-`n` is one screen: an Orchestrator list (one choice) and a Workers list (several). Chosen already: `[defaults]
+`n` and bare `ak orch` first ask `Name (Enter: auto):`; a taken name asks again, `q` goes back. Enter (or pipe EOF) leaves `new`, then `new-2`, unnamed until its orchestrator knows the job and names it as briefly as possible in at most three words. Any rename ends auto naming; an unnamed seat gets the rule again on resume. `n` then shows Orchestrator (one choice) and Workers (several). Chosen already: `[defaults]
 orchestrator` (shipped `opus`), or while it is spent the first model in config order that is not, and the `[defaults]
-workers` (`opus astra`) not spent. From a pipe it asks `Orchestrator:` and `Workers:`, Enter taking each default, and
+workers` (`opus astra`) not spent. From a pipe the name and model questions read one line each, Enter taking each default, and
 `--dry-run` starts no session. The seat opens in `~/code`; `ak orch <name>` keeps the shell's directory and reopens an
 existing seat. Nobody picks its project: each run it launches refiles it under the project most of its runs belong to,
 counting a run from its launch, still queued for a slot or not, for the checkout under `~/code` or `~/agentkit`
