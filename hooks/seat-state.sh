@@ -102,16 +102,25 @@ seat_state() {
   # A prompt another session's message opened -- Claude Code wraps it in
   # <cross-session-message> -- keeps the seat's standing done: the seat only
   # acknowledged the message, so its done from before the turn still tells.
-  # The latch says which kind of prompt opened the turn.
+  # A prompt that asks something -- a sentence ending in `?`, the mark followed by
+  # whitespace or the end so a URL's `?` is none -- is ended by its answer.  The
+  # latch says which kind of prompt opened the turn.
   peer=false
   if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
                | any(contains("<cross-session-message"))' \
       <<<"$payload" >/dev/null 2>&1; then
     peer=true
   fi
+  asked=false
+  if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
+               | any(test("\\?([[:space:]]|$)"))' \
+      <<<"$payload" >/dev/null 2>&1; then
+    asked=true
+  fi
   tmp="$dir/stop-$seat.json.tmp.$$"
   "$jq" -n --arg session "$seat" --argjson turn "$ts" --argjson peer "$peer" \
-    '{session: $session, turn: $turn, blocks: 0, peer: $peer}' \
+    --argjson asked "$asked" \
+    '{session: $session, turn: $turn, blocks: 0, peer: $peer, asked: $asked}' \
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
   /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
 }
