@@ -144,7 +144,11 @@ def for_seat(name):
 
 
 def account_order(cfg, model, readings):
-    """Rank the configured subscriptions by this seat's model, never another model's cap."""
+    """Rank the configured subscriptions by this seat's model, never another model's cap.
+
+    The usual login first while it has room for this model, the rest by room: a seat
+    lives where its owner follows it, and only spills over when that one is spent.
+    """
     provider = config.model(cfg, model)["provider"]
 
     def rank(account):
@@ -152,7 +156,12 @@ def account_order(cfg, model, readings):
         amount, unknown = usage.model_budget(cfg, model, providers)
         return usage.model_exhausted(cfg, model, providers)[0], unknown is not None, -amount
     accounts = config.accounts(cfg, provider) or list(readings)
-    return sorted((a for a in accounts if a in readings), key=rank)
+    ordered = sorted((a for a in accounts if a in readings), key=rank)
+    usual = config.DEFAULT_ACCOUNT
+    if usual in ordered and not usage.model_exhausted(
+            cfg, model, {provider: readings[usual]})[0]:
+        ordered = [usual, *(a for a in ordered if a != usual)]
+    return ordered
 
 
 def command(cfg, name, conversation=None, fresh=False, account=None):
