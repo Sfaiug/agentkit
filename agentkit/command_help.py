@@ -55,7 +55,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                "ak run gc --dry-run"),
     "orch": ("""usage: ak orch [NAME] [--model MODEL] [--workers A,B] [--dry-run]
        ak orch list [--why] | ak orch why NAME
-       ak orch stop NAME | ak orch rename [OLD] NEW""",
+       ak orch stop NAME | ak orch rename [OLD] NEW
+       ak orch project [SEAT] CHECKOUT""",
              "Start or attach to a named orchestrator session; --dry-run prints the launch plan.",
              "ak orch parser-fix"),
     "orch list": ("usage: ak orch list [--why]",
@@ -71,6 +72,10 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
     "orch rename": ("usage: ak orch rename [OLD] NEW",
                     "Rename a session; omit OLD to rename the session this runs in.",
                     "ak orch rename parser-fix parser-review"),
+    "orch project": ("usage: ak orch project [SEAT] CHECKOUT",
+                     "File a seat under a checkout by name or path; omit SEAT for this session.\n"
+                     "Only known checkouts are accepted; launched runs still decide its project.",
+                     "ak orch project acme"),
     "notify": (NOTIFY_USAGE,
                "Record a needs-you question or a job summary.\n"
                "--session and --dry-run apply to needs/done; --check checks without posting.",
