@@ -11,7 +11,6 @@ import os
 from pathlib import Path
 import sys
 import tempfile
-import time
 import unittest
 from unittest.mock import patch
 
@@ -21,7 +20,6 @@ from agentkit import config, orch, run, watch
 
 URL = "https://github.com/acme/widget/pull/7"
 HEAD = "b" * 40
-BASE = "a" * 40
 LOGIN = "owner"
 
 
@@ -95,7 +93,7 @@ class OwnPr(unittest.TestCase):
         return "FAIL"
 
     def base_patches(self, author=LOGIN, reviewer="PASS"):
-        """Every review_pr dependency but the verdict, the checks and the merge."""
+        """Every review_pr dependency but the verdict, the posting, the checks and the merge."""
         faces = {
             "PASS": self.review_pass,
             "FAIL": self.review_fail,
@@ -112,15 +110,35 @@ class OwnPr(unittest.TestCase):
             patch.object(run.usage, "collect", return_value={}),
             patch.object(run, "review", side_effect=faces[reviewer]),
             patch.object(run, "restore_review_checkout", return_value=None),
-            patch.object(run, "post_review", return_value=True),
         ]
+
+    def posting_gh(self, events, merges=None):
+        """Fake gh that posts reviews successfully and records merge calls."""
+        def fake_gh(cwd, *args, **kwargs):
+            if len(args) >= 2 and args[0] == "api" and "/reviews" in args[1]:
+                for i, arg in enumerate(args):
+                    if arg == "-f" and args[i + 1].startswith("event="):
+                        events.append(args[i + 1].split("=", 1)[1])
+                return 0, ""
+            if args[:2] == ("pr", "merge"):
+                if merges is not None:
+                    merges.append(list(args))
+                return 0, ""
+            if args[:2] == ("pr", "view"):
+                return 0, "OPEN"
+            return 0, ""
+        return fake_gh
 
     def test_own_pr_reviewer_is_from_another_provider(self):
         run_dir = self.launch_dir("20260927-0001-own-pick")
         opts = {"--review": None, "--review-pr": URL}
+        events = []
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
                 mocks.enter_context(m)
+            mocks.enter_context(patch.object(
+                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh", side_effect=self.posting_gh(events)))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
         self.assertEqual(state["reviewer"], "astra")
@@ -128,11 +146,12 @@ class OwnPr(unittest.TestCase):
         self.assertEqual(config.model(self.cfg, "opus")["provider"], "anthropic")
         self.assertTrue(state["own_pr"])
         self.assertEqual(state["own_orchestrator"], "opus")
+        self.assertEqual(events, ["COMMENT"])
 
     def test_own_pr_pass_merges_through_merge_turn_without_inbox(self):
         run_dir = self.launch_dir("20260927-0002-own-merge")
         opts = {"--review": None, "--review-pr": URL}
-        merges, turns, inbox = [], [], []
+        merges, turns, inbox, events = [], [], [], []
         real_merge = run.MERGE_METHODS["squash"]
 
         @contextmanager
@@ -140,21 +159,14 @@ class OwnPr(unittest.TestCase):
             turns.append(upstream)
             yield
 
-        def fake_gh(cwd, *args, **kwargs):
-            if args[:2] == ("pr", "merge"):
-                merges.append(list(args))
-                return 0, ""
-            if args[:2] == ("pr", "view"):
-                return 0, "OPEN"
-            return 0, ""
-
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="PASS"):
                 mocks.enter_context(m)
             mocks.enter_context(patch.object(run, "checks", return_value=(True, "")))
             mocks.enter_context(patch.object(
                 run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
-            mocks.enter_context(patch.object(run, "gh", side_effect=fake_gh))
+            mocks.enter_context(patch.object(
+                run, "gh", side_effect=self.posting_gh(events, merges)))
             mocks.enter_context(patch.object(run, "merge_turn", side_effect=turn))
             mocks.enter_context(patch.object(
                 watch, "ask_inbox",
@@ -164,6 +176,7 @@ class OwnPr(unittest.TestCase):
         self.assertEqual(state["state"], "pass")
         self.assertTrue(state["merged"])
         self.assertEqual(inbox, [])
+        self.assertEqual(events, ["COMMENT"])
         self.assertEqual(len(merges), 1, merges)
         self.assertEqual(merges[0][:2], ["pr", "merge"])
         self.assertIn(real_merge, merges[0])
@@ -175,17 +188,17 @@ class OwnPr(unittest.TestCase):
     def test_own_pr_pass_with_moved_head_never_merges(self):
         run_dir = self.launch_dir("20260927-0003-own-moved")
         opts = {"--review": None, "--review-pr": URL}
-        merges, inbox = [], []
+        merges, inbox, events = [], [], []
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="PASS"):
                 mocks.enter_context(m)
             mocks.enter_context(patch.object(run, "checks", return_value=(True, "")))
             mocks.enter_context(patch.object(
-                run, "gh_json",
-                return_value=({"headRefOid": "d" * 40, "state": "OPEN"}, "")))
+                run, "gh_json", side_effect=[
+                    ({"headRefOid": HEAD, "state": "OPEN"}, ""),
+                    ({"headRefOid": "d" * 40, "state": "OPEN"}, "")]))
             mocks.enter_context(patch.object(
-                run, "gh",
-                side_effect=lambda *a, **k: merges.append(a) or (0, "")))
+                run, "gh", side_effect=self.posting_gh(events, merges)))
             mocks.enter_context(patch.object(
                 watch, "ask_inbox",
                 side_effect=lambda *a, **k: inbox.append(a) or 0))
@@ -193,21 +206,48 @@ class OwnPr(unittest.TestCase):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
         self.assertEqual(state["state"], "pass")
         self.assertFalse(state["merged"])
-        self.assertEqual(merges, [])
+        self.assertEqual([a for a in merges if a[:2] == ["pr", "merge"]], [])
         self.assertEqual(inbox, [])
         self.assertIn("not merged", state["merge_note"])
         self.assertIn("head changed", state["merge_note"])
+        self.assertTrue(state["merge_failed"])
+
+    def test_own_pr_pass_with_failed_checks_is_an_unfinished_merge(self):
+        run_dir = self.launch_dir("20260927-0008-own-checks-fail")
+        opts = {"--review": None, "--review-pr": URL}
+        merges, inbox, events = [], [], []
+        with ExitStack() as mocks:
+            for m in self.base_patches(author=LOGIN, reviewer="PASS"):
+                mocks.enter_context(m)
+            mocks.enter_context(patch.object(
+                run, "checks", return_value=(False, "required checks failed: gate")))
+            mocks.enter_context(patch.object(
+                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(
+                run, "gh", side_effect=self.posting_gh(events, merges)))
+            mocks.enter_context(patch.object(
+                watch, "ask_inbox",
+                side_effect=lambda *a, **k: inbox.append(a) or 0))
+            with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
+                state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
+        self.assertEqual(state["state"], "pass")
+        self.assertFalse(state["merged"])
+        self.assertEqual([a for a in merges if a[:2] == ["pr", "merge"]], [])
+        self.assertEqual(inbox, [])
+        self.assertTrue(state["merge_failed"])
+        self.assertIn("required checks failed", state["merge_note"])
 
     def test_own_pr_fail_ends_fail_with_findings_and_no_merge(self):
         run_dir = self.launch_dir("20260927-0004-own-fail")
         opts = {"--review": None, "--review-pr": URL}
-        merges, inbox = [], []
+        merges, inbox, events = [], [], []
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
                 mocks.enter_context(m)
             mocks.enter_context(patch.object(
-                run, "gh",
-                side_effect=lambda *a, **k: merges.append(a) or (0, "")))
+                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(
+                run, "gh", side_effect=self.posting_gh(events, merges)))
             mocks.enter_context(patch.object(
                 watch, "ask_inbox",
                 side_effect=lambda *a, **k: inbox.append(a) or 0))
@@ -215,8 +255,9 @@ class OwnPr(unittest.TestCase):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
         self.assertEqual(state["state"], "fail")
         self.assertFalse(state["merged"])
-        self.assertEqual(merges, [])
+        self.assertEqual([a for a in merges if a[:2] == ["pr", "merge"]], [])
         self.assertEqual(inbox, [])
+        self.assertEqual(events, ["COMMENT"])
         result = (run_dir / "result.md").read_text()
         self.assertIn("## Reviewer findings", result)
         self.assertIn("off-by-one in the gate", result)
@@ -224,12 +265,17 @@ class OwnPr(unittest.TestCase):
     def test_own_pr_fail_is_handed_back_like_a_failed_task_run(self):
         run_dir = self.launch_dir("20260927-0005-own-handback")
         opts = {"--review": None, "--review-pr": URL}
+        events = []
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
                 mocks.enter_context(m)
+            mocks.enter_context(patch.object(
+                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh", side_effect=self.posting_gh(events)))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
         self.assertEqual(state["state"], "fail")
+        self.assertEqual(events, ["COMMENT"])
         typed = []
         with patch.object(orch, "find", return_value={"name": "fix-api"}), \
                 patch.object(watch, "type_at_prompt",
@@ -243,10 +289,32 @@ class OwnPr(unittest.TestCase):
         self.assertIn("off-by-one in the gate", typed[0])
         self.assertIn("Decide the next step.", typed[0])
 
+    def test_other_pr_fail_posts_request_changes_and_ends_fail(self):
+        run_dir = self.launch_dir("20260927-0009-other-fail")
+        opts = {"--review": None, "--review-pr": URL}
+        merges, inbox, events = [], [], []
+        with ExitStack() as mocks:
+            for m in self.base_patches(author="other", reviewer="FAIL"):
+                mocks.enter_context(m)
+            mocks.enter_context(patch.object(
+                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(
+                run, "gh", side_effect=self.posting_gh(events, merges)))
+            mocks.enter_context(patch.object(
+                watch, "ask_inbox",
+                side_effect=lambda *a, **k: inbox.append(a) or 0))
+            with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
+                state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
+        self.assertEqual(state["state"], "fail")
+        self.assertFalse(state["merged"])
+        self.assertEqual(events, ["REQUEST_CHANGES"])
+        self.assertEqual(inbox, [])
+        self.assertFalse(state["own_pr"])
+
     def test_other_pr_pass_asks_inbox_as_before(self):
         run_dir = self.launch_dir("20260927-0006-other-asks")
         opts = {"--review": None, "--review-pr": URL}
-        merges, inbox = [], []
+        merges, inbox, events = [], [], []
         with ExitStack() as mocks:
             for m in self.base_patches(author="other", reviewer="PASS"):
                 mocks.enter_context(m)
@@ -254,8 +322,7 @@ class OwnPr(unittest.TestCase):
             mocks.enter_context(patch.object(
                 run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
             mocks.enter_context(patch.object(
-                run, "gh",
-                side_effect=lambda *a, **k: merges.append(a) or (0, "")))
+                run, "gh", side_effect=self.posting_gh(events, merges)))
             mocks.enter_context(patch.object(
                 watch, "ask_inbox",
                 side_effect=lambda *a, **k: inbox.append(a) or 0))
@@ -263,16 +330,17 @@ class OwnPr(unittest.TestCase):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
         self.assertEqual(state["state"], "pass")
         self.assertFalse(state["merged"])
-        self.assertEqual(merges, [])
+        self.assertEqual([a for a in merges if a[:2] == ["pr", "merge"]], [])
         self.assertEqual(len(inbox), 1)
         self.assertIn("Merge? yes/no", inbox[0][1])
         self.assertFalse(state["own_pr"])
         self.assertIn("offered to the", state["merge_note"])
+        self.assertNotIn("merge_failed", state)
 
     def test_no_seat_pass_asks_inbox_as_before(self):
         run_dir = self.launch_dir("20260927-0007-noseat-asks", session="")
         opts = {"--review": None, "--review-pr": URL}
-        merges, inbox = [], []
+        merges, inbox, events = [], [], []
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="PASS"):
                 mocks.enter_context(m)
@@ -280,8 +348,7 @@ class OwnPr(unittest.TestCase):
             mocks.enter_context(patch.object(
                 run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
             mocks.enter_context(patch.object(
-                run, "gh",
-                side_effect=lambda *a, **k: merges.append(a) or (0, "")))
+                run, "gh", side_effect=self.posting_gh(events, merges)))
             mocks.enter_context(patch.object(
                 watch, "ask_inbox",
                 side_effect=lambda *a, **k: inbox.append(a) or 0))
@@ -289,9 +356,92 @@ class OwnPr(unittest.TestCase):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
         self.assertEqual(state["state"], "pass")
         self.assertFalse(state["merged"])
-        self.assertEqual(merges, [])
+        self.assertEqual([a for a in merges if a[:2] == ["pr", "merge"]], [])
         self.assertEqual(len(inbox), 1)
         self.assertFalse(state["own_pr"])
+
+    def test_missing_writer_is_not_own_and_asks_inbox(self):
+        run_dir = self.launch_dir("20260927-0010-ghost-pick", session="ghost-seat")
+        opts = {"--review": None, "--review-pr": URL}
+        inbox, events = [], []
+        with ExitStack() as mocks:
+            for m in self.base_patches(author=LOGIN, reviewer="PASS"):
+                mocks.enter_context(m)
+            mocks.enter_context(patch.object(run, "checks", return_value=(True, "")))
+            mocks.enter_context(patch.object(
+                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh", side_effect=self.posting_gh(events)))
+            mocks.enter_context(patch.object(
+                watch, "ask_inbox",
+                side_effect=lambda *a, **k: inbox.append(a) or 0))
+            with patch.dict(os.environ, {"AGENTKIT_SESSION": "ghost-seat"}):
+                state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
+        self.assertFalse(state["own_pr"])
+        self.assertIsNone(state["own_orchestrator"])
+        self.assertEqual(state["reviewer"], "opus")
+        self.assertEqual(len(inbox), 1)
+        self.assertFalse(state["merged"])
+
+    def test_writer_is_preserved_when_the_record_changes(self):
+        run_dir = self.launch_dir("20260927-0011-own-resume")
+        opts = {"--review": None, "--review-pr": URL}
+        saved = run.read_state(run_dir)
+        saved.update(own_pr=True, own_orchestrator="opus")
+        run.save_state(run_dir, saved)
+        config.save_session(self.cfg, "fix-api", "astra", ["opus", "astra"])
+        events = []
+        with ExitStack() as mocks:
+            for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
+                mocks.enter_context(m)
+            mocks.enter_context(patch.object(
+                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh", side_effect=self.posting_gh(events)))
+            with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
+                state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
+        self.assertTrue(state["own_pr"])
+        self.assertEqual(state["own_orchestrator"], "opus")
+        self.assertEqual(state["reviewer"], "astra")
+        self.assertEqual(events, ["COMMENT"])
+
+    def test_own_pr_adopts_the_saved_background_reviewer(self):
+        config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra", "spark"])
+        run_dir = self.launch_dir("20260927-0012-own-preset")
+        opts = {"--review": None, "--review-pr": URL}
+        saved = run.read_state(run_dir)
+        saved.update(launch_reviewer="spark")
+        run.save_state(run_dir, saved)
+        events = []
+        with ExitStack() as mocks:
+            for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
+                mocks.enter_context(m)
+            mocks.enter_context(patch.object(
+                run, "gh_json", return_value=({"headRefOid": HEAD, "state": "OPEN"}, "")))
+            mocks.enter_context(patch.object(run, "gh", side_effect=self.posting_gh(events)))
+            with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
+                state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
+        self.assertEqual(state["reviewer"], "spark")
+        self.assertTrue(state["own_pr"])
+
+    def test_preflight_captures_ownership_and_delivery(self):
+        for author, session, want_own, want_line in (
+                (LOGIN, "fix-api", True, "merge on PASS"),
+                ("other", "fix-api", False, "review only"),
+                (LOGIN, "", False, "review only")):
+            with self.subTest(author=author, session=session):
+                run_dir = config.RUNS / f"20260927-preflight-{author}-{session or 'noseat'}"
+                run_dir.mkdir(parents=True)
+                (run_dir / "log.txt").touch()
+                with patch.dict(os.environ, {"AGENTKIT_SESSION": session}):
+                    run.capture_launch(run_dir, {"--review-pr": URL})
+                lines = []
+                with patch.object(run, "pr_view", return_value=info(author)), \
+                        patch.object(run, "viewer_login", return_value=LOGIN):
+                    run.preflight(run_dir, {"--review-pr": URL}, lines.append)
+                saved = run.read_state(run_dir)
+                self.assertEqual(bool(saved.get("own_pr")), want_own)
+                if want_own:
+                    self.assertEqual(saved.get("own_orchestrator"), "opus")
+                self.assertIn(want_line, "\n".join(lines))
 
 
 if __name__ == "__main__":

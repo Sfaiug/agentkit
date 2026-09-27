@@ -859,8 +859,10 @@ def review_pass(state, cfg):
         return False
     if providers != (evidence.get("executor_provider"), evidence["reviewer_provider"]):
         return False
-    own = state.get("own_orchestrator") if state.get("own_pr") else None
-    if own:
+    if state.get("own_pr"):
+        own = state.get("own_orchestrator")
+        if not own:
+            return False
         try:
             review_providers(cfg, own, state["reviewer"])
         except config.Error:
@@ -10694,9 +10696,22 @@ def preflight(run_dir, opts, log):
         owner, name, number = PR_PARTS.match(url).groups()
         state = read_state(run_dir) or {}
         state["title"] = f"Review PR #{number}: {info['title']}"
+        try:
+            launched_cfg = config.load()
+            is_own, orch = own_pr_orchestrator(
+                launched_cfg, state.get("launched_session"), info["author"])
+        except Exception:  # noqa: BLE001 - unknown writer is never the seat's own PR
+            is_own, orch = False, None
+        state["own_pr"] = is_own
+        state["own_orchestrator"] = orch if is_own else None
         save_state(run_dir, state)
         repo, base, target = f"{owner}/{name}", info["baseRefName"], info["baseRefName"]
-        method, action = "none (review only)", f"review {url} at {info['headRefOid']}; publish findings"
+        if is_own:
+            method, action = ("squash",
+                              f"review {url} at {info['headRefOid']}; merge on PASS with green checks")
+        else:
+            method, action = ("none (review only)",
+                              f"review {url} at {info['headRefOid']}; publish findings")
         commands = "AGENTS.md tests: command from the PR checkout, if declared"
     else:
         meta, body, title = parse_task(run_dir / "task.md")
@@ -10751,8 +10766,12 @@ def preflight(run_dir, opts, log):
     log(f"result: {run_dir / 'result.md'} | log: {run_dir / 'log.txt'}")
     session = launch_session(run_dir)
     if url:
-        log(f"notification: verdict on GitHub; PASS with green checks offered to {watch.inbox()} "
-            "and needs to Discord (stderr if unconfigured)")
+        if state.get("own_pr"):
+            log("notification: verdict on GitHub; PASS with green checks merges, FAIL hands back "
+                "to the seat (stderr if unconfigured)")
+        else:
+            log(f"notification: verdict on GitHub; PASS with green checks offered to {watch.inbox()} "
+                "and needs to Discord (stderr if unconfigured)")
     else:
         log(f"notification: {session}; dead-seat fallback: needs to Discord if that seat is gone "
             "at the end (stderr if unconfigured)" if session else
@@ -11413,11 +11432,12 @@ def own_pr_orchestrator(cfg, session_name, author):
     """(is_own, orchestrator) for a --review-pr of `author` launched from `session_name`.
 
     The seat's own PR is a review launched from a seat on a PR by this host's
-    GitHub login: the orchestrator did the work itself and opened the PR. Its
-    reviewer is picked against the seat's orchestrator as if that model had
+    GitHub login, with the seat's orchestrator known: that model did the work
+    itself and opened the PR, so its reviewer is picked against it as if it had
     executed, through the same `review_providers` rule. Unknown login, unknown
-    author, no seat or no session record is not own, or own with no orchestrator
-    to pick against, which reviews as before but still merges as its own.
+    author, no seat, no session record or an unknown orchestrator model is not
+    own: without the writer's identity there is no independence to enforce and
+    no automatic merge.
     """
     if not session_name or not author or author == "?":
         return False, None
@@ -11430,12 +11450,11 @@ def own_pr_orchestrator(cfg, session_name, author):
     try:
         selection = config.load_session(cfg, session_name, required=False)
         orchestrator = (selection or {}).get("orchestrator")
-        if orchestrator:
-            config.model(cfg, orchestrator)
-        else:
-            orchestrator = None
+        if not orchestrator:
+            return False, None
+        config.model(cfg, orchestrator)
     except (config.Error, OSError, ValueError, KeyError, TypeError):
-        orchestrator = None
+        return False, None
     return True, orchestrator
 
 
@@ -11515,7 +11534,11 @@ def users_declared(wt):
 
 
 def post_review(lp, url, verdict):
-    """The findings, as a GitHub review: a comment on PASS, changes requested on FAIL."""
+    """The findings, as a GitHub review: a comment on PASS, changes requested on FAIL.
+
+    The seat's own PR always comments: GitHub rejects a changes-requested review
+    from the account that authored the PR, which would turn a FAIL into an error.
+    """
     head = lp.state["head_sha"]
     current, why = gh_json(lp.run_dir, "pr", "view", url, "--json", "headRefOid,state")
     lp.state["review_posted"] = False
@@ -11534,7 +11557,7 @@ def post_review(lp, url, verdict):
     path = lp.run_dir / "review.md"
     path.write_text(f"agentkit review of {head[:12]} by {lp.reviewer} (run {lp.run_dir.name})\n\n"
                     + lp.findings.strip() + "\n")
-    how = "COMMENT" if verdict == "PASS" else "REQUEST_CHANGES"
+    how = "COMMENT" if verdict == "PASS" or lp.state.get("own_pr") else "REQUEST_CHANGES"
     owner, repo, number = PR_PARTS.match(url).groups()
     rc, out = gh(lp.run_dir, "api", f"repos/{owner}/{repo}/pulls/{number}/reviews",
                  "--method", "POST", "-f", f"commit_id={head}", "-f", f"event={how}",
@@ -11554,9 +11577,14 @@ def merge_own_pr(lp, url, head):
 
     The checks are green and the head is the reviewed one; the merge is pinned
     to that commit, so a head that moved since refuses rather than merging
-    unreviewed code. A merge that stopped but went through server-side, or one
-    somebody else landed between the checks and the turn, still counts as merged.
+    unreviewed code. Without the recorded writer there is no independence to
+    enforce, so there is no automatic merge. A merge that stopped but went
+    through server-side, or one somebody else landed between the checks and the
+    turn, still counts as merged.
     """
+    if not lp.state.get("own_orchestrator"):
+        return note(lp, "no recorded writer for this PR; refusing the automatic merge",
+                    failed=True)
     upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
     method = lp.state.get("merge_method") or "squash"
     lp.state["delivery_sha"] = head
@@ -11590,16 +11618,31 @@ def review_pr(cfg, run_dir, url, opts, log):
     info = pr_view(url)
     if info.get("state") != "OPEN":
         raise config.Error(f"{url} is {info.get('state', '?')}, not open")
-    is_own, orchestrator = own_pr_orchestrator(cfg, session_at_launch, info["author"])
     prior = read_state(run_dir) or {}
     if prior.get("worktree") and (prior.get("head_sha") != info["headRefOid"] or
                                  git(prior["worktree"], "rev-parse", "HEAD") != info["headRefOid"]):
         raise config.Error("the PR head or review checkout changed; existing work is kept for inspection")
+    if "own_pr" in prior:
+        # The writer was captured at launch, in preflight or the first attempt: a
+        # session record rewritten since must not replace it, or the reviewer's
+        # independence check would judge another model than the one that wrote this.
+        is_own = bool(prior.get("own_pr"))
+        orchestrator = prior.get("own_orchestrator")
+        if is_own:
+            try:
+                if not orchestrator:
+                    raise config.Error("no recorded writer")
+                config.model(cfg, orchestrator)
+            except (config.Error, OSError, ValueError, KeyError, TypeError):
+                is_own, orchestrator = False, None
+    else:
+        is_own, orchestrator = own_pr_orchestrator(cfg, session_at_launch, info["author"])
     # Persist before fetch/checkout/provider work: the PR can move at any of those steps.
     save_state(run_dir, stamp_origin({**(read_state(run_dir) or {}), "run_id": run_dir.name,
                          "state": "running", **process_owner(),
                          "launched_session": session_at_launch,
                          "review_pr": url, "head_sha": info["headRefOid"],
+                         "own_pr": is_own, "own_orchestrator": orchestrator if is_own else None,
                          "started_at": time.time(), "review_posted": False}))
     owner, name, number = PR_PARTS.match(url).groups()
     repo = checkout_for(f"{owner}/{name}", log)
@@ -11616,11 +11659,9 @@ def review_pr(cfg, run_dir, url, opts, log):
     tests = declared(wt, "tests")
     cmds = [tests] if tests else []
     title = f"Review PR #{number}: {info['title']}"
-    if is_own and orchestrator:
+    if is_own:
         wrote = (f"The {session_at_launch} seat's orchestrator {orchestrator} wrote this diff; "
                  "review it as that model's work.")
-    elif is_own:
-        wrote = "This seat opened this PR itself; review it as the seat's own work."
     else:
         wrote = "Nobody from agentkit executed anything here; the diff is the author's."
     body = (f"# {title}\n\n## Goal\nJudge {url} by {info['author']} against this repository: "
@@ -11656,7 +11697,7 @@ def review_pr(cfg, run_dir, url, opts, log):
         log(f"env: {config.ENV / f'{repo.name}.env'} -> {', '.join(sorted(env))}")
 
     providers = collect_usage(cfg)
-    exec_for_rule = orchestrator if (is_own and orchestrator) else None
+    exec_for_rule = orchestrator if is_own else None
     order = reviewer_order(cfg, exec_for_rule, ready_order(cfg, providers,
                                                            run_workers(cfg, state), log,
                                                            role="reviewer"))
@@ -11669,14 +11710,10 @@ def review_pr(cfg, run_dir, url, opts, log):
         preset_rev = None
     if preset_rev and preset_rev not in order:
         preset_rev = None   # a saved reviewer keeps its identity; a stale one does not
-    if is_own and orchestrator:
-        # The parent picked without knowing whose PR this is; the live order above
-        # already prefers another provider, so a saved same-provider pick is stale.
-        preset_rev = None
     if opts["--review"]:
         config.model(cfg, opts["--review"])
         refuse_unready(cfg, providers, opts["--review"])
-        if is_own and orchestrator:
+        if is_own:
             review_providers(cfg, orchestrator, opts["--review"])
         reviewer = opts["--review"]
     elif preset_rev or order:
@@ -11687,12 +11724,9 @@ def review_pr(cfg, run_dir, url, opts, log):
     state["reviewer"] = reviewer
     state.pop("launch_reviewer", None)   # consumed: a resume re-picks, as before
     save_state(run_dir, state)
-    if is_own and orchestrator:
+    if is_own:
         log(f"reviewer={reviewer} (own PR of the {session_at_launch} seat; "
             f"picked against orchestrator {orchestrator})")
-    elif is_own:
-        log(f"reviewer={reviewer} (own PR of the {session_at_launch} seat; "
-            "no orchestrator record, picked as before)")
     else:
         log(f"reviewer={reviewer} (no executor: this is a review of somebody else's PR)")
     if session_at_launch and not prior.get("reviewer"):
@@ -11714,12 +11748,9 @@ def review_pr(cfg, run_dir, url, opts, log):
     else:
         ok, dw_log = True, "(AGENTS.md declares no `tests:` command; nothing was run)"
         log("tests: AGENTS.md declares none")
-    if is_own and orchestrator:
+    if is_own:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. "
                    f"{orchestrator} wrote this; review its diff.")
-    elif is_own:
-        summary = (f"PR #{number} by {info['author']}: {info['title']}. "
-                   "This seat opened this PR itself; review its diff.")
     else:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. agentkit executed nothing; "
                    "review the author's diff.")
@@ -11761,8 +11792,11 @@ def review_pr(cfg, run_dir, url, opts, log):
         else:
             if green:
                 why = "the PR head changed, closed, or could not be verified after the checks"
-            state["merge_note"] = f"{'not merged' if is_own else 'not offered for merge'}: {why}"
-            log(f"WARN {state['merge_note']}")
+            if is_own:
+                note(lp, f"not merged: {why}", failed=True)
+            else:
+                state["merge_note"] = f"not offered for merge: {why}"
+                log(f"WARN {state['merge_note']}")
     state["state"] = "pass" if verdict == "PASS" else "fail"
     state["finished_at"] = time.time()
     save_state(run_dir, state)
