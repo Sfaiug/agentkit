@@ -4549,25 +4549,58 @@ def _branch_only_path(wt, cmd, head, tip):
 
     A landing check naming a file the branch adds can never survive its probe: the file is
     not on the target, so the probe fails there for want of the file rather than for anything
-    the branch broke, and the run parks waiting for a target fix that will never come.  Only
-    words reaching into the tree count -- bare words are command names, options and existence
-    tests (`test -f`), whose meaning survives without the file -- and only ones the branch
-    actually carries that the tip does not.
+    the branch broke, and the run parks waiting for a target fix that will never come.
+    File-test operands keep their probe: absence is what those commands test, not a
+    missing prerequisite.  Paths are checked against the commits without changing the tree.
     """
-    try:
-        tokens = shlex.split(cmd, comments=True, posix=True)
-    except ValueError:
-        return None
-    for token in tokens:
+    import glob
+
+    # Keep quoting until comments and operators have been recognised: bash allows a
+    # literal # inside a word, and quoted glob characters do not expand.
+    tokens = re.findall(r'''(?:[^\s;&|()<>\\'"]+|\\.|'[^']*'|"(?:\\.|[^"\\])*")+'''
+                        r'''|&&|\|\||[;&|()<>]|\S''', cmd)
+    cwd, command, previous = "", "", ""
+    directories = []
+    for raw in tokens:
+        if raw.startswith("#"):
+            break
+        if raw in (";", "&&", "||", "|", "&", "(", ")"):
+            if raw == "(":
+                directories.append(cwd)
+            elif raw == ")" and directories:
+                cwd = directories.pop()
+            command = previous = ""
+            continue
+        try:
+            token = shlex.split(raw)[0]
+        except (ValueError, IndexError):
+            return None
+        if not command:
+            command = token
+            previous = token
+            if "/" not in token:
+                continue
+        file_test = (command in ("test", "[", "[[") and previous in (
+            "-a", "-b", "-c", "-d", "-e", "-f", "-g", "-h", "-k", "-L", "-N",
+            "-O", "-G", "-p", "-r", "-s", "-S", "-t", "-u", "-w", "-x"))
+        previous = token
+        if file_test:
+            continue
         word = token.split("::", 1)[0]      # a pytest node id names the file before the ::
-        while word.startswith("./"):
-            word = word[2:]
-        if "/" not in word or word.startswith("/") or word == ".." or word.startswith("../"):
+        word = os.path.normpath(os.path.join(cwd, word))
+        if word.startswith("/") or word == ".." or word.startswith("../"):
             continue
-        if git_out(wt, "cat-file", "-e", f"{head}:{word}")[0] != 0:
-            continue
-        if git_out(wt, "cat-file", "-e", f"{tip}:{word}")[0] != 0:
-            return word
+        paths = [word]
+        unquoted = re.sub(r'''\\.|'[^']*'|"(?:\\.|[^"\\])*"''', "", raw)
+        if any(ch in unquoted for ch in "*?["):
+            paths = sorted(glob.glob(word, root_dir=wt))
+        for path in paths:
+            if git_out(wt, "cat-file", "-e", f"{head}:{path}")[0] != 0:
+                continue
+            if git_out(wt, "cat-file", "-e", f"{tip}:{path}")[0] != 0:
+                return path
+        if command == "cd" and token not in ("cd", "--", "-L", "-P"):
+            cwd = word
     return None
 
 
