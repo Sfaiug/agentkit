@@ -1498,14 +1498,15 @@ def start(name, cwd, cmd, orchestrator):
     # Its answer is also what says whether this command is the one starting the server: only
     # that one can put the server, and every pane under it, in agentkit's slice.
     running = tmux_out("source-file", str(conf))[0] == 0
-    rc, out = tmux_out("-f", str(conf), "new-session", "-d", "-P", "-F", "#{pane_id}",
-                       "-s", name, "-c", str(cwd),
+    rc, out = tmux_out("-f", str(conf), "new-session", "-d", "-s", name, "-c", str(cwd),
                        *env, shlex.join(cmd), unit=None if running else f"agentkit-seat-{name}")
     if rc != 0:
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
     # set-option takes the session name plain: it is the one target that rejects `=name`
     tmux_out("set-option", "-t", name, MARK, "1")
-    tmux_out("set-option", "-t", name, PANE_OPTION, out)
+    # A server started as a systemd service writes its stdout to the journal, so tmux
+    # itself expands the launched pane rather than handing its id back to this caller.
+    tmux_out("set-option", "-F", "-t", f"={name}:", PANE_OPTION, "#{pane_id}")
     tmux_out("set-option", "-t", name, "remain-on-exit", "on")
     dress(name, orchestrator)
 
@@ -1783,7 +1784,7 @@ def launch(name, model, cwd, cmd, conversation, session=None):
         # Keep the launched pane even if another window is active; older seats without a
         # saved pane keep their existing target until this launch records it.
         server = seat_socket(session)
-        rc, pane = tmux_out("show-options", "-qv", "-t", f"={name}", PANE_OPTION, socket=server)
+        rc, pane = tmux_out("show-options", "-qv", "-t", f"={name}:", PANE_OPTION, socket=server)
         target = pane if rc == 0 and re.fullmatch(r"%[0-9]+", pane) else f"={name}:"
         rc, out = tmux_out("respawn-pane", "-k", "-t", target, shlex.join(cmd),
                            socket=server)

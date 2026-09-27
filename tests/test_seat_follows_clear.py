@@ -37,6 +37,8 @@ class SeatFollowsClear(Sandbox):
         self.stack.enter_context(patch.object(watch, "KEY_GAP", 0))
         self.typed = []
         self.bound_pane = "%7"
+        self.active_pane = "%7"
+        self.server_up = True
         self.tmux_calls = []
         config.save_session(self.cfg, "lagoon", "opus", ["opus"], {
             "cwd": str(self.root), "conversation": "before-clear", "id_source": orch.LAUNCHER,
@@ -65,17 +67,24 @@ class SeatFollowsClear(Sandbox):
 
     def tmux(self, *args, **kwargs):
         self.tmux_calls.append(args)
+        if args[0] == "source-file":
+            return (0 if self.server_up else 1), ""
         if args[0] == "display-message":
             root = {"%7": 101, "%8": 201, "%9": 301}[args[3]]
             return 0, f"/fake/agentkit-test\t{self.seat['name']}\t{root}\t{self.bound_pane}"
         if "new-session" in args:
-            return 0, "%7"
+            return 0, ""
         if args[0] == "show-options":
-            return 0, self.bound_pane
+            target = args[args.index("-t") + 1]
+            return 0, self.bound_pane if target in (self.seat["name"], f"={self.seat['name']}:") else ""
         if args[0] == "respawn-pane":
-            return 0, args[args.index("-t") + 1]
+            return 0, ""
         if args[0] == "set-option" and orch.PANE_OPTION in args:
-            self.bound_pane = args[args.index("-t") + 1] if "-F" in args else args[-1]
+            if "-F" in args:
+                target = args[args.index("-t") + 1]
+                self.bound_pane = self.active_pane if target == f"={self.seat['name']}:" else target
+            else:
+                self.bound_pane = args[-1]
         if args[0] == "rename-session":
             self.seat = dict(self.seat, name=args[-1])
         elif args[0] == "capture-pane":
@@ -173,6 +182,19 @@ class SeatFollowsClear(Sandbox):
                                                "next-clear").exists())
         self.assert_resume("next-clear")
 
+    def test_named_login_with_the_adapters_projects_link_follows_clear(self):
+        config.update_session("lagoon", account="second")
+        # Command preparation makes the normal shared store; no Claude process is started.
+        orch.command(self.cfg, "opus", "before-clear", account="second")
+        projects = self.root / ".claude-second/projects"
+        self.assertTrue(projects.is_symlink())
+        self.assertEqual(projects.resolve(), self.root / ".claude/projects")
+        self.hook()
+        self.title("after-clear", "Checkout Bug")
+        self.assertEqual(self.record()["conversation"], "after-clear")
+        self.assertEqual(claude.session_title(self.record()), "Checkout Bug")
+        self.assert_resume("after-clear")
+
     def test_second_window_and_split_pane_cannot_claim_the_conversation(self):
         before = self.record()
         for pane, root in (("%8", 201), ("%9", 301)):
@@ -194,11 +216,22 @@ class SeatFollowsClear(Sandbox):
         self.bound_pane = ""
         orch.start("lagoon", self.root, ["claude"], "opus")
         self.assertEqual(self.bound_pane, "%7")
+        self.active_pane = "%8"
         with patch.dict(os.environ, {"TMUX_PANE": "%8"}):
             orch.launch("lagoon", "opus", self.root, ["claude"], "before-clear", self.seat)
         respawn = next(args for args in self.tmux_calls if args[0] == "respawn-pane")
         self.assertEqual(respawn[respawn.index("-t") + 1], "%7")
         self.assertEqual(self.bound_pane, "%7")
+
+    def test_fresh_server_launch_without_stdout_still_follows_clear(self):
+        self.server_up, self.bound_pane = False, ""
+        with patch.object(orch, "tmux_out", side_effect=self.tmux) as tmux:
+            orch.start("lagoon", self.root, ["claude"], "opus")
+        launch = next(call for call in tmux.call_args_list if "new-session" in call.args)
+        self.assertEqual(launch.kwargs["unit"], "agentkit-seat-lagoon")
+        self.assertEqual(self.bound_pane, "%7")
+        self.hook()
+        self.assertEqual(self.record()["conversation"], "after-clear")
 
     def test_other_harnesses_take_no_notify_lock(self):
         for model in ("astra", "spark"):

@@ -55,7 +55,7 @@ seat_state() {
   [[ -n $event ]] || return 0
   # Capture while the hook's caller still exists, before a background look can read the
   # old conversation. Claude verifies the process and transcript; other harnesses do nothing.
-  if [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]]; then
+  if [[ $event = SessionStart && -n ${TMUX:-} && -n ${TMUX_PANE:-} ]]; then
     /usr/bin/env python3 "${BASH_SOURCE[0]%/*}/../agentkit/harness/claude.py" \
       --hook "$PPID" <<<"$payload" || true
   fi
