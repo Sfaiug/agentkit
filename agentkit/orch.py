@@ -979,6 +979,37 @@ def agentless(socket, names):
     return found
 
 
+def owns_hook(session, pid, harness):
+    """A hook's nearest harness must also be the only harness above it in this pane.
+
+    Workers and nested interactive clients inherit TMUX_PANE and AGENTKIT_SESSION;
+    their process ancestry, unlike those environment variables, names both clients.
+    """
+    here, pane = os.environ.get("TMUX", "").partition(",")[0], os.environ.get("TMUX_PANE", "")
+    if session.get("exited") or not here or not pane:
+        return False
+    rc, out = tmux_out("display-message", "-p", "-t", pane,
+                       "#{socket_path}\t#{session_name}\t#{pane_pid}", socket=seat_socket(session))
+    parts = out.split("\t")
+    if rc or len(parts) != 3 or parts[:2] != [here, session["name"]] or not parts[2].isdigit():
+        return False
+    root, table = int(parts[2]), processes() or {}
+    seen, clients = set(), []
+    patterns = agent_programs()
+    while pid in table and pid not in seen:
+        seen.add(pid)
+        parent, words = table[pid]
+        running = program(words)
+        if any(fnmatch.fnmatchcase(running, pattern) for pattern in patterns):
+            if "-p" in words or "--print" in words:
+                return False
+            clients.append(running)
+        if pid == root:
+            return clients == [harness]
+        pid = parent
+    return False
+
+
 def server_sessions(socket, marked_only, legacy):
     """The seats one tmux server is holding: name, path, created, attached, exited.
 
@@ -1666,7 +1697,8 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
 
 # --- the conversation a seat holds ------------------------------------------
 #
-# Claude owns a launcher-issued id. Codex owns only its launch hook's recorded thread.
+# Claude owns its launcher-issued id, following replacements from its own process's hooks.
+# Codex owns only its launch hook's recorded thread.
 # OpenCode owns the session its seat plugin reported into that launch's receipt.
 # Muse still starts fresh. Cwd and timestamps never establish ownership.
 

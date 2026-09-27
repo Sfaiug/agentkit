@@ -43,7 +43,8 @@ at or above 40,000 tokens, the harness's own compact command is typed once at a 
 does a harness with no compact command or no reported context size; `ak orch list --why` says why.
 
 Any harness can hold the seat: `--model astra` opens Codex, `--model spark` opens Muse. A Claude seat owns its
-conversation from launch by a uuid, a Codex seat proves its thread through a launch receipt, an OpenCode seat's plugin
+conversation from launch by a uuid; its own hooks follow `/clear` so reopening and titles use the new conversation.
+A Codex seat proves its thread through a launch receipt, an OpenCode seat's plugin
 writes its session into one, and Muse and Antigravity open a new conversation each time. A seat whose harness exited
 keeps its window. A dead, detached seat nobody has opened for seven days is retired, and a record seven days gone from
 tmux is swept, unless a run of the seat's is unfinished or a question in it is unread; then the name is free again.
