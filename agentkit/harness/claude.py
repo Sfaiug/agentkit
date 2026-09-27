@@ -16,6 +16,32 @@ def title_command(name):
     return f"/rename {name}"
 
 
+def session_title(record):
+    """Read only this seat's conversation, under the login its launch selected."""
+    conversation, cwd = record.get("conversation"), record.get("cwd")
+    if not conversation or not cwd:
+        return None
+    account = record.get("account")
+    directory = Path.home() / (f".claude-{account}" if account and account != "default"
+                               else ".claude")
+    slug = re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
+    title = None
+    try:
+        with (directory / "projects" / slug / f"{conversation}.jsonl").open(
+                encoding="utf-8") as transcript:
+            for line in transcript:
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if (isinstance(event, dict) and event.get("type") == "custom-title"
+                        and event.get("sessionId") == conversation):
+                    title = event.get("customTitle")
+    except (OSError, UnicodeError):
+        return None
+    return title if isinstance(title, str) and title.strip() else None
+
+
 def opened(cwd, conversation):
     """Has Claude Code written that conversation down yet, where it keeps them?
 

@@ -166,6 +166,11 @@ class Harness:
         hook = self._hook("title_command")
         return hook(name) if hook else None
 
+    def session_title(self, record):
+        """The conversation's latest custom title, or None where none can be read."""
+        hook = self._hook("session_title")
+        return hook(record) if hook else None
+
     def forget(self, record):
         """Drop whatever else this harness kept for a seat that is ending."""
         hook = self._hook("forget")
