@@ -5,13 +5,15 @@
 # `ak notify done` because the job is finished, or a run it is waiting on, which includes the
 # background work it started in its own harness while the harness still lists it in flight, and
 # another session's work it said it waits on with `ak wait`, for as long as `watch.waiting_on`
-# says that session is working.  A run of its own that sits parked and undecided -- `unfinished`,
-# the runs `ak notify done` refuses on -- holds the turn past a done or a run going: the block
-# names each such run and its parked reason, and the seat resumes it, relaunches it split or on
-# another model, stops it, or asks the owner.  A question, `ak notify needs`, background work
-# and the third stop stand past it, as they always did.  A turn another session's message
-# opened keeps a done declared before it: the seat only acknowledged the message, so that
-# standing done ends the turn -- unless `ak notify` dropped it, or a run sits parked.
+# says that session is working.  A turn the owner opened with a question ends on its answer too:
+# the prompt asked, so a plain reply stands.  A run of its own that sits parked and undecided --
+# `unfinished`, the runs `ak notify done` refuses on -- holds the turn past a done, an answer
+# or a run going: the block names each such run and its parked reason, and the seat resumes it,
+# relaunches it split or on another model, stops it, or asks the owner.  A question, `ak notify
+# needs`, background work and the third stop stand past it, as they always did.  A turn another
+# session's message opened keeps a done declared before it: the seat only acknowledged the
+# message, so that standing done ends the turn -- unless `ak notify` dropped it, or a run sits
+# parked.  A peer's message is not the owner asking, so it answers nothing.
 # Anything else is sent back to work with the harness's own block decision, which Claude Code
 # 2.1.263, Codex 0.153.4 and Grok Build 1.0.40 spell the same way: `{"decision": "block",
 # "reason": "..."}` on stdout.  "Here is my recommendation, let me know if I should continue"
@@ -293,8 +295,8 @@ def held(launched, payload):
 
     At most LIMIT blocks in one turn, which the latch counts: a question, `ak notify needs`,
     background work and the third stop stand past a parked run as they always did, while a
-    done, a run going or an `ak wait` ends the turn only with none of this seat's runs parked
-    and undecided.
+    done, an answer to the owner's question, a run going or an `ak wait` ends the turn only
+    with none of this seat's runs parked and undecided.
     """
     # The latch is this seat's own file, under the name its harness was launched with, the way
     # hooks/seat-state.sh writes it.  What it reads is the toolkit's, and that moved when the
@@ -307,13 +309,14 @@ def held(launched, payload):
     if background(payload):
         return ""
     peer = record.get("peer") is True    # another session's message opened the turn
+    asked = record.get("asked") is True    # the prompt that opened the turn asked something
     seat = resolve(launched)
     said = last_message(payload)
     if said is None or asks(said, leave=tells(payload)) or told(seat, turn, "needs"):
         return ""
     undecided = parked(seat)
     if not undecided and (told(seat, turn, "done", peer) or waiting(seat, turn)
-                          or waiting_on(seat)):
+                          or waiting_on(seat) or (asked and not peer)):
         return ""
     blocks = record.get("blocks")
     blocks = blocks + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1
@@ -322,6 +325,8 @@ def held(launched, payload):
     kept = {"session": launched, "turn": turn, "blocks": blocks}
     if peer:
         kept["peer"] = True    # the turn it counts is still the peer's one
+    if asked:
+        kept["asked"] = True    # the turn it counts still opened on a question
     tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")
     tmp.write_text(json.dumps(kept) + "\n")
     tmp.replace(latch)
