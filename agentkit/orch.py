@@ -2520,9 +2520,37 @@ def cmd_rename(argv):
     return 0
 
 
+def cmd_project(argv):
+    """File a seat before its runs have a project to vote for."""
+    if len(argv) == 1:
+        name = config.current_session()
+        if not name:
+            raise config.Error("ak orch project <checkout> files the session it runs in, and this is "
+                               "not one; use ak orch project <seat> <checkout>")
+        checkout = argv[0]
+    elif len(argv) == 2:
+        name, checkout = config.resolve_session(argv[0]), argv[1]
+    else:
+        raise config.Error("usage: ak orch project [<seat>] <checkout>")
+    found = checkouts()
+    repo = next((path for path in found if path.name == checkout), None)
+    if repo is None:
+        repo = checkout_of(os.path.expanduser(checkout))
+    if repo is None:
+        known = ", ".join(str(path) for path in found) or "none"
+        raise config.Error(f"not a checkout: {checkout!r} (checkouts: {known})")
+    from . import notify
+    with notify.session_lock(name) as name:
+        if config.update_session(name, repo=str(repo)) is None:
+            raise config.Error(f"no orchestrator session {name!r}")
+    print(f"filed {name} under {repo.name}")
+    return 0
+
+
 USAGE = ("usage: ak orch [name] [--model NAME] [--workers A,B] [--dry-run] | "
          "ak orch list [--why] | ak orch why NAME | "
-         "ak orch stop <name> | ak orch rename [<old>] <new>")
+         "ak orch stop <name> | ak orch rename [<old>] <new> | "
+         "ak orch project [<seat>] <checkout>")
 
 
 def parse(argv):
@@ -2966,6 +2994,8 @@ def main(argv):
         return cmd_stop(argv[1:])
     if argv[:1] == ["rename"]:
         return cmd_rename(argv[1:])
+    if argv[:1] == ["project"]:
+        return cmd_project(argv[1:])
     name, forced, forced_workers, dry_run = parse(argv)
     if not dry_run:
         maintenance()

@@ -46,6 +46,7 @@ MATRIX = [
     ("orch why", "usage: ak orch why NAME", ["MISSING"], set()),
     ("orch stop", "usage: ak orch stop NAME", ["MISSING"], set()),
     ("orch rename", "usage: ak orch rename [OLD] NEW", ["MISSING", "NEW"], set()),
+    ("orch project", "usage: ak orch project [SEAT] CHECKOUT", ["MISSING", "acme"], set()),
     ("notify", "usage: ak notify needs", ["--check"],
      {"--session", "--dry-run", "--pr", "--check"}),
     ("notify needs", "usage: ak notify needs", ["Question?", "--session"],
