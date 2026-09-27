@@ -33,7 +33,8 @@ a task bigger than one behaviour or over 3 rounds is refused regardless.
 Several task files run as one job; after: names a dependency, --parallel caps it.
 max_runs caps the count when positive; 0 leaves host memory and load as the gates
 (config.toml or AK_MAX_RUNS).
---review-pr reviews someone else's GitHub PR, without an executor.
+--review-pr reviews a GitHub PR, without an executor: the seat's own merges on
+PASS with green checks, anyone else's asks the inbox.
 Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, after.""",
             "ak run task.md --bg"),
     "run status": ("usage: ak run status [ID] [--history] [--why] [--plain] [--json]",

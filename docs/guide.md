@@ -128,8 +128,9 @@ Several task files run as one job: `ak run a.md b.md [--parallel N] [--bg]`, one
 passed review in its repository: cut from that reviewed tip, which it records, it waits as `waiting for <dep> to merge`, never read as silent, then lands, rebasing only
 its own commits (`git rebase --onto <target> <tip>`), so a squash merge cannot conflict. A dependency parked `waiting`
 keeps it waiting; one ending unmerged skips it (`skipped: <dep> did not merge`), its branch kept. `repo: none` delivers
-files in `~/.agentkit/work/<id>`, which its hand-back names, not a PR. `ak run --review-pr URL` reviews somebody else's
-PR with no executor and posts the verdict as a GitHub review. `ak run status` lists every run of the last seven days but
+files in `~/.agentkit/work/<id>`, which its hand-back names, not a PR. `ak run --review-pr URL` reviews a PR with
+no executor and posts the verdict as a GitHub review: a seat's own PR merges on PASS with green checks, anyone
+else's asks the inbox. `ak run status` lists every run of the last seven days but
 the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
 `workspace:` and `continue:` lines. An ending handed back, acknowledged or superseded (by a later merged run of its
 title, or a relaunch `from:` its branch) reads `done`, as does a parked run a later merged run replaced, and a job's tasks read their runs as they are now. `ak run` exits 0 on PASS, 1 on FAIL, `exhausted`, `blocked` or an unfinished merge, 2 on error.
