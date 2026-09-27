@@ -192,34 +192,34 @@ class Accounts(unittest.TestCase):
         self.assertEqual((self.root / ".claude-second/projects").resolve(),
                          (self.root / ".claude/projects").resolve())
 
-    def test_a_quota_refusal_on_the_first_account_hands_the_turn_to_the_second(self):
+    def test_a_quota_refusal_on_the_other_account_hands_the_turn_to_the_usual(self):
         self.configure()
         self.meters("tok-default", 10)
         self.meters("tok-second", 30)
-        (self.fake / "refuse-tok-default").touch()
-        self.assertEqual(usage.account(self.cfg, "anthropic"), ("default", True))
+        (self.fake / "refuse-tok-second").touch()
+        self.assertEqual(usage.account(self.cfg, "anthropic"), ("second", True))
 
         # no RanDry, which is what hands the work to another company's model
         code, answer, session, dead = self.turn()
         self.assertEqual((code, session, dead), (0, "s1", False))
-        self.assertIn("Done on tok-second", answer)
+        self.assertIn("Done on tok-default", answer)
         self.assertEqual([(c["token"], c["resume"]) for c in self.calls()],
-                         [("tok-default", ""), ("tok-second", "s1")])
+                         [("tok-second", ""), ("tok-default", "s1")])
         self.assertFalse((self.fake / "other-ran").exists())
-        self.assertTrue(any("going on with account second" in line for line in self.lines),
+        self.assertTrue(any("going on with account default" in line for line in self.lines),
                         self.lines)
         # the refusal parks that account alone: the provider still runs on the other
         providers = usage.collect(self.cfg)
-        self.assertTrue(providers["anthropic"]["accounts"]["default"]["exhausted"])
-        self.assertIn("exhausted_until", providers["anthropic"]["accounts"]["default"])
-        self.assertEqual(usage.account(self.cfg, "anthropic"), ("second", True))
+        self.assertTrue(providers["anthropic"]["accounts"]["second"]["exhausted"])
+        self.assertIn("exhausted_until", providers["anthropic"]["accounts"]["second"])
+        self.assertEqual(usage.account(self.cfg, "anthropic"), ("default", True))
         self.assertFalse(usage.model_exhausted(self.cfg, "opus", providers)[0])
 
-        # ... and once the second is refused too, the turn goes to another model
-        (self.fake / "refuse-tok-second").touch()
+        # ... and once the usual is refused too, the turn goes to another model
+        (self.fake / "refuse-tok-default").touch()
         with self.assertRaises(run.RanDry):
             self.turn()
-        self.assertEqual(self.calls()[-1]["token"], "tok-second")
+        self.assertEqual(self.calls()[-1]["token"], "tok-default")
         self.assertEqual(usage.account(self.cfg, "anthropic")[1], False)
         self.assertTrue(usage.model_exhausted(self.cfg, "opus", usage.collect(self.cfg))[0])
 
@@ -227,16 +227,16 @@ class Accounts(unittest.TestCase):
         self.configure()
         self.meters("tok-default", 10)
         self.meters("tok-second", 30)
-        (self.fake / "dry-tok-default").touch()
+        (self.fake / "dry-tok-second").touch()
         code, answer, session, _ = self.turn()
         self.assertEqual((code, session), (0, "s1"))
-        self.assertIn("Done on tok-second", answer)
+        self.assertIn("Done on tok-default", answer)
         self.assertEqual([(c["token"], c["resume"]) for c in self.calls()],
-                         [("tok-default", ""), ("tok-second", "s1")])
-        self.assertTrue(any("ran dry on account default: ran dry on 'insufficient_quota'" in line
+                         [("tok-second", ""), ("tok-default", "s1")])
+        self.assertTrue(any("ran dry on account second: ran dry on 'insufficient_quota'" in line
                             for line in self.lines), self.lines)
-        self.assertEqual(usage.account(self.cfg, "anthropic"), ("second", True))
-        self.assertTrue(usage.collect(self.cfg)["anthropic"]["accounts"]["default"]["exhausted"])
+        self.assertEqual(usage.account(self.cfg, "anthropic"), ("default", True))
+        self.assertTrue(usage.collect(self.cfg)["anthropic"]["accounts"]["second"]["exhausted"])
 
     def test_a_provider_without_accounts_is_one_login_as_before(self):
         self.configure(accounts="")

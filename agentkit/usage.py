@@ -489,14 +489,18 @@ def _gate_flags(providers, now, cfg):
         accounts = prov.get("accounts") if listed else None
         if isinstance(accounts, dict):
             # Several subscriptions: each is flagged on its own, and the provider is the one a
-            # worker turn runs on next -- room before a spent one, then the most budget, then
-            # the order the config lists them in -- so it is spent only when all of them are.
+            # worker turn runs on next -- another account with room before the usual login,
+            # the usual one only when none of them has any, then the most budget, then the
+            # order the config lists them in -- so it is spent only when all of them are.
             accounts = _gate_flags({account: accounts[account] for account in listed
                                     if isinstance(accounts.get(account), dict)}, now, cfg)
             if accounts:
-                best = min(accounts, key=lambda a: (accounts[a]["exhausted"],
-                                                    accounts[a]["budget_reason"] is not None,
-                                                    -accounts[a]["budget"]))
+                def rank(account):
+                    spent = accounts[account]["exhausted"]
+                    group = 1 if account == config.DEFAULT_ACCOUNT else (0 if not spent else 2)
+                    return (group, spent, accounts[account]["budget_reason"] is not None,
+                            -accounts[account]["budget"])
+                best = min(accounts, key=rank)
                 prov.clear()
                 prov.update(accounts[best], accounts=accounts, account=best)
         # A quota the harness recorded when it refused a run is the reading at once: it is a
@@ -842,16 +846,19 @@ def mark_exhausted(cfg, provider, until=None, account=None):
 def account(cfg, provider):
     """(the account a worker turn on this provider runs on, whether it has room left).
 
-    The one `_gate_flags` put first: with room before a spent one, then the most budget, then
-    the order the config lists them in.  (None, None) for a provider that lists no accounts,
+    The one `_gate_flags` put first: another account with room before the usual login,
+    the usual one only when none of them has any, then the most budget, then the order
+    the config lists them in.  (None, None) for a provider that lists no accounts,
     which is asked nothing: it is one login, exactly as it always was.
     """
     names = config.accounts(cfg, provider)
     if not names:
         return None, None
     prov = collect(cfg).get(provider) or {}
-    return (prov["account"] if prov.get("account") in names else names[0],
-            not prov.get("exhausted"))
+    if prov.get("account") in names:
+        return prov["account"], not prov.get("exhausted")
+    spare = next((a for a in names if a != config.DEFAULT_ACCOUNT), names[0])
+    return spare, not prov.get("exhausted")
 
 
 def _split_week(cfg, provider, prov):
