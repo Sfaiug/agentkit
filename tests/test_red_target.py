@@ -167,6 +167,30 @@ class RedTarget(unittest.TestCase):
         self.assertIn("$ test ! -f breakage (on origin/main",
                       (run_dir / "target-probe.log").read_text())
 
+    def test_final_check_naming_a_branch_only_test_file_runs_the_fixer(self):
+        # the check runs a test file the branch adds: the file alone would fail any probe
+        # on the target, so there is none -- the fixer runs as today, the run lands, and
+        # the worktree never leaves the branch head
+        _, _, wt = make_repos(self.root)
+        (wt / "breakage").write_text("branch only\n")
+        (wt / "tests").mkdir()
+        (wt / "tests" / "test_acme_sieve.py").write_text(
+            "import pathlib, sys\n"
+            "sys.exit(0 if not pathlib.Path('breakage').exists() else 1)\n")
+        run.git(wt, "add", ".")
+        run.git(wt, "commit", "-m", "branch test file and breakage")
+        lp, run_dir, lines = make_loop(
+            self.root, wt, ["true", "python3 tests/test_acme_sieve.py  # once"])
+        self.assertTrue(run.final_check(lp, "origin/main"))
+        self.assertEqual(self.turns, ["final-fixer"])
+        self.assertFalse((run_dir / "target-probe.log").exists())
+        self.assertFalse(any("probing it once" in line for line in lines))
+        self.assertIn("tests/test_acme_sieve.py", (run_dir / "log.txt").read_text())
+        state = run.read_state(run_dir)
+        self.assertEqual(state["final_check"]["outcome"], "passed")
+        self.assertNotEqual(state["state"], "waiting")
+        self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
+
     def test_either_probe_leaves_the_worktree_on_the_branch_head_and_clean(self):
         # the red-target probe puts the worktree back exactly; the passing probe leaves
         # it on the branch head the fixer's own commit moved, clean either way

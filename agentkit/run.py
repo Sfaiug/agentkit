@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -4543,6 +4544,33 @@ def require_review_pass(lp):
                         "resume the run to obtain review")
 
 
+def _branch_only_path(wt, cmd, head, tip):
+    """The first path `cmd` names that the branch head has and the target tip lacks, else None.
+
+    A landing check naming a file the branch adds can never survive its probe: the file is
+    not on the target, so the probe fails there for want of the file rather than for anything
+    the branch broke, and the run parks waiting for a target fix that will never come.  Only
+    words reaching into the tree count -- bare words are command names, options and existence
+    tests (`test -f`), whose meaning survives without the file -- and only ones the branch
+    actually carries that the tip does not.
+    """
+    try:
+        tokens = shlex.split(cmd, comments=True, posix=True)
+    except ValueError:
+        return None
+    for token in tokens:
+        word = token.split("::", 1)[0]      # a pytest node id names the file before the ::
+        while word.startswith("./"):
+            word = word[2:]
+        if "/" not in word or word.startswith("/") or word == ".." or word.startswith("../"):
+            continue
+        if git_out(wt, "cat-file", "-e", f"{head}:{word}")[0] != 0:
+            continue
+        if git_out(wt, "cat-file", "-e", f"{tip}:{word}")[0] != 0:
+            return word
+    return None
+
+
 def target_fails(lp, upstream, dw_log):
     """Whether the landing check's first failing command fails on the target's own tip too.
 
@@ -4553,6 +4581,10 @@ def target_fails(lp, upstream, dw_log):
     worktree, and a failure there parks the run `waiting` on the target instead of spending
     fixer rounds editing code its task never touched.  A pass means the branch broke it, and
     the fixer rounds run as today.
+
+    A command naming a path the branch head has and the tip lacks is never probed: on the
+    target the missing file alone would fail it, so the fixer rounds run as today and the
+    log names the file the target lacks.
 
     False when the check names no failing command, when the tree is dirty, and when the tip
     cannot be resolved or checked out: all of those leave the tree alone and run the fixer
@@ -4571,6 +4603,11 @@ def target_fails(lp, upstream, dw_log):
     except config.Error:
         return False
     if git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0:
+        return False
+    missing = _branch_only_path(lp.wt, cmd, head, tip)
+    if missing is not None:
+        lp.log(f"--- merge: `{cmd}` names {missing}, which {upstream} lacks; "
+               "no probe, the fixer runs")
         return False
     branch = git(lp.wt, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     stop_check(lp.run_dir)
