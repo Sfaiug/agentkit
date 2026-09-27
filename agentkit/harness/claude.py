@@ -42,8 +42,19 @@ def account_config(check=False):
     if check:
         return
     directory.mkdir(parents=True, exist_ok=True)
+    try:
+        usual = json.loads((home / ".claude.json").read_text())
+    except (OSError, ValueError):
+        usual = {}
+    if not isinstance(usual, dict):
+        usual = {}
     for path, data in zip(paths[1:], values[1:]):
         if path.name == ".claude.json":
+            # A notice answered once is answered everywhere: only `true` flags travel,
+            # so the named login keeps its own account, ids, caches and projects.
+            for key, value in usual.items():
+                if value is True:
+                    data[key] = True
             data.setdefault("theme", "dark")
             data["hasCompletedOnboarding"] = True
             project = data.setdefault("projects", {}).setdefault(str(Path.cwd().resolve()), {})
