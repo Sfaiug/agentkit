@@ -35,7 +35,7 @@ import sys
 import time
 import uuid
 from collections import Counter
-from contextlib import closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -1215,7 +1215,7 @@ def _seat_read(prompt):
 
 
 def alias_names(names=None):
-    """The names a rename still leads from, which are nobody's to take.
+    """The names a rename still leads from, which no new seat may take.
 
     `ak orch rename`'s pointer: the seat that was renamed still carries its old name in
     $AGENTKIT_SESSION, so a new seat under that name would inherit its notifications and its
@@ -1948,7 +1948,7 @@ def job_notices():
     return [line.strip() for line in text.splitlines() if line.strip()]
 
 
-def rename(old, new):
+def rename(old, new, *, auto=False):
     """Give a running seat a new name, and move everything that carries it.
 
     tmux, the record, and every state file -- notify, seat, hook, compact, plan, card and
@@ -1957,23 +1957,29 @@ def rename(old, new):
     started with the old name in its environment and hands it to every `ak` it runs --
     see config.resolve_session.  The bar is rewritten at once, so it never shows the old
     name until a tick.  `ak orch rename` and the in-session menu's `r` are both this one
-    function.
+    function. With `auto`, return None if somebody has already named the seat.
     """
-    old = config.resolve_session(old)
     new = session_name(new)
-    session = find(old)
-    if not session:
-        known = ", ".join(s["name"] for s in sessions()) or "none"
-        raise config.Error(f"no orchestrator session {old!r} (running: {known})")
-    if new == old:
-        config.update_session(old, unnamed=None)
-        return new
-    if new in taken_names():
-        raise config.Error(f"the name {new!r} is already spoken for")
-    # on whichever server holds the seat: a legacy one is on the default server, and renaming it
-    # there is the whole point of keeping it attachable
     from . import notify, run as run_mod, watch
-    with watch.state_lock(), notify.session_lock(old), notify.session_lock(new):
+    with watch.state_lock(), ExitStack() as locks:
+        old = config.resolve_session(old)
+        session = find(old)
+        if not session:
+            known = ", ".join(s["name"] for s in sessions()) or "none"
+            raise config.Error(f"no orchestrator session {old!r} (running: {known})")
+        if auto and not config.session_records().get(old, {}).get("unnamed"):
+            return None
+        if new == old:
+            config.update_session(old, unnamed=None)
+            return new
+        target = config.resolve_session(new)
+        if new in taken_names() and target != old:
+            raise config.Error(f"the name {new!r} is already spoken for")
+        locks.enter_context(notify.session_lock(old))
+        # An old name of this seat follows its pointer to the lock we already hold.
+        if target != old:
+            locks.enter_context(notify.session_lock(new))
+        # A legacy seat stays on its own server when renamed.
         server = seat_socket(session)
         rc, out = tmux_out("rename-session", "-t", f"={old}", new, socket=server)
         if rc != 0:
@@ -2503,6 +2509,8 @@ def cmd_stop(argv):
 
 def cmd_rename(argv):
     """`ak orch rename <new>` renames the seat this runs in; `rename <old> <new>` any seat."""
+    auto = "--auto" in argv
+    argv = [arg for arg in argv if arg != "--auto"]
     if len(argv) == 1:
         old = config.current_session()
         if not old:
@@ -2512,11 +2520,14 @@ def cmd_rename(argv):
     elif len(argv) == 2:
         old, new = config.resolve_session(argv[0]), argv[1]
     else:
-        raise config.Error("usage: ak orch rename <new> | ak orch rename <old> <new>")
+        raise config.Error("usage: ak orch rename [--auto] [OLD] NEW")
     if new.startswith("-"):
         raise config.Error(f"not a session name: {new!r}")
-    new = rename(old, new)
-    print(f"renamed {old} -> {new}")
+    new = rename(old, new, auto=auto)
+    if new is None:
+        print(f"seat is already named {config.resolve_session(old)}")
+    else:
+        print(f"renamed {old} -> {new}")
     return 0
 
 
@@ -2611,6 +2622,9 @@ def ask_name(taken, default=None, auto=False):
     back where it came from. With `auto`, Enter and end of input answer None for an automatic
     name; only `q` or Esc goes back.
     """
+    if default:
+        taken = taken - {old for old, target in config.session_aliases().items()
+                         if target == default}
     prompt = "Name (Enter: auto): " if auto else f"Name{f' [{default}]' if default else ''}: "
     while True:
         line = terminal.readline(prompt)

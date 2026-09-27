@@ -825,7 +825,8 @@ def load_session(cfg, name, required=True):
 
 def rename_session(old, new):
     """Move the selection to its new name and leave a pointer at the old one."""
-    if _read_json(session_path(new)) is not None and resolve_session(new) != new:
+    target = resolve_session(new)
+    if target not in (old, new):
         raise Error(f"{new!r} points at another session; pick a name that is not a rename")
     selection = _read_json(session_path(old))
     ensure_dirs()
@@ -833,6 +834,9 @@ def rename_session(old, new):
         tmp = session_path(new).with_suffix(".tmp")
         tmp.write_text(json.dumps(selection, indent=2) + "\n")
         tmp.replace(session_path(new))
+    elif target == old:
+        # A legacy seat has no selection to overwrite its former pointer with.
+        session_path(new).unlink(missing_ok=True)
     tmp = session_path(old).with_suffix(".tmp")
     tmp.write_text(json.dumps({"renamed": new}) + "\n")
     tmp.replace(session_path(old))

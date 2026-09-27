@@ -101,6 +101,27 @@ class SeatFollowsTitle(Sandbox):
         self.assertEqual(self.seat["name"], "checkout-bug-3")
         self.assertEqual(self.typed, ["/rename checkout-bug-3"])
 
+    def test_title_can_take_back_its_seats_former_name(self):
+        self.title("Quay")
+        self.tick()
+        self.title("Lagoon")
+        self.tick()
+        self.tick()
+        self.assertEqual(self.seat["name"], "lagoon")
+        self.assertEqual(config.resolve_session("quay"), "lagoon")
+        self.assertEqual(config.resolve_session("lagoon"), "lagoon")
+        self.assertEqual(self.typed, ["/rename quay", "/rename lagoon"])
+
+    def test_another_seats_former_name_gets_a_variant(self):
+        config.save_session(self.cfg, "quay", "opus", ["opus"])
+        config.rename_session("quay", "harbor")
+        self.title("Quay")
+        self.tick()
+        self.tick()
+        self.assertEqual(self.seat["name"], "quay-2")
+        self.assertEqual(config.resolve_session("quay"), "harbor")
+        self.assertEqual(self.typed, ["/rename quay-2"])
+
     def test_agentkits_recorded_title_does_not_rename_the_seat_back(self):
         self.title("lagoon")
         self.pane = self.fixture("draft")
@@ -143,6 +164,10 @@ class SeatFollowsTitle(Sandbox):
         self.tick()
         self.assertEqual(self.seat["name"], "checkout-bug")
         self.assertNotIn("unnamed", self.record())
+        before = self.record()
+        self.assertIsNone(orch.rename("lagoon", "parser", auto=True))
+        self.assertEqual(self.seat["name"], "checkout-bug")
+        self.assertEqual(self.record(), before)
 
     def test_named_login_and_recorded_conversation_select_the_transcript(self):
         self.title("Wrong Login")
