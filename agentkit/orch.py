@@ -1739,7 +1739,8 @@ def launch(name, model, cwd, cmd, conversation, session=None):
     down -- a launcher-issued id by default -- and whatever else its plugin needs for that,
     Codex's per-invocation receipt among them, is carried into the command as environment.
     """
-    env = seat_plugin({"orchestrator": model}).launched(name, cwd, conversation)
+    plugin = seat_plugin({"orchestrator": model})
+    env = plugin.launched(name, cwd, conversation)
     if env:
         cmd = ["env", *(f"{key}={value}" for key, value in env.items()), *cmd]
     if session:
@@ -1753,6 +1754,8 @@ def launch(name, model, cwd, cmd, conversation, session=None):
         dress(name, model, server)
     else:
         start(name, cwd, cmd, model)
+    if plugin.title_command(name):
+        config.update_session(name, session_title=name)
     from . import watch
     # launched under the name again: not the stopped one, and not the owner's closed one
     watch.seat_write(name, stopped_at=None, closed_by_owner=None,
@@ -2010,6 +2013,11 @@ def rename(old, new):
                 watch.announce_state(moved_seat)
             except (config.Error, OSError, ValueError):
                 pass
+    if moved_seat is not None:
+        try:
+            watch.sync_title(moved_seat)
+        except (config.Error, OSError, ValueError):
+            pass                 # the name moved; a later tick can give the harness its title
     return new
 
 

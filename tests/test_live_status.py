@@ -75,7 +75,7 @@ class LiveStatus(unittest.TestCase):
         self.seat = {"name": "herdr", "path": self.repo, "created": time.time() - 600,
                      "attached": False, "exited": False, "legacy": False, "resumable": False}
         config.save_session(self.cfg, "herdr", "opus", ["opus", "astra"],
-                            {"repo": self.repo, "cwd": self.repo})
+                            {"repo": self.repo, "cwd": self.repo, "session_title": self.seat["name"]})
         self.options = {}
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.stack.enter_context(patch.object(orch, "sessions",

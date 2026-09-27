@@ -2144,6 +2144,44 @@ def type_into(session, text, log, stale=lambda held: False):
                         veto=lambda held: owner_question(notify.last(held)) or stale(held))
 
 
+def sync_title(session, log=lambda _: None):
+    """Give the harness the seat's current name once, leaving dialogs and drafts alone."""
+    if any(session.get(key) for key in orch.CLOSED):
+        return False
+    # A rename and a tick can arrive together. Keep the send and its record together under
+    # the same lock the rename and relayed replies take, following any name that moved.
+    with notify.session_lock(session["name"]) as name:
+        session = dict(session, name=name)
+        record = config.session_records().get(name, {})
+        plugin = orch.seat_plugin(record)
+        line = plugin.title_command(name)
+        if not line or record.get("session_title") == name:
+            return False
+        composed = []
+
+        def veto(_):
+            pane = pane_text(session)
+            state = _decided_state(name, plugin.name, pane)
+            if owner_question(notify.last(name)) or state in (None, "asking"):
+                return True
+            if composed:
+                return not _holds_text(pane, line)    # only our own line can need another Enter
+            if state not in ("at_prompt", "working"):
+                return True
+            # The working rule precedes the draft rule. Read the bottom composer itself too:
+            # a turn can keep running while the owner has typed a message they have not sent.
+            raw = next((raw for raw in reversed(pane_tail(pane).splitlines())
+                        if re.match(r"(?:│\s*)?[❯›⟩]", strip_sgr(raw).strip())), None)
+            return raw is None or bool(_draft_text(
+                raw, strip_sgr(raw).strip(), screen(plugin.name)["composer"]))
+
+        if type_checked(session, line, log, plugin.name, veto=veto,
+                        typed=lambda: composed.append(True)):
+            config.update_session(name, session_title=name)
+            return True
+    return False
+
+
 def at_prompt(session, cfg=None):
     """Is that seat's harness sitting at its own prompt, waiting to be typed into?
 
@@ -2776,6 +2814,8 @@ def health(cfg, state, dry_run, log):
         try:
             if name in sync_seen(state, load_state()):
                 continue
+            if not dry_run:
+                sync_title(session, log)
             # captured, read and written down under the lock every publisher takes, so a look
             # the seat's own hook makes meanwhile lands wholly before this one or after it
             with nullcontext() if dry_run else announcing(name):
