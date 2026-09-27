@@ -103,8 +103,10 @@ interactive)
   # Seat preparation runs in the seat's actual cwd, after trust.py, and before the TUI:
   # bypass permissions and the answered auto-mode offer, on either login.
   printf 'python3 %q -- ' "$REPO/agentkit/harness/claude.py"
-  printf 'python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions\n' \
-      "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" ;;
+  # Remote Control on, named after the seat: the owner follows his seats from the Claude
+  # app, and a seat reopened without it -- a resume, an account move -- would be lost there.
+  printf 'python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions --remote-control %q\n' \
+      "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" "${AGENTKIT_SESSION:-}" ;;
 usage)
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
   # The worker token first, for the same reason `run` prefers it: this probe runs beside a
