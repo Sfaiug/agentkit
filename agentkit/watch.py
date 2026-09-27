@@ -2144,7 +2144,32 @@ def type_into(session, text, log, stale=lambda held: False):
                         veto=lambda held: owner_question(notify.last(held)) or stale(held))
 
 
-def sync_title(session, log=lambda _: None):
+def follow_title(session, log=lambda _: None):
+    """An owner's custom title names the seat; our own last title is only an echo."""
+    if any(session.get(key) for key in orch.CLOSED):
+        return None
+    name = config.resolve_session(session["name"])
+    record = config.session_records().get(name, {})
+    title = orch.seat_plugin(record).session_title(record)
+    if not title or title in (name, record.get("session_title")):
+        return None
+    new = orch.unique_name(title, orch.taken_names() - {name})
+    if not new:
+        return None
+    if new == name:
+        # The owner may have changed only case or punctuation. The seat is now named,
+        # and the title still needs its normalized spelling even if we sent it before.
+        if record.get("unnamed"):
+            orch.rename(name, name)
+        if record.get("session_title") == name:
+            sync_title(dict(session, name=name), log, force=True)
+        return None
+    new = orch.rename(name, new)
+    log(f"{name}: renamed from the conversation title to {new}")
+    return new
+
+
+def sync_title(session, log=lambda _: None, *, force=False):
     """Give the harness the seat's current name once, leaving dialogs and drafts alone."""
     if any(session.get(key) for key in orch.CLOSED):
         return False
@@ -2155,7 +2180,7 @@ def sync_title(session, log=lambda _: None):
         record = config.session_records().get(name, {})
         plugin = orch.seat_plugin(record)
         line = plugin.title_command(name)
-        if not line or record.get("session_title") == name:
+        if not line or (record.get("session_title") == name and not force):
             return False
         composed = []
 
@@ -2815,6 +2840,10 @@ def health(cfg, state, dry_run, log):
             if name in sync_seen(state, load_state()):
                 continue
             if not dry_run:
+                renamed = follow_title(session, log)
+                if renamed:
+                    session = dict(session, name=renamed)
+                    continue    # rename moved the state this pass had read under the old name
                 sync_title(session, log)
             # captured, read and written down under the lock every publisher takes, so a look
             # the seat's own hook makes meanwhile lands wholly before this one or after it

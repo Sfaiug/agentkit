@@ -1,0 +1,206 @@
+"""Claude custom titles name seats; fake tmux and transcripts under a temporary HOME."""
+
+import json
+import os
+from pathlib import Path
+import re
+import unittest
+from unittest.mock import patch
+
+from test_v4n import REPO, Sandbox
+from agentkit import config, orch, watch
+from agentkit.harness import claude
+
+
+class SeatFollowsTitle(Sandbox):
+    def setUp(self):
+        super().setUp()
+        self.stack.enter_context(patch.dict(os.environ, {
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AGENTKIT_SESSION": "",
+            "CLAUDE_CONFIG_DIR": str(self.root / "unrelated-login"),
+            "AK_NOTIFY_SINK": str(self.root / "notices")}))
+        self.seat = {"name": "lagoon", "path": str(self.root), "created": 100,
+                     "attached": True, "exited": False, "legacy": False}
+        self.typed = []
+        self.pane = self.fixture("prompt")
+        self.stack.enter_context(patch.object(orch, "sessions", side_effect=lambda: [self.seat]))
+        self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
+        self.stack.enter_context(patch.object(watch, "KEY_GAP", 0))
+        for method in ("poll_worker_token", "seat_account", "stop_nudge", "announce_state"):
+            self.stack.enter_context(patch.object(watch, method, return_value=False))
+        config.save_session(self.cfg, "lagoon", "opus", ["opus"], {
+            "cwd": str(self.root), "conversation": "fake-conversation", "id_source": orch.LAUNCHER,
+            "session_title": "lagoon", "account": "default"})
+        self.transcript = self.path()
+
+    def fixture(self, kind):
+        return (REPO / "tests/fixtures" / f"claude-{kind}-pane.txt").read_text()
+
+    def path(self, account=None, conversation="fake-conversation"):
+        directory = self.root / (f".claude-{account}" if account else ".claude")
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(self.root))
+        path = directory / "projects" / slug / f"{conversation}.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def title(self, title, path=None, conversation="fake-conversation"):
+        with (path or self.transcript).open("a") as handle:
+            handle.write(json.dumps({"type": "custom-title", "customTitle": title,
+                                     "sessionId": conversation}) + "\n")
+
+    def tmux(self, *args, **kwargs):
+        if args[0] == "rename-session":
+            self.seat = dict(self.seat, name=args[-1])
+        elif args[0] == "capture-pane":
+            self.assertEqual(args[-1], f"={self.seat['name']}:")
+            return 0, self.pane
+        elif args[0] == "send-keys":
+            self.assertEqual(args[2], f"={self.seat['name']}:")
+            if "-l" in args:
+                self.typed.append(args[-1])
+            elif args[-1] == "Enter":
+                self.title(self.typed[-1].removeprefix("/rename "))
+        return 0, ""
+
+    def record(self):
+        return config.session_records()[self.seat["name"]]
+
+    def tick(self, dry=False):
+        state = watch.load_state()
+        watch.health(self.cfg, state, dry, lambda _: None)
+        if not dry:
+            watch.save_state(state)
+
+    def test_newest_custom_title_renames_and_normalizes_then_its_echo_is_ignored(self):
+        self.title("Old Topic")
+        self.title("Checkout Bug")
+        with self.transcript.open("a") as handle:
+            handle.write('{"type":"user","message":"a later message"}\n[]\n{"type":\n')
+        with patch.object(orch, "rename", wraps=orch.rename) as rename:
+            self.tick()
+            rename.assert_called_once_with("lagoon", "checkout-bug")
+        self.assertEqual(self.seat["name"], "checkout-bug")
+        self.assertEqual(config.resolve_session("lagoon"), "checkout-bug")
+        self.assertEqual(self.record()["conversation"], "fake-conversation")
+        self.assertEqual(self.typed, ["/rename checkout-bug"])
+        self.assertEqual(self.record()["session_title"], "checkout-bug")
+        with patch.object(orch, "rename") as rename:
+            self.tick()
+            self.tick()
+            rename.assert_not_called()
+        self.assertEqual(self.typed, ["/rename checkout-bug"])
+
+    def test_taken_name_gets_its_variant(self):
+        for name in ("checkout-bug", "checkout-bug-2"):
+            config.save_session(self.cfg, name, "opus", ["opus"], {
+                "cwd": str(self.root), "conversation": f"fake-{name}", "id_source": orch.LAUNCHER})
+        self.title("Checkout Bug")
+        self.tick()
+        self.tick()
+        self.assertEqual(self.seat["name"], "checkout-bug-3")
+        self.assertEqual(self.typed, ["/rename checkout-bug-3"])
+
+    def test_agentkits_recorded_title_does_not_rename_the_seat_back(self):
+        self.title("lagoon")
+        self.pane = self.fixture("draft")
+        orch.rename("lagoon", "quay")
+        self.assertEqual(self.record()["session_title"], "lagoon")
+        before = self.record()
+        self.tick()
+        self.assertEqual(self.seat["name"], "quay")
+        self.assertEqual(self.record(), before)
+        self.assertEqual(self.typed, [])
+        self.pane = self.fixture("prompt")
+        with patch.object(orch, "rename") as rename:
+            self.tick()
+            self.tick()
+            rename.assert_not_called()
+        self.assertEqual(self.typed, ["/rename quay"])
+
+    def test_missing_or_unreadable_transcript_changes_nothing(self):
+        before = self.record()
+        self.tick()
+        self.title("Checkout Bug")
+        original = Path.open
+
+        def unreadable(path, *args, **kwargs):
+            if path == self.transcript:
+                raise PermissionError("fake unreadable transcript")
+            return original(path, *args, **kwargs)
+
+        with patch.object(Path, "open", unreadable):
+            self.tick()
+        self.transcript.write_bytes(b"\xff")
+        self.tick()
+        self.assertEqual(self.record(), before)
+        self.assertEqual(self.seat["name"], "lagoon")
+        self.assertEqual(self.typed, [])
+
+    def test_unnamed_seat_counts_as_named_after_the_rename(self):
+        config.update_session("lagoon", unnamed=True)
+        self.title("Checkout Bug")
+        self.tick()
+        self.assertEqual(self.seat["name"], "checkout-bug")
+        self.assertNotIn("unnamed", self.record())
+
+    def test_named_login_and_recorded_conversation_select_the_transcript(self):
+        self.title("Wrong Login")
+        config.update_session("lagoon", account="second")
+        self.title("Wrong Conversation", self.path("second", "other-conversation"),
+                   "other-conversation")
+        self.transcript = self.path("second")
+        self.title("Checkout Bug")
+        self.title("Wrong Session", conversation="other-conversation")
+        self.tick()
+        self.assertEqual(self.seat["name"], "checkout-bug")
+        self.assertEqual(self.record()["account"], "second")
+
+    def test_other_harnesses_read_no_title(self):
+        self.title("Checkout Bug")
+        for model in ("astra", "spark"):
+            with self.subTest(model=model), patch.object(claude, "session_title") as reader:
+                config.update_session("lagoon", orchestrator=model)
+                self.tick()
+                reader.assert_not_called()
+                self.assertEqual(self.seat["name"], "lagoon")
+                self.assertEqual(self.typed, [])
+
+    def test_dry_run_and_closed_seat_do_not_rename(self):
+        self.title("Checkout Bug")
+        self.tick(dry=True)
+        self.seat["exited"] = True
+        self.tick()
+        self.assertEqual(self.seat["name"], "lagoon")
+        self.assertEqual(self.typed, [])
+
+    def test_normalized_title_waits_past_a_draft_without_renaming_again(self):
+        self.title("Checkout Bug")
+        self.pane = self.fixture("draft")
+        self.tick()
+        self.assertEqual(self.seat["name"], "checkout-bug")
+        self.assertEqual(self.typed, [])
+        self.pane = self.fixture("prompt")
+        self.tick()
+        self.tick()
+        self.assertEqual(self.seat["name"], "checkout-bug")
+        self.assertEqual(self.typed, ["/rename checkout-bug"])
+
+    def test_title_normalizing_to_current_name_still_ends_auto_naming(self):
+        config.update_session("lagoon", unnamed=True)
+        self.title("Lagoon")
+        self.pane = self.fixture("draft")
+        self.tick()
+        self.assertNotIn("unnamed", self.record())
+        self.assertEqual(self.record()["session_title"], "lagoon")
+        self.assertEqual(self.typed, [])
+        self.pane = self.fixture("prompt")
+        self.tick()
+        self.tick()
+        self.assertEqual(self.seat["name"], "lagoon")
+        self.assertNotIn("unnamed", self.record())
+        self.assertEqual(self.typed, ["/rename lagoon"])
+
+
+if __name__ == "__main__":
+    unittest.main()
