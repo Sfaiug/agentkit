@@ -11,29 +11,30 @@ from agentkit import config, menu, orch, terminal, usage
 
 
 class Picker(NewSession):
-    def test_screen_has_two_spaced_blocks_and_no_name(self):
-        with self.answers(["", ""]), \
+    def test_name_precedes_the_two_model_questions(self):
+        with self.answers(["", "", ""]), \
                 patch.object(terminal, "width", return_value=100), \
                 redirect_stdout(io.StringIO()) as out:
             menu.new_session(self.cfg, True)
         text = out.getvalue()
         self.assertIn("Orchestrator [opus]:", text)
         self.assertIn("Workers [opus astra]:", text)
-        self.assertNotIn("Name [", text)
+        self.assertIn("Name (Enter: auto):", text)
+        self.assertLess(text.index("Name"), text.index("Orchestrator"))
         self.assertNotIn("Project [", text)
         self.assertLess(text.index("Orchestrator"), text.index("Workers"))
 
     def test_workers_typo_repeats_the_same_prompt(self):
-        with self.answers(["", "z", "all"]), redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(menu.new_session(self.cfg, True), "opus")
+        with self.answers(["", "", "z", "all"]), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(menu.new_session(self.cfg, True), "new")
         self.assertIn("not a choice: 'z'", out.getvalue())
         self.assertGreaterEqual(out.getvalue().count("Workers [opus astra]:"), 2)
 
     def test_prompt_worker_choices_are_every_model_the_orchestrator_included(self):
-        self.assertEqual(self.new(["", "all"]), "opus")
-        self.assertEqual(config.load_session(self.cfg, "opus")["workers"],
+        self.assertEqual(self.new(["", "", "all"]), "new")
+        self.assertEqual(config.load_session(self.cfg, "new")["workers"],
                          config.offered(self.cfg))
-        self.assertIn("opus", config.load_session(self.cfg, "opus")["workers"])
+        self.assertIn("opus", config.load_session(self.cfg, "new")["workers"])
 
     def test_orchestrator_reason_suffixes_keep_skips_and_warn(self):
         providers = {}
@@ -60,12 +61,12 @@ class Picker(NewSession):
         self.assertIn(f"launching {default} anyway", out.getvalue())
 
     def test_worker_names_are_case_insensitive(self):
-        self.assertEqual(self.new(["", "OPUS, FABLE"]), "opus")
-        self.assertEqual(config.load_session(self.cfg, "opus")["workers"], ["opus", "fable"])
+        self.assertEqual(self.new(["", "", "OPUS, FABLE"]), "new")
+        self.assertEqual(config.load_session(self.cfg, "new")["workers"], ["opus", "fable"])
 
     def test_worker_number_order_is_preserved(self):
-        self.assertEqual(self.new(["", "2 1"]), "opus")
-        self.assertEqual(config.load_session(self.cfg, "opus")["workers"], ["opus", "fable"])
+        self.assertEqual(self.new(["", "", "2 1"]), "new")
+        self.assertEqual(config.load_session(self.cfg, "new")["workers"], ["opus", "fable"])
 
     def test_name_default_follows_orchestrator_and_taken_names(self):
         self.assertEqual(orch.default_name("fable", set()), "fable")
@@ -77,10 +78,10 @@ class Picker(NewSession):
         cwd.mkdir()
         with patch.object(orch, "maintenance"), patch.object(orch, "attach"), \
                 patch.object(orch, "launch"), patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
-                patch.object(Path, "cwd", return_value=cwd), self.answers(["", "all"]), \
+                patch.object(Path, "cwd", return_value=cwd), self.answers(["", "", "all"]), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(orch.main(["--dry-run"]), 0)
-        record = config.load_session(self.cfg, "opus")
+        record = config.load_session(self.cfg, "new")
         self.assertEqual(record["cwd"], str(cwd))
         self.assertIsNone(record["repo"])
 
@@ -103,7 +104,7 @@ class Picker(NewSession):
 
     def test_q_at_first_and_last_questions_create_nothing(self):
         self.assertIsNone(self.new(["q"]))
-        self.assertIsNone(self.new(["", "q"]))
+        self.assertIsNone(self.new(["", "", "q"]))
 
         with self.answers(["q"]), patch.object(orch, "maintenance"), \
                 redirect_stdout(io.StringIO()):

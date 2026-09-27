@@ -1,8 +1,7 @@
 """The new-session questions a line at a time, and the project a session is filed under.
 
-On a terminal `n` is one screen of selectors (tests/test_new_session_screen.py); from a pipe it
-asks the orchestrator and the workers a line at a time, and the seat is named for its
-orchestrator.
+After the name, a terminal shows one screen of selectors (tests/test_new_session_screen.py);
+a pipe asks the orchestrator and workers a line at a time. Enter leaves naming to the seat.
 """
 
 from contextlib import redirect_stderr, redirect_stdout
@@ -44,9 +43,9 @@ class NewSession(Sandbox):
         with self.answers(values), redirect_stdout(io.StringIO()):
             return menu.new_session(self.cfg, False)
 
-    def test_enter_twice_creates_defaults(self):
-        self.assertEqual(self.new(["", ""]), "opus")
-        record = config.load_session(self.cfg, "opus")
+    def test_enter_three_times_creates_defaults(self):
+        self.assertEqual(self.new(["", "", ""]), "new")
+        record = config.load_session(self.cfg, "new")
         self.assertEqual(record["orchestrator"], "opus")
         self.assertEqual(record["workers"], self.cfg["defaults"]["workers"])
         self.assertIsNone(record["repo"])
@@ -54,30 +53,30 @@ class NewSession(Sandbox):
     def test_workers_by_numbers(self):
         for raw, expected in (("2", ["opus"]), ("2, 4", ["opus", "spark"])):
             with self.subTest(raw=raw):
-                name = self.new(["", raw])
+                name = self.new(["", "", raw])
                 self.assertEqual(config.load_session(self.cfg, name)["workers"], expected)
 
     def test_workers_by_names(self):
         for raw, expected in (("opus", ["opus"]), ("astra fable", ["astra", "fable"])):
             with self.subTest(raw=raw):
-                name = self.new(["", raw])
+                name = self.new(["", "", raw])
                 self.assertEqual(config.load_session(self.cfg, name)["workers"], expected)
 
     def test_workers_all(self):
-        self.assertEqual(self.new(["", "all"]), "opus")
-        self.assertEqual(config.load_session(self.cfg, "opus")["workers"], config.offered(self.cfg))
+        self.assertEqual(self.new(["", "", "all"]), "new")
+        self.assertEqual(config.load_session(self.cfg, "new")["workers"], config.offered(self.cfg))
 
     def test_empty_worker_set_is_refused(self):
-        with self.answers(["", ",", "all"]), redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(menu.new_session(self.cfg, True), "opus")
+        with self.answers(["", "", ",", "all"]), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(menu.new_session(self.cfg, True), "new")
         self.assertIn("not a choice: ','", out.getvalue())
 
-    def test_q_at_second_prompt_creates_nothing(self):
-        self.assertIsNone(self.new(["", "q"]))
+    def test_q_at_last_prompt_creates_nothing(self):
+        self.assertIsNone(self.new(["", "", "q"]))
         self.assertEqual(list(config.STATE.glob("session-*.json")), [])
 
     def test_login_error_keeps_the_menu_open(self):
-        with self.answers(["", ""]), patch.object(menu, "read", return_value=""), \
+        with self.answers(["", "", ""]), patch.object(menu, "read", return_value=""), \
                 patch.object(menu, "wait_key", side_effect=["n", "q"]) as keys, \
                 patch.object(menu, "Live"), patch.object(terminal.Keyboard, "take", return_value=False), \
                 patch.object(orch, "create", side_effect=config.Error("no working seat login")), \
@@ -112,9 +111,9 @@ class NewSession(Sandbox):
             "PATH": f"{tmux.parent}:{os.environ['PATH']}", config.ADAPTER_DIR_ENV: str(tmux.parent)}))
         self.stack.enter_context(patch.object(usage, "collect", COLLECT))
         self.stack.enter_context(patch.object(orch, "sessions", SESSIONS))
-        with self.answers(["3", ""]), redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(menu.new_session(self.cfg, True), "astra")
-        self.assertIn("would start astra: astra, workers opus astra", out.getvalue())
+        with self.answers(["", "3", ""]), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(menu.new_session(self.cfg, True), "new")
+        self.assertIn("would start new: astra, workers opus astra", out.getvalue())
         self.assertEqual(list(config.STATE.glob("session-*.json")), [])
         self.assertTrue(calls.read_text())          # the real listing asked, and only listed
         self.assertEqual([call for call in calls.read_text().splitlines()
@@ -250,8 +249,8 @@ class NewSession(Sandbox):
             self.assertEqual(config.load_session(self.cfg, name)["workers"], ["opus"])
 
     def test_picker_uses_the_saved_worker_set(self):
-        self.assertEqual(self.new(["astra", "2,4"]), "astra")
-        with patch.dict(os.environ, {config.SESSION_ENV: "astra"}), redirect_stderr(io.StringIO()):
+        self.assertEqual(self.new(["", "astra", "2,4"]), "new")
+        with patch.dict(os.environ, {config.SESSION_ENV: "new"}), redirect_stderr(io.StringIO()):
             for role in ("executor", "reviewer"):
                 self.assertEqual(usage.pick_order(self.cfg, {}, role=role), ["opus", "spark"])
 

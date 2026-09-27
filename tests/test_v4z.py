@@ -228,9 +228,9 @@ class Projects(Sandbox):
                             self.assertIn(key, screen)
                     self.assertEqual(sorted(numbers), list(range(1, len(self.seats) + 1)))
 
-    def test_e_n_asks_models_names_the_seat_for_its_orchestrator_and_opens_in_code(self):
+    def test_e_n_asks_name_then_models_and_opens_in_code(self):
         prompts = []
-        answers = iter(["", ""])
+        answers = iter(["", "", ""])
         def answer(prompt):
             prompts.append(prompt)
             sys.stdout.write(prompt)
@@ -244,11 +244,12 @@ class Projects(Sandbox):
                 patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
                 patch.object(orch, "launch") as launch, patch.object(menu, "open_session"), \
                 redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(menu.new_session(self.cfg, False), "opus")
-        self.assertEqual(prompts, ["Orchestrator [opus]: ", "Workers [opus astra]: "])
+            self.assertEqual(menu.new_session(self.cfg, False), "new")
+        self.assertEqual(prompts, ["Name (Enter: auto): ", "Orchestrator [opus]: ",
+                                   "Workers [opus astra]: "])
         self.assertNotIn("Project [", out.getvalue())
         self.assertNotIn("not-a-checkout", out.getvalue())
-        record = config.load_session(self.cfg, "opus")
+        record = config.load_session(self.cfg, "new")
         self.assertIsNone(record["repo"])
         self.assertEqual(record["cwd"], str(config.CODE))
         self.assertEqual(launch.call_args.args[2], config.CODE)
@@ -264,7 +265,7 @@ class Projects(Sandbox):
             os.chdir(previous)
         with patch.object(orch, "maintenance"), patch.object(orch, "resume") as resume, \
                 patch.object(orch, "prompt_workers", side_effect=AssertionError("must resume")):
-            orch.main(["opus"])
+            orch.main(["new"])
             resume.assert_called_once()
         with patch.object(Path, "cwd", return_value=repo), patch.object(orch, "maintenance"), \
                 patch.object(terminal, "readline", return_value="0"), \
@@ -272,8 +273,8 @@ class Projects(Sandbox):
                 patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
                 patch.object(orch, "launch") as launch, patch.object(orch, "attach"), \
                 redirect_stdout(io.StringIO()):
-            orch.main(["opus", "--model", "astra", "--workers", "opus"])
-        self.assertEqual(config.load_session(self.cfg, "opus")["repo"], str(repo))
+            orch.main(["new", "--model", "astra", "--workers", "opus"])
+        self.assertEqual(config.load_session(self.cfg, "new")["repo"], str(repo))
         self.assertEqual(launch.call_args.args[2], repo)
         with patch.object(orch, "listing", return_value=self.seats), redirect_stdout(io.StringIO()) as out:
             orch.cmd_list([])
@@ -318,11 +319,11 @@ class Projects(Sandbox):
             self.assertEqual(launch.call_args.args[2], child)
             self.assertEqual(run.task_repo({}, self.root / "task.md"), repo)
             self.assertEqual(run.default_base(repo, lambda _: None), "feature")
-            with patch.object(terminal, "readline", side_effect=["", ""]), \
+            with patch.object(terminal, "readline", side_effect=["", "", ""]), \
                     patch.object(menu, "open_session"), redirect_stdout(io.StringIO()):
-                self.assertEqual(menu.new_session(self.cfg, False), "opus")
+                self.assertEqual(menu.new_session(self.cfg, False), "new")
             self.assertEqual(launch.call_args.args[2], config.CODE)
-            self.assertIsNone(config.load_session(self.cfg, "opus")["repo"])
+            self.assertIsNone(config.load_session(self.cfg, "new")["repo"])
 
     def test_invalid_selection_flags_fail_before_project_input_or_record_changes(self):
         for flags in (("--model", "missing"), ("--model", "astra", "--workers", "sol"),

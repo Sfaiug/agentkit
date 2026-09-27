@@ -3377,7 +3377,7 @@ fi
 # `ak` with no arguments. A fresh HOME with a current empty-meter cache, so nothing probes a
 # provider; `--dry-run` skips the pull and never attaches or starts anything. tmux is real, so
 # whatever seats are live show up in the rows -- the checks read the parts that do not depend
-# on them: the key line, the two new-session prompts and their defaults, and no session file.
+# on them: the key line, the three new-session prompts and their defaults, and no session file.
 MHOME="$WORK/home-menu"
 mkdir -p -- "$MHOME/.agentkit/state"
 python3 - "$MHOME/.agentkit/state/usage.json" <<'PY'
@@ -3406,21 +3406,21 @@ for key in r p b s u; do
 done
 printf 'q\n' | HOME="$MHOME" ak attach --dry-run >"$WORK/menu-attach.log" 2>&1 || MENU=1
 grep -q 'n new' "$WORK/menu-attach.log" || MENU=1
-# from a pipe `n` asks Orchestrator and Workers a line at a time, and no Name: Enter takes each
-# default, the seat is named for its orchestrator, and a dry run only says what it would start
-printf 'n\n\n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-n.log" 2>&1 || MENU=1
+# from a pipe `n` asks Name, Orchestrator and Workers a line at a time: Enter takes each
+# default, the seat starts as new, and a dry run only says what it would start
+printf 'n\n\n\n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-n.log" 2>&1 || MENU=1
 grep -q '^Workers \[opus astra\]:' "$WORK/menu-n.log" || MENU=1
 grep -q '^Orchestrator \[opus\]:' "$WORK/menu-n.log" || MENU=1
-grep -q '^Name' "$WORK/menu-n.log" && MENU=1
-MSESSION=$(sed -n 's/^would start \(opus\(-[0-9]*\)\{0,1\}\): opus, workers opus astra$/\1/p' "$WORK/menu-n.log")
+grep -q '^Name (Enter: auto):' "$WORK/menu-n.log" || MENU=1
+MSESSION=$(sed -n 's/^would start \(new\(-[0-9]*\)\{0,1\}\): opus, workers opus astra$/\1/p' "$WORK/menu-n.log")
 [ -n "$MSESSION" ] && grep -q "^would attach $MSESSION\$" "$WORK/menu-n.log" || MENU=1
 # EOF takes the defaults as well; and neither starts a session: no record, no rulebook
 printf 'n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-n-eof.log" 2>&1 || MENU=1
-grep -q '^would start opus' "$WORK/menu-n-eof.log" || MENU=1
+grep -q '^would start new' "$WORK/menu-n-eof.log" || MENU=1
 ls "$MHOME/.agentkit/state" | grep -qE '^(session|rulebook)-' && MENU=1
 printf 'zz\nq\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-bad.log" 2>&1 || MENU=1
 grep -q "not a key: 'zz'" "$WORK/menu-bad.log" || MENU=1
-[ "$MENU" = 0 ] && ok "20 the menu: numbers and n/x/c/i/q on the line, c placeholder and i info, r/p/b/s/u refused, q quits, n asks Orchestrator and Workers with defaults and would start ${MSESSION:-?} creating no session, and a stray key is refused" \
+[ "$MENU" = 0 ] && ok "20 the menu: numbers and n/x/c/i/q on the line, c placeholder and i info, r/p/b/s/u refused, q quits, n asks Name, Orchestrator and Workers with defaults and would start ${MSESSION:-?} creating no session, and a stray key is refused" \
               || no "20 the menu"; [ "$MENU" = 0 ] || sed 's/^/      /' "$WORK/menu-n.log" | head -12
 
 # --- 20c: the menu offers only what makes sense, and works from any terminal (offline) ---
@@ -3440,10 +3440,10 @@ with open(sys.argv[1], "w") as fh:
     json.dump({"fetched_at": time.time(), "providers": providers}, fh)
 PY
 OFFER=0
-printf 'n\n\n\n' | HOME="$OHOME" ak --dry-run >"$WORK/offer-n.log" 2>&1 || OFFER=1
+printf 'n\n\n\n\n' | HOME="$OHOME" ak --dry-run >"$WORK/offer-n.log" 2>&1 || OFFER=1
 grep -q '^Workers \[opus astra\]:' "$WORK/offer-n.log" || OFFER=1
 grep -q '^Orchestrator \[opus\]:' "$WORK/offer-n.log" || OFFER=1
-grep -q '^would start opus\(-[0-9]*\)\{0,1\}: opus, workers opus astra$' "$WORK/offer-n.log" || OFFER=1
+grep -q '^would start new\(-[0-9]*\)\{0,1\}: opus, workers opus astra$' "$WORK/offer-n.log" || OFFER=1
 # the orchestrator choices are every model in file order, no sol
 grep -q ' 1 fable ' "$WORK/offer-n.log" || OFFER=1
 grep -q ' 2 opus ' "$WORK/offer-n.log" || OFFER=1
@@ -3763,10 +3763,10 @@ NAME=0
 for seat in my-big-task resume-seat by-hand pair-one pair-two nopin-seat; do
   tm kill-session -t "=$seat" 2>/dev/null
 done
-# (a) the menu's `n` names the seat for its orchestrator, and the user's own name is the one
-# `ak orch rename` gives it -- in tmux, in its environment and on its bar
-printf 'n\n\n\nq\n' | akn >"$WORK/name-new.log" 2>&1 || NAME=1
-NAUTO=$(sed -n 's/^session \(opus\(-[0-9]*\)\{0,1\}\) is running; .*/\1/p' "$WORK/name-new.log")
+# (a) Enter at the menu's Name question leaves a new placeholder for the orchestrator to name;
+# `ak orch rename` gives it the user's own name in tmux, in its environment and on its bar
+printf 'n\n\n\n\nq\n' | akn >"$WORK/name-new.log" 2>&1 || NAME=1
+NAUTO=$(sed -n 's/^session \(new\(-[0-9]*\)\{0,1\}\) is running; .*/\1/p' "$WORK/name-new.log")
 jq -e '.orchestrator == "opus"' "$NH/.agentkit/state/session-$NAUTO.json" >/dev/null 2>&1 || NAME=1
 akn orch rename "$NAUTO" '  My Big/Task  ' >"$WORK/name-rename.log" 2>&1 || NAME=1
 tm has-session -t =my-big-task 2>/dev/null || NAME=1
@@ -3775,9 +3775,9 @@ tm has-session -t =my-big-task 2>/dev/null || NAME=1
 [ "$(tm show-environment -t =my-big-task AGENTKIT_SESSION 2>/dev/null)" \
   = "AGENTKIT_SESSION=my-big-task" ] || NAME=1
 jq -e '.orchestrator == "opus"' "$NH/.agentkit/state/session-my-big-task.json" >/dev/null 2>&1 || NAME=1
-# (b) a second `n` takes the next number: the first seat's name still leads to it
-printf 'n\n\n\nq\n' | akn >"$WORK/name-dup.log" 2>&1 || NAME=1
-NSECOND=$(sed -n 's/^session \(opus\(-[0-9]*\)\{0,1\}\) is running; .*/\1/p' "$WORK/name-dup.log")
+# (b) Enter at a second `n` takes the next placeholder: the first still leads to the renamed seat
+printf 'n\n\n\n\nq\n' | akn >"$WORK/name-dup.log" 2>&1 || NAME=1
+NSECOND=$(sed -n 's/^session \(new\(-[0-9]*\)\{0,1\}\) is running; .*/\1/p' "$WORK/name-dup.log")
 [ -n "$NSECOND" ] && [ "$NSECOND" != "$NAUTO" ] || NAME=1
 tm has-session -t "=$NSECOND" 2>/dev/null || NAME=1
 # (c) `true` exited the moment the seat opened, and the seat is still there, saying so
@@ -4040,7 +4040,7 @@ for seat in my-big-task "$NSECOND" resume-seat by-hand pair-one pair-two old-sea
   tm kill-session -t "=$seat" 2>/dev/null
 done
 tmd kill-session -t =not-a-seat 2>/dev/null
-[ "$NAME" = 0 ] && ok "20f the seat is what it was called: n names it for its orchestrator and a second one ${NSECOND:-?}, a rename makes My Big/Task my-big-task in tmux and on its own status bar, a name renamed away is refused until that seat is stopped, a hand-made seat and a legacy one are listed and the legacy one renames on its own server, a harness that exits at once leaves the seat standing, a seat holds the conversation it was launched with and two started at once hold their own, a harness that can be given no id leaves a seat that restarts rather than resumes, an id no launcher ever handed out is stripped from the record that carries it, a stopped one is gone with its conversation -- and one tmux has already lost is stopped just the same, record and rename pointer with it -- and a week-old record is swept" \
+[ "$NAME" = 0 ] && ok "20f the seat is what it was called: n asks its name, Enter leaves ${NAUTO:-?} and then ${NSECOND:-?} for its orchestrator to name, a rename makes My Big/Task my-big-task in tmux and on its own status bar, a name renamed away is refused until that seat is stopped, a hand-made seat and a legacy one are listed and the legacy one renames on its own server, a harness that exits at once leaves the seat standing, a seat holds the conversation it was launched with and two started at once hold their own, a harness that can be given no id leaves a seat that restarts rather than resumes, an id no launcher ever handed out is stripped from the record that carries it, a stopped one is gone with its conversation -- and one tmux has already lost is stopped just the same, record and rename pointer with it -- and a week-old record is swept" \
              || { no "20f naming, exit and resume"; sed 's/^/      /' "$WORK/name-new.log" "$WORK/name-rename.log" "$WORK/name-dup.log" "$WORK/name-list3.log" "$WORK/name-resume.log" "$WORK/name-reopen.log" "$WORK/name-pair1.log" "$WORK/name-nopin.log" "$WORK/name-old-open.log" "$WORK/name-old-stop.log" 2>/dev/null | head -24; }
 
 # --- 20g: the update runs where the connection cannot take it down --------

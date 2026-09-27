@@ -151,17 +151,16 @@ class Picker(Sandbox):
         # end of input takes the default, so a script -- or a phone that hung up -- never loops
         with patch.object(terminal, "readline", return_value=None), redirect_stdout(io.StringIO()):
             self.assertEqual(orch.prompt_orchestrator(self.cfg, "astra", {}, ""), "astra")
-        # the menu's `n` rides on the same orchestrator question from a pipe, and names the seat
-        # for the orchestrator it was given
-        answers = iter(["3", "all"])
+        # the menu's `n` asks the name first, then the same orchestrator question from a pipe
+        answers = iter(["", "3", "all"])
         with patch.object(terminal, "readline", side_effect=lambda prompt:
                           (sys.stdout.write(prompt), next(answers))[1]), \
                 patch.object(orch, "sessions", return_value=[]), \
                 patch.object(orch.usage, "collect", return_value={}), \
                 patch.object(orch, "launch"), patch.object(menu, "open_session"), \
                 redirect_stdout(io.StringIO()):
-            self.assertEqual(menu.new_session(self.cfg, dry_run=False), "astra")
-        record = json.loads(config.session_path("astra").read_text())
+            self.assertEqual(menu.new_session(self.cfg, dry_run=False), "new")
+        record = json.loads(config.session_path("new").read_text())
         self.assertEqual(record["orchestrator"], "astra")
         self.assertEqual(record["workers"], config.offered(self.cfg))
 
@@ -614,8 +613,10 @@ class Phone(Sandbox):
         phone = Terminal(self, width, height)
         screen = phone.until("no sessions; n starts one", "q leave", prompt="q leave")
         self.whole_page(screen, width, height, "no sessions")
-        # n, at once: one screen that fits, astra chosen below opus and every worker added
+        # n asks a name, then one screen that fits: astra below opus and every worker added
         phone.press("n")
+        phone.until("Name (Enter: auto):", prompt="Name (Enter: auto):")
+        phone.keys("Enter")
         screen = phone.until("agentkit · new session", "Orchestrator", prompt="esc back")
         self.fits(screen, width, height)
         phone.keys("Down", "Space")
@@ -625,17 +626,17 @@ class Phone(Sandbox):
         screen = phone.until("■ Mimo", prompt="esc back")
         self.fits(screen, width, height)
         phone.keys("Enter")
-        # the seat opens in this terminal, named for its orchestrator, and its bar keeps the key
-        screen = phone.until(STAND_IN, "astra · astra", "Ctrl-b m  menu")
+        # the unnamed seat opens in this terminal, and its bar keeps the key
+        screen = phone.until(STAND_IN, "new · astra", "Ctrl-b m  menu")
         self.fits(screen, width, height)
         bar = screen[-1]
         self.assertTrue(bar.endswith("Ctrl-b m  menu"), bar)
         # the popup: r renames it; q closes it; n starts a second seat and switches to it; a
         # number switches back; x stops this session, and the client falls back to the other
         phone.keys("C-b", "m")
-        phone.until("q close", "1  astra", prompt="q close")
+        phone.until("q close", "1  new", prompt="q close")
         phone.press("r")
-        phone.until("Name [astra]:", prompt="Name [astra]:")
+        phone.until("Name [new]:", prompt="Name [new]:")
         phone.type("Phone Audit")
         screen = phone.until("q close", "1  phone-au", prompt="q close")
         record = json.loads(config.session_path("phone-audit").read_text())
@@ -647,31 +648,33 @@ class Phone(Sandbox):
         phone.settled()                      # its screen goes before its process does
         phone.keys("C-b", "m")
         phone.until("q close", prompt="q close")
-        phone.press("n")                     # and Enter takes the defaults: opus, for opus and astra
+        phone.press("n")                     # the old placeholder is held by the rename alias
+        phone.until("Name (Enter: auto):", prompt="Name (Enter: auto):")
+        phone.keys("Enter")
         phone.until("agentkit · new session", prompt="esc back")
         phone.keys("Enter")
-        phone.until("opus · opus", "Ctrl-b m  menu", absent=["q close"])
+        phone.until("new-2 · opus", "Ctrl-b m  menu", absent=["q close"])
         phone.settled()
-        self.assertTrue(self.has_seat("opus"))
+        self.assertTrue(self.has_seat("new-2"))
         phone.keys("C-b", "m")
-        phone.until("q close", "1  opus", "2  phone-au", prompt="q close")
+        phone.until("q close", "1  new-2", "2  phone-au", prompt="q close")
         phone.press("2")
         phone.until("phone-audit · astra", absent=["q close"])
         phone.settled()
         phone.keys("C-b", "m")
-        phone.until("q close", "1  opus", prompt="q close")
+        phone.until("q close", "1  new-2", prompt="q close")
         phone.press("1")
-        phone.until("opus · opus", absent=["q close"])
+        phone.until("new-2 · opus", absent=["q close"])
         phone.settled()
         phone.keys("C-b", "m")
         phone.until("q close", prompt="q close")
         phone.press("x")                     # this session's, asked under its own row
-        phone.until("Stop opus and everything it runs?", "Keep", prompt="esc keep")
+        phone.until("Stop new-2 and everything it runs?", "Keep", prompt="esc keep")
         self.stop_answered(phone)
         # the seat is gone, so the attach is over: the menu is back, with no ghost row
         screen = phone.until("your projects", "1  phone-audit", "q leave", prompt="q leave")
         self.whole_page(screen, width, height)
-        self.assertFalse(self.has_seat("opus"))
+        self.assertFalse(self.has_seat("new-2"))
         self.assertNotIn("2  phone-audit", "\n".join(screen))
         phone.settled()
         # eleven more seats, one named at the cap. A laptop holds all twelve on one

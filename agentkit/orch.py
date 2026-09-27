@@ -1,9 +1,9 @@
 """Orchestrator seats: named tmux sessions, on whichever harness the model names.
 
 `ak orch` starts or reattaches a seat.  A seat is named by the user -- `ak orch <name>`, or a
-rename -- because the name is what the menu, the status bar and every Discord message call it;
-one started from the menu's `n`, or a bare `ak orch`, is named for its orchestrator (`opus`, then
-`opus-2`) until he renames it.  `ak attach` and a bare `ak` are the menu.
+rename -- because the name is what the menu, the status bar and every Discord message call it.
+The menu's `n` and a bare `ak orch` ask first; Enter leaves a `new` placeholder for the
+orchestrator to name once it knows the work.  `ak attach` and a bare `ak` are the menu.
 
 The seats live on a tmux server of agentkit's own (`tmux -L agentkit`), never the user's default
 one: nothing the toolkit configures leaks into another tmux user's server, and a test cannot
@@ -1963,6 +1963,7 @@ def rename(old, new):
         known = ", ".join(s["name"] for s in sessions()) or "none"
         raise config.Error(f"no orchestrator session {old!r} (running: {known})")
     if new == old:
+        config.update_session(old, unnamed=None)
         return new
     if new in taken_names():
         raise config.Error(f"the name {new!r} is already spoken for")
@@ -1977,6 +1978,7 @@ def rename(old, new):
         # New windows get the new name; the running orchestrator follows the alias.
         tmux_out("set-environment", "-t", new, config.SESSION_ENV, new, socket=server)
         config.rename_session(old, new)
+        config.update_session(new, unnamed=None)
         state = watch.load_state()
         if old in state["stalls"]:
             state["stalls"][new] = state["stalls"].pop(old)
@@ -2559,16 +2561,17 @@ def default_name(orchestrator, taken):
     return unique_name(orchestrator, taken)
 
 
-def ask_name(taken, default=None):
+def ask_name(taken, default=None, auto=False):
     """`Name:` or `Name [default]:`, until there is one. `q` goes back.
 
     A seat is what the user calls it: the menu row, the status bar, the Discord title and the
     file the selection lives in are all this one word, so nothing here invents it.  Enter takes
     the default; an empty answer with no default asks again, and so does a name another seat
     already has. End of input (a script, a Ctrl-D) is the way out: None, and the caller goes
-    back where it came from.
+    back where it came from. With `auto`, Enter and end of input answer None for an automatic
+    name; only `q` or Esc goes back.
     """
-    prompt = f"Name{f' [{default}]' if default else ''}: "
+    prompt = "Name (Enter: auto): " if auto else f"Name{f' [{default}]' if default else ''}: "
     while True:
         line = terminal.readline(prompt)
         if line is None:
@@ -2582,6 +2585,8 @@ def ask_name(taken, default=None):
             return BACK
         if terminal.is_sequence(raw):
             continue
+        if auto and not raw:
+            return None
         name = session_name(raw or default or "")
         if not name:
             print("a session needs a name")
@@ -2820,7 +2825,7 @@ def select(cfg, providers, forced=None, forced_workers=None, prompting=True):
 
 
 def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry_run=False,
-           selection=None, repo=None):
+           selection=None, repo=None, unnamed=False):
     """Select the models, record them, start the seat detached.  The TUI command it runs."""
     name = session_name(name)
     if not name:
@@ -2849,12 +2854,23 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
             account = config.DEFAULT_ACCOUNT   # an owner can open the usual login to sign in
         if account is None:
             raise config.Error(f"{provider}: no account has a working seat login")
-    cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
     # where and when, because that is what opens the seat again once tmux has lost it -- and the
     # conversation it owns, written down before it starts wherever its harness can be told one.
     # Not for a dry run: a conversation nothing ever opened is nobody's to be resumed into.
     extra = {"cwd": str(cwd), "repo": str(repo) if repo else None, "created": time.time(),
              "account": account}
+    if unnamed:
+        # The adapter writes the rulebook while building its command, before the seat starts.
+        extra["unnamed"] = True
+        config.save_session(cfg, name, model, workers, extra)
+    else:
+        config.update_session(name, unnamed=None)
+    try:
+        cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
+    except Exception:
+        if unnamed:
+            config.session_path(name).unlink(missing_ok=True)
+        raise
     if conversation and not dry_run:
         extra["conversation"] = conversation
         extra["id_source"] = LAUNCHER
@@ -2958,7 +2974,6 @@ def main(argv):
             # launched with where it was given one, and fresh where it was not.
             # Naming a model or a worker list is the one way to ask for a new seat by that name.
             return resume(cfg, name, dry_run=dry_run)
-    selection = None
     if forced is not None and forced_workers is None:
         # Reject invalid flags before asking any interactive question.
         providers = usage.collect(cfg)
@@ -2969,17 +2984,17 @@ def main(argv):
         worker_names(cfg, forced_workers)
     cwd = Path.cwd()
     repo = cwd_project(cwd)
-    if selection is None and not name:
-        providers = usage.collect(cfg)
-        selected = select(cfg, providers, forced, forced_workers, prompting=True)
-        if selected is BACK:
-            return 0
-        selection = providers, selected
+    unnamed = False
     if not name:
-        name = default_name(selection[1][0], taken_names())
+        name = ask_name(taken_names(), auto=True)
+        if name is BACK:
+            return 0
+        unnamed = name is None
+        name = name or unique_name("new", taken_names())
     # A direct shell invocation keeps its working directory when no project is chosen.
     # The menu's n deliberately starts unassigned seats in ~/code instead.
-    result = create(cfg, name, repo or cwd, forced, forced_workers, True, dry_run, selection, repo)
+    result = create(cfg, name, repo or cwd, forced, forced_workers, True, dry_run,
+                    repo=repo, unnamed=unnamed)
     if result is None:
         return 0
     return 0 if dry_run else attach(name)

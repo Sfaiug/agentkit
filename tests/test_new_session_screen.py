@@ -1,4 +1,4 @@
-"""`n` is one screen of selectors, and Enter starts a session with the defaults.
+"""`n` asks for a name, then shows selectors; Enter takes each default.
 
 Each test runs `menu.loop` in a child process on a pty of its own, with the seat listing, the
 usage rows, the meters and the probe faked, and the create step reduced to a line saying what
@@ -192,6 +192,8 @@ class NewSessionScreen(unittest.TestCase):
         screen = Screen(self)
         screen.menu()
         screen.send(b"n")
+        screen.saw("Name (Enter: auto): ")
+        screen.send(ENTER)
         lines = screen.picker()
         self.assertTrue(lines[0].startswith("agentkit · new session"), lines)
         self.assertIn("Opus 5.5", highlighted(lines))                 # the cursor starts there
@@ -202,15 +204,16 @@ class NewSessionScreen(unittest.TestCase):
         self.assertEqual([row.split()[1] for row in workers if "■" in row], ["Opus", "Astra"])
         self.assertTrue(lines[-1].startswith("  ↑↓ move   space choose   ⏎ start   esc back"))
         screen.send(ENTER)
-        screen.saw("<created opus opus opus,astra>", "<opened opus>")
-        screen.menu(after=screen.text().index("<opened opus>"))
+        screen.saw("<created new opus opus,astra>", "<opened new>")
+        screen.menu(after=screen.text().index("<opened new>"))
         screen.leave()
-        self.assertNotIn("Name", screen.text())                       # and nothing is typed
 
     def test_down_and_space_change_the_orchestrator(self):
         screen = Screen(self)
         screen.menu()
         screen.send(b"n")
+        screen.saw("Name (Enter: auto): ")
+        screen.send(ENTER)
         screen.picker()
         screen.send(DOWN)
         screen.picker(lambda lines: "Astra" in highlighted(lines))
@@ -219,13 +222,15 @@ class NewSessionScreen(unittest.TestCase):
         self.assertEqual([row for row in group(lines, "Orchestrator") if "●" in row],
                          [highlighted(lines)])                         # one choice, moved
         screen.send(ENTER)
-        screen.saw("<created astra astra opus,astra>")
+        screen.saw("<created new astra opus,astra>")
         screen.leave()
 
     def test_a_worker_toggled_off_and_the_last_one_kept(self):
         screen = Screen(self)
         screen.menu()
         screen.send(b"n")
+        screen.saw("Name (Enter: auto): ")
+        screen.send(ENTER)
         screen.picker()
         screen.send(DOWN * 7)                  # from the orchestrator Opus to the worker Opus
         lines = screen.picker(lambda lines: highlighted(lines) in group(lines, "Workers")
@@ -241,7 +246,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.send(f"\x1b[<0;8;{row}M\x1b[<0;8;{row}m".encode())
         lines = screen.picker(lambda lines: "■ Spark" in highlighted(lines))
         screen.send(ENTER)
-        screen.saw("<created opus opus astra,spark>")
+        screen.saw("<created new opus astra,spark>")
         screen.leave()
 
     def test_a_spent_model_reads_dim_and_is_not_preselected(self):
@@ -249,6 +254,8 @@ class NewSessionScreen(unittest.TestCase):
         screen.menu()
         mark = len(screen.text())
         screen.send(b"n")
+        screen.saw("Name (Enter: auto): ")
+        screen.send(ENTER)
         lines = screen.picker()
         opus = [row for row in lines if "Opus 5.5" in row]
         self.assertEqual(len(opus), 2)
@@ -261,13 +268,15 @@ class NewSessionScreen(unittest.TestCase):
         self.assertEqual([row.split()[1] for row in group(lines, "Workers") if "■" in row],
                          ["Astra"])
         screen.send(ENTER)
-        screen.saw("<created astra astra astra>")
+        screen.saw("<created new astra astra>")
         screen.leave()
 
     def test_with_everything_spent_nothing_is_chosen_and_enter_waits_for_a_choice(self):
         screen = Screen(self, providers=EVERYTHING_SPENT)
         screen.menu()
         screen.send(b"n")
+        screen.saw("Name (Enter: auto): ")
+        screen.send(ENTER)
         lines = screen.picker()
         self.assertEqual([row for row in lines if "●" in row or "■" in row], [])
         # a week at 100% whose reset nobody knows is spent all the same, only with no time
@@ -278,7 +287,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.picker(lambda lines: "□ Fable" in highlighted(lines)
                       and highlighted(lines) in group(lines, "Workers"))
         screen.send(SPACE + ENTER)
-        screen.saw("<created fable fable fable>")
+        screen.saw("<created new fable fable>")
         screen.leave()
         self.assertEqual(screen.text().count("<created"), 1)
 
@@ -288,6 +297,8 @@ class NewSessionScreen(unittest.TestCase):
                         'model = "x"\neffort = "xhigh"\nprovider = "openai"\n')
         screen.menu()
         screen.send(b"n")
+        screen.saw("Name (Enter: auto): ")
+        screen.send(ENTER)
         lines = screen.picker()
         self.assertEqual(len([line for line in lines if "Mmmmmmmmmmmm…   codex" in line]), 2)
         self.assertEqual([line for line in lines if terminal.cells(line) > 40], [])
@@ -300,6 +311,8 @@ class NewSessionScreen(unittest.TestCase):
         screen = Screen(self)
         screen.menu()
         screen.send(b"n")
+        screen.saw("Name (Enter: auto): ")
+        screen.send(ENTER)
         screen.picker()
         mark = len(screen.text())
         screen.send(ESC)
@@ -311,19 +324,21 @@ class NewSessionScreen(unittest.TestCase):
         screen = Screen(self, providers=SPENT, dry_run=True)
         screen.menu()
         screen.send(b"n")
+        screen.saw("Name (Enter: auto): ")
+        screen.send(ENTER)
         lines = screen.picker()
         self.assertTrue(lines[0].startswith("agentkit · new session"), lines)
         self.assertIn("● Astra", highlighted(lines))
         self.assertIn("spent · resets", "\n".join(lines))
         screen.send(ENTER)
-        text = screen.saw("would attach astra")
-        screen.menu(after=text.index("would attach astra"))
+        text = screen.saw("would attach new")
+        screen.menu(after=text.index("would attach new"))
         screen.leave()
         self.assertEqual(list(screen.home.rglob("session-*.json")), [])
         calls = screen.tmux_calls.read_text().splitlines()
         self.assertTrue(calls)                      # the real listing asked, and only listed
         self.assertEqual([call for call in calls if "list-sessions" not in call.split()], [])
-        self.assertIn("would start astra: astra, workers astra", screen.text())
+        self.assertIn("would start new: astra, workers astra", screen.text())
         self.assertNotIn("Traceback", screen.text())
 
 
