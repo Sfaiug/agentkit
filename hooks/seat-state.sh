@@ -44,7 +44,7 @@ watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None)
 }
 
 seat_state() {
-  local payload=$1 jq=$2 seat event kind text ts dir tmp row next hop
+  local payload=$1 jq=$2 seat event kind text ts dir tmp row next hop owner
   seat=${AGENTKIT_SESSION:-}
   [[ -n $seat ]] || return 0
   [[ ${AK_RUN_ROLE:-} != worker ]] || return 0
@@ -108,15 +108,15 @@ seat_state() {
     look "$seat"
     return 0
   fi
-  # A prompt another session's message or a background task notification opened --
-  # <cross-session-message> or <task-notification> -- keeps the seat's standing done:
-  # the seat only acknowledged the message, so its done from before the turn still tells.
+  # A prompt another session's message opened -- Claude Code wraps it in
+  # <cross-session-message> -- keeps the seat's standing done: the seat only
+  # acknowledged the message, so its done from before the turn still tells.
   # A prompt that asks something -- a sentence ending in `?`, the mark followed by
   # whitespace or the end so a URL's `?` is none -- is ended by its answer.  The
   # latch says which kind of prompt opened the turn.
   peer=false
   if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
-               | any(contains("<cross-session-message") or contains("<task-notification"))' \
+               | any(contains("<cross-session-message"))' \
       <<<"$payload" >/dev/null 2>&1; then
     peer=true
   fi
@@ -134,7 +134,14 @@ seat_state() {
   /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
   # The owner's prompt answers an older question wherever it was typed. The launch
   # name still resolves after a rename; messages from sessions or tasks answer nothing.
-  if [[ $peer = false ]]; then
+  # Background reports keep the normal stop rules, so they must not set the peer latch.
+  owner=true
+  if [[ $peer = true ]] ||
+    "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
+               | any(contains("<task-notification"))' <<<"$payload" >/dev/null 2>&1; then
+    owner=false
+  fi
+  if [[ $owner = true ]]; then
     /usr/bin/env python3 -c '
 import sys
 from pathlib import Path

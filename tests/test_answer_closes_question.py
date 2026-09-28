@@ -67,13 +67,16 @@ class AnswerClosesQuestion(Sandbox):
                                   "episode": "acme-question", "sent": True,
                                   "open_needs": pending})
 
-    def hook(self, event, **payload):
-        result = subprocess.run(["bash", str(REPO / "hooks/seat-state.sh")],
+    def hook(self, event, script="seat-state.sh", **payload):
+        result = subprocess.run(["bash", str(REPO / "hooks" / script)],
                                 input=json.dumps({"hook_event_name": event, **payload}),
                                 text=True, capture_output=True, timeout=15,
                                 env={"HOME": str(self.root), "PATH": os.environ["PATH"],
                                      "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator"})
-        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+        self.assertEqual((result.returncode, result.stderr), (0, ""))
+        if script == "seat-state.sh":
+            self.assertEqual(result.stdout, "")
+        return result.stdout
 
     def prompt(self, **payload):
         self.hook("UserPromptSubmit", **(payload or {"prompt": "Use the second schema."}))
@@ -158,6 +161,26 @@ class AnswerClosesQuestion(Sandbox):
                 self.prompt(**{field: "<task-notification><task-id>acme-task</task-id>"
                                "<status>completed</status></task-notification>"})
                 self.assert_open()
+
+    def test_task_notification_cannot_end_on_a_done_from_before_its_turn(self):
+        notify.record(SEAT, "done", "Acme reads both schemas.")
+        for field in ("prompt", "message"):
+            with self.subTest(field=field):
+                self.prompt(**{field: "<task-notification><status>failed</status>"
+                               "</task-notification>"})
+                output = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
+                                   last_assistant_message="The background acme test run failed in fix-api.")
+                self.assertTrue(output, "background results still require the seat to act")
+                self.assertEqual(json.loads(output)["decision"], "block")
+
+    def test_task_notification_question_keeps_its_plain_reply_ending(self):
+        for field in ("prompt", "message"):
+            with self.subTest(field=field):
+                self.prompt(**{field: "<task-notification>Which acme schema failed?\n"
+                               "</task-notification>"})
+                output = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
+                                   last_assistant_message="Acme's second schema failed.")
+                self.assertEqual(output, "")
 
     def test_no_prompt_leaves_it_open(self):
         self.notice()
