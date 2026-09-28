@@ -62,6 +62,7 @@ sys.exit(1)
         self.eligible = config.offered(self.cfg)
         self.stack.enter_context(patch.object(usage, "collect", side_effect=lambda cfg: self.providers))
         self.stack.enter_context(patch.object(config, "workers", side_effect=lambda cfg: self.eligible))
+        self.stack.enter_context(patch.object(config, "reviewers", side_effect=lambda cfg: self.eligible))
         self.available("anthropic", "openai", "meta")
         adapters = self.root / "adapters"
         adapters.mkdir()
