@@ -746,7 +746,14 @@ class WeeklyBalance(unittest.TestCase):
             with self.subTest(reason=reason):
                 providers = self.providers(80, 53)
                 session = None
-                if reason == "session spent":
+                if reason.startswith("reviewers"):
+                    # No same-company alternative in this selection either.
+                    session = {"name": "fable-seat", "orchestrator": "fable",
+                               "workers": ["astra", "spark", "fable"]}
+                    for provider in ("openai", "meta"):
+                        providers[provider]["meters"] = ([self.meter("weekly", 100)]
+                                                         if reason.endswith("spent") else [])
+                elif reason == "session spent":
                     providers["anthropic"]["meters"].append(self.meter("session", 100, usage.SESSION_SECS))
                 else:
                     session = {"name": "astra-seat", "orchestrator": "astra", "workers": self.workers}
