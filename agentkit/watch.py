@@ -2245,7 +2245,11 @@ def sync_title(session, log=lambda _: None, *, force=False):
         if composed:
             line = pending    # our line still needs Enter, even after its seat changes name
         title = plugin.session_title(record)
+        # A harness whose own naming can replace an acknowledged name restores it: an
+        # empty receipt means our name is absent again, so repair it with the same cap.
+        restores = getattr(plugin.module, "title_restores", None)
         if (record.get("session_title") == name and not force and not tries and not composed
+                and not (restores and restores(record, title))
                 and title not in record.get("title_superseded", [])):
             return False
         if title == name and not composed:

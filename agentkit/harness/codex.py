@@ -134,8 +134,17 @@ def title_ready(record, state):
                 and not attempt.get("pending", True))
 
 
+def title_restores(record, title):
+    """Whether an acknowledged name absent from the index needs retyping.
+
+    Codex's own naming replaces ak's /rename after the first prompt. An empty receipt
+    means the seat's name is gone from its thread; restore it with the same retry cap.
+    """
+    return title == ""
+
+
 def session_title(record):
-    """Only explicit names in the owned launch's index, never its generated database title."""
+    """Acknowledge ak's names only: Codex stores generated and /rename names alike."""
     sid = conversation(record)
     if not sid:
         return None
@@ -161,7 +170,8 @@ def session_title(record):
         return ""
     except (OSError, UnicodeError):
         return None
-    return title
+    return title if title in (record.get("session_title"),
+                              (record.get("title_sync") or {}).get("name")) else ""
 
 
 def prepare(name, cwd, owned):

@@ -361,13 +361,43 @@ blank rows and wrapping are intact; only the thread UUID was replaced, including
 wrapped pieces. All throwaway sessions, homes and the tmux server were removed afterwards.
 
 `codex-title-index.jsonl` is the resulting `session_index.jsonl`: two appended entries
-with `id`, `thread_name` and `updated_at`, with the same UUID replacement. The latest
-complete entry for the owned id is its explicit name. `codex-title-row.json` projects
-that thread's `id`, `title` and `name` from `state_5.sqlite`'s `threads` row: the explicit
-name is `quay`, while `title` is separate and empty. The generated-title test puts an
-invented value in `title` and no name in the index; it is a synthetic variant, not a
-capture of a model naming a thread. The mid-turn refusal test likewise simulates a
-cleared composer without a stored name; this build accepted both captured renames.
+with `id`, `thread_name` and `updated_at`, with the same UUID replacement.
+`codex-title-row.json` projects that thread's `id`, `title` and `name` from
+`state_5.sqlite`'s `threads` row: the name is `quay`, while `title` is separate and
+empty. This prompt-free probe did not establish that index entries are explicit names.
+The mid-turn refusal test simulates a cleared composer without a stored name; this
+build accepted both captured renames.
+
+`codex-title-prompts.json` corrects that gap with live 0.153.4 interactive probes on
+2026-09-28, using the default `gpt-6-astra` model at low effort. Each had a separate
+throwaway HOME and CODEX_HOME under the checkout, a copy of `~/.codex/auth.json`
+(file-only credentials), and a private tmux socket. The one-line prompts requested
+only a word and no tools. The fixture records the index and the thread row's `id`,
+`source`, `title`, `first_user_message` and `name` after each step, plus all column
+names from `pragma table_info(threads)`. UUIDs were replaced whole; all names and
+prompt words are invented. No real Codex home was written. The tmux server and all
+throwaway homes, credentials and probe files were deleted afterwards.
+
+- `plain`: startup; `Reply with the word lagoon. Do not use tools.`; `/rename quay`;
+  `Reply with the word pebble. Do not use tools.`. The first prompt appends its
+  truncated text, then `Reply with lagoon` about five seconds later. Both go into
+  `name`; `title` and `first_user_message` retain the full prompt. `/rename quay`
+  changes the same `name` column and appends the same index shape.
+- `named`: `/rename lagoon` before any prompt; `Reply with the word harbor. Do not
+  use tools.`; `/rename lagoon` again; `Reply with the word meadow. Do not use tools.`.
+  The early name survives both prompts in this capture.
+- `race`: startup; `Reply with the word inlet. Do not use tools.`; `/rename lagoon`
+  immediately after the first index entry; completed prompt; `/rename lagoon` again.
+  The first-prompt snapshot catches the truncated text in both the index and `name`
+  before a generated summary. This early rename also survives in this capture.
+
+Neither store marks who wrote a name: `source` stays `cli` for generated and manual
+names, and no thread column records name provenance. Agentkit therefore acknowledges
+only its own names and does not follow Codex titles, including an owner's `/rename`.
+Tests also simulate a late automatic name replacing ak's earlier name by combining
+the captured index and row shapes; that overwrite is a regression scenario, not an
+observed result of these pre-prompt renames. They require one repair, no repeated
+typing after acknowledgement, and at most three attempts if Codex refuses the repair.
 
 ## Grok seat titles (1.0.40)
 

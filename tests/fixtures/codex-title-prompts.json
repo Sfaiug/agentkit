@@ -1,0 +1,322 @@
+{
+  "thread_columns": [
+    "id",
+    "rollout_path",
+    "created_at",
+    "updated_at",
+    "source",
+    "model_provider",
+    "cwd",
+    "title",
+    "sandbox_policy",
+    "approval_mode",
+    "tokens_used",
+    "has_user_event",
+    "archived",
+    "archived_at",
+    "git_sha",
+    "git_branch",
+    "git_origin_url",
+    "cli_version",
+    "first_user_message",
+    "agent_nickname",
+    "agent_role",
+    "memory_mode",
+    "model",
+    "reasoning_effort",
+    "agent_path",
+    "created_at_ms",
+    "updated_at_ms",
+    "thread_source",
+    "preview",
+    "recency_at",
+    "recency_at_ms",
+    "history_mode",
+    "name",
+    "is_pinned",
+    "thread_section_id",
+    "section_position",
+    "section_entered_at_ms",
+    "project_id"
+  ],
+  "plain": [
+    {
+      "step": "startup",
+      "index": [],
+      "rows": []
+    },
+    {
+      "step": "after-prompt",
+      "index": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "thread_name": "Reply with the word lagoon. Do not u",
+          "updated_at": "2026-09-28T10:59:55.103994379Z"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "thread_name": "Reply with lagoon",
+          "updated_at": "2026-09-28T11:00:00.06759645Z"
+        }
+      ],
+      "rows": [
+        {
+          "source": "cli",
+          "title": "Reply with the word lagoon. Do not use tools.",
+          "first_user_message": "Reply with the word lagoon. Do not use tools.",
+          "name": "Reply with lagoon",
+          "id": "00000000-0000-4000-8000-000000000001"
+        }
+      ]
+    },
+    {
+      "step": "owner-rename",
+      "index": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "thread_name": "Reply with the word lagoon. Do not u",
+          "updated_at": "2026-09-28T10:59:55.103994379Z"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "thread_name": "Reply with lagoon",
+          "updated_at": "2026-09-28T11:00:00.06759645Z"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "thread_name": "quay",
+          "updated_at": "2026-09-28T11:00:23.408473863Z"
+        }
+      ],
+      "rows": [
+        {
+          "source": "cli",
+          "title": "Reply with the word lagoon. Do not use tools.",
+          "first_user_message": "Reply with the word lagoon. Do not use tools.",
+          "name": "quay",
+          "id": "00000000-0000-4000-8000-000000000001"
+        }
+      ]
+    },
+    {
+      "step": "second-prompt",
+      "index": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "thread_name": "Reply with the word lagoon. Do not u",
+          "updated_at": "2026-09-28T10:59:55.103994379Z"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "thread_name": "Reply with lagoon",
+          "updated_at": "2026-09-28T11:00:00.06759645Z"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "thread_name": "quay",
+          "updated_at": "2026-09-28T11:00:23.408473863Z"
+        }
+      ],
+      "rows": [
+        {
+          "source": "cli",
+          "title": "Reply with the word lagoon. Do not use tools.",
+          "first_user_message": "Reply with the word lagoon. Do not use tools.",
+          "name": "quay",
+          "id": "00000000-0000-4000-8000-000000000001"
+        }
+      ]
+    }
+  ],
+  "named": [
+    {
+      "step": "named-idle",
+      "index": [
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "thread_name": "lagoon",
+          "updated_at": "2026-09-28T10:59:58.680159746Z"
+        }
+      ],
+      "rows": [
+        {
+          "source": "cli",
+          "title": "",
+          "first_user_message": "",
+          "name": "lagoon",
+          "id": "00000000-0000-4000-8000-000000000002"
+        }
+      ]
+    },
+    {
+      "step": "after-prompt",
+      "index": [
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "thread_name": "lagoon",
+          "updated_at": "2026-09-28T10:59:58.680159746Z"
+        }
+      ],
+      "rows": [
+        {
+          "source": "cli",
+          "title": "Reply with the word harbor. Do not use tools.",
+          "first_user_message": "Reply with the word harbor. Do not use tools.",
+          "name": "lagoon",
+          "id": "00000000-0000-4000-8000-000000000002"
+        }
+      ]
+    },
+    {
+      "step": "restored-name",
+      "index": [
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "thread_name": "lagoon",
+          "updated_at": "2026-09-28T10:59:58.680159746Z"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "thread_name": "lagoon",
+          "updated_at": "2026-09-28T11:00:24.100274015Z"
+        }
+      ],
+      "rows": [
+        {
+          "source": "cli",
+          "title": "Reply with the word harbor. Do not use tools.",
+          "first_user_message": "Reply with the word harbor. Do not use tools.",
+          "name": "lagoon",
+          "id": "00000000-0000-4000-8000-000000000002"
+        }
+      ]
+    },
+    {
+      "step": "second-prompt",
+      "index": [
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "thread_name": "lagoon",
+          "updated_at": "2026-09-28T10:59:58.680159746Z"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "thread_name": "lagoon",
+          "updated_at": "2026-09-28T11:00:24.100274015Z"
+        }
+      ],
+      "rows": [
+        {
+          "source": "cli",
+          "title": "Reply with the word harbor. Do not use tools.",
+          "first_user_message": "Reply with the word harbor. Do not use tools.",
+          "name": "lagoon",
+          "id": "00000000-0000-4000-8000-000000000002"
+        }
+      ]
+    }
+  ],
+  "race": [
+    {
+      "step": "startup",
+      "index": [],
+      "rows": []
+    },
+    {
+      "step": "first-prompt",
+      "index": [
+        {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "thread_name": "Reply with the word inlet. Do not us",
+          "updated_at": "2026-09-28T11:01:28.186331707Z"
+        }
+      ],
+      "rows": [
+        {
+          "source": "cli",
+          "title": "Reply with the word inlet. Do not use tools.",
+          "first_user_message": "Reply with the word inlet. Do not use tools.",
+          "name": "Reply with the word inlet. Do not us",
+          "id": "00000000-0000-4000-8000-000000000003"
+        }
+      ]
+    },
+    {
+      "step": "early-rename",
+      "index": [
+        {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "thread_name": "Reply with the word inlet. Do not us",
+          "updated_at": "2026-09-28T11:01:28.186331707Z"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "thread_name": "lagoon",
+          "updated_at": "2026-09-28T11:01:28.524617355Z"
+        }
+      ],
+      "rows": [
+        {
+          "source": "cli",
+          "title": "Reply with the word inlet. Do not use tools.",
+          "first_user_message": "Reply with the word inlet. Do not use tools.",
+          "name": "lagoon",
+          "id": "00000000-0000-4000-8000-000000000003"
+        }
+      ]
+    },
+    {
+      "step": "after-prompt",
+      "index": [
+        {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "thread_name": "Reply with the word inlet. Do not us",
+          "updated_at": "2026-09-28T11:01:28.186331707Z"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "thread_name": "lagoon",
+          "updated_at": "2026-09-28T11:01:28.524617355Z"
+        }
+      ],
+      "rows": [
+        {
+          "source": "cli",
+          "title": "Reply with the word inlet. Do not use tools.",
+          "first_user_message": "Reply with the word inlet. Do not use tools.",
+          "name": "lagoon",
+          "id": "00000000-0000-4000-8000-000000000003"
+        }
+      ]
+    },
+    {
+      "step": "restored-name",
+      "index": [
+        {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "thread_name": "Reply with the word inlet. Do not us",
+          "updated_at": "2026-09-28T11:01:28.186331707Z"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "thread_name": "lagoon",
+          "updated_at": "2026-09-28T11:01:28.524617355Z"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "thread_name": "lagoon",
+          "updated_at": "2026-09-28T11:01:56.534023089Z"
+        }
+      ],
+      "rows": [
+        {
+          "source": "cli",
+          "title": "Reply with the word inlet. Do not use tools.",
+          "first_user_message": "Reply with the word inlet. Do not use tools.",
+          "name": "lagoon",
+          "id": "00000000-0000-4000-8000-000000000003"
+        }
+      ]
+    }
+  ]
+}
