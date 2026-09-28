@@ -368,7 +368,6 @@ class WeeklyBalance(unittest.TestCase):
         self.assertEqual(usage.model_budget(self.cfg, "astra", providers), (0.0, None))
 
     def test_v5b_unknown_fable_cannot_take_executor_preference(self):
-        self.cfg["defaults"]["workers"].append("fable")
         providers = self.providers(80, 53)
         providers["anthropic"]["error"] = "partial probe failed"
         with redirect_stderr(io.StringIO()):
@@ -413,7 +412,6 @@ class WeeklyBalance(unittest.TestCase):
         self.assertIsNotNone(reason)
 
     def test_v5b_partial_reviewer_probe_preserves_fable_preference(self):
-        self.cfg["defaults"]["workers"].append("fable")
         providers = self.providers(80, 53)
         providers["openai"]["error"] = "unknown: one malformed meter"
         providers["meta"]["meters"] = []
@@ -587,7 +585,6 @@ class WeeklyBalance(unittest.TestCase):
                 self.assertEqual(probe.call_count, 4)
 
     def test_behind_prefers_fable_executor_with_cross_provider_reviewer(self):
-        self.cfg["defaults"]["workers"].append("fable")
         for session in (None, {"name": "fable-seat", "orchestrator": "fable",
                                "workers": self.workers},
                         {"name": "fable-seat", "orchestrator": "fable",
@@ -607,7 +604,6 @@ class WeeklyBalance(unittest.TestCase):
                     self.assertNotEqual(*run.review_providers(self.cfg, *pair))
 
     def test_behind_keeps_opus_selectable_for_normal_cross_provider_pick(self):
-        self.cfg["defaults"]["workers"].append("fable")
         providers = self.providers(80, 53)
         self.assertFalse(usage.model_exhausted(self.cfg, "opus", providers)[0])
         self.assertEqual(usage.model_headroom(self.cfg, "opus", providers), 0.2)
@@ -700,7 +696,7 @@ class WeeklyBalance(unittest.TestCase):
                                                      lambda _: None, resuming=True,
                                                      workers=session["workers"]), ("fable", "astra"))
                     for executor, reviewer in (("fable", "astra"), ("astra", "fable")):
-                        with self.assertRaisesRegex(config.Error, "not a (worker|reviewer)"):
+                        with self.assertRaisesRegex(config.Error, "not a worker"):
                             run.pick_models(self.cfg, providers, executor, reviewer, lambda _: None,
                                             resuming=True, workers=self.workers)
 

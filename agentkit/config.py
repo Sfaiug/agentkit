@@ -753,9 +753,13 @@ def save_session(cfg, name, orchestrator, workers, extra=None):
 
     `extra` is what the seat is besides its models -- its directory, the moment it was created,
     the harness conversation it holds -- because a record has to say enough to open the seat
-    again once tmux is no longer holding it.
+    again once tmux is no longer holding it. New seats inherit explicit default reviewers;
+    loading an older record never adds them.
     """
+    reviewers = cfg.get("defaults", {}).get("reviewers")
     selection = _validate_session(cfg, name, {"orchestrator": orchestrator, "workers": workers,
+                                              **({"reviewers": list(reviewers)}
+                                                 if reviewers is not None else {}),
                                               **(extra or {})})
     _write_json(session_path(name), selection)
     return selection

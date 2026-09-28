@@ -1153,6 +1153,12 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     orchestrator explicitly, since the caller may still be in another seat. JSON output uses
     `quiet` because the providers already carry their unknown reasons as structured fields.
     """
+    if workers is None:
+        selection = config.active_session(cfg) or cfg["defaults"]
+        if "reviewers" in selection:
+            workers = selection["reviewers"] if role == "reviewer" else selection["workers"]
+            if reviewers is None:
+                reviewers = selection["reviewers"]
     tier_b = (list(workers) if workers is not None else
               config.reviewers(cfg) if role == "reviewer" else config.workers(cfg))
     if orchestrator is None:
