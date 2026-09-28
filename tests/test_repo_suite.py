@@ -101,7 +101,7 @@ class RepoSuite(unittest.TestCase):
         state = self.launch("declared", ["true"])
         self.assertTrue(self.rounds())
         self.assertTrue(all(SUITE not in cmds for cmds in self.rounds()), self.gates)
-        self.assertEqual(self.finals(), [["true", SUITE]])
+        self.assertEqual(self.finals(), [["true"], [SUITE]])
         self.assertEqual(state["final_check"]["outcome"], "passed")
 
     def test_done_when_line_identical_to_the_suite_runs_once(self):
@@ -112,14 +112,14 @@ class RepoSuite(unittest.TestCase):
                 self.launch(name, ["true", line])
                 ran = [cmd for _, cmds in self.gates for cmd in cmds]
                 self.assertEqual(ran.count(SUITE), 1, self.gates)
-                self.assertEqual(self.finals(), [["true", SUITE]])
+                self.assertEqual(self.finals(), [["true"], [SUITE]])
 
     def test_repository_without_tests_runs_exactly_its_done_when(self):
         self.commit("# acme\n\nNo front matter here.\n")
         self.launch("undeclared", ["true", "test -d .  # once"])
         self.assertTrue(self.rounds())
         self.assertTrue(all(cmds == ["true"] for cmds in self.rounds()), self.gates)
-        self.assertEqual(self.finals(), [["true", "test -d ."]])
+        self.assertEqual(self.finals(), [["true"], ["test -d ."]])
 
     def test_checkout_without_tests_falls_back_to_origin_main(self):
         self.add_origin()
@@ -136,7 +136,7 @@ class RepoSuite(unittest.TestCase):
                 self.assertEqual(ran.count(SUITE), 1, self.gates)
                 self.assertTrue(all(SUITE not in cmds for cmds in self.rounds()),
                                 self.gates)
-                self.assertEqual(self.finals(), [["true", SUITE]])
+                self.assertEqual(self.finals(), [["true"], [SUITE]])
 
     def test_checkout_tests_wins_over_origin_main(self):
         origin_suite = "test -d ."
@@ -148,7 +148,7 @@ class RepoSuite(unittest.TestCase):
         self.launch("own-wins", ["true"])
         self.assertTrue(self.rounds())
         self.assertTrue(all(SUITE not in cmds for cmds in self.rounds()), self.gates)
-        self.assertEqual(self.finals(), [["true", SUITE]])
+        self.assertEqual(self.finals(), [["true"], [SUITE]])
         ran = [cmd for _, cmds in self.gates for cmd in cmds]
         self.assertNotIn(origin_suite, ran, self.gates)
 

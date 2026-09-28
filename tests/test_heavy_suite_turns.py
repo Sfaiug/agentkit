@@ -24,10 +24,15 @@ from agentkit import config, run, worker
 
 ACME = "/home/fixture/code/acme"
 WIDGET = "/home/fixture/code/widget"
-SMALL = {"cpus": 8, "load": 0, "free_mb": 4100, "mem_total_mb": 16384}
-LARGE = {"cpus": 16, "load": 0, "free_mb": 8200, "mem_total_mb": 32768}
-SATURATED = {"cpus": 8, "load": 8, "free_mb": 100, "mem_total_mb": 16384,
-             "unit_memory_current_mb": 900, "unit_memory_high_mb": 1000}
+SMALL = {"cpus": 8, "load": 0, "free_mb": 4100, "mem_total_mb": 16384,
+         "slice_cpu_quota": 8, "slice_cpu_used": 0,
+         "slice_memory_used_mb": 0, "slice_memory_high_mb": 4100}
+LARGE = {"cpus": 16, "load": 0, "free_mb": 8200, "mem_total_mb": 32768,
+         "slice_cpu_quota": 16, "slice_cpu_used": 0,
+         "slice_memory_used_mb": 0, "slice_memory_high_mb": 8200}
+SATURATED = {"cpus": 16, "load": 0, "free_mb": 8200, "mem_total_mb": 32768,
+             "slice_cpu_quota": 1, "slice_cpu_used": 1,
+             "slice_memory_used_mb": 900, "slice_memory_high_mb": 1000}
 
 
 class Gate(threading.Thread):
@@ -156,6 +161,26 @@ class HeavySuiteTurns(unittest.TestCase):
             self.assertTrue(waiter.result[0], waiter.result[1])
             self.assertTrue(waiter.waited(), waiter.logs)
         self.assertEqual(self.marks.read_text(), "waiter\n")
+
+    def test_a_shrinking_limit_counts_holders_beyond_its_prefix(self):
+        with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(SATURATED)}):
+            self.assertEqual(run.derived_heavy_limit(), 1)
+            # two suites ran at limit 2; one finished, freeing slot 0, while the
+            # other still holds slot 1 -- a saturated limit of 1 admits none more
+            with run.gate_lock(ACME, 0).open("a"):
+                pass
+            with run.gate_lock(ACME, 1).open("a") as holder:
+                fcntl.flock(holder, fcntl.LOCK_EX)
+                third = Gate(self, "three", ACME, [self.mark("third")])
+                third.start()
+                self.until(lambda: run.gate_turn_note(
+                    run.read_state(third.run_dir) or {}),
+                    "the third suite to wait on the saturated turn")
+                self.assertNotIn("third", self.marks.read_text())
+            third.join(20)
+            self.assertIsNone(third.error, third.error)
+            self.assertTrue(third.waited(), third.logs)
+            self.assertEqual(self.marks.read_text(), "third\n")
 
     def test_a_pinned_max_gates_holds(self):
         self.gates(2)

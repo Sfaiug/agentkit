@@ -104,8 +104,7 @@ Re-review rules on each dispute first, upheld or dropped, and says why. Three ro
 
 On PASS the run brings the branch up to date with `origin/<target>` (a rebase, or a merge where `merge: merge` is asked
 or the branch already carries merge commits), pushes, opens the PR, waits out the required checks and merges it, squash
-by default. Each landing lap takes its heavy suite turn first, then rebases onto the target's tip and runs each check once on
-that commit, letting the turn go before any fixer or reviewer starts. A clean integration keeps its review if the
+by default. Each landing lap rebases onto the target's tip and runs each check once on that commit, only the heavy suite taking a turn. A clean integration keeps its review if the
 done-when passes again; an empty one ends PASS. A conflict or a failing `# once`
 check gets up to three fixer rounds, never task rounds, then parks `waiting` on the target ref and SHA until the tick sees it move (a check
 names its first failing line); one failing on the target's own tip too parks at once with `<target> itself fails: <line>`, spending no round, unless the command names a file only the branch has (including root files, globs and paths after `cd`): the fixer runs without a probe and the log names the missing file. File-existence tests still probe. A host lands one run per repository and target branch at a time, and the first lap's merge turn covers only a fetch, the push, the PR, its required checks and the merge: the
