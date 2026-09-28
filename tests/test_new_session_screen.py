@@ -241,10 +241,11 @@ class NewSessionScreen(unittest.TestCase):
         screen.picker(lambda lines: marks(highlighted(lines)) == "●□■")
         mark = len(screen.text())
         screen.send(DOWN + SPACE)              # Astra, the last executor, stays chosen
-        lines = screen.picker(lambda lines: "the workers need one model" in "\n".join(lines),
+        lines = screen.picker(lambda lines: "exec needs one model" in "\n".join(lines),
                               after=mark)
         self.assertEqual(marks(highlighted(lines)), "○■■")
-        # A click in Spark's executor column chooses it.
+        # A click chooses Spark's executor mark even with the cursor in the orch column.
+        screen.send(LEFT)
         row = next(number for number, line in enumerate(lines, 1) if "Spark" in line)
         col = lines[2].index("exec") + 2
         screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())

@@ -1,6 +1,8 @@
 """The role marks stay independent, save atomically, and admit only launchable pairs. Offline."""
 
 import copy
+from contextlib import redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
@@ -13,7 +15,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, run, terminal
 from test_v4n import Sandbox
 from test_config_matrix import Screen as ConfigScreen, row
-from test_new_session_screen import Screen, RIGHT, LEFT, ENTER, SPACE, highlighted, marks
+from test_new_session_screen import Screen, RIGHT, LEFT, DOWN, ENTER, SPACE, highlighted, marks
 
 
 class RoleMarks(Sandbox):
@@ -61,7 +63,8 @@ class RoleMarks(Sandbox):
         config.save(self.cfg)
         before = copy.deepcopy(self.cfg)
         for name, column in (("opus", 1), ("astra", 2)):
-            self.assertIn("need one model", menu.config_mark(self.cfg, name, column))
+            self.assertEqual(menu.config_mark(self.cfg, name, column),
+                             f"{orch.ROLE_HEADS[column]} needs one model")
             self.assertEqual(self.cfg, before)
         with patch.object(config, "save", side_effect=OSError("read only")):
             self.assertEqual(menu.config_mark(self.cfg, "fable", 2), "config: read only")
@@ -115,8 +118,65 @@ class RoleMarks(Sandbox):
         self.assertTrue(all([cell[2] for cell in own] == [0, 1, 2] for own in cells))
         self.assertIn("[.]", lines[rows[1].start])
 
+    def test_click_chooses_its_column_instead_of_the_previous_column(self):
+        selected = {"orchestrator": "opus", "workers": ["opus", "astra"],
+                    "reviewers": ["opus", "astra"]}
+        notes = {name: "" for name in config.offered(self.cfg)}
+        names = list(notes)
+        with patch.object(terminal, "layout_width", return_value=80):
+            _, rows, cells = orch.picker_lines(self.cfg, notes, selected, 1, 0, 80)
+            for name, column, before, expected in (
+                    ("fable", 0, 2, ("fable", ["opus", "astra"], ["opus", "astra"])),
+                    ("opus", 1, 0, ("opus", ["astra"], ["opus", "astra"])),
+                    ("astra", 2, 0, ("opus", ["opus", "astra"], ["opus"]))):
+                for edge in (0, 1):     # the whole column is clickable, including its padding
+                    at = names.index(name)
+                    click = terminal.Key("click", col=cells[at][column][edge],
+                                         row=rows[at].start + 3)
+                    keys = [*[terminal.Key("right")] * before, click, terminal.Key("enter")]
+                    with self.subTest(column=column, edge=edge), \
+                            patch.object(terminal, "read_key", side_effect=keys), \
+                            redirect_stdout(io.StringIO()):
+                        self.assertEqual(orch._picking(self.cfg, {}, notes, selected), expected)
+
+    def test_an_empty_role_falls_back_to_an_allowed_fresh_pair(self):
+        for workers, reviewers, expected in (
+                (["opus"], ["fable"], (["astra"], ["spark"])),
+                (["opus"], ["astra"], (["spark"], ["astra"])),
+                (["astra"], ["opus"], (["astra"], ["spark"])),
+                (["astra"], ["spark"], (["astra"], ["spark"]))):
+            self.cfg["defaults"].update(workers=workers, reviewers=reviewers)
+            with self.subTest(workers=workers, reviewers=reviewers), \
+                    patch.object(orch, "spent_note", side_effect=lambda cfg, name, providers:
+                                 "" if name in ("astra", "spark") else "spent"), \
+                    patch.object(terminal, "Keyboard"), \
+                    patch.object(terminal, "read_key", side_effect=[terminal.Key("enter")]), \
+                    redirect_stdout(io.StringIO()):
+                self.assertEqual(orch.pick(self.cfg, {}, "astra"), ("astra", *expected))
+
 
 class RoleMarksScreen(unittest.TestCase):
+    def test_scrolling_keeps_headings_and_clicks_use_the_scrolled_row(self):
+        screen = Screen(self, rows=12, cols=40)
+        screen.menu()
+        screen.send(b"n" + ENTER)
+        screen.picker()
+        screen.send(DOWN * 20)
+        lines = screen.picker(lambda lines: "Mimo" in highlighted(lines))
+        self.assertEqual(lines[2].split(), ["orch", "exec", "review"])
+        self.assertLessEqual(len(lines), 11)
+        self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
+        row = lines.index(highlighted(lines)) + 1
+        col = lines[2].index("review") + 3
+        screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
+        lines = screen.picker(lambda lines: "Mimo" in highlighted(lines)
+                              and marks(highlighted(lines)) == "○□■")
+        row = next(number for number, line in enumerate(lines, 1) if "⏎ start" in line)
+        col = lines[row - 1].index("⏎") + 1
+        screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
+        screen.saw("<created new opus opus,astra opus,astra,mimo>")
+        screen.leave()
+
     def test_config_reviewer_click_saves_and_refusal_is_one_line_on_a_phone(self):
         text = (REPO / "config.default.toml").read_text().replace(
             'workers = ["opus", "astra"]', 'workers = ["opus"]\nreviewers = ["opus", "astra"]')
@@ -144,6 +204,7 @@ class RoleMarksScreen(unittest.TestCase):
         lines = screen.picker(lambda lines: marks(highlighted(lines)) == "●■■")
         number = next(number for number, line in enumerate(lines, 1) if "Astra" in line)
         col = lines[2].index("review") + 5
+        screen.send(LEFT * 2)                  # the click must move from orch to review
         screen.send(f"\x1b[<0;{col};{number}M\x1b[<0;{col};{number}m".encode())
         screen.picker(lambda lines: "Astra" in highlighted(lines)
                       and marks(highlighted(lines)) == "○■□")

@@ -2873,7 +2873,7 @@ def role_mark(cfg, selected, name, column, providers):
         role = "workers" if column == 1 else "reviewers"
         group = changed[role]
         if name in group and len(group) == 1:
-            return selected, f"the {role} need one model"
+            return selected, f"{ROLE_HEADS[column]} needs one model"
         changed[role] = ([peer for peer in group if peer != name] if name in group
                          else [*group, name])
     if changed["workers"] and changed["reviewers"]:
@@ -2933,7 +2933,8 @@ def pick(cfg, providers, default):
 
     `agentkit · new session`, `n` on a terminal: what Enter takes is chosen before a key is
     pressed -- `default`, which is `choose()`'s, and both default groups with something left
-    to spend, or failing either the first model that has, the way `choose()` falls back.  A
+    to spend. An empty group falls back to the first fresh model that permits a pair, or
+    the first fresh model when no pair is possible. A
     spent model is still a choice, only never a preselected one, so with every model spent
     nothing is chosen and Enter takes the highlight to the column that still wants a choice.
     ↑/↓, k/j and the wheel move through models, ←/→ through roles; space or a click chooses,
@@ -2946,14 +2947,20 @@ def pick(cfg, providers, default):
     notes = {name: spent_note(cfg, name, providers) for name in names}
     fresh = [name for name in names if not notes[name]]
     model = next((name for name in [default, *names] if name in fresh), None)
-    workers = [name for name in cfg["defaults"]["workers"] if name in fresh] or fresh[:1]
-    reviewers = [name for name in cfg["defaults"].get("reviewers", cfg["defaults"]["workers"])
-                 if name in fresh] or fresh[:1]
+    selected = {"orchestrator": model,
+                "workers": [name for name in cfg["defaults"]["workers"] if name in fresh],
+                "reviewers": [name for name in cfg["defaults"].get("reviewers",
+                                                                    cfg["defaults"]["workers"])
+                              if name in fresh]}
+    for role, other in (("workers", "reviewers"), ("reviewers", "workers")):
+        if not selected[role]:
+            selected[role] = next(([name] for name in fresh if not role_refusal(
+                cfg, {**selected, role: [name], other: selected[other] or fresh}, providers)),
+                fresh[:1])
     with closing(terminal.Keyboard()) as keyboard:
         if not keyboard.take():
             return None
-        return _picking(cfg, providers, notes, {"orchestrator": model, "workers": workers,
-                                               "reviewers": reviewers})
+        return _picking(cfg, providers, notes, selected)
 
 
 @terminal.clicks_its_own
@@ -2969,11 +2976,11 @@ def _picking(cfg, providers, notes, selected):
         body, rows, cells = picker_lines(cfg, notes, selected, at, column, terminal.layout_width())
         said = [terminal.styled("  " + terminal.cut(note, terminal.layout_width() - 2), "dim")] \
             if note else []
-        room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(said))
-        top = min(top, rows[at].start - (1 if at == 0 else 0))
-        top = max(0, min(max(top, rows[at].stop - room), len(body) - room))
+        room = max(1, terminal.height() - 6 - len(terminal.key_line(keys)) - len(said))
+        top = max(1, min(max(top, rows[at].stop - room), rows[at].start, len(body) - room))
+        shown = body[top:top + room]
         lines = [terminal.header_line("new session", time.strftime("%H:%M")),
-                 terminal.rule_line(), *body[top:top + room], *said, ""]
+                 terminal.rule_line(), body[0], *shown, *said, ""]
         spans = [(len(lines) + number, begin, end, key)
                  for number, line in enumerate(terminal.key_line(keys), 1)
                  for begin, end, key in terminal.key_spans(line)]
@@ -2987,14 +2994,14 @@ def _picking(cfg, providers, notes, selected):
         if key.name == "click":
             item = next((item for row, begin, end, item in spans
                          if row == key.row and begin <= key.col <= end), "")
-            line = key.row - 3 + top if 2 < key.row <= 2 + room else -1
+            line = key.row - 4 + top if 3 < key.row <= 3 + len(shown) else -1
             hit = next((row for row, drawn in enumerate(rows) if line in drawn), None)
             if item in ("⏎", "enter", "esc", "space"):
                 key = terminal.Key({"⏎": "enter"}.get(item, item))
             elif hit is not None:
-                at, key = hit, terminal.Key("space")
                 column = next((number for first, last, number in cells[hit]
                                if line == rows[hit].start and first <= key.col <= last), column)
+                at, key = hit, terminal.Key("space")
         if terminal.step(key):
             at = min(max(at + terminal.step(key), 0), len(rows) - 1)
         elif key.name in ("left", "right"):
