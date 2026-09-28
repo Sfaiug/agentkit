@@ -843,6 +843,66 @@ def mark_exhausted(cfg, provider, until=None, account=None):
     return float(until)
 
 
+def record_turn_meters(cfg, provider, meters, account=None, now=None):
+    """The meters a worker turn reported about the account it ran on become that reading.
+
+    A file and no request, so neither the snapshot's five minutes nor the probe's minute
+    stands between it and the menu, `ak usage` and the next pick. Only the meters the
+    turn carries are replaced -- any other keeps the endpoint's last reading -- and only
+    on that account: a turn never moves another login's meters. A turn that said nothing
+    changes nothing, and an older reading never replaces a newer one. Returns whether
+    anything was written.
+    """
+    if not isinstance(meters, list) or not meters:
+        return False
+    fresh = [m for m in meters if isinstance(m, dict) and isinstance(m.get("name"), str)
+             and _number(m.get("used")) is not None]
+    if not fresh:
+        return False
+    measured = _number(now) if now is not None else time.time()
+    if measured is None:
+        measured = time.time()
+    cached = _cached_provider(provider, account)
+    cached = cached if isinstance(cached, dict) else {}
+    # The measurement, not the ask: a refused probe's `probed_at` is fresh and its
+    # reading is not, so `fetched_at` is the age where there is one.
+    stood = _number(cached.get("fetched_at"))
+    if stood is None:
+        stood = _number(cached.get("probed_at"))
+    if stood is not None and measured <= stood:
+        return False
+    old = cached.get("meters") if isinstance(cached.get("meters"), list) else []
+    # Normalized as a probed meter is, because every reader of the snapshot reads one.
+    new = {m["name"]: _normalized(m, measured) for m in fresh}
+    merged = [new[m["name"]] if isinstance(m, dict) and m.get("name") in new else m
+              for m in old if isinstance(m, dict) and isinstance(m.get("name"), str)]
+    merged += [meter for name, meter in new.items()
+               if name not in {m.get("name") for m in merged if isinstance(m, dict)}]
+    prov = dict(cached)
+    prov.setdefault("provider", provider)
+    if "harness" not in prov or "via" not in prov:
+        try:
+            harness, via = config.provider_harness(cfg, provider)
+            prov.setdefault("harness", harness)
+            prov.setdefault("via", via)
+        except config.Error:
+            pass
+    prov.update(meters=merged, probed_at=measured, error=None,
+                pace=max((m["pace"] for m in merged
+                            if isinstance(m, dict) and m.get("pace") is not None),
+                           default=None))
+    for key in ("fetched_at", "probe_error", "probe_failed_at", "stale_since"):
+        prov.pop(key, None)
+    _patch(provider, prov, measured, account)
+    # The probe's minute, without a probe: the next read takes this answer instead of
+    # making a request of its own, even where the snapshot itself is stale.
+    try:
+        _lock(provider, account).write_text(repr(measured))
+    except OSError:
+        pass
+    return True
+
+
 def account(cfg, provider):
     """(the account a worker turn on this provider runs on, whether it has room left).
 

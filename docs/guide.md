@@ -200,7 +200,7 @@ over. An unknown budget ranks last, a pay-as-you-go provider joins only while ev
 of pace by more than `pace_margin`, and a run with no eligible pair parks `exhausted`, but a launch no refill can pair
 (skipped harnesses, or workers with no allowed pair) is refused, by a `--bg` launch's parent too. The orchestrator choice ignores pace (see `n`; every model spent launches the default with a WARN); a run without a session uses the
 default workers. Meters are cached for five minutes and each provider is probed at most once a minute host-wide, a refused worker or a spent reset included (Muse's billed probe once in ten, whatever its meters do); a spent-window
-refusal parks the provider until it refills (spending a Codex reset first when held); `ak usage` shows the choices.
+refusal parks the provider until it refills (spending a Codex reset first when held); `ak usage` shows the choices. A Claude worker turn's last `rate_limit_event` becomes its account's session and weekly_all reading at once, with no request; any other meter keeps the endpoint's reading, and an older reading never replaces a newer one.
 
 ## The tick
 

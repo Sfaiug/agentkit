@@ -1334,6 +1334,25 @@ def resume_failed(out_dir, killed, text):
     return worker.said_nothing(out_dir)
 
 
+def note_turn_meters(cfg, name, out_dir, account):
+    """The meters the turn in `out_dir` reported about the account it ran on are the reading.
+
+    Best effort and never the turn's failure: a harness that says nothing leaves the
+    endpoint's reading alone.
+    """
+    try:
+        entry = config.model(cfg, name)
+        meters = harness_plugin(entry["harness"]).turn_meters(out_dir)
+    except (config.Error, OSError, ValueError, TypeError, AttributeError):
+        return
+    if not meters:
+        return
+    try:
+        usage.record_turn_meters(cfg, entry["provider"], meters, account)
+    except (config.Error, OSError, ValueError, TypeError, AttributeError, KeyError):
+        pass
+
+
 def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit=None,
                   fresh_body=None, resume_note=None, handover=None):
     """worker.call, retried while the harness keeps dying on the provider instead of the task.
@@ -1405,13 +1424,15 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         account = usage.account(cfg, entry["provider"])[0]
         named = env if account is None else {**env, **config.account_env(account)}
         try:
-            return worker.call(cfg, name, text, workspace, target, role, session, env=named,
-                               limit=limit)
+            result = worker.call(cfg, name, text, workspace, target, role, session, env=named,
+                                 limit=limit)
         except worker.LoginExpired as expired:
             log(f"{role} {name} cannot authenticate: {expired.why}; the run waits for that "
                 "login rather than retrying into it")
             expired.session = expired.session or session
             raise
+        note_turn_meters(cfg, name, target, account)
+        return result
 
     def next_account(until, message):
         """Park the account this turn ran on alone, and whether another of its provider has
@@ -3503,6 +3524,13 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             code2, text2, sid2, killed2 = worker.call(lp.cfg, lp.reviewer, NO_VERDICT_ASK, lp.wt,
                                                       out2, lp.role("reviewer"), lp.review_sid,
                                                       env=env2, limit=lp.turn_limit)
+            # The extra ask names no account, so it runs on the usual login: the turn's
+            # own reading belongs to that login, and to no login nobody tracks.
+            provider = config.model(lp.cfg, lp.reviewer)["provider"]
+            names = config.accounts(lp.cfg, provider)
+            if not names or config.DEFAULT_ACCOUNT in names:
+                note_turn_meters(lp.cfg, lp.reviewer, out2,
+                                 config.DEFAULT_ACCOUNT if names else None)
         except worker.LoginExpired as expired:
             lp.review_sid = expired.session or lp.review_sid
             lp.save()           # the parked conversation is in run.json before the run parks

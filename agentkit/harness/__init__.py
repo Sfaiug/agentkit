@@ -244,6 +244,17 @@ class Harness:
         from .. import history   # here, not at the top: history is what reads this
         return history.event_tokens(Path(out) / "events.jsonl")
 
+    def turn_meters(self, out):
+        """The meters the turn in `out` reported about its own account, or [].
+
+        By default a harness reports none: only one that prints its account's limits in
+        its stream has anything to say, and what it says is endpoint-shaped meters.
+        """
+        hook = self._hook("turn_meters")
+        if hook:
+            return hook(Path(out))
+        return []
+
 
 def load(name):
     """The plugin for that harness: its module's hooks where it has them, defaults elsewhere.
