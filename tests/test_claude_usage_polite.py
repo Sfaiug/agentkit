@@ -226,6 +226,23 @@ class PoliteClaude(unittest.TestCase):
                          [45])
         self.assertNotIn("probe_error", default)
 
+    def test_a_retry_after_runs_from_when_the_answer_arrives(self):
+        usage.collect(self.cfg)
+        self.now[0] += FIFTEEN
+        self.answer(WORKER_DEFAULT, 429, '{"error":"slow down"}', "Retry-After: 2072\r\n")
+        real = usage._probe
+
+        def slow(cfg, provider, now, account=None):
+            out = real(cfg, provider, now, account)
+            if account == "default":
+                self.now[0] += 10   # the answer arrives ten seconds after the ask
+            return out
+
+        with patch.object(usage, "_probe", side_effect=slow):
+            usage.collect(self.cfg, refresh=True)
+        self.assertEqual(float((config.STATE / "anthropic.default-probe.retry").read_text()),
+                         NOW + FIFTEEN + 10 + 2072)
+
     def test_another_process_inside_the_cadence_asks_nothing(self):
         # Real time, so the lock files this process writes are ones the next process reads.
         self.now[0] = self.real_now

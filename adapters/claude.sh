@@ -139,14 +139,25 @@ usage)
   body=$(curl -s -m 10 -D "$df" -w $'\n%{http_code}' https://api.anthropic.com/api/oauth/usage -H @"$hf" \
       -H 'anthropic-beta: oauth-2025-04-20' -H 'anthropic-version: 2023-06-01' 2>/dev/null)
   code=${body##*$'\n'}; body=${body%$'\n'*}
-  # The endpoint's own not-before, when it named one: seconds, as every 429 seen names it.
-  # An HTTP date is not one of those, so only a bare number is read; anything else waits out
-  # the harness's own fifteen minutes instead.
-  retry=$(sed -n 's/^[Rr][Ee][Tt][Rr][Yy]-[Aa][Ff][Tt][Ee][Rr]: *\([0-9][0-9]*\)[^0-9]*/\1/p' "$df" 2>/dev/null | tail -n 1)
+  # The endpoint's own not-before, when it named one: delay seconds, or the HTTP date to
+  # wait for, answered in seconds from now.  Either arrives with any amount of header
+  # whitespace around it, and leading zeros are decimal, never octal.  Anything else waits
+  # out the harness's own fifteen minutes instead.
+  raw=$(sed -n 's/^[Rr][Ee][Tt][Rr][Yy]-[Aa][Ff][Tt][Ee][Rr]:[[:space:]]*//p' "$df" 2>/dev/null | tail -n 1 | tr -d '\r' | sed 's/[[:space:]]*$//')
+  retry=
+  case "$raw" in
+    ''|*[!0-9]*)
+      exp=$(date -d "$raw" +%s 2>/dev/null || date -j -f '%a, %d %b %Y %T %Z' "$raw" +%s 2>/dev/null) || exp=
+      case "$exp" in ''|*[!0-9]*) ;; *)
+        retry=$(( exp - $(date +%s) ))
+        [ "$retry" -gt 0 ] 2>/dev/null || retry= ;;
+      esac ;;
+    *) retry=$((10#$raw)) ;;
+  esac
   rm -f -- "$hf" "$df"
   if [ "$code" != 200 ]; then
     msg="HTTP ${code:-000} from api.anthropic.com/api/oauth/usage; token may be expired, run 'claude' once to refresh"
-    case "$retry" in ''|*[!0-9]*) err "$msg" ;; esac
+    case "$retry" in ''|0|*[!0-9]*) err "$msg" ;; esac
     m=${msg//\\/}; m=${m//\"/\'}
     printf '{"provider":"anthropic","meters":[],"error":"unknown: %s","retry_after":%d}\n' "$m" "$retry"
     exit 0

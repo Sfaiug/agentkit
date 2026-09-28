@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
@@ -84,6 +85,8 @@ class UsageOneRequest(unittest.TestCase):
         self.env["HOME"] = str(self.root)
         self.env["PATH"] = str(bin) + os.pathsep + self.env.get("PATH", "")
         self.env["FAKE"] = str(self.fake)
+        # English weekday and month names, on any host: the HTTP date is parsed in them.
+        self.env["LC_ALL"] = "C"
         # A leaked export would outrank the worker token file and hide the choice.
         self.env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
         self.env.pop("AGENTKIT_ACCOUNT", None)
@@ -95,6 +98,14 @@ class UsageOneRequest(unittest.TestCase):
         (self.fake / f"resp-{token}").write_text(f"{code}\n{body}\n")
         if headers:
             (self.fake / f"hdr-{token}").write_text(headers)
+        else:
+            (self.fake / f"hdr-{token}").unlink(missing_ok=True)
+
+    def logged_out(self, account=None):
+        """No seat login anywhere the adapter reads: neither the Keychain nor the file."""
+        (self.fake / "keychain.json").unlink(missing_ok=True)
+        home = self.root / (".claude" if account is None else f".claude-{account}")
+        (home / ".credentials.json").unlink(missing_ok=True)
 
     def worker(self, token=WORKER, account=None):
         """A seat whose workers authenticate with that long-lived token."""
@@ -149,6 +160,7 @@ class UsageOneRequest(unittest.TestCase):
             with self.subTest(label=label):
                 (self.fake / "asked").unlink(missing_ok=True)
                 self.worker()
+                self.logged_out()
                 self.logged_in(keychain=keychain)
                 self.answer(WORKER, 200, json.dumps(LIMITS))
                 self.answer(LOGIN, 200, json.dumps(LIMITS))
@@ -206,6 +218,7 @@ class UsageOneRequest(unittest.TestCase):
         for label, expires_at in (("expired login", OLD_MS), ("no login", "absent")):
             with self.subTest(label=label):
                 (self.fake / "asked").unlink(missing_ok=True)
+                self.logged_out()
                 if expires_at != "absent":
                     self.logged_in(expires_at=expires_at)
                 out = self.usage()
@@ -215,11 +228,14 @@ class UsageOneRequest(unittest.TestCase):
 
     # --- the endpoint's own not-before ------------------------------------
 
-    def test_a_refusal_names_its_retry_after_and_a_date_is_ignored(self):
+    def test_a_refusal_names_its_retry_after(self):
         cases = (("seconds", "Retry-After: 2072\r\n", 2072),
                  ("lowercase", "retry-after: 953\r\n", 953),
-                 ("an HTTP date is not a wait", "Retry-After: Wed, 21 Oct 2015 07:28:00 GMT\r\n",
-                  None),
+                 ("surrounding whitespace", "Retry-After: \t 2072 \t\r\n", 2072),
+                 ("leading zeros are decimal", "Retry-After: 02072\r\n", 2072),
+                 ("a past date is no wait",
+                  "Retry-After: Wed, 21 Oct 2015 07:28:00 GMT\r\n", None),
+                 ("not a date", "Retry-After: soon\r\n", None),
                  ("no header", "", None))
         for label, headers, waited in cases:
             with self.subTest(label=label):
@@ -234,6 +250,16 @@ class UsageOneRequest(unittest.TestCase):
                     self.assertNotIn("retry_after", out)
                 else:
                     self.assertEqual(out["retry_after"], waited)
+
+    def test_a_refusal_names_a_future_http_date_in_seconds(self):
+        self.logged_in()
+        stamp = time.strftime("%a, %d %b %Y %H:%M:%S GMT",
+                              time.gmtime(time.time() + 3600))
+        self.answer(LOGIN, 429, '{"error":"rate limited"}', f"Retry-After: {stamp}\r\n")
+        out = self.usage()
+        self.assertIn("429", out["error"])
+        # The date, in seconds from when the adapter read it: about an hour, never exact.
+        self.assertTrue(3590 <= out["retry_after"] <= 3600, out)
 
     # --- a named account --------------------------------------------------
 

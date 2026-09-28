@@ -394,6 +394,6 @@ retry), `result.md` (linking a scratch run's files) and `round-<r>/<role>/{promp
 - A harness login expired: open the seat and log in there; for `gh login expired`, run `gh auth login` on the server. Parked runs resume by themselves. For `claude worker token expires in N days`, run `claude setup-token` and replace `~/.agentkit/secrets/claude_oauth_token`.
 - A dropped Mac file the server cannot read: open a new Mac terminal tab or run `ak macbridge --reader` there, then fetch again.
 - Test one headless turn: `ak worker opus prompt.md --workspace ~/code/foo`.
-- A stale usage reading: open the menu; it reads each provider again within a minute, Claude within fifteen.
+- A stale usage reading: open the menu; it reads each provider again within a minute, Claude within fifteen or its endpoint's longer `Retry-After`.
 - The slice ceiling: pin `slice_tasks_max` and friends in `~/.agentkit/config.toml` (an install rewrites its own `limits.conf`), or `systemctl --user set-property agentkit.slice TasksMax=4096` for now; the user unit's ceiling above it follows the machine where `sudo` needs no password.
 - A failed `ak update` that could not restore Muse: its snapshot is under `~/.agentkit/tmp/muse-snapshot-*`, named in the log.

@@ -264,9 +264,10 @@ def _retry_file(provider, account=None):
 def _note_retry(provider, fresh, now, account=None):
     """Write down the Retry-After this ask came back with, as an absolute not-before.
 
-    Beside the lock file rather than in the snapshot, for the same reason the last ask is:
-    deleting the snapshot must not buy an earlier ask.  A write that fails loses only this
-    ask's own deadline, which the cadence still bounds.
+    `now` is when the answer arrived, not when the ask went out: delay seconds run from
+    response receipt.  Beside the lock file rather than in the snapshot, for the same reason
+    the last ask is: deleting the snapshot must not buy an earlier ask.  A write that fails
+    loses only this ask's own deadline, which the cadence still bounds.
     """
     secs = _number((fresh or {}).get("retry_after"))
     if secs is None or secs <= 0:
@@ -370,7 +371,7 @@ def _probe_gently(cfg, provider, account=None):
     except OSError:
         now = time.time()                # no lock to take: still one probe
         fresh = _probe(cfg, provider, now, account)
-        _note_retry(provider, fresh, now, account)
+        _note_retry(provider, fresh, time.time(), account)
         return _kept(_cached_provider(provider, account), fresh, now)
     with handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
@@ -381,7 +382,7 @@ def _probe_gently(cfg, provider, account=None):
         now = time.time()
         lock.write_text(repr(now))
         fresh = _probe(cfg, provider, now, account)
-        _note_retry(provider, fresh, now, account)
+        _note_retry(provider, fresh, time.time(), account)
         prov = _kept(cached, fresh, now)
         # The mark travels with the record that replaces it, exactly as it does on the way out of
         # `collect`: a provider parked until it says it has capacity must not read as eligible in

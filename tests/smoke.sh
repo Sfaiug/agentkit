@@ -1633,6 +1633,24 @@ skip_unavailable() {   # skip_unavailable <check labels> <required models...>
   done
   return 1
 }
+cooling() { # cooling <provider...>: 0 when a named provider's probe cooldown still holds
+  # A live retry re-asks only where asking is allowed: a 429's Retry-After, or Claude's
+  # fifteen minutes, is asked about, never waived.  Each account holds its own cooldown.
+  # Any failure answers no, and the retry goes ahead exactly as it would without this
+  # question.
+  PYTHONPATH="$REPO" python3 - "$@" <<'PY' 2>/dev/null
+import sys
+from agentkit import config, usage
+cfg = config.load()
+def held(provider):
+    every = usage._probe_every(cfg, provider)
+    accounts = config.accounts(cfg, provider)
+    if accounts:
+        return any(usage._cooling(provider, account, every) for account in accounts)
+    return usage._cooling(provider, None, every)
+sys.exit(0 if any(held(name) for name in sys.argv[1:]) else 1)
+PY
+}
 U="$WORK/usage.json"
 ak usage --json >"$U" 2>"$WORK/usage.err"; USAGERC=$?
 # Every provider can be exhausted; only then is an empty pick_order expected here.
@@ -1647,20 +1665,23 @@ METER_WHY=""
 if { [ "$USAGERC" != 0 ] || [ "$USAGECHECK" != 0 ]; } \
     && METER_WHY=$(meter_unavailable "$U" anthropic openai); then
   sleep "${AK_METER_RETRY_SECS:-60}"
-  METER_RETRIED=1   # check 6 re-probes without sleeping again: its minute has passed
-  # The retry re-asks the adapters: neither the 5 min cache, a probe lock's minute nor a
-  # Retry-After answers it.
-  rm -f -- "$HOME/.agentkit/state/usage.json" "$HOME/.agentkit/state/"*-probe.lock \
-    "$HOME/.agentkit/state/"*-probe.retry
-  ak usage --json >"$U" 2>"$WORK/usage.err"; USAGERC=$?
-  checked "$WORK/usage-check.log" jq -e '(.pick_order | type == "array") and
-    ((.pick_order | length > 0) or (.providers | length > 0 and all(.[]; .exhausted == true))) and
-    (.providers.anthropic.meters | length >= 1) and (.providers.openai.meters | length >= 1)' "$U"
-  USAGECHECK=$?
-  if [ "$USAGERC" = 0 ] && [ "$USAGECHECK" = 0 ]; then
-    METER_WHY=""   # the retry got an answer; the verdict below is a pass
+  METER_RETRIED=1   # check 6 asks again without sleeping: its minute has passed
+  # The retry drops only the 5 min snapshot, so expired cadences re-probe; where a
+  # cooldown still holds nothing is asked again, and the first failure's verdict skips.
+  rm -f -- "$HOME/.agentkit/state/usage.json"
+  if cooling anthropic openai; then
+    :
   else
-    METER_WHY=$(meter_unavailable "$U" anthropic openai) || METER_WHY=""
+    ak usage --json >"$U" 2>"$WORK/usage.err"; USAGERC=$?
+    checked "$WORK/usage-check.log" jq -e '(.pick_order | type == "array") and
+      ((.pick_order | length > 0) or (.providers | length > 0 and all(.[]; .exhausted == true))) and
+      (.providers.anthropic.meters | length >= 1) and (.providers.openai.meters | length >= 1)' "$U"
+    USAGECHECK=$?
+    if [ "$USAGERC" = 0 ] && [ "$USAGECHECK" = 0 ]; then
+      METER_WHY=""   # the retry got an answer; the verdict below is a pass
+    else
+      METER_WHY=$(meter_unavailable "$U" anthropic openai) || METER_WHY=""
+    fi
   fi
 fi
 if skip_unavailable 1 opus astra; then
@@ -2003,12 +2024,15 @@ METER_WHY=""
 if METER_WHY=$(meter_unavailable "$U" anthropic openai); then
   # Check 1 already waited this minute out when it retried, so this re-probe goes at once.
   [ -n "${METER_RETRIED:-}" ] || sleep "${AK_METER_RETRY_SECS:-60}"
-  # The retry re-asks the adapters: neither the 5 min cache, a probe lock's minute nor a
-  # Retry-After answers it.
-  rm -f -- "$HOME/.agentkit/state/usage.json" "$HOME/.agentkit/state/"*-probe.lock \
-    "$HOME/.agentkit/state/"*-probe.retry
-  ak usage --json >"$U" 2>"$WORK/usage.err"
-  METER_WHY=$(meter_unavailable "$U" anthropic openai) || METER_WHY=""
+  # The retry drops only the 5 min snapshot, so expired cadences re-probe; where a
+  # cooldown still holds nothing is asked again, and the throttle verdict skips.
+  rm -f -- "$HOME/.agentkit/state/usage.json"
+  if cooling anthropic openai; then
+    :
+  else
+    ak usage --json >"$U" 2>"$WORK/usage.err"
+    METER_WHY=$(meter_unavailable "$U" anthropic openai) || METER_WHY=""
+  fi
 fi
 # 6b's prerequisites, not the pick verdict: the seed copies whatever $U holds and the
 # fable run names its model explicitly, so both work on a throttled meter and stay put.
