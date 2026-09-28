@@ -1,11 +1,14 @@
 """A smoke check that reads a live provider meter tolerates a rate-limited answer.
 
 Checks 1 and 6 stand on live meters: when a probe answers 429, 5xx or nothing at
-all, the check asks once more (AK_METER_RETRY_SECS later, 0 here) and then skips
-with the provider's own reason, and the gate counts that skip as a pass. A meter
-that answers wrong still fails, with no retry. Entirely offline: the `ak usage`
-under test runs against fake adapters in a throwaway HOME, and the check bodies
-are the suite's own, extracted from tests/smoke.sh.
+all, the check asks once more where the host's cadence and Retry-After allow
+(AK_METER_RETRY_SECS later, 0 here, so an immediate retry asks nothing) and then
+skips with the provider's own reason, and the gate counts that skip as a pass. A
+gate run never sends a request the host would hold back; where it therefore cannot
+get a fresh answer it skips with that hold reason, as a 429 skips. A meter that
+answers wrong still fails, with no retry. Entirely offline: the `ak usage` under
+test runs against fake adapters in a throwaway HOME, and the check bodies are the
+suite's own, extracted from tests/smoke.sh.
 """
 
 import json
@@ -133,8 +136,9 @@ class GateTolerance(unittest.TestCase):
         self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
         self.assertIn("HTTP 429", result.stdout)
         self.assertNotIn("FAIL", result.stdout)
-        self.assertEqual(self.probes("claude"), ["usage", "usage"])
-        self.assertEqual(self.probes("codex"), ["usage", "usage"])
+        # The retry is inside every cadence, so it asks nothing: one ask, then the skip.
+        self.assertEqual(self.probes("claude"), ["usage"])
+        self.assertEqual(self.probes("codex"), ["usage"])
 
     def test_5xx_skips_with_reason_after_one_retry(self):
         self.adapter("claude", meters("anthropic"))
@@ -145,7 +149,7 @@ class GateTolerance(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
         self.assertIn("HTTP 503", result.stdout)
-        self.assertEqual(self.probes("claude"), ["usage", "usage"])
+        self.assertEqual(self.probes("claude"), ["usage"])
 
     def test_timeout_skips_with_reason_after_one_retry(self):
         self.adapter("claude", refused("anthropic", "unknown: claude.sh usage "
@@ -156,7 +160,7 @@ class GateTolerance(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
         self.assertIn("timed out", result.stdout)
-        self.assertEqual(self.probes("claude"), ["usage", "usage"])
+        self.assertEqual(self.probes("claude"), ["usage"])
 
     def test_wrong_value_with_healthy_meter_still_fails_without_retry(self):
         self.adapter("claude", {"provider": "anthropic", "meters": [], "error": None})
@@ -196,7 +200,9 @@ class GateTolerance(unittest.TestCase):
         self.assertIn("1 skip for what this host lacks counted as passed", last)
         self.assertEqual(self.probes("codex"), ["usage"])
 
-    def test_retry_that_gets_an_answer_passes(self):
+    def test_retry_held_by_cadence_skips_without_asking(self):
+        # The second answer would pass, but the retry is inside Claude's fifteen minutes,
+        # so it is never asked for: one ask, then the skip with the first answer's reason.
         self.adapter("claude", refused("anthropic", "unknown: HTTP 429 from "
                                                   "api.anthropic.com/api/oauth/usage"),
                      then=meters("anthropic"))
@@ -204,8 +210,10 @@ class GateTolerance(unittest.TestCase):
         self.adapter("muse", meters("meta", 40))
         result = self.shell(CHECK_1)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("PASS  1 ak usage --json", result.stdout)
-        self.assertEqual(self.probes("claude"), ["usage", "usage"])
+        self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
+        self.assertIn("HTTP 429", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+        self.assertEqual(self.probes("claude"), ["usage"])
 
     def usage_json(self):
         """A real `ak usage --json` against the fake adapters, saved as this run's $U."""

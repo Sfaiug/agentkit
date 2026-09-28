@@ -1645,7 +1645,65 @@ for name in sys.argv[1:]:
     usage._probe_gently(cfg, name)
 PY
 }
+host_held() { # host_held <provider...>: why the host would hold one back, or 1
+  # The gate runs in a sandbox HOME with its own state, but the cadence and Retry-After
+  # belong to the host: a provider the host asked inside its cadence, or whose last
+  # refusal named a wait still ahead, is not asked again here.  Where a check therefore
+  # cannot get a fresh answer it skips with this reason, as a 429 skips.
+  [ -n "${SMOKE_CALLER_HOME:-}" ] || return 1
+  PYTHONPATH="$REPO" python3 - "$@" <<'PY' 2>/dev/null
+import os, sys, time
+from pathlib import Path
+from agentkit import config, usage
+state = Path(os.environ["SMOKE_CALLER_HOME"]) / ".agentkit/state"
+try:
+    cfg = config.load()
+except Exception:
+    sys.exit(1)
+now = time.time()
+for provider in sys.argv[1:]:
+    every = usage._probe_every(cfg, provider)
+    for path in [state / f"{provider}-probe.lock",
+                 *sorted(state.glob(f"{provider}.*-probe.lock"))]:
+        try:
+            asked = usage._number(float(path.read_text()))
+        except (OSError, ValueError):
+            continue
+        if asked is not None and 0 <= now - asked < every:
+            left = int(every - (now - asked))
+            print(f"{provider} asked {int(now - asked)}s ago; next ask in {left}s")
+            sys.exit(0)
+    for path in [state / f"{provider}-probe.retry",
+                 *sorted(state.glob(f"{provider}.*-probe.retry"))]:
+        try:
+            until = usage._number(float(path.read_text()))
+        except (OSError, ValueError):
+            continue
+        if until is not None and now < until:
+            print(f"{provider} Retry-After until "
+                  f"{time.strftime('%H:%M', time.localtime(until))}")
+            sys.exit(0)
+sys.exit(1)
+PY
+}
 U="$WORK/usage.json"
+HOST_WHY=""
+if HOST_WHY=$(host_held anthropic openai); then
+  # The host's own cadence or Retry-After holds one of these back: no fresh answer
+  # without asking where the host would not, so skip like a 429, without asking.
+  skip "1: provider meter unavailable ($HOST_WHY)"
+  HOST_SKIPPED_1=1
+  # Check 6 seeds its orch HOME from $U and 6b still runs on a throttled meter: leave the
+  # hold reason where that seeding reads it, without having asked.
+  python3 - "$U" "$HOST_WHY" <<'PY'
+import json, sys
+why = sys.argv[2]
+with open(sys.argv[1], "w") as fh:
+    json.dump({"pick_order": [], "providers": {
+        "anthropic": {"meters": [], "error": f"unknown: {why}", "exhausted": False},
+        "openai": {"meters": [], "error": f"unknown: {why}", "exhausted": False}}}, fh)
+PY
+else
 ak usage --json >"$U" 2>"$WORK/usage.err"; USAGERC=$?
 # Every provider can be exhausted; only then is an empty pick_order expected here.
 checked "$WORK/usage-check.log" jq -e '(.pick_order | type == "array") and
@@ -1674,7 +1732,10 @@ if { [ "$USAGERC" != 0 ] || [ "$USAGECHECK" != 0 ]; } \
     METER_WHY=$(meter_unavailable "$U" anthropic openai) || METER_WHY=""
   fi
 fi
-if skip_unavailable 1 opus astra; then
+fi
+if [ -n "${HOST_SKIPPED_1:-}" ]; then
+  :
+elif skip_unavailable 1 opus astra; then
   :
 elif [ "$USAGERC" = 0 ] && [ "$USAGECHECK" = 0 ]; then
   ok "1 ak usage --json: anthropic+openai meters and pick_order $(jq -c .pick_order "$U")"
@@ -2009,9 +2070,13 @@ fi
 # --- 6: orch selection -----------------------------------------------------
 # The pick stands on check 1's meters; when the provider throttled those probes the pick
 # has nothing to stand on either.  One retry a minute later, then the same skip the gate
-# counts as passed.  A meter that answers, wrong or right, runs the pick below.
+# counts as passed.  A meter that answers, wrong or right, runs the pick below.  Where the
+# host's own cadence or Retry-After holds a provider back there is no fresh answer to stand
+# on either, so that skips the same way, without asking.
 METER_WHY=""
-if METER_WHY=$(meter_unavailable "$U" anthropic openai); then
+if HOST_WHY=$(host_held anthropic openai 2>/dev/null); then
+  METER_WHY="$HOST_WHY"
+elif METER_WHY=$(meter_unavailable "$U" anthropic openai); then
   # Check 1 already waited this minute out when it retried, so this re-probe goes at once.
   [ -n "${METER_RETRIED:-}" ] || sleep "${AK_METER_RETRY_SECS:-60}"
   # The retry refreshes each provider where asking is allowed, keeping every cached
