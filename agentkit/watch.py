@@ -3252,12 +3252,13 @@ def stall_clock(run_dir, state):
     writing nothing -- so the clock starts where that wait ends (`run.transient_wait`).  Only
     the loop that recorded the wait is owed it: a resume after its death is a new loop, and
     its silence is its own.  A live loop waiting for its repository's merge turn
-    (`run.merge_turn`), or for its dependency to merge (`run.wait_for_dependency`), is
-    silent for as long as another run takes to land, so its clock starts now, every
-    tick, until the wait is over.
+    (`run.merge_turn`), to take back its lent turn, or for its dependency to merge
+    (`run.wait_for_dependency`), is silent for as long as another run takes to land,
+    so its clock starts now, every tick, until the wait is over.
     """
     from . import run as run_mod
-    if ((run_mod.merge_turn_note(state) or run_mod.dep_wait_note(state))
+    if ((run_mod.merge_turn_note(state) or run_mod.dep_wait_note(state)
+            or run_mod.merge_retaking(state))
             and run_mod.process_active(state)):
         return time.time()
     wait = state.get("transient_wait")

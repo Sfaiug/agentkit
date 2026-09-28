@@ -102,7 +102,7 @@ def merge_held(wt):
         return False
 
 
-class LandReserve(unittest.TestCase):
+class LandingCase(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".land-reserve-", dir=REPO)
         self.addCleanup(tmp.cleanup)
@@ -116,6 +116,7 @@ class LandReserve(unittest.TestCase):
         (bin_dir / "gh").write_text("#!/bin/sh\nexit 1\n")
         (bin_dir / "gh").chmod(0o755)
         self.stack.enter_context(patch.dict(os.environ, {
+            "HOME": str(self.root),
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
             "PYTHONDONTWRITEBYTECODE": "1", "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "AK_RUN_ROLE": "", "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
@@ -226,6 +227,7 @@ class LandReserve(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline, f"timed out waiting for {what}")
             time.sleep(0.02)
 
+class LandReserve(LandingCase):
     def test_second_lap_holds_from_before_its_rebase_until_its_merge(self):
         remote, owner = make_origin(self.root)
         slow = (f"sleep 2; echo acme $(git rev-parse HEAD) >> {self.counter}")
@@ -275,12 +277,16 @@ class LandReserve(unittest.TestCase):
         acme_checks = [held for name, held in self.checks if name == "acme"]
         self.assertEqual(acme_checks, [False, True])
         acme_rebases = [held for name, held in self.rebases if name == "acme"]
-        self.assertEqual(acme_rebases, [False, True])
+        # the first rebase verifies outside, the second re-checks holding, and the
+        # third carries those checks over the disjoint branch that borrowed the turn
+        self.assertEqual(acme_rebases, [False, True, True])
         acme_merges = [held for name, held in self.merges if name == "acme"]
         self.assertEqual(acme_merges, [True])
         bravo_checks = [held for name, held in self.checks if name == "bravo"]
         self.assertEqual(bravo_checks, [False])
-        self.assertIn("waiting for the merge turn", (two.run_dir / "log.txt").read_text())
+        self.assertNotIn("waiting for the merge turn", (two.run_dir / "log.txt").read_text())
+        self.assertIn("none touching this branch's files; landing on the verified checks",
+                      (one.run_dir / "log.txt").read_text())
         run.git(owner, "pull", "--ff-only", "origin", "main")
         self.assertTrue((owner / "acme.txt").exists() and (owner / "bravo.txt").exists())
 
