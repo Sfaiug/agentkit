@@ -350,7 +350,7 @@ On a server it also writes: the bypass defaults and update pins into `~/.claude/
 when it changes) and `~/.codex/config.toml`, each harness's lifecycle hooks through `adapters/<h>.sh hooks`, and the browser MCP registration. The server installs the tick's cron and, where a user systemd manager exists, writes
 `~/.config/systemd/user/agentkit.slice.d/limits.conf` on every install, pinned by `slice_tasks_max`, `slice_memory_high`,
 `slice_memory_max`, `slice_cpu_quota`: seats in `agentkit-seats.slice`, runs in the lower-weight `agentkit-runs.slice`. Where `sudo` needs no password it first derives the user unit's own `agentkit-limits.conf` from the machine (80%/90% memory,
-tasks per core, the slice's CPU quota, `OOMPolicy=continue`), taking over only its own or the hand-written file and leaving other drop-ins alone; without it, one line says to run `sudo -v` and re-run the install. Under a HOME not the account's own it touches nothing outside it.
+4% of tasks, the slice's CPU quota, `OOMPolicy=continue`), taking over only its own or the hand-written file and leaving other drop-ins alone; without it, one line says to run `sudo -v` and re-run the install. Under a HOME not the account's own it touches nothing outside it.
 
 `ak update` upgrades the harnesses this host has (any other is a `skipped` line), and none while a session works (it
 names those sessions and exits 0); it verifies them with the gates that can run there and rolls back a harness the gates

@@ -67,7 +67,9 @@ class UserUnitCeiling(Installer):
         written = self.unit_limits().read_text()
         self.assertTrue(written.startswith("# Written by agentkit's install.sh"),
                         written)
-        self.assertIn("[Service]\nTasksMax=4096\n", written)
+        # tasks are a share of the kernel's thread limit, not a per-core count: on a
+        # small machine a per-core count would shrink the slice below what (g3) gives it
+        self.assertIn("[Service]\nTasksMax=4%\n", written)
         self.assertIn("MemoryHigh=80%\nMemoryMax=90%\n", written)
         self.assertIn("CPUQuota=700%\n", written)
         self.assertIn("OOMPolicy=continue\n", written)
@@ -76,11 +78,11 @@ class UserUnitCeiling(Installer):
         for argv in self.commands("sudo"):
             if "mkdir" in argv or "tee" in argv:
                 self.assertTrue(any(str(self.root) in arg for arg in argv), argv)
-        # a larger machine raises the same ceiling
+        # a larger machine raises the same ceiling through the slice's own quota
         again = self.install(home, AK_SLICE_CPUS="16")
         self.assertEqual(again.returncode, 0, again.stderr)
         rewritten = self.unit_limits().read_text()
-        self.assertIn("TasksMax=8192\n", rewritten)
+        self.assertIn("TasksMax=4%\n", rewritten)
         self.assertIn("CPUQuota=1500%\n", rewritten)
         self.assertIn("OOMPolicy=continue\n", rewritten)
         # and the unit is written before the slice derives from it
@@ -111,6 +113,7 @@ class UserUnitCeiling(Installer):
         rewritten = unit.read_text()
         self.assertTrue(rewritten.startswith("# Written by agentkit's install.sh"),
                         rewritten)
+        self.assertIn("TasksMax=4%\n", rewritten)
         self.assertIn("MemoryHigh=80%\nMemoryMax=90%\n", rewritten)
         self.assertIn("OOMPolicy=continue\n", rewritten)
 

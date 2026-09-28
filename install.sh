@@ -728,8 +728,8 @@ fi
 # user runs, so ssh and the owner's own shells keep room under load.  Where this install
 # may use sudo without a password, every install rewrites that ceiling from this
 # machine's own numbers before (g3), so the slice derives from the new value: memory as
-# shares above the slice's 60%/70%, tasks scaling with cores, the slice's own CPU quota,
-# always OOMPolicy=continue.  Only agentkit-limits.conf is ever written: a file that is
+# shares above the slice's 60%/70%, tasks as a share of the kernel's thread limit, the
+# slice's own CPU quota, always OOMPolicy=continue.  Only agentkit-limits.conf is ever written: a file that is
 # missing, that opens with agentkit's own first line, or that is the hand-written file
 # this replaces (named agentkit-limits.conf, with its five fixed settings) is agentkit's;
 # any other drop-in in that directory is left alone.  Without passwordless sudo nothing
@@ -776,12 +776,14 @@ else
   elif ! have sudo || ! sudo -n true 2>/dev/null; then
     echo "user-unit: no passwordless sudo, so $UNIT_LIMITS is not written; run \`sudo -v\` and re-run ./install.sh to add it"
   else
-  # Memory is shares above the slice's 60%/70%, so systemd follows this machine with no
-  # rewrite; tasks scale with cores from the hand-written 4096 on eight; the CPU quota is
-  # the slice's own, leaving one core to everything else.
+  # Memory is shares above the slice's 60%/70%, and tasks are a share of the kernel's
+  # thread limit, so systemd follows this machine with no rewrite: 4% keeps the hand-written
+  # ceiling's headroom on its own host and grows on a larger one, where a per-core count
+  # would silently shrink the slice on a small one.  The CPU quota is the slice's own,
+  # leaving one core to everything else.
+  unit_tasks=4%
   unit_cpus=$(nproc 2>/dev/null || echo 1)
   case "$unit_cpus" in ''|*[!0-9]*) unit_cpus=1 ;; esac
-  unit_tasks=$((unit_cpus * 512)); [ "$unit_tasks" -ge 2048 ] || unit_tasks=2048
   unit_quota=$(( (unit_cpus - 1) * 100 )); [ "$unit_quota" -ge 100 ] || unit_quota=100
   if sudo -n mkdir -p -- "${UNIT_LIMITS%/*}" 2>/dev/null &&
      sudo -n tee "$UNIT_LIMITS" >/dev/null 2>/dev/null <<EOF
