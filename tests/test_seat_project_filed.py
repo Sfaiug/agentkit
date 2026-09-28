@@ -83,6 +83,21 @@ class SeatProjectFiled(Sandbox):
             with self.subTest(checkout=value):
                 self.assertEqual(self.file(value)["repo"], str(own))
 
+    def test_second_agentkit_clone_is_agentkits_own(self):
+        own = self.checkout(Path.home() / "agentkit")
+        clone = self.checkout(config.CODE / "agentkit")
+        (clone / "agentkit").mkdir()
+        self.assertEqual([path for path in orch.checkouts() if path.name == "agentkit"], [own])
+        for value in ("agentkit", str(clone)):
+            with self.subTest(checkout=value):
+                self.assertEqual(self.file(value)["repo"], str(own))
+        self.assertEqual(orch.checkout_of(clone), own)
+        self.assertEqual(orch.cwd_project(clone / "agentkit"), own)
+        self.assertEqual(orch.cwd_project(self.acme), self.acme)
+        self.assertEqual(run.task_project(None, str(config.HOME / "tasks/agentkit/01.md")), own)
+        self.vote("first", clone)
+        self.assertEqual(run.join_session_project("fix-api"), str(own))
+
     def test_old_seat_name_follows_a_rename(self):
         config.session_path("old-api").write_text('{"renamed": "fix-api"}\n')
         with patch.dict(os.environ, {config.SESSION_ENV: "old-api"}):

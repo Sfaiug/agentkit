@@ -1197,12 +1197,13 @@ def listing(reconcile=True):
 
 def checkouts():
     """Named checkouts directly under ~/code, including git worktrees (.git is a file),
-    and agentkit's own checkout ~/agentkit, which lives beside ~/code rather than in it."""
+    and agentkit's own checkout ~/agentkit, which lives beside ~/code rather than in it.
+    A second clone at ~/code/agentkit is not listed: it is agentkit's own (`checkout_of`)."""
     found = ([path for path in config.CODE.iterdir() if path.is_dir() and (path / ".git").exists()]
              if config.CODE.is_dir() else [])
     own = update.agentkit_dir()
     if (own / ".git").exists() and all(path.resolve() != own.resolve() for path in found):
-        found.append(own)
+        found = [path for path in found if path.name != own.name] + [own]
     return sorted(found, key=lambda path: path.name)
 
 
@@ -1212,6 +1213,8 @@ def checkout_of(repo):
     A project is a named checkout under `~/code` or agentkit's own, so only a repo
     that is one of `checkouts()` names one: a run's worktree, a throwaway repo under
     ~/.agentkit/tmp, any other path outside ~/code and an unset repo are all no project.
+    A path under ~/code named like agentkit's own is agentkit's own: a second clone of a
+    project is that project, never another heading with the same name.
     """
     if not repo:
         return None
@@ -1219,19 +1222,22 @@ def checkout_of(repo):
         path = Path(repo).resolve()
     except (OSError, ValueError):
         return None
-    for checkout in checkouts():
+    found = checkouts()
+    for checkout in found:
         try:
             if checkout.resolve() == path:
                 return checkout
         except OSError:
             continue
+    if path.parent == config.CODE.resolve():
+        return next((checkout for checkout in found if checkout.name == path.name), None)
     return None
 
 
 def cwd_project(cwd):
     cwd = Path(cwd).resolve()
-    return next((path for path in checkouts()
-                 if cwd == path.resolve() or path.resolve() in cwd.parents), None)
+    return next((checkout for checkout in map(checkout_of, [cwd, *cwd.parents]) if checkout),
+                None)
 
 
 def project_name(repo, fallback="no project"):
