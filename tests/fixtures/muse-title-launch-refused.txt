@@ -1,0 +1,5 @@
+invalid TUI options: error: unexpected argument '--name' found
+
+  tip: to pass '--name' as a value, use '-- --name'
+
+Usage: muse --provider <PROVIDER> --model <MODEL> --reasoning-effort <REASONING_EFFORT> --yolo --disable-shell --disable-write [resume <session-ref>]...

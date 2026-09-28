@@ -4,6 +4,10 @@ Its screen, its stall words and its `[update]`/`[usage]` facts are data -- adapt
 What needs Python is what reads a file: the build its launcher installed, the probe response
 agentkit/muse_usage.py cached, the quota a refused run recorded, whether a config.toml entry
 is that probe's to run, and the session store a turn's tokens are written to.
+
+No title hooks: 1.4.0-R4302.1 refuses /rename before and after a completed turn and
+mid-turn ("naming is unavailable"), and rejects --name at launch. See the title fixtures;
+a cleared composer is no receipt, and a command.invoked record is no custom name.
 """
 
 import json
