@@ -32,6 +32,9 @@ CHECK_1 = SMOKE[SMOKE.index("# --- 1: usage"):SMOKE.index("# --- 2:")]
 # the slice calls `host_held`, `reprobe` and `skip_unavailable` as missing commands.
 CHECK_1_PREAMBLE = CHECK_1[:CHECK_1.index('U="$WORK/usage.json"')]
 CHECK_6 = CHECK_1_PREAMBLE + SMOKE[SMOKE.index("# --- 6: orch"):SMOKE.index("# --- 6c:")]
+# The suite's own sandbox setup for the shared cadence: smoke_share_probes is defined just
+# above smoke_home, so the slice between the two is the whole function.
+SHARE = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("smoke_home() {")]
 
 FAR_FUTURE = 1999999999
 
@@ -130,6 +133,14 @@ class GateTolerance(unittest.TestCase):
         count = self.root / f"{harness}.count"
         return count.read_text().split() if count.exists() else []
 
+    def share(self, caller):
+        """The suite's own setup: link this sandbox at a caller HOME standing in for
+        the host. The caller HOME is set the way smoke.sh sets it, as a plain shell
+        variable inside the block, never exported."""
+        (self.home / ".agentkit/state").mkdir(parents=True, exist_ok=True)
+        return (SHARE + f"SMOKE_CALLER_HOME={shlex.quote(str(caller))}\n"
+                "smoke_share_probes\n")
+
     def test_429_skips_with_reason_after_one_retry(self):
         counts = self.healthy()
         counts["claude"] = self.adapter(
@@ -221,14 +232,12 @@ class GateTolerance(unittest.TestCase):
 
     def test_host_cadence_holds_the_gate_without_asking(self):
         # The host asked Claude seconds ago: check 1 skips with that hold reason without
-        # sending any request. The caller HOME is set the way smoke.sh sets it, as a plain
-        # shell variable inside the block, never exported.
+        # sending any request.
         caller = self.root / "caller"
         (caller / ".agentkit/state").mkdir(parents=True)
         (caller / ".agentkit/state/anthropic-probe.lock").write_text(repr(time.time()))
         self.healthy()
-        block = f"SMOKE_CALLER_HOME={shlex.quote(str(caller))}\n" + CHECK_1
-        result = self.shell(block)
+        result = self.shell(self.share(caller) + CHECK_1)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
         self.assertIn("next ask in", result.stdout)
@@ -237,23 +246,66 @@ class GateTolerance(unittest.TestCase):
         self.assertEqual(self.probes("codex"), [])
 
     def test_held_check_1_leaves_no_ask_for_a_later_sandbox_read(self):
-        # smoke_home copies the host's probe ages in, so a later sandbox ask (check 3's
-        # `ak usage`, an `ak run`, an `ak orch` seat) obeys the same hold through _cooling.
+        # smoke_home links the sandbox at the host's own probe ages, so a later sandbox
+        # ask (check 3's `ak usage`, an `ak run`, an `ak orch` seat) obeys the same hold
+        # through _cooling.
         caller = self.root / "caller"
         (caller / ".agentkit/state").mkdir(parents=True)
         (caller / ".agentkit/state/anthropic-probe.lock").write_text(repr(time.time()))
-        state = self.home / ".agentkit/state"
-        state.mkdir(parents=True)
-        (state / "anthropic-probe.lock").write_text(
-            (caller / ".agentkit/state/anthropic-probe.lock").read_text())
         self.healthy()
-        block = f"SMOKE_CALLER_HOME={shlex.quote(str(caller))}\n" + CHECK_1
-        result = self.shell(block)
+        result = self.shell(self.share(caller) + CHECK_1)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
         self.assertEqual(self.probes("claude"), [])
         # Check 3's line, seconds later in the same sandbox HOME: Claude still held and
         # silent, while a provider the host never asked answers normally.
+        later = subprocess.run([str(REPO / "bin/ak"), "usage", "--json"], cwd=self.root,
+                               env={**self.env, "REPO": str(REPO)},
+                               text=True, capture_output=True, timeout=120)
+        self.assertEqual(later.returncode, 0, later.stdout + later.stderr)
+        self.assertEqual(self.probes("claude"), [])
+        self.assertEqual(self.probes("codex"), ["usage"])
+
+    def test_host_ask_after_setup_holds_a_later_sandbox_ask(self):
+        # The links are the host's own files, not copies of them: a host ask after the
+        # sandbox is set up still holds a later sandbox ask, which then sends no request.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        self.healthy()
+        setup = self.shell(self.share(caller))
+        self.assertEqual(setup.returncode, 0, setup.stdout + setup.stderr)
+        link = self.home / ".agentkit/state/anthropic-probe.lock"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(Path(os.readlink(link)),
+                         caller / ".agentkit/state/anthropic-probe.lock")
+        # The host asks both providers seconds after the suite was set up.
+        for provider in ("anthropic", "openai"):
+            (caller / f".agentkit/state/{provider}-probe.lock").write_text(repr(time.time()))
+        later = subprocess.run([str(REPO / "bin/ak"), "usage", "--json"], cwd=self.root,
+                               env={**self.env, "REPO": str(REPO)},
+                               text=True, capture_output=True, timeout=120)
+        self.assertEqual(later.returncode, 0, later.stdout + later.stderr)
+        self.assertEqual(self.probes("claude"), [])
+        self.assertEqual(self.probes("codex"), [])
+        self.assertEqual(self.probes("muse"), ["usage"])
+
+    def test_host_ask_after_setup_holds_through_an_accounts_host(self):
+        # Where the host lists accounts for a provider, its default login's cadence is
+        # that provider's .default file: the sandbox link tracks it, so a host ask after
+        # setup holds a later sandbox ask there too.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        (caller / ".agentkit/config.toml").write_text(
+            '[providers.anthropic]\naccounts = ["default", "second"]\n')
+        self.healthy()
+        setup = self.shell(self.share(caller))
+        self.assertEqual(setup.returncode, 0, setup.stdout + setup.stderr)
+        link = self.home / ".agentkit/state/anthropic-probe.lock"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(Path(os.readlink(link)),
+                         caller / ".agentkit/state/anthropic.default-probe.lock")
+        (caller / ".agentkit/state/anthropic.default-probe.lock").write_text(
+            repr(time.time()))
         later = subprocess.run([str(REPO / "bin/ak"), "usage", "--json"], cwd=self.root,
                                env={**self.env, "REPO": str(REPO)},
                                text=True, capture_output=True, timeout=120)
