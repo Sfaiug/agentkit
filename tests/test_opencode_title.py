@@ -54,7 +54,7 @@ class OpenCodeTitle(Sandbox):
             self.fail("title sync must never read or type into the owner's composer")
         return 0, ""
 
-    def plugin(self, events=(), mode="accept"):
+    def plugin(self, events=(), mode="accept", env=None):
         """Real plugin, fake API storage and clock: the timer runs once even with no events."""
         driver = r'''
 import { pathToFileURL } from "node:url";
@@ -63,13 +63,16 @@ const plugin = (await import(pathToFileURL(process.argv[1]).href)).default;
 const [storage, mode, eventJSON] = process.argv.slice(2);
 const events = JSON.parse(eventJSON);
 const updates = [];
+let gets = 0;
 let tick;
 globalThis.setInterval = (fn) => { tick = fn; return { unref() {} }; };
 globalThis.clearInterval = () => {};
 const read = () => JSON.parse(readFileSync(storage, "utf8"));
 const ctx = { session: {
   get: async ({ sessionID }) => {
+    gets++;
     if (mode === "unreadable") throw new Error("unreadable");
+    if (mode === "hang") return new Promise(() => {});
     return read()[sessionID];
   },
   update: async ({ sessionID, title }) => {
@@ -89,19 +92,29 @@ let done;
 const drained = new Promise((resolve) => { done = resolve; });
 const stop = await plugin.setup(ctx);
 await drained;
-// Drain the setup's read-back before exercising the idle rename timer.
-await new Promise((resolve) => setImmediate(resolve));
-if (mode !== "changed-request") await tick();
+// Facts are sent without waiting on keeps or syncs, so the queued keeps and the
+// setup's read-back still settle below; a hanging session call settles never.
+const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+if (mode !== "hang") await settle(300);
+if (mode !== "changed-request" && mode !== "hang") {
+  await tick();
+  await settle(300);
+}
 stop();
-console.log(JSON.stringify(updates));
+console.log(JSON.stringify({updates, gets}));
 '''
+        run_env = dict(os.environ, AGENTKIT_OPENCODE_RECEIPT=str(self.receipt))
+        if env:
+            run_env.update(env)
         proc = subprocess.run(
             [shutil.which("node"), "--input-type=module", "-e", driver,
              str(REPO / "hooks/opencode-seat/index.js"), str(self.storage), mode,
-             json.dumps(events)], env=dict(os.environ, AGENTKIT_OPENCODE_RECEIPT=str(self.receipt)),
+             json.dumps(events)], env=run_env,
             text=True, capture_output=True, timeout=10)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        return json.loads(proc.stdout.splitlines()[-1])
+        out = json.loads(proc.stdout.splitlines()[-1])
+        self.last_gets = out["gets"]
+        return out["updates"]
 
     def prompt(self, sid=None):
         return {"type": "session.inbox.enqueued", "data": {
@@ -231,6 +244,46 @@ console.log(JSON.stringify(updates));
         self.assertFalse(watch.sync_title(self.seat))
         self.plugin([self.prompt()])
         self.assertFalse(self.receipt.exists())
+
+    def test_stuck_session_call_delays_no_prompt_fact(self):
+        event = {"type": "session.inbox.enqueued", "data": {
+            "sessionID": self.sid,
+            "item": {"type": "user", "payload": {"text": "mend the inlet"}}}}
+        updates = self.plugin([event], mode="hang",
+                                env={"AGENTKIT_SESSION": "lagoon", "AK_RUN_ROLE": ""})
+        self.assertEqual(updates, [])
+        hook = json.loads((self.root / ".agentkit/state/hook-lagoon.json").read_text())
+        self.assertEqual((hook["event"], hook["text"]), ("UserPromptSubmit", "mend the inlet"))
+        self.assertIsNone(opencode.conversation(self.record()))
+
+    def test_matching_title_writes_nothing_across_ticks(self):
+        self.bind()
+        applied = self.receipt / "title-applied.json"
+        before = applied.read_bytes()
+        others = {name: (self.receipt / name).stat().st_mtime
+                  for name in ("session", "title-request.json")}
+        old = 1000000000
+        os.utime(applied, (old, old))
+        for _ in range(2):
+            self.assertEqual(self.plugin(), [])
+            self.assertEqual(self.last_gets, 0)
+            self.assertEqual(applied.read_bytes(), before)
+            self.assertEqual(applied.stat().st_mtime, old)
+            for name, mtime in others.items():
+                self.assertEqual((self.receipt / name).stat().st_mtime, mtime)
+
+    def test_new_request_is_still_applied_and_confirmed(self):
+        self.bind()
+        orch.rename("lagoon", "cove")
+        self.assertEqual(self.record()["session_title"], "lagoon")
+        self.assertFalse(watch.sync_title(self.seat))
+        updates = self.plugin()
+        self.assertEqual(updates, [{"sessionID": self.sid, "title": "cove"}])
+        self.assertTrue(watch.sync_title(self.seat))
+        self.assertEqual(self.record()["session_title"], "cove")
+        self.assertEqual(json.loads(self.storage.read_text())[self.sid]["title"], "cove")
+        self.assertEqual(self.plugin(), [])
+        self.assertEqual(self.last_gets, 0)
 
 
 if __name__ == "__main__":
