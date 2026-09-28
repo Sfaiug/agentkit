@@ -13,8 +13,9 @@
 #
 # Every event it writes down also has the seat looked at again at once (`watch.hook_look`), so
 # the seat's record and its status bar say what the event means now rather than at the next
-# menu draw or tick.  The look runs in the background, in a session of its own, holding
-# nothing of the harness's: the harness never waits on it.
+# menu draw or tick.  The look also records the owner's answer to a question. It runs in the
+# background, in a session of its own, holding nothing of the harness's: the harness never
+# waits on it, even while a notice's lock is held for delivery.
 #
 # A worker is silent here as it is everywhere: a headless `ak worker` runs the same harness with
 # the same hooks, and a seat's row must never be moved by one.  No $AGENTKIT_SESSION, or
@@ -28,7 +29,7 @@ set -u
 # pane, which is where every seat's harness runs; watch.hook_look checks the pane is the seat's,
 # on the seat's own server.  `heard`, on Claude's Stop only, is when this hook heard it.
 look() {
-  local seat=$1 heard=${2:-}
+  local seat=$1 heard=${2:-} answered=${3:-}
   [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || return 0
   ( /usr/bin/env python3 -c '
 import os, sys
@@ -39,8 +40,9 @@ except OSError:
     pass
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
 from agentkit import watch
-watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None)
-' "${BASH_SOURCE[0]}" "$seat" "$heard" </dev/null >/dev/null 2>&1 & )
+watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None,
+                float(sys.argv[4]) if sys.argv[4] else None)
+' "${BASH_SOURCE[0]}" "$seat" "$heard" "$answered" </dev/null >/dev/null 2>&1 & )
 }
 
 seat_state() {
@@ -132,25 +134,21 @@ seat_state() {
     '{session: $session, turn: $turn, blocks: 0, peer: $peer, asked: $asked}' \
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
   /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
-  # The owner's prompt answers an older question wherever it was typed. The launch
-  # name still resolves after a rename; messages from sessions or tasks answer nothing.
+  # The owner's prompt answers an older question, once the background look checks its pane.
+  # The launch name still resolves after a rename; messages and slash commands answer nothing.
   # Background reports keep the normal stop rules, so they must not set the peer latch.
   owner=true
   if [[ $peer = true ]] ||
     "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
-               | any(contains("<task-notification"))' <<<"$payload" >/dev/null 2>&1; then
+               | any(contains("<task-notification") or test("^[[:space:]]*/"))' \
+      <<<"$payload" >/dev/null 2>&1; then
     owner=false
   fi
   if [[ $owner = true ]]; then
-    /usr/bin/env python3 -c '
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
-from agentkit import notify
-notify.answered(sys.argv[2], float(sys.argv[3]))
-' "${BASH_SOURCE[0]}" "$seat" "$ts" || true
+    look "$seat" "" "$ts"
+  else
+    look "$seat"
   fi
-  look "$seat"
 }
 
 # The process that ran this hook, and the ones above it, newest first.  The wrapper looks for

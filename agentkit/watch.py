@@ -1641,7 +1641,7 @@ def announce_state(session, cfg=None, look=False, **facts):
     return answer
 
 
-def hook_look(launched, heard=None):
+def hook_look(launched, heard=None, answered_at=None):
     """Look at that one seat again and publish what it is: its own hook's word, at once.
 
     hooks/seat-state.sh starts this in the background on every event it writes down -- a turn
@@ -1655,7 +1655,9 @@ def hook_look(launched, heard=None):
 
     Only a hook in the seat's own pane, on the seat's own server, moves its bar: a harness under
     some other tmux, or a test's sandbox with a seat's name in its environment, never paints a
-    real seat's bar with facts that are not that seat's.
+    real seat's bar with facts that are not that seat's. The owner's prompt timestamp travels
+    through the same check before answering a question; waiting for its notice lock happens
+    here, off the harness's path.
     """
     name = config.resolve_session(launched)
     number, session = next(((number, session) for number, session
@@ -1666,6 +1668,8 @@ def hook_look(launched, heard=None):
             "display-message", "-p", "-t", pane, "#{socket_path}\t#{session_name}",
             socket=orch.seat_socket(session)) != (0, f"{here}\t{name}"):
         return None
+    if answered_at is not None:
+        notify.answered(name, answered_at)
     cfg = config.load()
     answer = announce_state(session, cfg=cfg, look=True, number=number)
     deadline = time.time() + HOOK_LOOK_WAIT
