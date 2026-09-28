@@ -84,7 +84,6 @@ class OneProvider(unittest.TestCase):
             {**self.providers["b"]["meters"][0], "name": "smaller", "used": 95})
         self.cfg["models"]["delta"]["meter"] = "weekly"
         self.assertEqual(self.pick("alpha"), ("alpha", "delta"))
-        self.cfg["models"]["gamma"]["reviews_own_provider"] = False
         self.assertEqual(self.pick("beta"), ("beta", "delta"))
         self.providers["a"] = self.providers["b"]
         for name in ("gamma", "delta"):
@@ -92,47 +91,43 @@ class OneProvider(unittest.TestCase):
         self.cfg["defaults"]["workers"] = ["alpha", "gamma", "delta"]
         self.assertEqual(self.pick("alpha"), ("alpha", "delta"))
 
-    def test_shipped_fable_opts_out_of_same_company_reviews(self):
+    def test_shipped_default_carries_no_review_opt_out(self):
         cfg = tomllib.loads((REPO / "config.default.toml").read_text())
-        self.assertIs(cfg["models"]["fable"]["reviews_own_provider"], False)
+        for entry in cfg["models"].values():
+            self.assertNotIn("reviews_own_provider", entry)
 
     def test_one_provider_two_models_pick_the_other(self):
         self.providers = self.meters(b=100)
         self.assertEqual(self.pick(), ("alpha", "beta"))
         self.assertEqual(self.pick("beta"), ("beta", "alpha"))
 
-    def test_one_provider_one_model_is_quota_dry(self):
+    def test_one_provider_one_model_reviews_itself(self):
         self.cfg["defaults"]["workers"] = ["alpha"]
-        with self.assertRaises(run.QuotaDry):
-            self.pick()
-        self.assertIsNone(usage.review_pair(self.cfg, self.providers))
+        self.assertEqual(self.pick(), ("alpha", "alpha"))
+        self.assertEqual(usage.review_pair(self.cfg, self.providers),
+                         {"executor": "alpha", "reviewer": "alpha", "same_provider": True})
 
-    def test_opt_out_blocks_own_company_but_allows_other_companies(self):
+    def test_stale_opt_out_is_ignored(self):
         self.cfg["models"]["beta"]["reviews_own_provider"] = False
         self.providers = self.meters(b=100)
-        with self.assertRaises(run.QuotaDry):
-            self.pick("alpha")
-        with self.assertRaisesRegex(config.Error, "reviews_own_provider"):
-            self.pick("alpha", "beta")
+        self.assertEqual(self.pick("alpha"), ("alpha", "beta"))
+        self.assertEqual(self.pick("alpha", "beta"), ("alpha", "beta"))
         self.assertEqual(run.review_providers(self.cfg, "gamma", "beta"), ("b", "a"))
         self.providers = self.meters()
         self.cfg["defaults"]["workers"] = ["beta", "gamma"]
         self.assertEqual(self.pick("gamma"), ("gamma", "beta"))
 
-    def test_auto_pair_can_execute_on_the_model_that_cannot_review_its_company(self):
+    def test_auto_pair_executes_cheapest_with_same_company_review(self):
         self.providers = self.meters(b=100)
         self.cfg["models"]["beta"]["reviews_own_provider"] = False
-        self.assertEqual(self.pick(), ("beta", "alpha"))
+        self.assertEqual(self.pick(), ("alpha", "beta"))
 
-    def test_same_model_and_aliases_are_never_reviewers(self):
-        with self.assertRaisesRegex(config.Error, "same model"):
-            self.pick("alpha", "alpha")
+    def test_same_model_reviews_only_as_the_last_choice(self):
+        self.assertEqual(self.pick("alpha", "alpha"), ("alpha", "alpha"))
         self.cfg["models"]["beta"]["model"] = "alpha"
         self.providers = self.meters(b=100)
-        with self.assertRaises(run.QuotaDry):
-            self.pick()
-        with self.assertRaisesRegex(config.Error, "same model"):
-            self.pick("alpha", "beta")
+        self.assertEqual(self.pick(), ("alpha", "beta"))
+        self.assertEqual(self.pick("alpha", "beta"), ("alpha", "beta"))
 
     def unready(self, **why):
         """The read a pick starts from, with each named harness's answer beside it."""
@@ -220,36 +215,39 @@ class OneProvider(unittest.TestCase):
                                for harness in ("codex", "muse", "grokbuild")}
         providers["anthropic"] = {"resets": 0, "meters": [
             {**meter, "name": "weekly_all"}, {**meter, "name": "weekly_scoped"}]}
-        # the shipped Fable reviews only another company's work, so Opus reviews Fable
+        # two Anthropic models left execute and review, cheapest first
         self.assertEqual(run.pick_models(cfg, providers, None, None, self.logs.append),
-                         ("fable", "opus"))
+                         ("opus", "fable"))
         self.assertEqual(self.logs, ["skipped astra: codex is not logged in",
                                      "skipped spark: muse is not logged in",
                                      "skipped grok: grokbuild is not logged in"])
-        # a user who lets Fable review has it review Opus
-        cfg["models"]["fable"]["reviews_own_provider"] = True
+        # a stale opt-out key changes nothing
+        cfg["models"]["fable"]["reviews_own_provider"] = False
         self.assertEqual(run.pick_models(cfg, providers, None, None, self.logs.append),
                          ("opus", "fable"))
 
-    def test_a_launch_with_no_allowed_pair_is_refused_in_one_sentence(self):
+    def test_a_launch_with_no_runnable_worker_is_refused_in_one_sentence(self):
         self.cfg["defaults"]["workers"] = ["alpha", "gamma"]
         self.cfg["models"]["gamma"]["harness"] = "other"
         self.unready(other="other is not logged in")
-        with self.assertRaises(run.QuotaDry):
-            self.pick()
-        self.assertEqual(run.pair_refusal(self.cfg, self.providers, None),
-                         "workers alpha, gamma and reviewers alpha, gamma make no allowed executor "
-                         "and reviewer pair (gamma: other is not logged in); "
-                         "log in to another harness or add another model to the groups")
+        # one runnable worker launches and reviews its own work
+        self.assertEqual(self.pick(), ("alpha", "alpha"))
+        self.assertIsNone(run.pair_refusal(self.cfg, self.providers, None))
         self.assertIsNone(run.pair_refusal(self.cfg, self.providers, ["alpha", "beta", "gamma"]))
-        # a spent meter refills; a list of one model never grows a second, in a session or not
+        # a spent meter refills; a list of one model launches on its own, in a session or not
         self.providers = self.meters(b=100)
         self.assertIsNone(run.pair_refusal(self.cfg, self.providers, None))
-        refusal = ("workers alpha and reviewers alpha make no allowed executor and reviewer pair; "
-                   "log in to another harness or add another model to the groups")
-        self.assertEqual(run.pair_refusal(self.cfg, self.providers, ["alpha"]), refusal)
+        self.assertIsNone(run.pair_refusal(self.cfg, self.providers, ["alpha"]))
         self.cfg["defaults"]["workers"] = ["alpha"]
-        self.assertEqual(run.pair_refusal(self.cfg, self.providers, None), refusal)
+        self.assertIsNone(run.pair_refusal(self.cfg, self.providers, None))
+        # nothing runnable is refused, in one sentence naming every harness
+        self.unready(test="test is not logged in", other="other is not logged in")
+        self.cfg["defaults"]["workers"] = ["alpha", "gamma"]
+        self.assertEqual(
+            run.pair_refusal(self.cfg, self.providers, None),
+            "none of the workers alpha, gamma and reviewers alpha, gamma can run here "
+            "(alpha: test is not logged in; gamma: other is not logged in); "
+            "log in to another harness or add another model to the groups")
 
     def test_handover_to_reviewers_provider_repicks_and_records_the_pair(self):
         lp = self.loop(reviewer="gamma")
@@ -262,21 +260,22 @@ class OneProvider(unittest.TestCase):
         self.assertIsNone(saved["review_session"])
         self.assertTrue(any("reviewer re-picked" in line for line in self.logs))
 
-    def test_handover_skips_executor_without_a_legal_reviewer(self):
+    def test_handover_repicks_the_cheapest_pair(self):
         lp = self.loop(reviewer="gamma")
         self.providers = self.meters(a=100, b=10)
         self.cfg["models"]["delta"]["reviews_own_provider"] = False
         with patch.object(run, "collect_usage", return_value=self.providers):
-            self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "delta")
-        self.assertEqual(lp.reviewer, "gamma")
+            self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "gamma")
+        self.assertEqual(lp.reviewer, "delta")
 
-    def test_handover_cannot_leave_a_single_model_to_review_itself(self):
+    def test_handover_leaves_a_single_model_to_review_itself(self):
         lp = self.loop(reviewer="gamma")
         self.providers = self.meters(a=100, b=10)
         self.cfg["defaults"]["workers"].remove("delta")
         with patch.object(run, "collect_usage", return_value=self.providers):
-            self.assertIsNone(run.hand_executor(lp, "ran dry", "refused", set()))
-        self.assertEqual((lp.executor, lp.reviewer), ("alpha", "gamma"))
+            self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "gamma")
+        self.assertEqual((lp.executor, lp.reviewer), ("gamma", "gamma"))
+        self.assertTrue(run.self_reviewed(run.read_state(lp.run_dir)))
 
     def test_handover_keeps_an_unchanged_reviewers_session(self):
         lp = self.loop(reviewer="gamma")
@@ -320,13 +319,19 @@ class OneProvider(unittest.TestCase):
         with patch.object(terminal, "width", return_value=100):
             text = usage.render(cfg, providers, order)
         self.assertNotIn("preferring Fable", text)
-        self.assertIn("pick order: opus, fable\nreview: fable by opus", text)
+        self.assertIn("pick order: opus, fable\nreview: opus by fable", text)
         self.assertIn("one provider: reviewer on the same company", text)
+        # the opt-out is stale: same-company fable still reviews, and an alias of
+        # fable leaves opus reviewing itself rather than no pair at all
         cfg["models"]["opus"]["reviews_own_provider"] = False
-        self.assertIsNone(usage.review_pair(cfg, providers))
+        self.assertEqual(usage.review_pair(cfg, providers),
+                         {"executor": "opus", "reviewer": "fable",
+                          "same_provider": True, "self_reviewed": False})
         cfg["models"]["opus"]["reviews_own_provider"] = True
         cfg["models"]["opus"]["model"] = cfg["models"]["fable"]["model"]
-        self.assertIsNone(usage.review_pair(cfg, providers))
+        self.assertEqual(usage.review_pair(cfg, providers),
+                         {"executor": "opus", "reviewer": "opus",
+                          "same_provider": True, "self_reviewed": True})
 
     def resume_integration(self, reviewer="beta"):
         lp = self.loop(reviewer=reviewer)
@@ -355,16 +360,16 @@ class OneProvider(unittest.TestCase):
         self.assertNotIn("review_pending", state)
         self.assertEqual(state["review"]["head_sha"], "reviewed-head")
 
-    def test_integration_resume_does_not_restore_forbidden_same_company_review(self):
+    def test_integration_resume_restores_same_company_review_despite_stale_opt_out(self):
         self.cfg["models"]["beta"]["reviews_own_provider"] = False
         state = self.resume_integration()
-        self.assertFalse(run.review_pass(state, self.cfg))
-        self.assertIn("review_pending", state)
+        self.assertTrue(run.review_pass(state, self.cfg))
+        self.assertNotIn("review_pending", state)
 
-    def test_integration_resume_does_not_restore_self_review(self):
+    def test_integration_resume_restores_self_review(self):
         state = self.resume_integration(reviewer="alpha")
-        self.assertFalse(run.review_pass(state, self.cfg))
-        self.assertIn("review_pending", state)
+        self.assertTrue(run.review_pass(state, self.cfg))
+        self.assertNotIn("review_pending", state)
 
     def test_reports_keep_the_runs_config_without_reloading_it(self):
         lp = self.loop()
@@ -408,8 +413,8 @@ class OneProvider(unittest.TestCase):
         rerun_dir = self.root / "rerun"
         rerun_dir.mkdir()
         for reviewer, reviews_own_provider, wanted in (
-            ("gamma", True, "gamma"), ("alpha", True, "alpha"), ("beta", True, None),
-            ("alpha", False, None), (None, True, None),
+            ("gamma", True, "gamma"), ("alpha", True, "alpha"), ("beta", True, "beta"),
+            ("alpha", False, "alpha"), (None, True, None),
         ):
             self.cfg["models"]["alpha"]["reviews_own_provider"] = reviews_own_provider
             task = {"name": "fixture", "task_file": str(task_path), "resume_attempted": True,
@@ -457,11 +462,11 @@ class OneProvider(unittest.TestCase):
         lp = self.loop(reviewer="gamma", spares=["alpha", "beta", "delta"])
         self.assertEqual(self.fallback(lp, "gamma"), ["gamma", "gamma", "delta"])
 
-    def test_silent_fallback_can_use_same_company_and_obeys_opt_out(self):
+    def test_silent_fallback_uses_same_company_and_ignores_stale_opt_out(self):
         lp = self.loop(reviewer="gamma", spares=["alpha", "beta", "delta"])
         self.cfg["models"]["delta"]["provider"] = "a"
         self.cfg["models"]["beta"]["reviews_own_provider"] = False
-        self.assertEqual(self.fallback(lp, "gamma"), ["gamma", "gamma", "delta"])
+        self.assertEqual(self.fallback(lp, "gamma"), ["gamma", "gamma", "beta"])
         self.assertTrue(run.review_pass(lp.state, self.cfg))
 
     def test_review_pr_fallback_can_use_another_model_on_one_provider(self):
@@ -471,17 +476,21 @@ class OneProvider(unittest.TestCase):
         self.assertEqual(self.fallback(lp, "alpha"), ["alpha", "alpha", "beta"])
         self.assertTrue(run.review_pass(lp.state, self.cfg))
 
-    def test_delivery_passes_cfg_and_rechecks_the_reviewer_policy(self):
+    def test_delivery_passes_cfg_and_rechecks_the_review_evidence(self):
         state = self.evidence()
         with patch.object(run, "review_pass", wraps=run.review_pass) as check:
             self.assertEqual(run.delivery(state, self.cfg), "PASS, delivered")
         check.assert_called_once_with(state, self.cfg)
         self.cfg["models"]["beta"]["reviews_own_provider"] = False
-        self.assertFalse(run.review_pass(state, self.cfg))
+        self.assertTrue(run.review_pass(state, self.cfg))
         with patch.object(config, "load", return_value=self.cfg):
-            self.assertEqual(run.delivery(state), "FAIL")
+            self.assertEqual(run.delivery(state), "PASS, delivered")
         state["review"]["reviewer"] = state["reviewer"] = "alpha"
-        self.assertFalse(run.review_pass(state, self.cfg))
+        self.assertTrue(run.review_pass(state, self.cfg))
+        # the evidence still has to match the config: a reviewer that moved company fails
+        moved = self.evidence()
+        self.cfg["models"]["beta"]["provider"] = "b"
+        self.assertFalse(run.review_pass(moved, self.cfg))
 
     def test_usage_text_prints_pair_and_one_provider_note_after_order(self):
         with patch.object(terminal, "width", return_value=100):
