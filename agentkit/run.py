@@ -352,9 +352,10 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
     try:
         providers = collect_usage(cfg)
         workers = run_workers(cfg, state)
-        order = [n for n in ready_order(cfg, providers, workers, log)
+        reviewers = run_reviewers(cfg, state)
+        order = [n for n in ready_order(cfg, providers, workers, log, reviewers=reviewers)
                  if n != current and config.model(cfg, n)["provider"] not in refused]
-        review_order = ready_order(cfg, providers, workers, role="reviewer")
+        review_order = ready_order(cfg, providers, reviewers, role="reviewer")
         for name in order:
             candidates = reviewer_order(cfg, name, review_order)
             if candidates:
@@ -722,12 +723,20 @@ def ready_order(cfg, providers, workers=None, log=None, **kwargs):
     before any budget rule reads the list, so a subscription nobody can run keeps no payg
     provider out; `log`, on the one call of a pick that gives a role, says so in one line.
     """
+    if isinstance(workers, RoleWorkers):
+        if kwargs.get("role") == "reviewer":
+            workers = workers.reviewers
+        else:
+            kwargs.setdefault("reviewers", workers.reviewers)
+    if workers is None:
+        workers = (config.reviewers(cfg) if kwargs.get("role") == "reviewer"
+                   else config.workers(cfg))
     skip = {}
     if getattr(providers, "harnesses", None):
         skip = {name: usage.unready(cfg, name, providers) for name in config.offered(cfg)}
         skip = {name: why for name, why in skip.items() if why}
     if log and skip:
-        for name in workers if workers is not None else config.workers(cfg):
+        for name in workers:
             if name in skip:
                 log(f"skipped {name}: {skip[name]}")
     return usage.pick_order(cfg, providers, workers, skip=skip, **kwargs)
@@ -740,39 +749,41 @@ def refuse_unready(cfg, providers, name):
         raise config.Error(f"{name} cannot run here: {why}")
 
 
+def role_groups(cfg, workers=None, reviewers=None):
+    """Bound lists take precedence; old callers binding workers bind both roles to them."""
+    if reviewers is None:
+        reviewers = (workers.reviewers if isinstance(workers, RoleWorkers) else
+                     workers if workers is not None else config.reviewers(cfg))
+    return (workers if workers is not None else config.workers(cfg)), reviewers
+
+
+def refuse_outside_group(cfg, name, group, role):
+    if name:
+        config.model(cfg, name)
+        if name not in group:
+            raise config.Error(f"{name!r} is not a {role} of this run ({role}s: {', '.join(group)})")
+
+
 def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, quiet=False,
-                repo=None, workers=None):
-    """The pair a run runs on.  `workers`, when given, is the run's bound list: every
-    pick comes from it and an explicit model outside it is refused, exactly as a session
-    refuses a name its owner left out.  A worker whose harness is not installed or not logged
-    in is never picked, and says so in one line; a launch or resume naming one is refused.
-    """
+                repo=None, workers=None, reviewers=None):
+    """Pick each role within its launch list, refusing an explicit name outside that group."""
+    workers, reviewers = role_groups(cfg, workers, reviewers)
+    refuse_outside_group(cfg, want_exec, workers, "worker")
+    refuse_outside_group(cfg, want_review, reviewers, "reviewer")
     order = ready_order(cfg, providers, workers, None if want_exec and want_review else log,
-                        quiet=quiet, repo=repo)
-    session = config.active_session(cfg)
-    allowed = workers if workers is not None else (session["workers"] if session else None)
+                        quiet=quiet, repo=repo, reviewers=reviewers)
     if want_exec:
-        config.model(cfg, want_exec)
-        # Legacy callers without a bound run list retain an admitted orchestrator.
-        admitted = (workers is None and session
-                    and session["orchestrator"] == want_exec == cfg["defaults"]["orchestrator"]
-                    and (resuming or want_exec in order))
-        if allowed is not None and want_exec not in allowed and not admitted:
-            where = f"session {session['name']!r}" if session else "this run"
-            raise config.Error(f"{want_exec!r} is not a worker of {where}")
         refuse_unready(cfg, providers, want_exec)
     elif not order:
         raise QuotaDry("every worker has a gate meter at 100% used")
     executor = want_exec or order[0]
     if want_review:
-        config.model(cfg, want_review)
-        if allowed is not None and want_review not in allowed:
-            where = f"session {session['name']!r}" if session else "this run"
-            raise config.Error(f"{want_review!r} is not a worker of {where}")
         refuse_unready(cfg, providers, want_review)
         reviewer = want_review
+        if not want_exec:
+            executor = next((n for n in order if reviewer_order(cfg, n, [reviewer])), executor)
     else:
-        review_order = ready_order(cfg, providers, workers, role="reviewer", quiet=quiet,
+        review_order = ready_order(cfg, providers, reviewers, role="reviewer", quiet=quiet,
                                    repo=repo)
         for executor in [want_exec] if want_exec else order:
             candidates = reviewer_order(cfg, executor, review_order)
@@ -786,7 +797,7 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
     return executor, reviewer
 
 
-def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None):
+def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, reviewers=None):
     """The one sentence a launch is refused with when no allowed pair can form, or None.
 
     Budgets are left out: a spent meter refills, and a run waiting on one is parked for a
@@ -795,16 +806,21 @@ def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None):
     refused instead of parking on a review nobody can give.  `workers` None is a launch
     outside any session, which the config's default workers bind.
     """
-    listed = workers if workers is not None else cfg["defaults"]["workers"]
-    skipped = {name: usage.unready(cfg, name, providers) for name in listed}
+    listed, review_list = role_groups(cfg, workers, reviewers)
+    skipped = {name: usage.unready(cfg, name, providers) for name in [*listed, *review_list]}
     ready = [name for name in listed if not skipped[name]]
-    reviewers = [want_review] if want_review else ready
-    if any(reviewer_order(cfg, name, reviewers) for name in ([want_exec] if want_exec else ready)):
+    reviews = [name for name in review_list if not skipped[name]]
+    if want_exec:
+        ready = [name for name in ready if name == want_exec]
+    if want_review:
+        reviews = [name for name in reviews if name == want_review]
+    if any(reviewer_order(cfg, name, reviews) for name in ready):
         return None
     why = "; ".join(f"{name}: {reason}" for name, reason in skipped.items() if reason)
-    return (f"no two of the workers {', '.join(listed)} make an allowed executor and reviewer"
+    return (f"workers {', '.join(listed)} and reviewers {', '.join(review_list)} "
+            "make no allowed executor and reviewer pair"
             + (f" ({why})" if why else "")
-            + "; log in to another harness or add another model to the workers")
+            + "; log in to another harness or add another model to the groups")
 
 
 def review_providers(cfg, executor, reviewer):
@@ -2370,7 +2386,7 @@ def note_handover(state, before, why, rnd, to=None, reason="dry"):
     state["exec_session"] = None
 
 
-def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None):
+def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, reviewers=None):
     """(executor, reviewer) for work whose provider has run dry, or Exhausted when none is left.
 
     Both roles are re-picked by budget under the one-provider rule, so the cheapest legal
@@ -2384,9 +2400,10 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None):
     that has just turned it down is how a handover becomes a circle.  `workers`, when given,
     is the run's bound list: nothing outside it is ever picked.
     """
-    order = [n for n in ready_order(cfg, providers, workers, log, repo=repo)
+    workers, reviewers = role_groups(cfg, workers, reviewers)
+    order = [n for n in ready_order(cfg, providers, workers, log, repo=repo, reviewers=reviewers)
              if config.model(cfg, n)["provider"] not in dry]
-    review_order = [n for n in ready_order(cfg, providers, workers, role="reviewer",
+    review_order = [n for n in ready_order(cfg, providers, reviewers, role="reviewer",
                                            repo=repo)
                     if config.model(cfg, n)["provider"] not in dry]
     for executor in order:
@@ -2412,6 +2429,7 @@ def hand_executor(lp, why, detail, dry):
     """
     before = lp.executor
     workers = run_workers(lp.cfg, lp.state)
+    reviewers = run_reviewers(lp.cfg, lp.state)
     try:
         dry.add(config.model(lp.cfg, before)["provider"])
     except config.Error:
@@ -2419,7 +2437,7 @@ def hand_executor(lp, why, detail, dry):
     try:
         providers = collect_usage(lp.cfg)
         new, reviewer = next_executor(lp.cfg, providers, dry, lp.reviewer, lp.log,
-                                      lp.state.get("repo"), workers)
+                                      lp.state.get("repo"), workers, reviewers)
     except (Exhausted, config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
         new = None
     rnd = started_round(lp.run_dir, lp.state)
@@ -2432,7 +2450,7 @@ def hand_executor(lp, why, detail, dry):
     previous = lp.reviewer
     if reviewer != previous:
         lp.reviewer, lp.review_sid = reviewer, None
-    lp.spares = [n for n in ready_order(lp.cfg, providers, workers, role="reviewer",
+    lp.spares = [n for n in ready_order(lp.cfg, providers, reviewers, role="reviewer",
                                         repo=lp.state.get("repo"))
                  if n != reviewer and config.model(lp.cfg, n)["provider"] not in dry]
     lp.save()
@@ -3391,7 +3409,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         except config.Error as exc:
             providers = {}      # meters nobody could read withhold no spare from a dead review
             lp.log(f"WARN could not read the meters before falling back: {exc}")
-        order = ready_order(lp.cfg, providers, run_workers(lp.cfg, lp.state), lp.log,
+        order = ready_order(lp.cfg, providers, run_reviewers(lp.cfg, lp.state), lp.log,
                             role="reviewer", repo=lp.state.get("repo"))
         own = lp.state.get("own_orchestrator") if lp.state.get("own_pr") else None
         exec_for_rule = own or lp.executor
@@ -5238,11 +5256,13 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         log(f"env: {config.ENV / f'{repo.name}.env'} -> {', '.join(sorted(env))}")
 
     # Reject an explicit pair before even probing usage (some adapters make paid probes).
+    workers, reviewers = role_groups(cfg, run_workers(cfg, state), run_reviewers(cfg, state))
+    refuse_outside_group(cfg, opts["--exec"], workers, "worker")
+    refuse_outside_group(cfg, opts["--review"], reviewers, "reviewer")
     if opts["--exec"] and opts["--review"]:
         review_providers(cfg, opts["--exec"], opts["--review"])
     providers = collect_usage(cfg)
-    workers = run_workers(cfg, state)
-    order = ready_order(cfg, providers, workers, role="reviewer", repo=repo)
+    order = ready_order(cfg, providers, reviewers, role="reviewer", repo=repo)
     handed = None               # the model this resume took the work away from, if any
     if prior and state["executor"]:
         executor, reviewer = state["executor"], state.get("reviewer")
@@ -5260,7 +5280,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 try:
                     picked = next_executor(
                         cfg, providers, {config.model(cfg, executor)["provider"]} if spent
-                        else set(), reviewer, log, workers=workers)
+                        else set(), reviewer, log, workers=workers, reviewers=reviewers)
                 except (Exhausted, config.Error):
                     # nowhere to hand the saved turn to: keep the saved pair and let the
                     # round itself surface the quota, exactly as a fresh launch would.
@@ -5269,7 +5289,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                     handed = None
                     executor, reviewer = pick_models(cfg, providers, executor, reviewer,
                                                      log, resuming=True, repo=repo,
-                                                     workers=workers)
+                                                     workers=workers, reviewers=reviewers)
                 else:
                     handed = executor
                     executor, reviewer = picked
@@ -5279,7 +5299,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                         + ("ran dry, no reset left" if spent else gone))
             else:
                 executor, reviewer = pick_models(cfg, providers, executor, reviewer, log,
-                                                 resuming=True, repo=repo, workers=workers)
+                                                 resuming=True, repo=repo, workers=workers,
+                                                 reviewers=reviewers)
         if reviewer != state.get("reviewer"):
             state["review_session"] = None
     elif (preset_exec and not opts["--exec"] and not opts["--review"]
@@ -5290,13 +5311,13 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         if preset_rev not in order:
             preset_rev = None   # a saved reviewer keeps its identity; a stale one does not
         executor, reviewer = pick_models(cfg, providers, preset_exec, preset_rev, log,
-                                         resuming=True, repo=repo, workers=workers)
+                                         resuming=True, repo=repo, workers=workers, reviewers=reviewers)
     else:
         try:
             executor, reviewer = pick_models(cfg, providers, opts["--exec"], opts["--review"],
-                                             log, repo=repo, workers=workers)
+                                             log, repo=repo, workers=workers, reviewers=reviewers)
         except QuotaDry:
-            refusal = pair_refusal(cfg, providers, workers, opts["--exec"], opts["--review"])
+            refusal = pair_refusal(cfg, providers, workers, opts["--exec"], opts["--review"], reviewers)
             if refusal:
                 raise config.Error(refusal) from None
             raise
@@ -5866,10 +5887,18 @@ def record_decision(run_dir, state, reason, merged=False):
 # --- telling the user, when nobody else will --------------------------------
 
 
-def run_workers(cfg, state):
-    """The workers list this run is bound to: its session's selection at launch.
+class RoleWorkers(list):
+    """Keep both launch groups through callers (the tick) passing one list to either picker."""
 
-    Every role of the run -- executor, reviewer, every handover and every fixer -- is picked
+    def __init__(self, workers, reviewers):
+        super().__init__(workers)
+        self.reviewers = list(reviewers)
+
+
+def run_workers(cfg, state):
+    """The executor list this run is bound to: its session's selection at launch.
+
+    Every executor of the run -- first pick, every handover and every fixer -- is picked
     from this list and never widened.  `run.json` records what the session held when the run
     was launched, because the session record can be rewritten while the run lives and the
     process doing a later pick may speak for another seat or for none.  A receipt written
@@ -5878,7 +5907,7 @@ def run_workers(cfg, state):
     """
     workers = state.get("workers")
     if isinstance(workers, list) and workers:
-        return list(workers)
+        return RoleWorkers(workers, state["reviewers"]) if "reviewers" in state else list(workers)
     try:
         name = launched_session(state)
         selection = config.load_session(cfg, name, required=False) if name else None
@@ -5886,6 +5915,14 @@ def run_workers(cfg, state):
         selection = None
     workers = (selection or {}).get("workers")
     return list(workers) if isinstance(workers, list) and workers else None
+
+
+def run_reviewers(cfg, state):
+    """Old receipts keep their shared list even if the session adds reviewers later."""
+    if "reviewers" in state:
+        return list(state["reviewers"])
+    workers = run_workers(cfg, state)
+    return workers if workers is not None else config.workers(cfg)
 
 
 def launched_session(state):
@@ -8606,7 +8643,7 @@ def executable_models(cfg, providers, workers, now, log=None):
     is told each worker left out because its harness cannot run, as `ready_order` says it.
     """
     try:
-        order = ready_order(cfg, providers, workers=list(workers), log=log, role="executor",
+        order = ready_order(cfg, providers, workers=workers, log=log, role="executor",
                             quiet=True)
     except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
         return []
@@ -8643,7 +8680,7 @@ def reviewable_models(cfg, providers, workers, now, executor=None):
     counts.
     """
     try:
-        order = ready_order(cfg, providers, workers=list(workers), role="reviewer",
+        order = ready_order(cfg, providers, workers=workers, role="reviewer",
                             quiet=True)
     except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
         return []
@@ -10539,10 +10576,9 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
     or a done-when command below another run started it.  Nothing is told about it and the
     menu does not offer it -- `ak run status` has it, though never the smoke suite's own runs.
 
-    The session's worker list goes on the receipt here too, when there is a session: what
-    it holds at this launch is the list every later pick for this run may use
-    (`run_workers`), however the record moves afterwards and whichever seat the process
-    doing a later pick speaks for.  A run from no seat has no list to bind to.
+    The session's role lists go on the receipt here too: later edits cannot widen a run's
+    choices. Defaults with separate reviewers bind both lists outside a session as well;
+    old selections keep their original receipt shape.
 
     A job names itself here, in the same write as the scheduler pid the receipt
     records: the scheduler only writes `task["run_id"]` after preflight, and a stop
@@ -10553,6 +10589,10 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
     """
     session_at_launch = config.current_session()
     workers = config.workers(cfg) if cfg is not None and session_at_launch else None
+    selection = (config.active_session(cfg) or cfg["defaults"]) if cfg is not None else {}
+    groups = {"workers": workers} if workers else {}
+    if "reviewers" in selection:
+        groups = {role: list(selection[role]) for role in ("workers", "reviewers")}
     limit = config.max_runs()
     with slot_lock():
         state = stamp_origin({"run_id": run_dir.name, "state": "queued", "verdict": None,
@@ -10562,7 +10602,7 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
                          "reservation_pending": True,
                          "unattended": not session_at_launch and config.unattended(),
                          **process_owner(), "launch_opts": opts or {},
-                         **({"workers": workers} if workers else {}),
+                         **groups,
                          "review_pr": (opts or {}).get("--review-pr"), "reported": False})
         if job_id is not None:
             state["job_id"] = job_id
@@ -10604,12 +10644,13 @@ def preset_models(cfg, opts, log, run_dir):
     """
     try:
         providers = collect_usage(cfg)
-        workers = run_workers(cfg, read_state(run_dir) or {})
+        state = read_state(run_dir) or {}
+        workers, reviewers = run_workers(cfg, state), run_reviewers(cfg, state)
         try:
             executor, reviewer = pick_models(cfg, providers, opts["--exec"], opts["--review"],
-                                             log, quiet=True, workers=workers)
+                                             log, quiet=True, workers=workers, reviewers=reviewers)
         except QuotaDry:
-            refusal = pair_refusal(cfg, providers, workers, opts["--exec"], opts["--review"])
+            refusal = pair_refusal(cfg, providers, workers, opts["--exec"], opts["--review"], reviewers)
             if not refusal:
                 raise
             raise config.Error(refusal) from None
@@ -10623,7 +10664,7 @@ def preset_models(cfg, opts, log, run_dir):
     return executor, reviewer
 
 
-def preset_review_model(cfg, opts, workers=None):
+def preset_review_model(cfg, opts, reviewers=None):
     """The reviewer for a --review-pr launch, picked in the parent, or None.
 
     Same shape as the pick inside review_pr, minus the checkout the parent has not
@@ -10632,6 +10673,8 @@ def preset_review_model(cfg, opts, workers=None):
     refused here. The seat's own PR already picks against its orchestrator here, so
     the launch line names the reviewer the child will keep.
     """
+    reviewers = config.reviewers(cfg) if reviewers is None else reviewers
+    refuse_outside_group(cfg, opts["--review"], reviewers, "reviewer")
     try:
         providers = collect_usage(cfg)
         exec_for_rule = None
@@ -10645,7 +10688,7 @@ def preset_review_model(cfg, opts, workers=None):
         except Exception:  # noqa: BLE001 - unknown PR or login picks as before
             exec_for_rule = None
         order = reviewer_order(cfg, exec_for_rule, ready_order(
-            cfg, providers, workers, role="reviewer", quiet=True))
+            cfg, providers, reviewers, role="reviewer", quiet=True))
         if not opts["--review"]:
             return order[0] if order else None
         config.model(cfg, opts["--review"])
@@ -11618,6 +11661,8 @@ def merge_own_pr(lp, url, head):
 
 def review_pr(cfg, run_dir, url, opts, log):
     """Check out the PR head, have the reviewer judge it, post the verdict, land or offer."""
+    reviewers = run_reviewers(cfg, read_state(run_dir) or {})
+    refuse_outside_group(cfg, opts.get("--review"), reviewers, "reviewer")
     session_at_launch = launch_session(run_dir)
     info = pr_view(url)
     if info.get("state") != "OPEN":
@@ -11704,7 +11749,7 @@ def review_pr(cfg, run_dir, url, opts, log):
     providers = collect_usage(cfg)
     exec_for_rule = orchestrator if is_own else None
     order = reviewer_order(cfg, exec_for_rule, ready_order(cfg, providers,
-                                                           run_workers(cfg, state), log,
+                                                           reviewers, log,
                                                            role="reviewer"))
     # a --bg parent's reviewer, adopted when it is still in the live order
     preset_rev = (read_state(run_dir) or {}).get("launch_reviewer")
@@ -11936,7 +11981,7 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
         if flags["--bg"]:
             try:
                 reviewer = preset_review_model(cfg, opts,
-                                               run_workers(cfg, read_state(run_dir) or {}))
+                                               run_reviewers(cfg, read_state(run_dir) or {}))
             except config.Error as exc:
                 refused(run_dir, exc, logger(run_dir, True), cfg)
                 raise
@@ -13091,7 +13136,7 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
             except Exhausted:
                 # a pair no budget can make is not waited for: the task's run refuses it at launch
                 if not pair_refusal(cfg, providers, config.workers(cfg), opts.get("--exec"),
-                                    opts.get("--review")):
+                                    opts.get("--review"), config.reviewers(cfg)):
                     task["budget_wait"] = True
                     task["retry_after"] = now + JOB_PICKER_INTERVAL
                     last_picker[0] = now

@@ -1123,7 +1123,7 @@ def model_spent(cfg, name, providers):
     return False, f"{worst['name']} {worst['used']}% used < 100"
 
 
-def _fable_pair_available(cfg, providers, order):
+def _fable_pair_available(cfg, providers, order, reviewers=None):
     """Fable can execute and a legal reviewer in this order has reported headroom."""
     from . import run
     if "fable" not in order or model_spent(cfg, "fable", providers)[0]:
@@ -1132,11 +1132,11 @@ def _fable_pair_available(cfg, providers, order):
             and any(model_budget(cfg, n, providers)[1] is None for n in order)):
         return False
     return any((model_headroom(cfg, n, providers) or 0) > 0
-               for n in run.reviewer_order(cfg, "fable", order))
+               for n in run.reviewer_order(cfg, "fable", order if reviewers is None else reviewers))
 
 
 def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=None, quiet=False,
-               repo=None, skip=()):
+               repo=None, skip=(), reviewers=None):
     """The workers, highest budget first, with a Fable executor preference when it lags.
 
     Budget divides the fraction unspent, plus one whole allowance for each usage-limit reset in
@@ -1149,11 +1149,12 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     a model is paid from, that outranks the provider's `mode`.
 
     A worker selection is absolute; lag can only prefer a model already in it.
-    Reviewers keep the normal ranking and worker selection. A launch banner supplies the new
+    Reviewers keep the normal ranking within their own selection. A launch banner supplies the new
     orchestrator explicitly, since the caller may still be in another seat. JSON output uses
     `quiet` because the providers already carry their unknown reasons as structured fields.
     """
-    tier_b = list(workers) if workers is not None else config.workers(cfg)
+    tier_b = (list(workers) if workers is not None else
+              config.reviewers(cfg) if role == "reviewer" else config.workers(cfg))
     if orchestrator is None:
         session = config.active_session(cfg)
         orchestrator = session.get("orchestrator") if session else None
@@ -1217,7 +1218,10 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
                 order[index] = name
     except (AttributeError, OSError, TypeError, ValueError, KeyError):
         pass
-    if behind and _fable_pair_available(cfg, providers, order):
+    if behind and reviewers is not None:
+        reviewers = pick_order(cfg, providers, reviewers, role="reviewer", quiet=True,
+                               repo=repo, skip=skip)
+    if behind and _fable_pair_available(cfg, providers, order, reviewers):
         return ["fable", *(n for n in order if n != "fable")]
     if added:
         # Adding a subscription worker can change payg eligibility; restore the normal pick too.
