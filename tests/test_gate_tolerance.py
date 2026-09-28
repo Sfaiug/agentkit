@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -278,9 +279,10 @@ class GateTolerance(unittest.TestCase):
         self.assertTrue(link.is_symlink())
         self.assertEqual(Path(os.readlink(link)),
                          caller / ".agentkit/state/anthropic-probe.lock")
-        # The host asks both providers seconds after the suite was set up.
-        for provider in ("anthropic", "openai"):
-            (caller / f".agentkit/state/{provider}-probe.lock").write_text(repr(time.time()))
+        # The host asks Claude, and is told by OpenAI to wait, seconds after setup.
+        (caller / ".agentkit/state/anthropic-probe.lock").write_text(repr(time.time()))
+        (caller / ".agentkit/state/openai-probe.retry").write_text(
+            repr(time.time() + 600))
         later = subprocess.run([str(REPO / "bin/ak"), "usage", "--json"], cwd=self.root,
                                env={**self.env, "REPO": str(REPO)},
                                text=True, capture_output=True, timeout=120)
@@ -288,6 +290,29 @@ class GateTolerance(unittest.TestCase):
         self.assertEqual(self.probes("claude"), [])
         self.assertEqual(self.probes("codex"), [])
         self.assertEqual(self.probes("muse"), ["usage"])
+
+    def test_share_creates_a_missing_host_state_and_holds(self):
+        # A host that has never run agentkit has no ~/.agentkit/state: the setup
+        # creates it (0700) so the links resolve, and repeated asks are then held
+        # to one request by the suite's own cadence mark.
+        caller = self.root / "caller"
+        caller.mkdir()  # no .agentkit at all
+        self.healthy()
+        setup = self.shell(self.share(caller))
+        self.assertEqual(setup.returncode, 0, setup.stdout + setup.stderr)
+        self.assertEqual(stat.S_IMODE((caller / ".agentkit").stat().st_mode), 0o700)
+        self.assertEqual(
+            stat.S_IMODE((caller / ".agentkit/state").stat().st_mode), 0o700)
+        ask = subprocess.run(
+            [sys.executable, "-c",
+             "from agentkit import config, usage\n"
+             "cfg = config.load()\n"
+             "[usage._probe_gently(cfg, 'anthropic') for _ in range(3)]\n"],
+            cwd=self.root,
+            env={**self.env, "REPO": str(REPO), "PYTHONPATH": str(REPO)},
+            text=True, capture_output=True, timeout=120)
+        self.assertEqual(ask.returncode, 0, ask.stdout + ask.stderr)
+        self.assertEqual(self.probes("claude"), ["usage"])
 
     def test_host_ask_after_setup_holds_through_an_accounts_host(self):
         # Where the host lists accounts for a provider, its default login's cadence is
@@ -395,6 +420,48 @@ class GateTolerance(unittest.TestCase):
         self.assertIn("PASS  6 ak orch --dry-run", result.stdout)
         self.assertIn("PASS  6b ak orch", result.stdout)
         self.assertNotIn("SKIP", result.stdout)
+
+    def test_held_check_1_picks_once_the_hold_lifts(self):
+        # Check 1 skipped on the host's hold; by check 6 the hold has lifted and the
+        # suite has asked since (checks 3 and 4), so check 6 refreshes $U from that
+        # fresh reading and runs the pick instead of skipping on the suite's own ask.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        lock = caller / ".agentkit/state/anthropic-probe.lock"
+        lock.write_text(repr(time.time()))
+        self.healthy()
+        aged = ("python3 -c 'import sys, time; "
+                "open(sys.argv[1], \"w\").write(repr(time.time() - 901))' "
+                + shlex.quote(str(lock)))
+        block = (self.share(caller) + CHECK_1 + "\n" + aged + "\n"
+                 "ak usage --json >/dev/null\n" + CHECK_6)
+        result = self.shell(block)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
+        self.assertIn("PASS  6 ak orch --dry-run", result.stdout)
+        self.assertIn("PASS  6b ak orch", result.stdout)
+        self.assertNotIn("SKIP  6:", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+        # Check 1 asked nothing; the one suite ask served check 6 from the cache.
+        self.assertEqual(self.probes("claude"), ["usage"])
+
+    def test_held_check_1_skips_check_6_while_the_hold_lasts(self):
+        # The hold that skipped check 1 still lasts at check 6 and the suite asked
+        # nothing since: the refresh has neither meters nor a throttled error, so
+        # check 6 skips with the hold's own reason while 6b still passes.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        (caller / ".agentkit/state/anthropic-probe.lock").write_text(repr(time.time()))
+        self.healthy()
+        result = self.shell(self.share(caller) + CHECK_1 + "\n" + CHECK_6)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
+        self.assertIn("SKIP  6: provider meter unavailable (", result.stdout)
+        self.assertIn("next ask in", result.stdout)
+        self.assertIn("PASS  6b ak orch", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+        self.assertEqual(self.probes("claude"), [])
+        self.assertEqual(self.probes("codex"), ["usage"])
 
 
 if __name__ == "__main__":

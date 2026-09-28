@@ -196,7 +196,9 @@ smoke_share_probes() {   # link the sandbox probe files at the host's own, per p
   # in the suite holds every later sandbox ask through _cooling itself -- check 4's `ak run`
   # and check 6d's `ak orch` as much as checks 1 and 6 -- and a sandbox ask holds the host's
   # own.  _probe_gently opens the lock with "a", writes it with write_text and never unlinks
-  # it, so a link works as-is, even a dangling one for a file the host has yet to write.
+  # it, so a link works as-is, even a dangling one for a file the host has yet to write --
+  # as long as the host state directory is there for it to resolve in, which it is not on
+  # a host that has never run agentkit: without it every ask goes out unheld.
   # The sandbox asks with the default login, so each sandbox file points at the host file
   # that tracks that login: its .default file where the host lists accounts for the
   # provider, else its plain one.  Every provider the sandbox config offers is covered.
@@ -205,6 +207,9 @@ import os, tomllib
 from pathlib import Path
 from agentkit import config
 host = Path(os.environ["SMOKE_CALLER_HOME"]) / ".agentkit"
+for path in (host, host / "state"):
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(path, 0o700)   # a dir someone else created stays 0700 too
 try:
     with (host / "config.toml").open("rb") as fh:
         listed = tomllib.load(fh).get("providers")
@@ -2100,12 +2105,17 @@ fi
 # counts as passed.  A meter that answers, wrong or right, runs the pick below.  The retry
 # refreshes each provider where asking is allowed; a held one keeps the reading it has.
 METER_WHY=""
-# Check 1 on a hold left a placeholder, not meters: refresh it now where allowed.
+# Check 1 on a hold left a placeholder, not meters: refresh it now.  The suite has asked
+# since (checks 3 and 4), so a hold no longer decides this: the refresh serves that fresh
+# reading where the cadence holds, and asks where it allows.  Only a refresh with neither
+# meters nor a throttled error to stand on keeps the hold's own reason.
 if [ -n "${HOST_SKIPPED_1:-}" ]; then
-  if HOST_WHY=$(host_held anthropic openai 2>/dev/null); then
+  ak usage --json >"$U" 2>"$WORK/usage.err" || true
+  if ! meter_unavailable "$U" anthropic openai \
+      && ! jq -e '(.providers.anthropic.meters | length >= 1) and
+        (.providers.openai.meters | length >= 1)' "$U" >/dev/null 2>&1 \
+      && HOST_WHY=$(host_held anthropic openai 2>/dev/null); then
     METER_WHY="$HOST_WHY"
-  else
-    ak usage --json >"$U" 2>"$WORK/usage.err" || true
   fi
 fi
 if [ -z "$METER_WHY" ] && METER_WHY=$(meter_unavailable "$U" anthropic openai); then
