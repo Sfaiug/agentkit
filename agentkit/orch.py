@@ -2027,6 +2027,9 @@ def rename(old, new, log=print, *, auto=False):
         # New windows get the new name; the running orchestrator follows the alias.
         tmux_out("set-environment", "-t", new, config.SESSION_ENV, new, socket=server)
         config.rename_session(old, new)
+        title = config.STATE / f"title-{old}.json"
+        if title.exists():
+            title.replace(config.STATE / f"title-{new}.json")
         config.update_session(new, unnamed=None)
         state = watch.load_state()
         if old in state["stalls"]:
@@ -2423,7 +2426,7 @@ def mark_owner_closed(name):
 # gone. Anything else under STATE with a hyphen -- usage resets, the browser's tabs, a
 # preview record -- belongs to nobody's seat.
 SEAT_FILE_KINDS = frozenset({"session", "seat", "notify", "card", "hook", "compact",
-                             "plan", "stop", "rulebook"})
+                             "plan", "stop", "rulebook", "title"})
 
 
 def session_owned_files(name):

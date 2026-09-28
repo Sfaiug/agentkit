@@ -269,7 +269,7 @@ class SeatTitle(Sandbox):
 
     def test_old_empty_title_cache_cannot_confirm_a_rename(self):
         self.assertEqual(claude.session_title(self.record()), "")
-        cache = next(config.STATE.glob("claude-title-*.json"))
+        cache = config.STATE / "title-lagoon.json"
         cached = json.loads(cache.read_text())
         cached.pop("readable")
         cached["title"] = None

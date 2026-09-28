@@ -69,6 +69,28 @@ class SeatFollowsTitle(Sandbox):
     def record(self):
         return config.session_records()[self.seat["name"]]
 
+    def read_title(self, start, title):
+        original = Path.open
+        reads = []
+
+        def opened(path, *args, **kwargs):
+            handle = original(path, *args, **kwargs)
+            if path == self.transcript:
+                read = handle.readline
+
+                def readline(*args):
+                    reads.append(handle.tell())
+                    return read(*args)
+
+                self.stack.enter_context(patch.object(handle, "readline", readline))
+            return handle
+
+        with patch.object(Path, "open", opened):
+            self.assertEqual(claude.session_title(self.record()), title)
+        self.assertTrue(reads, "transcript was not read line by line")
+        self.assertEqual(reads[0], start)
+        self.assertTrue(all(position >= start for position in reads))
+
     def tick(self, dry=False):
         state = watch.load_state()
         watch.health(self.cfg, state, dry, lambda _: None)
@@ -120,7 +142,8 @@ class SeatFollowsTitle(Sandbox):
         self.transcript.write_text('{"type":"user","message":"hello"}\n[]\n{"type":\n')
         self.title("Checkout Bug")
         record = self.record()
-        with patch.object(claude.json, "loads", wraps=json.loads) as loads:
+        with patch.object(config, "session_records", return_value={"lagoon": record}), \
+                patch.object(claude.json, "loads", wraps=json.loads) as loads:
             self.assertEqual(claude.session_title(record), "Checkout Bug")
         loads.assert_called_once()
         self.assertEqual(json.loads(loads.call_args.args[0])["type"], "custom-title")
@@ -151,7 +174,92 @@ class SeatFollowsTitle(Sandbox):
         before = self.transcript.stat()
         self.title("Search Fix")
         os.utime(self.transcript, ns=(before.st_atime_ns, before.st_mtime_ns))
-        self.assertEqual(claude.session_title(record), "Search Fix")
+        reload(claude)
+        self.read_title(before.st_size, "Search Fix")
+
+    def test_appended_messages_keep_the_title_and_read_only_the_addition(self):
+        for title in ("", "Checkout Bug", None):
+            with self.subTest(title=title):
+                (config.STATE / "title-lagoon.json").unlink(missing_ok=True)
+                self.transcript.write_bytes(b"\xff\n" if title is None else
+                                            b'{"type":"user","message":"hello"}\n')
+                if title:
+                    self.title(title)
+                self.assertEqual(claude.session_title(self.record()), title)
+                before = self.transcript.stat().st_size
+                with self.transcript.open("a") as handle:
+                    handle.write('{"type":"user","message":"more work"}\n')
+                self.read_title(before, title)
+
+    def test_half_written_line_is_read_whole_when_finished(self):
+        self.title("Checkout Bug")
+        before = self.transcript.stat().st_size
+        line = json.dumps({"type": "custom-title", "customTitle": "Café Fix",
+                           "sessionId": "fake-conversation"}, ensure_ascii=False).encode()
+        split = line.index(b"\xc3") + 1
+        with self.transcript.open("ab") as handle:
+            handle.write(line[:split])
+        self.assertEqual(claude.session_title(self.record()), "Checkout Bug")
+        with self.transcript.open("ab") as handle:
+            handle.write(line[split:])
+        self.read_title(before, "Checkout Bug")
+        with self.transcript.open("ab") as handle:
+            handle.write(b"\n")
+        self.read_title(before, "Café Fix")
+
+    def test_replaced_transcript_is_read_from_the_start(self):
+        self.title("Checkout Bug")
+        self.assertEqual(claude.session_title(self.record()), "Checkout Bug")
+        replacement = self.transcript.with_suffix(".new")
+        self.title("Search Fix", replacement)
+        with replacement.open("a") as handle:
+            handle.write('{"type":"user","message":"more work"}\n')
+        replacement.replace(self.transcript)
+        self.read_title(0, "Search Fix")
+
+    def test_shrunken_or_rewritten_transcript_is_read_from_the_start(self):
+        self.title("Checkout Bug")
+        self.assertEqual(claude.session_title(self.record()), "Checkout Bug")
+        self.transcript.write_text("")
+        self.title("Search Fix")
+        self.read_title(0, "Search Fix")
+        before = self.transcript.stat()
+        self.transcript.write_text("")
+        self.title("Parser Fix")
+        os.utime(self.transcript, ns=(before.st_atime_ns, before.st_mtime_ns + 1))
+        self.read_title(0, "Parser Fix")
+        self.transcript.write_text('{"type":"user","message":"hello"}\n')
+        self.read_title(0, "")
+
+    def test_one_reading_follows_the_seat_and_goes_with_its_files(self):
+        self.title("Checkout Bug")
+        self.assertEqual(claude.session_title(self.record()), "Checkout Bug")
+        cache = config.STATE / "title-lagoon.json"
+        reading = cache.read_bytes()
+        self.pane = self.fixture("draft")
+        orch.rename("lagoon", "quay")
+        moved = config.STATE / "title-quay.json"
+        self.assertFalse(cache.exists())
+        self.assertEqual(moved.read_bytes(), reading)
+        self.assertIn(moved, orch.session_owned_files("quay"))
+        before = self.transcript.stat().st_size
+        self.title("Search Fix")
+        self.read_title(before, "Search Fix")
+        config.update_session("quay", conversation="next-conversation")
+        self.transcript = self.path(conversation="next-conversation")
+        self.transcript.write_text('{"type":"user","message":"hello"}\n')
+        self.read_title(0, "")
+        self.assertEqual(list(config.STATE.glob("title-*.json")), [moved])
+        for path in orch.session_owned_files("quay"):
+            path.unlink()
+        self.assertFalse(moved.exists())
+        self.assertEqual(list(config.STATE.glob("title-*.json")), [])
+
+    def test_old_conversation_caches_are_removed_even_without_a_transcript(self):
+        old = config.STATE / ("claude-title-" + "a" * 64 + ".json")
+        old.write_text("{}\n")
+        self.assertIsNone(claude.session_title(self.record()))
+        self.assertFalse(old.exists())
 
     def test_newest_custom_title_renames_and_normalizes_then_its_echo_is_ignored(self):
         self.title("Old Topic")
@@ -234,7 +342,7 @@ class SeatFollowsTitle(Sandbox):
         with patch.object(Path, "open", unreadable):
             self.tick()
         with self.transcript.open("ab") as handle:
-            handle.write(b"\xff")
+            handle.write(b"\xff\n")
         self.tick()
         self.assertEqual(self.record(), before)
         self.assertEqual(self.seat["name"], "lagoon")
