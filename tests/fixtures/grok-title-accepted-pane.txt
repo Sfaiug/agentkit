@@ -1,0 +1,30 @@
+
+  [2mfixture[0m [2mworktree [0m/…/fixture-workspace 2.3K / 500K[2m │ [0m[Dashboard]
+
+     [2mCouldn't switch model: Invalid params: "unknown model id"[0m
+
+     [2mSession renamed to "lagoon"[0m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭─────────────────────────────────────────────────────────────────────────────────────[2m lagoon [0m─╮
+  │ ❯                                                                                            │
+  ╰─────────────────────────────────────────────────────────── [2mGrok 4.6 (high)[0m · [2malways-approve[0m ─╯
+
+  [1mShift+Tab[0;2m:mode  │  [0;1mCtrl+x[0;2m:shortcuts[0m
+
