@@ -262,10 +262,11 @@ resume can take it; its local branch stays until the 30-day removal, because a r
 there. A pass whose delivery ended without a merge loses its checkout after seven days, its branch kept, and a checkout
 with no run record goes after a day. A run directory older than 30 days goes whole, with its checkout and branch, unless
 the session that launched it still exists; a scratch run's workspace goes only with it. `~/.agentkit/tmp` entries older
-than a day go, finished jobs after a week, and a state file named for a seat with no record, or an idle-compact stamp
+than a day go, `/tmp` entries untouched for two days go and a gone Claude session's scratch folder after a day,
+finished jobs after a week, and a state file named for a seat with no record, or an idle-compact stamp
 whose wrapper is gone, a day after its last write. Trust and MCP entries in `~/.claude.json` and `~/.codex/config.toml`
 that point into a gone `smoke-*` sandbox or `~/.agentkit/wt` checkout go in an atomic rewrite of just those entries, in
-any layout; a file that does not parse is left alone. The collector writes `~/.agentkit/state/gc.log` and never touches a checkout under `~/code` or a live loop. A checkout goes with its uncommitted work; a tree holding what this user
+any layout; a file that does not parse is left alone. The collector writes `~/.agentkit/state/gc.log` and never touches a checkout under `~/code`, a live loop, or in `/tmp` a dot entry, `tmux-*`, `systemd-private-*`, another user's file or anything held open. A checkout goes with its uncommitted work; a tree holding what this user
 cannot remove is reported once, on any path, and never retried. `ak run gc --dry-run` gives each item's reason; `ak run
 gc` also sweeps every merged worktree, regardless of repository or git registration, and day-old `smoke-*` sandboxes,
 reporting count and space freed. The tick takes a leftover merged tree only if clean and registered. A passing smoke suite removes its sandbox; a failed one keeps the newest failed sandbox and removes older ones whose suites ended.
