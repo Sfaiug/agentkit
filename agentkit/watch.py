@@ -2225,6 +2225,11 @@ def sync_title(session, log=lambda _: None, *, force=False):
         session = dict(session, name=name)
         record = title_record(name)
         plugin = orch.seat_plugin(record)
+        synced = plugin.sync_title(name, record)
+        if synced is not None:
+            if synced:
+                config.update_session(name, session_title=name, title_sync=None)
+            return synced
         line = plugin.title_command(name)
         attempt = record.get("title_sync")
         tries = (attempt or {}).get("tries", 0) if (attempt or {}).get("name") == name else 0

@@ -388,3 +388,32 @@ both. `session_summary` alone is no manual title. The automatic-title test adds 
 invented generated title to the captured auto shape; no model generated that fixture.
 `grok-title-guide.txt` is the session-title section embedded in the installed 1.0.40
 executable: it states that manual titles win until `/rename --auto` unpins them.
+
+## OpenCode seat titles (2.0.14)
+
+`opencode-title-storage.json` captures the installed **OpenCode 2.0.14** on 2026-09-28:
+`api session.create`, `api session.update --param sessionID=<id> --data '{"title":"lagoon"}'`,
+and `api session.get`, each with `--standalone`, under a temporary checkout directory with
+its own HOME and all XDG directories. No prompt was sent, no credentials were supplied,
+and `api DELETE /api/session/<id>` removed the session afterwards (verified in storage).
+The create/get responses retain their `{data: ...}` wrapper; the plugin's `ctx.session.get`
+returns the inner record. Update returns no body. `schema` and `row` are the session's
+`session_v2` table in that HOME's `data/opencode/opencode.db`. IDs, paths and times were
+normalized; `lagoon` is the invented name used in the probe. There is just one `title`,
+with no manual/generated marker. `events` captures a second throwaway session opened in
+the installed TUI on a private tmux socket with the seat plugin and a logging subscriber.
+The plugin set `lagoon` through `ctx.session.update`, read it back and wrote its confirmation;
+the subscriber captured that rename. No prompt was sent. The session, tmux server and
+temporary HOME were deleted afterwards. Its ids and time use the same normalization.
+
+`opencode-title-source.txt` holds exact bundled JavaScript excerpts read from the same
+installed executable: the rename dialog, plugin update method, rename writer and event
+schema, the SQLite title projection, and the automatic title writer and its guards.
+Both the owner and generator publish `session.renamed` with `{sessionID, title}`; no origin
+is carried. `session.updated` belongs to the v1 compatibility schema, not this v2 plugin
+stream. Automatic generation starts only for a default title, and abandons its result if
+the title changed in flight. No generated title was requested for the probe. The automatic
+and other-session events in `tests/test_opencode_title.py` are synthetic variants of that
+captured event, not model captures. Because origin cannot be distinguished, OpenCode
+never renames an ak seat; its plugin restores the ak name through `ctx.session.update`
+and acknowledges only a matching `ctx.session.get` read-back for the owned session.

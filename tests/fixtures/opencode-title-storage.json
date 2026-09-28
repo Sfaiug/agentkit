@@ -1,0 +1,107 @@
+{
+  "created": {
+    "data": {
+      "id": "ses_fixtureLagoon",
+      "projectID": "project_fixture",
+      "cost": 0,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "time": {
+        "created": 1800000000000,
+        "updated": 1800000000000
+      },
+      "subpath": "acme",
+      "location": {
+        "directory": "/tmp/acme"
+      }
+    }
+  },
+  "renamed": {
+    "data": {
+      "id": "ses_fixtureLagoon",
+      "projectID": "project_fixture",
+      "cost": 0,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "time": {
+        "created": 1800000000000,
+        "updated": 1800000000000
+      },
+      "title": "lagoon",
+      "subpath": "acme",
+      "location": {
+        "directory": "/tmp/acme"
+      }
+    }
+  },
+  "update": null,
+  "schema": "CREATE TABLE `session_v2` (\n          `id` text PRIMARY KEY,\n          `project_id` text NOT NULL,\n          `workspace_id` text,\n          `parent_id` text,\n          `fork_session_id` text,\n          `fork_boundary` text,\n          `slug` text NOT NULL,\n          `directory` text NOT NULL,\n          `path` text,\n          `title` text,\n          `version` text NOT NULL,\n          `share_url` text,\n          `summary_additions` integer,\n          `summary_deletions` integer,\n          `summary_files` integer,\n          `summary_diffs` text,\n          `metadata` text,\n          `cost` real DEFAULT 0 NOT NULL,\n          `tokens_input` integer DEFAULT 0 NOT NULL,\n          `tokens_output` integer DEFAULT 0 NOT NULL,\n          `tokens_reasoning` integer DEFAULT 0 NOT NULL,\n          `tokens_cache_read` integer DEFAULT 0 NOT NULL,\n          `tokens_cache_write` integer DEFAULT 0 NOT NULL,\n          `revert` text,\n          `permission` text,\n          `agent` text,\n          `model` text,\n          `time_created` integer NOT NULL,\n          `time_updated` integer NOT NULL,\n          `time_idle` integer,\n          `time_viewed` integer,\n          `idle_outcome` text,\n          `time_compacting` integer,\n          `time_archived` integer,\n          `time_suspended` integer,\n          `resume_attempts` integer DEFAULT 0 NOT NULL,\n          CONSTRAINT `fk_session_v2_project_id_project_id_fk` FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON DELETE CASCADE\n        )",
+  "row": {
+    "id": "ses_fixtureLagoon",
+    "project_id": "project_fixture",
+    "workspace_id": null,
+    "parent_id": null,
+    "fork_session_id": null,
+    "fork_boundary": null,
+    "slug": "calm-planet",
+    "directory": "/tmp/acme",
+    "path": "acme",
+    "title": "lagoon",
+    "version": "2.0.14",
+    "share_url": null,
+    "summary_additions": null,
+    "summary_deletions": null,
+    "summary_files": null,
+    "summary_diffs": null,
+    "metadata": null,
+    "cost": 0.0,
+    "tokens_input": 0,
+    "tokens_output": 0,
+    "tokens_reasoning": 0,
+    "tokens_cache_read": 0,
+    "tokens_cache_write": 0,
+    "revert": null,
+    "permission": null,
+    "agent": null,
+    "model": null,
+    "time_created": 1800000000000,
+    "time_updated": 1800000000000,
+    "time_idle": null,
+    "time_viewed": null,
+    "idle_outcome": null,
+    "time_compacting": null,
+    "time_archived": null,
+    "time_suspended": null,
+    "resume_attempts": 0
+  },
+  "events": [
+    {
+      "id": "evt_fixture",
+      "created": 1800000000000,
+      "type": "session.renamed",
+      "durable": {
+        "aggregateID": "ses_fixtureLagoon",
+        "seq": 1,
+        "version": 1
+      },
+      "data": {
+        "sessionID": "ses_fixtureLagoon",
+        "title": "lagoon"
+      }
+    }
+  ]
+}

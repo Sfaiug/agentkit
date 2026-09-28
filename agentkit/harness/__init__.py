@@ -166,6 +166,11 @@ class Harness:
         hook = self._hook("title_command")
         return hook(name) if hook else None
 
+    def sync_title(self, name, record):
+        """Set a title without typing: True once confirmed, False pending, None unsupported."""
+        hook = self._hook("sync_title")
+        return hook(name, record) if hook else None
+
     @property
     def title_facts(self):
         """The original title-hook contract; adapters can require a stored receipt instead."""
