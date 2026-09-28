@@ -130,6 +130,25 @@ def max_load(cpus=None):
     return _resource_setting("max_load", "AK_MAX_LOAD", default)
 
 
+def max_load_is_set():
+    """True when the owner pinned the host load gate, in the config or the environment.
+
+    Pinned, the old load check still decides admission, with its old meaning;
+    unset, the slice's own CPU pressure gates instead and the default above
+    goes unread. A corrupt config answers False here and raises where the
+    gate itself reads it, as before.
+    """
+    if os.environ.get("AK_MAX_LOAD") is not None:
+        return True
+    try:
+        with (HOME / CONFIG_NAME).open("rb") as fh:
+            return "max_load" in tomllib.load(fh)
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError):
+        return False
+
+
 def run_memory_max_mb():
     """The per-run memory cap in MiB, or None when the config leaves it unset.
 
