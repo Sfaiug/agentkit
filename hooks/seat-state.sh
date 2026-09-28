@@ -108,15 +108,15 @@ seat_state() {
     look "$seat"
     return 0
   fi
-  # A prompt another session's message opened -- Claude Code wraps it in
-  # <cross-session-message> -- keeps the seat's standing done: the seat only
-  # acknowledged the message, so its done from before the turn still tells.
+  # A prompt another session's message or a background task notification opened --
+  # <cross-session-message> or <task-notification> -- keeps the seat's standing done:
+  # the seat only acknowledged the message, so its done from before the turn still tells.
   # A prompt that asks something -- a sentence ending in `?`, the mark followed by
   # whitespace or the end so a URL's `?` is none -- is ended by its answer.  The
   # latch says which kind of prompt opened the turn.
   peer=false
   if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
-               | any(contains("<cross-session-message"))' \
+               | any(contains("<cross-session-message") or contains("<task-notification"))' \
       <<<"$payload" >/dev/null 2>&1; then
     peer=true
   fi
@@ -133,7 +133,7 @@ seat_state() {
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
   /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
   # The owner's prompt answers an older question wherever it was typed. The launch
-  # name still resolves after a rename; peer messages answer no question of his.
+  # name still resolves after a rename; messages from sessions or tasks answer nothing.
   if [[ $peer = false ]]; then
     /usr/bin/env python3 -c '
 import sys

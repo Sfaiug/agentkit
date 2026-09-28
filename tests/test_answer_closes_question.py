@@ -151,6 +151,14 @@ class AnswerClosesQuestion(Sandbox):
                 self.prompt(**{field: "<cross-session-message from='acme'>Ready.</cross-session-message>"})
                 self.assert_open()
 
+    def test_task_notification_leaves_it_open(self):
+        self.notice()
+        for field in ("prompt", "message"):
+            with self.subTest(field=field):
+                self.prompt(**{field: "<task-notification><task-id>acme-task</task-id>"
+                               "<status>completed</status></task-notification>"})
+                self.assert_open()
+
     def test_no_prompt_leaves_it_open(self):
         self.notice()
         self.assert_open()
