@@ -231,7 +231,7 @@ class Matrix(unittest.TestCase):
         screen.frame()
         before = screen.path.read_bytes()
         lines = screen.press(DOWN + RIGHT + ENTER,
-                             lambda lines: "the workers need one model" in lines[-3])
+                             lambda lines: "exec needs one model" in lines[-3])
         self.assertIn("■", row(lines, "opus")[1])
         self.assertEqual(screen.path.read_bytes(), before)
         lines = screen.press(UP + ENTER, lambda lines: "■" in row(lines, "fable")[1])
@@ -358,12 +358,12 @@ class Matrix(unittest.TestCase):
         self.assertIn("add a model", "\n".join(lines))
         # what a key could not do has lines of its own, however little room the rows leave
         lines = screen.press(DOWN + RIGHT + ENTER,
-                             lambda lines: "the workers need" in "\n".join(lines))
+                             lambda lines: "exec needs" in "\n".join(lines))
         self.assertLessEqual(len(lines), 23)
         self.assertIn("opus", highlighted(lines))
         lines = screen.press(DOWN * 10, lambda lines: highlighted(lines).startswith("› Update"))
         self.assertLessEqual(len(lines), 23)
-        self.assertNotIn("the workers need", "\n".join(lines))   # until the next key
+        self.assertNotIn("exec needs", "\n".join(lines))   # until the next key
         screen.leave()
 
 

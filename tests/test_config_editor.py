@@ -105,7 +105,7 @@ class Editor(unittest.TestCase):
         self.path.write_text(OWN)
         before = self.path.read_bytes()
         _, screen = self.drive("right", "enter")
-        self.assertIn("the workers need one model", screen)
+        self.assertIn("exec needs one model", screen)
         self.assertEqual(self.path.read_bytes(), before)
 
     def test_choosing_the_default_orchestrator(self):
