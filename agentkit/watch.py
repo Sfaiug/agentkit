@@ -2158,6 +2158,7 @@ def follow_title(session, log=lambda _: None):
     if not title or title in (name, record.get("session_title")):
         return None
     aliases = {old for old, target in config.session_aliases().items() if target == name}
+    aliases -= orch.held_names()
     new = orch.unique_name(title, orch.taken_names() - {name} - aliases)
     if not new:
         return None

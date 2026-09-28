@@ -16,6 +16,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
 from agentkit import config, menu, orch, terminal, usage, watch
+from agentkit.harness import claude
 from tools import rulebook
 
 PROMPT = "Name (Enter: auto): "
@@ -27,7 +28,7 @@ class SeatNameAsked(Sandbox):
         super().setUp()
         self.rules = []
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
-        self.stack.enter_context(patch.object(orch, "held_names", return_value=set()))
+        self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
         self.stack.enter_context(patch.object(orch, "maintenance"))
         self.stack.enter_context(patch.object(orch, "launch"))
         self.stack.enter_context(patch.object(orch, "attach", return_value=0))
@@ -50,10 +51,18 @@ class SeatNameAsked(Sandbox):
 
     def running(self, name):
         seat = {"name": name, "legacy": False}
+        self.held = {name}
 
         def tmux(*args, **kwargs):
+            if args[0] == "list-sessions":
+                self.assertEqual(kwargs["socket"], orch.socket_name())
+                return 0, "\n".join(sorted(self.held))
             if args[0] == "rename-session":
                 self.assertEqual(args[2], f"={seat['name']}")
+                if args[-1] in self.held:
+                    return 1, f"duplicate session: {args[-1]}"
+                self.held.remove(seat["name"])
+                self.held.add(args[-1])
                 seat["name"] = args[-1]
             return 0, ""
 
@@ -223,6 +232,7 @@ class SeatNameAsked(Sandbox):
                 for path in config.STATE.glob("session-*.json"):
                     path.unlink()
                 orch.sessions.return_value = []
+                self.held = set()
                 self.start("menu", "foo\n\n\n")
                 seat = self.running("foo")
                 with redirect_stdout(io.StringIO()):
@@ -236,6 +246,45 @@ class SeatNameAsked(Sandbox):
                 self.assertEqual(set(config.session_records()), {"foo"})
                 self.assertEqual(config.resolve_session("foo"), "foo")
                 self.assertEqual(config.resolve_session("bar"), "foo")
+
+    def test_cli_refuses_its_former_name_when_tmux_holds_it(self):
+        self.start("menu", "foo\n\n\n")
+        seat = self.running("foo")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(orch.main(["rename", "bar"]), 0)
+        self.held.add("foo")
+        before = config.session_records()
+        orch.tmux_out.reset_mock()
+        with self.assertRaisesRegex(config.Error, "^the name 'foo' is already spoken for$"):
+            orch.main(["rename", "foo"])
+        self.assertEqual(seat["name"], "bar")
+        self.assertEqual(config.session_records(), before)
+        self.assertEqual(config.resolve_session("foo"), "bar")
+        self.assertFalse(any(call.args[0] == "rename-session"
+                             for call in orch.tmux_out.call_args_list))
+
+    def test_claude_title_gets_a_stable_variant_when_tmux_holds_its_former_name(self):
+        self.start("menu", "foo\n\n\n")
+        seat = self.running("foo")
+        self.assertEqual(orch.rename("foo", "bar"), "bar")
+        self.held.add("foo")
+        record = config.update_session("bar", cwd=str(self.root), conversation="fake-conversation",
+                                       session_title="bar")
+        transcript = claude.transcript_path(record, "fake-conversation")
+        transcript.parent.mkdir(parents=True)
+        transcript.write_text('{"type":"custom-title","customTitle":"foo",'
+                              '"sessionId":"fake-conversation"}\n')
+        with patch.object(orch, "rename", wraps=orch.rename) as rename:
+            self.assertEqual(watch.follow_title(seat), "foo-2")
+            self.assertEqual(seat["name"], "foo-2")
+            self.assertEqual(config.resolve_session("foo"), "foo-2")
+            self.assertIsNone(watch.follow_title(seat))
+        rename.assert_called_once()
+        self.assertEqual(self.held, {"foo", "foo-2"})
+
+    def test_bad_argument_usage_includes_auto_rename(self):
+        with self.assertRaisesRegex(config.Error, r"ak orch rename \[--auto\] \[OLD\] NEW"):
+            orch.parse(["--unknown"])
 
     def test_config_can_reclaim_a_name_through_a_chain_without_a_loop(self):
         self.start("menu", "foo\n\n\n")

@@ -2060,7 +2060,7 @@ def rename(old, new, log=print, *, auto=False):
             config.update_session(old, unnamed=None)
             return new
         target = config.resolve_session(new)
-        if new in taken_names() and target != old:
+        if new in (held_names() if target == old else taken_names()):
             raise config.Error(f"the name {new!r} is already spoken for")
         locks.enter_context(notify.session_lock(old))
         # An old name of this seat follows its pointer to the lock we already hold.
@@ -2654,7 +2654,7 @@ def cmd_project(argv):
 
 USAGE = ("usage: ak orch [name] [--model NAME] [--workers A,B] [--dry-run] | "
          "ak orch list [--why] | ak orch why NAME | "
-         "ak orch stop <name> | ak orch rename [<old>] <new> | "
+         "ak orch stop <name> | ak orch rename [--auto] [OLD] NEW | "
          "ak orch project [<seat>] <checkout>")
 
 
