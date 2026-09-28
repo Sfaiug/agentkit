@@ -177,10 +177,10 @@ ended run is its orchestrator's business. `needs you` and `done` are messages, a
 Runs keep those row words in `ak run status`, with the parked state and its retry on the dim line; a wait that lifts
 itself has an open circle (`○ waiting for claude login`), which is not a fourth session state.
 
-Discord hears two things and nothing else. A `needs you` word held for 60 seconds with no client attached sends one
+Discord hears two things and nothing else. A `needs you` word held for 60 seconds with no attached client input since it began sends one
 amber `Needs you · <session>` card. A `done` word sends one green `Done · <session>` card, red when the summary starts
 with `FAIL`; an unfinished run delays it and a failed run drops the declaration with one log line. One card per episode
-and declaration: opening the session or answering its question edits open needs cards to `Answered`, a done edits them to `Done`, and edits never
+and declaration: input from an attached client since the episode began, or answering its question, edits open needs cards to `Answered`; an untouched attached terminal does not suppress or close a card. A done edits them to `Done`, and edits never
 ping; an edit Discord did not take stays on the card and is tried again at the next one. No card or retry goes out for
 a seat you closed (`x`, `ak orch stop`, a pause script), whose row keeps its number, or an episode begun before this
 install (`installed-at` or a fast-forward's newest module; a gone seat's when it went); `ak notify` counts from the

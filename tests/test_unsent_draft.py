@@ -85,6 +85,8 @@ class UnsentDraft(Sandbox):
     def tmux(self, *args, **kwargs):
         """The fake server; the one question asked of it is whether a client is on the seat."""
         if args[0] == "list-clients":
+            if "#{client_activity}" in args[-1]:
+                return 0, f"{SEAT}\t{NOW}\n" if self.attached else ""
             return 0, f"/dev/pts/3: {SEAT} [170x40 xterm-256color] (utf8)\n" if self.attached else ""
         return 0, ""
 

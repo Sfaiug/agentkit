@@ -56,9 +56,9 @@ class Cards(unittest.TestCase):
         notify.transition("seat", self.answer("needs you", 100), now=160)
         self.assertEqual(self.posts[0]["embeds"][0]["title"], "Needs you · seat")
 
-    def test_no_card_while_a_client_is_attached(self):
+    def test_no_card_while_an_attached_client_has_input_during_the_episode(self):
         notify.record("seat", "needs", "Choose a branch", time=100)
-        with patch.object(orch, "tmux_out", return_value=(0, "/dev/pts/1\tseat")):
+        with patch.object(orch, "tmux_out", return_value=(0, "seat\t150")):
             notify.transition("seat", self.answer("needs you", 100), now=200)
         self.assertEqual(self.posts, [])
 
@@ -129,9 +129,9 @@ class Cards(unittest.TestCase):
         self.assertEqual(len(self.posts), 1)
         self.assertTrue(json.loads(config.card_path("seat").read_text())["sent"])
 
-    def test_attached_episode_is_retired_without_a_card(self):
+    def test_episode_with_client_input_is_retired_without_a_card(self):
         notify.record("seat", "needs", "Choose a branch", time=100)
-        with patch.object(orch, "tmux_out", return_value=(0, "/dev/pts/1\tseat")):
+        with patch.object(orch, "tmux_out", return_value=(0, "seat\t150")):
             notify.transition("seat", self.answer("needs you", 100), now=200)
         self.assertEqual(self.posts, [])
         self.assertEqual(json.loads(config.card_path("seat").read_text())["closed"], "Answered")
