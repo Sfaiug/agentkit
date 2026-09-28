@@ -33,12 +33,14 @@ class SeatFollowsClear(Sandbox):
         self.stack.enter_context(patch.object(orch, "processes", side_effect=lambda: self.table))
         self.stack.enter_context(patch.object(orch, "sessions", side_effect=lambda: [self.seat]))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
-        self.stack.enter_context(patch.object(watch, "announce_state"))
+        for method in ("poll_worker_token", "seat_account", "stop_nudge", "announce_state"):
+            self.stack.enter_context(patch.object(watch, method, return_value=False))
         self.stack.enter_context(patch.object(watch, "KEY_GAP", 0))
         self.typed = []
         self.pane = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text()
         self.bound_pane = "%7"
         self.active_pane = "%7"
+        self.panes = {"%7": (101, False), "%8": (201, False), "%9": (301, False)}
         self.server_up = True
         self.tmux_calls = []
         config.save_session(self.cfg, "lagoon", "opus", ["opus"], {
@@ -71,14 +73,31 @@ class SeatFollowsClear(Sandbox):
         if args[0] == "source-file":
             return (0 if self.server_up else 1), ""
         if args[0] == "display-message":
-            root = {"%7": 101, "%8": 201, "%9": 301}[args[3]]
-            return 0, f"/fake/agentkit-test\t{self.seat['name']}\t{root}\t{self.bound_pane}"
+            pane = self.active_pane if args[3] == f"={self.seat['name']}:" else args[3]
+            if pane not in self.panes:
+                return 1, "can't find pane"
+            fields = {"socket_path": "/fake/agentkit-test", "session_name": self.seat["name"],
+                      "pane_pid": str(self.panes[pane][0]), "pane_id": pane,
+                      orch.PANE_OPTION: self.bound_pane}
+            out = args[-1]
+            for key, value in fields.items():
+                out = out.replace(f"#{{{key}}}", value)
+            return 0, out.strip()
         if "new-session" in args:
             return 0, ""
         if args[0] == "show-options":
             target = args[args.index("-t") + 1]
-            return 0, self.bound_pane if target in (self.seat["name"], f"={self.seat['name']}:") else ""
+            return 0, (self.bound_pane if target in
+                       (self.seat["name"], f"={self.seat['name']}:", *self.panes) else "")
+        if args[0] == "list-panes":
+            self.assertEqual(args, ("list-panes", "-s", "-t", f"={self.seat['name']}:", "-F",
+                                    "#{pane_id}\t#{pane_pid}\t#{pane_dead}"))
+            return 0, "\n".join(f"{pane}\t{pid}\t{int(dead)}"
+                                for pane, (pid, dead) in self.panes.items())
         if args[0] == "respawn-pane":
+            target = args[args.index("-t") + 1]
+            if target not in (*self.panes, f"={self.seat['name']}:"):
+                return 1, "can't find pane"
             return 0, ""
         if args[0] == "set-option" and orch.PANE_OPTION in args:
             if "-F" in args:
@@ -215,6 +234,93 @@ class SeatFollowsClear(Sandbox):
         self.hook()
         self.assertEqual(self.record(), before)
 
+    def tick(self, dry=False):
+        watch.health(self.cfg, watch.load_state(), dry, lambda _: None)
+
+    def test_running_seat_binds_its_client_once_then_follows_clear(self):
+        self.bound_pane, self.active_pane = "", "%8"
+        self.table.update({201: (1, ["bash"]), 301: (1, ["claude", "--resume", "other"]),
+                           302: (301, ["claude", "--resume", "before-clear"])})
+        for words in (["claude", "--session-id", "before-clear"],
+                      ["claude", "--resume", "before-clear"],
+                      ["node", "/fake/node_modules/@anthropic-ai/claude-code/cli.js",
+                       "--session-id", "before-clear"]):
+            with self.subTest(words=words):
+                self.bound_pane = ""
+                config.update_session("lagoon", conversation="before-clear")
+                self.table[102] = (101, words)
+                self.tmux_calls.clear()
+                self.tick()
+                self.assertEqual(self.bound_pane, "%7")
+                self.hook()
+                self.assertEqual(self.record()["conversation"], "after-clear")
+                self.tick()
+                bindings = [args for args in self.tmux_calls
+                            if args[0] == "set-option" and orch.PANE_OPTION in args]
+                self.assertEqual(len(bindings), 1)
+                self.assertFalse(any("respawn-pane" in args or "new-session" in args
+                                     for args in self.tmux_calls))
+
+    def test_wrapper_keeps_launch_evidence_when_client_arguments_are_missing(self):
+        self.bound_pane = ""
+        self.table[101][1].extend(["--session-id", "before-clear"])
+        self.table[102] = (101, ["claude"])
+        self.tick()
+        self.assertEqual(self.bound_pane, "%7")
+        self.hook()
+        self.assertEqual(self.record()["conversation"], "after-clear")
+
+    def test_direct_client_binds_but_dead_or_ambiguous_panes_do_not(self):
+        self.bound_pane = ""
+        self.panes = {"%7": (102, True)}
+        self.tick()
+        self.assertEqual(self.bound_pane, "")
+        self.panes["%7"] = (102, False)
+        self.panes["%8"] = (201, False)
+        self.table[201] = (1, ["claude", "--resume", "before-clear"])
+        self.tick()
+        self.assertEqual(self.bound_pane, "")
+        del self.panes["%8"]
+        self.tick()
+        self.assertEqual(self.bound_pane, "%7")
+        self.hook()
+        self.assertEqual(self.record()["conversation"], "after-clear")
+
+    def test_shell_nested_worker_and_unrelated_clients_cannot_bind(self):
+        before = self.record()
+        self.panes = {"%8": (201, False)}
+        self.active_pane = "%8"
+        for table in ({201: (1, ["bash"])},
+                      {201: (1, ["bash"]), 202: (201, ["claude", "--resume", "before-clear"])},
+                      {201: (1, ["claude"]), 202: (201, ["claude", "--resume", "before-clear"])},
+                      {201: (1, ["claude", "--print", "--resume", "before-clear"])},
+                      {201: (1, ["claude", "--resume", "other"])},
+                      {201: (1, ["python3", "other.py", "--resume", "before-clear"])},
+                      {}):
+            with self.subTest(table=table):
+                self.table, self.bound_pane = table, ""
+                self.tick()
+                self.assertEqual(self.bound_pane, "")
+                self.assertEqual(self.record(), before)
+
+    def test_dry_run_exited_and_other_harness_seats_are_not_bound(self):
+        self.bound_pane = ""
+        self.tick(dry=True)
+        self.assertEqual(self.bound_pane, "")
+        self.seat["exited"] = True
+        self.tick()
+        self.assertEqual(self.bound_pane, "")
+        self.seat["exited"] = False
+        config.update_session("lagoon", orchestrator="astra")
+        self.tick()
+        self.assertEqual(self.bound_pane, "")
+
+    def test_show_options_needs_a_real_tmux_target(self):
+        self.assertEqual(self.tmux("show-options", "-qv", "-t", "=lagoon", orch.PANE_OPTION),
+                         (0, ""))
+        self.assertEqual(self.tmux("show-options", "-qv", "-t", "=lagoon:", orch.PANE_OPTION),
+                         (0, "%7"))
+
     def test_launch_binds_the_pane_and_respawn_keeps_it_when_another_pane_is_active(self):
         self.bound_pane = ""
         orch.start("lagoon", self.root, ["claude"], "opus")
@@ -225,6 +331,23 @@ class SeatFollowsClear(Sandbox):
         respawn = next(args for args in self.tmux_calls if args[0] == "respawn-pane")
         self.assertEqual(respawn[respawn.index("-t") + 1], "%7")
         self.assertEqual(self.bound_pane, "%7")
+
+    def test_resume_with_gone_pane_uses_and_records_the_sessions_pane(self):
+        self.panes = {"%8": (201, False)}
+        self.active_pane = "%8"
+        self.table = {201: (1, ["bash"])}
+        for exited in (False, True):
+            with self.subTest(exited=exited):
+                self.seat["exited"], self.bound_pane = exited, "%7"
+                self.tmux_calls.clear()
+                # Changing login can restart a live session whose only remaining pane is a shell.
+                self.assertEqual(orch.resume(self.cfg, "lagoon", hand_over=False,
+                                             account=None if exited else "default",
+                                             log=lambda _: None), "resumed")
+                respawn = next(args for args in self.tmux_calls if args[0] == "respawn-pane")
+                self.assertEqual(respawn[respawn.index("-t") + 1], "=lagoon:")
+                self.assertIn("--resume before-clear", respawn[-1])
+                self.assertEqual(self.bound_pane, "%8")
 
     def test_fresh_server_launch_without_stdout_still_follows_clear(self):
         self.server_up, self.bound_pane = False, ""
