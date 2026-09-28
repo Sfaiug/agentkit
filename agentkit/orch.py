@@ -2830,51 +2830,98 @@ def spent_note(cfg, name, providers):
     return f"spent · resets {when}" if when else "spent"
 
 
-def picker_lines(cfg, notes, model, workers, at, room):
-    """The new-session screen's body `room` columns wide, and the body lines each row is drawn on.
+ROLE_HEADS = ("orch", "exec", "review")
 
-    Two groups, every model once in each: the orchestrator is one choice (`●`/`○`), the
-    workers several (`■`/`□`).  Beside each model its harness and effort, dim, and where it is
-    spent that too; a spent model reads dim all along.  The names take at most a third of the
-    width, a longer one cut, so a long one cannot push the rest off a phone; a row still too
-    wide wraps its detail under itself and puts the spent note on a line of its own under the
-    name.  Row `at` is highlighted.
+
+def role_refusal(cfg, selected, providers):
+    """Use the launch's pairing rules, with a sentence that fits under the marks on a phone."""
+    from . import run
+    if run.pair_refusal(cfg, providers, selected["workers"],
+                        reviewers=selected.get("reviewers", selected["workers"])):
+        return "no allowed executor/reviewer pair"
+    return ""
+
+
+def role_mark(cfg, selected, name, column, providers):
+    """A proposed mark, without mutating the saved groups when it cannot form a pair.
+
+    Copy legacy reviewers before changing workers, so the two columns are independent from
+    the first flip. Empty groups are possible only before choosing from an all-spent screen.
     """
+    changed = {**selected, "reviewers": list(selected.get("reviewers", selected["workers"]))}
+    if column == 0:
+        if selected["orchestrator"] == name:
+            return selected, ""
+        changed["orchestrator"] = name
+    else:
+        role = "workers" if column == 1 else "reviewers"
+        group = changed[role]
+        if name in group and len(group) == 1:
+            return selected, f"the {role} need one model"
+        changed[role] = ([peer for peer in group if peer != name] if name in group
+                         else [*group, name])
+    if changed["workers"] and changed["reviewers"]:
+        note = role_refusal(cfg, changed, providers)
+        if note:
+            return selected, note
+    return changed, ""
+
+
+def picker_lines(cfg, notes, selected, at, column, room):
+    """Every model once with three marks; detail and spent notes wrap below on a phone."""
     names = list(notes)
-    marks = ("●", "○", "■", "□") if terminal.utf8() else ("(*)", "( )", "[x]", "[ ]")
+    marks = "●○■□" if terminal.utf8() else "*.x."
     titles = {name: model_title(cfg, name) for name in names}
-    wide = min(max(terminal.cells(title) for title in titles.values()), max(1, room // 3))
-    lines, rows = [], []
-    for group, heading in enumerate(("Orchestrator", "Workers")):
-        lines += ["", terminal.styled(heading, "accent")]
-        for name in names:
-            chosen = name in workers if group else name == model
-            entry = config.model(cfg, name)
-            head = f"  {marks[2 * group + (not chosen)]} {terminal.pad(titles[name], wide)}   "
-            detail, note = f"{entry['harness']} · {entry['effort']}", notes[name]
-            parts = [f"{head}{detail}{f' · {note}' if note else ''}"]
-            if terminal.cells(parts[0]) > room:
-                parts = [*terminal.hang(head + detail, room),
-                         *([f"    {terminal.cut(note, room - 4)}"] if note else [])]
-            cut, first = 2 if note else len(head), len(lines)
-            for number, part in enumerate(parts):
-                line = part[:cut] + terminal.styled(part[cut:], "dim")
-                lines.append(terminal.highlight(line, number == 0) if len(rows) == at else line)
-            rows.append(range(first, len(lines)))
-    return lines, rows
+    rest = sum(len(head) + 2 for head in ROLE_HEADS)
+    wide = min(max(terminal.cells(title) for title in titles.values()),
+               max(1, min(room // 3, room - 2 - rest)))
+    lines = [terminal.styled(" " * (2 + wide) + "".join("  " + head for head in ROLE_HEADS),
+                             "dim")]
+    rows, cells = [], []
+    for at_row, name in enumerate(names):
+        entry, note = config.model(cfg, name), notes[name]
+        line = "  " + terminal.pad(titles[name], wide)
+        texts = (marks[name != selected["orchestrator"]],
+                 marks[2 + (name not in selected["workers"])],
+                 marks[2 + (name not in selected["reviewers"])])
+        own = []
+        for number, (text, head) in enumerate(zip(texts, ROLE_HEADS)):
+            first = terminal.cells(line) + 3
+            shown = f" {text} "
+            kind = "dim" if note or text in (marks[1], marks[3]) else None
+            if at_row == at and column == number:
+                kind = "reverse"
+                if not terminal.colour_depth():
+                    shown = f"[{text}]"
+            lead = (len(head) - 3) // 2
+            line += ("  " + " " * lead + (terminal.styled(shown, kind) if kind else shown)
+                     + " " * (len(head) - lead - 3))
+            own.append((first, first + len(head) - 1, number))
+        detail = f"{entry['harness']} · {entry['effort']}" + (f" · {note}" if note else "")
+        parts = [line + "  " + terminal.styled(detail, "dim")]
+        if terminal.cells(parts[0]) > room:
+            parts = [line.rstrip(), *(terminal.styled("    " + part, "dim")
+                                     for part in terminal.wrap(detail, room - 4))]
+        if note:
+            parts[0] = "  " + terminal.styled(parts[0][2:], "dim")
+        first = len(lines)
+        lines.extend(terminal.highlight(part, number == 0) if at_row == at else part
+                     for number, part in enumerate(parts))
+        rows.append(range(first, len(lines)))
+        cells.append(own)
+    return lines, rows, cells
 
 
 def pick(cfg, providers, default):
-    """(orchestrator, workers) off one screen of selectors, BACK, or None with no terminal.
+    """(orchestrator, workers, reviewers) off one screen, BACK, or None with no terminal.
 
     `agentkit · new session`, `n` on a terminal: what Enter takes is chosen before a key is
-    pressed -- `default`, which is `choose()`'s, and the default workers with something left
+    pressed -- `default`, which is `choose()`'s, and both default groups with something left
     to spend, or failing either the first model that has, the way `choose()` falls back.  A
     spent model is still a choice, only never a preselected one, so with every model spent
-    nothing is chosen and Enter takes the highlight to the list that still wants a choice.
-    ↑/↓, k/j and the wheel move through both groups, space or a click chooses, Enter starts
-    from anywhere, Esc or `q` goes back.  The last worker stays chosen: a seat needs somebody
-    to work for it.
+    nothing is chosen and Enter takes the highlight to the column that still wants a choice.
+    ↑/↓, k/j and the wheel move through models, ←/→ through roles; space or a click chooses,
+    Enter starts from anywhere, Esc or `q` goes back. Each group keeps its last model.
 
     None where there is no terminal to take -- a pipe, a file, the smoke suite -- and the
     caller asks its two questions a line at a time.
@@ -2884,27 +2931,33 @@ def pick(cfg, providers, default):
     fresh = [name for name in names if not notes[name]]
     model = next((name for name in [default, *names] if name in fresh), None)
     workers = [name for name in cfg["defaults"]["workers"] if name in fresh] or fresh[:1]
+    reviewers = [name for name in cfg["defaults"].get("reviewers", cfg["defaults"]["workers"])
+                 if name in fresh] or fresh[:1]
     with closing(terminal.Keyboard()) as keyboard:
         if not keyboard.take():
             return None
-        return _picking(cfg, notes, model, workers)
+        return _picking(cfg, providers, notes, {"orchestrator": model, "workers": workers,
+                                               "reviewers": reviewers})
 
 
 @terminal.clicks_its_own
-def _picking(cfg, notes, model, workers):
+def _picking(cfg, providers, notes, selected):
     """`pick`'s screen, drawn over in place and read with the keys, the way `terminal.scroll`
-    is; the rows scroll to keep the highlight on a screen too short for both groups."""
+    is; the rows scroll to keep the highlight on a screen too short for every model."""
     names = list(notes)
-    at, top = names.index(model) if model in names else 0, 0
-    keys = (f"{'↑↓' if terminal.utf8() else 'j/k'} move   space choose   "
+    model = selected["orchestrator"]
+    at, top, column, note = names.index(model) if model in names else 0, 0, 0, ""
+    keys = (f"{'↑↓←→' if terminal.utf8() else 'arrows'} move   space choose   "
             f"{'⏎' if terminal.utf8() else 'enter'} start   esc back")
     while True:
-        body, rows = picker_lines(cfg, notes, model, workers, at, terminal.layout_width())
-        room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)))
-        top = min(top, rows[at].start - (2 if at in (0, len(names)) else 0))
+        body, rows, cells = picker_lines(cfg, notes, selected, at, column, terminal.layout_width())
+        said = [terminal.styled("  " + terminal.cut(note, terminal.layout_width() - 2), "dim")] \
+            if note else []
+        room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(said))
+        top = min(top, rows[at].start - (1 if at == 0 else 0))
         top = max(0, min(max(top, rows[at].stop - room), len(body) - room))
         lines = [terminal.header_line("new session", time.strftime("%H:%M")),
-                 terminal.rule_line(), *body[top:top + room], ""]
+                 terminal.rule_line(), *body[top:top + room], *said, ""]
         spans = [(len(lines) + number, begin, end, key)
                  for number, line in enumerate(terminal.key_line(keys), 1)
                  for begin, end, key in terminal.key_spans(line)]
@@ -2914,6 +2967,7 @@ def _picking(cfg, notes, model, workers):
         key = terminal.read_key()
         if key is None:
             continue              # a resize: draw again
+        note = ""
         if key.name == "click":
             item = next((item for row, begin, end, item in spans
                          if row == key.row and begin <= key.col <= end), "")
@@ -2923,20 +2977,23 @@ def _picking(cfg, notes, model, workers):
                 key = terminal.Key({"⏎": "enter"}.get(item, item))
             elif hit is not None:
                 at, key = hit, terminal.Key("space")
+                column = next((number for first, last, number in cells[hit]
+                               if line == rows[hit].start and first <= key.col <= last), column)
         if terminal.step(key):
             at = min(max(at + terminal.step(key), 0), len(rows) - 1)
+        elif key.name in ("left", "right"):
+            column = min(max(column + (1 if key.name == "right" else -1), 0), 2)
         elif key.name == "space":
-            name = names[at % len(names)]
-            if at < len(names):
-                model = name
-            elif name not in workers:
-                workers.append(name)
-            elif len(workers) > 1:
-                workers.remove(name)
+            selected, note = role_mark(cfg, selected, names[at], column, providers)
         elif key.name == "enter":
-            if model and workers:
-                return model, list(workers)
-            at = len(names) if model else 0     # the list that still wants a choice
+            missing = next((number for number, role in enumerate(
+                ("orchestrator", "workers", "reviewers")) if not selected[role]), None)
+            if missing is not None:
+                column = missing
+            else:
+                note = role_refusal(cfg, selected, providers)
+                if not note:
+                    return selected["orchestrator"], selected["workers"], selected["reviewers"]
         elif key.name in ("esc", "eof") or key.char in ("q", "Q"):
             return BACK
 
@@ -2953,15 +3010,17 @@ def worker_names(cfg, raw):
 
 
 def select(cfg, providers, forced=None, forced_workers=None, prompting=True):
-    """(orchestrator, reason, workers): the screen on a terminal, else the two prompts a line at
-    a time, or their flags and defaults."""
+    """(orchestrator, reason, workers), plus explicit reviewers when chosen on the screen.
+
+    Line prompts and flags keep their legacy selection; create inherits default reviewers.
+    """
     default, default_reason = choose(cfg, providers)
     picked = pick(cfg, providers, default) if prompting and not forced and forced_workers is None \
         else None
     if picked is BACK:
         return BACK
     if picked:
-        return picked[0], default_reason if picked[0] == default else "selected", picked[1]
+        return picked[0], default_reason if picked[0] == default else "selected", *picked[1:]
     if forced:
         config.model(cfg, forced)
         model, reason = forced, "--model"
@@ -3000,7 +3059,8 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
         if selected is BACK:
             return None
         selection = providers, selected
-    providers, (model, reason, workers) = selection
+    providers, selected = selection
+    model, reason, workers = selected[:3]
     provider = config.model(cfg, model)["provider"]
     accounts = config.accounts(cfg, provider)
     order = account_order(cfg, model, providers.get(provider, {}).get("accounts") or {})
@@ -3018,6 +3078,8 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     # Not for a dry run: a conversation nothing ever opened is nobody's to be resumed into.
     extra = {"cwd": str(cwd), "repo": str(repo) if repo else None, "created": time.time(),
              "account": account}
+    if len(selected) == 4:
+        extra["reviewers"] = selected[3]
     if unnamed:
         # The adapter writes the rulebook while building its command, before the seat starts.
         extra["unnamed"] = True

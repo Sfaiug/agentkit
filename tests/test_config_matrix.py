@@ -178,13 +178,13 @@ class Matrix(unittest.TestCase):
     def test_the_screen_is_the_models_under_their_providers_then_four_rows(self):
         screen = Screen(self)
         lines = screen.frame()
-        self.assertEqual(lines[2].split(), ["orchestrator", "worker", "effort"])
+        self.assertEqual(lines[2].split(), ["orch", "exec", "review", "effort"])
         body = "\n".join(lines)
         for heading in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
             self.assertIn(f"\n{heading}\n", body)
-        self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "claude", "○", "□",
+        self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "claude", "○", "□", "□",
                                                           "‹", "xhigh", "›"])
-        self.assertEqual(row(lines, "opus")[1].split(), ["opus", "claude", "●", "■",
+        self.assertEqual(row(lines, "opus")[1].split(), ["opus", "claude", "●", "■", "■",
                                                          "‹", "xhigh", "›"])
         self.assertEqual(row(lines, "haiku")[0], row(lines, "opus")[0] + 1)   # under Claude
         tail = [line.strip() for line in lines]
@@ -231,7 +231,7 @@ class Matrix(unittest.TestCase):
         screen.frame()
         before = screen.path.read_bytes()
         lines = screen.press(DOWN + RIGHT + ENTER,
-                             lambda lines: "the default workers need one model" in lines[-3])
+                             lambda lines: "the workers need one model" in lines[-3])
         self.assertIn("■", row(lines, "opus")[1])
         self.assertEqual(screen.path.read_bytes(), before)
         lines = screen.press(UP + ENTER, lambda lines: "■" in row(lines, "fable")[1])
@@ -244,16 +244,16 @@ class Matrix(unittest.TestCase):
         screen = Screen(self)
         screen.frame()
         before = screen.path.read_bytes()
-        # → from opus's worker mark reaches its effort, and past it there is nothing
-        lines = screen.press(DOWN + RIGHT + RIGHT, lambda lines: lines[-1] == EFFORT_KEYS)
+        # → through opus's role marks reaches its effort, and past it there is nothing
+        lines = screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
         self.assertIn("opus", highlighted(lines))
         lines = screen.press(RIGHT)
         self.assertEqual(lines[-1], EFFORT_KEYS)
         self.assertEqual(screen.path.read_bytes(), before)    # no arrow steps an effort
-        # ← comes back to the worker mark, which Enter flips
+        # ← comes back to the reviewer mark, which Enter flips
         lines = screen.press(LEFT, lambda lines: lines[-1] == "  ↑↓←→ move   ⏎ mark   esc back")
         screen.press(ENTER, lambda lines: "□" in row(lines, "opus")[1])
-        self.assertEqual(screen.saved()["defaults"]["workers"], ["astra"])
+        self.assertEqual(screen.saved()["defaults"]["reviewers"], ["astra"])
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "xhigh")
         screen.leave()
 
@@ -262,7 +262,7 @@ class Matrix(unittest.TestCase):
         screen.frame()
         effort = lambda: {name: model["effort"] for name, model in screen.saved()["models"].items()}
         # opus takes low to max: up from xhigh is max, and up from max is low again
-        screen.press(DOWN + RIGHT + RIGHT + ENTER, lambda lines: "‹ max ›" in row(lines, "opus")[1])
+        screen.press(DOWN + RIGHT * 3 + ENTER, lambda lines: "‹ max ›" in row(lines, "opus")[1])
         self.assertEqual(effort()["opus"], "max")
         screen.press(ENTER, lambda lines: "‹ low ›" in row(lines, "opus")[1])
         self.assertEqual(effort()["opus"], "low")
@@ -297,7 +297,7 @@ class Matrix(unittest.TestCase):
         self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(ENTER, lambda lines: "●" in row(lines, "fable")[1])   # still that mark
-        screen.press(DOWN + RIGHT + RIGHT, lambda lines: lines[-1] == EFFORT_KEYS)
+        screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
         before = screen.path.read_bytes()
         lines = screen.press(TAB)                         # on opus's effort
         self.assertEqual(lines[-1], EFFORT_KEYS)
@@ -354,16 +354,16 @@ class Matrix(unittest.TestCase):
         self.assertLessEqual(len(lines), 23)
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
-        self.assertEqual(lines[2].split(), ["orch", "work", "effort"])
+        self.assertEqual(lines[2].split(), ["orch", "exec", "review", "effort"])
         self.assertIn("add a model", "\n".join(lines))
         # what a key could not do has lines of its own, however little room the rows leave
         lines = screen.press(DOWN + RIGHT + ENTER,
-                             lambda lines: "the default workers need" in "\n".join(lines))
+                             lambda lines: "the workers need" in "\n".join(lines))
         self.assertLessEqual(len(lines), 23)
         self.assertIn("opus", highlighted(lines))
         lines = screen.press(DOWN * 10, lambda lines: highlighted(lines).startswith("› Update"))
         self.assertLessEqual(len(lines), 23)
-        self.assertNotIn("the default workers need", "\n".join(lines))   # until the next key
+        self.assertNotIn("the workers need", "\n".join(lines))   # until the next key
         screen.leave()
 
 

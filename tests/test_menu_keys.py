@@ -60,13 +60,14 @@ def open_session(cfg, session, dry_run):
         typed = re.sub(rb"\x1b\[<\d+;\d+;\d+[Mm]", b"", os.read(0, 1024))
         print(f"<session read {typed!r}>", flush=True)
 
-def select(cfg, providers, prompting=False):
+def ask_name(taken, auto=False):
     cooked = bool(termios.tcgetattr(0)[3] & termios.ICANON) if os.isatty(0) else None
     print(f"<lines {cooked}>", flush=True)
-    print(f"<answered {menu.read('Orchestrator [fable]: ', 'q')!r}>", flush=True)
+    print(f"<answered {menu.read('Name (Enter: auto): ', 'q')!r}>", flush=True)
     return orch.BACK
 
-menu.draw, menu.open_session, orch.select = draw, open_session, select
+orch.taken_names = lambda: set()
+menu.draw, menu.open_session, orch.ask_name = draw, open_session, ask_name
 sys.exit(menu.loop(config.load(), dry_run=True))
 """
 DOWN, ENTER = b"\x1b[B", b"\r"
@@ -187,7 +188,7 @@ class MenuKeys(unittest.TestCase):
         menu = Menu(self, ["seat-a"], tick=0.2, slow=0.3)
         menu.saw("<drawing 2>")                 # the clock's redraw, the screen being cleared
         menu.send(b"n")                         # once, no Enter, in the middle of that draw
-        menu.saw("agentkit · new", "Orchestrator [fable]: ")
+        menu.saw("agentkit · new", "Name (Enter: auto): ")
         menu.saw("<lines True>")                # the question reads a line, echoed, as ever
         menu.send(b"q\n")
         menu.saw("<answered 'q'>")
@@ -240,7 +241,7 @@ class MenuKeys(unittest.TestCase):
         keyline = len(lines)
         column = lines[-1].index("n new") + 1
         menu.click(column, keyline, held=0.1)
-        menu.saw("agentkit · new", "Orchestrator [fable]: ", after=mark)
+        menu.saw("agentkit · new", "Name (Enter: auto): ", after=mark)
         menu.send(b"fable\n")                  # the answer is his, with none of the click in it
         menu.saw("<answered 'fable'>")
         self.assertNotIn("\x1b[<", menu.text()[mark:])
@@ -344,7 +345,7 @@ class MenuKeys(unittest.TestCase):
         row = next(number for number, line in enumerate(lines, 1) if "seat-b" in line)
         down, up = f"\x1b[<0;10;{row}M".encode(), f"\x1b[<0;10;{row}m".encode()
         menu.send(down + b"n")
-        menu.saw("Orchestrator [fable]: ")
+        menu.saw("Name (Enter: auto): ")
         time.sleep(0.3)                          # the button comes up long after the key
         menu.send(up + b"fable\n")
         menu.saw("<answered 'fable'>")
