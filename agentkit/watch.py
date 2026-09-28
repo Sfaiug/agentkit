@@ -2245,7 +2245,10 @@ def sync_title(session, log=lambda _: None, *, force=False):
         if composed:
             line = pending    # our line still needs Enter, even after its seat changes name
         title = plugin.session_title(record)
+        # Codex can replace an acknowledged name after the first prompt. Its empty
+        # receipt means our name is absent again; restore it with the same retry cap.
         if (record.get("session_title") == name and not force and not tries and not composed
+                and not (plugin.name == "codex" and title == "")
                 and title not in record.get("title_superseded", [])):
             return False
         if title == name and not composed:
