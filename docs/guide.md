@@ -76,12 +76,12 @@ that, the run's hand-back names the file and asks the orchestrator to tighten it
 One behaviour per task. A launch is refused when the goal has more than three numbered points, the body more than 500
 words outside the checks block, the checks more than six commands or `rounds` more than three, whatever `--anyway` says;
 and when a run under way in the same repository names the same test or shares four title words, which `--anyway` starts
-regardless. Runs have no count cap and wait FIFO while free memory is under the larger of 3 GB and 20% of RAM, load is
-above the CPU count with each run the host has frozen counting 1 against that limit while held, or the nearest limited
-cgroup is past 75% of its `memory.high` outside reclaimable file cache; a
+regardless. Runs have no count cap and wait FIFO while free memory is under the larger of 3 GB and 20% of RAM, ak's own
+slice CPU pressure is above 40%, or the nearest limited cgroup is past 75% of its `memory.high` outside reclaimable
+file cache; a pinned `max_load` restores the host-load check instead, each run the host has frozen counting 1 while held; a
 worker's own test runs share the parent's slot, and a third level is refused. A run that hits its own memory cap, the
 smaller of 4 GB and 40% of the slice ceiling unless `run_memory_max_mb` sets it, ends `fail` with `killed: memory cap`.
-`ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the load gate but still waiting for the memory floor, and takes its repository's next gate turn first, marked `first` in `ak run status`.
+`ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the CPU gate but still waiting for the memory floor, and takes its repository's next gate turn first, marked `first` in `ak run status`.
 A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run
 scope and cap; one run from a terminal runs its tasks in its own process.
 
@@ -280,8 +280,8 @@ and a model's own screen sets its `model` from the harness's catalog (the effort
 and `reviews_own_provider`; `Remove` asks first, keeps the last model and the model's `[providers.*]` table even when it
 was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-5`). The keys:
 
-- `max_runs` (0, no count cap; `ak run status` names the cap in force), `min_free_mb`, `max_load` (0 disables that
-  gate), `run_memory_max_mb` (one run's cap in MiB); `AK_MAX_RUNS`, `AK_MIN_FREE_MB` and `AK_MAX_LOAD` override them.
+- `max_runs` (0, no count cap; `ak run status` names the cap in force), `min_free_mb`, `max_load` (unset: ak's CPU pressure
+  gates; pinned: the host load check, 0 disables it), `run_memory_max_mb` (one run's cap in MiB); `AK_MAX_RUNS`, `AK_MIN_FREE_MB` and `AK_MAX_LOAD` override them.
 - `max_gates` (3; 0 no cap): done-when gates of one main checkout at once, host-wide, whichever worktree or seat; the rest wait, shown `waiting for a gate turn of <repo>`, the wait charged to neither silence window nor ceiling; a `config.toml` a gate cannot read means the default, named in the run log.
 - `pace_margin` (10): the picker's pay-as-you-go margin above. `[defaults]`: `orchestrator`, `workers`, optional `reviewers`; an older
   file's `[tiers]` reads as the first of `A` over `B` without it, and `c` writes `[defaults]` on its next save.
