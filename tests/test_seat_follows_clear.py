@@ -75,7 +75,7 @@ class SeatFollowsClear(Sandbox):
         if args[0] == "display-message":
             pane = self.active_pane if args[3] == f"={self.seat['name']}:" else args[3]
             if pane not in self.panes:
-                return 1, "can't find pane"
+                return 0, ""
             fields = {"socket_path": "/fake/agentkit-test", "session_name": self.seat["name"],
                       "pane_pid": str(self.panes[pane][0]), "pane_id": pane,
                       orch.PANE_OPTION: self.bound_pane}
