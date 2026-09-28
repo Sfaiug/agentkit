@@ -152,8 +152,9 @@ def max_load_is_set():
 def run_memory_max_mb():
     """The per-run memory cap in MiB, or None when the config leaves it unset.
 
-    Unset is not zero.  The caller then takes the smaller of 4 GB and 40% of
-    the slice ceiling.  A present value is that cap, whatever the ceiling is:
+    Unset is not zero.  The caller then takes 40% of the slice ceiling, or
+    4 GB where there is no ceiling to read.  A present value is that cap,
+    whatever the ceiling is:
     one leaking run has to be stoppable without waiting to see how large the
     host is.  A bool would pass an ``int`` check, so the type has to be ``int``
     exactly.

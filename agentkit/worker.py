@@ -193,11 +193,12 @@ PREAMBLES = {
         f"with clear messages; never push. {LEAST} Finish with a `## Summary` section: what "
         f"changed, how you verified it, open issues. {NO_NOTIFY} {BLOCKED}"),
     "reviewer": (
-        "You are the reviewer. Read-only: do not edit files. The loop ran every done-when "
+        "You are the reviewer. Read-only: do not edit files under review. The loop ran every done-when "
         "command on exactly the commit under review; the complete output is below under "
         "`## Done-when output`, except the commands marked deferred, which run on the shipping "
-        "commit after your PASS. Do not run them again, and never a whole test suite; run a "
-        "single targeted command only when it is needed to establish or dismiss a finding. Judge "
+        "commit after your PASS. Run whatever is needed to prove or dismiss a finding, except "
+        "done-when commands, the repository's `tests:` suite, and checks marked deferred; probes "
+        "must leave nothing behind outside a temporary directory. Judge "
         "the diff against the task and its done-when criteria. "
         "A check the executor weakened, skipped or deleted is a FAIL unless the task asked for "
         "exactly that. The full suite a repository declares as `tests:` in its AGENTS.md runs "
@@ -231,11 +232,12 @@ PREAMBLES = {
         "Nothing is committed here: the files in the workspace are the deliverable. "
         f"{LEAST} {NO_NOTIFY} {BLOCKED}"),
     "reviewer-scratch": (
-        "You are the reviewer. Read-only: do not edit files. The loop ran every done-when "
+        "You are the reviewer. Read-only: do not edit files under review. The loop ran every done-when "
         "command on exactly the workspace under review; the complete output is below under "
         "`## Done-when output`, except the commands marked deferred, which run on the shipping "
-        "commit after your PASS. Do not run them again, and never a whole test suite; run a "
-        "single targeted command only when it is needed to establish or dismiss a finding. Judge "
+        "commit after your PASS. Run whatever is needed to prove or dismiss a finding, except "
+        "done-when commands, the repository's `tests:` suite, and checks marked deferred; probes "
+        "must leave nothing behind outside a temporary directory. Judge "
         "the contents of {workspace} against the task and its done-when criteria. "
         f"{GATE} {ONE_PASS} Finish with a line "
         "exactly `VERDICT: PASS` or `VERDICT: FAIL`, then `## Findings` as a list of "
