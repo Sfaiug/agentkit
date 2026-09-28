@@ -166,6 +166,16 @@ class Harness:
         hook = self._hook("title_command")
         return hook(name) if hook else None
 
+    @property
+    def title_facts(self):
+        """The original title-hook contract; adapters can require a stored receipt instead."""
+        return self._section("title", {"at_launch": True, "unreadable": True})
+
+    def title_ready(self, record, state):
+        """May this owned conversation accept a title now, including a retry?"""
+        hook = self._hook("title_ready")
+        return hook(record, state) if hook else True
+
     def session_title(self, record):
         """The latest custom title, empty if absent, or None if the record cannot be read."""
         hook = self._hook("session_title")

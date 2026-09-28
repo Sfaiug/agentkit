@@ -336,3 +336,27 @@ starting its turn with `UserPromptSubmit`. The same day an interactive 2.1.280 s
 tmux socket showed the other half: a minute into a wait on a background `sleep`, its idle
 notifier sent the `idle_prompt` Notification all the same, which is why `hooks/seat-state.sh`
 leaves a `background` Stop standing under one.
+
+## Codex seat titles (0.153.4)
+
+`codex-title-{idle,composed,accepted,working,working-composed,working-accepted}-pane.txt`
+are actual 100×30 `capture-pane -p -e` screens captured on 2026-09-28 from the installed
+Codex 0.153.4. The throwaway HOME, CODEX_HOME and tmux socket were inside a temporary
+checkout directory, with a dummy API key and a custom Responses provider pointing at
+`http://127.0.0.1:1/v1`. No user prompt was sent and no provider was contacted. `/rename
+lagoon` was typed at idle; `/compact` started a turn against the closed loopback port,
+then `/rename quay` was typed while it was reconnecting. Literal text and Enter were
+separated by 300 ms. Both renames cleared the composer and printed `Session renamed to`.
+The second `/compact` was refused while working; inline `/rename quay` was accepted.
+`working-composed` preserves Codex's `tab to queue message` footer. SGR attributes,
+blank rows and wrapping are intact; only the thread UUID was replaced, including its
+wrapped pieces. All throwaway sessions, homes and the tmux server were removed afterwards.
+
+`codex-title-index.jsonl` is the resulting `session_index.jsonl`: two appended entries
+with `id`, `thread_name` and `updated_at`, with the same UUID replacement. The latest
+complete entry for the owned id is its explicit name. `codex-title-row.json` projects
+that thread's `id`, `title` and `name` from `state_5.sqlite`'s `threads` row: the explicit
+name is `quay`, while `title` is separate and empty. The generated-title test puts an
+invented value in `title` and no name in the index; it is a synthetic variant, not a
+capture of a model naming a thread. The mid-turn refusal test likewise simulates a
+cleared composer without a stored name; this build accepted both captured renames.

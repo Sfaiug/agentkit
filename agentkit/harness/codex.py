@@ -120,6 +120,50 @@ def forget(record):
         path.unlink(missing_ok=True)
 
 
+def title_command(name):
+    return f"/rename {name}"
+
+
+def title_ready(record, state):
+    if not conversation(record):
+        return False
+    # Inline /rename works during a turn, but a cleared composer alone can also be a
+    # refusal. Without its receipt, wait for the prompt before spending another try.
+    attempt = record.get("title_sync") or {}
+    return not (state == "working" and attempt.get("tries")
+                and not attempt.get("pending", True))
+
+
+def session_title(record):
+    """Only explicit names in the owned launch's index, never its generated database title."""
+    sid = conversation(record)
+    if not sid:
+        return None
+    receipt = read(record)
+    account = record.get("account")
+    home = receipt.get("home") or str(Path.home() / (
+        f".codex-{account}" if account and account != config.DEFAULT_ACCOUNT else ".codex"))
+    title = ""
+    try:
+        with (Path(home) / "session_index.jsonl").open(encoding="utf-8") as index:
+            for line in index:
+                if not line.endswith("\n"):
+                    break  # an append in progress is not a receipt yet
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(entry, dict) and entry.get("id") == sid:
+                    value = entry.get("thread_name")
+                    if isinstance(value, str):
+                        title = value if value.strip() else ""
+    except FileNotFoundError:
+        return ""
+    except (OSError, UnicodeError):
+        return None
+    return title
+
+
 def prepare(name, cwd, owned):
     """Save a unique launch receipt before starting the TUI. Preserve previous evidence."""
     record = config.session_records().get(name, {})
@@ -138,6 +182,8 @@ def prepare(name, cwd, owned):
                if owned else str(Path(cwd).resolve()), "expected": owned}
     if owned:
         receipt["event"] = previous["event"]
+        if previous.get("home"):
+            receipt["home"] = previous["home"]
     with path.open("x", encoding="utf-8") as fh:
         os.chmod(path, 0o600)
         json.dump(receipt, fh)
@@ -192,6 +238,8 @@ def capture(path, event):
                     receipt["ambiguous"] = True
             else:
                 receipt["event"] = event
+            # The callback runs under the TUI's actual login, including CODEX_HOME.
+            receipt["home"] = str(Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).resolve())
             fh.seek(0)
             json.dump(receipt, fh)
             fh.truncate()

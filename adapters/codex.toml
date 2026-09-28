@@ -23,6 +23,12 @@ reset = true
 fresh_words = "Codex ownership unverified; it starts fresh"
 always_offered = true
 
+# /rename <name> is accepted idle and mid-turn in 0.153.4. Neither a launch nor a
+# cleared composer proves the name: only this launch's thread in session_index.jsonl does.
+[title]
+at_launch = false
+unreadable = false
+
 [authority]
 working = "hooks"
 asking = "hooks"
@@ -50,7 +56,7 @@ name = "PermissionRequest"
 state = "asking"
 
 [screen]
-composer = '(?:[▌›]\s+Ask Codex\b.*|⏎ send\b.*|[\w.-]+ (?:default|low|medium|high|xhigh|max|ultra) · .+)$'
+composer = '(?:[▌›]\s+Ask Codex\b.*|⏎ send\b.*|tab to queue message\b.*|[\w.-]+ (?:default|low|medium|high|xhigh|max|ultra) · .+)$'
 footer = ['\? for shortcuts']
 
 # Every screen Codex stops on and waits -- the directory-trust prompt, the hook review, a

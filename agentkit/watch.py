@@ -2253,6 +2253,8 @@ def sync_title(session, log=lambda _: None, *, force=False):
         state = _decided_state(name, plugin.name, pane)
         if owner_question(notify.last(name)) or state in (None, "asking"):
             return True
+        if not plugin.title_ready(current, state):
+            return True
         if composed:
             return draft(pane) != re.sub(r"\s+", "", line)
         if state not in ("at_prompt", "working"):
@@ -2275,7 +2277,8 @@ def sync_title(session, log=lambda _: None, *, force=False):
                 or current.get("conversation") != record.get("conversation")):
             return False
         title = plugin.session_title(current)
-        if sent and line == plugin.title_command(name) and title in (name, None):
+        if (sent and line == plugin.title_command(name)
+                and (title == name or title is None and plugin.title_facts["unreadable"])):
             config.update_session(name, session_title=name, title_sync=None)
             return True
         if sent:
