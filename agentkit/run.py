@@ -134,6 +134,7 @@ GC_LOG_LIMIT = 1024 * 1024      # retain two bounded automatic-collection logs
 GC_AGE = 7 * 86400              # failed/blocked/stopped checkouts, finished jobs, the status window
 RUN_DIR_AGE = 30 * 86400        # a run directory whose session is gone is removed whole after this
 TMP_BASE = Path("/tmp")         # seats and hand-run tools leave RAM-disk files nobody removes
+VAR_TMP_BASE = Path("/var/tmp")  # a repository's TMPDIR is swept only directly under here
 TMP_AGE = 2 * 86400             # a /tmp entry nothing changed for two days goes
 TMP_CLAUDE_AGE = 86400          # a gone Claude session's scratch folder goes after a day
 DISK_LIMIT = 85                 # pressure shortens retention, never below one day
@@ -8347,13 +8348,15 @@ def tmp_top_stale(path, now, paths, live):
     return tmp_entry_stale(path, now, paths)
 
 
-def stale_tmp_entries(now):
-    """Every stale top-level /tmp entry and gone Claude session folder.
+def stale_tmp_entries(now, base=None):
+    """Every stale top-level entry under that base and gone Claude session folder.
 
-    Tests replace TMP_BASE and retention.process_dirs with temporary directories.
-    A session folder under a top-level entry going whole is not planned twice.
+    The base is /tmp unless a repository pass names its own TMPDIR; the rule is
+    the same either way.  Tests replace TMP_BASE and retention.process_dirs with
+    temporary directories.  A session folder under a top-level entry going whole
+    is not planned twice.
     """
-    base = TMP_BASE
+    base = TMP_BASE if base is None else base
     try:
         names = tmp_listdir(base)
     except OSError:
@@ -8406,6 +8409,56 @@ def stale_tmp_entries(now):
                     found.append({"action": "remove", "kind": "claude-session",
                                   "path": str(session_path), "why": why})
     return found
+
+
+def repo_tmp_base(value):
+    """That TMPDIR as a sweepable base, or None when gc must leave it alone.
+
+    Only the plain case: a canonical path directly under /var/tmp.  Canonical
+    means realpath spells it exactly as configured, so no symlink however short
+    the chain and no `..`; directly under means its parent is the base itself,
+    so /tmp, the base itself and anything nested deeper are all skipped.  The
+    parent check runs first and reads nothing.
+    """
+    if Path(value).parent != VAR_TMP_BASE:
+        return None
+    try:
+        if os.path.realpath(value) != value:
+            return None
+    except (OSError, ValueError):
+        return None
+    return Path(value)
+
+
+def stale_repo_tmp_entries(now):
+    """The /tmp rule for every repository TMPDIR under /var/tmp; the rest is named once.
+
+    A repository's env file under ~/.agentkit/env/ may set TMPDIR, and every run
+    of that repository writes its temporary files there.  A canonical path
+    directly under /var/tmp is swept entry by entry through the same selection,
+    planned as tmp-entry items; the directory itself stays.  Any other value is
+    yielded once as a repo-tmp skip and never touched.
+    """
+    try:
+        # tmp_listdir, not glob: the listing leaves the directory's atime alone.
+        names = sorted(name for name in tmp_listdir(config.ENV) if name.endswith(".env"))
+    except OSError:
+        return
+    seen = set()
+    for name in names:
+        try:
+            value = config.repo_env(Path(name).stem).get("TMPDIR")
+        except (config.Error, OSError):
+            continue
+        if value is None or value in seen:
+            continue
+        seen.add(value)
+        base = repo_tmp_base(value)
+        if base is None:
+            yield {"action": "skip", "kind": "repo-tmp", "path": value,
+                   "why": f"not a canonical path directly under {VAR_TMP_BASE}"}
+            continue
+        yield from stale_tmp_entries(now, base)
 
 
 def leftovers():
@@ -8674,6 +8727,7 @@ def gc_candidates(now=None):
     yield from stale_compact_stamps(now)
     yield from retention.harness_plan()
     yield from stale_tmp_entries(now)
+    yield from stale_repo_tmp_entries(now)
 
 
 def gc_plan(now=None):
@@ -8786,6 +8840,10 @@ def gc(report, automatic=False):
                         else:
                             path.unlink()
                         done = not retention.present(path)
+                    elif item["kind"] == "repo-tmp":
+                        # A TMPDIR gc never sweeps: named once per pass, then left alone.
+                        report(f"gc: {item['action']} {item['kind']} {path}{gc_why(item)}")
+                        continue
                     elif item.get("throwaway") or item.get("whole"):
                         directory = Path(item["run"])
                         recovery = directory / "recovery.lock"
