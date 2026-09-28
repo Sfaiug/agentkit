@@ -455,3 +455,35 @@ and other-session events in `tests/test_opencode_title.py` are synthetic variant
 captured event, not model captures. Because origin cannot be distinguished, OpenCode
 never renames an ak seat; its plugin restores the ak name through `ctx.session.update`
 and acknowledges only a matching `ctx.session.get` read-back for the owned session.
+
+## Muse title probe (1.4.0-R4302.1): naming unavailable
+
+`muse-title-{idle,working}-{composed,refused}-pane.txt` are actual 110×32
+`capture-pane -p -e -J` screens from the installed Muse Code **1.4.0-R4302.1**,
+captured on 2026-09-28. The normal launcher ran with `MUSE_NO_AUTO_UPDATE=1`,
+`MUSE_LAUNCHER_INSTALL=0`, a throwaway HOME, XDG config/data directories and tmux
+socket inside the checkout, a dummy API key, a copied model catalog, and
+`--provider meta --model muse-spark-1.3 --base-url http://127.0.0.1:1 --yolo`.
+No model prompt was sent. `/rename lagoon` was typed at idle; `! sleep 8` then
+provided a busy tools screen without a model request, and `/rename quay` was typed
+while it ran. Text and Enter were separated by 300 ms. Only the displayed workspace
+was replaced with `/tmp/acme`; SGR attributes and blank rows are preserved.
+
+Both commands cleared the composer and printed `Could not change the session name
+because naming is unavailable`. A third rename after the shell completed was refused
+the same way. The session log recorded `command.invoked` with command `/name` for
+each attempt, but no `session.name.changed` record. The normal launch created no
+session-name authority or name database. Thus these are refusal fixtures, not
+evidence of a successful rename or a usable durable name format.
+
+`muse-title-unavailable-index.json` projects `schema_meta` and the empty `sessions`
+table from the `session-index.db` created by the same binary launched directly in a
+separate throwaway HOME with the same Meta options. Its
+`session_name_snapshot_fingerprint` was `unavailable`. Direct Echo probes, default
+HOME paths without XDG overrides, enabling the runtime/MSP/peer experimental gates,
+and starting `muse serve` before the TUI also failed to make naming available.
+All throwaway sessions, homes and tmux servers were removed afterwards.
+
+This build does not establish the successful rename storage contract required for
+Muse title synchronization. No Muse title hooks are enabled on the strength of a
+cleared composer, and no acceptance fixture has been invented from binary strings.

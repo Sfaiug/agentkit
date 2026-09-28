@@ -1,0 +1,32 @@
+                                                                                                              
+  [1mMuse Code[0m 1.4.0                                                                                             
+                                                                                                              
+  Could not change the session name because naming is unavailable                                             
+                                                                                                              
+[1m◆[0m [1m![0m sleep 8 · running                                                                                         
+                                                                                                              
+  Could not change the session name because naming is unavailable                                             
+                                                                                                              
+◇ Cal[1mlin[0mg tools (1s · esc to interrupt)
+
+[2m──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[0m❯
+[2m──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[0m  muse-spark-1.3 · high · /tmp/acme · YOLO
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
