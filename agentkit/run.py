@@ -6932,6 +6932,32 @@ def _slice_cpu_pressure(slice_dir=None):
         return None
 
 
+def _slice_cpu_stat(slice_dir=None):
+    """The slice's cpu.stat counters as {name: value}, or None where nothing answers.
+
+    Carried for diagnosis -- throttled_usec and nr_throttled say whether the
+    slice has ever hit its quota -- not for admission: the counters are
+    cumulative since the slice's first process, so one snapshot cannot say
+    whether the slice is saturated now. The pressure gate does not read them.
+    """
+    if slice_dir is None:
+        slice_dir = orch.slice_cgroup()
+    try:
+        text = (slice_dir / "cpu.stat").read_text()
+    except OSError:
+        return None
+    counters = {}
+    for line in text.splitlines():
+        key, _, rest = line.partition(" ")
+        if not key:
+            continue
+        try:
+            counters[key] = int(rest.split()[0])
+        except (ValueError, IndexError):
+            continue
+    return counters
+
+
 def host_readings(source=None, cgroup_file=None, cgroup_root=None):
     """Read the host gates once; ``source`` is an offline-test injectable mapping/callable."""
     if source is not None:
@@ -6961,7 +6987,8 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None):
     limits = _unit_memory_limits(cgroup_file, cgroup_root)
     readings = {"free_mb": meminfo.get("MemAvailable"), "mem_total_mb": meminfo.get("MemTotal"),
                 "load": load, "cpus": os.cpu_count() or 1, "unit_limits": limits,
-                "slice_cpu_pressure": _slice_cpu_pressure()}
+                "slice_cpu_pressure": _slice_cpu_pressure(),
+                "slice_cpu_stat": _slice_cpu_stat()}
     if limits and isinstance(limits[0], (tuple, list)) and len(limits[0]) >= 4:
         used, high, raw, name = limits[0][:4]
         readings["unit_memory_current_mb"] = used

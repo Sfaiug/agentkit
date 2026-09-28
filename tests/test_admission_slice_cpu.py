@@ -22,7 +22,9 @@ from agentkit import config, run  # noqa: E402
 
 READINGS = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000,
-            "slice_cpu_pressure": 5}
+            "slice_cpu_pressure": 5,
+            "slice_cpu_stat": {"usage_usec": 1878241940777, "nr_periods": 5378937,
+                               "nr_throttled": 290683, "throttled_usec": 1831801260}}
 
 
 class AdmissionSliceCpu(unittest.TestCase):
@@ -129,6 +131,20 @@ class AdmissionSliceCpu(unittest.TestCase):
         self.assertIsNone(run._slice_cpu_pressure(slice_dir))
         (slice_dir / "cpu.pressure").write_text("some avg10=banana\n")
         self.assertIsNone(run._slice_cpu_pressure(slice_dir))
+
+    def test_slice_stat_exposes_counters(self):
+        slice_dir = self.root / "agentkit.slice"
+        slice_dir.mkdir()
+        (slice_dir / "cpu.stat").write_text(
+            "usage_usec 1878241940777\nuser_usec 1337642420232\n"
+            "system_usec 540599520545\nnr_periods 5378937\n"
+            "nr_throttled 290683\nthrottled_usec 1831801260\n")
+        self.assertEqual(run._slice_cpu_stat(slice_dir), {
+            "usage_usec": 1878241940777, "user_usec": 1337642420232,
+            "system_usec": 540599520545, "nr_periods": 5378937,
+            "nr_throttled": 290683, "throttled_usec": 1831801260})
+        (slice_dir / "cpu.stat").unlink()
+        self.assertIsNone(run._slice_cpu_stat(slice_dir))
 
     def test_host_line_names_slice_cpu_gate(self):
         readings = {**READINGS, "slice_cpu_pressure": 12}
