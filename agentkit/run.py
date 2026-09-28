@@ -6898,6 +6898,66 @@ def _unit_memory_limits(cgroup_file=None, cgroup_root=None):
     return []
 
 
+CPU_PRESSURE_LIMIT = 40   # the slice's `some avg10` above this waits: ak's own
+                            # processes are stalled on CPU nearly half the time
+
+
+def _pressure_avg10(text):
+    """The `some avg10` percentage in a cpu.pressure body, or None when it says none."""
+    for line in text.splitlines():
+        if line.startswith("some "):
+            for part in line.split():
+                if part.startswith("avg10="):
+                    try:
+                        return float(part.split("=", 1)[1])
+                    except ValueError:
+                        return None
+    return None
+
+
+def _slice_cpu_pressure(slice_dir=None):
+    """The slice's own CPU pressure, or None where nothing answers.
+
+    The load average counts every process on the machine and lags by a
+    minute; the slice's `some avg10` says whether ak's own processes are
+    waiting on CPU right now. Unreadable fails open like every other gate
+    input: no slice on macOS, or no cgroup file in a container, must not
+    queue every run forever.
+    """
+    if slice_dir is None:
+        slice_dir = orch.slice_cgroup()
+    try:
+        return _pressure_avg10((slice_dir / "cpu.pressure").read_text())
+    except OSError:
+        return None
+
+
+def _slice_cpu_stat(slice_dir=None):
+    """The slice's cpu.stat counters as {name: value}, or None where nothing answers.
+
+    Carried for diagnosis -- throttled_usec and nr_throttled say whether the
+    slice has ever hit its quota -- not for admission: the counters are
+    cumulative since the slice's first process, so one snapshot cannot say
+    whether the slice is saturated now. The pressure gate does not read them.
+    """
+    if slice_dir is None:
+        slice_dir = orch.slice_cgroup()
+    try:
+        text = (slice_dir / "cpu.stat").read_text()
+    except OSError:
+        return None
+    counters = {}
+    for line in text.splitlines():
+        key, _, rest = line.partition(" ")
+        if not key:
+            continue
+        try:
+            counters[key] = int(rest.split()[0])
+        except (ValueError, IndexError):
+            continue
+    return counters
+
+
 def host_readings(source=None, cgroup_file=None, cgroup_root=None):
     """Read the host gates once; ``source`` is an offline-test injectable mapping/callable."""
     if source is not None:
@@ -6926,7 +6986,9 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None):
         load = None
     limits = _unit_memory_limits(cgroup_file, cgroup_root)
     readings = {"free_mb": meminfo.get("MemAvailable"), "mem_total_mb": meminfo.get("MemTotal"),
-                "load": load, "cpus": os.cpu_count() or 1, "unit_limits": limits}
+                "load": load, "cpus": os.cpu_count() or 1, "unit_limits": limits,
+                "slice_cpu_pressure": _slice_cpu_pressure(),
+                "slice_cpu_stat": _slice_cpu_stat()}
     if limits and isinstance(limits[0], (tuple, list)) and len(limits[0]) >= 4:
         used, high, raw, name = limits[0][:4]
         readings["unit_memory_current_mb"] = used
@@ -6962,11 +7024,16 @@ def _load(value):
     return "?" if value is None else f"{value:g}"
 
 
+def _pct(value):
+    return "?" if value is None else f"{value:g}%"
+
+
 def host_status_line():
     """The one host-admission line at the top of human ``ak run status`` output.
 
     A positive `max_runs` is a gate like the other two, so the line names it: `at most 4
-    runs at once`.
+    runs at once`. A pinned `max_load` keeps the old load wording; otherwise the CPU
+    gate is the slice's own pressure.
     """
     readings = host_readings()
     minimum, maximum = resource_limits(readings)
@@ -6974,10 +7041,16 @@ def host_status_line():
     gates = []
     if minimum:
         gates.append(f"≥ {_g(minimum)} G free")
-    if maximum:
-        gates.append(f"load ≤ {_load(maximum)}")
-    admitted = ("a run is admitted while " + " and ".join(gates) if gates else
-                "a run is admitted (host memory and load gates off)")
+    if config.max_load_is_set():
+        if maximum:
+            gates.append(f"load ≤ {_load(maximum)}")
+        admitted = ("a run is admitted while " + " and ".join(gates) if gates else
+                    "a run is admitted (host memory and load gates off)")
+        signal = f"load {_load(_reading(readings, 'load', 'load1'))}"
+    else:
+        gates.append(f"ak cpu ≤ {CPU_PRESSURE_LIMIT}%")
+        admitted = "a run is admitted while " + " and ".join(gates)
+        signal = f"ak cpu {_pct(_reading(readings, 'slice_cpu_pressure'))}"
     try:
         limit = config.max_runs()
     except config.Error:
@@ -6988,7 +7061,7 @@ def host_status_line():
     unit = _unit_memory(readings)
     if unit and len(unit) > 3 and unit[3]:
         segment = f" · {unit[3]} {_g(unit[0])} of {_g(unit[1])} G in use"
-    return (f"host: {int(cpus)} cpus · load {_load(_reading(readings, 'load', 'load1'))} · "
+    return (f"host: {int(cpus)} cpus · {signal} · "
             f"{_g(_reading(readings, 'free_mb', 'mem_available_mb'))} G free{segment} · "
             f"{admitted}")
 
@@ -7084,6 +7157,19 @@ def _unit_memory(readings):
     return None
 
 
+def _slice_cpu_reason(readings):
+    """(reason, kind) while ak's own slice is CPU-saturated, else (None, None).
+
+    Unreadable fails open with the rest: a host that cannot answer must not
+    queue every run forever.
+    """
+    pressure = _reading(readings, "slice_cpu_pressure")
+    if pressure is not None and pressure > CPU_PRESSURE_LIMIT:
+        return (f"waiting for ak's CPU · pressure {pressure:g}%, "
+                f"limit {CPU_PRESSURE_LIMIT}%", "cpu")
+    return None, None
+
+
 def _wait_reason(readings, minimum, maximum, frozen=0):
     # An unreadable gate fails open, as the memory check before it did: a host
     # that cannot answer (no /proc on macOS, no cgroup file in a container)
@@ -7131,14 +7217,21 @@ def claim_slot(state, limit, readings=None):
     minimum, maximum = resource_limits(readings)
     if is_first:
         maximum = 0
-    frozen = 0
-    load = _reading(readings, "load", "load1", "load_1m")
-    if maximum and load is not None and load <= maximum:
-        # A frozen run adds no load, so the gate reads low behind it; each one
-        # counts 1 against the limit. Counted only while the load alone passes:
-        # past the limit the wait says so already, and no cgroup is read.
-        frozen = frozen_runs(state)
-    reason, kind = _wait_reason(readings, minimum, maximum, frozen)
+    pinned = config.max_load_is_set()
+    if pinned:
+        frozen = 0
+        load = _reading(readings, "load", "load1", "load_1m")
+        if maximum and load is not None and load <= maximum:
+            # A frozen run adds no load, so the gate reads low behind it; each one
+            # counts 1 against the limit. Counted only while the load alone passes:
+            # past the limit the wait says so already, and no cgroup is read.
+            frozen = frozen_runs(state)
+        reason, kind = _wait_reason(readings, minimum, maximum, frozen)
+    else:
+        # The slice's own pressure gates now; the host load goes unread.
+        reason, kind = _wait_reason(readings, minimum, 0)
+        if reason is None and not is_first:
+            reason, kind = _slice_cpu_reason(readings)
     if reason:
         state["slot_waited"] = True
         state["slot_wait_reason"], state["slot_wait_kind"] = reason, kind
@@ -7151,9 +7244,15 @@ def claim_slot(state, limit, readings=None):
         # readings behind it, rather than the count sentence nothing waits on.
         # The kind stays whatever gate (if any) actually delayed this wait.
         free = _reading(readings, "free_mb", "mem_available_mb", "mem_available")
-        load = _reading(readings, "load", "load1", "load_1m")
-        state["slot_wait_reason"] = (
-            f"waiting for steady readings · {_g(free)} G free, load {_load(load)}")
+        if pinned:
+            load = _reading(readings, "load", "load1", "load_1m")
+            state["slot_wait_reason"] = (
+                f"waiting for steady readings · {_g(free)} G free, load {_load(load)}")
+        else:
+            pressure = _reading(readings, "slice_cpu_pressure")
+            state["slot_wait_reason"] = (
+                f"waiting for steady readings · {_g(free)} G free, "
+                f"ak cpu pressure {_pct(pressure)}")
         return False
     state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
                  **process_owner())
