@@ -1832,6 +1832,7 @@ def launch(name, model, cwd, cmd, conversation, session=None):
     Codex's per-invocation receipt among them, is carried into the command as environment.
     """
     plugin = seat_plugin({"orchestrator": model})
+    before = config.session_records().get(name, {}) if plugin.title_command(name) else {}
     env = plugin.launched(name, cwd, conversation)
     if env:
         cmd = ["env", *(f"{key}={value}" for key, value in env.items()), *cmd]
@@ -1855,8 +1856,17 @@ def launch(name, model, cwd, cmd, conversation, session=None):
     else:
         start(name, cwd, cmd, model)
     if plugin.title_command(name):
-        config.update_session(name, session_title=name if plugin.title_facts["at_launch"] else None,
-                              title_sync=None)
+        # A held rename survives a relaunch on the same conversation: our own last
+        # title stays the echo, so the next tick retypes this name instead of taking
+        # the tool's older title for the owner's rename. Once the new name takes it
+        # stops being an echo, as without a relaunch.
+        echo = before.get("session_title")
+        if (conversation and before.get("conversation") == conversation
+                and echo and echo != name):
+            config.update_session(name, title_sync=None)
+        else:
+            config.update_session(name, session_title=name if plugin.title_facts["at_launch"] else None,
+                                  title_sync=None)
     from . import watch
     # launched under the name again: not the stopped one, and not the owner's closed one
     watch.seat_write(name, stopped_at=None, closed_by_owner=None,
