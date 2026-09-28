@@ -4776,16 +4776,18 @@ if sorted(servers) != ["browser", "desktop", "existing"]:
 if claude.get("numStartups") != 3 or list(claude.get("projects", {})) != ["/tmp"]:
     problems.append("claude.json lost keys it did not own")
 browser = servers.get("browser", {})
-if browser.get("command") != "npx" or "--isolated" in browser.get("args", []):
+if browser != {"type": "http", "url": "http://127.0.0.1:8931/mcp"}:
     problems.append(f"claude browser server = {browser}")
-if browser.get("args", [])[-2:] != ["--cdp-endpoint", "http://127.0.0.1:9222"]:
-    problems.append("claude browser server does not point at the CDP endpoint")
-if browser.get("env", {}).get("DISPLAY") != ":99":
-    problems.append("claude browser server has no DISPLAY")
 if not servers.get("desktop", {}).get("args", [""])[0].endswith("desktop-mcp.py"):
     problems.append(f"claude desktop server = {servers.get('desktop')}")
+if servers.get("desktop", {}).get("env", {}).get("DISPLAY") != ":99":
+    problems.append("claude desktop server has no DISPLAY")
 if sorted(codex.get("mcp_servers", {})) != ["browser", "desktop"]:
     problems.append(f"codex mcp_servers={sorted(codex.get('mcp_servers', {}))}")
+if codex.get("mcp_servers", {}).get("browser", {}) != {"url": "http://127.0.0.1:8931/mcp"}:
+    problems.append(f"codex browser server = {codex.get('mcp_servers', {}).get('browser')}")
+if "@playwright/mcp@latest" in raw or "npx" in raw:
+    problems.append("config.toml still fetches the browser server per session")
 if codex.get("approval_policy") != "never" or list(codex.get("projects", {})) != ["/home/x/code"]:
     problems.append("config.toml lost keys it did not own")
 if "# kept" not in raw:
@@ -4831,6 +4833,8 @@ except Exception:
     sys.exit(1)
 " 2>/dev/null; then
   # Codex's config is private to this suite, so give it the same MCP servers locally.
+  # The shared browser server first: the URL registration below needs it listening.
+  checked "$WORK/mcp-install.log" ak browser install || no "31d/31e MCP shared server"
   checked "$WORK/mcp-register.log" ak browser mcp-register || no "31d/31e MCP registration"
   if skip_spent 31d opus; then
     :

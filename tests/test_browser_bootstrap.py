@@ -336,7 +336,8 @@ class Bootstrap(unittest.TestCase):
     def assert_installer_continues(self, stack):
         # Execute the production installer from section 3b through its final summary. Its
         # earlier package/harness setup is irrelevant here; all OS-facing commands below
-        # are recorders, while browser preflight and both MCP registrations execute for real.
+        # are recorders, while browser preflight and both MCP registrations execute for real
+        # and the shared-server setup is stubbed: this is about the installer continuing.
         fakebin = self.home / 'bin'
         fakebin.mkdir()
         def script(name, body):
@@ -372,12 +373,12 @@ with patch.object(bootstrap.pwd, 'getpwuid', return_value=account), \\
 ''')
         (self.home / 'register-driver.py').write_text(f'''
 import sys
-from unittest.mock import patch
 sys.path.insert(0, {str(REPO)!r})
 from agentkit import browser
+if sys.argv[1:] == ['browser', 'install']:
+    sys.exit(0)
 assert sys.argv[1:] == ['browser', 'mcp-register'], sys.argv
-with patch.object(browser, 'warm_npx', return_value='test: no network'):
-    sys.exit(browser.mcp_register([]))
+sys.exit(browser.mcp_register([]))
 ''')
         script('crontab', '''if [[ "$1" == -l ]]; then cat "$HOME/cron" 2>/dev/null; else cat >"$HOME/cron"; fi
 ''')
