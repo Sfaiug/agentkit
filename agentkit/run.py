@@ -787,6 +787,11 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
             raise config.Error(f"{want_review!r} is not a worker of {where}")
         refuse_unready(cfg, providers, want_review)
         reviewer = want_review
+        if want_exec is None:
+            # A named reviewer does not execute its own review while another worker
+            # is ready: the executor steps past the reviewer's own model.
+            executor = next((n for n in order if not same_model(cfg, n, reviewer)),
+                            executor)
     else:
         review_order = ready_order(cfg, providers, reviewers if reviewers is not None else workers,
                                    role="reviewer", quiet=quiet, repo=repo)
@@ -849,6 +854,21 @@ def review_providers(cfg, executor, reviewer):
     return (executed["provider"] if executed else None), reviewed["provider"]
 
 
+def same_model(cfg, first, second):
+    """Whether two worker names are the same model: the same name, or the same provider
+    and model id under another name -- the `sonnet-2` the `c` screen adds an already
+    configured model as at another effort."""
+    if not first or not second:
+        return False
+    if first == second:
+        return True
+    try:
+        one, two = config.model(cfg, first), config.model(cfg, second)
+    except config.Error:
+        return False
+    return one["provider"] == two["provider"] and one["model"] == two["model"]
+
+
 def reviewer_order(cfg, executor, order):
     """Another company's models, then the executor's company's, then its own; budget order
     within each tier.  A model tends to miss the mistakes it makes, so its own review is
@@ -860,28 +880,32 @@ def reviewer_order(cfg, executor, order):
     cross, same, own = [], [], []
     for name in order:
         try:
-            provider = config.model(cfg, name)["provider"]
+            reviewed = config.model(cfg, name)
         except config.Error:
             continue
-        if executed is None or provider != executed["provider"]:
+        if executed is None or reviewed["provider"] != executed["provider"]:
             cross.append(name)
-        elif name != executor:
-            same.append(name)
-        else:
+        elif name == executor or reviewed["model"] == executed["model"]:
             own.append(name)
+        else:
+            same.append(name)
     return cross + same + own
 
 
-def self_reviewed(state):
+def self_reviewed(state, cfg=None):
     """Whether the executor's own model reviews this run: the recorded review's pair
     where a round was reviewed, else the current one.  A seat's own PR has no executor,
-    so its writer -- the seat's orchestrator -- counts as the executor."""
+    so its writer -- the seat's orchestrator -- counts as the executor.  `cfg` tells an
+    alias (the same provider and model id under another name) from another model;
+    without it only the same name counts."""
     evidence = state.get("review") if isinstance(state.get("review"), dict) else {}
     reviewer = evidence.get("reviewer") or state.get("reviewer")
     executor = evidence.get("executor")
     if executor is None:
         executor = state.get("own_orchestrator") if state.get("own_pr") else state.get("executor")
-    return bool(reviewer and executor and reviewer == executor)
+    if not reviewer or not executor or reviewer == executor:
+        return bool(reviewer and reviewer == executor)
+    return cfg is not None and same_model(cfg, executor, reviewer)
 
 
 def review_pass(state, cfg):
@@ -5733,7 +5757,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         # print, not the timestamped log: this one line is the launch announcement.
         # A --bg child stays silent -- its stdout is the log, and the parent, which
         # picked first, already printed it on the terminal.
-        print(launch_line(run_dir.name, title, executor, reviewer))
+        print(launch_line(run_dir.name, title, executor, reviewer,
+                          self_review=same_model(cfg, executor, reviewer)))
 
     if state.get("scratch"):
         where = (f"Workspace: {wt}\nThere is no git repository here: nothing to commit, no branch "
@@ -10374,7 +10399,7 @@ def status_id_cell(name, room):
     return head + current + "…"
 
 
-def status_rows(found, width, index=None):
+def status_rows(found, width, index=None, cfg=None):
     """The status table's header and one line group per row.
 
     Fixed columns with two-space gutters, sized once from the rows on screen:
@@ -10386,6 +10411,8 @@ def status_rows(found, width, index=None):
     Returns (header, groups): the header drawn once, each group's lines for
     one row, so the caller can print a run's detail lines indented under it.
     `index` is the listing's `supersession_index`, for `status_state_word`.
+    `cfg` tells an alias from another model for the mark; without it only the
+    same name marks.
     """
     from . import menu, terminal
     if not found:
@@ -10401,7 +10428,7 @@ def status_rows(found, width, index=None):
         if state.get("extended"):
             rounds += f" (+{state['extended']})"
         worker = f"{state.get('executor', '?')}/{state.get('reviewer', '?')}"
-        if self_reviewed(state):
+        if self_reviewed(state, cfg):
             worker += " self-reviewed"
         rows.append([directory.name, state.get("title") or directory.name,
                      status_state_word(state, index), worker, rounds,
@@ -10689,7 +10716,7 @@ def cmd_status(argv):
                 line += f"  {outcome}"
             if step:
                 line += f"  {step}"
-            if self_reviewed(state):
+            if self_reviewed(state, plain_cfg):
                 line += "  self-reviewed"
             resumed = resume_age(state)
             if resumed:
@@ -10733,7 +10760,11 @@ def cmd_status(argv):
                 print(f"  {onward}")
     else:
         from . import terminal
-        header, groups = status_rows(found, terminal.content_width(), index)
+        try:
+            table_cfg = config.load()
+        except config.Error:
+            table_cfg = None
+        header, groups = status_rows(found, terminal.content_width(), index, table_cfg)
         if wanted or why:
             # one id, or every run with --why: each run's lines indented under
             # its own row, never in one block after the table. The usage cache
@@ -11584,7 +11615,8 @@ def launch_line(run_id, title, executor, reviewer, *, self_review=None):
     A review-only run has no executor, so it names its reviewer instead of a pair;
     every other launch names both models.  One builder, every launch path.
     A round reviewed by the executor's own model says `self-reviewed`: the pair says
-    it, except a review-only run of the seat's own PR, whose caller passes it.
+    it by name, except a review-only run of the seat's own PR, whose caller passes it.
+    Callers that know the config pass identity, so an alias marks too.
     """
     if self_review is None:
         self_review = bool(executor and executor == reviewer)
@@ -12761,7 +12793,8 @@ def review_pr(cfg, run_dir, url, opts, log):
         # the first reviewer pick starts the review: the launch line (on the terminal
         # for a foreground launch, in the log for a --bg child whose parent printed it)
         print(launch_line(run_dir.name, title, None, reviewer,
-                          self_review=bool(is_own and reviewer == orchestrator)))
+                          self_review=bool(is_own and same_model(cfg, orchestrator,
+                                                                 reviewer))))
     body += project_lessons(repo, state, log)
     save_state(run_dir, state)
     context = f"Repo checkout: {wt}\nBranch: {branch} (PR #{number} head, based on origin/{base})\n\n{body}"
@@ -12978,8 +13011,8 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
                 # the seat's terminal sees the launch line; the child's stdout is the log
                 saved = read_state(run_dir) or {}
                 print(launch_line(run_dir.name, title, None, reviewer,
-                                  self_review=bool(saved.get("own_pr") and reviewer ==
-                                                   saved.get("own_orchestrator"))))
+                                  self_review=bool(saved.get("own_pr") and same_model(
+                                      cfg, saved.get("own_orchestrator"), reviewer))))
             return rc
     opts = dict(opts, **flags)
     log = logger(run_dir, not resumed)
@@ -13608,6 +13641,12 @@ def job_start_task(cfg, job_dir, task, opts, log):
                 "--no-merge": bool(opts.get("--no-merge")), "--no-worktree": bool(opts.get("--no-worktree")),
                 "--anyway": bool(opts.get("--anyway")), "--first": bool(opts.get("--first")),
                 "--bg": False}
+    if task.get("rerun_attempted") and run_opts["--review"]:
+        kept = run_opts["--review"]
+        if same_model(cfg, run_opts["--exec"], kept):
+            log(f"{task['name']}: reviewer {kept} is the rerun executor's own model; "
+                "the rerun will pick another reviewer")
+            run_opts["--review"] = None
     prepare(run_dir, run_opts, logger(run_dir, True), cfg, job_id=job_dir.name, task_file=task_path)
     if task.get("from_pass"):
         save_state(run_dir, {**(read_state(run_dir) or {}), "from_pass": task["from_pass"]})
@@ -14532,7 +14571,8 @@ def main(argv):
             rc = spawn_bg(run_dir, argv)
             if executor and reviewer and launch_session(run_dir):
                 # the seat's terminal sees the launch line; the child's stdout is the log
-                print(launch_line(run_dir.name, title, executor, reviewer))
+                print(launch_line(run_dir.name, title, executor, reviewer,
+                                  self_review=same_model(cfg, executor, reviewer)))
             return rc
 
     log = logger(run_dir, not resumed)

@@ -124,10 +124,21 @@ class OneProvider(unittest.TestCase):
 
     def test_same_model_reviews_only_as_the_last_choice(self):
         self.assertEqual(self.pick("alpha", "alpha"), ("alpha", "alpha"))
+        # another config name for the same provider and model id is the executor's
+        # own model too: it reviews only where nothing else is left, and it marks
         self.cfg["models"]["beta"]["model"] = "alpha"
+        self.assertEqual(run.reviewer_order(self.cfg, "alpha", ["beta", "gamma", "alpha"]),
+                         ["gamma", "beta", "alpha"])
+        self.assertEqual(self.pick("alpha"), ("alpha", "gamma"))
         self.providers = self.meters(b=100)
-        self.assertEqual(self.pick(), ("alpha", "beta"))
+        self.assertEqual(self.pick(), ("alpha", "alpha"))
+        self.assertEqual(self.pick("beta"), ("beta", "alpha"))
         self.assertEqual(self.pick("alpha", "beta"), ("alpha", "beta"))
+        self.assertTrue(run.self_reviewed({"executor": "beta", "reviewer": "alpha"},
+                                          self.cfg))
+        self.assertIn("self-reviewed", run.launch_line(
+            "id", "t", "alpha", "beta",
+            self_review=run.same_model(self.cfg, "alpha", "beta")))
 
     def unready(self, **why):
         """The read a pick starts from, with each named harness's answer beside it."""
@@ -413,7 +424,7 @@ class OneProvider(unittest.TestCase):
         rerun_dir = self.root / "rerun"
         rerun_dir.mkdir()
         for reviewer, reviews_own_provider, wanted in (
-            ("gamma", True, "gamma"), ("alpha", True, "alpha"), ("beta", True, "beta"),
+            ("gamma", True, "gamma"), ("alpha", True, "alpha"), ("beta", True, None),
             ("alpha", False, "alpha"), (None, True, None),
         ):
             self.cfg["models"]["alpha"]["reviews_own_provider"] = reviews_own_provider

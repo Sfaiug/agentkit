@@ -102,6 +102,30 @@ class SelfReviewLast(unittest.TestCase):
         self.assertEqual(run.review_providers(self.cfg, "acme-one", "beta-one"),
                          ("acme", "beta"))
 
+    def test_a_named_reviewer_does_not_execute_its_own_review(self):
+        self.assertEqual(run.pick_models(self.cfg, self.providers, None, "acme-one",
+                                         self.logs.append), ("acme-two", "acme-one"))
+        self.cfg["defaults"]["workers"] = ["acme-one"]
+        self.assertEqual(run.pick_models(self.cfg, self.providers, None, "acme-one",
+                                         self.logs.append), ("acme-one", "acme-one"))
+
+    def test_an_alias_counts_as_the_executors_own_model(self):
+        self.cfg["models"]["acme-two"]["model"] = "acme-one"
+        self.assertEqual(run.reviewer_order(self.cfg, "acme-one",
+                                            ["acme-two", "beta-one", "acme-one"]),
+                         ["beta-one", "acme-two", "acme-one"])
+        self.assertEqual(self.pick("acme-one"), ("acme-one", "beta-one"))
+        self.providers = self.meters(beta=100)
+        self.assertEqual(self.pick("acme-one"), ("acme-one", "acme-one"))
+        self.assertEqual(self.pick("acme-two"), ("acme-two", "acme-one"))
+        state = {"executor": "acme-two", "reviewer": "acme-one"}
+        self.assertTrue(run.self_reviewed(state, self.cfg))
+        self.assertFalse(run.self_reviewed(state))
+        line = run.launch_line("id", "t", "acme-two", "acme-one",
+                               self_review=run.same_model(self.cfg, "acme-two",
+                                                          "acme-one"))
+        self.assertIn("(acme-two/acme-one, self-reviewed)", line)
+
     def test_a_launch_with_one_worker_is_not_refused(self):
         self.assertIsNone(run.pair_refusal(self.cfg, self.providers, ["acme-one"]))
         self.assertIsNone(run.pair_refusal(self.cfg, self.providers, ["acme-one"],
@@ -253,6 +277,10 @@ class SelfReviewLast(unittest.TestCase):
         self.assertIn("acme-one/acme-one self-reviewed", "\n".join(groups[0]))
         _, groups = run.status_rows([(Directory(), state("acme-one", "beta-one"))], 120)
         self.assertNotIn("self-reviewed", "\n".join(groups[0]))
+        self.cfg["models"]["acme-two"]["model"] = "acme-one"
+        _, groups = run.status_rows([(Directory(), state("acme-one", "acme-two"))], 120,
+                                    None, self.cfg)
+        self.assertIn("acme-one/acme-two self-reviewed", "\n".join(groups[0]))
 
 
 if __name__ == "__main__":
