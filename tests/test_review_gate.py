@@ -11,8 +11,6 @@ import os
 from pathlib import Path
 import sys
 import tempfile
-import threading
-import time
 import unittest
 from unittest.mock import patch
 
@@ -35,8 +33,8 @@ PASS_FOLLOWUPS = """VERDICT: PASS
 - none
 
 ## Follow-ups
-- a.py:1 - rename this - clarity for readers
-- b.py:2 - add a test - coverage for the new path
+- a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError
+- b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError
 """
 
 # One fake harness for every model in the catalogue: it never leaves the fixture directory,
@@ -57,8 +55,12 @@ with (root / "calls.jsonl").open("a") as fh:
     fh.write(json.dumps({"role": role, "prompt": prompt, "session": sys.argv[7:]}) + "\\n")
 deliverable = pathlib.Path(sys.argv[4], "deliverable")
 if role == "executor":
-    deliverable.write_text("fixture work\\n")
-    (out / "final.md").write_text("## Summary\\nFixture work.")
+    disputed = root / "fixer-summary.md"
+    if prompt.startswith("You are the executor, continuing") and disputed.exists():
+        (out / "final.md").write_text(disputed.read_text())
+    else:
+        deliverable.write_text("fixture work\\n")
+        (out / "final.md").write_text("## Summary\\nFixture work.")
 else:
     plan = json.loads((root / "reviews.json").read_text())
     answer = plan.pop(0) if len(plan) > 1 else plan[0]
@@ -87,6 +89,8 @@ class ReviewGate(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "PATH": f"{self.bin}:{os.environ['PATH']}",
             "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "", "AK_RUN_ROLE": "",
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "TMUX": "", "NO_COLOR": "1",
             "PYTHONDONTWRITEBYTECODE": "1", config.ADAPTER_DIR_ENV: str(adapters),
@@ -155,10 +159,51 @@ sys.exit(1)
         code, directory, state = self.launch(rounds=1)
         self.assertEqual(code, 0, (directory / "log.txt").read_text())
         self.assertEqual(state["followups"],
-                         ["a.py:1 - rename this - clarity for readers",
-                          "b.py:2 - add a test - coverage for the new path"])
+                         ["a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError",
+                          "b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"])
 
-    def test_pass_follow_ups_land_in_pr_body_and_the_followups_file(self):
+    def test_every_reviewer_requires_evidence_and_rules_on_disputes_first(self):
+        for role in ("reviewer", "reviewer-pr", "reviewer-scratch"):
+            with self.subTest(role=role):
+                text = worker.PREAMBLES[role].format(workspace=self.root)
+                self.assertIn("A blocking finding must include evidence: a command that fails, "
+                              "a reproduction, or quoted diff lines that show the defect.", text)
+                self.assertIn("In a re-review, first rule on each disputed finding: upheld or "
+                              "dropped, and why; then say which earlier findings are fixed and "
+                              "which are not, then anything new.", text)
+
+    def test_every_fixer_may_dispute_with_evidence_and_must_fix_the_rest(self):
+        for role, work in (("fixer", "the diff"), ("fixer-scratch", "the workspace")):
+            with self.subTest(role=role):
+                text = worker.PREAMBLES[role].format(workspace=self.root)
+                self.assertIn("You may dispute a finding instead of changing code: list the "
+                              "finding and evidence that it is wrong under `## Disputed` "
+                              "in your summary.", text)
+                self.assertIn("For every undisputed finding, fix every instance of that pattern "
+                              f"in {work}", text)
+                self.assertNotIn("Fix every finding below", text)
+                self.assertIn("re-run the per-round done-when commands", text)
+
+    def test_dispute_without_changes_reaches_re_review_in_the_executor_summary(self):
+        finding = "- deliverable:1 - empty file - no output delivered"
+        summary = ("## Summary\nNo changes needed; `test -s deliverable` exits 0.\n\n"
+                   "## Disputed\n" + finding + "\n"
+                   "Evidence: `test -s deliverable` exits 0; it contains `fixture work`.\n")
+        (self.root / "fixer-summary.md").write_text(summary)
+        self.reviews("VERDICT: FAIL\n\n## Findings\n" + finding,
+                     "Dropped: deliverable is nonempty, as the fixer's command shows.\n" + PASS)
+        code, directory, state = self.launch(rounds=2)
+        self.assertEqual(code, 0, (directory / "log.txt").read_text())
+        calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
+        fixer = [call["prompt"] for call in calls if call["role"] == "executor"][1]
+        reviews = [call["prompt"] for call in calls if call["role"] == "reviewer"]
+        self.assertIn(finding, fixer)
+        self.assertEqual(len(reviews), 2)
+        self.assertNotIn("## Executor summary\n" + summary, reviews[0])
+        self.assertIn("## Executor summary\n" + summary, reviews[1])
+        self.assertEqual([entry["verdict"] for entry in state["round_summaries"]], ["FAIL", "PASS"])
+
+    def test_pass_follow_ups_land_in_pr_body_without_a_followups_file(self):
         repo = self.root / "repo"
         repo.mkdir()
         wt = self.root / "checkout"
@@ -171,8 +216,8 @@ sys.exit(1)
                  "rounds": 3, "base": "origin/main", "base_sha": "abc", "branch": "ak/gate",
                  "worktree": str(wt), "repo": str(repo), "executor": "opus", "reviewer": "astra",
                  "findings": "",
-                 "followups": ["a.py:1 - rename this - clarity for readers",
-                               "b.py:2 - add a test - coverage for the new path"],
+                 "followups": ["a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError",
+                               "b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"],
                  "pr": None, "merge_method": "squash"}
         lp = run.Loop(self.cfg, run_dir, state, {}, lambda s: None, wt, "body", ["true"],
                       "context", [])
@@ -181,28 +226,22 @@ sys.exit(1)
             self.assertEqual(run.open_pr(lp, "main"), url)
         body = (run_dir / "pr-body.md").read_text()
         self.assertIn("## Follow-ups", body)
-        self.assertIn("- a.py:1 - rename this - clarity for readers", body)
-        self.assertIn("- b.py:2 - add a test - coverage for the new path", body)
-        day = time.strftime("%Y-%m-%d", time.localtime())
-        logged = (config.HOME / "followups" / "repo.md").read_text().splitlines()
-        self.assertEqual(logged, [
-            f"- {day} run {run_dir.name} PR #7: a.py:1 - rename this - clarity for readers",
-            f"- {day} run {run_dir.name} PR #7: b.py:2 - add a test - coverage for the new path"])
-        # writing them again changes nothing: each item is already there
-        run.append_followups(state, url)
-        self.assertEqual((config.HOME / "followups" / "repo.md").read_text().splitlines(), logged)
+        self.assertIn("- a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError", body)
+        self.assertIn("- b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError", body)
+        self.assertFalse((config.HOME / "followups").exists())
 
-    def test_second_round_does_not_duplicate_a_follow_up(self):
+    def test_second_round_replaces_the_follow_ups(self):
         first = ("VERDICT: FAIL\n\n## Findings\n- a.py:1 - wrong answer - correctness\n\n"
-                 "## Follow-ups\n- b.py:2 - rename that - clarity\n")
+                 "## Follow-ups\n- b.py:2 - empty input crashes - base abc123: IndexError\n")
         second = ("VERDICT: PASS\n\n## Findings\n- none\n\n"
-                  "## Follow-ups\n- b.py:2 - rename that - a different why\n"
-                  "- c.py:3 - add a test - coverage\n")
+                  "## Follow-ups\n- b.py:2 - empty input crashes - base abc123: `parse([])` raises IndexError\n"
+                  "- c.py:3 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError\n")
         self.reviews(first, second)
         code, directory, state = self.launch(rounds=3)
         self.assertEqual(code, 0, (directory / "log.txt").read_text())
         self.assertEqual(state["followups"],
-                         ["b.py:2 - rename that - clarity", "c.py:3 - add a test - coverage"])
+                         ["b.py:2 - empty input crashes - base abc123: `parse([])` raises IndexError",
+                          "c.py:3 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"])
 
     def test_default_budget_is_three_rounds_with_no_extension(self):
         self.reviews(fail(2), fail(2), fail(2))
@@ -248,7 +287,7 @@ sys.exit(1)
         self.assertEqual(int(meta.get("rounds") or 3), 3)
         self.assertIn("`rounds` defaults to 3", path.read_text())
 
-    def test_existing_pr_refreshes_pr_body_and_appends_only_new_follow_ups(self):
+    def test_existing_pr_refreshes_pr_body_without_a_followups_file(self):
         repo = self.root / "repo"
         repo.mkdir()
         wt = self.root / "checkout"
@@ -260,134 +299,21 @@ sys.exit(1)
                                       "summary": "did the work"}],
                  "rounds": 3, "base": "origin/main", "base_sha": "abc", "branch": "ak/refresh",
                  "worktree": str(wt), "repo": str(repo), "executor": "opus", "reviewer": "astra",
-                 "findings": "", "followups": ["a.py:1 - rename this - clarity"],
+                 "findings": "", "followups": ["a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError"],
                  "pr": None, "merge_method": "squash"}
         lp = run.Loop(self.cfg, run_dir, state, {}, lambda s: None, wt, "body", ["true"],
                       "context", [])
         url = "https://github.com/fixture/repo/pull/7"
-        with patch.object(run, "gh", return_value=(0, f"opened {url}")):
+        with patch.object(run, "gh", return_value=(0, f"opened {url}")) as gh:
             self.assertEqual(run.open_pr(lp, "main"), url)
-            # a re-review after the PR already existed collects one more follow-up
-            state["followups"].append("b.py:2 - add a test - coverage")
+            # A re-review replaces the list even after the PR already exists.
+            state["followups"] = ["b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"]
             self.assertEqual(run.open_pr(lp, "main"), url)
+        self.assertEqual(gh.call_args.args[1:4], ("pr", "edit", url))
         body = (run_dir / "pr-body.md").read_text()
-        self.assertIn("- b.py:2 - add a test - coverage", body)
-        logged = (config.HOME / "followups" / "repo.md").read_text().splitlines()
-        self.assertEqual(len(logged), 2)
-        self.assertTrue(logged[0].endswith("a.py:1 - rename this - clarity"))
-        self.assertTrue(logged[1].endswith("b.py:2 - add a test - coverage"))
-
-    def test_concurrent_appends_keep_each_follow_up_once(self):
-        repo = self.root / "repo"
-        repo.mkdir()
-        state = {"run_id": "20260922-0000-race", "repo": str(repo),
-                 "followups": ["a.py:1 - rename this - clarity",
-                               "b.py:2 - add a test - coverage"]}
-        url = "https://github.com/fixture/repo/pull/7"
-        threads = [threading.Thread(target=run.append_followups, args=(dict(state), url))
-                   for _ in range(8)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-        logged = (config.HOME / "followups" / "repo.md").read_text().splitlines()
-        self.assertEqual(len(logged), 2)
-        self.assertEqual(sorted(line.rsplit(": ", 1)[1] for line in logged),
-                         sorted(state["followups"]))
-
-    def append(self, run_id, *items):
-        """This repo's follow-ups file after one PR #7 appended `items`, and its new line prefix."""
-        run.append_followups({"run_id": run_id, "repo": str(self.root / "repo"),
-                              "followups": list(items)}, "https://github.com/fixture/repo/pull/7")
-        day = time.strftime("%Y-%m-%d", time.localtime())
-        return f"- {day} run {run_id} PR #7: "
-
-    def test_a_follow_up_repeating_an_open_one_is_not_appended_again(self):
-        logged = config.HOME / "followups" / "repo.md"
-        logged.parent.mkdir(parents=True)
-        opened = ["- 2026-09-01 run old PR #1: `a.py:1` - rename this - clarity",
-                  "- 2026-09-01 run old PR #1: **the tick resumes a stopped run**",
-                  "- c.py:3 - written by hand - clarity"]
-        logged.write_text("".join(f"{line}\n" for line in opened))
-        # the same `path:line` in other words, the same words: both are the note already open,
-        # whether the loop or a hand wrote it, and so is a second item this run names at a
-        # place it already named
-        new = self.append("20260922-0000-repeat", "a.py:1 - add a test - coverage",
-                          "**a.py:1 – rename it**", "**the tick resumes a stopped run**",
-                          "c.py:3 - written by hand - clarity",
-                          "b.py:2 - add a test - coverage", "`b.py:2` - add another - coverage")
-        self.assertEqual(logged.read_text().splitlines(),
-                         opened + [f"{new}b.py:2 - add a test - coverage"])
-
-    def test_a_repository_has_one_follow_ups_file_whatever_the_case_of_its_name(self):
-        directory = config.HOME / "followups"
-        directory.mkdir(parents=True)
-        (directory / "repo.md").write_text("- 2026-09-01 run a PR #1: a.py:1 - one - why\n"
-                                           "- 2026-09-03 run c PR #3: c.py:3 - three - why\n")
-        (directory / "REPO.md").write_text("- 2026-09-02 by hand: b.py:2 - two - why\n"
-                                           "  and the reason, on a line of its own\n")
-        (directory / "other.md").write_text("- 2026-09-02 run x PR #9: d.py:4 - four - why\n")
-        new = self.append("20260922-0000-case", "b.py:2 - two again - why", "d.py:4 - four - why")
-        self.assertEqual(sorted(path.name for path in directory.glob("*.md")),
-                         ["other.md", "repo.md"])
-        self.assertEqual((directory / "repo.md").read_text().splitlines(), [
-            "- 2026-09-01 run a PR #1: a.py:1 - one - why",
-            "- 2026-09-02 by hand: b.py:2 - two - why",
-            "  and the reason, on a line of its own",
-            "- 2026-09-03 run c PR #3: c.py:3 - three - why",
-            f"{new}d.py:4 - four - why"])
-
-    def test_past_24_kb_the_oldest_follow_ups_move_to_the_archive(self):
-        directory = config.HOME / "followups"
-        directory.mkdir(parents=True)
-        # 192 lines of 128 bytes each: the file is exactly at its cap, not past it, and its
-        # oldest entry is a bullet with a second line under it
-        old = [f"- 2026-09-01 run old PR #1: f{n:03}.py:1 - {'x' * 87}" for n in range(192)]
-        old[1] = f"  why: {'w' * 120}"
-        (directory / "repo.md").write_text("".join(f"{line}\n" for line in old))
-        self.assertEqual((directory / "repo.md").stat().st_size, run.FOLLOWUPS_CAP)
-        new = self.append("20260922-0000-cap", "new.py:1 - newest - why")
-        self.assertEqual((directory / "repo.archive.md").read_text(), f"{old[0]}\n{old[1]}\n")
-        self.assertEqual((directory / "repo.md").read_text().splitlines(),
-                         old[2:] + [f"{new}new.py:1 - newest - why"])
-        # the archive only grows: every bullet that moved is still there, oldest first
-        newer = self.append("20260922-0001-cap", "newer.py:1 - " + "y" * 300)
-        kept = (directory / "repo.md").read_text()
-        self.assertLessEqual(len(kept.encode()), run.FOLLOWUPS_CAP)
-        self.assertEqual(((directory / "repo.archive.md").read_text() + kept).splitlines(),
-                         old + [f"{new}new.py:1 - newest - why",
-                                f"{newer}newer.py:1 - {'y' * 300}"])
-
-    def test_a_rewrite_that_fails_leaves_every_file_as_it_was(self):
-        directory = config.HOME / "followups"
-        directory.mkdir(parents=True)
-        files = {"repo.md": "- 2026-09-01 run a PR #1: a.py:1 - one - why\n",
-                 "REPO.md": "- 2026-09-02 by hand: b.py:2 - two - why\n"}
-        for name, text in files.items():
-            (directory / name).write_text(text)
-        with patch.object(Path, "write_text", side_effect=OSError("disk full")):
-            self.append("20260922-0000-full", "c.py:3 - three - why")
-        self.assertEqual({path.name: path.read_text() for path in directory.glob("*.md")}, files)
-
-    def test_appends_under_both_cases_of_a_name_keep_one_file_with_every_item(self):
-        directory = config.HOME / "followups"
-        directory.mkdir(parents=True)
-        (directory / "REPO.md").write_text("- 2026-09-01 by hand: a.py:1 - one - why\n")
-        url = "https://github.com/fixture/repo/pull/7"
-        threads = [threading.Thread(target=run.append_followups, args=(
-            {"run_id": f"race-{n}", "repo": str(self.root / name),
-             "followups": [f"f{n}.py:1 - new - why"]}, url))
-            for n, name in enumerate(["repo", "REPO"] * 4)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-        files = list(directory.glob("*.md"))
-        self.assertEqual(len(files), 1, files)
-        lines = files[0].read_text().splitlines()
-        self.assertEqual(lines[0], "- 2026-09-01 by hand: a.py:1 - one - why")
-        self.assertEqual(sorted(line.rsplit(": ", 1)[1] for line in lines[1:]),
-                         sorted(f"f{n}.py:1 - new - why" for n in range(8)))
+        self.assertIn("- b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError", body)
+        self.assertNotIn("- a.py:1", body)
+        self.assertFalse((config.HOME / "followups").exists())
 
 
 if __name__ == "__main__":

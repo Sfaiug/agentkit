@@ -238,15 +238,15 @@ class OneProvider(unittest.TestCase):
         with self.assertRaises(run.QuotaDry):
             self.pick()
         self.assertEqual(run.pair_refusal(self.cfg, self.providers, None),
-                         "no two of the workers alpha, gamma make an allowed executor and "
-                         "reviewer (gamma: other is not logged in); log in to another harness "
-                         "or add another model to the workers")
+                         "workers alpha, gamma and reviewers alpha, gamma make no allowed executor "
+                         "and reviewer pair (gamma: other is not logged in); "
+                         "log in to another harness or add another model to the groups")
         self.assertIsNone(run.pair_refusal(self.cfg, self.providers, ["alpha", "beta", "gamma"]))
         # a spent meter refills; a list of one model never grows a second, in a session or not
         self.providers = self.meters(b=100)
         self.assertIsNone(run.pair_refusal(self.cfg, self.providers, None))
-        refusal = ("no two of the workers alpha make an allowed executor and reviewer; "
-                   "log in to another harness or add another model to the workers")
+        refusal = ("workers alpha and reviewers alpha make no allowed executor and reviewer pair; "
+                   "log in to another harness or add another model to the groups")
         self.assertEqual(run.pair_refusal(self.cfg, self.providers, ["alpha"]), refusal)
         self.cfg["defaults"]["workers"] = ["alpha"]
         self.assertEqual(run.pair_refusal(self.cfg, self.providers, None), refusal)
@@ -303,13 +303,11 @@ class OneProvider(unittest.TestCase):
             self.assertEqual(run.pick_models(self.cfg, self.providers, "seat", "alpha",
                                              self.logs.append, resuming=True), ("seat", "alpha"))
 
-    def test_lag_preference_and_display_use_same_company_pair_policy(self):
+    def test_budget_order_and_display_use_same_company_pair_policy(self):
         cfg = tomllib.loads((REPO / "config.default.toml").read_text())
         # the fixture below answers for three companies, so the default workers are scoped
         # to them and the scenario stays what it says
-        cfg["defaults"]["workers"] = [m for m in cfg["defaults"]["workers"]
-                                      if cfg["models"][m]["provider"] in
-                                      ("anthropic", "openai", "meta")]
+        cfg["defaults"]["workers"] = ["opus", "fable", "astra", "spark"]
         meter = self.providers["a"]["meters"][0]
         providers = {
             "anthropic": {"meters": [{**meter, "name": "weekly_all", "used": 80},
@@ -318,17 +316,17 @@ class OneProvider(unittest.TestCase):
             "meta": {"meters": [{**meter, "used": 100}]}}
         usage._gate_flags(providers, time.time(), cfg)
         order = usage.pick_order(cfg, providers, quiet=True)
-        self.assertEqual(order, ["fable", "opus"])
+        self.assertEqual(order, ["opus", "fable"])
         with patch.object(terminal, "width", return_value=100):
             text = usage.render(cfg, providers, order)
-        self.assertIn("preferring Fable as executor", text)
-        self.assertIn("pick order: fable, opus\nreview: fable by opus", text)
+        self.assertNotIn("preferring Fable", text)
+        self.assertIn("pick order: opus, fable\nreview: fable by opus", text)
         self.assertIn("one provider: reviewer on the same company", text)
         cfg["models"]["opus"]["reviews_own_provider"] = False
-        self.assertFalse(usage._fable_pair_available(cfg, providers, order))
+        self.assertIsNone(usage.review_pair(cfg, providers))
         cfg["models"]["opus"]["reviews_own_provider"] = True
         cfg["models"]["opus"]["model"] = cfg["models"]["fable"]["model"]
-        self.assertFalse(usage._fable_pair_available(cfg, providers, order))
+        self.assertIsNone(usage.review_pair(cfg, providers))
 
     def resume_integration(self, reviewer="beta"):
         lp = self.loop(reviewer=reviewer)

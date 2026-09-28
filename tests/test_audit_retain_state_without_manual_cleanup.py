@@ -65,6 +65,10 @@ sys.exit(1)
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         self.stack.enter_context(patch.object(run, "SLOT_POLL", .01))
         config.ensure_dirs()
+        system_tmp = self.root / "system-tmp"
+        system_tmp.mkdir(exist_ok=True)
+        self.stack.enter_context(patch.object(run, "TMP_BASE", system_tmp))
+        self.stack.enter_context(patch.object(run, "VAR_TMP_BASE", system_tmp))
         self.cfg = config.load()
         workers = self.cfg["defaults"]["workers"]
         self.executor = workers[0]

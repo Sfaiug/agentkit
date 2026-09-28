@@ -1,7 +1,7 @@
 # adapters/opencode.toml -- everything agentkit reads off an OpenCode seat's screen, and
 # who has the authority to say what that seat is doing.  Paired with adapters/opencode.sh; the
 # format is the adapter contract in docs/guide.md, "Adding a harness".
-# Verified against OpenCode 2.0.13; see tests/fixtures/README.md for the captures.
+# Verified against OpenCode 2.0.14; see tests/fixtures/README.md for the captures.
 version = 1
 
 # How `ak update` moves this harness: `opencode upgrade [version]` installs the latest release
@@ -150,7 +150,7 @@ signatures = [
 ]
 
 # How an OpenCode seat compacts itself; the format is the `[compact]` table in docs/guide.md.
-# Verified against OpenCode 2.0.13: `/compact` -- "Compact session" -- is in its slash-command
+# Verified against OpenCode 2.0.14: `/compact` -- "Compact session" -- is in its slash-command
 # list.  The end of a turn is the seat plugin's Stop fact, and the context size rides that
 # same fact: the plugin tallies the last step's input, output, reasoning and cache tokens and
 # hands the total to hooks/seat-state.sh as `.context_tokens`, which stamps it for the

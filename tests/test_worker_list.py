@@ -139,7 +139,7 @@ class WorkerList(unittest.TestCase):
                                                      self.logs.append, workers=bound),
                                      ("beta", "delta"))
             # A wider current seat cannot admit a model the launch receipt omitted,
-            # even as an explicit executor on resume after its preference closes.
+            # even as an explicit executor on resume.
             session["workers"] = [*workers, "fable"]
             for resuming in (False, True):
                 for executor, reviewer in (("fable", "beta"), ("beta", "fable")):
@@ -151,7 +151,7 @@ class WorkerList(unittest.TestCase):
                 self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "delta")
             self.assertEqual(lp.reviewer, "alpha")
 
-    def test_lagging_fable_listed_is_picked(self):
+    def test_lagging_fable_listed_ranks_by_budget_alone(self):
         providers = self.lagging_fable()
         workers = ["alpha", "beta", "delta", "fable"]
         session = {"name": "fable-seat", "orchestrator": "fable", "workers": workers}
@@ -160,7 +160,7 @@ class WorkerList(unittest.TestCase):
                 with self.subTest(bound=bound):
                     self.assertEqual(run.pick_models(self.cfg, providers, None, None,
                                                      self.logs.append, workers=bound),
-                                     ("fable", "beta"))
+                                     ("beta", "delta"))
 
     def test_status_and_log_name_the_bound_workers(self):
         lp = self.loop("alpha", "gamma", ["alpha", "gamma"])
@@ -241,9 +241,10 @@ class WorkerList(unittest.TestCase):
         self.why["codex"] = "codex is not logged in"
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
-        refusal = ("no two of the workers alpha, beta make an allowed executor and reviewer "
+        refusal = ("workers alpha, beta and reviewers alpha, beta "
+                   "make no allowed executor and reviewer pair "
                    "(beta: codex is not logged in); log in to another harness or add "
-                   "another model to the workers")
+                   "another model to the groups")
         with patch.object(run.worker, "call", side_effect=AssertionError("no turn")), \
                 self.refused(usage.Readings(self.providers())), \
                 patch.object(notify, "shaped", return_value=0), \
@@ -273,8 +274,9 @@ class WorkerList(unittest.TestCase):
             with self.assertRaises(config.Error) as refused:
                 run.main([str(task), "--bg"])
         self.assertTrue(str(refused.exception).startswith(
-            "no two of the workers alpha, beta, gamma, delta make an allowed executor and "
-            "reviewer (beta: codex is not logged in;"), refused.exception)
+            "workers alpha, beta, gamma, delta and reviewers alpha, beta, gamma, delta "
+            "make no allowed executor and reviewer pair (beta: codex is not logged in;"),
+            refused.exception)
         (run_dir,) = run.run_dirs()
         saved = run.read_state(run_dir)
         self.assertEqual((saved["state"], saved["error"]), ("error", str(refused.exception)))

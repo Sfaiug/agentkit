@@ -139,11 +139,11 @@ class UsageRow(Sandbox):
                   "not reached"),
                  ({"meters": [], "error": "unknown: could not obtain a Meta credential"},
                   "not reached"),
-                 # ... and a probe the endpoint refused says so, with no reading to keep.
+                 # ... and a probe the endpoint refused says nothing, with no reading to keep.
                  ({"meters": [], "probe_error": "unknown: HTTP 429 from api.meta.ai"},
-                  "rate limited"),
+                  "no reading yet"),
                  ({"meters": [], "probe_error": "unknown: HTTP 502 from api.meta.ai"},
-                  "unavailable"),
+                  "no reading yet"),
                  ({"meters": [self.meter("weekly", 40, reset=9000)]}, "window reset"),
                  # a week that rolled over beside one that cannot be read is not a window reset
                  ({"meters": [self.meter("weekly_all", 40, reset=9000),
@@ -250,7 +250,7 @@ class UsageRow(Sandbox):
             # the split-week detail says what is left too (wrapped on a phone); the gap stays
             # in points of the week
             self.assertIn("weekly_all 21% left, weekly_scoped 47% left, gap 26", " ".join(rendered.split()))
-            self.assertIn("fable behind by 26", rendered)
+            self.assertNotIn("preferring", rendered)
             self.assertNotIn("used", rendered)
             self.assertNotRegex(rendered, r"weekly_(all|scoped) (79|53)%")
             self.assertIn("21%", rendered)

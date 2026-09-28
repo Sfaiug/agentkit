@@ -2568,31 +2568,33 @@ balancecheck() {   # balancecheck <named check> <test script> <test names...>
     no "$label"; tail -30 "$log"
   fi
 }
-balancecheck "8o-a Fable behind (80/53): Fable executes only if listed or seatless, astra or spark reviews" \
-  test_usage_balance.py WeeklyBalance.test_behind_prefers_fable_executor_with_cross_provider_reviewer
+balancecheck "8o-a live budget alone selects the executor and a cross-provider reviewer" \
+  test_usage_balance.py WeeklyBalance.test_budget_alone_selects_executor_with_cross_provider_reviewer
 balancecheck "8o-b Opus retains real headroom and remains selectable across the provider boundary" \
   test_usage_balance.py WeeklyBalance.test_behind_keeps_opus_selectable_for_normal_cross_provider_pick
-balancecheck "8o-c Fable ahead, in step or within the margin: normal selection" \
-  test_usage_balance.py WeeklyBalance.test_ahead_in_step_and_margin_use_normal_selection
-balancecheck "8o-d one funded provider: Fable executes with Opus reviewing; Fable never reviews Opus" \
-  test_usage_balance.py WeeklyBalance.test_same_provider_headroom_allows_fable_with_opus_review
+balancecheck "8o-c scoped meter gaps never override budget order" \
+  test_usage_balance.py WeeklyBalance.test_scoped_meter_gap_never_overrides_budget
+balancecheck "8o-d same-provider pair policy preserves budget order; Fable never reviews Opus" \
+  test_usage_balance.py WeeklyBalance.test_same_provider_pair_policy_preserves_budget_order
 balancecheck "8o-e real exhaustion, session gates, payg, cache refresh and unchanged single meters" \
   test_usage_balance.py WeeklyBalance.test_requested_balance_cases \
   WeeklyBalance.test_only_real_meters_exhaust_models WeeklyBalance.test_session_still_gates_and_contributes_to_pace \
   WeeklyBalance.test_real_pace_controls_payg_overflow WeeklyBalance.test_single_meter_and_real_outlook_unchanged \
   WeeklyBalance.test_split_comes_from_config_and_requires_both_meters \
   WeeklyBalance.test_cached_and_fresh_reads_drop_effective_without_changing_real_meters \
-  WeeklyBalance.test_preference_respects_worker_selection_payg_and_real_session_gate
+  WeeklyBalance.test_budget_respects_worker_selection_payg_and_real_session_gate
 balancecheck "8o-f saved Fable executors remain resumable after the meters catch up" \
   test_usage_balance.py WeeklyBalance.test_fable_seat_resume_keeps_executor_after_meters_catch_up
 balancecheck "8o-g reviewers keep the normal ranking when Fable is behind" \
   test_usage_balance.py WeeklyBalance.test_reviewers_keep_normal_order_when_fable_is_behind
 balancecheck "8o-h the launch banner agrees with the new seat's executor order" \
   test_usage_balance.py WeeklyBalance.test_launch_banner_matches_the_new_seats_executor_order
-balancecheck "8o-i unavailable Fable preferences display normal selection" \
-  test_usage_balance.py WeeklyBalance.test_verdict_reports_normal_selection_when_preference_cannot_apply
+balancecheck "8o-i split meter display reports facts without model preferences" \
+  test_usage_balance.py WeeklyBalance.test_split_meter_display_reports_facts_without_preferences
 balancecheck "8o-j ak run resume --rounds preserves a listed Fable executor in its own seat" \
   test_audit_enforce_review_contract.py ReviewContract.test_fable_executor_resumes_review_from_its_seat_with_more_rounds
+balancecheck "8o-k worker lists bind every role and listed models rank by budget alone" \
+  test_worker_list.py
 
 # 8f: budget ranks workers, the resets in hand in it; headroom counts them too (offline, fakes)
 # No cache and no network: four adapters of the suite's own answer `usage`, and the codex one
@@ -2977,7 +2979,16 @@ s.update(merged=True, finished_at=time.time() - 8 * 86400)
 p.write_text(json.dumps(s, indent=2))
 PY
 IWT=$(jq -r '.worktree // empty' "$IJSON")
-HOME="$IHOME" ak run gc >"$WORK/gc.log" 2>&1
+HOME="$IHOME" PYTHONPATH="$REPO" python3 - "$REPO/bin/ak" "$WORK/gc-tmp" >"$WORK/gc.log" 2>&1 <<'PY'
+import pathlib, runpy, sys
+from agentkit import run
+
+# HOME does not relocate /tmp. Keep the worktree check's real process/socket inventories.
+run.TMP_BASE = pathlib.Path(sys.argv[2])
+run.TMP_BASE.mkdir()
+sys.argv = [sys.argv[1], "run", "gc"]
+runpy.run_path(sys.argv[0], run_name="__main__")
+PY
 if grep -q "remove merged-worktree" "$WORK/gc.log" && [ ! -d "$IWT" ] &&
    [ -f "$IHOME/.agentkit/runs/$IRUNID/result.md" ] &&
    ! grep -qF "$IWT" <<<"$(git -C "$R" worktree list)"; then
@@ -4727,15 +4738,18 @@ fi
 # --- 31: the shared browser and the desktop ---------------------------------
 # 31a-c are offline and run on every machine. 31d and 31e make real model calls through the
 # MCP servers `ak browser mcp-register` wrote, so they only run where the shared Chromium is
-# actually listening on 9222 -- the server. On a Mac they are skipped, not failed.
+# actually listening on 9222 -- the server. On a Mac they are skipped, not failed. Where the
+# browser answers but its shared MCP server does not, they fail without installing anything:
+# the suite never touches the machine-wide service itself.
 BST=0
 ak browser status >"$WORK/browser-status.txt" 2>&1 || BST=$?
 BSO=$(cat "$WORK/browser-status.txt")
 if [ "$BST" = 0 ] &&
    printf '%s' "$BSO" | grep -q '^cdp  *http://127\.0\.0\.1:9222' &&
    printf '%s' "$BSO" | grep -q '^desktop  *DISPLAY=:99' &&
+   printf '%s' "$BSO" | grep -q '^mcp ' &&
    printf '%s' "$BSO" | grep -q '^novnc '; then
-  ok "31a ak browser status: units, cdp, desktop and the noVNC URL, exit 0"
+  ok "31a ak browser status: units, cdp, desktop, the shared server and the noVNC URL, exit 0"
 else
   no "31a ak browser status exited $BST"
   sed 's/^/      /' "$WORK/browser-status.txt" | head -8
@@ -4776,16 +4790,18 @@ if sorted(servers) != ["browser", "desktop", "existing"]:
 if claude.get("numStartups") != 3 or list(claude.get("projects", {})) != ["/tmp"]:
     problems.append("claude.json lost keys it did not own")
 browser = servers.get("browser", {})
-if browser.get("command") != "npx" or "--isolated" in browser.get("args", []):
+if browser != {"type": "http", "url": "http://localhost:8931/mcp"}:
     problems.append(f"claude browser server = {browser}")
-if browser.get("args", [])[-2:] != ["--cdp-endpoint", "http://127.0.0.1:9222"]:
-    problems.append("claude browser server does not point at the CDP endpoint")
-if browser.get("env", {}).get("DISPLAY") != ":99":
-    problems.append("claude browser server has no DISPLAY")
 if not servers.get("desktop", {}).get("args", [""])[0].endswith("desktop-mcp.py"):
     problems.append(f"claude desktop server = {servers.get('desktop')}")
+if servers.get("desktop", {}).get("env", {}).get("DISPLAY") != ":99":
+    problems.append("claude desktop server has no DISPLAY")
 if sorted(codex.get("mcp_servers", {})) != ["browser", "desktop"]:
     problems.append(f"codex mcp_servers={sorted(codex.get('mcp_servers', {}))}")
+if codex.get("mcp_servers", {}).get("browser", {}) != {"url": "http://localhost:8931/mcp"}:
+    problems.append(f"codex browser server = {codex.get('mcp_servers', {}).get('browser')}")
+if "@playwright/mcp@latest" in raw or "npx" in raw:
+    problems.append("config.toml still fetches the browser server per session")
 if codex.get("approval_policy") != "never" or list(codex.get("projects", {})) != ["/home/x/code"]:
     problems.append("config.toml lost keys it did not own")
 if "# kept" not in raw:
@@ -4832,6 +4848,16 @@ except Exception:
 " 2>/dev/null; then
   # Codex's config is private to this suite, so give it the same MCP servers locally.
   checked "$WORK/mcp-register.log" ak browser mcp-register || no "31d/31e MCP registration"
+  # A browser whose shared server never bound its port fails here; the suite installs
+  # nothing itself, since under its sandbox HOME that would point the real unit at a
+  # directory the cleanup then deletes.
+  if python3 -c "
+import socket, sys
+try:
+    socket.create_connection(('127.0.0.1', 8931), timeout=3).close()
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
   if skip_spent 31d opus; then
     :
   else
@@ -4864,6 +4890,9 @@ except Exception:
   else
     no "31e codex over MCP: $(tail -c 200 "$WORK/mcp-codex.txt")"
   fi
+  fi
+  else
+    no "31d/31e MCP shared server is not listening on 127.0.0.1:8931; run \`ak browser install\` on the server"
   fi
 else
   skip_checks 31d/31e "the shared browser is not on this host: nothing listens on 127.0.0.1:9222"

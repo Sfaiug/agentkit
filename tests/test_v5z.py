@@ -35,6 +35,10 @@ SLICE_LINE = "slice agentkit.slice · 12 tasks · 30% of its ceiling"   # `ak or
 class Listings(Sandbox):
     def setUp(self):
         super().setUp()
+        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+            "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
+            "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000,
+            "slice_cpu_pressure": 12}))
         self.stack.enter_context(patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
         self.stack.enter_context(patch.object(menu.time, "time", return_value=NOW))
         self.stack.enter_context(patch.object(menu.time, "strftime", return_value="14:02"))
@@ -172,8 +176,8 @@ class Listings(Sandbox):
                                    "started_at": NOW - 3600, "finished_at": NOW - 60})
         out = self.status(["--plain", directory.name])
         lines = out.splitlines()
-        self.assertEqual(lines[0], "host: 8 cpus · load 1 · 4 G free · "
-                                  "a run is admitted while ≥ 3.2 G free and load ≤ 8")
+        self.assertEqual(lines[0], "host: 8 cpus · ak cpu 12% · 4 G free · "
+                                  "a run is admitted while ≥ 3.2 G free and ak cpu ≤ 40%")
         self.assertEqual(lines[1], "20260101-0900-plain-check" + " " * 16 +
                                     "pass" + " " * 8 + "PASS " + " opus/astra  main  merged")
 
@@ -486,7 +490,8 @@ class Listings(Sandbox):
         self.assertIn("✓ done", self.status([continued.name]))
 
     def test_v5z_s_the_host_line_names_a_count_cap(self):
-        gates = "host: 8 cpus · load 1 · 4 G free · a run is admitted while ≥ 3.2 G free and load ≤ 8"
+        gates = ("host: 8 cpus · ak cpu 12% · 4 G free · "
+                 "a run is admitted while ≥ 3.2 G free and ak cpu ≤ 40%")
         for limit, tail in (("4", " · at most 4 runs at once"),
                             ("1", " · at most 1 run at once"), ("0", "")):
             with self.subTest(limit=limit), patch.dict(os.environ, {"AK_MAX_RUNS": limit}):

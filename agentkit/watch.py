@@ -1200,7 +1200,11 @@ def screen_state(harness, tail):
     where everything under it is chrome, so a transcript echoing a past turn above newer
     output can never read as one.
     """
-    raw_lines = [line.rstrip() for line in tail.splitlines() if strip_sgr(line).strip()]
+    # A queued inbound message is below the active UI, not part of its dialog or composer.
+    inbound = _pattern((config.manifest(harness).get("screen") or {}).get("inbound"),
+                       f"adapters/{harness}.toml")
+    raw_lines = [line.rstrip() for line in tail.splitlines() if strip_sgr(line).strip()
+                 and not (inbound and inbound.fullmatch(strip_sgr(line).strip()))]
     lines = [strip_sgr(line).strip() for line in raw_lines]
     if not lines:
         return None, "", ""
@@ -2225,6 +2229,11 @@ def sync_title(session, log=lambda _: None, *, force=False):
         session = dict(session, name=name)
         record = title_record(name)
         plugin = orch.seat_plugin(record)
+        synced = plugin.sync_title(name, record)
+        if synced is not None:
+            if synced:
+                config.update_session(name, session_title=name, title_sync=None)
+            return synced
         line = plugin.title_command(name)
         attempt = record.get("title_sync")
         tries = (attempt or {}).get("tries", 0) if (attempt or {}).get("name") == name else 0
@@ -3243,12 +3252,13 @@ def stall_clock(run_dir, state):
     writing nothing -- so the clock starts where that wait ends (`run.transient_wait`).  Only
     the loop that recorded the wait is owed it: a resume after its death is a new loop, and
     its silence is its own.  A live loop waiting for its repository's merge turn
-    (`run.merge_turn`), or for its dependency to merge (`run.wait_for_dependency`), is
-    silent for as long as another run takes to land, so its clock starts now, every
-    tick, until the wait is over.
+    (`run.merge_turn`), to take back its lent turn, or for its dependency to merge
+    (`run.wait_for_dependency`), is silent for as long as another run takes to land,
+    so its clock starts now, every tick, until the wait is over.
     """
     from . import run as run_mod
-    if ((run_mod.merge_turn_note(state) or run_mod.dep_wait_note(state))
+    if ((run_mod.merge_turn_note(state) or run_mod.dep_wait_note(state)
+            or run_mod.merge_retaking(state))
             and run_mod.process_active(state)):
         return time.time()
     wait = state.get("transient_wait")
@@ -4188,11 +4198,15 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                 # every pick below gives a role, so each harness is asked whether it can run:
                 # once a pass, and only when a run waits on a pick, never on an empty tick
                 providers, asked = usage.readiness(cfg, providers), True
-            bound = run_mod.run_workers(cfg, state) or workers
+            bound, review_bound = config.role_groups(
+                cfg, run_mod.run_workers(cfg, state), state.get("reviewers"))
+            bound = bound if bound is not None else workers
+            review_bound = review_bound if review_bound is not None else bound
             # one line per worker the pick leaves out, for the run's own log -- written only
             # when this pass resumes it, so a run waiting through tick after tick gets none
             skipped = []
-            available = run_mod.executable_models(cfg, providers, bound, now, skipped.append)
+            available = run_mod.executable_models(cfg, providers, bound, now, skipped.append,
+                                                 reviewers=review_bound)
             with run_mod.recovery_lock(run_dir):
                 state = run_mod.read_state(run_dir) or state
                 if state.get("state") != "exhausted":
@@ -4238,7 +4252,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                             and 0 <= now - last < run_mod.ERROR_RETRY_CAP):
                         continue  # re-resumed within the hour: a dead reviewer gets an
                         # hour like an error, not a reviewer turn every ten minutes
-                    reviewers = run_mod.reviewable_models(cfg, providers, bound, now,
+                    reviewers = run_mod.reviewable_models(cfg, providers, review_bound, now,
                                                           executor=saved)
                     if not reviewers:
                         continue  # no reviewer is eligible yet; the run keeps waiting, silently
@@ -4260,7 +4274,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                         # (`run.next_executor`): keeping the reviewer would force a dearer
                         # executor on the run.  Nothing resumes until a legal pair exists; a
                         # run with none left stays parked and waits for one.
-                        review_order = run_mod.ready_order(cfg, providers, bound,
+                        review_order = run_mod.ready_order(cfg, providers, review_bound,
                                                            role="reviewer", quiet=True)
                         pairs = {name: run_mod.reviewer_order(cfg, name, review_order)
                                  for name, _ in candidates}

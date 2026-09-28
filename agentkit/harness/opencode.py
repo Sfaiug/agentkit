@@ -75,9 +75,31 @@ def launched(name, cwd, conversation):
     path.mkdir(mode=0o700)
     if conversation:
         (path / "session").write_text(conversation, encoding="utf-8")
-    config.update_session(name, opencode_launch=token)
+    config.update_session(name, opencode_launch=token, session_title=None)
+    sync_title(name, {"opencode_launch": token})
     forget(record)
     return {RECEIPT_ENV: str(path)}
+
+
+def sync_title(name, record):
+    """Ask this launch's plugin; only its read-back of this request confirms the title.
+
+    OpenCode 2.0.14 stores owner and generated titles in the same field and emits the same
+    event for both. There is deliberately no session_title hook: neither can rename a seat.
+    """
+    path = path_for(record)
+    if not path:
+        return False
+    try:
+        request = config._read_json(path / "title-request.json")
+        if not isinstance(request, dict) or request.get("title") != name:
+            request = {"title": name, "id": uuid.uuid4().hex}
+            config._write_json(path / "title-request.json", request, prepare=False)
+        applied = config._read_json(path / "title-applied.json")
+        sid = conversation(record)
+        return bool(sid and applied == {**request, "sessionID": sid})
+    except (config.Error, OSError, ValueError):
+        return False
 
 
 def _urls(value):
