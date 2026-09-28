@@ -144,43 +144,34 @@ sys.exit(row["code"])
         run.save_state(directory, state)
         return directory, state
 
-    def test_explicit_same_provider_is_rejected_before_any_adapter_call(self):
+    def test_explicit_same_provider_pair_reviews_without_refusal(self):
         self.available("anthropic")
         for reviewer in ("opus", "fable"):
-            with self.subTest(reviewer=reviewer), patch.object(usage, "collect") as collect:
-                reason = "same model" if reviewer == "opus" else "reviews_own_provider"
-                with self.assertRaisesRegex(config.Error, reason):
-                    run.main([str(self.task), "--exec", "opus", "--review", reviewer])
-                collect.assert_not_called()
-            self.assertEqual(self.calls(), [])
-        for directory in run.run_dirs():
-            self.assert_undelivered(run.read_state(directory))
+            with self.subTest(reviewer=reviewer):
+                code, directory, state = self.launch("--exec", "opus", "--review", reviewer)
+                self.assertEqual(code, 0)
+                self.assertEqual(state["reviewer"], reviewer)
+                self.assertTrue(run.review_pass(state, self.cfg))
+                self.assertEqual(run.delivery(state), "PASS, delivered")
+                self.assertEqual(run.self_reviewed(state), reviewer == "opus")
 
-    def test_only_anthropic_waits_and_can_resume_when_another_provider_recovers(self):
+    def test_only_anthropic_reviews_without_waiting(self):
         self.available("anthropic")
         for eligible in (["opus"], ["opus", "fable"]):
             self.eligible = eligible
             self.assertEqual(usage.pick_order(self.cfg, self.providers), eligible)
+            wanted = ("opus", "opus" if eligible == ["opus"] else "fable")
             for executor in (None, "opus"):
-                if executor is None and "fable" in eligible:
-                    self.assertEqual(run.pick_models(self.cfg, self.providers, None, None,
-                                                     lambda s: None), ("fable", "opus"))
-                    continue
-                with self.assertRaisesRegex(run.Exhausted, "no eligible reviewer"):
-                    run.pick_models(self.cfg, self.providers, executor, None, lambda s: None)
+                self.assertEqual(run.pick_models(self.cfg, self.providers, executor, None,
+                                                 lambda s: None), wanted)
             code, directory, state = self.launch("--exec", "opus")
-            self.assertEqual(code, 1)
-            self.assertEqual(state["state"], "exhausted")
-            self.assertIn("no eligible reviewer", state["error"])
-            self.assert_undelivered(state)
-        self.assertEqual(self.calls(), [])
-        self.available("anthropic", "openai")
-        self.eligible = list(self.cfg["defaults"]["workers"])
-        self.assertEqual(run.cmd_resume([directory.name]), 0)
-        state = run.read_state(directory)
-        self.assertTrue(run.review_pass(state, self.cfg))
-        self.assertEqual(run.delivery(state), "PASS, delivered")
-        self.assertEqual([r["model"] for r in self.calls()], ["opus", "astra"])
+            self.assertEqual(code, 0)
+            self.assertEqual((state["executor"], state["reviewer"]), wanted)
+            self.assertTrue(run.review_pass(state, self.cfg))
+            self.assertEqual(run.delivery(state), "PASS, delivered")
+            self.assertEqual(run.self_reviewed(state), eligible == ["opus"])
+        self.assertEqual([r["model"] for r in self.calls()],
+                         ["opus", "opus", "opus", "fable"])
 
     def test_nonzero_pass_never_delivers_and_keeps_the_output(self):
         self.respond({"astra": [{"code": 1, "text": "VERDICT: PASS\npartial review"}]})
@@ -226,17 +217,20 @@ sys.exit(row["code"])
 
     def test_exhausted_reviewers_wait_and_resume_review_without_reexecuting(self):
         self.respond({"astra": [{"code": 1, "text": "You've hit your usage limit."}],
-                      "spark": [{"code": 1, "text": "usage limit reached"}]})
+                      "spark": [{"code": 1, "text": "usage limit reached"}],
+                      "fable": [{"code": 1, "text": "usage limit reached"}],
+                      "opus": [{"code": 1, "text": "Usage limit reached"}]})
         code, directory, state = self.launch("--exec", "opus", "--review", "astra")
         self.assertEqual(code, 1)
         self.assertEqual(state["state"], "exhausted")
         self.assert_undelivered(state)
-        self.assertEqual([r["model"] for r in self.calls("reviewer")], ["astra", "spark"])
+        self.assertEqual([r["model"] for r in self.calls("reviewer")],
+                         ["astra", "spark", "fable", "opus"])
         waits = [c.args[0] for c in self.sleep.call_args_list
                  if c.args and c.args[0] in run.TRANSIENT_BACKOFF]
         self.assertEqual(waits, [])
         artifacts = {p: p.read_text() for p in directory.glob("round-1/reviewer*/final.md")}
-        self.assertEqual(len(artifacts), 2)
+        self.assertEqual(len(artifacts), 4)
         self.respond({})
         self.assertEqual(run.cmd_resume([directory.name]), 0)
         self.assertEqual(len(self.calls("executor")), 1)
@@ -251,8 +245,9 @@ sys.exit(row["code"])
             {"name": "weekly_scoped", "used": 53, "pace": 3, "exhausted": False}]
         failed = {"astra": [{"code": 1, "text": "You've hit your usage limit."}],
                   "spark": [{"code": 1, "text": "usage limit reached"}],
-                  "opus": [{"code": 1, "text": "Usage limit reached"}]}
-        # Same-company Opus is now a fallback too; silence every legal reviewer.
+                  "opus": [{"code": 1, "text": "Usage limit reached"}],
+                  "fable": [{"code": 1, "text": "Usage limit reached"}]}
+        # Opus and Fable itself are fallbacks too; silence every legal reviewer.
         self.respond(failed)
         with patch.dict(os.environ, {config.SESSION_ENV: "fable-seat"}), \
                 patch.object(run, "launch_session", return_value=None):
@@ -271,12 +266,12 @@ sys.exit(row["code"])
             state = run.read_state(directory)
             self.assertEqual(state["executor"], "fable")
             self.assertEqual(state["rounds"], 2)
-            self.assertIn(state["reviewer"], ("astra", "spark", "opus"))
+            self.assertIn(state["reviewer"], ("astra", "spark", "opus", "fable"))
             self.assertEqual([r["model"] for r in self.calls("executor")], ["fable", "fable"])
             self.assertEqual(self.calls("executor")[1]["session"], ["session-fable"])
             self.assertTrue(run.review_pass(state, self.cfg))
 
-    def test_legacy_pass_waits_without_delivery_then_gets_fresh_cross_provider_review(self):
+    def test_legacy_pass_gets_fresh_review_without_waiting(self):
         for reviewer in ("opus", "fable", "astra"):
             for status in ("interrupted", "pass"):
                 with self.subTest(reviewer=reviewer, status=status):
@@ -285,16 +280,13 @@ sys.exit(row["code"])
                     self.assert_undelivered(state)
                     count = len(self.calls())
                     self.available("anthropic")
-                    self.assertEqual(run.cmd_resume([directory.name]), 1)
-                    self.assertEqual(len(self.calls()), count)
-                    self.assert_undelivered(run.read_state(directory))
-                    self.available("anthropic", "openai")
                     self.assertEqual(run.cmd_resume([directory.name]), 0)
                     self.assertEqual([r["role"] for r in self.calls()[count:]], ["reviewer"])
                     state = run.read_state(directory)
                     self.assertTrue(run.review_pass(state, self.cfg))
-                    self.assertEqual(state["reviewer"], "astra")
-                    if reviewer != "astra":
+                    self.assertEqual(state["reviewer"],
+                                     "fable" if reviewer == "astra" else reviewer)
+                    if reviewer == "astra":
                         self.assertEqual(self.calls()[-1]["session"], [])
 
     def test_saved_success_skips_workers_but_mismatched_evidence_does_not(self):
@@ -338,30 +330,27 @@ sys.exit(row["code"])
                              "## Done when\n```bash\ntest -f deliverable\n```\n")
         with patch.object(run, "merge") as merge:
             self.available("anthropic")
-            code, directory, state = self.launch("--exec", "opus", "--no-worktree")
+            self.respond({"opus": [{"code": 1, "text": "VERDICT: PASS"}]})
+            code, directory, state = self.launch("--exec", "opus", "--review", "opus",
+                                                 "--no-worktree")
             self.assertEqual(code, 1)
-            self.assertEqual(self.calls(), [])
-            self.assert_undelivered(state)
-            self.available("anthropic", "openai")
-            self.respond({"astra": [{"code": 1, "text": "VERDICT: PASS"}]})
-            self.assertEqual(run.cmd_resume([directory.name]), 1)
-            state = run.read_state(directory)
+            self.assertEqual([r["model"] for r in self.calls()], ["opus", "opus"])
             self.assertEqual(state["verdict"], "FAIL")
             self.assert_undelivered(state)
             merge.assert_not_called()
 
-    def test_review_rechecks_saved_pairs_and_filters_same_provider_spares(self):
+    def test_review_accepts_saved_same_provider_pair_and_prefers_cross_company_spares(self):
         directory, state = self.legacy("fable")
         lp = self.loop_for(directory, state)
         count = len(self.calls())
-        with self.assertRaisesRegex(config.Error, "shares provider"):
-            run.review(lp, "saved work", True, "passed")
-        self.assertEqual(len(self.calls()), count)
+        self.assertEqual(run.review(lp, "saved work", True, "passed"), "PASS")
+        self.assertEqual([r["model"] for r in self.calls()[count:]], ["fable"])
+        self.assertTrue(run.review_pass(state, self.cfg))
         lp.reviewer = "astra"
         lp.spares = ["opus", "fable", "spark"]
         self.respond({"astra": [{"code": 1, "text": "You've hit your usage limit."}]})
         self.assertEqual(run.review(lp, "saved work", True, "passed"), "PASS")
-        self.assertEqual([r["model"] for r in self.calls()[count:]], ["astra", "spark"])
+        self.assertEqual([r["model"] for r in self.calls()[count + 1:]], ["astra", "spark"])
 
     def test_done_when_failure_still_overrides_successful_review(self):
         directory, state = self.legacy()
