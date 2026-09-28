@@ -154,9 +154,14 @@ if 'kill-session' in sys.argv:
         self.assertEqual(codex.conversation(record), 'acme-thread')
         self.assertEqual(json.loads((home / 'fake-working.json').read_text())['event'], 'UserPromptSubmit')
         self.assertEqual(json.loads((config.STATE / 'hook-acme-seat.json').read_text())['event'], 'Stop')
+        config.update_session('acme-seat', session_title='acme-seat')
+        record = config.session_records()['acme-seat']
         (home / 'session_index.jsonl').write_text(json.dumps({
             'id': 'acme-thread', 'thread_name': 'acme-seat'}) + '\n')
         self.assertEqual(codex.session_title(record), 'acme-seat')
+        (home / 'session_index.jsonl').write_text(json.dumps({
+            'id': 'acme-thread', 'thread_name': 'codex-made'}) + '\n')
+        self.assertEqual(codex.session_title(record), '')
         self.stop(proc, home)
 
     def test_stop_and_resume_keep_identity_and_owned_conversation(self):
