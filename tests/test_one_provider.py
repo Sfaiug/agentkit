@@ -105,7 +105,8 @@ class OneProvider(unittest.TestCase):
         self.cfg["defaults"]["workers"] = ["alpha"]
         self.assertEqual(self.pick(), ("alpha", "alpha"))
         self.assertEqual(usage.review_pair(self.cfg, self.providers),
-                         {"executor": "alpha", "reviewer": "alpha", "same_provider": True})
+                         {"executor": "alpha", "reviewer": "alpha", "same_provider": True,
+                          "self_reviewed": True})
 
     def test_stale_opt_out_is_ignored(self):
         self.cfg["models"]["beta"]["reviews_own_provider"] = False
@@ -511,6 +512,12 @@ class OneProvider(unittest.TestCase):
                       "one provider: reviewer on the same company", rendered)
         self.assertNotIn("one provider:", usage.render(self.cfg, self.meters(), ["alpha"]))
 
+    def test_usage_text_names_a_self_pair_self_reviewed(self):
+        self.cfg["defaults"]["workers"] = ["alpha"]
+        with patch.object(terminal, "width", return_value=100):
+            rendered = usage.render(self.cfg, self.providers, ["alpha"])
+        self.assertIn("review: alpha by alpha, self-reviewed", rendered)
+
     def test_pairing_display_accepts_meters_without_reported_pace(self):
         for provider in self.providers.values():
             for meter in provider["meters"]:
@@ -545,7 +552,7 @@ class OneProvider(unittest.TestCase):
         data = json.loads(result.stdout)
         self.assertEqual(data["pick_order"], ["alpha", "beta"])
         self.assertEqual(data["review"], {"executor": "alpha", "reviewer": "beta",
-                                          "same_provider": True})
+                                          "same_provider": True, "self_reviewed": False})
 
 
 if __name__ == "__main__":

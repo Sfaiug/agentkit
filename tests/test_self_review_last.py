@@ -105,6 +105,21 @@ class SelfReviewLast(unittest.TestCase):
                                          self.logs.append, reviewers=["acme-one"]),
                          ("acme-one", "acme-one"))
 
+    def test_best_pair_weighs_tier_then_executor_then_reviewer_budget(self):
+        executors = ["acme-one", "acme-two", "beta-one"]
+        self.assertEqual(run.best_pair(self.cfg, executors, ["acme-one"]),
+                         ("beta-one", "acme-one"))
+        self.assertEqual(run.best_pair(self.cfg, ["acme-one", "acme-two"], ["acme-one"]),
+                         ("acme-two", "acme-one"))
+        self.assertIsNone(run.best_pair(self.cfg, ["acme-one"], ["acme-one"],
+                                        allow_self=False))
+        self.assertIsNone(run.best_pair(self.cfg, [], ["acme-one"]))
+
+    def test_first_pick_prefers_cross_over_self_across_executors(self):
+        self.assertEqual(run.pick_models(self.cfg, self.providers, None, None,
+                                         self.logs.append, reviewers=["acme-one"]),
+                         ("beta-one", "acme-one"))
+
     def test_an_explicit_self_review_is_allowed(self):
         self.assertEqual(self.pick("acme-one", "acme-one"), ("acme-one", "acme-one"))
         self.assertEqual(run.review_providers(self.cfg, "acme-one", "acme-one"),
@@ -193,6 +208,22 @@ class SelfReviewLast(unittest.TestCase):
         with patch.object(run, "collect_usage", return_value=self.providers):
             self.assertEqual(run.handover_executor(state, self.cfg, "stalled"), "beta-one")
         self.assertEqual((state["executor"], state["reviewer"]), ("beta-one", "beta-one"))
+
+    def test_a_handover_prefers_a_better_tier_over_a_cheaper_self(self):
+        lp = self.loop(executor="beta-one", reviewer="beta-one")
+        lp.state["workers"] = ["acme-one", "acme-two", "beta-one"]
+        lp.state["reviewers"] = ["acme-one"]
+        with patch.object(run, "collect_usage", return_value=self.providers):
+            self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "acme-two")
+        self.assertEqual((lp.executor, lp.reviewer), ("acme-two", "acme-one"))
+
+    def test_a_stall_handover_prefers_a_better_tier_over_a_cheaper_self(self):
+        state = {"executor": "beta-one", "reviewer": "beta-one",
+                 "workers": ["acme-one", "acme-two", "beta-one"],
+                 "reviewers": ["acme-one"]}
+        with patch.object(run, "collect_usage", return_value=self.providers):
+            self.assertEqual(run.handover_executor(state, self.cfg, "stalled"), "acme-two")
+        self.assertEqual((state["executor"], state["reviewer"]), ("acme-two", "acme-one"))
 
     def test_own_pr_picks_against_the_orchestrator_with_self_last(self):
         opts = {"--review-pr": "https://example.com/acme/fix-api/pull/1", "--review": None}

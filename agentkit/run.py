@@ -336,15 +336,15 @@ def collect_usage(cfg):
 
 
 def handover_executor(state, cfg, reason, dry=(), log=None):
-    """Hand a worker turn to the cheapest legal pair on a provider that refused nothing yet.
+    """Hand a worker turn to the best pair on a provider that refused nothing yet.
 
-    Returns the new executor, or None where none is eligible.  Both roles are re-picked by
-    budget under the one-provider rule, so the cheapest legal pair runs and the pair is
-    always a legal one -- a reviewer kept from before can be the very model now executing.
-    A refused provider never gets the work back (that is how a handover becomes a circle);
-    its review is a different matter and takes the spares road if it refuses that too.
-    Records the move in `executor_history` with the reason (`stalled`, `dry`). `dry` is
-    every provider that already refused this piece of work.
+    Returns the new executor, or None where none is eligible.  Both roles are re-picked
+    as one pair (`best_pair`), so tier beats budget and the pair is always a legal one --
+    a reviewer kept from before can be the very model now executing.  A refused provider
+    never gets the work back (that is how a handover becomes a circle); its review is a
+    different matter and takes the spares road if it refuses that too.  Records the move
+    in `executor_history` with the reason (`stalled`, `dry`). `dry` is every provider that
+    already refused this piece of work.
     """
     current = state.get("executor")
     try:
@@ -362,11 +362,9 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
         order = [n for n in ready_order(cfg, providers, workers, log, reviewers=reviewers)
                  if n != current and config.model(cfg, n)["provider"] not in refused]
         review_order = ready_order(cfg, providers, reviewers, role="reviewer")
-        for name in order:
-            candidates = reviewer_order(cfg, name, review_order)
-            if candidates:
-                new, reviewer = name, candidates[0]
-                break
+        pair = best_pair(cfg, order, review_order)
+        if pair is not None:
+            new, reviewer = pair
     except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
         pass
     if new is None:
@@ -795,14 +793,12 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
     else:
         review_order = ready_order(cfg, providers, reviewers if reviewers is not None else workers,
                                    role="reviewer", quiet=quiet, repo=repo)
-        for executor in [want_exec] if want_exec else order:
-            candidates = reviewer_order(cfg, executor, review_order)
-            if candidates:
-                reviewer = candidates[0]
-                break
-        else:
-            raise QuotaDry(f"no eligible reviewer: no worker with budget is left to review "
-                           f"for executor {executor}; waiting for review")
+        pair = best_pair(cfg, [want_exec] if want_exec else order, review_order)
+        if pair is None:
+            where = f" for executor {want_exec}" if want_exec else ""
+            raise QuotaDry("no eligible reviewer: no worker with budget is left to review"
+                           f"{where}; waiting for review")
+        executor, reviewer = pair
     review_providers(cfg, executor, reviewer)
     return executor, reviewer
 
@@ -890,6 +886,42 @@ def reviewer_order(cfg, executor, order):
         else:
             same.append(name)
     return cross + same + own
+
+
+def pair_tier(cfg, executor, reviewer):
+    """This pair's tier: 0 another company, 1 the executor's company, 2 its own model.
+
+    None when either name is unknown: no pick weighs a pair it cannot name.
+    """
+    if same_model(cfg, executor, reviewer):
+        return 2
+    try:
+        executed = config.model(cfg, executor)["provider"]
+        reviewed = config.model(cfg, reviewer)["provider"]
+    except config.Error:
+        return None
+    return 0 if executed != reviewed else 1
+
+
+def best_pair(cfg, executors, reviewers, allow_self=True):
+    """The pair every automatic pick takes: tier first, then executor budget, then reviewer.
+
+    Both lists are already budget-ordered, so the first pair in tier order wins: a review
+    by another company beats one by the executor's company, which beats the executor
+    reviewing itself.  A first pick that stopped at the cheapest executor would keep a
+    self-review while a cross-company pair is ready.  None when no pair forms -- or only
+    a self-review when `allow_self` is off, which a flake waits out.
+    """
+    best, key = None, None
+    for ei, executor in enumerate(executors or []):
+        for ri, reviewer in enumerate(reviewers or []):
+            tier = pair_tier(cfg, executor, reviewer)
+            if tier is None or (tier == 2 and not allow_self):
+                continue
+            found = (tier, ei, ri)
+            if key is None or found < key:
+                key, best = found, (executor, reviewer)
+    return best
 
 
 def self_reviewed(state, cfg=None):
@@ -2628,11 +2660,11 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
                   allow_self=True):
     """(executor, reviewer) for work whose provider has run dry, or Exhausted when none is left.
 
-    Both roles are re-picked by budget under the one-provider rule, so the cheapest legal
-    pair runs: the first executor in the pick order that leaves a legal reviewer, with that
-    reviewer beside it.  Keeping the current reviewer instead would force a dearer executor
-    on the run -- on 2026-09-22 a Grok refusal kept reviewer Muse and pushed execution onto
-    Claude, though executor Muse with reviewer Claude was legal and cheaper.
+    Both roles are re-picked as one pair (`best_pair`), so tier beats budget: a cross-company
+    review beats a same-company one, which beats a self-review.  Keeping the current reviewer
+    instead would force a dearer executor on the run -- on 2026-09-22 a Grok refusal kept
+    reviewer Muse and pushed execution onto Claude, though executor Muse with reviewer Claude
+    was legal and cheaper.
 
     `dry` is every provider that has already refused this piece of work, not just the last one:
     a refusal the meters cannot see is still a refusal, and handing the work back to a provider
@@ -2648,12 +2680,9 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
                                           reviewers if reviewers is not None else workers,
                                           role="reviewer", repo=repo)
                     if config.model(cfg, n)["provider"] not in dry]
-    for executor in order:
-        candidates = reviewer_order(cfg, executor, review_order)
-        if not allow_self:
-            candidates = [n for n in candidates if not same_model(cfg, executor, n)]
-        if candidates:
-            return executor, candidates[0]
+    pair = best_pair(cfg, order, review_order, allow_self=allow_self)
+    if pair is not None:
+        return pair
     raise QuotaDry(f"nothing is left to execute with a legal reviewer: "
                    f"{', '.join(sorted(dry))} ran dry; resume when a meter refills")
 
@@ -5741,6 +5770,27 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 executor, reviewer = pick_models(cfg, providers, executor, reviewer, log,
                                                  resuming=True, repo=repo, workers=workers,
                                                  reviewers=reviewers)
+                if reviewer is not None and same_model(cfg, executor, reviewer):
+                    # A saved self-review steps aside when a better pair is ready: its own
+                    # model reviews only as the last choice, never while another pair runs.
+                    try:
+                        exec_order = ready_order(cfg, providers, workers, None, repo=repo,
+                                                 reviewers=reviewers, quiet=True)
+                        better = best_pair(cfg, exec_order, order)
+                    except (config.Error, OSError, ValueError, KeyError, TypeError,
+                            AttributeError):
+                        better = None
+                    if better is not None and not same_model(cfg, *better):
+                        if better[0] != executor:
+                            handed = executor
+                            executor, reviewer = better
+                            note_handover(state, handed, "self-review",
+                                          started_round(run_dir, state), to=executor,
+                                          reason="self-review")
+                            log(f"handing executor to {executor}: {handed} "
+                                "was to review its own work")
+                        else:
+                            executor, reviewer = better
         if reviewer != state.get("reviewer"):
             state["review_session"] = None
     elif (preset_exec and not opts["--exec"] and not opts["--review"]
@@ -13866,7 +13916,8 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
         nxt = job_next_executor(cfg, task.get("executor") or run_state.get("executor"),
                                 run_workers(cfg, run_state))
         if nxt:
-            # The rerun keeps the job's reviewer; the fresh run picks from live budgets.
+            # The rerun keeps the job's reviewer unless it is the rerun executor's own
+            # model; then the fresh run picks another reviewer (`job_start_task`).
             task.pop("review_override", None)
             task["rerun_attempted"] = True
             task["rerun_executor"] = nxt

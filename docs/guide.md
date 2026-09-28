@@ -189,9 +189,7 @@ test suites' `$AK_NOTIFY_SINK` outranks the webhook, so a test never reaches you
 Session records and `[defaults]` may list `reviewers` beside `workers`; new seats copy explicit default reviewers.
 With separate groups, executors use only workers; reviews (including `--review-pr`) and spares use only reviewers. A model can be in both.
 Runs save explicit groups in `run.json` at launch, show them in status and the preflight log, and keep them through handovers, refusals and resumes despite later edits; omitted reviewers keep the old shared-list behavior. Each group ranks by budget: the fraction of allowance left plus a week
-per reset held, divided by the fraction of window left, using the smallest provider non-session meter. The executor is
-highest budget; equal budgets keep list order, and no model or run history gets a preference. The reviewer is highest
-budget on another provider, else a different model on the same provider unless its `reviews_own_provider = false`, else the executor's own model, marked `self-reviewed` on the launch line and in `ak run status`. A model's own
+per reset held, divided by the fraction of window left, using the smallest provider non-session meter. The pair is the best by reviewer company -- another provider, then the executor's company, then the executor's own model -- then executor budget, then reviewer budget; equal budgets keep list order, and no model or run history gets a preference. A self-review is marked `self-reviewed` on the launch line, in `ak run status` and in `ak usage`. A model's own
 `meter` still gates it. A meter at 100% used excludes a worker, as does a harness not installed or not logged in (no adapter or program, or
 its `auth` verb says no, asked at every pick), with one `skipped <model>: <harness> is not logged in` line in the run's
 log per pick; `--exec` or `--review` outside a bound group or naming an unavailable harness is refused, as is a resume whose saved executor no other model can take

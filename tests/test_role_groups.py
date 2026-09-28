@@ -90,14 +90,16 @@ class RoleGroups(unittest.TestCase):
         # A same-company reviewer has more budget, but the other company reviews first.
         self.wide["reviewers"] = ["beta", "alpha"]
         self.assertEqual(self.pick(), ("beta", "alpha"))
+        # Tier beats budget across pairs: alpha's cross-company review by gamma beats
+        # beta's same-company one, though beta has the higher budget.
         self.wide["reviewers"] = ["gamma"]
-        self.assertEqual(self.pick(), ("beta", "gamma"))
+        self.assertEqual(self.pick(), ("alpha", "gamma"))
         self.cfg["models"]["gamma"]["reviews_own_provider"] = False
-        self.assertEqual(self.pick(), ("beta", "gamma"))
+        self.assertEqual(self.pick(), ("alpha", "gamma"))
 
-    def test_overlapping_groups_leave_the_executors_model_to_review_itself(self):
+    def test_overlapping_groups_prefer_another_company_over_self_review(self):
         self.groups(workers=("beta", "alpha"), reviewers=("beta",))
-        self.assertEqual(self.pick(), ("beta", "beta"))
+        self.assertEqual(self.pick(), ("alpha", "beta"))
         self.assertEqual(self.pick(reviewer="beta"), ("alpha", "beta"))
         self.cfg["models"]["alpha"].update(provider="b", model="beta")
         self.assertEqual(self.pick(), ("beta", "beta"))
@@ -299,6 +301,40 @@ class RoleGroups(unittest.TestCase):
                 else:
                     self.assertIn(f"resumed {directory.name}: reviewer delta eligible again",
                                   self.logs)
+
+    def test_tick_handover_prefers_a_better_tier_over_a_cheaper_self(self):
+        directory = config.RUNS / "20260928-0000-recovery-tier"
+        directory.mkdir()
+        state = {"run_id": directory.name, "state": "exhausted", "executor": "delta",
+                 "reviewer": "beta", "worktree": str(self.root), "quota_dry": True,
+                 "workers": ["beta", "alpha", "delta"], "reviewers": ["beta"],
+                 "error": "every worker has a gate meter at 100% used"}
+        run.save_state(directory, state)
+        with patch.object(run, "spawn_bg") as spawn:
+            watch.resume_exhausted(self.cfg, self.providers(a=30, b=10, c=100),
+                                   log=self.logs.append, now=self.now)
+        spawn.assert_called_once()
+        saved = run.read_state(directory)
+        self.assertEqual((saved["executor"], saved["reviewer"]), ("alpha", "beta"))
+
+    def test_resume_steps_aside_from_self_review_when_a_better_pair_is_ready(self):
+        lp = self.loop("beta", "beta", ["beta", "alpha"])
+        lp.state["reviewers"] = ["beta"]
+        lp.state.update(title="Resume", no_merge=True, branch=None, base_sha=None)
+        task = lp.run_dir / "task.md"
+        task.write_text("---\nrepo: none\nrounds: 1\n---\n# Resume\n\n"
+                        "## Done when\n```bash\ntrue\n```\n")
+        opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
+                "--no-merge": True, "--no-worktree": True, "--bg": False}
+        with patch.object(run, "rounds"), \
+                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(run, "collect_usage",
+                             return_value=self.providers(a=30, b=10, c=0)), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            run.save_state(lp.run_dir, lp.state)
+            state = run.loop(self.cfg, lp.run_dir, task, opts, self.logs.append,
+                             prior=dict(lp.state))
+        self.assertEqual((state["executor"], state["reviewer"]), ("alpha", "beta"))
 
     def test_reviewer_silence_transient_and_quota_fallback_ignore_foreign_spares(self):
         self.groups()
