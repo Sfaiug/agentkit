@@ -111,7 +111,7 @@ class UnsentDraft(Sandbox):
         """Two runs of its own going: one running, one parked on a window it resumes from."""
         self.receipt("20260101-0900-schema", title="Read both schemas", started_at=NOW - 900)
         self.receipt("20260101-1000-window", state="exhausted", title="Parked on a window",
-                     started_at=NOW - 600)
+                     started_at=NOW - 600, quota_dry=True)
 
     def decide(self):
         """Look at the seat the way a screen does, then decide from what was seen."""
