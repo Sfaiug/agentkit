@@ -309,9 +309,12 @@ class Limits(unittest.TestCase):
         self.assertEqual(state["verdict"], "PASS")
         self.assertEqual(len(self.calls("executor")), 4)
         self.assertTrue(self.calls("reviewer"))
+        # the second hung turn hands over instead of climbing the ladder: opus hangs
+        # twice, astra takes the round and reviews its own work, hangs once, answers
+        self.assertEqual(state["executor"], "astra")
         waits = [call.args[0] for call in self.sleep.call_args_list
                  if call.args and call.args[0] in run.TRANSIENT_BACKOFF]
-        self.assertEqual(waits, [60, 300, 900])
+        self.assertEqual(waits, [60, 60])
 
     # --- 3: git and gh are capped and never prompt ---------------------------
 
