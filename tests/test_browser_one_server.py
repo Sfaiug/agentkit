@@ -10,8 +10,6 @@ systemctl and subprocess are injected fakes, HOME is a temporary directory.
 """
 import io
 import json
-import os
-import pwd
 import sys
 import tomllib
 import unittest
@@ -43,8 +41,16 @@ class OneServer(unittest.TestCase):
         self.stack.enter_context(patch.object(browser, "BRIDGE",
                                               self.home / ".local/share/browser-bridge"))
         self.stack.enter_context(patch.object(browser, "UNIT_DIR", self.home / "units"))
+        # A fixed account at home in the temporary HOME, so the ownership and sandbox
+        # guards answer the same whoever runs this: nothing here depends on the caller.
+        self.me = "test-owner"
+        self.stack.enter_context(patch.object(
+            browser.pwd, "getpwuid",
+            return_value=SimpleNamespace(pw_name=self.me, pw_dir=str(self.home))))
+        self.stack.enter_context(patch.object(browser.Path, "home", return_value=self.home))
         self.commands, self.systemd = [], []
-        self.active, self.enabled, self.cat_overrides = False, False, {}
+        self.active, self.enabled = False, False
+        self.cat_overrides, self.loaded = {}, set()
         self.stack.enter_context(patch.object(browser.subprocess, "run",
                                               side_effect=self.fake_run))
         self.stack.enter_context(patch.object(browser, "systemctl",
@@ -79,6 +85,8 @@ class OneServer(unittest.TestCase):
         if args[0] == "cat":
             return (0, self.cat_overrides[args[-1]]) if args[-1] in self.cat_overrides \
                 else (1, "")
+        if args[0] == "show":
+            return (0, "loaded\n") if args[-1] in self.loaded else (0, "not-found\n")
         return 0, ""
 
     def test_url_harnesses_register_the_shared_server(self):
@@ -154,7 +162,6 @@ class OneServer(unittest.TestCase):
             self.assertNotIn(verb, verbs)
 
     def test_foreign_stack_is_left_untouched(self):
-        me = pwd.getpwuid(os.getuid()).pw_name
         units = self.home / "units"
         units.mkdir(exist_ok=True)
         (units / browser.UNITS[0]).write_text("[Service]\nUser=foreign-owner\n")
@@ -165,18 +172,40 @@ class OneServer(unittest.TestCase):
         self.assertFalse((units / browser.MCP_UNIT).exists())
         self.assertFalse(browser.mcp_dir().exists())
         (units / browser.UNITS[0]).write_text(
-            f"[Service]\nUser={me}\n# Browser bridge host: another-host\n")
+            f"[Service]\nUser={self.me}\n# Browser bridge host: another-host\n")
         self.commands.clear()
         self.systemd.clear()
         self.assertIn("another host", browser.ensure_mcp_service())
         self.assertEqual(self.commands, [])
-        # A drop-in override of User wins over the base file, as in the installer.
+        # A drop-in override of User wins over the base file, as in the installer,
+        # spaces around `=` included: both are valid systemd syntax.
         self.cat_overrides[browser.UNITS[0]] = (
-            f"# {units / browser.UNITS[0]}\n[Service]\nUser={me}\n"
-            "# /etc/systemd/system/owner.conf\n[Service]\nUser=foreign-owner\n")
+            f"# {units / browser.UNITS[0]}\n[Service]\nUser={self.me}\n"
+            "# /etc/systemd/system/owner.conf\n[Service]\nUser = foreign-owner\n")
         self.commands.clear()
         self.systemd.clear()
         self.assertIn("another account", browser.ensure_mcp_service())
+        self.assertEqual(self.commands, [])
+
+    def test_uninspectable_unit_refuses_loudly(self):
+        self.loaded.add(browser.UNITS[0])
+        with self.assertRaisesRegex(browser.config.Error, "cannot inspect"):
+            browser.ensure_mcp_service()
+        self.assertEqual(self.commands, [])
+        self.assertFalse(browser.mcp_dir().exists())
+
+    def test_install_refuses_before_any_mutation(self):
+        units = self.home / "units"
+        units.mkdir(exist_ok=True)
+        (units / browser.UNITS[0]).write_text("[Service]\nUser=foreign-owner\n")
+        with patch.object(browser, "missing_packages",
+                          side_effect=AssertionError("packages must not be read")), \
+                patch.object(browser, "unit_states",
+                             side_effect=AssertionError("units must not be read")):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(browser.install([]), 0)
+            self.assertIn("another account", output.getvalue())
         self.assertEqual(self.commands, [])
 
     def test_sandbox_home_installs_nothing(self):

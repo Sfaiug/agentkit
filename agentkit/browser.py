@@ -843,7 +843,9 @@ def installed_owner(unit):
     """(present, user, host) for an installed unit, drop-ins included.
 
     Read through `systemctl cat`, like the stack's own installer, so a drop-in override of
-    User is not missed; the plain file is the fallback.  Absent units report no owner.
+    User is not missed; the plain file is the fallback.  Absent units report no owner, and
+    a unit systemd knows but neither read can show refuses loudly instead of reading as
+    absent: replacing a unit nobody inspected could take a foreign browser.
     """
     code, out = systemctl(["cat", "--no-pager", unit])
     if code == 0 and out.strip():
@@ -852,17 +854,50 @@ def installed_owner(unit):
         try:
             text = (UNIT_DIR / unit).read_text(encoding="utf-8")
         except OSError:
+            if code is None:
+                return False, None, None
+            _, state = systemctl(["show", "--property=LoadState", "--value", unit])
+            if state.strip() != "not-found":
+                raise config.Error(f"cannot inspect {unit}; existing browser stack "
+                                   "left untouched")
             return False, None, None
-    user, host = None, None
+    user, host, section = None, None, ""
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.startswith("User="):
-            user = stripped.split("=", 1)[1].strip().strip('"')
+        if stripped.startswith("["):
+            section = stripped
+        if (section == "[Service]" and not stripped.startswith(("#", ";"))
+                and "=" in stripped):
+            key, _, value = stripped.partition("=")
+            if key.strip() == "User":
+                user = value.strip().strip('"')
         if host is None:
             match = re.match(r"# Browser bridge host: (.+)$", stripped)
             if match:
                 host = match[1]
     return True, user, host
+
+
+def setup_refusal():
+    """Why setup must not mutate this machine, or None when it may proceed.
+
+    Before every setup mutation: a sandbox HOME would render a machine-wide unit pointing
+    into a throwaway directory, and a stack owned by another account or host is left to
+    its owner, browser packages included.
+    """
+    account = pwd.getpwuid(os.getuid())
+    if Path.home().resolve() != Path(account.pw_dir).resolve():
+        return "sandbox HOME cannot install system units"
+    here = socket.gethostname()
+    for unit in (*UNITS, MCP_UNIT):
+        present, user, host = installed_owner(unit)
+        if not present:
+            continue
+        if user != account.pw_name:
+            return f"{unit} belongs to another account, left untouched"
+        if host is not None and host != here:
+            return f"{unit} belongs to another host, left untouched"
+    return None
 
 
 def ensure_mcp_service():
@@ -876,18 +911,9 @@ def ensure_mcp_service():
     """
     if shutil.which("systemctl") is None:
         return "no systemd on this machine; nothing to set up"
-    account = pwd.getpwuid(os.getuid())
-    if Path.home().resolve() != Path(account.pw_dir).resolve():
-        return "sandbox HOME cannot install system units"
-    here = socket.gethostname()
-    for unit in (*UNITS, MCP_UNIT):
-        present, user, host = installed_owner(unit)
-        if not present:
-            continue
-        if user != account.pw_name:
-            return f"{unit} belongs to another account, left untouched"
-        if host is not None and host != here:
-            return f"{unit} belongs to another host, left untouched"
+    refused = setup_refusal()
+    if refused is not None:
+        return refused
     package = ensure_mcp_package()
     rendered = render_mcp_unit()
     try:
@@ -936,6 +962,10 @@ def install(argv):
     """
     if argv:
         raise config.Error(f"ak browser install takes no arguments; got {' '.join(argv)}")
+    refused = setup_refusal()
+    if refused is not None:
+        say(f"setup     {refused}")
+        return 0
     say(f"payload   {vendor()}")
     missing = missing_packages()
     if missing is None:
