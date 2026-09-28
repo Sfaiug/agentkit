@@ -29,6 +29,7 @@ class SeatTitle(Sandbox):
         self.commands, self.typed = [], []
         self.fail_send = False
         self.drop_enter = False
+        self.wrap_at = 0
         self.confirm_title = True
         self.logs = []
         self.stack.enter_context(patch.object(orch, "sessions", side_effect=lambda: [self.seat]))
@@ -50,7 +51,11 @@ class SeatTitle(Sandbox):
     def title(self, name):
         with self.transcript.open("a") as handle:
             handle.write(json.dumps({"type": "custom-title", "customTitle": name,
-                                     "sessionId": "fake-conversation"}) + "\n")
+                                     "sessionId": self.record()["conversation"]}) + "\n")
+
+    def composer(self, text):
+        width = self.wrap_at or len(text)
+        return "❯ " + "\n  ".join(text[at:at + width] for at in range(0, len(text), width)) + "\n"
 
     def fixture(self, kind):
         return (REPO / "tests/fixtures" / f"claude-{kind}-pane.txt").read_text()
@@ -67,9 +72,9 @@ class SeatTitle(Sandbox):
                 return 1, "fake send failure"
             if "-l" in args:
                 self.typed.append(args[-1])
-                self.pane = self.pane.replace("❯\u00a0\n", f"❯ {args[-1]}\n")
+                self.pane = self.pane.replace("❯\u00a0\n", self.composer(args[-1]))
             elif args[-1] == "Enter" and not self.drop_enter:
-                self.pane = self.pane.replace(f"❯ {self.typed[-1]}\n", "❯\u00a0\n")
+                self.pane = self.pane.replace(self.composer(self.typed[-1]), "❯\u00a0\n")
                 if self.confirm_title:
                     self.title(self.typed[-1].removeprefix("/rename "))
         return 0, ""
@@ -152,9 +157,43 @@ class SeatTitle(Sandbox):
         self.tick()
         self.assertEqual(self.typed, [])
 
+    def test_renamed_seat_fresh_launch_does_not_retype_its_remote_control_title(self):
+        orch.rename("lagoon", "reed", log=self.logs.append)
+        before = len(self.commands)
+        cmd, conversation = orch.fresh_command(self.cfg, "opus", seat="reed")
+        orch.launch("reed", "opus", self.root, cmd, conversation, self.seat)
+        self.assertEqual(cmd[cmd.index("--remote-control") + 1], "reed")
+        self.assertEqual(self.record()["session_title"], "reed")
+        self.tick()
+        self.tick()
+        self.assertFalse(any(args[0] == "send-keys" for args in self.commands[before:]))
+        self.assertEqual(self.record()["session_title"], "reed")
+
+    def test_renamed_seat_clear_does_not_retype_its_recorded_title(self):
+        orch.rename("lagoon", "reed", log=self.logs.append)
+        config.update_session("reed", conversation="next-conversation")
+        self.transcript = self.transcript.with_name("next-conversation.jsonl")
+        self.transcript.touch()
+        before = len(self.commands)
+        self.tick()
+        self.tick()
+        self.assertFalse(any(args[0] == "send-keys" for args in self.commands[before:]))
+        self.assertEqual(self.record()["session_title"], "reed")
+
+    def test_reconciled_conversation_does_not_retype_its_recorded_title(self):
+        orch.rename("lagoon", "reed", log=self.logs.append)
+        config.update_session("reed", id_source="unverified")
+        self.assertNotIn("conversation", orch.records()["reed"])
+        before = len(self.commands)
+        self.tick()
+        self.tick()
+        self.assertFalse(any(args[0] == "send-keys" for args in self.commands[before:]))
+        self.assertEqual(self.record()["session_title"], "reed")
+
     def test_resume_records_the_name_passed_to_remote_control(self):
         config.update_session("lagoon", conversation="fake-conversation", id_source=orch.LAUNCHER,
-                              session_title="former-name")
+                              session_title="former-name",
+                              title_sync={"name": "former-name", "tries": 3, "pending": True})
         self.seat["exited"] = True
         with patch.object(orch, "opened", return_value=True):
             self.assertEqual(orch.resume(self.cfg, "lagoon", log=lambda _: None,
@@ -163,7 +202,10 @@ class SeatTitle(Sandbox):
         self.assertEqual(words[words.index("--remote-control") + 1], "lagoon")
         self.assertEqual(self.record()["session_title"], "lagoon")
         self.seat["exited"] = False
+        self.pane = self.fixture("prompt").replace("❯\u00a0\n", self.composer("/rename former-name"))
+        pane = self.pane
         self.tick()
+        self.assertEqual(self.pane, pane)
         self.assertEqual(self.typed, [])
 
     def test_owner_question_defers_even_at_an_empty_prompt(self):
@@ -191,7 +233,7 @@ class SeatTitle(Sandbox):
 
     def test_failed_send_leaves_title_pending_for_tick(self):
         self.fail_send = True
-        orch.rename("lagoon", "quay")
+        orch.rename("lagoon", "quay", log=self.logs.append)
         self.assertEqual(self.typed, [])
         self.assertEqual(self.record()["session_title"], "lagoon")
         self.fail_send = False
@@ -240,6 +282,64 @@ class SeatTitle(Sandbox):
         self.assertEqual(self.seat["name"], "quay")
         self.assertEqual(self.record()["session_title"], "quay")
 
+    def test_wrapped_line_gets_its_enter_on_the_next_tick(self):
+        self.wrap_at = 28
+        self.drop_enter = True
+        name = "quay-with-a-name-that-wraps-on-a-phone"
+        orch.rename("lagoon", name, log=self.logs.append)
+        self.assertIn(self.composer(f"/rename {name}"), self.pane)
+        self.drop_enter = False
+        before = len(self.commands)
+        self.tick()
+        self.assertEqual([args[-1] for args in self.commands[before:]
+                          if args[0] == "send-keys"], ["Enter"])
+        self.assertEqual(self.typed, [f"/rename {name}"])
+        self.assertEqual(self.record()["session_title"], name)
+        self.assertFalse(watch._holds_text(self.pane, f"/rename {name}"))
+
+    def test_wrapped_line_gets_the_in_call_retry_enter(self):
+        self.wrap_at = 10
+        self.drop_enter = True
+
+        def tmux(*args, **kwargs):
+            answer = self.tmux(*args, **kwargs)
+            if args[0] == "send-keys" and args[-1] == "Enter":
+                self.drop_enter = False
+            return answer
+
+        with patch.object(orch, "tmux_out", side_effect=tmux):
+            orch.rename("lagoon", "quay", log=self.logs.append)
+        self.assertEqual(sum(args[-1] == "Enter" for args in self.commands), 2)
+        self.assertEqual(self.typed, ["/rename quay"])
+        self.assertEqual(self.record()["session_title"], "quay")
+
+    def test_owner_text_after_a_wrapped_line_is_never_sent(self):
+        self.wrap_at = 10
+        self.drop_enter = True
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        self.pane = self.pane.replace(self.composer("/rename quay"),
+                                     self.composer("/rename quay-side"))
+        pane = self.pane
+        before = len(self.commands)
+        self.tick()
+        self.assertEqual(self.pane, pane)
+        self.assertFalse(any(args[0] == "send-keys" for args in self.commands[before:]))
+
+    def test_wrapped_dim_suggestion_does_not_block_title_sync(self):
+        config.update_session("lagoon", session_title=None)
+        self.pane = self.fixture("prompt").replace(
+            "❯\u00a0\n", "❯ \x1b[2mTry checking the\x1b[0m\n  \x1b[2mparser next\x1b[0m\n")
+
+        def tmux(*args, **kwargs):
+            if args[0] == "send-keys" and "-l" in args:
+                self.pane = self.fixture("prompt")    # typing replaces the suggestion
+            return self.tmux(*args, **kwargs)
+
+        with patch.object(orch, "tmux_out", side_effect=tmux):
+            self.tick()
+        self.assertEqual(self.typed, ["/rename lagoon"])
+        self.assertEqual(self.record()["session_title"], "lagoon")
+
     def test_empty_composer_is_not_a_receipt_until_the_transcript_confirms(self):
         self.confirm_title = False
         orch.rename("lagoon", "quay")
@@ -259,6 +359,9 @@ class SeatTitle(Sandbox):
         self.assertEqual(self.typed, ["/rename quay"] * 3)
         self.assertEqual(self.record()["session_title"], "lagoon")
         self.assertEqual(sum("title did not take" in line for line in self.logs), 1)
+        with patch.object(watch, "pane_text", wraps=watch.pane_text) as capture:
+            watch.sync_title(self.seat, self.logs.append)
+        capture.assert_not_called()
         before = list(self.commands)
         self.tick()
         self.assertFalse(any(args[0] == "send-keys" for args in self.commands[len(before):]))
@@ -266,6 +369,154 @@ class SeatTitle(Sandbox):
         orch.rename("quay", "harbor")
         self.assertEqual(self.typed, ["/rename quay"] * 3 + ["/rename harbor"])
         self.assertEqual(self.record()["session_title"], "harbor")
+
+    def test_third_typing_gets_its_dropped_enter_on_the_next_tick(self):
+        self.wrap_at = 10
+        self.confirm_title = False
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        self.tick()
+        self.drop_enter = True
+        self.tick()
+        self.assertEqual(self.typed, ["/rename quay"] * 3)
+        self.assertTrue(watch._holds_text(self.pane, "/rename quay"))
+        before = len(self.commands)
+        self.drop_enter = False
+        self.confirm_title = True
+        self.tick()
+        self.assertEqual([args[-1] for args in self.commands[before:]
+                          if args[0] == "send-keys"], ["Enter"])
+        self.assertFalse(watch._holds_text(self.pane, "/rename quay"))
+        self.assertEqual(self.typed, ["/rename quay"] * 3)
+        self.assertEqual(self.record()["session_title"], "quay")
+
+    def test_superseded_line_gets_enter_and_never_names_the_seat(self):
+        self.wrap_at = 10
+        self.drop_enter = True
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        orch.rename("quay", "reed", log=self.logs.append)
+        self.assertEqual(self.typed, ["/rename quay"])
+        self.drop_enter = False
+        before = len(self.commands)
+        self.tick()
+        self.assertEqual([args[-1] for args in self.commands[before:]
+                          if args[0] == "send-keys"], ["Enter"])
+        self.assertFalse(watch._holds_text(self.pane, "/rename quay"))
+        self.tick()
+        self.assertEqual(self.seat["name"], "reed")
+        self.assertEqual(self.typed, ["/rename quay", "/rename reed"])
+        self.assertEqual(self.record()["session_title"], "reed")
+        self.assertEqual(claude.session_title(self.record()), "reed")
+        self.title("quay")
+        self.tick()
+        self.assertEqual(self.seat["name"], "reed")
+        self.assertEqual(claude.session_title(self.record()), "reed")
+
+    def test_title_receipt_does_not_forget_a_line_still_in_the_composer(self):
+        self.drop_enter = True
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        self.title("quay")
+        self.tick()
+        self.drop_enter = False
+        before = len(self.commands)
+        self.tick()
+        self.assertEqual([args[-1] for args in self.commands[before:]
+                          if args[0] == "send-keys"], ["Enter"])
+        self.assertFalse(watch._holds_text(self.pane, "/rename quay"))
+        self.assertEqual(self.typed, ["/rename quay"])
+        self.assertEqual(self.record()["session_title"], "quay")
+
+    def test_superseded_line_sent_later_by_the_owner_is_still_ours(self):
+        self.drop_enter = True
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        orch.rename("quay", "reed", log=self.logs.append)
+        self.drop_enter = False
+        self.tmux("send-keys", "-t", "=reed:", "Enter")
+        self.tick()
+        self.assertEqual(self.seat["name"], "reed")
+        self.assertEqual(self.typed, ["/rename quay", "/rename reed"])
+        self.assertEqual(claude.session_title(self.record()), "reed")
+
+    def test_owner_draft_replacing_a_superseded_line_is_untouched(self):
+        self.drop_enter = True
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        self.pane = self.fixture("prompt").replace("❯\u00a0\n", "❯ /rename quay-side\n")
+        pane = self.pane
+        before = len(self.commands)
+        orch.rename("quay", "reed", log=self.logs.append)
+        self.title("quay")
+        self.tick()
+        self.assertEqual(self.seat["name"], "reed")
+        self.assertEqual(self.pane, pane)
+        self.assertFalse(any(args[0] == "send-keys" for args in self.commands[before:]))
+        self.assertEqual(self.typed, ["/rename quay"])
+
+    def test_owners_rename_draft_is_not_an_agentkit_line(self):
+        self.pane = self.fixture("prompt").replace("❯\u00a0\n", "❯ /rename quay\n")
+        pane = self.pane
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        orch.rename("quay", "reed", log=self.logs.append)
+        self.tick()
+        self.assertEqual(self.pane, pane)
+        self.assertFalse(any(args[0] == "send-keys" for args in self.commands))
+        self.assertEqual(self.typed, [])
+
+    def test_sent_attempt_does_not_own_a_later_identical_draft(self):
+        self.confirm_title = False
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        self.pane = self.fixture("prompt").replace("❯\u00a0\n", self.composer("/rename quay"))
+        pane = self.pane
+        before = len(self.commands)
+        self.tick()
+        orch.rename("quay", "reed", log=self.logs.append)
+        self.tick()
+        self.assertEqual(self.pane, pane)
+        self.assertFalse(any(args[0] == "send-keys" for args in self.commands[before:]))
+
+    def test_failed_attempt_does_not_own_a_later_identical_draft(self):
+        self.confirm_title = False
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        for _ in range(3):
+            self.tick()
+        self.pane = self.fixture("prompt").replace("❯\u00a0\n", self.composer("/rename quay"))
+        pane = self.pane
+        before = len(self.commands)
+        self.tick()
+        orch.rename("quay", "reed", log=self.logs.append)
+        self.tick()
+        self.assertEqual(self.pane, pane)
+        self.assertFalse(any(args[0] == "send-keys" for args in self.commands[before:]))
+
+    def test_clear_retires_pending_lines_and_superseded_titles(self):
+        self.drop_enter = True
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        orch.rename("quay", "reed", log=self.logs.append)
+        config.update_session("reed", conversation="next-conversation")
+        self.transcript = self.transcript.with_name("next-conversation.jsonl")
+        self.transcript.touch()
+        pane = self.pane    # the owner has typed the same draft in the new conversation
+        before = len(self.commands)
+        self.tick()
+        self.assertEqual(self.pane, pane)
+        self.assertFalse(any(args[0] == "send-keys" for args in self.commands[before:]))
+        self.pane = self.fixture("prompt")
+        self.title("quay")
+        self.tick()
+        self.assertEqual(self.seat["name"], "quay")
+        self.assertNotIn("title_superseded", self.record())
+
+    def test_explicitly_retaking_a_name_retires_its_superseded_title(self):
+        self.drop_enter = True
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        orch.rename("quay", "reed", log=self.logs.append)
+        self.drop_enter = False
+        self.tick()
+        self.tick()
+        orch.rename("reed", "quay", log=self.logs.append)
+        orch.rename("quay", "cedar", log=self.logs.append)
+        self.title("quay")
+        self.tick()
+        self.assertEqual(self.seat["name"], "quay")
+        self.assertNotIn("title_superseded", self.record())
 
     def test_old_empty_title_cache_cannot_confirm_a_rename(self):
         self.assertEqual(claude.session_title(self.record()), "")
