@@ -93,16 +93,14 @@ class RoleGroups(unittest.TestCase):
         self.wide["reviewers"] = ["gamma"]
         self.assertEqual(self.pick(), ("beta", "gamma"))
         self.cfg["models"]["gamma"]["reviews_own_provider"] = False
-        self.assertEqual(self.pick(), ("alpha", "gamma"))
+        self.assertEqual(self.pick(), ("beta", "gamma"))
 
-    def test_overlapping_groups_never_allow_the_executors_model_to_review(self):
+    def test_overlapping_groups_leave_the_executors_model_to_review_itself(self):
         self.groups(workers=("beta", "alpha"), reviewers=("beta",))
-        self.assertEqual(self.pick(), ("alpha", "beta"))
-        with self.assertRaisesRegex(config.Error, "same model"):
-            self.pick(reviewer="beta")
+        self.assertEqual(self.pick(), ("beta", "beta"))
+        self.assertEqual(self.pick(reviewer="beta"), ("alpha", "beta"))
         self.cfg["models"]["alpha"].update(provider="b", model="beta")
-        with self.assertRaises(run.QuotaDry):
-            self.pick()
+        self.assertEqual(self.pick(), ("beta", "beta"))
 
     def test_explicit_models_stay_in_their_groups_even_on_resume_or_without_a_seat(self):
         self.groups()
@@ -117,20 +115,20 @@ class RoleGroups(unittest.TestCase):
                                 self.pick(executor, reviewer, resuming=resuming)
                             self.assertNotIn("\n", str(error.exception))
 
-    def test_unpairable_groups_name_both_but_spent_groups_wait(self):
+    def test_empty_group_names_its_side_but_spent_groups_wait(self):
         self.groups(workers=("beta",), reviewers=("gamma",))
         self.assertIsNone(run.pair_refusal(self.cfg, self.providers(b=100), None))
         self.cfg["models"]["gamma"]["reviews_own_provider"] = False
-        reason = run.pair_refusal(self.cfg, self.providers(), None)
-        self.assertIn("workers beta and reviewers gamma", reason)
-        self.assertNotIn("\n", reason)
+        self.assertIsNone(run.pair_refusal(self.cfg, self.providers(), None))
         self.cfg["models"]["gamma"]["reviews_own_provider"] = True
         readings = usage.Readings(self.providers())
         self.cfg["models"]["gamma"]["harness"] = "codex"
         self.why["codex"] = "codex is not logged in"
         readings = usage.readiness(self.cfg, readings)
-        self.assertIn("gamma: codex is not logged in",
-                      run.pair_refusal(self.cfg, readings, None))
+        self.assertEqual(run.pair_refusal(self.cfg, readings, None),
+                         "none of the reviewers gamma can run here "
+                         "(gamma: codex is not logged in); log in to another harness "
+                         "or add another model to the groups")
 
     def test_launch_freezes_session_and_standalone_default_groups(self):
         self.groups()
@@ -181,10 +179,9 @@ class RoleGroups(unittest.TestCase):
             self.assertNotIn("workers", state)
             self.assertNotIn("reviewers", state)
 
-    def test_legacy_review_flag_alone_still_refuses_the_same_model_pair(self):
+    def test_legacy_review_flag_alone_steps_past_its_own_model(self):
         with patch.object(config, "active_session", return_value=None):
-            with self.assertRaisesRegex(config.Error, "same model"):
-                self.pick(reviewer="delta")
+            self.assertEqual(self.pick(reviewer="delta"), ("beta", "delta"))
 
     def test_legacy_task_review_override_names_the_sessions_workers(self):
         self.wide["workers"] = ["alpha", "beta"]
@@ -226,7 +223,7 @@ class RoleGroups(unittest.TestCase):
                 else:
                     self.assertNotIn("reviewers:", output)
 
-    def test_background_preset_uses_frozen_groups_and_refuses_an_impossible_pair(self):
+    def test_background_preset_uses_frozen_groups_and_allows_a_self_review_pair(self):
         self.groups(workers=("alpha",), reviewers=("gamma",))
         directory, state = self.capture()
         self.groups()
@@ -235,10 +232,10 @@ class RoleGroups(unittest.TestCase):
             self.assertEqual(run.preset_models(self.cfg, opts, self.logs.append, directory),
                              ("alpha", "gamma"))
             self.cfg["models"]["gamma"].update(provider="a", model="alpha")
-            with patch.object(run, "refused") as refused, \
-                    self.assertRaisesRegex(config.Error, "workers alpha and reviewers gamma"):
-                run.preset_models(self.cfg, opts, self.logs.append, directory)
-            refused.assert_called_once()
+            with patch.object(run, "refused") as refused:
+                self.assertEqual(run.preset_models(self.cfg, opts, self.logs.append, directory),
+                                 ("alpha", "gamma"))
+            refused.assert_not_called()
 
     def test_handover_and_refusal_keep_each_role_in_its_own_group(self):
         self.groups()
