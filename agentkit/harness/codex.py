@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -115,6 +116,9 @@ def conversation(record, cwd=None):
 
 
 def forget(record):
+    remote = read(record).get("remote")
+    if isinstance(remote, str) and re.fullmatch(r"[0-9a-f]{32}", remote):
+        shutil.rmtree(config.STATE / f"codex-remote-{remote}", ignore_errors=True)
     path = path_for(record)
     if path:
         path.unlink(missing_ok=True)
@@ -190,6 +194,7 @@ def prepare(name, cwd, owned):
     # A resumed thread retains its original transcript cwd even if its checkout was removed.
     receipt = {"launch": token, "cwd": previous.get("cwd", str(Path(cwd).resolve()))
                if owned else str(Path(cwd).resolve()), "expected": owned}
+    receipt["remote"] = previous.get("remote") or uuid.uuid4().hex
     if owned:
         receipt["event"] = previous["event"]
         if previous.get("home"):
@@ -200,7 +205,9 @@ def prepare(name, cwd, owned):
     config.update_session(name, codex_launch=token, codex_history=history or None,
                           conversation=owned, id_source=SOURCE if owned else None,
                           resumable=bool(owned))
-    forget(record)
+    old_path = path_for(record)
+    if old_path:
+        old_path.unlink(missing_ok=True)
     return path
 
 
@@ -257,7 +264,7 @@ def capture(path, event):
         return
 
 
-def main(argv):
+def main(argv, launch=None):
     if argv == ["capture"]:
         try:
             path = os.environ.get(CAPTURE_ENV)
@@ -326,4 +333,6 @@ def main(argv):
         else:
             print("orch: Codex cannot capture seat ownership on this version; "
                   "an unbound seat starts fresh next time", file=sys.stderr)
+    if launch and receipt:
+        return launch(cmd, receipt)
     os.execvp(cmd[0], cmd)

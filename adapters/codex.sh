@@ -128,9 +128,9 @@ interactive)
   rules=$(printf -- '--rulebook %q ' "$rb")
   # idle-compact.py wraps the TUI so a seat left open all day compacts itself instead of filling
   # its context, on the `[compact]` table of adapters/codex.toml.  It sits outside the seat
-  # wrapper, which still installs this launch's hooks and receipt and then execs codex in place,
-  # so the process idle-compact.py forked is the harness itself.  Headless `ak worker` runs are
-  # not wrapped: they are not seats.
+  # wrapper, which gives this launch's hooks and receipt to its own app server. Both the
+  # server and its remote TUI remain children of the process idle-compact.py forked.
+  # Headless `ak worker` runs are not wrapped: they are not seats.
   if [ -n "$account" ]; then
     printf 'env -u OPENAI_API_KEY -u CODEX_API_KEY CODEX_HOME=%q ' "$seat_home"
   fi

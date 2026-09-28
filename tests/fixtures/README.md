@@ -553,3 +553,60 @@ also reads `session_name_snapshot_fingerprint = unavailable`, with no named
 sessions. The `muse start --host … --name` string in the binary is an MSP
 session-host coordinator command from an embedded skill doc, not a TUI launch
 option: the installed TUI lists no `start` subcommand and rejects `--name`.
+
+## Codex seat-owned app server (0.153.4)
+
+Captured 2026-09-28 with the same installed npm binary as the earlier remote-seat
+probe. This time the **server** receives the seat wrapper's hooks and rulebook,
+and the TUI connects to its Unix socket. No standalone install or daemon is used.
+All real probes used a throwaway HOME/CODEX_HOME in this checkout, with a copied
+`auth.json`. A private UTS namespace named the remote enrollments `ak-probe-acme`
+or `ak-probe-beta`; it changed no host settings and is probe tooling, not part of
+the implementation. No real Codex configuration was written.
+
+Two one-line prompts were sent: `Reply with the probe response word.` from the
+pane, then `What is the probe response word?` from a second app-server connection
+after restarting the server with `--remote-control` and resuming the thread.
+The server's rulebook specified `ACME_RULEBOOK_OK`. Both turns produced it, and
+the pane displayed the second client's turn. The first prompt was a statement,
+so agentkit's real Stop hook blocked twice before its normal limit let it end;
+the second was a question, so its answer ended without a block. This also proves
+the hooks execute with the seat's environment, not merely appear in `/hooks`.
+
+- `codex-seat-server-hooks-pane.txt` lists the six active server-provided hooks:
+  SessionStart, UserPromptSubmit, PermissionRequest, Interrupt and two Stop hooks.
+- `codex-seat-server-turn-pane.txt` shows the resumed conversation and the second
+  client's turn. The rate-limit chooser appeared after the completed answer.
+- `codex-seat-server-evidence.json` contains the server command, rulebook, filled
+  SessionStart receipt, connected remote status, manual pairing response, second
+  client's turn response, isolation checks, explicit title-index entries, the
+  launcher's pairing-card payload and the three successful deletion responses.
+  The title-index's first two entries are automatic titles; the last two follow
+  explicit `/rename ak-probe-acme` commands, including through the new launcher.
+- `codex-remote-fake.py` is synthetic test machinery, not a capture: a fake Codex
+  with a Unix WebSocket server, real hook subprocesses and invented replies.
+  `test_codex_remote.py` and the ownership regressions install it under temporary
+  HOMEs with fake tmux. It never calls a model or the real Codex binary.
+
+Isolation matters: a second server with the same CODEX_HOME and a fresh SQLite
+home reused the first enrollment and reported `errored`. A new CODEX_HOME with
+that reused database did too. A new installation identity **and** fresh database
+connected with a different enrollment. The launcher therefore keeps these two
+private to the seat while sharing its login, settings and conversation files.
+The installed `app-server proxy` relays raw WebSocket bytes, not JSON lines;
+the launcher's small standard-library client performs the Unix HTTP upgrade.
+Codex also resolves relative socket paths before binding, so a short private
+runtime directory is needed when the seat's home is a long worktree path.
+
+The final probe ran the actual launcher in private tmux, resumed the same thread,
+renamed it and produced a pairing notice only in the disabled notification sink.
+No phone was paired and no owner notification was sent. Every probe server and
+private tmux server was stopped; inspection of processes with the probes' exact
+CODEX_HOME values found none left. All three actual remote enrollments were
+removed through their remote-control environment endpoint (HTTP 204); failed
+isolation attempts reused those enrollments. The credential copies and scratch
+files were removed afterwards. Pane captures are 100×35. Paths, UUIDs, enrollment
+ids and pairing codes are replaced whole with invented values; response fields
+are otherwise retained. The transport and mobile flow are described in the
+[official app-server documentation](https://learn.chatgpt.com/docs/app-server)
+and [Remote connections](https://learn.chatgpt.com/docs/remote-connections).

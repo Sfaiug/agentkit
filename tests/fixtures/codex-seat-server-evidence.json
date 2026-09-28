@@ -1,0 +1,126 @@
+{
+  "version": "codex-cli 0.153.4",
+  "server_command": [
+    "/usr/bin/python3",
+    "/home/acme/probe/tools/codex-seat.py",
+    "--rulebook",
+    "/home/acme/probe/.crp/rulebook.md",
+    "--",
+    "codex",
+    "app-server",
+    "--remote-control",
+    "--listen",
+    "unix:///home/acme/probe/.css",
+    "-c",
+    "check_for_update_on_startup=false",
+    "-c",
+    "cli_auth_credentials_store=\"file\"",
+    "-c",
+    "projects.\"/home/acme/probe/.crp/work\".trust_level=\"trusted\""
+  ],
+  "rulebook": "The probe response word is ACME_RULEBOOK_OK. When asked for the probe response word, reply with exactly that word. Do not run tools.\n",
+  "receipt": {
+    "launch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "cwd": "/home/acme/probe/.crp/work",
+    "expected": null,
+    "event": {
+      "session_id": "00000001-1111-4111-8111-111111111111",
+      "transcript_path": "/home/acme/probe/.crp/home/.codex/sessions/2026/09/28/rollout-2026-09-28T14-58-23-00000001-1111-4111-8111-111111111111.jsonl",
+      "cwd": "/home/acme/probe/.crp/work",
+      "hook_event_name": "SessionStart",
+      "model": "gpt-6-astra",
+      "permission_mode": "bypassPermissions",
+      "source": "startup"
+    },
+    "home": "/home/acme/probe/.crp/home/.codex"
+  },
+  "remote_status": {
+    "status": "connected",
+    "serverName": "ak-probe-acme",
+    "installationId": "00000002-1111-4111-8111-111111111111",
+    "environmentId": "env_acme_0001"
+  },
+  "pairing": {
+    "pairingCode": "invented-pairing-token",
+    "manualPairingCode": "ACME-1234",
+    "environmentId": "env_acme_0001",
+    "expiresAt": 1790601040
+  },
+  "second_client_turn": {
+    "turn": {
+      "id": "00000003-1111-4111-8111-111111111111",
+      "items": [],
+      "itemsView": "notLoaded",
+      "status": "inProgress",
+      "error": null,
+      "startedAt": null,
+      "completedAt": null,
+      "durationMs": null
+    }
+  },
+  "shared_home_separate_sqlite": {
+    "status": "errored",
+    "serverName": "ak-probe-beta",
+    "installationId": "00000002-1111-4111-8111-111111111111",
+    "environmentId": "env_acme_0001"
+  },
+  "separate_home_reused_sqlite": {
+    "status": "errored",
+    "serverName": "ak-probe-beta",
+    "installationId": "00000004-1111-4111-8111-111111111111",
+    "environmentId": "env_acme_0001"
+  },
+  "separate_home_separate_sqlite": {
+    "status": "connected",
+    "serverName": "ak-probe-beta",
+    "installationId": "00000004-1111-4111-8111-111111111111",
+    "environmentId": "env_acme_0002"
+  },
+  "title_index": [
+    {
+      "id": "00000001-1111-4111-8111-111111111111",
+      "thread_name": "Reply with the probe response word.",
+      "updated_at": "2026-09-28T12:58:26.216838021Z"
+    },
+    {
+      "id": "00000001-1111-4111-8111-111111111111",
+      "thread_name": "Provide probe response word",
+      "updated_at": "2026-09-28T12:58:29.810626372Z"
+    },
+    {
+      "id": "00000001-1111-4111-8111-111111111111",
+      "thread_name": "ak-probe-acme",
+      "updated_at": "2026-09-28T12:58:57.51046789Z"
+    },
+    {
+      "id": "00000001-1111-4111-8111-111111111111",
+      "thread_name": "ak-probe-acme",
+      "updated_at": "2026-09-28T13:18:26.98834784Z"
+    }
+  ],
+  "launcher_pairing_card": {
+    "username": "agentkit",
+    "embeds": [
+      {
+        "title": "Needs you \u00b7 ak-probe-acme",
+        "color": 16098851,
+        "timestamp": "2026-09-28T13:16:03+00:00",
+        "description": "In the ChatGPT app, open Remote and pair this computer with code ACME-5678, then open ak-probe-acme. If the code expires, run python3 /home/acme/probe/tools/codex-seat.py --pair /home/acme/probe/.crp/home/.agentkit/state/codex-remote-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb on the host for a new code."
+      }
+    ]
+  },
+  "cleanup": [
+    {
+      "http": 204,
+      "body": {}
+    },
+    {
+      "http": 204,
+      "body": {}
+    },
+    {
+      "http": 204,
+      "environmentId": "env_acme_0003"
+    }
+  ]
+}

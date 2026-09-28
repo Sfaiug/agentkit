@@ -1,0 +1,35 @@
+
+• Blocked by hook
+  └ You stopped without asking the user a question, declaring done with ak notify done, or waiting
+  on a run. Continue: decide the next step and do it.
+
+• ACME_RULEBOOK_OK
+
+• Blocked by hook
+  └ You stopped without asking the user a question, declaring done with ak notify done, or waiting
+  on a run. Continue: decide the next step and do it.
+
+• ACME_RULEBOOK_OK
+
+• Session renamed to ak-probe-acme. To resume this session run codex resume, then select ak-probe-
+acme (00000001-1111-4111-8111-111111111111)
+
+
+  Hooks
+  Lifecycle hooks from config and enabled plugins.
+
+  Event                 Installed   Active      Description
+  PreToolUse            0           0           Before a tool executes
+  PermissionRequest     1           1           When permission is requested
+  PostToolUse           0           0           After a tool executes
+  PreCompact            0           0           Before context compaction
+  PostCompact           0           0           After context compaction
+  SessionStart          1           1           When a new session starts
+  SessionEnd            0           0           Right before a session ends
+  UserPromptSubmit      1           1           When the user submits a prompt
+  SubagentStart         0           0           When a subagent is created
+  SubagentStop          0           0           Right before a subagent ends its turn
+  Stop                  2           2           Right before Codex ends its turn
+  Interrupt             1           1           Right before an interrupted turn is aborted
+
+  Press enter to view hooks; esc to close

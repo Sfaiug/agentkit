@@ -28,6 +28,8 @@ this host, handed over by its adapter for that launch only (Antigravity's as the
 `~/.agentkit/state/antigravity`) and never written into your own `~/.claude`, `~/.codex` or `~/.gemini`. A project's own
 `AGENTS.md` or `CLAUDE.md` holds its conventions and is never the place for agentkit's rules.
 
+Each Codex seat runs its own app server with Remote Control enabled; the pane connects over a private Unix socket. Its hooks, rulebook, launch receipt and synced name stay with that conversation. The server stops when the pane exits and starts again on resume. Find the seat by its name in the ChatGPT app. If pairing is needed, one `Needs you` card gives the code and a command to refresh an expired code. No daemon or separate Codex installation is needed; workers still use `codex exec`.
+
 At every turn's end `hooks/orchestrator-stop.sh` sends the turn back with *Continue: decide the next step and do it*
 unless the last paragraph asks something or `ak notify needs` was recorded; an answer to a prompt that asked something, a run of this seat's going, `ak notify done`,
 or its `ak wait <session>` naming a session that is working ends the turn only while none of its runs sits parked and
