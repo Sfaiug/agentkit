@@ -87,10 +87,10 @@ scope and cap; one run from a terminal runs its tasks in its own process.
 
 The worktree is `~/.agentkit/wt/<id>` on branch `ak/<slug>`, the first name free locally and on `origin`. The executor
 writes and commits, its commands in the foreground. The loop runs the checks itself and hands the diff and their output
-to the reviewer, a different model; it never re-runs them and answers `VERDICT: PASS` or `VERDICT: FAIL`, and one with
-no verdict is asked once more, never failed. A round is FAIL only for a blocking finding: a correctness defect, a safety
-or data-loss risk, a weakened check, or work outside the task, with evidence: a command that fails, a reproduction, or
-quoted diff lines showing the defect. A follow-up needs the same evidence and severity, plus proof it existed before
+to the reviewer, a different model. Task reviewers may run whatever is needed to prove or dismiss a finding, except done-when commands, the repository's `tests:` suite, and checks marked deferred.
+They keep the work under review read-only; probes leave nothing behind outside a temporary directory. Reviewers of others' PRs stay read-only and may run tests and commands.
+A reviewer answers `VERDICT: PASS` or `VERDICT: FAIL`; one with no verdict is asked once more, never failed. A round is FAIL only for a blocking finding: a correctness defect, a safety
+or data-loss risk, a weakened check, or work outside the task, with evidence: a command that fails, a reproduction, or quoted diff lines showing the defect. A follow-up needs the same evidence and severity, plus proof it existed before
 the task: a named base commit or a quote from main before the task. Only these go under `## Follow-ups`, without a
 number limit; everything else is omitted everywhere. The run's `run.json` and PR description carry only the final
 passing review's list, plus checks that passed only on re-run with their `flaky:` evidence. Earlier reviews' items
