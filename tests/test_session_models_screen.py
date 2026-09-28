@@ -347,6 +347,21 @@ class SessionModelsScreen(unittest.TestCase):
         screen.frame(after=mark)
         screen.leave()
 
+    def test_enter_on_the_orchestrator_moves_the_seat(self):
+        screen = Screen(self)
+        screen.frame()
+        mark = screen.mark()
+        screen.send(b"m")
+        screen.models("fix-api", after=mark)
+        screen.send(b"\r")                    # Fable, first row, orchestrator: move the seat
+        screen.models("fix-api", lambda lines: any(
+            "Fable 5.1" in line and marks(line) == "●□□" for line in lines), after=mark)
+        self.assertEqual(screen.record("fix-api")["orchestrator"], "fable")
+        mark = screen.mark()
+        screen.send(ESC)
+        screen.frame(after=mark)
+        screen.leave()
+
     def test_a_refusal_is_one_line_and_leaves_the_record_alone(self):
         screen = Screen(self)
         screen.frame()

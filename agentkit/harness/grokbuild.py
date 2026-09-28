@@ -14,11 +14,16 @@ def session_dir(cwd, conversation):
 
 
 def transcript(record, cwd, conversation):
-    """The chat history the new orchestrator reads the last exchange from."""
+    """The chat history the new orchestrator reads the last exchange from.
+
+    Only where the harness has written one: a conversation nobody typed into has no
+    file, and the handover says so instead of pointing at it.
+    """
     where = cwd or record.get("cwd")
     if not conversation or not where:
         return None
-    return str(session_dir(where, conversation) / "chat_history.jsonl")
+    path = session_dir(where, conversation) / "chat_history.jsonl"
+    return str(path) if path.exists() else None
 
 
 def opened(cwd, conversation):

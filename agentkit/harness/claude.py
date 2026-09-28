@@ -24,10 +24,15 @@ def transcript_path(record, conversation):
 
 
 def transcript(record, cwd, conversation):
-    """The transcript the new orchestrator reads the last exchange from."""
+    """The transcript the new orchestrator reads the last exchange from.
+
+    Only where the harness has written one: a conversation nobody typed into has no
+    file, and the handover says so instead of pointing at it.
+    """
     if not conversation or not record.get("cwd"):
         return None
-    return str(transcript_path(record, conversation))
+    path = transcript_path(record, conversation)
+    return str(path) if path.exists() else None
 
 
 def resumable(record, cwd, conversation):
