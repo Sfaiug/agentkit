@@ -186,6 +186,26 @@ class RoleGroups(unittest.TestCase):
             with self.assertRaisesRegex(config.Error, "same model"):
                 self.pick(reviewer="delta")
 
+    def test_legacy_task_review_override_names_the_sessions_workers(self):
+        self.wide["workers"] = ["alpha", "beta"]
+        with patch.dict(os.environ, {"AGENTKIT_SESSION": "wide"}):
+            directory, _ = self.capture()
+        task = directory / "task.md"
+        task.write_text("---\nrepo: none\nrounds: 1\n---\n# Legacy\n\n"
+                        "## Done when\n```bash\ntrue\n```\n")
+        opts = {"--rounds": None, "--exec": None, "--review": "delta", "--review-pr": None,
+                "--no-merge": True, "--no-worktree": True, "--bg": False}
+        message = "'delta' is not a worker of session 'wide'"
+        with patch.object(run, "collect_usage", return_value=self.providers()), \
+                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(run, "refused"), redirect_stdout(io.StringIO()):
+            for pick in (lambda: self.pick(reviewer="delta"),
+                         lambda: run.loop(self.cfg, directory, task, opts, self.logs.append),
+                         lambda: run.preset_models(self.cfg, opts, self.logs.append, directory)):
+                with self.assertRaises(config.Error) as error:
+                    pick()
+                self.assertEqual(str(error.exception), message)
+
     def test_status_and_preflight_show_saved_reviewers_only_when_present(self):
         for separate in (False, True):
             if separate:
@@ -312,6 +332,37 @@ class RoleGroups(unittest.TestCase):
                 self.assertNotIn("beta", calls)
                 self.assertEqual(calls[-1], "delta")
 
+    def test_tick_and_child_use_new_default_reviewers_when_no_groups_were_saved(self):
+        self.cfg["defaults"].update(workers=["alpha", "beta"], reviewers=["delta"])
+        with patch.object(config, "active_session", return_value=None):
+            for quota in (False, True):
+                for spent in (0, 100):
+                    with self.subTest(quota=quota, spent=spent):
+                        directory = config.RUNS / f"20260928-0000-defaults-{quota}-{spent}"
+                        directory.mkdir()
+                        state = {"run_id": directory.name, "state": "exhausted",
+                                 "executor": "alpha", "reviewer": "delta",
+                                 "worktree": str(self.root), "quota_dry": quota,
+                                 "error": "reviewer delta died on API/transport errors and no "
+                                          "eligible reviewer is left to review; waiting for review"}
+                        run.save_state(directory, state)
+                        providers = self.providers(a=100 if quota else 10, c=spent)
+                        with patch.object(run, "spawn_bg") as spawn, \
+                                patch.object(run, "run_dirs", return_value=[directory]):
+                            watch.resume_exhausted(self.cfg, providers, workers=["alpha", "beta"],
+                                                   log=self.logs.append, now=self.now)
+                        args = (self.cfg, providers, None if quota else "alpha", None,
+                                self.logs.append)
+                        if spent:
+                            spawn.assert_not_called()
+                            with redirect_stderr(io.StringIO()), self.assertRaises(run.QuotaDry):
+                                run.pick_models(*args)
+                        else:
+                            spawn.assert_called_once()
+                            with redirect_stderr(io.StringIO()):
+                                pair = run.pick_models(*args)
+                            self.assertEqual(pair, ("beta" if quota else "alpha", "delta"))
+
     def test_review_pr_parent_and_child_use_only_bound_reviewers(self):
         self.groups(workers=("alpha",), reviewers=("gamma", "delta"))
         url = "https://github.com/acme/fix-api/pull/1"
@@ -332,9 +383,11 @@ class RoleGroups(unittest.TestCase):
                 patch.object(run, "post_review", return_value=True), \
                 patch.object(run, "review", return_value="FAIL") as review, \
                 patch.object(run, "restore_review_checkout"), redirect_stdout(io.StringIO()):
-            self.assertEqual(run.preset_review_model(self.cfg, opts, ["gamma", "delta"]), "delta")
+            self.assertEqual(run.preset_review_model(
+                self.cfg, opts, reviewers=["gamma", "delta"]), "delta")
             with self.assertRaisesRegex(config.Error, "not a reviewer"):
-                run.preset_review_model(self.cfg, {**opts, "--review": "alpha"}, ["gamma", "delta"])
+                run.preset_review_model(self.cfg, {**opts, "--review": "alpha"},
+                                       reviewers=["gamma", "delta"])
             self.wide["reviewers"] = ["alpha"]
             state = run.review_pr(self.cfg, directory, url, opts, self.logs.append)
             self.assertEqual(state["reviewer"], "delta")
@@ -342,15 +395,22 @@ class RoleGroups(unittest.TestCase):
             with self.assertRaisesRegex(config.Error, "not a reviewer"):
                 run.review_pr(self.cfg, directory, url, {**opts, "--review": "alpha"},
                               self.logs.append)
-            # Without reviewers, an old unbound PR review still accepts an explicit model
-            # outside the defaults, in both the background parent and the child.
+            # Legacy PR overrides were unrestricted by workers, with or without a seat.
             self.cfg["defaults"].pop("reviewers")
-            with patch.object(config, "active_session", return_value=None):
-                legacy, _ = self.capture("legacy-review")
-                explicit = {**opts, "--review": "delta"}
-                self.assertEqual(run.preset_review_model(self.cfg, explicit), "delta")
-                state = run.review_pr(self.cfg, legacy, url, explicit, self.logs.append)
-                self.assertEqual(state["reviewer"], "delta")
+            self.wide.pop("reviewers")
+            self.wide["workers"] = ["alpha", "beta"]
+            for seat in ("", "wide"):
+                with patch.dict(os.environ, {"AGENTKIT_SESSION": seat}), \
+                        patch.object(config, "active_session",
+                                     return_value=self.wide if seat else None):
+                    legacy, receipt = self.capture(f"legacy-review-{seat}")
+                    self.assertNotIn("reviewers", receipt)
+                    self.assertEqual("workers" in receipt, bool(seat))
+                    explicit = {**opts, "--review": "delta"}
+                    self.assertEqual(run.preset_review_model(
+                        self.cfg, explicit, run.run_workers(self.cfg, receipt)), "delta")
+                    state = run.review_pr(self.cfg, legacy, url, explicit, self.logs.append)
+                    self.assertEqual(state["reviewer"], "delta")
 
 
 if __name__ == "__main__":

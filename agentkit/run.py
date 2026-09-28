@@ -746,17 +746,6 @@ def refuse_unready(cfg, providers, name):
         raise config.Error(f"{name} cannot run here: {why}")
 
 
-def role_groups(cfg, workers=None, reviewers=None):
-    """Only explicit reviewers bind an otherwise unbound legacy pick to default groups."""
-    if workers is None:
-        selection = config.active_session(cfg) or cfg["defaults"]
-        if "reviewers" in selection:
-            workers = selection["workers"]
-            if reviewers is None:
-                reviewers = selection["reviewers"]
-    return workers, reviewers if reviewers is not None else workers
-
-
 def refuse_outside_group(cfg, name, group, role):
     if name:
         config.model(cfg, name)
@@ -768,8 +757,8 @@ def refuse_outside_group(cfg, name, group, role):
 def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, quiet=False,
                 repo=None, workers=None, reviewers=None):
     """Pick each role within its launch list, refusing an explicit name outside that group."""
-    workers, reviewers = role_groups(cfg, workers, reviewers)
-    if reviewers != workers:
+    workers, reviewers = config.role_groups(cfg, workers, reviewers)
+    if reviewers is not None:
         refuse_outside_group(cfg, want_review, reviewers, "reviewer")
     order = ready_order(cfg, providers, workers, None if want_exec and want_review else log,
                         quiet=quiet, repo=repo, reviewers=reviewers)
@@ -789,14 +778,15 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
         raise QuotaDry("every worker has a gate meter at 100% used")
     executor = want_exec or order[0]
     if want_review:
-        review_group = reviewers if reviewers is not None else allowed
-        role = "reviewer" if reviewers != workers else "worker"
-        refuse_outside_group(cfg, want_review, review_group, role)
+        config.model(cfg, want_review)
+        if reviewers is None and allowed is not None and want_review not in allowed:
+            where = f"session {session['name']!r}" if session else "this run"
+            raise config.Error(f"{want_review!r} is not a worker of {where}")
         refuse_unready(cfg, providers, want_review)
         reviewer = want_review
     else:
-        review_order = ready_order(cfg, providers, reviewers, role="reviewer", quiet=quiet,
-                                   repo=repo)
+        review_order = ready_order(cfg, providers, reviewers if reviewers is not None else workers,
+                                   role="reviewer", quiet=quiet, repo=repo)
         for executor in [want_exec] if want_exec else order:
             candidates = reviewer_order(cfg, executor, review_order)
             if candidates:
@@ -818,8 +808,9 @@ def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, revi
     refused instead of parking on a review nobody can give. Legacy explicit names remain
     unbound; only automatic candidates fall back to the configured worker selection.
     """
-    listed, review_list = role_groups(cfg, workers, reviewers)
-    bound_exec, bound_review = listed is not None, review_list is not None
+    listed, review_list = config.role_groups(cfg, workers, reviewers)
+    bound_exec = listed is not None
+    bound_review = review_list is not None or bound_exec
     listed = config.workers(cfg) if listed is None else listed
     review_list = listed if review_list is None else review_list
     skipped = {name: usage.unready(cfg, name, providers) for name in [*listed, *review_list]}
@@ -2423,11 +2414,12 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
     that has just turned it down is how a handover becomes a circle.  `workers`, when given,
     is the run's bound list: nothing outside it is ever picked.
     """
-    workers, reviewers = role_groups(cfg, workers, reviewers)
+    workers, reviewers = config.role_groups(cfg, workers, reviewers)
     order = [n for n in ready_order(cfg, providers, workers, log, repo=repo, reviewers=reviewers)
              if config.model(cfg, n)["provider"] not in dry]
-    review_order = [n for n in ready_order(cfg, providers, reviewers, role="reviewer",
-                                           repo=repo)
+    review_order = [n for n in ready_order(cfg, providers,
+                                          reviewers if reviewers is not None else workers,
+                                          role="reviewer", repo=repo)
                     if config.model(cfg, n)["provider"] not in dry]
     for executor in order:
         candidates = reviewer_order(cfg, executor, review_order)
@@ -5279,13 +5271,15 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         log(f"env: {config.ENV / f'{repo.name}.env'} -> {', '.join(sorted(env))}")
 
     # Reject an explicit pair before even probing usage (some adapters make paid probes).
-    workers, reviewers = role_groups(cfg, run_workers(cfg, state), run_reviewers(cfg, state))
-    refuse_outside_group(cfg, opts["--exec"], workers, "worker")
-    refuse_outside_group(cfg, opts["--review"], reviewers, "reviewer")
+    workers, reviewers = config.role_groups(cfg, run_workers(cfg, state), state.get("reviewers"))
+    if reviewers is not None:
+        refuse_outside_group(cfg, opts["--exec"], workers, "worker")
+        refuse_outside_group(cfg, opts["--review"], reviewers, "reviewer")
     if opts["--exec"] and opts["--review"]:
         review_providers(cfg, opts["--exec"], opts["--review"])
     providers = collect_usage(cfg)
-    order = ready_order(cfg, providers, reviewers, role="reviewer", repo=repo)
+    order = ready_order(cfg, providers, reviewers if reviewers is not None else workers,
+                        role="reviewer", repo=repo)
     handed = None               # the model this resume took the work away from, if any
     if prior and state["executor"]:
         executor, reviewer = state["executor"], state.get("reviewer")
@@ -10927,7 +10921,7 @@ def preset_models(cfg, opts, log, run_dir):
     try:
         providers = collect_usage(cfg)
         state = read_state(run_dir) or {}
-        workers, reviewers = run_workers(cfg, state), run_reviewers(cfg, state)
+        workers, reviewers = run_workers(cfg, state), state.get("reviewers")
         try:
             executor, reviewer = pick_models(cfg, providers, opts["--exec"], opts["--review"],
                                              log, quiet=True, workers=workers, reviewers=reviewers)
@@ -10947,7 +10941,7 @@ def preset_models(cfg, opts, log, run_dir):
     return executor, reviewer
 
 
-def preset_review_model(cfg, opts, reviewers=None):
+def preset_review_model(cfg, opts, workers=None, *, reviewers=None):
     """The reviewer for a --review-pr launch, picked in the parent, or None.
 
     Same shape as the pick inside review_pr, minus the checkout the parent has not
@@ -10956,8 +10950,9 @@ def preset_review_model(cfg, opts, reviewers=None):
     refused here. The seat's own PR already picks against its orchestrator here, so
     the launch line names the reviewer the child will keep.
     """
-    _, reviewers = role_groups(cfg, reviewers=reviewers)
-    refuse_outside_group(cfg, opts["--review"], reviewers, "reviewer")
+    workers, reviewers = config.role_groups(cfg, workers, reviewers)
+    if reviewers is not None:
+        refuse_outside_group(cfg, opts["--review"], reviewers, "reviewer")
     try:
         providers = collect_usage(cfg)
         exec_for_rule = None
@@ -10971,7 +10966,8 @@ def preset_review_model(cfg, opts, reviewers=None):
         except Exception:  # noqa: BLE001 - unknown PR or login picks as before
             exec_for_rule = None
         order = reviewer_order(cfg, exec_for_rule, ready_order(
-            cfg, providers, reviewers, role="reviewer", quiet=True))
+            cfg, providers, reviewers if reviewers is not None else workers,
+            role="reviewer", quiet=True))
         if not opts["--review"]:
             return order[0] if order else None
         config.model(cfg, opts["--review"])
@@ -11944,8 +11940,11 @@ def merge_own_pr(lp, url, head):
 def review_pr(cfg, run_dir, url, opts, log):
     """Check out the PR head, have the reviewer judge it, post the verdict, land or offer."""
     receipt = read_state(run_dir) or {}
-    _, reviewers = role_groups(cfg, run_workers(cfg, receipt), run_reviewers(cfg, receipt))
-    refuse_outside_group(cfg, opts.get("--review"), reviewers, "reviewer")
+    workers, reviewers = config.role_groups(cfg, run_workers(cfg, receipt),
+                                            receipt.get("reviewers"))
+    if reviewers is not None:
+        refuse_outside_group(cfg, opts.get("--review"), reviewers, "reviewer")
+    reviewers = reviewers if reviewers is not None else workers
     session_at_launch = launch_session(run_dir)
     info = pr_view(url)
     if info.get("state") != "OPEN":
@@ -12263,8 +12262,9 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
             return 1
         if flags["--bg"]:
             try:
-                reviewer = preset_review_model(cfg, opts,
-                                               run_reviewers(cfg, read_state(run_dir) or {}))
+                receipt = read_state(run_dir) or {}
+                reviewer = preset_review_model(cfg, opts, run_workers(cfg, receipt),
+                                               reviewers=receipt.get("reviewers"))
             except config.Error as exc:
                 refused(run_dir, exc, logger(run_dir, True), cfg)
                 raise
