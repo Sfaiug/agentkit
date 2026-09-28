@@ -256,13 +256,13 @@ sys.exit(row["code"])
         self.respond(failed)
         with patch.dict(os.environ, {config.SESSION_ENV: "fable-seat"}), \
                 patch.object(run, "launch_session", return_value=None):
-            code, directory, state = self.launch()
+            code, directory, state = self.launch("--exec", "fable")
             self.assertEqual(code, 1)
             self.assertEqual(state["state"], "exhausted")
             self.assertEqual(state["executor"], "fable")
             self.assertIn("fable", config.active_session(self.cfg)["workers"])
             self.assertEqual([r["model"] for r in self.calls("executor")], ["fable"])
-            # The preference is gone by resume; the existing executor must keep its work.
+            # The meter changes before resume; the existing executor must keep its work.
             self.providers["anthropic"]["meters"][1]["used"] = 80
             self.respond({state["reviewer"]: [
                 {"code": 0, "text": "VERDICT: FAIL\nFix the remaining finding."},

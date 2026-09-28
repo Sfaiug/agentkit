@@ -139,7 +139,7 @@ class WorkerList(unittest.TestCase):
                                                      self.logs.append, workers=bound),
                                      ("beta", "delta"))
             # A wider current seat cannot admit a model the launch receipt omitted,
-            # even as an explicit executor on resume after its preference closes.
+            # even as an explicit executor on resume.
             session["workers"] = [*workers, "fable"]
             for resuming in (False, True):
                 for executor, reviewer in (("fable", "beta"), ("beta", "fable")):
@@ -151,7 +151,7 @@ class WorkerList(unittest.TestCase):
                 self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "delta")
             self.assertEqual(lp.reviewer, "alpha")
 
-    def test_lagging_fable_listed_is_picked(self):
+    def test_lagging_fable_listed_ranks_by_budget_alone(self):
         providers = self.lagging_fable()
         workers = ["alpha", "beta", "delta", "fable"]
         session = {"name": "fable-seat", "orchestrator": "fable", "workers": workers}
@@ -160,7 +160,7 @@ class WorkerList(unittest.TestCase):
                 with self.subTest(bound=bound):
                     self.assertEqual(run.pick_models(self.cfg, providers, None, None,
                                                      self.logs.append, workers=bound),
-                                     ("fable", "beta"))
+                                     ("beta", "delta"))
 
     def test_status_and_log_name_the_bound_workers(self):
         lp = self.loop("alpha", "gamma", ["alpha", "gamma"])

@@ -10270,8 +10270,6 @@ def cmd_status(argv):
             line = size_summary_line(repo)
             if line:
                 print(line)
-        for line in history.role_lines():
-            print(line)
     return 0
 
 
