@@ -4188,8 +4188,10 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                 # every pick below gives a role, so each harness is asked whether it can run:
                 # once a pass, and only when a run waits on a pick, never on an empty tick
                 providers, asked = usage.readiness(cfg, providers), True
-            bound = run_mod.run_workers(cfg, state) or workers
-            review_bound = run_mod.run_reviewers(cfg, state) or bound
+            bound, review_bound = config.role_groups(
+                cfg, run_mod.run_workers(cfg, state), state.get("reviewers"))
+            bound = bound if bound is not None else workers
+            review_bound = review_bound if review_bound is not None else bound
             # one line per worker the pick leaves out, for the run's own log -- written only
             # when this pass resumes it, so a run waiting through tick after tick gets none
             skipped = []

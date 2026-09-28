@@ -898,6 +898,17 @@ def reviewers(cfg):
     return list(selection.get("reviewers", selection["workers"]))
 
 
+def role_groups(cfg, workers=None, reviewers=None):
+    """Bind unbound picks only for explicit reviewers; preserve absence for legacy overrides."""
+    if workers is None:
+        selection = active_session(cfg) or cfg["defaults"]
+        if "reviewers" in selection:
+            workers = selection["workers"]
+            if reviewers is None:
+                reviewers = selection["reviewers"]
+    return workers, reviewers
+
+
 def adapter(harness):
     root = Path(os.environ.get(ADAPTER_DIR_ENV) or REPO / "adapters").expanduser()
     path = root / f"{harness}.sh"
