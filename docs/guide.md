@@ -69,7 +69,7 @@ dependency, repeatable). A check ending in `# once` runs only on the commit that
 deferred. The full suite a repository names as `tests:` in its `AGENTS.md` front matter is such a check in every run
 there, from the target branch where the checkout predates it, and a done-when line with the same command runs once with it, so a task lists only the checks for its change.
 A command that fails runs once more at once, within the same ceiling, and passes if the re-run does: the output keeps
-the first failure's last lines under `flaky:`, and a dated line goes into `~/.agentkit/followups/<repo>.md`.
+the first failure's last lines under `flaky:`, which joins the run's follow-ups as evidence.
 The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt, up to 4 KB; past
 that, the run's hand-back names the file and asks the orchestrator to tighten it.
 
@@ -90,11 +90,11 @@ writes and commits, its commands in the foreground. The loop runs the checks its
 to the reviewer, a different model; it never re-runs them and answers `VERDICT: PASS` or `VERDICT: FAIL`, and one with
 no verdict is asked once more, never failed. A round is FAIL only for a blocking finding: a correctness defect, a safety
 or data-loss risk, a weakened check, or work outside the task, with evidence: a command that fails, a reproduction, or
-quoted diff lines showing the defect. Findings without evidence and everything else go under `## Follow-ups`; the loop
-writes those into the PR description and appends them to `~/.agentkit/followups/<repo>.md`, which the orchestrator reads
-before the next task. An item at the `path:line` of an open one, or in its words, is not appended again; a file of the
-same name in another case is merged in once; and past 24 KB the oldest items move to `<repo>.archive.md`, which keeps
-them all. A FAIL starts a fix round: the fixer fixes every undisputed finding, or lists a finding and evidence that it is wrong under `## Disputed` in its summary.
+quoted diff lines showing the defect. A follow-up needs the same evidence and severity, plus proof it existed before
+the task: a named base commit or a quote from main before the task. Only these go under `## Follow-ups`, without a
+number limit; everything else is omitted everywhere. The run's `run.json` and PR description carry only the final
+passing review's list, plus checks that passed only on re-run with their `flaky:` evidence. Earlier reviews' items
+are discarded. Nothing reads or writes `~/.agentkit/followups/`; existing files and archives are left alone. A FAIL starts a fix round: the fixer fixes every undisputed finding, or lists a finding and evidence that it is wrong under `## Disputed` in its summary.
 Re-review rules on each dispute first, upheld or dropped, and says why. Three rounds is the budget: at the third FAIL the run ends
 `fail`, hands back its open findings (their first 600 characters) with `three rounds spent: split or re-scope`; no `--rounds` above three starts or resumes, and a job gives it no more rounds and no rerun on another model.
 

@@ -31,15 +31,16 @@ BLOCKED = ("If the task cannot be completed as written, end with a `## Blocked` 
            "`## Blocked` is only for a task that cannot be completed as written; never for a "
            "transient provider failure, a capacity refusal, or a check the loop runs later such "
            "as the `# once` suite.")
-# A round fails only for what blocks it: the reviewer is strict on the four classes below and
-# lenient on everything else, which travels as follow-ups instead of failing the round.
+# Only proven defects are reported; those already present before the task are follow-ups.
 GATE = ("A round is `VERDICT: FAIL` only for a **blocking** finding: a correctness defect in "
         "the task's outcome, a safety or data-loss risk, a check the executor weakened or "
         "skipped, or a scope violation (work the task did not ask for, or asked-for work "
         "missing). A blocking finding must include evidence: a command that fails, a "
-        "reproduction, or quoted diff lines that show the defect. Findings without evidence "
-        "and everything else are **follow-ups**: list them under `## Follow-ups` as "
-        "`path:line - what - why it matters`, never a reason to fail. End `VERDICT: PASS` "
+        "reproduction, or quoted diff lines that show the defect. **Follow-ups** are defects "
+        "of a kind that would fail a round, with that same evidence, that existed before this "
+        "task: prove that by naming the base commit or quoting main as it was before the task. "
+        "List only these under `## Follow-ups` as `path:line - what - why it matters`, with "
+        "the evidence, never a reason to fail. Omit everything else everywhere. End `VERDICT: PASS` "
         "when no blocking finding exists, however long the follow-ups list is.")
 # A repository whose AGENTS.md says `users: real` ships a new feature hidden until the owner
 # turns it on for everyone, so its reviewer holds one more finding blocking.
