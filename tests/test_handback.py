@@ -149,15 +149,16 @@ class HandBack(Sandbox):
                              "conversation": "thread-seat", "id_source": orch.LAUNCHER})
 
     def send(self, session, text, log, harness=None, guard=nullcontext,
-             veto=lambda _name: False, typed=lambda: None):
+             veto=lambda _name: False, typed=lambda: None, pending=False):
         """The confirmed send, minus tmux: the real lock is taken and the real veto read."""
         with guard() as held:
             if self.leaves:
                 self.screen = "working"     # another run's ending got there first
             if veto(held if held is not None else session["name"]):
                 return False
-        typed()
-        self.typed.append((session["name"], text))
+        if not pending:
+            typed()
+            self.typed.append((session["name"], text))
         return self.sent
 
     def ended_review(self):
