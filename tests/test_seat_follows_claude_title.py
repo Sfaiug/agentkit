@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import re
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from test_v4n import REPO, Sandbox
 from agentkit import config, orch, watch
@@ -60,7 +60,9 @@ class SeatFollowsTitle(Sandbox):
             self.assertEqual(args[2], f"={self.seat['name']}:")
             if "-l" in args:
                 self.typed.append(args[-1])
+                self.pane = self.pane.replace("❯\u00a0\n", f"❯ {args[-1]}\n")
             elif args[-1] == "Enter":
+                self.pane = self.pane.replace(f"❯ {self.typed[-1]}\n", "❯\u00a0\n")
                 self.title(self.typed[-1].removeprefix("/rename "))
         return 0, ""
 
@@ -131,9 +133,10 @@ class SeatFollowsTitle(Sandbox):
             self.assertNotEqual(path, self.transcript, "unchanged transcript was reopened")
             return original(path, *args, **kwargs)
 
-        for title in (None, "Checkout Bug"):
+        for title in ("", "Checkout Bug", None):
             with self.subTest(title=title):
-                self.transcript.write_text('{"type":"user","message":"hello"}\n')
+                self.transcript.write_bytes(b"\xff" if title is None else
+                                            b'{"type":"user","message":"hello"}\n')
                 if title:
                     self.title(title)
                 self.assertEqual(claude.session_title(record), title)
@@ -157,7 +160,7 @@ class SeatFollowsTitle(Sandbox):
             handle.write('{"type":"user","message":"a later message"}\n[]\n{"type":\n')
         with patch.object(orch, "rename", wraps=orch.rename) as rename:
             self.tick()
-            rename.assert_called_once_with("lagoon", "checkout-bug")
+            rename.assert_called_once_with("lagoon", "checkout-bug", log=ANY)
         self.assertEqual(self.seat["name"], "checkout-bug")
         self.assertEqual(config.resolve_session("lagoon"), "checkout-bug")
         self.assertEqual(self.record()["conversation"], "fake-conversation")

@@ -171,9 +171,9 @@ class V5p(unittest.TestCase):
                 depth -= 1
             elif event[0] == "sleep":
                 spans.append((event[1], depth))
-        long_waits_inside = [s for s, held in spans if s != watch.KEY_GAP and held > 0]
-        self.assertEqual(long_waits_inside, [])
-        self.assertIn((watch.KEY_GAP, 1), spans)
+        self.assertTrue(spans)
+        self.assertTrue(all(held == 0 for _, held in spans))
+        self.assertIn((watch.KEY_GAP, 0), spans)
 
     def test_v5p_real_stall_fixture_with_held_text_retries_then_warns(self):
         for harness in HARNESSES:

@@ -1,14 +1,19 @@
-"""Seat renames reach Claude safely and once; fake tmux and panes, a temporary HOME."""
+"""Seat renames need Claude's receipt; fake tmux and transcripts, a temporary HOME."""
 
 from contextlib import redirect_stdout
+import fcntl
 import io
+import json
 import os
+from pathlib import Path
+import re
 import shlex
 import unittest
 from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import config, notify, orch, watch
+from agentkit import config, menu, notify, orch, watch
+from agentkit.harness import claude
 
 
 class SeatTitle(Sandbox):
@@ -23,14 +28,29 @@ class SeatTitle(Sandbox):
         self.pane = self.fixture("prompt")
         self.commands, self.typed = [], []
         self.fail_send = False
+        self.drop_enter = False
+        self.confirm_title = True
+        self.logs = []
         self.stack.enter_context(patch.object(orch, "sessions", side_effect=lambda: [self.seat]))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.stack.enter_context(patch.object(watch, "KEY_GAP", 0))
+        self.stack.enter_context(patch.object(watch, "SENT_WAIT", watch.SENT_POLL))
+        self.stack.enter_context(patch.object(watch.time, "sleep"))
         # Keep the health pass's unrelated recovery and notification work offline.
         for method in ("poll_worker_token", "seat_account", "stop_nudge", "announce_state"):
             self.stack.enter_context(patch.object(watch, method, return_value=False))
         config.save_session(self.cfg, "lagoon", "opus", ["opus"], {
-            "cwd": str(self.root), "session_title": "lagoon"})
+            "cwd": str(self.root), "session_title": "lagoon",
+            "conversation": "fake-conversation", "id_source": orch.LAUNCHER})
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(self.root))
+        self.transcript = self.root / ".claude/projects" / slug / "fake-conversation.jsonl"
+        self.transcript.parent.mkdir(parents=True)
+        self.transcript.touch()
+
+    def title(self, name):
+        with self.transcript.open("a") as handle:
+            handle.write(json.dumps({"type": "custom-title", "customTitle": name,
+                                     "sessionId": "fake-conversation"}) + "\n")
 
     def fixture(self, kind):
         return (REPO / "tests/fixtures" / f"claude-{kind}-pane.txt").read_text()
@@ -47,6 +67,11 @@ class SeatTitle(Sandbox):
                 return 1, "fake send failure"
             if "-l" in args:
                 self.typed.append(args[-1])
+                self.pane = self.pane.replace("❯\u00a0\n", f"❯ {args[-1]}\n")
+            elif args[-1] == "Enter" and not self.drop_enter:
+                self.pane = self.pane.replace(f"❯ {self.typed[-1]}\n", "❯\u00a0\n")
+                if self.confirm_title:
+                    self.title(self.typed[-1].removeprefix("/rename "))
         return 0, ""
 
     def record(self):
@@ -54,7 +79,7 @@ class SeatTitle(Sandbox):
 
     def tick(self, dry=False):
         state = watch.load_state()
-        watch.health(self.cfg, state, dry, lambda _: None)
+        watch.health(self.cfg, state, dry, self.logs.append)
         if not dry:
             watch.save_state(state)
 
@@ -176,6 +201,7 @@ class SeatTitle(Sandbox):
 
     def test_dropped_enter_retries_only_the_enter(self):
         enters = []
+        self.drop_enter = True
 
         def tmux(*args, **kwargs):
             answer = self.tmux(*args, **kwargs)
@@ -186,6 +212,7 @@ class SeatTitle(Sandbox):
                     enters.append(True)
                     if len(enters) == 2:
                         self.pane = self.fixture("prompt")
+                        self.title("quay")
             return answer
 
         with patch.object(orch, "tmux_out", side_effect=tmux), \
@@ -195,6 +222,130 @@ class SeatTitle(Sandbox):
         self.assertEqual(self.typed, ["/rename quay"])
         self.assertEqual(len(enters), 2)
         self.assertEqual(self.record()["session_title"], "quay")
+
+    def test_dropped_enter_mid_turn_waits_for_a_receipt_and_next_tick_only_enters(self):
+        self.pane = self.fixture("working")
+        self.title("lagoon")
+        self.drop_enter = True
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        self.assertEqual(self.record()["session_title"], "lagoon")
+        self.assertTrue(watch._holds_text(self.pane, "/rename quay"))
+        self.assertEqual(self.typed, ["/rename quay"])
+        before = len(self.commands)
+        self.drop_enter = False
+        self.tick()
+        self.assertEqual([args[-1] for args in self.commands[before:]
+                          if args[0] == "send-keys"], ["Enter"])
+        self.assertEqual(self.typed, ["/rename quay"])
+        self.assertEqual(self.seat["name"], "quay")
+        self.assertEqual(self.record()["session_title"], "quay")
+
+    def test_empty_composer_is_not_a_receipt_until_the_transcript_confirms(self):
+        self.confirm_title = False
+        orch.rename("lagoon", "quay")
+        self.assertFalse(watch._holds_text(self.pane, "/rename quay"))
+        self.assertEqual(self.record()["session_title"], "lagoon")
+        self.title("quay")
+        self.tick()
+        self.assertEqual(self.record()["session_title"], "quay")
+        self.assertNotIn("title_sync", self.record())
+        self.assertEqual(self.typed, ["/rename quay"])
+
+    def test_one_name_is_typed_three_times_then_left_until_renamed(self):
+        self.confirm_title = False
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        for _ in range(6):
+            self.tick()
+        self.assertEqual(self.typed, ["/rename quay"] * 3)
+        self.assertEqual(self.record()["session_title"], "lagoon")
+        self.assertEqual(sum("title did not take" in line for line in self.logs), 1)
+        before = list(self.commands)
+        self.tick()
+        self.assertFalse(any(args[0] == "send-keys" for args in self.commands[len(before):]))
+        self.confirm_title = True
+        orch.rename("quay", "harbor")
+        self.assertEqual(self.typed, ["/rename quay"] * 3 + ["/rename harbor"])
+        self.assertEqual(self.record()["session_title"], "harbor")
+
+    def test_old_empty_title_cache_cannot_confirm_a_rename(self):
+        self.assertEqual(claude.session_title(self.record()), "")
+        cache = next(config.STATE.glob("claude-title-*.json"))
+        cached = json.loads(cache.read_text())
+        cached.pop("readable")
+        cached["title"] = None
+        cache.write_text(json.dumps(cached))
+        self.confirm_title = False
+        orch.rename("lagoon", "quay")
+        self.tick()
+        self.assertEqual(self.record()["session_title"], "lagoon")
+        self.title("quay")
+        self.tick()
+        self.assertEqual(self.record()["session_title"], "quay")
+
+    def test_invalid_utf8_transcript_still_uses_the_composer_when_cached(self):
+        self.transcript.write_bytes(b"\xff")
+        self.pane = self.fixture("working")
+        self.drop_enter = True
+        self.confirm_title = False
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        self.assertEqual(self.record()["session_title"], "lagoon")
+        self.drop_enter = False
+        self.tick()
+        self.assertEqual(self.typed, ["/rename quay"])
+        self.assertEqual(self.record()["session_title"], "quay")
+
+    def test_a_line_left_in_the_composer_is_never_typed_again(self):
+        self.drop_enter = True
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        for _ in range(5):
+            self.tick()
+        self.assertEqual(self.typed, ["/rename quay"])
+        self.assertEqual(self.record()["session_title"], "lagoon")
+
+    def test_unreadable_transcript_uses_composer_even_mid_turn(self):
+        self.pane = self.fixture("working")
+        self.drop_enter = True
+        original = Path.open
+
+        def unreadable(path, *args, **kwargs):
+            if path == self.transcript:
+                raise PermissionError("fake unreadable transcript")
+            return original(path, *args, **kwargs)
+
+        with patch.object(Path, "open", unreadable):
+            orch.rename("lagoon", "quay", log=self.logs.append)
+            self.assertEqual(self.record()["session_title"], "lagoon")
+            self.drop_enter = False
+            self.confirm_title = False
+            self.tick()
+        self.assertEqual(self.typed, ["/rename quay"])
+        self.assertEqual(self.record()["session_title"], "quay")
+
+    def test_seat_lock_is_free_during_key_gap_and_send_waits(self):
+        self.drop_enter = True
+        pauses = []
+
+        def sleep(seconds):
+            pauses.append(seconds)
+            with config.notify_path(self.seat["name"]).with_suffix(".lock").open("a") as handle:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+        with patch.object(watch.time, "sleep", side_effect=sleep):
+            orch.rename("lagoon", "quay", log=self.logs.append)
+        self.assertIn(watch.KEY_GAP, pauses)
+        self.assertIn(watch.SENT_POLL, pauses)
+
+    def test_cli_and_menu_keep_send_warnings(self):
+        self.fail_send = True
+        with redirect_stdout(io.StringIO()) as output:
+            orch.cmd_rename(["lagoon", "quay"])
+        self.assertIn("WARN could not type into the quay seat", output.getvalue())
+        with patch.dict(os.environ, {config.SESSION_ENV: "quay"}), \
+                patch.object(orch, "ask_name", return_value="harbor"), \
+                redirect_stdout(io.StringIO()) as output:
+            menu.rename_this_session(False)
+        self.assertIn("WARN could not type into the harbor seat", output.getvalue())
 
 
 if __name__ == "__main__":

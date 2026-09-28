@@ -2033,10 +2033,10 @@ def _holds_text(pane, text):
 
 
 def _pane_sent(session, harness, pane, text):
-    """The typed line left the composer: the seat is working, dialoged, or past it."""
+    """The typed line left the composer, or a dialog took over the screen."""
     state = (_decided_state(session["name"], harness, pane)
              if harness is not None else None)
-    if state in ("working", "asking"):
+    if state == "asking":
         # A dialog owns the screen: the line landed, and no Enter goes into it blind.
         return True
     return not _holds_text(pane, text)
@@ -2063,7 +2063,7 @@ def _send_enter(session, log):
 
 
 def _send_line(session, text, log, typed=lambda: None):
-    """One line and Enter, with KEY_GAP between them; False where a send failed.
+    """Type one literal line; the caller waits KEY_GAP before sending its Enter.
 
     `typed` is told the moment the text is in, before the Enter that can still fail.
     """
@@ -2074,22 +2074,21 @@ def _send_line(session, text, log, typed=lambda: None):
         log(f"WARN could not type into the {name} seat: {out[-200:]}")
         return False
     typed()
-    time.sleep(KEY_GAP)
-    return _send_enter(session, log)
+    return True
 
 
 def type_checked(session, text, log, harness=None, guard=nullcontext,
-                 veto=lambda name: False, typed=lambda: None):
+                 veto=lambda name: False, typed=lambda: None, pending=False):
     """Type one line with a gap before Enter, and confirm it left the composer's line.
 
     Text, a KEY_GAP pause, then Enter; within SENT_WAIT the typed text has to be gone
-    from the bottom region, or the seat has to read as working.  A dialog counts as
+    from the bottom region. A working seat can still hold unsent text. A dialog counts as
     landed, never as a reason for another Enter.  Still held: one more Enter and one
     more wait.  Still held after that, log and return False, leaving the composer
     alone.  Where the seat paints no composer at all, a delivered send counts as sent.
     `guard` is held around each send and `veto` read inside it; type_into passes its
     session lock and its owner-decision check, so the waits never hold the lock.  `typed` is
-    told the moment the text is in the composer.
+    told the moment the text is in the composer; `pending` sends only its Enter.
     """
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
@@ -2115,10 +2114,15 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             # all there is.
             confirm = any(pattern.search(strip_sgr(line))
                           for line in pane_tail(pane_text(seat)).splitlines())
+    if not pending:
+        with guard() as held:
+            if veto(held if held is not None else name):
+                return False
+            if not _send_line(seat, text, log, typed):
+                return False
+        time.sleep(KEY_GAP)
     with guard() as held:
-        if veto(held if held is not None else name):
-            return False
-        if not _send_line(seat, text, log, typed):
+        if veto(held if held is not None else name) or not _send_enter(seat, log):
             return False
     if not confirm or _wait_sent(seat, harness, text):
         return True
@@ -2161,49 +2165,72 @@ def follow_title(session, log=lambda _: None):
         # The owner may have changed only case or punctuation. The seat is now named,
         # and the title still needs its normalized spelling even if we sent it before.
         if record.get("unnamed"):
-            orch.rename(name, name)
+            orch.rename(name, name, log=log)
         if record.get("session_title") == name:
             sync_title(dict(session, name=name), log, force=True)
         return None
-    new = orch.rename(name, new)
+    new = orch.rename(name, new, log=log)
     log(f"{name}: renamed from the conversation title to {new}")
     return new
 
 
 def sync_title(session, log=lambda _: None, *, force=False):
-    """Give the harness the seat's current name once, leaving dialogs and drafts alone."""
+    """Record a title only once the harness takes it; abandon a name after three tries."""
     if any(session.get(key) for key in orch.CLOSED):
         return False
-    # A rename and a tick can arrive together. Keep the send and its record together under
-    # the same lock the rename and relayed replies take, following any name that moved.
     with notify.session_lock(session["name"]) as name:
         session = dict(session, name=name)
         record = config.session_records().get(name, {})
         plugin = orch.seat_plugin(record)
         line = plugin.title_command(name)
-        if not line or (record.get("session_title") == name and not force):
+        attempt = record.get("title_sync")
+        tries = (attempt or {}).get("tries", 0) if (attempt or {}).get("name") == name else 0
+        if not line or (record.get("session_title") == name and not force and not tries):
             return False
-        composed = []
+        if plugin.session_title(record) == name:
+            config.update_session(name, session_title=name, title_sync=None)
+            return True
+        if tries >= 3:
+            if not attempt.get("failed"):
+                log(f"WARN {name}: title did not take after three tries; leaving it until its name changes")
+                config.update_session(name, title_sync=dict(attempt, failed=True))
+            return False
+        composed = [True] if tries and _holds_text(pane_text(session), line) else []
 
-        def veto(_):
-            pane = pane_text(session)
-            state = _decided_state(name, plugin.name, pane)
-            if owner_question(notify.last(name)) or state in (None, "asking"):
-                return True
-            if composed:
-                return not _holds_text(pane, line)    # only our own line can need another Enter
-            if state not in ("at_prompt", "working"):
-                return True
-            # The working rule precedes the draft rule. Read the bottom composer itself too:
-            # a turn can keep running while the owner has typed a message they have not sent.
-            raw = next((raw for raw in reversed(pane_tail(pane).splitlines())
-                        if re.match(r"(?:│\s*)?[❯›⟩]", strip_sgr(raw).strip())), None)
-            return raw is None or bool(_draft_text(
-                raw, strip_sgr(raw).strip(), screen(plugin.name)["composer"]))
+    def veto(held):
+        # A rename or another sender may have won while we waited. The receipt and each
+        # send share the seat's lock, but neither the key gap nor the polls hold it.
+        if held != name or config.session_records().get(name, {}).get("title_sync") != attempt:
+            return True
+        pane = pane_text(session)
+        state = _decided_state(name, plugin.name, pane)
+        if owner_question(notify.last(name)) or state in (None, "asking"):
+            return True
+        if composed:
+            return not _holds_text(pane, line)    # only our own line can need another Enter
+        if state not in ("at_prompt", "working"):
+            return True
+        raw = next((raw for raw in reversed(pane_tail(pane).splitlines())
+                    if re.match(r"(?:│\s*)?[❯›⟩]", strip_sgr(raw).strip())), None)
+        return raw is None or bool(_draft_text(
+            raw, strip_sgr(raw).strip(), screen(plugin.name)["composer"]))
 
-        if type_checked(session, line, log, plugin.name, veto=veto,
-                        typed=lambda: composed.append(True)):
-            config.update_session(name, session_title=name)
+    def typed():
+        nonlocal attempt
+        composed.append(True)
+        attempt = {"name": name, "tries": tries + 1}
+        config.update_session(name, title_sync=attempt)
+
+    sent = type_checked(session, line, log, plugin.name,
+                        guard=lambda: notify.session_lock(name), veto=veto,
+                        typed=typed, pending=bool(composed))
+    with notify.session_lock(name) as held:
+        record = config.session_records().get(held, {})
+        if held != name or record.get("title_sync") != attempt:
+            return False
+        title = plugin.session_title(record)
+        if title == name or (title is None and sent):
+            config.update_session(name, session_title=name, title_sync=None)
             return True
     return False
 

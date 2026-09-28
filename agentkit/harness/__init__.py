@@ -167,7 +167,7 @@ class Harness:
         return hook(name) if hook else None
 
     def session_title(self, record):
-        """The conversation's latest custom title, or None where none can be read."""
+        """The latest custom title, empty if absent, or None if the record cannot be read."""
         hook = self._hook("session_title")
         return hook(record) if hook else None
 

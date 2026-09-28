@@ -1988,7 +1988,7 @@ def job_notices():
     return [line.strip() for line in text.splitlines() if line.strip()]
 
 
-def rename(old, new, *, auto=False):
+def rename(old, new, log=print, *, auto=False):
     """Give a running seat a new name, and move everything that carries it.
 
     tmux, the record, and every state file -- notify, seat, hook, compact, plan, card and
@@ -2061,9 +2061,9 @@ def rename(old, new, *, auto=False):
                 pass
     if moved_seat is not None:
         try:
-            watch.sync_title(moved_seat)
-        except (config.Error, OSError, ValueError):
-            pass                 # the name moved; a later tick can give the harness its title
+            watch.sync_title(moved_seat, log)
+        except (config.Error, OSError, ValueError) as exc:
+            log(f"WARN {new}: title sync waits for a later tick: {exc}")
     return new
 
 
