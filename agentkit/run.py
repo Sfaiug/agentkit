@@ -21,6 +21,7 @@ import time
 from collections import Counter
 from contextlib import ExitStack, contextmanager, nullcontext
 from datetime import datetime
+from itertools import chain
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -7986,6 +7987,39 @@ def tmp_protected(name):
             or name.startswith("systemd-private-"))
 
 
+def tmp_processes():
+    """Paths and argv from every user's processes, or no proof that /tmp is idle.
+
+    Unlike recorded run artifacts, arbitrary temporary files have no writer lease.
+    Skipping an unreadable process or descriptor could discard their only owner.
+    Even a process disappearing during this scan defers collection until next time.
+    """
+    paths, table = set(), {}
+    try:
+        for proc in retention.process_dirs():
+            if not proc.name.isdigit():
+                continue
+            fields = (proc / "stat").read_text().rsplit(")", 1)[1].split()
+            state, parent = fields[0], int(fields[1])
+            if state in ("Z", "X"):
+                continue
+            args = [os.fsdecode(arg) for arg in (proc / "cmdline").read_bytes().split(b"\0")
+                    if arg]
+            if not args:
+                return None, None
+            table[int(proc.name)] = (parent, state, args)
+            # Keep the listing descriptor open: our own fd inventory includes it.
+            with os.scandir(proc / "fd") as handles:
+                for link in chain([proc / "cwd"], (proc / "fd" / entry.name for entry in handles)):
+                    target = os.readlink(link).removesuffix(" (deleted)")
+                    if target.startswith("/"):
+                        paths.add(target)
+            paths.update(arg for arg in args if arg.startswith("/"))
+    except (OSError, ValueError, IndexError):
+        return None, None
+    return paths, table
+
+
 def tmp_listdir(path):
     """Sorted names in that directory, its atime unchanged when possible.
 
@@ -8062,19 +8096,20 @@ def tmp_entry_stale(path, now, paths):
     return f"untouched for {int((now - newest) // 86400)} days"
 
 
-def tmp_session_running(session_id, table):
-    """Whether that Claude session still runs: its id in a live process's argv.
+def tmp_claude_running(table):
+    """Any Claude client may own scratch whose conversation is absent from argv.
 
-    A table that cannot be read is no proof of absence: the session stays.
-    Zombies are reaped, not running.
+    Hand launches need no id and /clear replaces it without changing argv. Retain
+    all Claude scratch while any client runs; an unreadable inventory also stays.
     """
+    from .harness import claude
     try:
         if not isinstance(table, dict):
             return True
         for _, (_, state, args) in table.items():
             if state in ("Z", "X"):
                 continue
-            if any(session_id in arg for arg in args):
+            if not args or claude.is_process(args):
                 return True
     except (OSError, ValueError, TypeError, AttributeError):
         return True
@@ -8086,7 +8121,7 @@ def tmp_claude_session_stale(path, now, paths, table):
 
     Its session is gone, untouched for a day, and held by nobody.
     """
-    if retention.busy(path, paths) or tmp_session_running(path.name, table):
+    if retention.busy(path, paths) or tmp_claude_running(table):
         return None
     newest = tmp_tree_newest(path)
     if newest is None or not retention.expired(newest, now, TMP_CLAUDE_AGE):
@@ -8098,54 +8133,31 @@ def tmp_claude_session_stale(path, now, paths, table):
 def tmp_top_stale(path, now, paths, table):
     """Why that top-level /tmp entry goes whole, or None.
 
-    A `claude-<uid>` directory goes whole only when none of the sessions
-    inside still runs; otherwise each gone session goes on its own below.
+    The same live-client protection covers both whole trees and session folders.
     """
     name = path.name
     if name.startswith("claude-") and name[7:].isdigit():
-        if not isinstance(table, dict):
+        if tmp_claude_running(table):
             return None
-        try:
-            projects = tmp_listdir(path)
-        except OSError:
-            return None
-        for project in projects:
-            project_path = path / project
-            try:
-                if not project_path.is_dir() or project_path.is_symlink():
-                    continue
-                sessions = tmp_listdir(project_path)
-            except OSError:
-                continue
-            for session_id in sessions:
-                try:
-                    if not (project_path / session_id).is_dir():
-                        continue
-                except OSError:
-                    continue
-                if tmp_session_running(session_id, table):
-                    return None
     return tmp_entry_stale(path, now, paths)
 
 
-def stale_tmp_entries(now, paths, base=None, table=None):
+def stale_tmp_entries(now):
     """Every stale top-level /tmp entry and gone Claude session folder.
 
-    `base` is /tmp, or the test's temporary stand-in; `table` is the faked
-    process table the tests hand in, or None for the live one, read once.
+    Tests replace TMP_BASE and retention.process_dirs with temporary directories.
     A session folder under a top-level entry going whole is not planned twice.
     """
-    base = TMP_BASE if base is None else Path(base)
+    base = TMP_BASE
     try:
         names = tmp_listdir(base)
     except OSError:
         return []
-    live = table
-    if live is None and any(name.startswith("claude-") and name[7:].isdigit() for name in names):
-        try:
-            live = watch._proc_table()
-        except Exception:
-            live = None
+    if not names:
+        return []
+    paths, live = tmp_processes()
+    if paths is None:
+        return []
     found, planned = [], set()
     for name in names:
         if tmp_protected(name):
@@ -8157,8 +8169,8 @@ def stale_tmp_entries(now, paths, base=None, table=None):
                           "why": why})
             planned.add(str(path))
     for name in names:
-        if (not name.startswith("claude-") or not name[7:].isdigit()
-                or str(base / name) in planned):
+        if (name != f"claude-{os.getuid()}" or str(base / name) in planned
+                or tmp_claude_running(live) or not retention.safe(base / name)):
             continue
         try:
             projects = tmp_listdir(base / name)
@@ -8455,7 +8467,7 @@ def gc_candidates(now=None):
     yield from stale_seat_files(now)
     yield from stale_compact_stamps(now)
     yield from retention.harness_plan()
-    yield from stale_tmp_entries(now, paths)
+    yield from stale_tmp_entries(now)
 
 
 def gc_plan(now=None):
@@ -8551,11 +8563,7 @@ def gc(report, automatic=False):
                         done = retention.prune_harness(path)
                     elif item["kind"] in ("tmp-entry", "claude-session"):
                         # the planner's proof once more, now: touched or held since, and it stays
-                        paths = retention.process_paths()
-                        try:
-                            table = watch._proc_table()
-                        except Exception:
-                            table = None
+                        paths, table = tmp_processes()
                         if item["kind"] == "tmp-entry":
                             ok = tmp_top_stale(path, time.time(), paths, table) is not None
                         else:

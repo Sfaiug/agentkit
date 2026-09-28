@@ -2977,8 +2977,26 @@ s.update(merged=True, finished_at=time.time() - 8 * 86400)
 p.write_text(json.dumps(s, indent=2))
 PY
 IWT=$(jq -r '.worktree // empty' "$IJSON")
-HOME="$IHOME" ak run gc >"$WORK/gc.log" 2>&1
+HOME="$IHOME" PYTHONPATH="$REPO" python3 - "$REPO/bin/ak" "$WORK/gc-tmp" >"$WORK/gc.log" 2>&1 <<'PY'
+import os, pathlib, runpy, sys, time
+from unittest.mock import patch
+from agentkit import retention, run
+
+# HOME does not relocate /tmp: the subprocess needs its own files and process inventory.
+run.TMP_BASE = pathlib.Path(sys.argv[2])
+run.TMP_BASE.mkdir()
+stale = run.TMP_BASE / "stale"
+stale.write_text("fixture\n")
+stamp = time.time() - 3 * 86400
+os.utime(stale, (stamp, stamp))
+sys.argv = [sys.argv[1], "run", "gc"]
+with patch.object(retention, "process_dirs", return_value=[]), \
+        patch.object(retention, "unix_sockets", return_value=set()):
+    runpy.run_path(sys.argv[0], run_name="__main__")
+PY
 if grep -q "remove merged-worktree" "$WORK/gc.log" && [ ! -d "$IWT" ] &&
+   grep -q "remove tmp-entry $WORK/gc-tmp/stale:" "$WORK/gc.log" &&
+   [ ! -e "$WORK/gc-tmp/stale" ] &&
    [ -f "$IHOME/.agentkit/runs/$IRUNID/result.md" ] &&
    ! grep -qF "$IWT" <<<"$(git -C "$R" worktree list)"; then
   ok "13c ak run gc: a merged run 8 days old lost its worktree and retained its result"
