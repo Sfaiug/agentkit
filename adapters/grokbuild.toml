@@ -16,6 +16,12 @@ revert = ["grok", "update", "--version", "{version}"]
 # nothing.
 [conversation]
 
+# /rename pins a manual title in this conversation's summary.json. A cleared composer
+# alone is no receipt, and the launcher has no flag that sets the title before startup.
+[title]
+at_launch = false
+unreadable = false
+
 # The weekly subscription window is the credits form of the billing endpoint, the
 # response the TUI's Usage limit tab reads.  `grok usage` itself reports per-session
 # tokens only.  A seat whose credits response carries no usage percent, and whose

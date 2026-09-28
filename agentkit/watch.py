@@ -2204,7 +2204,11 @@ def sync_title(session, log=lambda _: None, *, force=False):
         if at is None:
             return None
         chrome = screen(plugin.name)
-        parts = [_draft_text(rows[at], strip_sgr(rows[at]).strip(), chrome["composer"])]
+        plain = strip_sgr(rows[at]).strip()
+        boxed = plain.startswith("│") and plain.endswith("│")
+        # A boxed composer's edges are chrome, including on continuation rows.
+        parts = [_draft_text(rows[at], plain[:-1].rstrip() if boxed else plain,
+                             chrome["composer"])]
         # A wrap can split the name itself. Compare the whole composer, without its
         # footer, so an owner's added text on a continuation row still vetoes Enter.
         for raw in rows[at + 1:]:
@@ -2212,6 +2216,8 @@ def sync_title(session, log=lambda _: None, *, force=False):
             if chrome_line(chrome, plain):
                 break
             if not has_dim(raw):
+                if boxed and plain.startswith("│") and plain.endswith("│"):
+                    plain = plain[1:-1].strip()
                 parts.append(plain)
         return re.sub(r"\s+", "", "".join(parts))
 

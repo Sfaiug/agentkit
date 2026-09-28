@@ -360,3 +360,31 @@ name is `quay`, while `title` is separate and empty. The generated-title test pu
 invented value in `title` and no name in the index; it is a synthetic variant, not a
 capture of a model naming a thread. The mid-turn refusal test likewise simulates a
 cleared composer without a stored name; this build accepted both captured renames.
+
+## Grok seat titles (1.0.40)
+
+`grok-title-{idle,composed,accepted,auto,working,working-composed,working-accepted}-pane.txt`
+are 100×30 `capture-pane -p -e` screens from the installed Grok 1.0.40
+(`eb1a2256660d`), captured on 2026-09-28. The HOME, GROK_HOME, workspace and private
+tmux socket were inside a temporary checkout directory, with a dummy API key and
+`GROK_XAI_API_BASE_URL=http://127.0.0.1:1/v1`. No user prompt was sent. `/rename
+lagoon` at idle pinned the title; `/rename --auto` cleared it. `/compact` against the
+closed loopback port showed `Compacting…`; `/rename quay` during that operation was
+accepted immediately. Text and Enter were separated by 300 ms. This is compaction,
+not a responding model turn: regular responding screens use the existing
+`grok-working-pane.txt`, and title delivery waits for their prompt. The unknown-model
+notice is the isolated home's catalog refusing `grok-4.7` and retaining `grok-4.6`.
+Only the header's branch and workspace were replaced by invented values. SGR, composer
+borders and key hints are preserved. The updater downloaded a newer build into the
+throwaway GROK_HOME; the running executable was verified as the installed 1.0.40.
+The private tmux server and all throwaway files were removed afterwards.
+
+`grok-title-manual.json` and `grok-title-auto.json` project the resulting session's
+`summary.json` to `info`, `session_summary`, `generated_title`, `title_is_manual` and
+`num_messages`, with only the workspace replaced by `/workspace/acme`. The path is
+`$GROK_HOME/sessions/<URL-encoded-cwd>/<conversation-id>/summary.json`. A manual
+rename sets `generated_title` and `title_is_manual: true`; `/rename --auto` removes
+both. `session_summary` alone is no manual title. The automatic-title test adds an
+invented generated title to the captured auto shape; no model generated that fixture.
+`grok-title-guide.txt` is the session-title section embedded in the installed 1.0.40
+executable: it states that manual titles win until `/rename --auto` unpins them.

@@ -1,0 +1,30 @@
+
+  [2mfixture[0m [2mworktree [0m/…/fixture-workspace 2.3K / 500K[2m │ [0m[Dashboard]
+
+     [2mCouldn't switch model: Invalid params: "unknown model id"[0m
+
+     [2mSession renamed to "lagoon"[0m
+
+     [2mSession title reset to auto[0m
+
+     [2mCompacting conversation…[0m
+
+  ┃  Compaction failed - request error: error sending request for url (http://127.0.0.1:1/v1/
+  ┃  responses)
+
+     [2mCompacting conversation…[0m
+
+
+
+
+
+
+
+    ⠹ Compacting…                                                               0.1s ⇣2.26k [stop]
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                            │
+  ╰─────────────────────────────────────────────────────────── [2mGrok 4.6 (high)[0m · [2malways-approve[0m ─╯
+
+  [1mShift+Tab[0;2m:mode  │  [0;1mCtrl+x[0;2m:shortcuts[0m
+
