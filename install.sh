@@ -350,8 +350,11 @@ fi
 # Chromium holding real logins -- so it is stood up on the server only, never under a sandbox
 # HOME. The bootstrap checks ownership before touching the machine's shared stack.
 # Registration writes this HOME's harness configs, sandbox HOME included on a server.
+# The shared browser MCP server is the machine's too: one pinned install and one unit for
+# every seat, set up here once rather than fetched per session.
 if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
   bash "$REPO/browser/install.sh" || note "browser step did not finish; continuing install; \`ak browser status\` says what is missing"
+  ak browser install || note "ak browser install did not finish; the browser tool has no shared server"
 fi
 if [ "$ROLE" = server ] && { have claude || have codex; }; then
   ak browser mcp-register || note "ak browser mcp-register did not finish; the harnesses have no browser tool"

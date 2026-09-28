@@ -4727,15 +4727,18 @@ fi
 # --- 31: the shared browser and the desktop ---------------------------------
 # 31a-c are offline and run on every machine. 31d and 31e make real model calls through the
 # MCP servers `ak browser mcp-register` wrote, so they only run where the shared Chromium is
-# actually listening on 9222 -- the server. On a Mac they are skipped, not failed.
+# actually listening on 9222 -- the server. On a Mac they are skipped, not failed. Where the
+# browser answers but its shared MCP server does not, they fail without installing anything:
+# the suite never touches the machine-wide service itself.
 BST=0
 ak browser status >"$WORK/browser-status.txt" 2>&1 || BST=$?
 BSO=$(cat "$WORK/browser-status.txt")
 if [ "$BST" = 0 ] &&
    printf '%s' "$BSO" | grep -q '^cdp  *http://127\.0\.0\.1:9222' &&
    printf '%s' "$BSO" | grep -q '^desktop  *DISPLAY=:99' &&
+   printf '%s' "$BSO" | grep -q '^mcp ' &&
    printf '%s' "$BSO" | grep -q '^novnc '; then
-  ok "31a ak browser status: units, cdp, desktop and the noVNC URL, exit 0"
+  ok "31a ak browser status: units, cdp, desktop, the shared server and the noVNC URL, exit 0"
 else
   no "31a ak browser status exited $BST"
   sed 's/^/      /' "$WORK/browser-status.txt" | head -8
@@ -4776,16 +4779,18 @@ if sorted(servers) != ["browser", "desktop", "existing"]:
 if claude.get("numStartups") != 3 or list(claude.get("projects", {})) != ["/tmp"]:
     problems.append("claude.json lost keys it did not own")
 browser = servers.get("browser", {})
-if browser.get("command") != "npx" or "--isolated" in browser.get("args", []):
+if browser != {"type": "http", "url": "http://localhost:8931/mcp"}:
     problems.append(f"claude browser server = {browser}")
-if browser.get("args", [])[-2:] != ["--cdp-endpoint", "http://127.0.0.1:9222"]:
-    problems.append("claude browser server does not point at the CDP endpoint")
-if browser.get("env", {}).get("DISPLAY") != ":99":
-    problems.append("claude browser server has no DISPLAY")
 if not servers.get("desktop", {}).get("args", [""])[0].endswith("desktop-mcp.py"):
     problems.append(f"claude desktop server = {servers.get('desktop')}")
+if servers.get("desktop", {}).get("env", {}).get("DISPLAY") != ":99":
+    problems.append("claude desktop server has no DISPLAY")
 if sorted(codex.get("mcp_servers", {})) != ["browser", "desktop"]:
     problems.append(f"codex mcp_servers={sorted(codex.get('mcp_servers', {}))}")
+if codex.get("mcp_servers", {}).get("browser", {}) != {"url": "http://localhost:8931/mcp"}:
+    problems.append(f"codex browser server = {codex.get('mcp_servers', {}).get('browser')}")
+if "@playwright/mcp@latest" in raw or "npx" in raw:
+    problems.append("config.toml still fetches the browser server per session")
 if codex.get("approval_policy") != "never" or list(codex.get("projects", {})) != ["/home/x/code"]:
     problems.append("config.toml lost keys it did not own")
 if "# kept" not in raw:
@@ -4832,6 +4837,16 @@ except Exception:
 " 2>/dev/null; then
   # Codex's config is private to this suite, so give it the same MCP servers locally.
   checked "$WORK/mcp-register.log" ak browser mcp-register || no "31d/31e MCP registration"
+  # A browser whose shared server never bound its port fails here; the suite installs
+  # nothing itself, since under its sandbox HOME that would point the real unit at a
+  # directory the cleanup then deletes.
+  if python3 -c "
+import socket, sys
+try:
+    socket.create_connection(('127.0.0.1', 8931), timeout=3).close()
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
   if skip_spent 31d opus; then
     :
   else
@@ -4864,6 +4879,9 @@ except Exception:
   else
     no "31e codex over MCP: $(tail -c 200 "$WORK/mcp-codex.txt")"
   fi
+  fi
+  else
+    no "31d/31e MCP shared server is not listening on 127.0.0.1:8931; run \`ak browser install\` on the server"
   fi
 else
   skip_checks 31d/31e "the shared browser is not on this host: nothing listens on 127.0.0.1:9222"

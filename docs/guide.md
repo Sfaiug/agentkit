@@ -369,11 +369,13 @@ sends only requested files, so Remote Login stays off; a reader under the termin
 that app read, and a new terminal tab or `ak` starts both. It logs to the Mac's `~/.agentkit/macbridge/macbridge.log`.
 
 The server runs one Chromium on a virtual display whose profile holds the real logins; it speaks CDP on `127.0.0.1:9222`
-and five system units keep it up over reboots. Agents reach it through the `browser` and `desktop` MCP servers `ak
-browser mcp-register` registers for Claude Code and Codex, and Muse through `browser/bridge.py`. `ak browser status`
-shows the units, tabs and noVNC URL; `ak browser login` prints the URL and password for signing a site in by hand; `ak
-browser install` stands it up where there is none. The tick closes a tab idle for an hour or past twelve open, and one a
-run or seat opened closes when it ends or stops; Chromium is never restarted. noVNC binds to the Tailscale address.
+and five system units keep it up over reboots, plus one more for the browser tool: a single shared Playwright MCP server
+on `localhost:8931` serves every seat over HTTP, from a package `ak browser install` pins once, never fetched per session.
+Agents reach it through the `browser` (by URL) and `desktop` MCP servers `ak browser mcp-register` registers for Claude
+Code and Codex, and Muse through `browser/bridge.py`. `ak browser status` shows the units, tabs and noVNC URL; `ak browser
+login` prints the URL and password for signing a site in by hand; `ak browser install` stands it up where there is none.
+The tick closes a tab idle for an hour or past twelve open, and one a run or seat opened closes when it ends or stops;
+Chromium is never restarted. noVNC binds to the Tailscale address.
 
 ## The history
 
