@@ -1771,17 +1771,46 @@ class _MergeHold:
         self.lock, self.lp, self.reserved = lock, lp, reserved
         self.releasable = reserved
         self._released = False
+        self.reservation = None
+        self.lent = False
+
+    def lend(self):
+        """Keep the rebased branch's files reserved while other files can land."""
+        if not self.reserved or not self.releasable or self.lent:
+            return
+        files = merge_turn_files(self.lp.wt, self.lp.base_sha)
+        if files is None:
+            return                 # unknown files still need the exclusive turn
+        path = Path(self.lock.name)
+        if merge_turn_blocker(path, files):
+            # Integration can rename a branch's paths. If those now overlap another
+            # reservation, this lap checks unheld and takes a fresh turn afterwards.
+            self.release()
+            return
+        self.reservation = path.with_suffix(
+            f".{os.getpid()}.{threading.get_ident()}.hold").open("w+")
+        fcntl.flock(self.reservation, fcntl.LOCK_EX)
+        json.dump(sorted(files), self.reservation)
+        self.reservation.flush()
+        self.lent = True
+        fcntl.flock(self.lock, fcntl.LOCK_UN)
 
     def release(self):
         if self._released:
             return
         self._released = True
         try:
-            if self.lock is not None:
-                try:
-                    self.lock.close()
-                except (OSError, ValueError):
-                    pass
+            try:
+                if self.reservation is not None:
+                    path = Path(self.reservation.name)
+                    self.reservation.close()
+                    path.unlink(missing_ok=True)
+            finally:
+                if self.lock is not None:
+                    try:
+                        self.lock.close()
+                    except (OSError, ValueError):
+                        pass
         finally:
             self.lock = None
             held = getattr(_PICKUP_HELD, "count", 0)
@@ -3668,6 +3697,9 @@ def set_base(lp, tip):
     """The branch now carries the pinned tip, so that is what its diff is against from here on."""
     lp.state["base_sha"] = git(lp.wt, "rev-parse", f"{tip}^{{commit}}")
     save_state(lp.run_dir, lp.state)
+    hold = getattr(_MERGE_HELD, "hold", None)
+    if hold is not None:
+        hold.lend()
 
 
 def on_pass(lp):
@@ -4041,10 +4073,16 @@ def integrate(lp, upstream):
                         return note(lp, f"done-when or review after the {how} of {upstream} "
                                         "did not pass")
                     lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
-        rc, out = git_out(lp.wt, "fetch", "origin", "--prune")
-        if rc != 0:
-            return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
-        new_tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False)
+        hold = getattr(_MERGE_HELD, "hold", None)
+        if hold is not None and hold.reserved:
+            # A borrower may have landed during the check. Let `land` fetch under
+            # the delivery turn and carry these checks over that disjoint move.
+            new_tip = tip
+        else:
+            rc, out = git_out(lp.wt, "fetch", "origin", "--prune")
+            if rc != 0:
+                return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
+            new_tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False)
         if not new_tip:
             return note(lp, f"{upstream} does not exist on origin; nothing to merge into",
                         failed=True)
@@ -4763,7 +4801,8 @@ def land(lp, upstream, verify, deliver, execv=None):
     One moved only by commits that touch none of this branch's files is rebased onto
     under the turn and lands on the verified checks.  Any other move gives the turn to
     the next run while this one verifies again holding it, from before its rebase
-    through its merge, so the lap lands when its check passes; a third such lap parks
+    through its merge, lending the delivery turn only to branches changing other files,
+    so the lap lands when its check passes; a third such lap parks
     the run `waiting`, as a target moving under three integrations does.  A reserved
     turn is let go before any fixer or reviewer starts, and when the run stops, and the
     next lap takes it again.  A branch cut from a dependency's passed branch first waits
@@ -4886,34 +4925,67 @@ def merge_turn(lp, upstream, reserve=False):
     verified on a target the other's merge has just moved.  So the runs of one origin and
     target branch take turns, and `land` keeps everything long outside them, except a lap
     after a lost one, which reserves the turn from before its rebase through its merge.
-    The turn is a flock, which the kernel lets go of when its holder dies, so a run killed
-    mid-merge never blocks the next.  A run waiting for it says so on its record, and host
+    After its rebase a reserved lap lends the delivery flock, keeping a flock on its
+    file list instead. Disjoint branches can then deliver one at a time; overlapping
+    branches wait for the reservation without blocking delivery. The kernel releases
+    both flocks when their holder dies. A run waiting says so on its record, and host
     admission does not count it as a running worker meanwhile; a reserved lap marks its
-    own hold to land.  A lap already holding the turn takes no second one: a reserved
-    lap's fetch and merge run under the turn it already holds.
+    own hold to land. A reserved lap takes its lent delivery turn back before its fetch
+    and merge, keeping its reservation until it finishes.
     """
-    if getattr(_MERGE_HELD, "hold", None) is not None:
+    current = getattr(_MERGE_HELD, "hold", None)
+    if current is not None and not current.lent:
         yield
         return
     url = git(lp.wt, "remote", "get-url", "origin", check=False) or str(lp.state.get("repo"))
     config.RUNS.mkdir(parents=True, exist_ok=True)
     what = f"{Path(lp.state.get('repo') or lp.wt).name} {upstream.removeprefix('origin/')}"
-    lock = merge_turn_lock(url, upstream).open("a")
+    path = merge_turn_lock(url, upstream)
+    lock = current.lock if current is not None else path.open("a")
+    waited = False
+
+    def waiting():
+        nonlocal waited, step
+        if waited or current is not None:
+            return                 # the holder keeps its holding mark while a borrower finishes
+        waited = True
+        lp.state["merge_turn"] = {"pid": os.getpid(), "of": what}
+        save_state(lp.run_dir, lp.state)
+        lp.log(f"--- merge: waiting for the merge turn of {what}; another run is landing on it")
+        step = history.close_step(lp.state.get("run_id"), log=lp.log)
+
+    step = None
     try:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            lp.state["merge_turn"] = {"pid": os.getpid(), "of": what}
-            save_state(lp.run_dir, lp.state)
-            lp.log(f"--- merge: waiting for the merge turn of {what}; another run is landing on it")
-            step = history.close_step(lp.state.get("run_id"), log=lp.log)   # a wait, not work
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX)
-            finally:
+            while True:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    waiting()
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                blocker = merge_turn_blocker(
+                    path, merge_turn_files(lp.wt, upstream),
+                    current.reservation.name if current is not None else None)
+                if blocker is None:
+                    break
+                fcntl.flock(lock, fcntl.LOCK_UN)
+                waiting()
+                try:
+                    with blocker.open() as other:
+                        fcntl.flock(other, fcntl.LOCK_EX)
+                except FileNotFoundError:
+                    pass           # the holder finished between the probe and the wait
+        finally:
+            if waited:
                 lp.state.pop("merge_turn", None)
                 save_state(lp.run_dir, lp.state)
+        if waited:
             history.open_step(lp.state.get("run_id"), step, log=lp.log)
             lp.log(f"--- merge: took the merge turn of {what}")
+        if current is not None:
+            current.lent = False
+            yield
+            return
         held = getattr(_PICKUP_HELD, "count", 0)
         _PICKUP_HELD.count = held + 1
         try:
@@ -4933,11 +5005,50 @@ def merge_turn(lp, upstream, reserve=False):
             if getattr(_MERGE_HELD, "hold", None) is hold:
                 hold.release()
     finally:
-        if lock is not None:
+        if lock is not None and current is None:
             try:
                 lock.close()
             except (OSError, ValueError):
                 pass
+
+
+def merge_turn_files(wt, upstream):
+    """The branch's paths, including both sides of renames; None means unknown."""
+    base = git(wt, "merge-base", upstream, "HEAD", check=False)
+    if not base:
+        return None
+    # `git()` strips whitespace; NUL-delimited paths can start with it, or contain
+    # newlines. Read stdout intact so those are still the same files in every clone.
+    code, out, err = tool_run(["git", "-C", str(wt), "diff", "--no-renames",
+                               "--name-only", "-z", base, "HEAD"])
+    if stopped(code, err):
+        raise Stopped(f"git diff stopped in {wt}: {err.strip()}")
+    return set(out.split("\0")) - {""} if code == 0 else None
+
+
+def merge_turn_blocker(path, files, own=None):
+    """A live overlapping reservation, probed only while holding delivery's flock."""
+    for reserved in path.parent.glob(f"{path.stem}.*.hold"):
+        if str(reserved) == own:
+            continue
+        try:
+            with reserved.open() as probe:
+                try:
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    try:
+                        theirs = json.load(probe)
+                    except (ValueError, OSError):
+                        return reserved
+                    if (files is None or not isinstance(theirs, list)
+                            or not all(isinstance(name, str) for name in theirs)
+                            or files.intersection(theirs)):
+                        return reserved
+                else:
+                    reserved.unlink(missing_ok=True)   # a dead holder's record is no hold
+        except FileNotFoundError:
+            pass
+    return None
 
 
 def merge_turn_lock(url, upstream):
