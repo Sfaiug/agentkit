@@ -277,12 +277,16 @@ class LandReserve(LandingCase):
         acme_checks = [held for name, held in self.checks if name == "acme"]
         self.assertEqual(acme_checks, [False, True])
         acme_rebases = [held for name, held in self.rebases if name == "acme"]
-        self.assertEqual(acme_rebases, [False, True])
+        # the first rebase verifies outside, the second re-checks holding, and the
+        # third carries those checks over the disjoint branch that borrowed the turn
+        self.assertEqual(acme_rebases, [False, True, True])
         acme_merges = [held for name, held in self.merges if name == "acme"]
         self.assertEqual(acme_merges, [True])
         bravo_checks = [held for name, held in self.checks if name == "bravo"]
         self.assertEqual(bravo_checks, [False])
         self.assertNotIn("waiting for the merge turn", (two.run_dir / "log.txt").read_text())
+        self.assertIn("none touching this branch's files; landing on the verified checks",
+                      (one.run_dir / "log.txt").read_text())
         run.git(owner, "pull", "--ff-only", "origin", "main")
         self.assertTrue((owner / "acme.txt").exists() and (owner / "bravo.txt").exists())
 
