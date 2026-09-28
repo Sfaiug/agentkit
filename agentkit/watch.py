@@ -1200,7 +1200,11 @@ def screen_state(harness, tail):
     where everything under it is chrome, so a transcript echoing a past turn above newer
     output can never read as one.
     """
-    raw_lines = [line.rstrip() for line in tail.splitlines() if strip_sgr(line).strip()]
+    # A queued inbound message is below the active UI, not part of its dialog or composer.
+    inbound = _pattern((config.manifest(harness).get("screen") or {}).get("inbound"),
+                       f"adapters/{harness}.toml")
+    raw_lines = [line.rstrip() for line in tail.splitlines() if strip_sgr(line).strip()
+                 and not (inbound and inbound.fullmatch(strip_sgr(line).strip()))]
     lines = [strip_sgr(line).strip() for line in raw_lines]
     if not lines:
         return None, "", ""
