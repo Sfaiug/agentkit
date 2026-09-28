@@ -786,10 +786,11 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
         refuse_unready(cfg, providers, want_review)
         reviewer = want_review
         if want_exec is None:
-            # A named reviewer does not execute its own review while another worker
-            # is ready: the executor steps past the reviewer's own model.
-            executor = next((n for n in order if not same_model(cfg, n, reviewer)),
-                            executor)
+            # A named reviewer takes the best executor for it: tier first, then
+            # budget, through the same pair choice every automatic pick uses.
+            pair = best_pair(cfg, order, [reviewer])
+            if pair is not None:
+                executor = pair[0]
     else:
         review_order = ready_order(cfg, providers, reviewers if reviewers is not None else workers,
                                    role="reviewer", quiet=quiet, repo=repo)
@@ -5773,10 +5774,25 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 if reviewer is not None and same_model(cfg, executor, reviewer):
                     # A saved self-review steps aside when a better pair is ready: its own
                     # model reviews only as the last choice, never while another pair runs.
+                    # Once the round's executor has answered, only the reviewer moves: the
+                    # work is already its author's, and handing it over would record the
+                    # review against a model that never ran it.
+                    answered = bool(state.get("review_pending"))
+                    if not answered:
+                        try:
+                            nxt = len(state.get("round_summaries") or []) + 1
+                            rd = Path(run_dir) / f"round-{nxt}"
+                            answered = (finished_answer(rd, "executor") is not None or
+                                        finished_answer(rd, "fixer") is not None)
+                        except (OSError, ValueError, TypeError, AttributeError):
+                            answered = False
                     try:
-                        exec_order = ready_order(cfg, providers, workers, None, repo=repo,
-                                                 reviewers=reviewers, quiet=True)
-                        better = best_pair(cfg, exec_order, order)
+                        if answered:
+                            better = best_pair(cfg, [executor], order)
+                        else:
+                            exec_order = ready_order(cfg, providers, workers, None, repo=repo,
+                                                     reviewers=reviewers, quiet=True)
+                            better = best_pair(cfg, exec_order, order)
                     except (config.Error, OSError, ValueError, KeyError, TypeError,
                             AttributeError):
                         better = None

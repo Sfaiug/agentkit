@@ -258,8 +258,8 @@ sys.exit(row["code"])
             self.assertEqual(state["executor"], "fable")
             self.assertIn("fable", config.active_session(self.cfg)["workers"])
             self.assertEqual([r["model"] for r in self.calls("executor")], ["fable"])
-            # The preference is gone by resume; a saved self-review steps aside when a
-            # better pair is ready, so the best cross-company pair takes the new round.
+            # The preference is gone by resume; the review is still pending, so only the
+            # reviewer moves to the best cross-company model for the saved executor.
             self.providers["anthropic"]["meters"][1]["used"] = 80
             fail_then_pass = [
                 {"code": 0, "text": "VERDICT: FAIL\nFix the remaining finding."},
@@ -267,11 +267,11 @@ sys.exit(row["code"])
             self.respond({state["reviewer"]: fail_then_pass, "astra": fail_then_pass})
             self.assertEqual(run.cmd_resume([directory.name, "--rounds", "2"]), 0)
             state = run.read_state(directory)
-            self.assertEqual(state["executor"], "opus")
+            self.assertEqual(state["executor"], "fable")
             self.assertEqual(state["rounds"], 2)
-            self.assertIn(state["reviewer"], ("astra", "spark", "opus", "fable"))
-            self.assertEqual([r["model"] for r in self.calls("executor")], ["fable", "opus"])
-            self.assertEqual(self.calls("executor")[1]["session"], [])
+            self.assertEqual(state["reviewer"], "astra")
+            self.assertEqual([r["model"] for r in self.calls("executor")], ["fable", "fable"])
+            self.assertEqual(self.calls("executor")[1]["session"], ["session-fable"])
             self.assertTrue(run.review_pass(state, self.cfg))
 
     def test_legacy_pass_gets_fresh_review_without_waiting(self):
@@ -287,9 +287,8 @@ sys.exit(row["code"])
                     self.assertEqual([r["role"] for r in self.calls()[count:]], ["reviewer"])
                     state = run.read_state(directory)
                     self.assertTrue(run.review_pass(state, self.cfg))
-                    self.assertEqual(state["reviewer"],
-                                     "fable" if reviewer == "astra" else reviewer)
-                    if reviewer == "astra":
+                    self.assertEqual(state["reviewer"], "fable")
+                    if reviewer in ("astra", "opus"):
                         self.assertEqual(self.calls()[-1]["session"], [])
 
     def test_saved_success_skips_workers_but_mismatched_evidence_does_not(self):

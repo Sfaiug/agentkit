@@ -336,6 +336,68 @@ class RoleGroups(unittest.TestCase):
                              prior=dict(lp.state))
         self.assertEqual((state["executor"], state["reviewer"]), ("alpha", "beta"))
 
+    def test_resume_with_pending_review_keeps_executor_and_repicks_reviewer(self):
+        lp = self.loop("alpha", "alpha", ["alpha", "beta"])
+        lp.state.update(title="Resume", no_merge=True, branch=None, base_sha=None,
+                        review_pending={"round": 1, "summary": "work"})
+        task = lp.run_dir / "task.md"
+        task.write_text("---\nrepo: none\nrounds: 1\n---\n# Resume\n\n"
+                        "## Done when\n```bash\ntrue\n```\n")
+        opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
+                "--no-merge": True, "--no-worktree": True, "--bg": False}
+        with patch.object(run, "rounds"), \
+                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(run, "collect_usage",
+                             return_value=self.providers(a=30, b=10, c=0)), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            run.save_state(lp.run_dir, lp.state)
+            state = run.loop(self.cfg, lp.run_dir, task, opts, self.logs.append,
+                             prior=dict(lp.state))
+        self.assertEqual((state["executor"], state["reviewer"]), ("alpha", "beta"))
+        self.assertNotIn("executor_history", state)
+
+    def test_resume_with_pending_review_keeps_self_when_same_executor_has_none_better(self):
+        lp = self.loop("beta", "beta", ["beta", "alpha"])
+        lp.state["reviewers"] = ["beta"]
+        lp.state.update(title="Resume", no_merge=True, branch=None, base_sha=None,
+                        review_pending={"round": 1, "summary": "work"})
+        task = lp.run_dir / "task.md"
+        task.write_text("---\nrepo: none\nrounds: 1\n---\n# Resume\n\n"
+                        "## Done when\n```bash\ntrue\n```\n")
+        opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
+                "--no-merge": True, "--no-worktree": True, "--bg": False}
+        with patch.object(run, "rounds"), \
+                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(run, "collect_usage",
+                             return_value=self.providers(a=30, b=10, c=0)), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            run.save_state(lp.run_dir, lp.state)
+            state = run.loop(self.cfg, lp.run_dir, task, opts, self.logs.append,
+                             prior=dict(lp.state))
+        self.assertEqual((state["executor"], state["reviewer"]), ("beta", "beta"))
+
+    def test_resume_with_answered_executor_keeps_self_when_same_has_none_better(self):
+        lp = self.loop("beta", "beta", ["beta", "alpha"])
+        lp.state["reviewers"] = ["beta"]
+        lp.state.update(title="Resume", no_merge=True, branch=None, base_sha=None)
+        answered = lp.run_dir / "round-1" / "executor"
+        answered.mkdir(parents=True, exist_ok=True)
+        (answered / "final.md").write_text("## Summary\nwork")
+        task = lp.run_dir / "task.md"
+        task.write_text("---\nrepo: none\nrounds: 1\n---\n# Resume\n\n"
+                        "## Done when\n```bash\ntrue\n```\n")
+        opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
+                "--no-merge": True, "--no-worktree": True, "--bg": False}
+        with patch.object(run, "rounds"), \
+                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(run, "collect_usage",
+                             return_value=self.providers(a=30, b=10, c=0)), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            run.save_state(lp.run_dir, lp.state)
+            state = run.loop(self.cfg, lp.run_dir, task, opts, self.logs.append,
+                             prior=dict(lp.state))
+        self.assertEqual((state["executor"], state["reviewer"]), ("beta", "beta"))
+
     def test_reviewer_silence_transient_and_quota_fallback_ignore_foreign_spares(self):
         self.groups()
         for failure in ("silence", "transient", "quota"):

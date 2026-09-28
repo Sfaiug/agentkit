@@ -127,9 +127,9 @@ class SelfReviewLast(unittest.TestCase):
         self.assertEqual(run.review_providers(self.cfg, "acme-one", "beta-one"),
                          ("acme", "beta"))
 
-    def test_a_named_reviewer_does_not_execute_its_own_review(self):
+    def test_a_named_reviewer_takes_the_best_executor_for_it(self):
         self.assertEqual(run.pick_models(self.cfg, self.providers, None, "acme-one",
-                                         self.logs.append), ("acme-two", "acme-one"))
+                                         self.logs.append), ("beta-one", "acme-one"))
         self.cfg["defaults"]["workers"] = ["acme-one"]
         self.assertEqual(run.pick_models(self.cfg, self.providers, None, "acme-one",
                                          self.logs.append), ("acme-one", "acme-one"))
