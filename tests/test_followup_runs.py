@@ -175,6 +175,15 @@ class FollowupRuns(unittest.TestCase):
         self.start(directory, run.read_state(directory))
         self.assertEqual(len(self.spawns), 2)
 
+    def test_fix_run_keeps_discovering_run_lists_not_session_current_ones(self):
+        directory, state = self.source("lists", reviewers=[self.executor])
+        config.update_session("seat", workers=[self.reviewer], reviewers=[self.reviewer])
+        with patch.dict(os.environ, {"AGENTKIT_SESSION": "seat"}):
+            child = self.start(directory, state)[0]
+        receipt = run.read_state(child)
+        self.assertEqual(receipt["workers"], state["workers"])
+        self.assertEqual(receipt["reviewers"], [self.executor])
+
     def test_long_first_line_still_fits_github_pr_title_limit(self):
         long_item = "x" * 256 + "\nreproduction details"
         directory, state = self.source("long-title", followups=[long_item])
