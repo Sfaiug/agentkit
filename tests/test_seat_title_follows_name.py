@@ -321,20 +321,25 @@ class SeatTitle(Sandbox):
         self.assertEqual(self.typed, ["/rename quay"])
         self.assertEqual(self.record()["session_title"], "quay")
 
-    def test_seat_lock_is_free_during_key_gap_and_send_waits(self):
+    def test_seat_lock_covers_key_gap_but_not_send_waits(self):
         self.drop_enter = True
         pauses = []
 
         def sleep(seconds):
-            pauses.append(seconds)
             with config.notify_path(self.seat["name"]).with_suffix(".lock").open("a") as handle:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                fcntl.flock(handle, fcntl.LOCK_UN)
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    locked = True
+                else:
+                    locked = False
+                    fcntl.flock(handle, fcntl.LOCK_UN)
+            pauses.append((seconds, locked))
 
         with patch.object(watch.time, "sleep", side_effect=sleep):
             orch.rename("lagoon", "quay", log=self.logs.append)
-        self.assertIn(watch.KEY_GAP, pauses)
-        self.assertIn(watch.SENT_POLL, pauses)
+        self.assertEqual(pauses, [(watch.KEY_GAP, True), (watch.SENT_POLL, False),
+                                  (watch.SENT_POLL, False)])
 
     def test_cli_and_menu_keep_send_warnings(self):
         self.fail_send = True

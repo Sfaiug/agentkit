@@ -2086,9 +2086,10 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     landed, never as a reason for another Enter.  Still held: one more Enter and one
     more wait.  Still held after that, log and return False, leaving the composer
     alone.  Where the seat paints no composer at all, a delivered send counts as sent.
-    `guard` is held around each send and `veto` read inside it; type_into passes its
-    session lock and its owner-decision check, so the waits never hold the lock.  `typed` is
-    told the moment the text is in the composer; `pending` sends only its Enter.
+    `guard` covers text, gap and first Enter, with `veto` read once before typing, so
+    another sender cannot join the line and a later veto cannot strand it. Confirmation
+    waits release the guard; a retry Enter checks the veto under it again. `typed` is
+    told the moment the text is in the composer; `pending` sends only its locked Enter.
     """
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
@@ -2114,15 +2115,14 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             # all there is.
             confirm = any(pattern.search(strip_sgr(line))
                           for line in pane_tail(pane_text(seat)).splitlines())
-    if not pending:
-        with guard() as held:
-            if veto(held if held is not None else name):
-                return False
+    with guard() as held:
+        if veto(held if held is not None else name):
+            return False
+        if not pending:
             if not _send_line(seat, text, log, typed):
                 return False
-        time.sleep(KEY_GAP)
-    with guard() as held:
-        if veto(held if held is not None else name) or not _send_enter(seat, log):
+            time.sleep(KEY_GAP)
+        if not _send_enter(seat, log):
             return False
     if not confirm or _wait_sent(seat, harness, text):
         return True
@@ -2199,7 +2199,7 @@ def sync_title(session, log=lambda _: None, *, force=False):
 
     def veto(held):
         # A rename or another sender may have won while we waited. The receipt and each
-        # send share the seat's lock, but neither the key gap nor the polls hold it.
+        # send share the seat's lock; only confirmation polls release it.
         if held != name or config.session_records().get(name, {}).get("title_sync") != attempt:
             return True
         pane = pane_text(session)

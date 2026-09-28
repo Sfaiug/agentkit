@@ -6,12 +6,15 @@ are the real adapters/<harness>.toml ones, read through `watch.screen`/`classify
 the held-text and dialog cases drive the real tests/fixtures/*-pane.txt captures.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
+import fcntl
 import io
 import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -50,6 +53,7 @@ class V5p(unittest.TestCase):
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
+            "HOME": str(self.root),
             "AGENTKIT_TMUX_SOCKET": "agentkit-test", "AK_RUN_ROLE": "orchestrator",
             "AGENTKIT_DISCORD_WEBHOOK": "", "AGENTKIT_DISCORD_USER_ID": "",
         }))
@@ -149,7 +153,7 @@ class V5p(unittest.TestCase):
         self.assertEqual([e[1] for e in self.events if e[0] == "sleep"], [watch.KEY_GAP])
         self.assertFalse(any("unsent in its composer" in line for line in self.logs))
 
-    def test_v5p_lock_covers_sends_not_waits(self):
+    def test_v5p_lock_covers_text_gap_and_enters_not_confirmation_waits(self):
         class Rec:
             def __enter__(inner):
                 self.events.append(("guard", "enter"))
@@ -159,7 +163,8 @@ class V5p(unittest.TestCase):
                 self.events.append(("guard", "exit"))
                 return False
 
-        panes = [SENT] + [UNSENT] * int(watch.SENT_WAIT / watch.SENT_POLL) + [SENT]
+        polls = int(watch.SENT_WAIT / watch.SENT_POLL)
+        panes = [SENT] + [UNSENT] * (polls + 1) + [SENT]
         with self.fake_tmux(panes):
             self.assertTrue(watch.type_checked(self.session, "continue", self.logs.append,
                                               "claude", guard=lambda: Rec()))
@@ -171,9 +176,57 @@ class V5p(unittest.TestCase):
                 depth -= 1
             elif event[0] == "sleep":
                 spans.append((event[1], depth))
-        self.assertTrue(spans)
-        self.assertTrue(all(held == 0 for _, held in spans))
-        self.assertIn((watch.KEY_GAP, 0), spans)
+            elif event[0] == "send":
+                self.assertEqual(depth, 1, event)
+            elif event[0] == "capture":
+                self.assertEqual(depth, 0, event)
+        self.assertEqual(spans, [(watch.KEY_GAP, 1)] + [(watch.SENT_POLL, 0)] * (polls + 1))
+        self.assertEqual(len(self.sends("Enter")), 2)
+
+    def test_v5p_second_sender_waits_for_first_enter(self):
+        waiting = threading.Event()
+        senders = []
+
+        def second():
+            with config.notify_path("seat").with_suffix(".lock").open("a") as handle:
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    locked = True
+                else:
+                    locked = False
+                    fcntl.flock(handle, fcntl.LOCK_UN)
+            waiting.set()
+            sent = watch.type_checked(self.session, "/rename quay", self.logs.append,
+                                      "claude", guard=lambda: notify.session_lock("seat"))
+            return locked, sent
+
+        def sleep(seconds):
+            if len(self.sends("-l")) == 1:
+                senders.append(pool.submit(second))
+                self.assertTrue(waiting.wait(5), "second sender never reached the lock")
+
+        with ThreadPoolExecutor(max_workers=1) as pool, self.fake_tmux([SENT]), \
+                patch.object(watch.time, "sleep", side_effect=sleep):
+            self.assertTrue(watch.type_checked(self.session, "continue", self.logs.append,
+                                              "claude", guard=lambda: notify.session_lock("seat")))
+            self.assertEqual(senders[0].result(timeout=5), (True, True))
+        self.assertEqual([args[-1] for args in self.sends()],
+                         ["continue", "Enter", "/rename quay", "Enter"])
+
+    def test_v5p_veto_after_typing_does_not_strand_the_line(self):
+        vetoes = []
+
+        def veto(name):
+            vetoes.append(name)
+            return bool(self.sends("-l"))
+
+        with self.fake_tmux([SENT]):
+            self.assertTrue(watch.type_checked(self.session, "continue", self.logs.append,
+                                              "claude", guard=lambda: notify.session_lock("seat"),
+                                              veto=veto))
+        self.assertEqual(vetoes, ["seat"])
+        self.assertEqual([args[-1] for args in self.sends()], ["continue", "Enter"])
 
     def test_v5p_real_stall_fixture_with_held_text_retries_then_warns(self):
         for harness in HARNESSES:
