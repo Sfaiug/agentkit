@@ -173,6 +173,16 @@ class MemoryGate(unittest.TestCase):
         self.assertIn("agentkit.slice", line)
         self.assertIn("4 of 10 G in use", line)
 
+    def test_slice_cpu_divides_by_measured_elapsed_not_requested_sleep(self):
+        with tempfile.TemporaryDirectory(dir=REPO) as temp:
+            cgroup = Path(temp)
+            (cgroup / "cpu.stat").write_text("usage_usec 0\n")
+            def fake_sleep(delay):
+                (cgroup / "cpu.stat").write_text("usage_usec 1000000\n")
+            with patch.object(run.time, "sleep", side_effect=fake_sleep), \
+                    patch.object(run.time, "monotonic", side_effect=[100.0, 101.0]):
+                self.assertAlmostEqual(run._slice_cpu_used(cgroup, delay=0.1), 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

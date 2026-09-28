@@ -4842,7 +4842,8 @@ def target_fails(lp, upstream, dw_log):
     False when the check names no failing command, when the tree is dirty, and when the tip
     cannot be resolved or checked out: all of those leave the tree alone and run the fixer
     rounds as today.  A stop propagates, after the worktree is put back on the branch head,
-    clean.
+    clean.  A probe of a `# once` command takes a heavy-suite turn; any other probe runs
+    light, as the check it repeats did.
     """
     failed = failing_checks(dw_log)
     if not failed:
@@ -4877,13 +4878,15 @@ def target_fails(lp, upstream, dw_log):
         detached = True
         lp.log(f"--- merge: `{cmd}` failed; probing it once on {upstream} ({tip[:12]})")
         probe_log = lp.run_dir / "target-probe.log"
-        with probe_log.open("ab") as progress:
-            progress.write(f"$ {cmd} (on {upstream} {tip})\n".encode())
-            progress.flush()
-            code, _, killed = worker.limited(
-                ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
-                activity=probe_log, output=progress, stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=run_child_env())
+        heavy_probe = cmd in (getattr(lp, "once", None) or [])
+        with gate_turn(lp.run_dir, probe_log, lp.log) if heavy_probe else nullcontext():
+            with probe_log.open("ab") as progress:
+                progress.write(f"$ {cmd} (on {upstream} {tip})\n".encode())
+                progress.flush()
+                code, _, killed = worker.limited(
+                    ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
+                    activity=probe_log, output=progress, stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=run_child_env())
         # as after a gate: a command that exited may still have left processes behind
         worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
         return bool(killed or code != 0)
@@ -7394,9 +7397,10 @@ def _slice_cpu_quota(cgroup=None):
 def _slice_cpu_used(cgroup=None, delay=0.1):
     """The slice's current CPU use in cores, or None when it cannot be read.
 
-    Two samples of `cpu.stat`'s `usage_usec` a tenth of a second apart: the rate
-    over that window.  A single sample is cumulative since the slice was made,
-    which says nothing live.
+    Two samples of `cpu.stat`'s `usage_usec` around a tenth of a second of sleep:
+    the rate over the measured window.  A single sample is cumulative since the
+    slice was made, which says nothing live; dividing by the measured elapsed
+    rather than the requested sleep keeps a delayed wakeup from overestimating.
     """
     path = (cgroup or orch.slice_cgroup()) / "cpu.stat"
     def _usage():
@@ -7410,11 +7414,15 @@ def _slice_cpu_used(cgroup=None, delay=0.1):
     first = _usage()
     if first is None:
         return None
+    start = time.monotonic()
     time.sleep(delay)
     second = _usage()
     if second is None:
         return None
-    return max(0.0, (second - first) / (delay * 1000000))
+    elapsed = time.monotonic() - start
+    if elapsed <= 0:
+        return None
+    return max(0.0, (second - first) / (elapsed * 1000000))
 
 
 def _slice_memory(cgroup=None):
