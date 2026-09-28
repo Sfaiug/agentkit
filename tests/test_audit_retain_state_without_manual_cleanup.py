@@ -68,6 +68,7 @@ sys.exit(1)
         system_tmp = self.root / "system-tmp"
         system_tmp.mkdir(exist_ok=True)
         self.stack.enter_context(patch.object(run, "TMP_BASE", system_tmp))
+        self.stack.enter_context(patch.object(run, "VAR_TMP_BASE", system_tmp))
         self.cfg = config.load()
         workers = self.cfg["defaults"]["workers"]
         self.executor = workers[0]
