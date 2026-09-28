@@ -57,8 +57,12 @@ with (root / "calls.jsonl").open("a") as fh:
     fh.write(json.dumps({"role": role, "prompt": prompt, "session": sys.argv[7:]}) + "\\n")
 deliverable = pathlib.Path(sys.argv[4], "deliverable")
 if role == "executor":
-    deliverable.write_text("fixture work\\n")
-    (out / "final.md").write_text("## Summary\\nFixture work.")
+    disputed = root / "fixer-summary.md"
+    if prompt.startswith("You are the executor, continuing") and disputed.exists():
+        (out / "final.md").write_text(disputed.read_text())
+    else:
+        deliverable.write_text("fixture work\\n")
+        (out / "final.md").write_text("## Summary\\nFixture work.")
 else:
     plan = json.loads((root / "reviews.json").read_text())
     answer = plan.pop(0) if len(plan) > 1 else plan[0]
@@ -87,6 +91,8 @@ class ReviewGate(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "PATH": f"{self.bin}:{os.environ['PATH']}",
             "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "", "AK_RUN_ROLE": "",
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "TMUX": "", "NO_COLOR": "1",
             "PYTHONDONTWRITEBYTECODE": "1", config.ADAPTER_DIR_ENV: str(adapters),
@@ -157,6 +163,49 @@ sys.exit(1)
         self.assertEqual(state["followups"],
                          ["a.py:1 - rename this - clarity for readers",
                           "b.py:2 - add a test - coverage for the new path"])
+
+    def test_every_reviewer_requires_evidence_and_rules_on_disputes_first(self):
+        for role in ("reviewer", "reviewer-pr", "reviewer-scratch"):
+            with self.subTest(role=role):
+                text = worker.PREAMBLES[role].format(workspace=self.root)
+                self.assertIn("A blocking finding must include evidence: a command that fails, "
+                              "a reproduction, or quoted diff lines that show the defect.", text)
+                self.assertIn("Findings without evidence and everything else are **follow-ups**: "
+                              "list them under `## Follow-ups`", text)
+                self.assertIn("In a re-review, first rule on each disputed finding: upheld or "
+                              "dropped, and why; then say which earlier findings are fixed and "
+                              "which are not, then anything new.", text)
+
+    def test_every_fixer_may_dispute_with_evidence_and_must_fix_the_rest(self):
+        for role, work in (("fixer", "the diff"), ("fixer-scratch", "the workspace")):
+            with self.subTest(role=role):
+                text = worker.PREAMBLES[role].format(workspace=self.root)
+                self.assertIn("You may dispute a finding instead of changing code: list the "
+                              "finding and evidence that it is wrong under `## Disputed` "
+                              "in your summary.", text)
+                self.assertIn("For every undisputed finding, fix every instance of that pattern "
+                              f"in {work}", text)
+                self.assertNotIn("Fix every finding below", text)
+                self.assertIn("re-run the per-round done-when commands", text)
+
+    def test_dispute_without_changes_reaches_re_review_in_the_executor_summary(self):
+        finding = "- deliverable:1 - empty file - no output delivered"
+        summary = ("## Summary\nNo changes needed; `test -s deliverable` exits 0.\n\n"
+                   "## Disputed\n" + finding + "\n"
+                   "Evidence: `test -s deliverable` exits 0; it contains `fixture work`.\n")
+        (self.root / "fixer-summary.md").write_text(summary)
+        self.reviews("VERDICT: FAIL\n\n## Findings\n" + finding,
+                     "Dropped: deliverable is nonempty, as the fixer's command shows.\n" + PASS)
+        code, directory, state = self.launch(rounds=2)
+        self.assertEqual(code, 0, (directory / "log.txt").read_text())
+        calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
+        fixer = [call["prompt"] for call in calls if call["role"] == "executor"][1]
+        reviews = [call["prompt"] for call in calls if call["role"] == "reviewer"]
+        self.assertIn(finding, fixer)
+        self.assertEqual(len(reviews), 2)
+        self.assertNotIn("## Executor summary\n" + summary, reviews[0])
+        self.assertIn("## Executor summary\n" + summary, reviews[1])
+        self.assertEqual([entry["verdict"] for entry in state["round_summaries"]], ["FAIL", "PASS"])
 
     def test_pass_follow_ups_land_in_pr_body_and_the_followups_file(self):
         repo = self.root / "repo"

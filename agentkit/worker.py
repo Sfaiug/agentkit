@@ -15,12 +15,14 @@ from . import command_help, config
 # the fixer has to finish, not a line to patch, so that a later round only confirms fixes.
 NO_NOTIFY = ("`ak notify` is not available in this session; anything you would report or ask goes "
              "into your `## Summary`.")
-EVERY_INSTANCE = ("A finding names one instance of a pattern; fix every instance of that pattern "
-                  "in {work}, not only the cited line, and list the sites you changed in your "
-                  "summary.")
+EVERY_INSTANCE = ("You may dispute a finding instead of changing code: list the finding and "
+                  "evidence that it is wrong under `## Disputed` in your summary. For every "
+                  "undisputed finding, fix every instance of that pattern in {work}, not only "
+                  "the cited line, and list the sites you changed in your summary.")
 ONE_PASS = ("Report every finding you can establish in this one pass, grouped by pattern with "
-            "every site listed, so that a later round only has to confirm fixes. In a re-review, "
-            "say first which earlier findings are fixed and which are not, then anything new.")
+            "every site listed. In a re-review, first rule on each disputed finding: upheld or "
+            "dropped, and why; then say which earlier findings are fixed and which are not, "
+            "then anything new.")
 # A task that cannot be done as written is the task's defect, not the worker's: saying so ends
 # the run there, and the orchestrator that wrote the task gets the sentence back instead of a
 # reviewer's verdict on work nobody could do.
@@ -34,7 +36,9 @@ BLOCKED = ("If the task cannot be completed as written, end with a `## Blocked` 
 GATE = ("A round is `VERDICT: FAIL` only for a **blocking** finding: a correctness defect in "
         "the task's outcome, a safety or data-loss risk, a check the executor weakened or "
         "skipped, or a scope violation (work the task did not ask for, or asked-for work "
-        "missing). Everything else is a **follow-up**: list it under `## Follow-ups` as "
+        "missing). A blocking finding must include evidence: a command that fails, a "
+        "reproduction, or quoted diff lines that show the defect. Findings without evidence "
+        "and everything else are **follow-ups**: list them under `## Follow-ups` as "
         "`path:line - what - why it matters`, never a reason to fail. End `VERDICT: PASS` "
         "when no blocking finding exists, however long the follow-ups list is.")
 # A repository whose AGENTS.md says `users: real` ships a new feature hidden until the owner
@@ -201,9 +205,9 @@ PREAMBLES = {
         "exactly `VERDICT: PASS` or `VERDICT: FAIL`, then `## Findings` as a list of "
         "`path:line - issue - why it matters` for blocking findings only."),
     "fixer": (
-        "You are the executor, continuing. Fix every finding below, re-run the per-round "
+        "You are the executor, continuing. Address every finding below, re-run the per-round "
         "done-when commands, "
-        f"commit, and finish with `## Summary`. {EVERY_INSTANCE.format(work='the diff')} "
+        f"commit any changes, and finish with `## Summary`. {EVERY_INSTANCE.format(work='the diff')} "
         f"{LEAST} {NO_NOTIFY} {BLOCKED}"),
     # somebody else's PR: no executor ran, so the diff is judged against the repository itself
     "reviewer-pr": (
@@ -220,7 +224,7 @@ PREAMBLES = {
         f"file you leave there. {LEAST} Finish with a `## Summary` section: what you produced, "
         f"how you verified it, open issues. {NO_NOTIFY} {BLOCKED}"),
     "fixer-scratch": (
-        "You are the executor, continuing in {workspace}. Fix every finding below, re-run the "
+        "You are the executor, continuing in {workspace}. Address every finding below, re-run the "
         "per-round done-when commands, and finish with `## Summary`. "
         f"{EVERY_INSTANCE.format(work='the workspace')} "
         "Nothing is committed here: the files in the workspace are the deliverable. "
