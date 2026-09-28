@@ -101,11 +101,13 @@ seat_state() {
     '{session: $session, event: $event, kind: $kind, text: $text, at: $at}' \
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
   /bin/mv -f -- "$tmp" "$dir/hook-$row.json" || /bin/rm -f -- "$tmp"
-  look "$seat"
 
   # A new prompt is a new turn: hooks/orchestrator-stop.sh judges that turn against this
   # moment, and the two blocks it is allowed start again from zero here.
-  [[ $event = UserPromptSubmit ]] || return 0
+  if [[ $event != UserPromptSubmit ]]; then
+    look "$seat"
+    return 0
+  fi
   # A prompt another session's message opened -- Claude Code wraps it in
   # <cross-session-message> -- keeps the seat's standing done: the seat only
   # acknowledged the message, so its done from before the turn still tells.
@@ -130,6 +132,18 @@ seat_state() {
     '{session: $session, turn: $turn, blocks: 0, peer: $peer, asked: $asked}' \
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
   /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
+  # The owner's prompt answers an older question wherever it was typed. The launch
+  # name still resolves after a rename; peer messages answer no question of his.
+  if [[ $peer = false ]]; then
+    /usr/bin/env python3 -c '
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
+from agentkit import notify
+notify.answered(sys.argv[2], float(sys.argv[3]))
+' "${BASH_SOURCE[0]}" "$seat" "$ts" || true
+  fi
+  look "$seat"
 }
 
 # The process that ran this hook, and the ones above it, newest first.  The wrapper looks for

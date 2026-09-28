@@ -73,7 +73,7 @@ A hobby project ships straight to live. The first time a new feature comes up in
 
 ## Hearing back
 
-One Discord card when a session needs you. One when the whole job is done. Two words and the session name, nothing else. Never for a session you closed yourself, never twice for the same done, and never after an upgrade for anything that stood before it. Open the host, press the session's number, read, answer. A tmux session with no agent in it, such as a watcher loop, is not a session and never sends one; the card of a session that is gone is closed on the next tick, and the card of one you stop or close reads `Answered` at once.
+One Discord card when a session needs you. One when the whole job is done. Two words and the session name, nothing else. Never for a session you closed yourself, never twice for the same done, and never after an upgrade for anything that stood before it. Open the host, press the session's number, read, answer. Your next prompt answers its question in the pane or over Remote Control, even after a rename: its card reads `Answered` and hand-backs can arrive again. A tmux session with no agent in it, such as a watcher loop, is not a session and never sends one; the card of a session that is gone is closed on the next tick, and the card of one you stop or close reads `Answered` at once.
 
 ## Never needed
 

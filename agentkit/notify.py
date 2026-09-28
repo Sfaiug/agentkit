@@ -389,7 +389,7 @@ def last(session, include_seen=False):
 
 
 def resolved(data):
-    """An orchestrator question resolves after its seat was opened and produced fresh output.
+    """An owner's later prompt, or fresh output after an open, answers a question.
 
     These facts travel with the notice, so rendering never acknowledges it or depends on
     whether tmux reports a client attached. `seen` also covers explicit retirement and
@@ -400,9 +400,29 @@ def resolved(data):
         return True
     if data.get("kind") == "done":
         return False
+    stamps = [data.get(key) for key in ("time", "answered_at")]
+    if (all(isinstance(n, (int, float)) and not isinstance(n, bool) and math.isfinite(n)
+            for n in stamps) and stamps[0] < stamps[1]):
+        return True
     stamps = [data.get(key) for key in ("time", "opened_at", "last_progress_at")]
     return (all(isinstance(n, (int, float)) and not isinstance(n, bool) and math.isfinite(n)
                 for n in stamps) and stamps[0] <= stamps[1] < stamps[2])
+
+
+def answered(session, at):
+    """The owner submitted a prompt; only a question already standing can be its answer.
+
+    The hook owns this fact. Keep it on the notice so a later peer prompt or a rename
+    cannot reopen it, and leave card delivery to the tick rather than delaying the harness.
+    """
+    with session_lock(session) as session:
+        previous = last(session)
+        if not previous or previous["kind"] != "needs":
+            return
+        previous["answered_at"] = at
+        if resolved(previous):
+            record(session, previous["kind"], previous["text"],
+                   **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
 
 
 def job_done(notice):
@@ -928,8 +948,11 @@ def needs_transition(session, card, answer, now, seat=None):
     `ak orch stop` or a pause script: its row says so and its number reopens it, and nobody
     in it is asking him anything.
     """
-    if _attached(session, seat):
-        if not card.get("closed"):
+    declared = last(session, include_seen=True)
+    answered_here = (declared and resolved(declared)
+                     and (declared.get("answered_at") or 0) > card["since"])
+    if _attached(session, seat) or answered_here:
+        if not card.get("closed") or card.get("open_needs"):
             if card.get("sent"):
                 _close_card(session, card, "Answered")
             else:
