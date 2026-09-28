@@ -190,18 +190,19 @@ test suites' `$AK_NOTIFY_SINK` outranks the webhook, so a test never reaches you
 
 ## The picker
 
-At launch a session's run saves its worker list in `run.json`, names it in status and log, and uses only that list for
-every role and handover even if the session changes. Workers rank by budget: the fraction of allowance left plus a week
+Session records and `[defaults]` may list `reviewers` beside `workers`; omitted reviewers use that record's workers.
+Executors use only workers; reviews (including `--review-pr`) and spares use only reviewers. A model can be in both.
+Runs save explicit groups in `run.json` at launch and keep them through handovers, refusals and resumes despite later edits; old records keep their shared worker list. Each group ranks by budget: the fraction of allowance left plus a week
 per reset held, divided by the fraction of window left, using the smallest provider non-session meter. The executor is
 highest budget, with Fable preferred only if listed and its meter trails the shared Claude week; the reviewer is highest
 budget on another provider, else a different model on the same provider unless its `reviews_own_provider = false`. A
 meter at 100% used excludes a worker, and so does a harness not installed or not logged in (no adapter or program, or
 its `auth` verb says no, asked at every pick), with one `skipped <model>: <harness> is not logged in` line in the run's
-log per pick; `--exec` or `--review` naming one is refused, as is a resume whose saved executor no other model can take
+log per pick; `--exec` or `--review` outside its group or naming an unavailable harness is refused, as is a resume whose saved executor no other model can take
 over. An unknown budget ranks last, a pay-as-you-go provider joins only while every subscription that can run is ahead
 of pace by more than `pace_margin`, and a run with no eligible pair parks `exhausted`, but a launch no refill can pair
-(skipped harnesses, or workers with no allowed pair) is refused, by a `--bg` launch's parent too. The orchestrator choice ignores pace (see `n`; every model spent launches the default with a WARN); a run without a session uses the
-default workers. Meters are cached for five minutes and each provider is probed at most once a minute host-wide, a refused worker or a spent reset included (Muse's billed probe once in ten, whatever its meters do); a spent-window
+(skipped harnesses, or groups with no allowed pair) is refused naming the groups, by a `--bg` launch's parent too. The orchestrator choice ignores pace (see `n`; every model spent launches the default with a WARN); a run without a session uses the
+default groups. Meters are cached for five minutes and each provider is probed at most once a minute host-wide, a refused worker or a spent reset included (Muse's billed probe once in ten, whatever its meters do); a spent-window
 refusal parks the provider until it refills (spending a Codex reset first when held); `ak usage` shows the choices.
 
 ## The tick
@@ -282,7 +283,7 @@ was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-
 - `max_runs` (0, no count cap; `ak run status` names the cap in force), `min_free_mb`, `max_load` (0 disables that
   gate), `run_memory_max_mb` (one run's cap in MiB); `AK_MAX_RUNS`, `AK_MIN_FREE_MB` and `AK_MAX_LOAD` override them.
 - `max_gates` (3; 0 no cap): done-when gates of one main checkout at once, host-wide, whichever worktree or seat; the rest wait, shown `waiting for a gate turn of <repo>`, the wait charged to neither silence window nor ceiling; a `config.toml` a gate cannot read means the default, named in the run log.
-- `pace_margin` (10): the picker's pay-as-you-go margin above. `[defaults]`: `orchestrator` and `workers`; an older
+- `pace_margin` (10): the picker's pay-as-you-go margin above. `[defaults]`: `orchestrator`, `workers`, optional `reviewers`; an older
   file's `[tiers]` reads as the first of `A` over `B` without it, and `c` writes `[defaults]` on its next save.
 - `[models.<name>]`: `harness`, `model`, `effort` (one that model takes, per `adapters/<h>.sh models`, or `none`), `provider`,
   `reviews_own_provider` (true), `meter` (a meter of its provider that gates only this model).
