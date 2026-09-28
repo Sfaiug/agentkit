@@ -2593,6 +2593,8 @@ balancecheck "8o-i split meter display reports facts without model preferences" 
   test_usage_balance.py WeeklyBalance.test_split_meter_display_reports_facts_without_preferences
 balancecheck "8o-j ak run resume --rounds preserves a listed Fable executor in its own seat" \
   test_audit_enforce_review_contract.py ReviewContract.test_fable_executor_resumes_review_from_its_seat_with_more_rounds
+balancecheck "8o-k worker lists bind every role and listed models rank by budget alone" \
+  test_worker_list.py
 
 # 8f: budget ranks workers, the resets in hand in it; headroom counts them too (offline, fakes)
 # No cache and no network: four adapters of the suite's own answer `usage`, and the codex one

@@ -271,6 +271,7 @@ class Quota(unittest.TestCase):
         sent, sleeps = [], []
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
+        # This assertion needs the slot poll even when the caller sets AK_MAX_RUNS=0.
         with patch.dict(os.environ, {"AK_MAX_RUNS": "1"}), \
                 patch.object(run.worker, "call", side_effect=turn), \
                 patch.object(usage, "collect", return_value=providers), \
@@ -461,6 +462,7 @@ class QuotaDry(unittest.TestCase):
         self.stack.enter_context(patch.object(usage, "mark_exhausted", side_effect=self.mark))
         self.stack.enter_context(patch.object(config, "workers",
                                               side_effect=lambda cfg: list(self.eligible)))
+        # Without explicit reviewers, both roles use the same selection; mock both readers.
         self.stack.enter_context(patch.object(config, "reviewers",
                                               side_effect=lambda cfg: list(self.eligible)))
         self.eligible = [*self.cfg["defaults"]["workers"], "fable"]
