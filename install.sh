@@ -723,6 +723,88 @@ if have tmux; then
   fi
 fi
 
+# --- (g2b) the ceiling over the slice: the user unit's own ---------------
+# Above agentkit.slice sits user@<uid>.service, and its ceiling holds every process the
+# user runs, so ssh and the owner's own shells keep room under load.  Where this install
+# may use sudo without a password, every install rewrites that ceiling from this
+# machine's own numbers before (g3), so the slice derives from the new value: memory as
+# shares above the slice's 60%/70%, tasks scaling with cores, the slice's own CPU quota,
+# always OOMPolicy=continue.  Only agentkit-limits.conf is ever written: a file that is
+# missing, that opens with agentkit's own first line, or that is the hand-written file
+# this replaces (named agentkit-limits.conf, with its five fixed settings) is agentkit's;
+# any other drop-in in that directory is left alone.  Without passwordless sudo nothing
+# is written and one line says what to run instead; sudo is never asked for a password.
+# There are no pins for this ceiling: the slice's slice_* pins stay what they are.
+user_manager() {   # is there a user systemd manager here, to hold a slice and its limits?
+  have systemctl || return 1
+  # An install run from cron, over ssh without a login shell or from a sudo -u has no session
+  # environment, and `systemctl --user` then has no idea where to look: the runtime directory
+  # is the uid's own and the bus is the socket inside it.  Exported, because the reload below
+  # needs the same answer.
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+  case "$(systemctl --user is-system-running 2>/dev/null)" in
+    initializing|starting|running|degraded|maintenance|stopping) return 0 ;;
+  esac
+  return 1
+}
+UNIT_LIMITS="${AK_SYSTEMD_SYSTEM:-/etc/systemd/system}/user@$(id -u).service.d/agentkit-limits.conf"
+unit_handwritten() { # unit_handwritten <file>: is it the fixed-numbers file this replaces?
+  local file=$1 key
+  for key in "TasksMax=4096" "MemoryHigh=11G" "MemoryMax=12500M" "CPUQuota=700%" "OOMPolicy=continue"; do
+    grep -qF -- "$key" "$file" 2>/dev/null || return 1
+  done
+}
+if [ "$ROLE" != server ]; then
+  :   # a client starts no agent here; the ceiling belongs where the seats are
+elif [ "$SANDBOX" = 1 ]; then
+  echo "user-unit: sandbox HOME, so the user@$(id -u).service ceiling is not written"
+elif ! user_manager; then
+  echo "user-unit: no user systemd manager here; no unit ceiling to write"
+else
+  unit_first=""
+  if [ -e "$UNIT_LIMITS" ]; then unit_first=$(head -n 1 -- "$UNIT_LIMITS" 2>/dev/null || true); fi
+  case "$unit_first" in
+    "# Written by agentkit's install.sh"*) unit_ours=1 ;;
+    *) unit_ours=0 ;;
+  esac
+  if [ -e "$UNIT_LIMITS" ] && [ "$unit_ours" = 0 ] && unit_handwritten "$UNIT_LIMITS"; then
+    unit_ours=1   # today's hand-written file, named agentkit-limits.conf: taken over
+  fi
+  if [ -e "$UNIT_LIMITS" ] && [ "$unit_ours" = 0 ]; then
+    echo "user-unit: $UNIT_LIMITS is yours, not agentkit's; left byte-identical"
+  elif ! have sudo || ! sudo -n true 2>/dev/null; then
+    echo "user-unit: no passwordless sudo, so $UNIT_LIMITS is not written; run \`sudo -v\` and re-run ./install.sh to add it"
+  else
+  # Memory is shares above the slice's 60%/70%, so systemd follows this machine with no
+  # rewrite; tasks scale with cores from the hand-written 4096 on eight; the CPU quota is
+  # the slice's own, leaving one core to everything else.
+  unit_cpus=$(nproc 2>/dev/null || echo 1)
+  case "$unit_cpus" in ''|*[!0-9]*) unit_cpus=1 ;; esac
+  unit_tasks=$((unit_cpus * 512)); [ "$unit_tasks" -ge 2048 ] || unit_tasks=2048
+  unit_quota=$(( (unit_cpus - 1) * 100 )); [ "$unit_quota" -ge 100 ] || unit_quota=100
+  if sudo -n mkdir -p -- "${UNIT_LIMITS%/*}" 2>/dev/null &&
+     sudo -n tee "$UNIT_LIMITS" >/dev/null 2>/dev/null <<EOF
+# Written by agentkit's install.sh: the ceiling over the slice, for user@$(id -u).service.
+# Rewritten on every install from this machine's own numbers; a larger machine raises it
+# by itself.  The slice's slice_* pins hold slice values still; this ceiling always follows.
+[Service]
+TasksMax=$unit_tasks
+MemoryHigh=80%
+MemoryMax=90%
+CPUQuota=${unit_quota}%
+OOMPolicy=continue
+EOF
+  then
+    sudo -n systemctl daemon-reload 2>/dev/null ||
+      note "run \`sudo systemctl daemon-reload\` to pick up $UNIT_LIMITS"
+    echo "user-unit: $UNIT_LIMITS caps user@$(id -u).service at $unit_tasks tasks, 90% of memory and ${unit_quota}% CPU"
+  else
+    note "user-unit: $UNIT_LIMITS could not be written; run \`sudo -v\` and re-run ./install.sh"
+  fi
+  fi
+fi
+
 # --- (g3) the ceiling for everything the toolkit starts ---------------------
 # `ak orch` starts its tmux servers inside `agentkit.slice`, and tmux leaves every pane in a
 # scope under that slice, so one ceiling there holds every agent process on the machine --
