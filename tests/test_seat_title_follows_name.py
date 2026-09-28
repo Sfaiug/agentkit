@@ -200,7 +200,7 @@ class SeatTitle(Sandbox):
                                          hand_over=False), "resumed")
         words = shlex.split(next(args[-1] for args in self.commands if args[0] == "respawn-pane"))
         self.assertEqual(words[words.index("--remote-control") + 1], "lagoon")
-        self.assertEqual(self.record()["session_title"], "lagoon")
+        self.assertEqual(self.record()["session_title"], "former-name")
         self.seat["exited"] = False
         self.pane = self.fixture("prompt").replace("❯\u00a0\n", self.composer("/rename former-name"))
         pane = self.pane
