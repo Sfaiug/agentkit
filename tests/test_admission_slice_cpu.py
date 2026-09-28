@@ -134,9 +134,9 @@ class AdmissionSliceCpu(unittest.TestCase):
         readings = {**READINGS, "slice_cpu_pressure": 12}
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(readings)}):
             self.assertEqual(run.host_status_line(),
-                             "host: 8 cpus · ak cpu pressure 12% · 4 G free · "
+                             "host: 8 cpus · ak cpu 12% · 4 G free · "
                              "a run is admitted while ≥ 3 G free and "
-                             "ak cpu pressure ≤ 40% · at most 1 run at once")
+                             "ak cpu ≤ 40% · at most 1 run at once")
 
 
 if __name__ == "__main__":

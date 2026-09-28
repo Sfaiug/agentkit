@@ -7021,9 +7021,9 @@ def host_status_line():
                     "a run is admitted (host memory and load gates off)")
         signal = f"load {_load(_reading(readings, 'load', 'load1'))}"
     else:
-        gates.append(f"ak cpu pressure ≤ {CPU_PRESSURE_LIMIT}%")
+        gates.append(f"ak cpu ≤ {CPU_PRESSURE_LIMIT}%")
         admitted = "a run is admitted while " + " and ".join(gates)
-        signal = f"ak cpu pressure {_pct(_reading(readings, 'slice_cpu_pressure'))}"
+        signal = f"ak cpu {_pct(_reading(readings, 'slice_cpu_pressure'))}"
     try:
         limit = config.max_runs()
     except config.Error:
