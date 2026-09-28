@@ -40,17 +40,21 @@ nobody has acknowledged) whenever there are any, otherwise `<n> merged` over the
 days; a seat that has launched nothing says `no runs yet`.
 
 The title is `agentkit` and the clock, and says nothing about the machine or the build;
-opening the menu, like drawing it, calls git for nothing at all.  A usage row is the provider's
-*shared* weekly meter -- the one every model of it draws on: a bar and `NN% left`, then
-`resets <weekday> <HH:MM>` in local time, then `Fable 41%` for a scoped cap that reads
-differently, then `? <reason>` when the last probe errored though the meter it read still
-stands, or `rate limited` / `unavailable` when the endpoint would not answer it at all and this
-reading stood in.  No row says how old its reading is: the readings are kept current instead.
+opening the menu, like drawing it, calls git for nothing at all.  A usage row is one
+account's *shared* weekly meter -- the one every model of it draws on: a provider that lists
+`accounts` has one row per account in config order, the usual login as `Claude` and the
+others as `Claude second`, each from its own reading, and a provider without them keeps its
+single row.  A bar and `NN% left`, then `resets <weekday> <HH:MM>` in local time, then
+`Fable 41%` for a scoped cap that reads differently, then `5h 40% left` for the 5-hour
+window (`5h spent until 14:00` once it reads 100% used), then `? <reason>` when the last
+probe errored though the meter it read still stands, or `rate limited` / `unavailable`
+when the endpoint would not answer it at all and this reading stood in.  No row says how old
+its reading is: the readings are kept current instead.
 The bar's filled cells are the company's own colour (`COLOURS`, or the provider's `colour` key),
 and the rows run red through violet by that colour's hue, the near-greys last.  `—` is drawn
 only when there is no shared week to draw -- no reading at all, or nothing but one model's
 private cap -- and the words after it say why.  Everything else `ak usage` knows -- week
-elapsed, session, the resets in hand, headroom, budget, outlook -- stays in `ak usage`.
+elapsed, the resets in hand, headroom, budget, outlook -- stays in `ak usage`.
 
 The main screen is live.  It draws at once from the cached meters, then probes every provider
 in the background and draws again when the answer lands, and again every ten seconds after
@@ -1628,6 +1632,40 @@ def resets_note(meter, now):
     return f"resets {when}" if when else ""
 
 
+def session_window(prov, now):
+    """The 5h window this account reports that a note can be read from, or None.
+
+    The furthest along of its session meters with a numeric used% in a window that has not
+    rolled over; the week aside, this is what stops a turn first.
+    """
+    meters = [m for m in prov.get("meters") or []
+              if m.get("window_secs") == usage.SESSION_SECS
+              and usage._number(m.get("used")) is not None and not usage._past(m, now)]
+    return max(meters, key=lambda m: m["used"]) if meters else None
+
+
+def session_note(prov, now):
+    """(rank, note) for what is left of the 5h window, or None when it reports none.
+
+    `5h 40% left` while it has room; once it reads 100% used, when it opens again (`5h
+    spent until 14:00`, the local hour).  The spent note ranks first, so it is the note that
+    survives where only one can.
+    """
+    meter = session_window(prov, now)
+    if meter is None:
+        return None
+    if meter["used"] >= 100:
+        when = usage.reset_when(meter, now)
+        if when and ":" in when:
+            return -1, f"5h spent until {when.split()[-1]}"
+        if when and when.startswith("in "):
+            return -1, f"5h spent {when}"
+        if when:
+            return -1, f"5h spent until {when}"
+        return -1, "5h spent"
+    return 2, f"5h {percent_left(meter)}% left"
+
+
 def fault(prov):
     """`? <reason>`: the adapter's own one line for a probe that failed, or "" when it did not.
 
@@ -1655,9 +1693,10 @@ def fitting(notes, room):
     A note too long for the room gives way on its own, and the ones after it are not thrown
     out with it: `rate limited` beside a four-cell bar is worth having on a phone even where
     `resets Fri 14:00` will never fit.  Each note carries how much it is worth keeping when
-    only some can be -- when the week is back, then why the reading may be wrong, then the
-    scoped cap -- and they are offered in that order and drawn in the row's.  The bar has
-    already given way to its floor by the time anything is offered here.
+    only some can be -- a spent 5h window first, then when the week is back, then why the
+    reading may be wrong, then the 5h window, then the scoped cap -- and they are offered in
+    that order and drawn in the row's.  The bar has already given way to its floor by the
+    time anything is offered here.
     """
     kept, used = set(), 0
     for index in sorted(range(len(notes)), key=lambda i: notes[i][0]):
@@ -1698,22 +1737,26 @@ def hue(kind):
 def usage_lines(cfg, width):
     """The cached weekly allowances, without probing adapters or spending a reset.
 
-    A row is the provider's shared weekly meter -- the one every model of it draws on -- that
+    A row is one account's shared weekly meter -- the one every model of it draws on -- that
     a bar can be drawn from: a numeric used% in a window that has not rolled over, as a bar
-    and `NN% left`.  After the percentage, joined with ` · ` and each only when it applies:
+    and `NN% left`.  A provider that lists `accounts` has one row per account in config
+    order, the usual login under the provider's name (`Claude`) and the others with the
+    account's (`Claude second`), each from its own reading; a provider without them keeps
+    its single row.  After the percentage, joined with ` · ` and each only when it applies:
     `resets <weekday> <HH:MM>` from that meter, or `resets <day> <month>` more than six days
     out in a window longer than a week; one note per scoped meter whose figure differs
-    (`Fable 41%`); `? <reason>` when the last probe errored although the meter it read still
-    stands, or `rate limited` / `unavailable` when the endpoint refused to answer the last probe
-    at all and this reading is the one it could not replace.  Nothing says how old a reading is:
-    the probe cadence keeps them current, and a refused probe says so in its own words.  The
-    filled cells are the provider's `colour`, the empty ones dim, and the rows run by that
-    colour's `hue`.  `ak usage` keeps the rest -- week elapsed, session, the resets in hand,
+    (`Fable 41%`); `5h 40% left` for the 5-hour window, or `5h spent until 14:00` once it
+    reads 100% used; `? <reason>` when the last probe errored although the meter it read
+    still stands, or `rate limited` / `unavailable` when the endpoint refused to answer the
+    last probe at all and this reading is the one it could not replace.  Nothing says how old
+    a reading is: the probe cadence keeps them current, and a refused probe says so in its own
+    words.  The filled cells are the provider's `colour`, the empty ones dim, and the rows run
+    by that colour's `hue`.  `ak usage` keeps the rest -- week elapsed, the resets in hand,
     headroom, budget, outlook -- and the picker keeps ranking on the tightest meter: only
     this display changed.  The bars are one column, sized once per draw from the row with the
     least room, down to four cells; the bar gives way to the notes first, and only then does
     each note that still will not fit give way on its own (`fitting`), so one long note never
-    takes a short one with it.  A provider whose every readable week is one model's own cap
+    takes a short one with it.  An account whose every readable week is one model's own cap
     has no shared week to show and says so rather than wearing that cap's number.  A row with
     nothing to draw is `—` and the words that say why, never `—` alone.
     """
@@ -1724,8 +1767,18 @@ def usage_lines(cfg, width):
     except (OSError, ValueError, KeyError, TypeError):
         providers = {}
     order = sorted(cfg["providers"], key=lambda name: hue(colour(cfg, name)))
-    names = {name: NAMES.get(name, name.title()) for name in order}
-    label_room = min(16, max((terminal.cells(terminal.plain(n)) for n in names.values()),
+    shown = {name: NAMES.get(name, name.title()) for name in order}
+    rows = []
+    for name in order:
+        listed = config.accounts(cfg, name)
+        if listed:
+            for account in listed:
+                label = (shown[name] if account == config.DEFAULT_ACCOUNT
+                         else f"{shown[name]} {account}")
+                rows.append((name, account, label))
+        else:
+            rows.append((name, None, shown[name]))
+    label_room = min(16, max((terminal.cells(terminal.plain(label)) for _, _, label in rows),
                              default=0), max(1, width - 16))
     bar_width = min(12, max(1, width - label_room - 15))
     now = time.time()
@@ -1733,10 +1786,16 @@ def usage_lines(cfg, width):
     pending = []
     # The bar never drops below this to keep a note; narrower notes give way first.
     floor = min(4, bar_width)
-    for name, label in names.items():
+    for name, account, label in rows:
         prefix = "  " + terminal.pad(label, label_room) + "  "
-        prov = providers.get(name)
-        prov = prov if isinstance(prov, dict) else {}
+        top = providers.get(name)
+        top = top if isinstance(top, dict) else {}
+        if account is None:
+            prov = top
+        else:
+            found = top.get("accounts") if isinstance(top.get("accounts"), dict) else {}
+            rec = found.get(account)
+            prov = rec if isinstance(rec, dict) else {}
         why = None
         try:
             weekly = [m for m in prov.get("meters") or []
@@ -1751,14 +1810,16 @@ def usage_lines(cfg, width):
             pending.append({"kind": "empty", "prefix": prefix, "why": why})
             continue
         left = max(0, min(100, 100 - week["used"]))
-        shown = percent_left(week)
-        spent = shown == 0
+        shown_pct = percent_left(week)
+        spent = shown_pct == 0
+        five = session_note(prov, now)
         # In the order the row reads them, each with how much it is worth keeping (`fitting`).
         notes = [(rank, part) for rank, part in
                  [(0, resets_note(week, now)),
-                  *((2, note) for note in scoped_notes(cfg, name, readable, week)),
+                  *((3, note) for note in scoped_notes(cfg, name, readable, week)),
+                  *((five,) if five else ()),
                   (1, fault(prov) or refusal(prov))] if part]
-        percent = f"{shown:3d}% left"
+        percent = f"{shown_pct:3d}% left"
         base = terminal.cells(prefix) + len(percent) + 2   # all but the bar and the notes
         parts = fitting(notes, width - base - floor - 3)   # what the bar gives way to
         taken = terminal.cells(" · ".join(parts)) + 3 if parts else 0

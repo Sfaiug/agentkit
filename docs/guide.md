@@ -288,7 +288,7 @@ was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-
   part, a substitution, `OPENCODE_CONFIG`, a file not plain JSON -- is payg. OpenCode runs with project config off, so
   no workspace changes it. For Muse `usage_model` and `usage_effort`: the one cached request its meters come from.
   `accounts = ["default", "second"]` lists subscriptions, `default` the usual login; Claude keeps another's token in
-  `secrets/claude_oauth_token.second` or its login in `~/.claude-second`. Claude turns use the account with most room, then the next; Codex named logins (`~/.codex-second/auth.json`) apply only to seats, not worker turns or meters.
+  `secrets/claude_oauth_token.second` or its login in `~/.claude-second`. Claude turns use the account with most room, then the next; Codex named logins (`~/.codex-second/auth.json`) apply only to seats, not worker turns or meters. The menu shows one usage row per account in config order, the usual login as `Claude` and the others as `Claude second`, each with its week's bar and its 5-hour note (`5h 40% left`, or `5h spent until 14:00` once spent).
   A seat whose subscription runs out tries its provider's reset-credit policy, then resumes its conversation on the next account of the same provider with room and a working seat login (`auth seat`, or the named Codex account's own `auth.json`); new seats also check the login when choosing among configured accounts, and accounts with only a worker token serve workers. A manual new seat can open the configured usual login to sign in when none passes. If none is available during recovery, it reads `needs you` with `<provider> out of usage until <time>` once and recovers when usage returns; a refilled account keeps its login without another auth check (without a proven conversation id, the seat continues in place). Opening it to look keeps recovery active, drafts and questions defer it, closed seats stay closed, and idle prompts stay idle.
 
 Secrets are in `~/.agentkit/secrets/`: `discord_webhook`, `discord_user_id` and `claude_oauth_token` (the worker token
@@ -300,7 +300,7 @@ before removing it, and `users:` (above); task files go by convention in `~/.age
 
 Press `c` and pick `+ add a model`: harness, then model, then effort, in the three lists the README describes; Enter
 adds it, named from its label and offered as orchestrator and as worker at once. Or write the `[models.<name>]` block.
-On `Providers`, `+ add` offers a provider `config.default.toml` has and the config has not, installs a missing harness, logs it in on the terminal, then adds its shipped `[providers.*]` table and first catalog model; `− remove` asks first, `Keep` picked, and a removed provider (`config.remove_provider`) leaves no model, default or usage row; the last stays.
+On `Providers`, `+ add` offers a provider `config.default.toml` has and the config has not, installs a missing harness, logs it in on the terminal, then adds its shipped `[providers.*]` table and first catalog model; `− remove` asks first, `Keep` picked, and a removed provider (`config.remove_provider`) leaves no model, default or usage rows; the last stays.
 
 ### Adding a harness
 
