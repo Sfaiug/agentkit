@@ -1856,18 +1856,17 @@ def launch(name, model, cwd, cmd, conversation, session=None):
     else:
         start(name, cwd, cmd, model)
     if plugin.title_command(name):
-        # Our own last title stays an echo across the relaunch: confirmed, in flight
-        # or already superseded, it never reads as the owner's rename on the next tick.
-        # A new conversation retires these with the sends in title_record.
-        echoes = set(before.get("title_superseded", []))
-        if before.get("session_title"):
-            echoes.add(before["session_title"])
-        pending = before.get("title_sync") or {}
-        if pending.get("name"):
-            echoes.add(pending["name"])
-        echoes.discard(name)
-        config.update_session(name, session_title=name if plugin.title_facts["at_launch"] else None,
-                              title_sync=None, title_superseded=sorted(echoes) or None)
+        # A held rename survives a relaunch on the same conversation: our own last
+        # title stays the echo, so the next tick retypes this name instead of taking
+        # the tool's older title for the owner's rename. Once the new name takes it
+        # stops being an echo, as without a relaunch.
+        echo = before.get("session_title")
+        if (conversation and before.get("conversation") == conversation
+                and echo and echo != name):
+            config.update_session(name, title_sync=None)
+        else:
+            config.update_session(name, session_title=name if plugin.title_facts["at_launch"] else None,
+                                  title_sync=None)
     from . import watch
     # launched under the name again: not the stopped one, and not the owner's closed one
     watch.seat_write(name, stopped_at=None, closed_by_owner=None,

@@ -139,7 +139,8 @@ class RelaunchKeepsName(Sandbox):
         self.assertEqual(self.keys, [])
         self.assertNotIn("title_sync", self.record())
         self.relaunch()
-        self.assertEqual(self.record()["title_superseded"], ["lagoon"])
+        self.assertEqual(self.record()["session_title"], "lagoon")
+        self.assertNotIn("title_superseded", self.record())
         self.pane = self.fixture("idle")
         self.tick()
         self.tick()
@@ -175,6 +176,22 @@ class RelaunchKeepsName(Sandbox):
         self.assertEqual(self.seat["name"], "fix-api")
         self.assertEqual(self.typed, ["/rename fix-api"])
         self.assertEqual(self.record()["session_title"], "fix-api")
+
+    def test_owner_rename_back_to_the_old_name_after_it_takes_renames_the_seat(self):
+        self.pane = (REPO / "tests/fixtures/grok-working-pane.txt").read_text()
+        orch.rename("lagoon", "quay")
+        self.relaunch()
+        self.pane = self.fixture("idle")
+        self.tick()
+        self.tick()
+        self.assertEqual(self.seat["name"], "quay")
+        self.assertEqual(self.record()["session_title"], "quay")
+        self.title("lagoon")
+        self.tick()
+        self.tick()
+        self.assertEqual(self.seat["name"], "lagoon")
+        self.assertEqual(self.typed, ["/rename quay"])
+        self.assertEqual(self.record()["session_title"], "lagoon")
 
 
 class RelaunchClaude(Sandbox):
@@ -252,6 +269,26 @@ class RelaunchClaude(Sandbox):
         self.assertEqual(self.seat["name"], "fix-api")
         self.assertEqual(self.typed, ["/rename fix-api"])
         self.assertEqual(self.record()["session_title"], "fix-api")
+
+    def test_held_rename_then_relaunch_keeps_the_new_name(self):
+        self.title("lagoon")
+        self.pane = self.fixture("draft")
+        orch.rename("lagoon", "quay")
+        self.assertEqual(self.typed, [])
+        orch.launch("quay", "opus", self.root, ["claude"], "fake-conversation")
+        self.assertEqual(self.record()["session_title"], "lagoon")
+        self.pane = self.fixture("prompt")
+        self.tick()
+        self.tick()
+        self.assertEqual(self.seat["name"], "quay")
+        self.assertEqual(self.typed, ["/rename quay"])
+        self.assertEqual(self.record()["session_title"], "quay")
+        self.title("lagoon")
+        self.tick()
+        self.tick()
+        self.assertEqual(self.seat["name"], "lagoon")
+        self.assertEqual(self.typed, ["/rename quay"])
+        self.assertEqual(self.record()["session_title"], "lagoon")
 
 
 if __name__ == "__main__":
