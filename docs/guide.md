@@ -19,7 +19,7 @@ workers` (`opus astra`) not spent. From a pipe the name and model questions read
 `--dry-run` starts no session. The seat opens in `~/code`; `ak orch <name>` keeps the shell's directory and reopens an
 existing seat. As soon as the project is known, `ak orch project [<seat>] <checkout>` files this seat (or the named one) by checkout name or path; only known checkouts are accepted. Each launched run refiles it under the project most of its runs belong to,
 counting a run from its launch, still queued for a slot or not, for the checkout under `~/code` or `~/agentkit`
-(agentkit's own) its task's `repo:` names, else for the one its task's `~/.agentkit/tasks/<project>/` is named for, never
+(agentkit's own; a second clone at `~/code/agentkit` counts as it) its task's `repo:` names, else for the one its task's `~/.agentkit/tasks/<project>/` is named for, never
 one it merely inherits, and a worktree, sandbox or scratch workspace for nothing; a tie keeps its project. A seat with no
 project is filed at the next menu draw or `ak watch` tick once one of its runs counts.
 

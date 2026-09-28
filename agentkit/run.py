@@ -11470,16 +11470,14 @@ def own_pr_orchestrator(cfg, session_name, author):
 
 
 def checkout_for(name_with_owner, log):
-    """The clone of that GitHub repo under ~/code, made with gh if there is none yet."""
+    """The checkout of that GitHub repo (`orch.checkouts`, so agentkit's own is ~/agentkit),
+    cloned under ~/code with gh if there is none yet."""
     want = name_with_owner.lower()
-    if config.CODE.is_dir():
-        for path in sorted(config.CODE.iterdir()):
-            if not (path / ".git").exists():
-                continue
-            remote = git(path, "remote", "get-url", "origin", check=False)
-            tail = "/".join(remote.rstrip("/").removesuffix(".git").replace(":", "/").split("/")[-2:])
-            if tail.lower() == want:
-                return path
+    for path in orch.checkouts():
+        remote = git(path, "remote", "get-url", "origin", check=False)
+        tail = "/".join(remote.rstrip("/").removesuffix(".git").replace(":", "/").split("/")[-2:])
+        if tail.lower() == want:
+            return path
     target = config.CODE / name_with_owner.split("/")[1]
     if target.exists():
         raise config.Error(f"{target} exists and is not a clone of {name_with_owner}")
