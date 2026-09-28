@@ -65,7 +65,7 @@ class FlakyRerun(unittest.TestCase):
     def count(self):
         return len(self.runs.read_text().splitlines())
 
-    def test_a_fail_then_a_pass_passes_with_a_flaky_note_and_one_followup(self):
+    def test_a_fail_then_a_pass_keeps_flaky_evidence_without_a_followup_file(self):
         cmd = self.check("echo all good")
         ok, text, logs = self.gate([cmd, "true"])
         self.assertTrue(ok, text)
@@ -76,12 +76,7 @@ class FlakyRerun(unittest.TestCase):
         self.assertEqual(run.done_when_counts(text, [cmd, "true"]), (2, 2))
         self.assertEqual(run.failing_checks(text), [])
         self.assertEqual(logs, [f"done-when: flaky: {cmd} failed, then passed on its re-run"])
-        lines = self.followups.read_text().splitlines()
-        self.assertEqual(len(lines), 1, lines)
-        day = time.strftime("%Y-%m-%d", time.localtime())
-        self.assertEqual(lines[0], f"- {day} run {RUN_ID}: flaky: {cmd} failed, then passed "
-                                   "on its re-run; its first failure ended: "
-                                   "FAIL: too slow under load")
+        self.assertFalse(self.followups.parent.exists())
 
     def test_a_second_failure_fails_and_runs_exactly_twice(self):
         cmd = self.check("echo 'FAIL: still broken'; exit 1")

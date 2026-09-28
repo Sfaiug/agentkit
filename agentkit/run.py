@@ -30,7 +30,6 @@ from .harness import load as harness_plugin
 DIFF_CAP = 300 * 1024
 OUT_CAP = 20 * 1024
 LESSONS_CAP = 4 * 1024
-FOLLOWUPS_CAP = 24 * 1024   # the orchestrator reads the whole file before every task
 # A worker that dies like this died on the provider, not on the task: it is retried, never scored.
 # Only a fault, never the account: a usage or rate limit names the account and hands the
 # round to another provider instead, through the manifests' own quota words.
@@ -157,7 +156,6 @@ FINDINGS = re.compile(r"^(#+)[ \t]*Findings\b[^\n]*$", re.M | re.I)
 FINDING_ITEM = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+\S", re.M)
 FOLLOWUPS = re.compile(r"^(#+)[ \t]*Follow-ups\b[^\n]*$", re.M | re.I)
 FOLLOWUP_ITEM = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(\S.*)$", re.M)
-FOLLOWUP_PLACE = re.compile(r"[`*]*([^\s`*]+:\d+)")   # the `path:line` an item leads with
 # The two headings a worker's turn ends with: `## Summary` is the work, `## Blocked` is the
 # task itself refusing to be done.  Only a heading on its own line counts, so a preamble
 # quoting either word mid-sentence never ends a run.
@@ -1961,9 +1959,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     A command that exits non-zero runs once more at once, within the same ceiling, and the
     re-run decides it: under load a timing test fails by chance far more often than a change
     breaks it.  A pass that took the re-run is said, not hidden -- a `flaky:` record after
-    the command's keeps the first failure's last lines, and the repository's follow-ups file
-    gets a dated line (`note_flake`).  A killed command is not re-run: it spent the silence
-    window or the ceiling, which a second go would only spend again.
+    the command's keeps the first failure's last lines for the run's follow-ups. A killed
+    command is not re-run: it spent the silence window or ceiling, which a second go would
+    only spend again.
 
     The list runs on one of the repository's gate turns (`gate_turn`), taken before its first
     command and let go however the list ends; the ceiling counts from the turn, not the wait.
@@ -2014,7 +2012,6 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                                          *tail]))
                 if log is not None:
                     log(f"done-when: flaky: {cmd} failed, then passed on its re-run")
-                note_flake(run_dir, cmd, tail[-1] if tail else "(no output)")
             if killed:
                 spent, kept = cmd, out
                 break
@@ -2041,32 +2038,6 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=log)
     artifacts.update(set(dirty_paths(cwd)) - before)
     return ok, text
-
-
-def note_flake(run_dir, cmd, last):
-    """One dated line in the repository's follow-ups file: a done-when line passed on its re-run.
-
-    The gate let the flake through, so the orchestrator is the one told it happened: the run
-    id, the command and the last line its first failure printed.  Written under the lock
-    `append_followups` rewrites the file under, so neither loses the other's line.  A direct
-    caller with no record, or a run with no repository, has no file to write to.
-    """
-    repo = (read_state(run_dir) or {}).get("repo") if run_dir else None
-    if not repo:
-        return
-    if len(last) > 160:
-        last = last[:159] + "\u2026"
-    day = time.strftime("%Y-%m-%d", time.localtime())
-    directory = config.HOME / "followups"
-    try:
-        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        with (directory / ".lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            with (directory / f"{Path(repo).name}.md").open("a", errors="replace") as out:
-                out.write(f"- {day} run {Path(run_dir).name}: flaky: {cmd} failed, then passed "
-                          f"on its re-run; its first failure ended: {last}\n")
-    except OSError:
-        pass              # the gate output already says it; the file is the copy
 
 
 def leftover_junk(path):
@@ -3074,120 +3045,30 @@ def followups_in(text):
     """The reviewer's `## Follow-ups` items, in order, markers stripped.
 
     Read like `finding_count` reads `## Findings`: the section ends at the next heading of
-    the same level or higher, never at a deeper one, and every list item in it is one.
+    the same level or higher, never at a deeper one. Indented evidence stays with its item.
     """
     heading = FOLLOWUPS.search(text or "")
     if not heading:
         return []
     section = text[heading.end():]
     end = re.search(rf"^#{{1,{len(heading.group(1))}}}[ \t]", section, re.M)
-    return [item.strip() for item in
-            FOLLOWUP_ITEM.findall(section[:end.start()] if end else section)]
+    items, indent = [], None
+    for line in (section[:end.start()] if end else section).splitlines():
+        if indent is not None and (not line.strip() or line[:indent].isspace()):
+            items[-1] += "\n" + line[indent:]
+            continue
+        item = FOLLOWUP_ITEM.match(line)
+        indent = item.start(1) if item else None
+        if item:
+            items.append(item.group(1))
+    return [item.strip() for item in items]
 
 
-def followup_key(item):
-    """What deduplicates a follow-up: `path:line - what`, without the why it matters."""
-    parts = [part.strip() for part in item.split(" - ")]
-    return " - ".join(parts[:2]) if len(parts) > 1 else parts[0]
-
-
-def followup_keys(item):
-    """What makes a follow-up repeat an open one: its `path:line - what`, or its `path:line`."""
-    place = FOLLOWUP_PLACE.match(item)
-    return {followup_key(item), *([place.group(1)] if place else [])}
-
-
-def record_followups(lp, text):
-    """Fold this review's `## Follow-ups` into the run's own, deduplicated by `path:line - what`.
-
-    A later round re-listing what an earlier one already said adds nothing: the PR description
-    and the repo's follow-ups file each carry every item once.
-    """
-    seen = {followup_key(item) for item in lp.state.get("followups") or []}
-    for item in followups_in(text):
-        if followup_key(item) not in seen:
-            seen.add(followup_key(item))
-            lp.state.setdefault("followups", []).append(item)
-
-
-def append_followups(state, pr_url):
-    """Append this run's follow-ups to the repo's file, one bullet each, never a repeat.
-
-    The file is `~/.agentkit/followups/<repo basename>.md`, and every bullet carries the
-    date, the run id and the PR number, so the orchestrator reading it before planning the
-    next task knows where each item came from.  An item that repeats an open one -- the same
-    `path:line`, or the same `path:line - what` -- from an earlier round or an earlier run is
-    not written again.  A repository has one file whatever the case of its name: another
-    one (`acme.md` beside `ACME.md`) is merged in by date and removed.  The orchestrator
-    reads the whole file before every task, so past FOLLOWUPS_CAP the oldest bullets move to
-    `<repo basename>.archive.md`, which keeps every one of them and which nobody is told to
-    read.  An entry is a bullet and the lines under it, and it is merged, kept or moved
-    whole.  A run with no repository has no file to write to.
-
-    The read and the rewrite hold one exclusive lock together, on the directory rather than
-    the file, since `repo` and `REPO` rewrite each other's: two runs appending at once
-    would otherwise both see the same item as new and write it twice, or each remove the
-    file the other merged into.
-    """
-    items = state.get("followups") or []
-    repo = state.get("repo")
-    if not items or not repo:
-        return
-    directory = config.HOME / "followups"
-    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    path = directory / f"{Path(repo).name}.md"
-    number = pr_url.rstrip("/").rsplit("/", 1)[-1]
-    day = time.strftime("%Y-%m-%d", time.localtime())
-    try:
-        with (directory / ".lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            others = [other for other in directory.iterdir() if other.name != path.name
-                      and other.name.casefold() == path.name.casefold()]
-            entries = []
-            for source in (path, *others):
-                block = []      # a line that is no bullet belongs to the entry above it
-                for line in (source.read_text(errors="replace")
-                             if source.exists() else "").splitlines():
-                    if line.startswith("- ") or not block:
-                        block.append(line)
-                    else:
-                        block[-1] += f"\n{line}"
-                entries += block
-            if others:
-                # stable: a file's own order stands, and an undated entry counts as oldest
-                entries.sort(key=lambda entry: entry[2:12]
-                             if re.match(r"- \d{4}-\d\d-\d\d", entry) else "")
-            # an entry's item is its first line past the bullet and any `<date> ...: ` stamp,
-            # which a hand-written bullet may not have
-            known = set().union(*(
-                followup_keys(re.sub(r"^- (?:\d{4}-\d\d-\d\d[^:\n]*: )?", "",
-                                     entry.split("\n", 1)[0]))
-                for entry in entries if entry.startswith("- ")))
-            added = []
-            for item in items:
-                if not followup_keys(item) & known:
-                    known |= followup_keys(item)
-                    added.append(f"- {day} run {state['run_id']} PR #{number}: {item}")
-            entries += added
-            size, cut = sum(len(entry.encode()) + 1 for entry in entries), 0
-            while size > FOLLOWUPS_CAP:
-                size -= len(entries[cut].encode()) + 1
-                cut += 1
-            if not (added or others or cut):
-                return
-            # the archive first, then the whole new file in one rename, then the merged-in
-            # ones: whatever fails, every entry is still in one file or another
-            if cut:
-                with (directory / f"{Path(repo).name}.archive.md").open(
-                        "a", errors="replace") as archive:
-                    archive.write("".join(f"{entry}\n" for entry in entries[:cut]))
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text("".join(f"{entry}\n" for entry in entries[cut:]), errors="replace")
-            tmp.replace(path)
-            for other in others:
-                other.unlink()
-    except OSError:
-        pass              # the PR description already carries them; the file is the copy
+def record_flakes(state, text):
+    """Keep each gate's flaky evidence with the current review, including checks after PASS."""
+    for record in text.split("\n\n"):
+        if record.startswith("flaky: ") and record not in state.get("followups", []):
+            state.setdefault("followups", []).append(record)
 
 
 def done_when_counts(dw_log, cmds):
@@ -3578,7 +3459,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         overridden = "the checkout changed after verification"
         lp.log(f"WARN {overridden}; overriding to FAIL")
     record_findings(lp, out, text)
-    record_followups(lp, text)
+    lp.state["followups"] = followups_in(text) if verdict == "PASS" else []
+    if verdict == "PASS":
+        record_flakes(lp.state, dw_log)
     if record:
         lp.state["round_summaries"].append(
             {"round": lp.rnd, "verdict": verdict, "done_when": ok,
@@ -4128,6 +4011,7 @@ def integrate(lp, upstream):
                                                       "rebased_from": old_head,
                                                       "patch_id": patch_id(lp.wt, tip)}
                                 lp.state["verdict"] = saved_verdict
+                                record_flakes(lp.state, dw_log)
                                 lp.state.pop("review_pending", None)
                                 lp.save()
                                 lp.rnd = old_rnd
@@ -4221,17 +4105,31 @@ def pr_body(state):
              f"- run: {state['run_id']}"]
     if state.get("followups"):
         lines += ["", "## Follow-ups", "",
-                  *(f"- {item}" for item in state["followups"])]
+                  *("- " + item.replace("\n", "\n  ") for item in state["followups"])]
     return "\n".join(lines + [""])
+
+
+def refresh_pr_body(lp):
+    """A later passing review replaces the list on the already-open PR too."""
+    path = lp.run_dir / "pr-body.md"
+    body = pr_body(lp.state)
+    if path.is_file() and path.read_text() == body:
+        return True
+    pending = lp.run_dir / "pr-body-update.md"
+    pending.write_text(body)
+    rc, out = gh(lp.wt, "pr", "edit", lp.state["pr"], "--body-file", str(pending))
+    if rc != 0:
+        if stopped(rc, out):
+            raise Stopped(out)
+        return note(lp, f"updating the PR description failed: {out[-400:]}", failed=True)
+    pending.replace(path)      # only a confirmed update may be skipped on a delivery retry
+    return True
 
 
 def open_pr(lp, target_branch):
     """The PR's URL, opening it first unless this branch already has one."""
     if lp.state.get("pr"):
-        # a re-review after the PR already existed may have collected more follow-ups
-        (lp.run_dir / "pr-body.md").write_text(pr_body(lp.state))
-        append_followups(lp.state, lp.state["pr"])
-        return lp.state["pr"]
+        return lp.state["pr"] if refresh_pr_body(lp) else None
     path = lp.run_dir / "pr-body.md"
     path.write_text(pr_body(lp.state))
     rc, out = gh(lp.wt, "pr", "create", "--base", target_branch, "--head", lp.state["branch"],
@@ -4250,7 +4148,6 @@ def open_pr(lp, target_branch):
         return None
     lp.state["pr"] = found.group(0)
     save_state(lp.run_dir, lp.state)
-    append_followups(lp.state, lp.state["pr"])
     lp.log(f"--- merge: PR {lp.state['pr']}" + (" (already open)" if rc != 0 else ""))
     return lp.state["pr"]
 
@@ -4455,12 +4352,9 @@ def fork_and_pr(lp, target_branch, upstream_repo, permission):
                 raise Stopped(out)
             return note(lp, f"gh pr create on {upstream_repo} failed: {out[-400:]}", failed=True)
         lp.state["pr"] = found.group(0)
-        append_followups(lp.state, lp.state["pr"])
         lp.log(f"--- merge: PR {lp.state['pr']}" + (" (already open)" if rc != 0 else ""))
-    else:
-        # a re-review after the PR already existed may have collected more follow-ups
-        (lp.run_dir / "pr-body.md").write_text(pr_body(lp.state))
-        append_followups(lp.state, lp.state["pr"])
+    elif not refresh_pr_body(lp):
+        return False
     lp.state["foreign"] = True
     return note(lp, "waiting for the maintainer")
 
@@ -4531,8 +4425,8 @@ def do_merge(lp, url, upstream):
             if git(lp.wt, "rev-parse", "HEAD") != head:
                 if not final_check(lp, upstream) or not push(lp) or not wait_checks(lp, url):
                     return False
-                (lp.run_dir / "pr-body.md").write_text(pr_body(lp.state))
-                append_followups(lp.state, url)
+                if not refresh_pr_body(lp):
+                    return False
                 ready = True
             else:
                 # GitHub may still be computing mergeability. An unconfirmed answer
@@ -4571,9 +4465,8 @@ def do_merge(lp, url, upstream):
         if (not integrate(lp, upstream) or not final_check(lp, upstream) or not push(lp)
                 or not wait_checks(lp, url)):
             return False
-        # the retry's re-review may have collected more follow-ups after the PR already existed
-        (lp.run_dir / "pr-body.md").write_text(pr_body(lp.state))
-        append_followups(lp.state, url)
+        if not refresh_pr_body(lp):
+            return False
     return note(lp, f"gh pr merge --{method} failed"
                     f"{f' with the PR {why}' if why else ''}; the PR is open at {url}: {out[-400:]}",
                 failed=True)
@@ -4804,6 +4697,7 @@ def final_check(lp, upstream):
         if ok:
             lp.log("final check: all passed")
             lp.state["final_check"] = {"outcome": "passed", "sha": sha}
+            record_flakes(lp.state, text)
             save_state(lp.run_dir, lp.state)
             return True
         failing = first_failure(text)
