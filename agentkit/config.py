@@ -42,7 +42,7 @@ CODE = Path.home() / "code"                # where the checkouts live, and where
 RENAME_HOPS = 8                            # how many renames a session name is followed through
 DEFAULT_MODEL = "default"                  # config.toml: the harness runs its own model, no -m
 SESSION_STALE = 7 * 86400                  # a record whose session has been gone this long goes
-RUN_DEFAULTS = {"max_runs": 0, "max_gates": 3}
+RUN_DEFAULTS = {"max_runs": 0}
 CONFIG_NAME = "config.toml"                # the one config file, under HOME: never in the checkout
 DEFAULT_CONFIG_NAME = "config.default.toml"   # ... whose shipped default install.sh copies there
 EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")   # the effort words for a
@@ -65,8 +65,26 @@ def max_runs():
 
 
 def max_gates():
-    """How many done-when gates of one repository run at once, host-wide; zero means no cap."""
-    return _count_setting("max_gates")
+    """Pinned heavy-suite turns, or None when the config leaves the count derived.
+
+    An explicit `max_gates` in the home config file pins the host-wide count, 0
+    still meaning no cap; a missing file or a missing key means the count is
+    derived from the slice's live headroom, never a shipped number.
+    """
+    path = HOME / CONFIG_NAME
+    try:
+        with path.open("rb") as fh:
+            data = tomllib.load(fh)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        raise Error(f"{path}: {exc}") from exc
+    if "max_gates" not in data:
+        return None
+    value = data["max_gates"]
+    if type(value) is not int or value < 0:
+        raise Error(f"{path}: max_gates must be a non-negative integer")
+    return value
 
 
 def _count_setting(key):

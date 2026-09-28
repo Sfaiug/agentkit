@@ -81,7 +81,7 @@ slice CPU pressure is above 40%, or the nearest limited cgroup is past 75% of it
 file cache; a pinned `max_load` restores the host-load check instead, each run the host has frozen counting 1 while held; a
 worker's own test runs share the parent's slot, and a third level is refused. A run that hits its own memory cap, the
 40% of the slice ceiling, 4 GB where there is no ceiling, unless `run_memory_max_mb` sets it, ends `fail` with `killed: memory cap`.
-`ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the CPU gate but still waiting for the memory floor, and takes its repository's next gate turn first, marked `first` in `ak run status`.
+`ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the CPU gate but still waiting for the memory floor, and takes the next heavy suite turn first, marked `first` in `ak run status`.
 A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run
 scope and cap; one run from a terminal runs its tasks in its own process.
 
@@ -104,7 +104,7 @@ Re-review rules on each dispute first, upheld or dropped, and says why. Three ro
 
 On PASS the run brings the branch up to date with `origin/<target>` (a rebase, or a merge where `merge: merge` is asked
 or the branch already carries merge commits), pushes, opens the PR, waits out the required checks and merges it, squash
-by default. Each landing lap takes its gate turn first, then rebases onto the target's tip and runs each check once on
+by default. Each landing lap takes its heavy suite turn first, then rebases onto the target's tip and runs each check once on
 that commit, letting the turn go before any fixer or reviewer starts. A clean integration keeps its review if the
 done-when passes again; an empty one ends PASS. A conflict or a failing `# once`
 check gets up to three fixer rounds, never task rounds, then parks `waiting` on the target ref and SHA until the tick sees it move (a check
@@ -286,7 +286,7 @@ was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-
 
 - `max_runs` (0, no count cap; `ak run status` names the cap in force), `min_free_mb`, `max_load` (unset: ak's CPU pressure
   gates; pinned: the host load check, 0 disables it), `run_memory_max_mb` (one run's cap in MiB); `AK_MAX_RUNS`, `AK_MIN_FREE_MB` and `AK_MAX_LOAD` override them.
-- `max_gates` (3; 0 no cap): done-when gates of one main checkout at once, host-wide, whichever worktree or seat; the rest wait, shown `waiting for a gate turn of <repo>`, the wait charged to neither silence window nor ceiling; a `config.toml` a gate cannot read means the default, named in the run log.
+- `max_gates` (unset; 0 no cap): heavy suites at once, host-wide, derived from the slice's live CPU and memory headroom unless pinned; the rest wait, shown `waiting for a heavy suite turn`, the wait charged to neither silence window nor ceiling; `ak run status` names the count in force and whether it is derived or pinned; a `config.toml` a suite cannot read means derived, named in the run log.
 - `pace_margin` (10): the picker's pay-as-you-go margin above. `[defaults]`: `orchestrator`, `workers`, optional `reviewers`; an older
   file's `[tiers]` reads as the first of `A` over `B` without it, and `c` writes `[defaults]` on its next save.
 - `[models.<name>]`: `harness`, `model`, `effort` (one that model takes, per `adapters/<h>.sh models`, or `none`), `provider`,

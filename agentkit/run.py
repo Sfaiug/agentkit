@@ -1605,6 +1605,8 @@ def dirty_paths(wt):
 
 
 GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each rewrites its log line
+HEAVY_CPUS = 0.7      # one heavy suite's measured cost: ~0.7 core and ~0.4 GB, its own
+HEAVY_MEM_MB = 410    # Postgres, port and temp dir, so twice the headroom fits twice the suites
 
 
 def main_checkout(repo):
@@ -1621,9 +1623,14 @@ def main_checkout(repo):
 
 
 def gate_lock(repo, slot):
-    """The lock file of one of a repository's gate turns: its main checkout, whichever worktree."""
-    digest = hashlib.sha256(str(repo).encode()).hexdigest()
-    return config.RUNS / f".gate-{digest}-{slot}.lock"
+    """The lock file of one host-wide heavy-suite turn; `repo` is ignored.
+
+    Turns were per repository, one set of slot files per main checkout.  Only the
+    heavy suite takes one now, counted host-wide, so every suite meets on the same
+    files whichever repository it checks.  The argument stays so old callers still
+    pass it.
+    """
+    return config.RUNS / f".heavy-{slot}.lock"
 
 
 def take_slot(slots):
@@ -1652,14 +1659,16 @@ def _first_landing_wait(run_dir):
 
 
 def mark_gate_wait(run_dir, of):
-    """Put `waiting for a gate turn of <repo>` on the record, or take it off (`of` None).
+    """Put `waiting for a heavy suite turn` on the record, or take it off (`of` None).
 
-    `of` is the repository's main checkout; the note shows its folder name.  With this
-    process's pid, as the merge turn's mark is, and the wait's start, so a freed turn
-    goes to the waiter that has waited longest.  A landing run's mark says so; the
-    start of its first landing wait lives beside the record, where whole-record saves
-    cannot wipe it (see `_first_landing_wait`): that start is what this returns for a
-    lander, the wait's own start otherwise, and None when it recorded none.
+    `of` is the repository the waiter checks, kept on the mark from the
+    per-repository turns; the note and the rank are host-wide and ignore it.  With
+    this process's pid, as the merge turn's mark is, and the wait's start, so a
+    freed turn goes to the waiter that has waited longest.  A landing run's mark
+    says so; the start of its first landing wait lives beside the record, where
+    whole-record saves cannot wipe it (see `_first_landing_wait`): that start is
+    what this returns for a lander, the wait's own start otherwise, and None when
+    it recorded none.
     """
     since = time.time()
     try:
@@ -1691,26 +1700,26 @@ def mark_gate_wait(run_dir, of):
 
 
 def gate_turn_note(state):
-    """`waiting for a gate turn of <repo>` while a run waits in `gate_turn`, else ""."""
+    """`waiting for a heavy suite turn` while a run waits in `gate_turn`, else ""."""
     turn = state.get("gate_turn")
     if (state.get("state") != "running" or not isinstance(turn, dict)
             or turn.get("pid") != state.get("pid")):
         return ""
-    return f"waiting for a gate turn of {Path(str(turn.get('of'))).name}"
+    return "waiting for a heavy suite turn"
 
 
 def _gate_waiter_before(repo, exclude, is_first, since, is_landing=False):
-    """Whether a live waiter for `repo` ranks before this gate.
+    """Whether a live heavy-suite waiter ranks before this gate; `repo` is ignored.
 
-    Rank is a landing run before any round check, then `--first` before the rest,
-    then the longest wait, then the run id, so a freed turn finishes a run ready to
-    land before starting another round's check.  A lander's wait counts from the
-    start of its first landing wait, not from the lap; a mark from before landers
-    ranked carries no landing and reads as a round check.  A mark whose process is
-    gone, or whose
-    pid no longer matches its record -- a kill or a resume left it behind -- holds
-    nobody back, and a waiter counts only when its mark names this main checkout,
-    never a folder name two checkouts share.
+    Turns were per repository and only a waiter of the same main checkout counted.
+    They are host-wide now, so every live waiter counts whichever repository it
+    checks.  Rank is a landing run before any round check, then `--first` before
+    the rest, then the longest wait, then the run id, so a freed turn finishes a
+    run ready to land before starting another round's check.  A lander's wait
+    counts from the start of its first landing wait, not from the lap; a mark from
+    before landers ranked carries no landing and reads as a round check.  A mark
+    whose process is gone, or whose pid no longer matches its record -- a kill or
+    a resume left it behind -- holds nobody back.
     """
     me = (not is_landing, not is_first, since, exclude or "")
     for directory in run_dirs():
@@ -1721,8 +1730,6 @@ def _gate_waiter_before(repo, exclude, is_first, since, is_landing=False):
             continue
         turn = other.get("gate_turn")
         if not isinstance(turn, dict) or turn.get("pid") != other.get("pid"):
-            continue
-        if turn.get("of") != str(repo):
             continue
         if not process_active(other):
             continue
@@ -1837,61 +1844,126 @@ class _MergeHold:
                 _MERGE_HELD.hold = None
 
 
+def derived_heavy_limit(readings=None):
+    """How many heavy suites the slice's live headroom fits; at least one.
+
+    The slice's idle cores over one suite's 0.7, and its free memory over 0.4 GB,
+    whichever fits fewer: twice the headroom fits twice the suites, and a
+    saturated slice fits one, so a new suite waits but nothing stalls.  Memory is
+    the slice's own `memory.high` headroom where the readings carry it, the host's
+    free memory where there is no slice to read; an unreadable gate fails open to
+    the other resource, and to one suite where neither answers.
+    """
+    if readings is None:
+        readings = host_readings()
+    cpus = _reading(readings, "cpus", "nproc")
+    load = _reading(readings, "load", "load1", "load_1m")
+    if cpus is not None and load is not None:
+        cpu_free = cpus - load
+    elif cpus is not None:
+        cpu_free = float(cpus)
+    else:
+        cpu_free = None
+    unit = _unit_memory(readings)
+    if unit is not None:
+        mem_free = unit[1] - unit[0]
+    else:
+        mem_free = _reading(readings, "free_mb", "mem_available_mb", "mem_available")
+    candidates = []
+    if cpu_free is not None:
+        candidates.append(int(cpu_free / HEAVY_CPUS))
+    if mem_free is not None:
+        candidates.append(int(mem_free / HEAVY_MEM_MB))
+    if not candidates:
+        return 1
+    return max(1, min(candidates))
+
+
+def heavy_suite_limit(readings=None):
+    """(limit, pinned): the heavy-suite turns in force; 0 means no cap.
+
+    An explicit `max_gates` pins the host-wide count; otherwise it is derived
+    from live readings, so twice the machine runs twice the suites.  A home
+    config this cannot read raises, and the caller falls back to derived.
+    """
+    pinned = config.max_gates()
+    if pinned is not None:
+        return pinned, True
+    return derived_heavy_limit(readings), False
+
+
 def _acquire_gate_turn(run_dir, log_path, log):
-    """Wait for and hold one of the repository's gate turns; None when no turn is taken."""
+    """Wait for and hold one host-wide heavy-suite turn; None when no turn is taken."""
     record = read_state(run_dir) or {} if run_dir else {}
     repo = record.get("repo")
     is_first = bool(record.get("first"))
     is_landing = bool(record.get("landing"))
     landing_since = _first_landing_wait(run_dir) if run_dir else None
     self_id = run_dir.name if run_dir else None
-    limit = 0
-    if repo and os.environ.get("AK_MAX_RUNS") != "0":
+    if not repo or os.environ.get("AK_MAX_RUNS") == "0":
+        return None
+    said_bad = []
+    def current_limit():
         try:
-            limit = config.max_gates()
+            return heavy_suite_limit()
         except config.Error as exc:
-            limit = config.RUN_DEFAULTS["max_gates"]
-            if log is not None:
-                log(f"done-when: {exc} · the gate takes one of the shipped default's {limit} turns")
+            if log is not None and not said_bad:
+                said_bad.append(True)
+                log(f"done-when: {exc} · the heavy suite takes a derived turn")
+            return derived_heavy_limit(), False
+    limit, _ = current_limit()
     if not limit:
         return None
-    repo = main_checkout(repo)
     config.RUNS.mkdir(parents=True, exist_ok=True)
-    name = Path(repo).name
     files = ExitStack()
     try:
         slots = [files.enter_context(gate_lock(repo, i).open("a")) for i in range(limit)]
-        slot = take_slot(slots)
+        def fitted(new_limit):
+            while len(slots) < new_limit:
+                slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
+            return slots[:new_limit]
+        slot = take_slot(fitted(limit))
         me_since = landing_since if is_landing and landing_since is not None else time.time()
         if slot is None or _gate_waiter_before(repo, self_id, is_first, me_since, is_landing):
             if slot is not None:
                 fcntl.flock(slot, fcntl.LOCK_UN)
+                slot = None
             began = time.monotonic()
-            said = f"waiting for a gate turn · {limit} of {name} running"
+            said = f"waiting for a heavy suite turn · {limit} running"
             if log is not None:
                 log(f"done-when: {said}")
             waited_since = mark_gate_wait(run_dir, repo)
             if waited_since is None:
                 waited_since = me_since if is_landing else time.time()
             step = history.close_step(run_dir.name)     # the wait is no step's work
+            uncapped = False
             try:
                 while True:
                     log_path.write_text(said + "\n")
                     stop_check(run_dir)
                     time.sleep(GATE_POLL)
-                    slot = take_slot(slots)
+                    limit, _ = current_limit()
+                    if not limit:
+                        uncapped = True
+                        break
+                    said = f"waiting for a heavy suite turn · {limit} running"
+                    slot = take_slot(fitted(limit))
                     if slot is None:
                         continue
                     if _gate_waiter_before(repo, self_id, is_first, waited_since,
                                              is_landing):
                         fcntl.flock(slot, fcntl.LOCK_UN)
+                        slot = None
                         continue
                     break
             finally:
                 mark_gate_wait(run_dir, None)
             history.open_step(run_dir.name, step)
+            if uncapped:
+                files.close()
+                return None
             if log is not None:
-                log(f"done-when: took a gate turn of {name} after "
+                log(f"done-when: took a heavy suite turn after "
                     f"{orch.span(time.monotonic() - began)}")
     except BaseException:
         files.close()
@@ -1903,27 +1975,32 @@ def _acquire_gate_turn(run_dir, log_path, log):
 
 @contextmanager
 def gate_turn(run_dir, log_path, log):
-    """One of the repository's `max_gates` done-when turns, held for as long as the list runs.
+    """One host-wide heavy-suite turn, held for as long as the list runs.
 
-    The host is disk-bound and a gate writes tens of gigabytes: three gates of one repository
-    each take as long as one alone, five take four times as long, and nothing capped them.  So
-    the gates of one main checkout -- whichever worktree, seat or process -- take turns,
-    `max_gates` at once.  A turn is a flock on one of the repository's slot files, which the
-    kernel lets go of when its holder dies, so a killed gate never blocks the next.  A waiting
-    gate rewrites its own log every poll, so the stall ladder reads the wait as life, and says
-    so on its record for `ak run status`; the ceiling starts once the turn is its own, and a
-    stop lands while it waits as it does mid-list.  A run without a repository, a direct caller
-    with no record, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0` all take no turn.
-    A freed turn goes to the waiter that has waited longest among the highest rank,
-    a landing run before any round check and `--first` before the rest: a gate takes
-    a free turn only when no waiter ranks before it, and a lander's wait counts from
-    the start of its first landing wait.
-    A home config this cannot read -- it is read here, mid-run, so one hand-edit typo would
-    fail the next gate of every running run -- means the shipped default, and a log line
-    naming the problem.
-    A check running while this thread already holds a turn takes no second one: a landing
-    lap holds one turn across its rebase and its checks, and the checks under it wait for
-    none.
+    Only the heavy suite -- the `# once` line, the repository's `tests:` suite at
+    the final check -- takes one; every other done-when command runs without.  A
+    suite builds its own Postgres, port and temp dir at ~0.7 core and ~0.4 GB, so
+    the turns are counted host-wide from the slice's live headroom, twice the
+    machine twice the suites, at least one so nothing stalls; an explicit
+    `max_gates` pins the count instead.  A turn is a flock on one of the host's
+    slot files, which the kernel lets go of when its holder dies, so a killed
+    suite never blocks the next.  A waiting suite rewrites its own log every poll,
+    so the stall ladder reads the wait as life, and says so on its record for `ak
+    run status`; the ceiling starts once the turn is its own, and a stop lands
+    while it waits as it does mid-list.  A run without a repository, a direct
+    caller with no record, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0`
+    all take no turn.  The limit is re-read on every poll, so a changed pin or a
+    changed headroom reaches runs already queued.  A freed turn goes to the waiter
+    that has waited longest among the highest rank, a landing run before any round
+    check and `--first` before the rest: a suite takes a free turn only when no
+    waiter ranks before it, and a lander's wait counts from the start of its first
+    landing wait.
+    A home config this cannot read -- it is read here, mid-run, so one hand-edit
+    typo would fail the next suite of every running run -- means a derived count,
+    and a log line naming the problem.
+    A check running while this thread already holds a turn takes no second one: a
+    landing lap holds one turn across its rebase and its checks, and the checks
+    under it wait for none.
     """
     if getattr(_GATE_HELD, "hold", None) is not None:
         yield
@@ -1975,7 +2052,7 @@ def released_gate_turn():
 
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
-                  run_dir=None):
+                  run_dir=None, heavy=False):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -2000,8 +2077,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     command is not re-run: it spent the silence window or ceiling, which a second go would
     only spend again.
 
-    The list runs on one of the repository's gate turns (`gate_turn`), taken before its first
-    command and let go however the list ends; the ceiling counts from the turn, not the wait.
+    When `heavy` the list runs on one host-wide heavy-suite turn (`gate_turn`),
+    taken before its first command and let go however the list ends; the ceiling
+    counts from the turn, not the wait.  Otherwise it runs without one.
     """
     limit = 3600 * CEILING_HOURS if limit is None else limit
     silence = 60 * SILENCE_MINUTES if silence is None else silence
@@ -2010,7 +2088,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     spent, killed, kept = None, False, ""   # the command the limit ran out on, whether it had
                                             # begun, and the output it had produced by then
     reason = []
-    with gate_turn(run_dir, log_path, log):
+    with gate_turn(run_dir, log_path, log) if heavy else nullcontext():
         deadline = time.monotonic() + limit
         log_path.write_text("")
         for cmd in cmds:
@@ -4832,7 +4910,7 @@ def final_check(lp, upstream):
         clean = git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
         ok, text = run_done_when(cmds, lp.wt, lp.run_dir / "final-check.log", lp.artifacts,
                                  lp.done_when_limit, lp.log, silence=lp.turn_limit,
-                                 run_dir=lp.run_dir)
+                                 run_dir=lp.run_dir, heavy=True)
         if (not clean or commit_identity(lp.wt) != identity
                 or git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
             ok = False
@@ -7322,7 +7400,9 @@ def host_status_line():
 
     A positive `max_runs` is a gate like the other two, so the line names it: `at most 4
     runs at once`. A pinned `max_load` keeps the old load wording; otherwise the CPU
-    gate is the slice's own pressure.
+    gate is the slice's own pressure.  The heavy-suite turns in force close the
+    line, and whether an explicit `max_gates` pins them or the slice's headroom
+    derives them.
     """
     readings = host_readings()
     minimum, maximum = resource_limits(readings)
@@ -7346,13 +7426,22 @@ def host_status_line():
         limit = 0
     if limit:
         admitted += f" · at most {limit} run{'s' if limit != 1 else ''} at once"
+    try:
+        pinned = config.max_gates()
+    except config.Error:
+        pinned = None
+    if pinned is not None:
+        heavy = ("heavy suites: no cap (pinned)" if not pinned else
+                 f"heavy suites: {pinned} at once (pinned)")
+    else:
+        heavy = f"heavy suites: {derived_heavy_limit(readings)} at once (derived)"
     segment = ""
     unit = _unit_memory(readings)
     if unit and len(unit) > 3 and unit[3]:
         segment = f" · {unit[3]} {_g(unit[0])} of {_g(unit[1])} G in use"
     return (f"host: {int(cpus)} cpus · {signal} · "
             f"{_g(_reading(readings, 'free_mb', 'mem_available_mb'))} G free{segment} · "
-            f"{admitted}")
+            f"{admitted} · {heavy}")
 
 
 def free_memory_mb():
