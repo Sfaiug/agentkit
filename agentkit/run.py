@@ -3168,6 +3168,8 @@ def start_followups(state, run_dir, log, cfg=None):
             if open_followup(source, item):
                 continue
             title = "Fix " + item.splitlines()[0]
+            if len(title) > 256:  # GitHub rejects a longer PR title; the item stays whole below
+                title = title[:255] + "…"
             name = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
             directory = config.RUNS / name
             number = 1

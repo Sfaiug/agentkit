@@ -175,6 +175,15 @@ class FollowupRuns(unittest.TestCase):
         self.start(directory, run.read_state(directory))
         self.assertEqual(len(self.spawns), 2)
 
+    def test_long_first_line_still_fits_github_pr_title_limit(self):
+        long_item = "x" * 256 + "\nreproduction details"
+        directory, state = self.source("long-title", followups=[long_item])
+        child = self.start(directory, state)[0]
+        heading = run.parse_task(child / "task.md")[2]
+        self.assertTrue(heading.startswith("Fix "))
+        self.assertLessEqual(len(heading), 256)
+        self.assertIn(long_item, (child / "task.md").read_text())
+
     def test_exclusions_and_closed_session_start_nothing(self):
         for index, changes in enumerate(({"merged": False}, {"launched_session": None},
                                          {"scratch": True}, {"followups": []},
