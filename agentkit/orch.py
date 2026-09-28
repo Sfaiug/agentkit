@@ -2078,6 +2078,12 @@ def rename(old, new, log=print, *, auto=False):
         if title.exists():
             title.replace(config.STATE / f"title-{new}.json")
         config.update_session(new, unnamed=None)
+        record = config.session_records().get(new, {})
+        pending = record.get("title_sync") or {}
+        if pending.get("tries") and pending.get("name") != new:
+            # Its line can be sent or recorded later, after a newer title is confirmed.
+            echoes = set(record.get("title_superseded", [])) | {pending["name"]}
+            config.update_session(new, title_superseded=sorted(echoes))
         state = watch.load_state()
         if old in state["stalls"]:
             state["stalls"][new] = state["stalls"].pop(old)

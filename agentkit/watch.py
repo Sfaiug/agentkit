@@ -2155,7 +2155,8 @@ def follow_title(session, log=lambda _: None):
     name = config.resolve_session(session["name"])
     record = config.session_records().get(name, {})
     title = orch.seat_plugin(record).session_title(record)
-    if not title or title in (name, record.get("session_title")):
+    if (not title or title in (name, record.get("session_title")) or
+            title in record.get("title_superseded", [])):
         return None
     aliases = {old for old, target in config.session_aliases().items() if target == name}
     aliases -= orch.held_names()
@@ -2179,6 +2180,13 @@ def sync_title(session, log=lambda _: None, *, force=False):
     """Record a title only once the harness takes it; abandon a name after three tries."""
     if any(session.get(key) for key in orch.CLOSED):
         return False
+
+    def draft(pane):
+        raw = next((raw for raw in reversed(pane_tail(pane).splitlines())
+                    if re.match(r"(?:│\s*)?[❯›⟩]", strip_sgr(raw).strip())), None)
+        return None if raw is None else _draft_text(
+            raw, strip_sgr(raw).strip(), screen(plugin.name)["composer"])
+
     with notify.session_lock(session["name"]) as name:
         session = dict(session, name=name)
         record = config.session_records().get(name, {})
@@ -2186,17 +2194,24 @@ def sync_title(session, log=lambda _: None, *, force=False):
         line = plugin.title_command(name)
         attempt = record.get("title_sync")
         tries = (attempt or {}).get("tries", 0) if (attempt or {}).get("name") == name else 0
-        if not line or (record.get("session_title") == name and not force and not tries):
+        if not line:
             return False
-        if plugin.session_title(record) == name:
+        pending = plugin.title_command(attempt["name"]) if attempt and attempt.get("tries") else None
+        composed = [True] if pending and draft(pane_text(session)) == pending else []
+        if composed:
+            line = pending    # our line still needs Enter, even after its seat changes name
+        title = plugin.session_title(record)
+        if (record.get("session_title") == name and not force and not tries and not composed
+                and title not in record.get("title_superseded", [])):
+            return False
+        if title == name and not composed:
             config.update_session(name, session_title=name, title_sync=None)
             return True
-        if tries >= 3:
+        if tries >= 3 and not composed:
             if not attempt.get("failed"):
                 log(f"WARN {name}: title did not take after three tries; leaving it until its name changes")
                 config.update_session(name, title_sync=dict(attempt, failed=True))
             return False
-        composed = [True] if tries and _holds_text(pane_text(session), line) else []
 
     def veto(held):
         # A rename or another sender may have won while we waited. The receipt and each
@@ -2208,13 +2223,10 @@ def sync_title(session, log=lambda _: None, *, force=False):
         if owner_question(notify.last(name)) or state in (None, "asking"):
             return True
         if composed:
-            return not _holds_text(pane, line)    # only our own line can need another Enter
+            return draft(pane) != line    # an owner may have edited or replaced our line
         if state not in ("at_prompt", "working"):
             return True
-        raw = next((raw for raw in reversed(pane_tail(pane).splitlines())
-                    if re.match(r"(?:│\s*)?[❯›⟩]", strip_sgr(raw).strip())), None)
-        return raw is None or bool(_draft_text(
-            raw, strip_sgr(raw).strip(), screen(plugin.name)["composer"]))
+        return draft(pane) != ""
 
     def typed():
         nonlocal attempt
@@ -2230,7 +2242,7 @@ def sync_title(session, log=lambda _: None, *, force=False):
         if held != name or record.get("title_sync") != attempt:
             return False
         title = plugin.session_title(record)
-        if title == name or (title is None and sent):
+        if sent and line == plugin.title_command(name) and title in (name, None):
             config.update_session(name, session_title=name, title_sync=None)
             return True
     return False

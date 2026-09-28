@@ -191,7 +191,7 @@ class SeatTitle(Sandbox):
 
     def test_failed_send_leaves_title_pending_for_tick(self):
         self.fail_send = True
-        orch.rename("lagoon", "quay")
+        orch.rename("lagoon", "quay", log=self.logs.append)
         self.assertEqual(self.typed, [])
         self.assertEqual(self.record()["session_title"], "lagoon")
         self.fail_send = False
@@ -266,6 +266,94 @@ class SeatTitle(Sandbox):
         orch.rename("quay", "harbor")
         self.assertEqual(self.typed, ["/rename quay"] * 3 + ["/rename harbor"])
         self.assertEqual(self.record()["session_title"], "harbor")
+
+    def test_third_typing_gets_its_dropped_enter_on_the_next_tick(self):
+        self.confirm_title = False
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        self.tick()
+        self.drop_enter = True
+        self.tick()
+        self.assertEqual(self.typed, ["/rename quay"] * 3)
+        self.assertTrue(watch._holds_text(self.pane, "/rename quay"))
+        before = len(self.commands)
+        self.drop_enter = False
+        self.confirm_title = True
+        self.tick()
+        self.assertEqual([args[-1] for args in self.commands[before:]
+                          if args[0] == "send-keys"], ["Enter"])
+        self.assertFalse(watch._holds_text(self.pane, "/rename quay"))
+        self.assertEqual(self.typed, ["/rename quay"] * 3)
+        self.assertEqual(self.record()["session_title"], "quay")
+
+    def test_superseded_line_gets_enter_and_never_names_the_seat(self):
+        self.drop_enter = True
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        orch.rename("quay", "reed", log=self.logs.append)
+        self.assertEqual(self.typed, ["/rename quay"])
+        self.drop_enter = False
+        before = len(self.commands)
+        self.tick()
+        self.assertEqual([args[-1] for args in self.commands[before:]
+                          if args[0] == "send-keys"], ["Enter"])
+        self.assertFalse(watch._holds_text(self.pane, "/rename quay"))
+        self.tick()
+        self.assertEqual(self.seat["name"], "reed")
+        self.assertEqual(self.typed, ["/rename quay", "/rename reed"])
+        self.assertEqual(self.record()["session_title"], "reed")
+        self.assertEqual(claude.session_title(self.record()), "reed")
+        self.title("quay")
+        self.tick()
+        self.assertEqual(self.seat["name"], "reed")
+        self.assertEqual(claude.session_title(self.record()), "reed")
+
+    def test_title_receipt_does_not_forget_a_line_still_in_the_composer(self):
+        self.drop_enter = True
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        self.title("quay")
+        self.tick()
+        self.drop_enter = False
+        before = len(self.commands)
+        self.tick()
+        self.assertEqual([args[-1] for args in self.commands[before:]
+                          if args[0] == "send-keys"], ["Enter"])
+        self.assertFalse(watch._holds_text(self.pane, "/rename quay"))
+        self.assertEqual(self.typed, ["/rename quay"])
+        self.assertEqual(self.record()["session_title"], "quay")
+
+    def test_superseded_line_sent_later_by_the_owner_is_still_ours(self):
+        self.drop_enter = True
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        orch.rename("quay", "reed", log=self.logs.append)
+        self.drop_enter = False
+        self.tmux("send-keys", "-t", "=reed:", "Enter")
+        self.tick()
+        self.assertEqual(self.seat["name"], "reed")
+        self.assertEqual(self.typed, ["/rename quay", "/rename reed"])
+        self.assertEqual(claude.session_title(self.record()), "reed")
+
+    def test_owner_draft_replacing_a_superseded_line_is_untouched(self):
+        self.drop_enter = True
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        self.pane = self.fixture("prompt").replace("❯\u00a0\n", "❯ /rename quay-side\n")
+        pane = self.pane
+        before = len(self.commands)
+        orch.rename("quay", "reed", log=self.logs.append)
+        self.title("quay")
+        self.tick()
+        self.assertEqual(self.seat["name"], "reed")
+        self.assertEqual(self.pane, pane)
+        self.assertFalse(any(args[0] == "send-keys" for args in self.commands[before:]))
+        self.assertEqual(self.typed, ["/rename quay"])
+
+    def test_owners_rename_draft_is_not_an_agentkit_line(self):
+        self.pane = self.fixture("prompt").replace("❯\u00a0\n", "❯ /rename quay\n")
+        pane = self.pane
+        orch.rename("lagoon", "quay", log=self.logs.append)
+        orch.rename("quay", "reed", log=self.logs.append)
+        self.tick()
+        self.assertEqual(self.pane, pane)
+        self.assertFalse(any(args[0] == "send-keys" for args in self.commands))
+        self.assertEqual(self.typed, [])
 
     def test_old_empty_title_cache_cannot_confirm_a_rename(self):
         self.assertEqual(claude.session_title(self.record()), "")
