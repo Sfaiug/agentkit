@@ -435,21 +435,24 @@ with tempfile.TemporaryDirectory(prefix=".usage-fresh-", dir=config.REPO) as tmp
         if width == 100:
             assert re.search(r"92% left · resets \w+ \d\d:\d\d · Fable 91%$", screen[1]), screen
     assert paid.call_count == 0 and probe_cache.read_bytes() == probe_before
-    # Three minutes later the tick is past the minute's cadence: it reads both free meters
-    # again and updates the menu from those reads; Muse's paid cache stays put.
+    # Three minutes later the tick is past the minute's cadence but not Claude's
+    # fifteen: it reads the minute's meter again and updates the menu from those reads,
+    # while Claude's reading stands; Muse's paid cache stays put.
     now[0] += 180
     meters["codex"][0]["used"] = 44
     tick()
-    assert calls.count(("claude", "usage")) == calls.count(("codex", "usage")) == 2, calls
+    assert calls.count(("claude", "usage")) == 1, calls
+    assert calls.count(("codex", "usage")) == 2, calls
     assert json.loads(cache.read_text())["fetched_at"] == now[0]
     assert re.search(r"ChatGPT\s+[█░]+\s+56%", lines()[5]), lines()
     assert paid.call_count == 0 and probe_cache.read_bytes() == probe_before
-    # Inside usage.PROBE_EVERY the tick asks no adapter anything: one cadence, host-wide, so
+    # Inside every cadence the tick asks no adapter anything: one cadence, host-wide, so
     # it re-assembles the snapshot off the reading already in it.
     now[0] += usage.PROBE_EVERY - 1
     meters["codex"][0]["used"] = 43
     tick()
-    assert calls.count(("claude", "usage")) == calls.count(("codex", "usage")) == 2, calls
+    assert calls.count(("claude", "usage")) == 1, calls
+    assert calls.count(("codex", "usage")) == 2, calls
     assert json.loads(cache.read_text())["fetched_at"] == now[0]
     assert re.search(r"ChatGPT\s+[█░]+\s+56%", lines()[5]), lines()
     # Rendering never updates the snapshot, and never says how old it is.
@@ -482,15 +485,17 @@ with tempfile.TemporaryDirectory(prefix=".usage-fresh-", dir=config.REPO) as tmp
     # the reset policy's own clock and the row's words, and both want a reading per tick. The
     # cadence itself is checked above and in tests/test_usage_probe.py.
     stack.enter_context(patch.object(usage, "PROBE_EVERY", 0))
+    stack.enter_context(patch.object(usage, "_probe_every", return_value=0))
     # With no shared week reported there is no provider percentage to draw: Fable's own cap
     # is never shown as Claude's, whatever the row would otherwise have said.
     meters["claude"] = [meter("weekly_scoped", 9)]
     tick()
     assert lines()[1].split() == ["Claude", "—", "no", "shared", "week"], lines()
-    # Failed free reads say so, never the previous allowance stamped as fresh.
+    # A failed free read keeps the previous allowance, with the failure recorded beside it.
     meters["claude"] = []
     tick()
-    assert lines()[1].endswith("—  no reading yet") and "57% left" in lines()[5], lines()
+    assert lines()[1].endswith("—  no shared week") and "57% left" in lines()[5], lines()
+    assert "returned no meters" in json.loads(cache.read_text())["providers"]["anthropic"]["probe_error"]
     assert paid.call_count == 1
 
     # Watch is read-only, but ordinary consumers still exercise the real reset policy from
@@ -1643,8 +1648,10 @@ if { [ "$USAGERC" != 0 ] || [ "$USAGECHECK" != 0 ]; } \
     && METER_WHY=$(meter_unavailable "$U" anthropic openai); then
   sleep "${AK_METER_RETRY_SECS:-60}"
   METER_RETRIED=1   # check 6 re-probes without sleeping again: its minute has passed
-  # The retry re-asks the adapters: neither the 5 min cache nor a probe lock's minute answers it.
-  rm -f -- "$HOME/.agentkit/state/usage.json" "$HOME/.agentkit/state/"*-probe.lock
+  # The retry re-asks the adapters: neither the 5 min cache, a probe lock's minute nor a
+  # Retry-After answers it.
+  rm -f -- "$HOME/.agentkit/state/usage.json" "$HOME/.agentkit/state/"*-probe.lock \
+    "$HOME/.agentkit/state/"*-probe.retry
   ak usage --json >"$U" 2>"$WORK/usage.err"; USAGERC=$?
   checked "$WORK/usage-check.log" jq -e '(.pick_order | type == "array") and
     ((.pick_order | length > 0) or (.providers | length > 0 and all(.[]; .exhausted == true))) and
@@ -1996,8 +2003,10 @@ METER_WHY=""
 if METER_WHY=$(meter_unavailable "$U" anthropic openai); then
   # Check 1 already waited this minute out when it retried, so this re-probe goes at once.
   [ -n "${METER_RETRIED:-}" ] || sleep "${AK_METER_RETRY_SECS:-60}"
-  # The retry re-asks the adapters: neither the 5 min cache nor a probe lock's minute answers it.
-  rm -f -- "$HOME/.agentkit/state/usage.json" "$HOME/.agentkit/state/"*-probe.lock
+  # The retry re-asks the adapters: neither the 5 min cache, a probe lock's minute nor a
+  # Retry-After answers it.
+  rm -f -- "$HOME/.agentkit/state/usage.json" "$HOME/.agentkit/state/"*-probe.lock \
+    "$HOME/.agentkit/state/"*-probe.retry
   ak usage --json >"$U" 2>"$WORK/usage.err"
   METER_WHY=$(meter_unavailable "$U" anthropic openai) || METER_WHY=""
 fi
