@@ -20,10 +20,11 @@ pace_margin = 10          # the one knob: a subscription more than this far ahea
 # Executor = the worker with the highest budget (Fable's lag preference still applies).
 # Budget = minimum (fraction left + usage-limit resets in hand) / fraction of the window left
 # across non-session limits; each reset in hand counts as one whole weekly allowance.
-# Reviewer = highest budget on a different provider, else a permitted different model on the
-# same provider. A meter at 100% used removes a worker even without a reset time, and so does a
-# harness that is not installed or not logged in; unknown budgets rank last. The menu's `c`
-# screen changes both defaults.
+# Reviewer = highest budget on a different provider, else another model on the same
+# provider, else the executor's own model, marked self-reviewed. A meter at 100% used
+# removes a worker even without a reset time, and so does a harness that is not
+# installed or not logged in; unknown budgets rank last. The menu's `c` screen
+# changes both defaults.
 [defaults]
 orchestrator = "opus"
 workers = ["opus", "astra"]
@@ -33,7 +34,6 @@ harness = "claude"
 model = "claude-fable-5-1"
 effort = "xhigh"
 provider = "anthropic"
-reviews_own_provider = false  # this model only reviews another company's work
 meter = "weekly_scoped"   # optional: gate this model on a specific meter of its provider
 
 [models.opus]

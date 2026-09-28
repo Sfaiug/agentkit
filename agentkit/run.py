@@ -1,4 +1,8 @@
-"""The review loop: executor -> done-when -> another model's review, until PASS, then the merge.
+"""The review loop: executor -> done-when -> review, until PASS, then the merge.
+
+The reviewer is another model where the workers allow one, else the executor's own:
+a model tends to miss the mistakes it makes, so its own review is the last choice,
+never a refusal.
 
 No LLM decides anything here; the loop is a script and the verdict is a parsed line.
 
@@ -792,20 +796,21 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
                 reviewer = candidates[0]
                 break
         else:
-            raise QuotaDry(f"no eligible reviewer: no legal second model for executor {executor}; "
-                           "waiting for review")
+            raise QuotaDry(f"no eligible reviewer: no worker with budget is left to review "
+                           f"for executor {executor}; waiting for review")
     review_providers(cfg, executor, reviewer)
     return executor, reviewer
 
 
 def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, reviewers=None):
-    """The one sentence a launch is refused with when no allowed pair can form, or None.
+    """The one sentence a launch is refused with when no worker can run, or None.
 
     Budgets are left out: a spent meter refills, and a run waiting on one is parked for a
-    reason.  Nothing refills a harness that is not installed or not logged in, and waiting
-    grows no second model, so a launch left without an allowed executor and reviewer is
-    refused instead of parking on a review nobody can give. Legacy explicit names remain
-    unbound; only automatic candidates fall back to the configured worker selection.
+    reason.  Nothing refills a harness that is not installed or not logged in, so a launch
+    left with no runnable executor or reviewer is refused instead of parking on a review
+    nobody can give.  One runnable worker is enough to launch: it reviews its own work,
+    marked self-reviewed.  Legacy explicit names remain unbound; only automatic candidates
+    fall back to the configured worker selection.
     """
     listed, review_list = config.role_groups(cfg, workers, reviewers)
     bound_exec = listed is not None
@@ -823,38 +828,60 @@ def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, revi
     if any(reviewer_order(cfg, name, reviews) for name in ready):
         return None
     why = "; ".join(f"{name}: {reason}" for name, reason in skipped.items() if reason)
-    return (f"workers {', '.join(listed)} and reviewers {', '.join(review_list)} "
-            "make no allowed executor and reviewer pair"
+    missing = []
+    if not ready:
+        missing.append(f"workers {', '.join(listed)}")
+    if not reviews:
+        missing.append(f"reviewers {', '.join(review_list)}")
+    if not missing:  # an unknown explicit name refuses below; name both lists
+        missing = [f"workers {', '.join(listed)}",
+                   f"reviewers {', '.join(review_list)}"]
+    return (f"none of the {' and '.join(missing)} can run here"
             + (f" ({why})" if why else "")
             + "; log in to another harness or add another model to the groups")
 
 
 def review_providers(cfg, executor, reviewer):
-    """Never the executor's model; its company is allowed unless the reviewer opts out."""
+    """The (executor, reviewer) providers.  Any reviewer may review any executor --
+    another company is only preferred, by reviewer_order, never required."""
     executed = config.model(cfg, executor) if executor else None
     reviewed = config.model(cfg, reviewer)
-    exec_provider = executed["provider"] if executed else None
-    review_provider = reviewed["provider"]
-    if executor == reviewer or (executed and exec_provider == review_provider
-                                and executed["model"] == reviewed["model"]):
-        raise config.Error(f"reviewer {reviewer} is the same model as executor {executor}")
-    if exec_provider == review_provider:
-        if not reviewed.get("reviews_own_provider", True):
-            raise config.Error(f"reviewer {reviewer} shares provider {exec_provider} with executor "
-                               f"{executor}; reviews_own_provider = false requires a different provider")
-    return exec_provider, review_provider
+    return (executed["provider"] if executed else None), reviewed["provider"]
 
 
 def reviewer_order(cfg, executor, order):
-    """Keep budget order within each company preference, dropping forbidden pairs."""
-    cross, same = [], []
+    """Another company's models, then the executor's company's, then its own; budget order
+    within each tier.  A model tends to miss the mistakes it makes, so its own review is
+    the last choice -- but only a choice, never a refusal: one worker reviews itself."""
+    try:
+        executed = config.model(cfg, executor) if executor else None
+    except config.Error:
+        return []
+    cross, same, own = [], [], []
     for name in order:
         try:
-            executed, reviewed = review_providers(cfg, executor, name)
+            provider = config.model(cfg, name)["provider"]
         except config.Error:
             continue
-        (same if executed == reviewed else cross).append(name)
-    return cross + same
+        if executed is None or provider != executed["provider"]:
+            cross.append(name)
+        elif name != executor:
+            same.append(name)
+        else:
+            own.append(name)
+    return cross + same + own
+
+
+def self_reviewed(state):
+    """Whether the executor's own model reviews this run: the recorded review's pair
+    where a round was reviewed, else the current one.  A seat's own PR has no executor,
+    so its writer -- the seat's orchestrator -- counts as the executor."""
+    evidence = state.get("review") if isinstance(state.get("review"), dict) else {}
+    reviewer = evidence.get("reviewer") or state.get("reviewer")
+    executor = evidence.get("executor")
+    if executor is None:
+        executor = state.get("own_orchestrator") if state.get("own_pr") else state.get("executor")
+    return bool(reviewer and executor and reviewer == executor)
 
 
 def review_pass(state, cfg):
@@ -10355,6 +10382,7 @@ def status_rows(found, width, index=None):
     remaining width, wrapped once at a word onto an indented continuation, cut
     with ` \u2026` only past that), state, worker, round, age. The state reads the
     table's words from terminal.STATES: unfinished, working, done or failed.
+    The worker pair carries `self-reviewed` where the executor's own model reviews.
     Returns (header, groups): the header drawn once, each group's lines for
     one row, so the caller can print a run's detail lines indented under it.
     `index` is the listing's `supersession_index`, for `status_state_word`.
@@ -10372,10 +10400,11 @@ def status_rows(found, width, index=None):
         rounds = f"round {rnd}/{total or '?'}"
         if state.get("extended"):
             rounds += f" (+{state['extended']})"
+        worker = f"{state.get('executor', '?')}/{state.get('reviewer', '?')}"
+        if self_reviewed(state):
+            worker += " self-reviewed"
         rows.append([directory.name, state.get("title") or directory.name,
-                     status_state_word(state, index),
-                     f"{state.get('executor', '?')}/{state.get('reviewer', '?')}",
-                     rounds,
+                     status_state_word(state, index), worker, rounds,
                      resume_age(state) or terminal.format_age(menu.run_age_secs(state))])
     fixed = [2, 3, 4, 5]
     natural = [max([terminal.cells(row[i]) for row in rows] + [terminal.cells(STATUS_HEADERS[i])])
@@ -10660,6 +10689,8 @@ def cmd_status(argv):
                 line += f"  {outcome}"
             if step:
                 line += f"  {step}"
+            if self_reviewed(state):
+                line += "  self-reviewed"
             resumed = resume_age(state)
             if resumed:
                 line += f"  {resumed}"
@@ -11547,13 +11578,19 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
     refresh_seat_tally(session_at_launch)   # the seat's bar counts it from the start
 
 
-def launch_line(run_id, title, executor, reviewer):
+def launch_line(run_id, title, executor, reviewer, *, self_review=None):
     """The one line a launch from a seat puts on the seat's terminal.
 
     A review-only run has no executor, so it names its reviewer instead of a pair;
     every other launch names both models.  One builder, every launch path.
+    A round reviewed by the executor's own model says `self-reviewed`: the pair says
+    it, except a review-only run of the seat's own PR, whose caller passes it.
     """
+    if self_review is None:
+        self_review = bool(executor and executor == reviewer)
     models = f"{executor}/{reviewer}" if executor else f"{reviewer} review"
+    if self_review:
+        models += ", self-reviewed"
     return (f"run {run_id} launched: {title} ({models}); "
             "it counts on this bar and in the menu; you will be told when it ends")
 
@@ -12420,7 +12457,7 @@ def own_pr_orchestrator(cfg, session_name, author):
     The seat's own PR is a review launched from a seat on a PR by this host's
     GitHub login: the orchestrator did the work itself and opened the PR, so its
     reviewer is picked against that model as if it had executed, through the
-    same `review_providers` rule. Ownership is the launch plus the author; the
+    same `reviewer_order` preference. Ownership is the launch plus the author; the
     orchestrator is the writer whose identity the independence check needs. An
     own PR with no session record or an unknown orchestrator model keeps its
     classification but cannot be reviewed or merged until the writer is known.
@@ -12723,7 +12760,8 @@ def review_pr(cfg, run_dir, url, opts, log):
     if session_at_launch and not prior.get("reviewer"):
         # the first reviewer pick starts the review: the launch line (on the terminal
         # for a foreground launch, in the log for a --bg child whose parent printed it)
-        print(launch_line(run_dir.name, title, None, reviewer))
+        print(launch_line(run_dir.name, title, None, reviewer,
+                          self_review=bool(is_own and reviewer == orchestrator)))
     body += project_lessons(repo, state, log)
     save_state(run_dir, state)
     context = f"Repo checkout: {wt}\nBranch: {branch} (PR #{number} head, based on origin/{base})\n\n{body}"
@@ -12938,7 +12976,10 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
             rc = spawn_bg(run_dir, argv)
             if reviewer and title and launch_session(run_dir):
                 # the seat's terminal sees the launch line; the child's stdout is the log
-                print(launch_line(run_dir.name, title, None, reviewer))
+                saved = read_state(run_dir) or {}
+                print(launch_line(run_dir.name, title, None, reviewer,
+                                  self_review=bool(saved.get("own_pr") and reviewer ==
+                                                   saved.get("own_orchestrator"))))
             return rc
     opts = dict(opts, **flags)
     log = logger(run_dir, not resumed)
@@ -13567,12 +13608,6 @@ def job_start_task(cfg, job_dir, task, opts, log):
                 "--no-merge": bool(opts.get("--no-merge")), "--no-worktree": bool(opts.get("--no-worktree")),
                 "--anyway": bool(opts.get("--anyway")), "--first": bool(opts.get("--first")),
                 "--bg": False}
-    if task.get("rerun_attempted") and run_opts["--review"]:
-        try:
-            review_providers(cfg, run_opts["--exec"], run_opts["--review"])
-        except config.Error as exc:
-            log(f"{task['name']}: {exc}; the rerun will pick another reviewer")
-            run_opts["--review"] = None
     prepare(run_dir, run_opts, logger(run_dir, True), cfg, job_id=job_dir.name, task_file=task_path)
     if task.get("from_pass"):
         save_state(run_dir, {**(read_state(run_dir) or {}), "from_pass": task["from_pass"]})
@@ -13775,7 +13810,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
         nxt = job_next_executor(cfg, task.get("executor") or run_state.get("executor"),
                                 run_workers(cfg, run_state))
         if nxt:
-            # Keep the job's reviewer when legal; otherwise the fresh run picks from live budgets.
+            # The rerun keeps the job's reviewer; the fresh run picks from live budgets.
             task.pop("review_override", None)
             task["rerun_attempted"] = True
             task["rerun_executor"] = nxt
