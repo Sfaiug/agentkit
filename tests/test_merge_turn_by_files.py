@@ -11,11 +11,12 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
 from test_land_reserve import LandingCase, REPO, commit, make_origin, make_run
-from agentkit import config, run
+from agentkit import config, run, watch
 
 
 class MergeTurnByFiles(LandingCase):
@@ -101,6 +102,87 @@ class MergeTurnByFiles(LandingCase):
         self.assertFalse(list(config.RUNS.glob("*.hold")))
         run.git(owner, "pull", "--ff-only", "origin", "main")
         self.assertEqual((owner / "shared.txt").read_text(), "acme\n2\noverlap\n4\nfive\n")
+
+    def test_holder_taking_back_its_turn_is_not_silent_and_lands_verified(self):
+        remote, owner = make_origin(self.root)
+        one = make_run(self.root, remote, "acme", [
+            f"echo every >> {self.counter}", f"echo once >> {self.counter} # once"],
+            {"shared.txt": "acme\n2\n3\n4\n5\n"})
+        two = make_run(self.root, remote, "bravo", ["true"])
+        commit(owner, "shared.txt", "1\n2\n3\n4\noutside")
+        run.git(owner, "push", "origin", "main")
+
+        def move(lp):
+            if lp is one:
+                self.queuing = None
+                commit(owner, "shared.txt", "1\n2\n3\n4\nfive")
+                run.git(owner, "push", "origin", "main")
+        self.queuing = move
+        checking, finish_check = threading.Event(), threading.Event()
+        delivering, finish_delivery = threading.Event(), threading.Event()
+        real_checks = run.run_done_when
+
+        def checks(cmds, wt, *args, **kwargs):
+            hold = getattr(run._MERGE_HELD, "hold", None)
+            if Path(wt) == one.wt and hold is not None and not checking.is_set():
+                checking.set()
+                self.assertTrue(finish_check.wait(30), "holder's check was never released")
+            return real_checks(cmds, wt, *args, **kwargs)
+
+        def required(lp, url):
+            if lp is two:
+                delivering.set()
+                self.assertTrue(finish_delivery.wait(30), "borrower was never released")
+            return True
+
+        results, threads = {}, []
+        with patch.object(run, "run_done_when", side_effect=checks), \
+                patch.object(run, "wait_checks", side_effect=required):
+            try:
+                threads.append(self.land(one, results))
+                self.assertTrue(checking.wait(20), "holder never reached its reserved check")
+                threads.append(self.land(two, results))
+                self.assertTrue(delivering.wait(20), "the disjoint borrower could not deliver")
+                # the holder finishes its re-check while the borrower still delivers
+                finish_check.set()
+                self.until(lambda: run.merge_retaking(run.read_state(one.run_dir) or {}),
+                           "the holder to wait for its lent turn back")
+                state = run.read_state(one.run_dir) or {}
+                self.assertEqual(run.merge_turn_note(state), "")
+                self.assertEqual(run.merge_hold_note(state),
+                                 "holding the merge turn of acme main to land")
+                self.assertEqual(run.slot_counts({"run_id": "probe"}), (2, 0))
+                shown = io.StringIO()
+                with redirect_stdout(shown):
+                    run.cmd_status([])
+                self.assertIn("holding the merge turn of acme main to land", shown.getvalue())
+                self.assertNotIn("waiting for the merge turn of acme main", shown.getvalue())
+                # a delivery holds the lock through required checks of up to an hour
+                # with no child of the holder's running; the wait is still no stall
+                old = time.time() - 25 * 60
+                for path in one.run_dir.rglob("*"):
+                    os.utime(path, (old, old))
+                state = run.read_state(one.run_dir) or {}
+                self.assertGreater(watch.stall_clock(one.run_dir, state), time.time() - 60)
+                finish_delivery.set()
+                for thread in threads:
+                    thread.join(20)
+                    self.assertFalse(thread.is_alive(), "a landing never finished")
+            finally:
+                finish_delivery.set()
+                finish_check.set()
+                for thread in threads:
+                    thread.join(30)
+                    self.assertFalse(thread.is_alive(), "a landing never finished")
+        self.assertEqual(results, {lp.state["run_id"]: True for lp in (one, two)})
+        self.assertEqual(self.merges, [("bravo", True), ("acme", True)])
+        self.assertEqual(self.counter.read_text().splitlines(), ["every", "once"] * 2)
+        self.assertIn("taking back the merge turn of acme main",
+                      (one.run_dir / "log.txt").read_text())
+        self.assertIn("none touching this branch's files; landing on the verified checks",
+                      (one.run_dir / "log.txt").read_text())
+        self.assertNotIn("merge_retake", run.read_state(one.run_dir))
+        self.assertFalse(list(config.RUNS.glob("*.hold")))
 
     def take_turn(self, lp, entered, errors, upstream="origin/main", reserve=False):
         def body():
