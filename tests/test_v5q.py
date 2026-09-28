@@ -98,6 +98,9 @@ sys.exit(1)
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         config.ensure_dirs()
+        system_tmp = self.root / "system-tmp"
+        system_tmp.mkdir(exist_ok=True)
+        self.stack.enter_context(patch.object(run, "TMP_BASE", system_tmp))
         self.cfg = config.load()
         for harness in {entry["harness"] for entry in self.cfg["models"].values()}:
             self.script(adapters / f"{harness}.sh", ADAPTER)

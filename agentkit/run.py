@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import command_help, config, history, notify, orch, retention, usage, watch, worker
+from . import command_help, config, history, notify, orch, proc_snapshot, retention, usage, watch, worker
 from .harness import load as harness_plugin
 
 DIFF_CAP = 300 * 1024
@@ -134,6 +134,9 @@ GC_INTERVAL = 86400             # background retention inspects old state at mos
 GC_LOG_LIMIT = 1024 * 1024      # retain two bounded automatic-collection logs
 GC_AGE = 7 * 86400              # failed/blocked/stopped checkouts, finished jobs, the status window
 RUN_DIR_AGE = 30 * 86400        # a run directory whose session is gone is removed whole after this
+TMP_BASE = Path("/tmp")         # seats and hand-run tools leave RAM-disk files nobody removes
+TMP_AGE = 2 * 86400             # a /tmp entry nothing changed for two days goes
+TMP_CLAUDE_AGE = 86400          # a gone Claude session's scratch folder goes after a day
 DISK_LIMIT = 85                 # pressure shortens retention, never below one day
 LIST_CAP = 500                  # files a scratch run's reviewer is shown before it is told the count
 PUSH_RIGHTS = ("ADMIN", "MAINTAIN", "WRITE")
@@ -7977,6 +7980,251 @@ def stale_compact_stamps(now):
             if compact_stamp_stale(path, now)]
 
 
+def tmp_protected(name):
+    """Dot entries, tmux sockets and systemd-private directories: never the collector's."""
+    return (name.startswith(".") or name.startswith("tmux-")
+            or name.startswith("systemd-private-"))
+
+
+def tmp_hidden_processes(pids):
+    """Inspect hidden handles with existing noninteractive sudo; never delete as root."""
+    try:
+        probe = subprocess.run(["sudo", "-n", "/usr/bin/python3", "-I", "-S", "-B",
+                                proc_snapshot.__file__, *map(str, pids)],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, text=True, timeout=10)
+        if probe.returncode:
+            return None
+        inspected, hidden = json.loads(probe.stdout)
+        return None if hidden else {int(pid): row for pid, row in inspected.items()}
+    except (OSError, ValueError, TypeError, AttributeError, subprocess.TimeoutExpired):
+        return None
+
+
+def tmp_processes():
+    """Paths and identities from every user's processes, or no proof /tmp is idle.
+
+    Unlike exited pids and kernel threads, hidden foreign processes may hold our
+    files. Ask the read-only inspector rather than ignoring them or giving up at pid 1.
+    """
+    try:
+        table, hidden = proc_snapshot.collect(retention.process_dirs())
+        if hidden:
+            inspected = tmp_hidden_processes(hidden)
+            if inspected is None:
+                return None, None
+            table.update(inspected)
+        return {path for row in table.values() for path in row["paths"]}, table
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return None, None
+
+
+def tmp_listdir(path):
+    """Sorted names in that directory, its atime unchanged when possible.
+
+    /tmp itself is root's, so O_NOATIME refuses it; its own atime is evidence
+    for nobody, and the entries' modification/change times determine age. Raises
+    OSError when the directory cannot be listed at all.
+    """
+    try:
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        if hasattr(os, "O_NOATIME"):
+            flags |= os.O_NOATIME
+        fd = os.open(path, flags)
+    except OSError:
+        return sorted(os.listdir(path))
+    try:
+        return sorted(os.listdir(fd))
+    finally:
+        os.close(fd)
+
+
+def tmp_tree_newest(path):
+    """The newest modification/change time, or None when it is not ours alone to take.
+
+    Ours alone is every entry owned by this user, no link at the top, and no
+    socket, fifo or device inside: links inside are unlinked, never traversed,
+    and anything else is left for a person.  An unreadable entry is uncertainty,
+    never evidence of age.
+    """
+    if not retention.safe(path):
+        return None
+    try:
+        info = path.lstat()
+        newest = max(info.st_mtime, info.st_ctime)
+    except OSError:
+        return None
+    if not path.is_dir():
+        return newest
+    stack = [path]
+    while stack:
+        current = stack.pop()
+        try:
+            names = tmp_listdir(current)
+        except OSError:
+            return None
+        for name in names:
+            child = current / name
+            try:
+                info = child.lstat()
+            except OSError:
+                return None
+            if info.st_uid != os.getuid():
+                return None
+            if child.is_symlink():
+                newest = max(newest, info.st_mtime, info.st_ctime)
+                continue
+            if not retention.safe(child):
+                return None
+            newest = max(newest, info.st_mtime, info.st_ctime)
+            if child.is_dir():
+                stack.append(child)
+    return newest
+
+
+def tmp_entry_stale(path, now, paths):
+    """Why that top-level /tmp entry goes, or None when it stays.
+
+    Ours, untouched for two days, and held by nobody: anything a running
+    process holds stays where it is.
+    """
+    if tmp_protected(path.name) or retention.busy(path, paths):
+        return None
+    newest = tmp_tree_newest(path)
+    if newest is None or not retention.expired(newest, now, TMP_AGE):
+        return None
+    return f"untouched for {int((now - newest) // 86400)} days"
+
+
+def tmp_claude_sessions(table):
+    """Current conversations of live clients, or None for an unidentified client.
+
+    Claude updates its pid record after /clear. Match procStart too, so a reused
+    pid or a stale record in another account cannot stand in for the live client.
+    """
+    from .harness import claude
+    if table is None:
+        return None
+    try:
+        roots = [path for path in Path.home().glob(".claude*") if path.is_dir()]
+        if os.environ.get("CLAUDE_CONFIG_DIR"):
+            roots.append(Path(os.environ["CLAUDE_CONFIG_DIR"]))
+        live = set()
+        for pid, row in table.items():
+            if row["uid"] != os.getuid():
+                continue
+            if not row["args"]:
+                return None
+            if not claude.is_process(row["args"]):
+                continue
+            found = set()
+            for root in roots:
+                record = retention.read_json(root / "sessions" / f"{pid}.json") or {}
+                session = record.get("sessionId")
+                if (record.get("pid") == pid and str(record.get("procStart")) == row["start"]
+                        and isinstance(session, str) and re.fullmatch(r"[A-Za-z0-9_-]+", session)):
+                    found.add(session)
+            if not found:
+                return None
+            live.update(found)
+        return live
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def tmp_claude_session_stale(path, now, paths, live):
+    """Why that Claude session folder goes, or None when it stays.
+
+    Its session is gone, untouched for a day, and held by nobody.
+    """
+    if retention.busy(path, paths) or live is None or path.name in live:
+        return None
+    newest = tmp_tree_newest(path)
+    if newest is None or not retention.expired(newest, now, TMP_CLAUDE_AGE):
+        return None
+    days = int((now - newest) // 86400)
+    return f"session {path.name} is gone, untouched for {days} day{'s' if days != 1 else ''}"
+
+
+def tmp_top_stale(path, now, paths, live):
+    """Why that top-level /tmp entry goes whole, or None.
+
+    The same live-client protection covers both whole trees and session folders.
+    """
+    name = path.name
+    if name.startswith("claude-") and name[7:].isdigit():
+        if live is None:
+            return None
+        try:
+            if live and any((path / project / session).is_dir()
+                            for project in tmp_listdir(path) for session in live):
+                return None
+        except OSError:
+            return None
+    return tmp_entry_stale(path, now, paths)
+
+
+def stale_tmp_entries(now):
+    """Every stale top-level /tmp entry and gone Claude session folder.
+
+    Tests replace TMP_BASE and retention.process_dirs with temporary directories.
+    A session folder under a top-level entry going whole is not planned twice.
+    """
+    base = TMP_BASE
+    try:
+        names = tmp_listdir(base)
+    except OSError:
+        return []
+    if not names:
+        return []
+    paths, table = tmp_processes()
+    if paths is None:
+        return []
+    live = tmp_claude_sessions(table)
+    found, planned = [], set()
+    for name in names:
+        if tmp_protected(name):
+            continue
+        path = base / name
+        why = tmp_top_stale(path, now, paths, live)
+        if why:
+            found.append({"action": "remove", "kind": "tmp-entry", "path": str(path),
+                          "why": why})
+            planned.add(str(path))
+    for name in names:
+        if (name != f"claude-{os.getuid()}" or str(base / name) in planned
+                or live is None or not retention.safe(base / name)):
+            continue
+        try:
+            projects = tmp_listdir(base / name)
+        except OSError:
+            continue
+        for project in projects:
+            if tmp_protected(project):
+                continue
+            project_path = base / name / project
+            try:
+                if not project_path.is_dir() or project_path.is_symlink():
+                    continue
+                sessions = tmp_listdir(project_path)
+            except OSError:
+                continue
+            for session_id in sessions:
+                if tmp_protected(session_id):
+                    continue
+                session_path = project_path / session_id
+                try:
+                    if not session_path.is_dir() or session_path.is_symlink():
+                        continue
+                except OSError:
+                    continue
+                why = tmp_claude_session_stale(session_path, now, paths, live)
+                if why:
+                    found.append({"action": "remove", "kind": "claude-session",
+                                  "path": str(session_path), "why": why})
+    return found
+
+
 def leftovers():
     """{path: when reported} of checkouts gc could not take whole and will not try again."""
     return retention.read_json(config.STATE / "gc-leftovers.json") or {}
@@ -8242,6 +8490,7 @@ def gc_candidates(now=None):
     yield from stale_seat_files(now)
     yield from stale_compact_stamps(now)
     yield from retention.harness_plan()
+    yield from stale_tmp_entries(now)
 
 
 def gc_plan(now=None):
@@ -8304,6 +8553,7 @@ def gc(report, automatic=False):
                     caller(message)
                 report("gc: automatic collection started")
                 config._write_json(stamp, {"started_at": time.time()})
+            tmp_inventory = None
             for item in gc_candidates():
                 path = Path(item["path"])
                 try:
@@ -8335,6 +8585,24 @@ def gc(report, automatic=False):
                             done = not left_behind(path, report)
                     elif item["kind"] == "harness-entries":
                         done = retention.prune_harness(path)
+                    elif item["kind"] in ("tmp-entry", "claude-session"):
+                        # One fresh inventory for the batch, then recheck each tree's age.
+                        if tmp_inventory is None:
+                            paths, table = tmp_processes()
+                            tmp_inventory = paths, tmp_claude_sessions(table)
+                        paths, live = tmp_inventory
+                        if item["kind"] == "tmp-entry":
+                            ok = tmp_top_stale(path, time.time(), paths, live) is not None
+                        else:
+                            ok = tmp_claude_session_stale(path, time.time(), paths,
+                                                          live) is not None
+                        if not ok or path.is_symlink():
+                            continue
+                        if path.is_dir():
+                            shutil.rmtree(path)
+                        else:
+                            path.unlink()
+                        done = not retention.present(path)
                     elif item.get("throwaway") or item.get("whole"):
                         directory = Path(item["run"])
                         recovery = directory / "recovery.lock"
