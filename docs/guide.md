@@ -10,7 +10,8 @@ Claude Code, Codex CLI, Muse Code, Grok Build, OpenCode and Antigravity CLI. Sta
 A session is a tmux session on agentkit's own server (`tmux -L agentkit`), so it outlives the connection that made it
 and the orchestrator's process too. A bare `ak` is the menu on the server, on a client (over the ssh alias `install.sh
 --client` recorded) and as the phone key's forced command `ak attach`. A tmux session there that agentkit did not start
-and that runs no agent anywhere in its pane, such as a watcher loop, is not a session: no row, no card, no count.
+and that runs no interactive agent in its panes, such as a watcher loop, is not a session: no row, no card, no count.
+Ak workers (`AK_RUN_ROLE=worker`) and their descendants do not count; any old card closes on the next tick.
 
 `n` and bare `ak orch` first ask `Name (Enter: auto):`; a taken name asks again, `q` goes back. Enter (or pipe EOF) leaves `new`, then `new-2`, unnamed until its orchestrator knows the job and names it as briefly as possible in at most three words. Any rename ends auto naming; an unnamed seat gets the rule again on resume. `n` then shows Orchestrator (one choice) and Workers (several). Chosen already: `[defaults]
 orchestrator` (shipped `opus`), or while it is spent the first model in config order that is not, and the `[defaults]
