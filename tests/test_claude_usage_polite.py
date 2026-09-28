@@ -323,6 +323,25 @@ class PoliteClaude(unittest.TestCase):
         none = {"meters": [], "error": None, "none": True}
         self.assertIs(usage._kept(cached, none, NOW), none)
 
+    def test_a_failed_ask_on_a_meterless_harness_keeps_it_meterless(self):
+        # OpenCode and Grok Build report no meter at all: a failed ask keeps that none,
+        # and the ask's error stands as the error, as on origin/main -- never invented
+        # as a window that reset.
+        cached = {"meters": [], "none": True, "none_reason": "no meter: smoke fake",
+                  "resets": 0.0, "probed_at": NOW, "error": None}
+        error = "unknown: no provider key (is missing); run opencode auth login"
+        kept = usage._kept(cached, {"meters": [], "error": error}, NOW + FIFTEEN)
+        self.assertTrue(kept["none"])
+        self.assertEqual(kept["none_reason"], cached["none_reason"])
+        self.assertEqual(kept["error"], error)
+        self.assertEqual(kept["probe_error"], error)
+        shown = usage._without_past(kept, NOW + FIFTEEN, "the adapter")
+        self.assertEqual(shown["error"], error)
+        self.assertNotIn("already reset", shown["error"])
+        budget, reason = usage.provider_budget(shown, NOW + FIFTEEN)
+        self.assertEqual(budget, 0.0)
+        self.assertIn("no provider key", reason)
+
     def test_an_expired_seat_login_is_never_sent(self):
         (self.root / ".claude-second").mkdir()
         (self.root / ".claude-second" / ".credentials.json").write_text(json.dumps(
