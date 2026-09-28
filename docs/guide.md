@@ -94,7 +94,11 @@ or data-loss risk, a weakened check, or work outside the task, with evidence: a 
 the task: a named base commit or a quote from main before the task. Only these go under `## Follow-ups`, without a
 number limit; everything else is omitted everywhere. The run's `run.json` and PR description carry only the final
 passing review's list, plus checks that passed only on re-run with their `flaky:` evidence. Earlier reviews' items
-are discarded. Nothing reads or writes `~/.agentkit/followups/`; existing files and archives are left alone. A FAIL starts a fix round: the fixer fixes every undisputed finding, or lists a finding and evidence that it is wrong under `## Disputed` in its summary.
+are discarded. Nothing reads or writes `~/.agentkit/followups/`; existing files and archives are left alone.
+On merge each follow-up starts an ordinary run of the same session, with the discovering run's worker lists and a fresh checkout of the merged target. Its task is the defect and evidence. An open fix at the same site in that session prevents a duplicate. There is no setting or backlog.
+The executor first checks the current target and other open runs. A defect already gone or being fixed ends `not needed: <why>` (optionally under `## Summary`): done, no PR, checks or review. Otherwise it adds a regression test, shows failure before and success after, and writes the run's `regression.sh` to invoke it; the loop runs that check. An owner-only decision ends `## Blocked` with the question.
+The merged run's ending names its fix runs. The session stays working until they end; stopping or closing it stops them. Their follow-ups start runs the same way. Runs without a session, scratch runs and reviews of other people's PRs start none.
+A FAIL starts a fix round: the fixer fixes every undisputed finding, or lists a finding and evidence that it is wrong under `## Disputed` in its summary.
 Re-review rules on each dispute first, upheld or dropped, and says why. Three rounds is the budget: at the third FAIL the run ends
 `fail`, hands back its open findings (their first 600 characters) with `three rounds spent: split or re-scope`; no `--rounds` above three starts or resumes, and a job gives it no more rounds and no rerun on another model.
 
@@ -123,7 +127,7 @@ Summary`, or a fix round leaves the same checks failing the same way (or no harn
 checks, no reviewer, no further round. `result.md` opens `# BLOCKED — <title>`, and the orchestrator writes a new task.
 
 Scheduled errors and merge waits send no ending. Every ending goes to the launching seat as one line typed at its next
-quiet prompt: `run <id> finished <PASS merged|PASS not merged|FAIL|BLOCKED|ERROR>: <why>. Result: <path>. Decide the
+quiet prompt: `run <id> finished <PASS merged|PASS not merged|DONE|FAIL|BLOCKED|ERROR>: <why>. Result: <path>. Decide the
 next step.` A seat mid-turn gets it from the tick; its line is typed once, and one still sitting in the seat's composer
 gets only its Enter. A seat that has died is reopened by the run and told `continue <task>`; only when that fails does a
 `Needs you` card go to you. A run you launch by hand has no seat: its result is on the terminal and in `ak run status`.

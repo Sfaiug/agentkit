@@ -171,7 +171,7 @@ LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after )
 # Where a suite, unittest, pytest or TAP names what failed: at the start of the line it says so
 # on, long before the tally it ends with.  See `first_failure`.
 FAILURE_LINE = re.compile(r"^(?:FAIL(?:ED)?|ERROR|not ok)\b")
-ENDED = ("pass", "fail", "error", "blocked", "stopped")    # a run that is over, however it got there
+ENDED = ("pass", "fail", "error", "blocked", "stopped", "not_needed")
 NOTICE = 100                    # a finished-run notice is one line, this wide: what a phone shows
                                 # -- the menu's leading space included, so the line itself is 99
 QUEUED_GRACE = 30               # old launchers did not record the background child's identity
@@ -932,6 +932,10 @@ class Killed(Exception):
     def __init__(self, message, session=None):
         super().__init__(message)
         self.session = session
+
+
+class NotNeeded(Exception):
+    """A follow-up's executor found no work left, before any checks or review."""
 
 
 class Blocked(Exception):
@@ -2743,6 +2747,14 @@ def blocked_reason(section):
     return first if len(first) <= 200 else first[:199] + "\u2026"
 
 
+def followup_not_needed(lp, summary):
+    if lp.state.get("followup") and not lp.state.get("round_summaries"):
+        answer = re.fullmatch(r"(?:## Summary\s+)?not needed:[ \t]*(\S[^\n]*)\s*",
+                              summary.strip(), re.I)
+        if answer:
+            raise NotNeeded(answer.group(1).strip())
+
+
 def execute(lp, role, text, name):
     """One executor/fixer turn of the current round.  Returns its summary.
 
@@ -2855,6 +2867,8 @@ def execute(lp, role, text, name):
             section = blocked_section(summary)
             if section:
                 raise Blocked(blocked_reason(section), section)
+            if code == 0:
+                followup_not_needed(lp, summary)
             return summary
         # quota the event layer missed still hands over, straight to the other provider:
         # the reset policy and the provider's other accounts already had their moment in
@@ -3102,6 +3116,101 @@ def record_flakes(state, text):
     for record in text.split("\n\n"):
         if record.startswith("flaky: ") and record not in state.get("followups", []):
             state.setdefault("followups", []).append(record)
+
+
+def followup_place(text):
+    """The review's site, independent of its wording or Markdown decoration."""
+    site = re.search(r"([^\s`*]+):(\d+)\b", text)
+    if site:
+        return f"{site[1].removeprefix('./')}:{int(site[2])}"
+    return text.splitlines()[0].strip()
+
+
+def open_followup(state, text):
+    for directory in run_dirs():
+        other = read_state(directory) or {}
+        if (other.get("run_id") != state.get("run_id") and other.get("followup")
+                and launched_session(other) == launched_session(state)
+                and other.get("repo") == state.get("repo")
+                and other["followup"]["place"] == followup_place(text)
+                and (other.get("state") not in ENDED or going(other)
+                     or (other.get("state") == "pass" and not other.get("merged")
+                         and not other.get("no_merge") and not other.get("on_target")))):
+            return directory.name
+    return None
+
+
+def start_followups(state, run_dir, log, cfg=None):
+    """A merge starts ordinary runs, once, under the same lock that closes the seat.
+
+    The receipt is the duplicate guard even while admission waits. There is no collector
+    or backlog: this ending alone gets to launch its list.
+    """
+    session = launched_session(state)
+    if (not state.get("merged") or not state.get("followups") or not session
+            or not state.get("repo") or state.get("scratch")
+            or (state.get("review_pr") and not state.get("own_pr"))):
+        return
+    with watch.state_lock():
+        current = read_state(run_dir) or state
+        if "followup_runs" in current:
+            state["followup_runs"] = current["followup_runs"]
+            return
+        state["followup_runs"] = []
+        save_state(run_dir, state)
+        if watch.seat_closed(session):
+            return
+        cfg = report_config(cfg)
+        repo = main_checkout(Path(state["repo"]))
+        target = (state.get("target") or state["base"]).removeprefix("origin/")
+        for item in state["followups"]:
+            source = {**state, "repo": str(repo)}
+            if open_followup(source, item):
+                continue
+            title = "Fix " + item.splitlines()[0]
+            name = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
+            directory = config.RUNS / name
+            number = 1
+            while directory.exists():
+                number += 1
+                directory = config.RUNS / f"{name}-{number}"
+            directory.mkdir(parents=True)
+            check = shlex.quote(str(directory / "regression.sh"))
+            task = (f"---\nrepo: {repo}\nbase: origin/{target}\ntarget: {target}\n---\n"
+                    f"# {title}\n\n{item}\n\n"
+                    "First fetch the target branch and check that this defect still exists there. "
+                    f"Inspect {config.RUNS}/*/run.json for another open run of session {session} "
+                    f"fixing this site in {repo}; exclude this run ({directory.name}). "
+                    "If the defect is gone or another open run is fixing it, end with only "
+                    "`not needed: <why>` (optionally under `## Summary`), with no edits or PR. "
+                    "Otherwise fix it with a regression test: show it failing before the fix "
+                    "and passing afterwards, and include both outputs in your summary. "
+                    f"You may write {directory / 'regression.sh'} outside the checkout "
+                    "to run that test from the checkout; "
+                    "the loop runs it as a check. If only the owner can decide, end `## Blocked` "
+                    "with the question.\n\n"
+                    f"## Done when\n```bash\nbash {check}\n```\n")
+            (directory / "task.md").write_text(task)
+            (directory / "log.txt").touch()
+            save_state(directory, {"followup": {"run": run_dir.name, "text": item,
+                                               "place": followup_place(item)},
+                                   "launched_session": session, "repo": str(repo),
+                                   "workers": run_workers(cfg, state),
+                                   **({"reviewers": list(state["reviewers"])}
+                                      if "reviewers" in state else {}),
+                                   **({"notify_sink": state["notify_sink"]}
+                                      if state.get("notify_sink") else {})})
+            opts = {"--rounds": None, "--exec": None, "--review": None,
+                    "--review-pr": None, "--no-worktree": False, "--no-merge": False,
+                    "--bg": True}
+            try:
+                prepare(directory, opts, logger(directory, True), cfg)
+                spawn_bg(directory, [str(directory / "task.md")])
+            except (config.Error, OSError) as exc:
+                log(f"follow-up {directory.name} could not start: {exc}")
+                continue
+            state["followup_runs"].append(directory.name)
+            save_state(run_dir, state)
 
 
 def done_when_counts(dw_log, cmds):
@@ -3553,6 +3662,7 @@ def rounds(lp, execv=None):
             # a review that was the open step is continued, not preceded by another
             # executor turn.
             summary = saved_worker_text(lp.round_dir)
+            followup_not_needed(lp, summary)
             settled = settled_gate(lp) if cut == "reviewer" else None
             if settled is None:
                 if cut == "done-when":
@@ -5238,6 +5348,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             wt = config.WORK / run_dir.name
             wt.mkdir(parents=True, exist_ok=True)
         else:
+            if receipt.get("followup"):
+                git(repo, "fetch", "origin", "--prune")
             base = meta.get("base") or default_base(repo, log)
             # where the PR goes: a run cut from `dev` can still be meant for `main`
             target = meta.get("target") or base
@@ -5440,6 +5552,13 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                     # unless integration had already invalidated the review: there is review
                     # work outstanding, which only a resume can finish, so say so
                     raise Exhausted(str(exc)) from None
+    except NotNeeded as exc:
+        state.update(state="not_needed", verdict=None, not_needed=str(exc),
+                     finished_at=time.time())
+        save_state(run_dir, state)
+        write_result(run_dir, state, cmds, log, cfg)
+        settle_run(state, run_dir, log)
+        return state
     except Dead as exc:
         log(f"ERROR {exc}")
         state.update({"state": "error", "verdict": "ERROR", "error": str(exc),
@@ -5808,6 +5927,8 @@ def delivery(state, cfg=None):
     `not merged` is a repository run's answer and only a repository run's: a run with no repo
     has no branch to merge, and its workspace is where the work went, so it is `delivered`.
     """
+    if state.get("state") == "not_needed":
+        return f"not needed: {state['not_needed']}"
     if state.get("state") == "waiting":
         return f"WAITING: {state.get('merge_note') or state.get('error') or 'delivery pending'}"
     cfg = report_config(cfg)
@@ -5936,6 +6057,8 @@ def record_decision(run_dir, state, reason, merged=False):
     if merged:
         state["merged"] = True
     save_state(run_dir, state)
+    if merged:
+        start_followups(state, run_dir, logger(run_dir, True))
     result = run_dir / "result.md"
     try:
         if state.get("worktree") and Path(state["worktree"]).is_dir():
@@ -6197,11 +6320,13 @@ def seat_tallies(records, now=None):
 
 
 def verdict_word(state, cfg=None):
-    """PASS, FAIL or ERROR: the three words a notice is allowed to carry.
+    """The outcome a notice carries, including DONE for a follow-up no longer needed.
 
     A run that stopped on an error says so; everything else is the delivery outcome, so an
     exhausted or interrupted run reads FAIL, exactly as `delivery` already calls it.
     """
+    if state.get("state") == "not_needed":
+        return "DONE"
     if state.get("state") == "error":
         return "ERROR"
     return "PASS" if delivery(state, report_config(cfg)).startswith("PASS") else "FAIL"
@@ -6215,6 +6340,8 @@ def whereabouts(state, short=False):
     this is what goes on the line when the whole URL will not fit on it.  A run with no
     repository is `delivered`: there was never a branch for `not merged` to be about.
     """
+    if state.get("state") == "not_needed":
+        return "not needed"
     if state.get("scratch"):
         return "delivered"
     if state.get("merged"):
@@ -6313,12 +6440,14 @@ def launcher_watched(session):
 
 
 def handback_verdict(state, cfg=None):
-    """The five words a hand-back line may carry about how a run ended.
+    """The words a hand-back line may carry about how a run ended.
 
-    `PASS merged`, `PASS not merged`, `FAIL`, `BLOCKED`, `ERROR` -- the delivery outcome, not
+    `PASS merged`, `PASS not merged`, `DONE`, `FAIL`, `BLOCKED`, `ERROR` -- the delivery outcome, not
     the review verdict, because what the orchestrator decides next turns on where the work
     went and not on what the reviewer thought of it.
     """
+    if state.get("state") == "not_needed":
+        return "DONE"
     if state.get("state") == "blocked":
         return "BLOCKED"
     if state.get("state") == "error":
@@ -6330,6 +6459,8 @@ def handback_verdict(state, cfg=None):
 
 def handback_reason(state, cfg=None):
     """The one line after the verdict: why it ended that way, in the run's own words."""
+    if state.get("state") == "not_needed":
+        return delivery(state, cfg)
     if state.get("state") in ("blocked", "error", "waiting"):
         return " ".join((state.get("error") or "no reason was recorded").split())[:300]
     # A memory-cap death is the whole news: rounds and findings say nothing about a
@@ -6423,7 +6554,8 @@ def handback_line(state, run_dir, cfg=None):
                if state.get("lessons_truncated") and repo else "")
     line = (f"run {run_dir.name} finished {handback_verdict(state, cfg)}: "
             f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace}{lessons} "
-            "Decide the next step.")
+            + (f"Started fix runs: {', '.join(state['followup_runs'])}. "
+               if state.get("followup_runs") else "") + "Decide the next step.")
     spent = len(state.get("round_summaries") or [])
     if (state.get("state") == "fail" and (state.get("rounds") or 0) > 0
             and spent >= (state.get("rounds") or 0) and review_failed(state)):
@@ -6732,7 +6864,8 @@ def announce(state, run_dir, log, cfg=None):
     # is what this run says now, and the tick must not come back here every pass for it
     mark_delivery(run_dir, state, handback_pending=None, handback_wait_reason=None)
     task = state.get("title") or state.get("run_id") or run_dir.name
-    verdict = "PASS" if delivery(state, report_config(cfg)).startswith("PASS") else "FAIL"
+    verdict = ("DONE" if state.get("state") == "not_needed" else
+               "PASS" if delivery(state, report_config(cfg)).startswith("PASS") else "FAIL")
     why = ""
     # A pre-existing ending with a stuck card keeps its retry below, but never wakes its seat.
     if (not watch.seat_closed(session) and watch.orphan_fresh(state, session)
@@ -7489,7 +7622,7 @@ def needs_recovery(state):
     `blocked` would otherwise be offered for recovery it is refused -- see `cmd_resume`.
     A `stopped` run is a deliberate end, never an accident to offer back.
     """
-    return (state.get("state") not in ("queued", "running", "pass", "blocked", "stopped") and
+    return (state.get("state") not in ("queued", "running", "pass", "blocked", "stopped", "not_needed") and
             (state.get("state") in ("interrupted", "exhausted", "stalled", "waiting_login") or
              bool(state.get("recovery_pending"))))
 
@@ -10538,8 +10671,8 @@ def _drop_told(state, log, run_dir=None):
     """
     if not isinstance(state, dict):
         return
-    if state.get("merged"):
-        drop_checkout(state, log)
+    if state.get("merged") or state.get("state") == "not_needed":
+        drop_checkout(state, log, keep_branch=False)
         return
     if state.get("state") in ("fail", "error", "blocked", "stopped"):
         if resume_holds_tree(state, run_dir):
@@ -10601,8 +10734,8 @@ def settle_run(state, run_dir, log=None):
         browser.close_owned(run=run_id)
     except (OSError, ValueError, TypeError):
         pass
-    if state.get("merged"):
-        drop_checkout(state, log)
+    if state.get("merged") or state.get("state") == "not_needed":
+        drop_checkout(state, log, keep_branch=False)
         return
     if (state.get("state") in ("fail", "error", "blocked", "stopped")
             and already_handed_back(state) and not resume_holds_tree(state, run_dir)):
@@ -10943,6 +11076,13 @@ def spawn_bg(run_dir, argv, expected=None):
     child = [sys.executable, str(config.REPO / "bin" / "ak"), "run"] + [a for a in argv if a != "--bg"]
     with slot_lock(), recovery_lock(run_dir):
         previous = read_state(run_dir) or {}
+        if previous.get("followup"):
+            # These are siblings owned by the seat, not descendants for the ending's
+            # process sweep to kill or tests sharing its admission slot.
+            for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_SCOPE",
+                        config.UNATTENDED_ENV, config.JOB_DIR_ENV, "AK_RUN_ROLE"):
+                env.pop(key, None)
+            env[config.SESSION_ENV] = launched_session(previous)
         if expected is not None and previous != expected:
             raise config.Error("the run changed while choosing recovery; select it again")
         if previous.get("state") == "stopped":
@@ -11064,18 +11204,27 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
     The task file it was launched from goes on too, because the run keeps only a copy:
     where the file lives is what files a scratch run's seat under a project (`run_project`).
     """
-    session_at_launch = config.current_session()
-    workers = config.workers(cfg) if cfg is not None and session_at_launch else None
-    selection = (config.active_session(cfg) or cfg["defaults"]) if cfg is not None else {}
-    groups = {"workers": workers} if workers else {}
-    if "reviewers" in selection:
-        groups = {role: list(selection[role]) for role in ("workers", "reviewers")}
+    receipt = read_state(run_dir) or {}
+    followup = receipt.get("followup")
+    session_at_launch = receipt["launched_session"] if followup else config.current_session()
+    workers = (receipt.get("workers") if followup else
+               config.workers(cfg) if cfg is not None and session_at_launch else None)
+    if followup:
+        # A fix run keeps its discovering run's lists, never the session's current ones.
+        groups = {role: list(receipt[role]) for role in ("workers", "reviewers")
+                  if isinstance(receipt.get(role), list) and receipt[role]}
+    else:
+        selection = (config.active_session(cfg) or cfg["defaults"]) if cfg is not None else {}
+        groups = {"workers": workers} if workers else {}
+        if "reviewers" in selection:
+            groups = {role: list(selection[role]) for role in ("workers", "reviewers")}
     limit = config.max_runs()
     with slot_lock():
-        state = stamp_origin({"run_id": run_dir.name, "state": "queued", "verdict": None,
+        state = stamp_origin({**receipt, "run_id": run_dir.name, "state": "queued", "verdict": None,
                          "launched_session": session_at_launch, "started_at": time.time(),
                          "queued_at": time.time(), "slot_waiting": True,
-                         "run_depth": run_depth(), "parent_run": os.environ.get("AK_PARENT_RUN"),
+                         "run_depth": 0 if followup else run_depth(),
+                         "parent_run": None if followup else os.environ.get("AK_PARENT_RUN"),
                          "reservation_pending": True,
                          "unattended": not session_at_launch and config.unattended(),
                          **process_owner(), "launch_opts": opts or {},
@@ -11323,6 +11472,7 @@ def update_scope_line(run_dir, state):
 
 
 def finish(state, run_dir, log, cfg=None):
+    start_followups(state, run_dir, log, cfg)
     try:
         refresh_seat_tally(launched_session(state))   # the ending lands on the bar too
     except config.Error:
@@ -11335,6 +11485,8 @@ def finish(state, run_dir, log, cfg=None):
         return 2
     cfg = report_config(cfg)
     log(f"{delivery(state, cfg)} -> {run_dir / 'result.md'}")
+    if state.get("state") == "not_needed":
+        return 0
     if state.get("state") == "waiting" or not review_pass(state, cfg):
         return 1
     return 1 if state.get("merge_failed") else 0
@@ -11583,6 +11735,8 @@ def resume_run(argv):
         # The task itself is what failed, so there is nothing here to carry on: another
         # round would spend a model turn to be told the same thing again.
         raise config.Error("blocked runs are not resumed; the orchestrator writes a new task")
+    if state.get("state") == "not_needed":
+        raise config.Error(f"not needed: {state['not_needed']}")
     if state.get("state") == "stopped":
         # A deliberate end, not an accident: there is nothing to carry on, and the
         # branch the stop printed is what a relaunch starts from.
@@ -12717,6 +12871,8 @@ def job_classify(run_state, cfg):
         return "stopped"
     if run_state.get("state") == "blocked":
         return "blocked"
+    if run_state.get("state") == "not_needed":
+        return "passed"
     if review_pass(run_state, cfg):
         if run_state.get("merged"):
             return "merged"
