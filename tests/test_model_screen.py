@@ -1,5 +1,5 @@
 """Enter on a model's label in `c` opens that model's own screen: its id picked from the catalog,
-its effort following the new model's own list, its review rule, and `Remove`, all without typing.
+its effort following the new model's own list, and `Remove`, all without typing.
 
 Each screen test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a
 pty of its own, through tests/test_config_matrix.py's Screen, in a temporary HOME whose
@@ -173,29 +173,26 @@ class ModelScreen(unittest.TestCase):
         screen.press(ESC, lambda lines: title(lines) == "agentkit · config")
         screen.leave()
 
-    def test_the_review_toggle_writes_the_key_and_a_missing_key_reads_yes(self):
+    def test_the_model_screen_has_no_review_rule_row(self):
         screen = Screen(self, child=CHILD)
-        rule = "Reviews its own company's work"
-        self.assertNotIn("reviews_own_provider", screen.saved()["models"]["opus"])
+        for name in ("opus", "fable"):
+            self.assertNotIn("reviews_own_provider", screen.saved()["models"][name])
         lines = open_model(screen, DOWN, "opus")
-        self.assertEqual(value(lines, rule), "‹ yes ›")
-        lines = screen.press(DOWN + DOWN + ENTER, lambda lines: value(lines, rule) == "‹ no ›")
-        self.assertTrue(highlighted(lines).startswith(f"› {rule}"))
-        self.assertIs(screen.saved()["models"]["opus"]["reviews_own_provider"], False)
-        screen.press(RIGHT, lambda lines: value(lines, rule) == "‹ yes ›")
-        self.assertIs(screen.saved()["models"]["opus"]["reviews_own_provider"], True)
-        # fable ships with `false`, and says no
+        self.assertNotIn("Reviews its own company's work", "\n".join(lines))
+        # id, effort, then Remove: two steps down reaches the last row
+        lines = screen.press(DOWN + DOWN, lambda lines: lines[-1] == KEYS["remove"])
+        self.assertEqual(highlighted(lines), "› Remove")
         screen.press(ESC, lambda lines: title(lines) == "agentkit · config")
         lines = screen.press(UP + ENTER,
                              lambda lines: title(lines) == "agentkit · config · fable")
-        self.assertEqual(value(lines, rule), "‹ no ›")
+        self.assertNotIn("Reviews its own company's work", "\n".join(lines))
         screen.press(ESC, lambda lines: title(lines) == "agentkit · config")
         screen.leave()
 
     def test_remove_asks_with_keep_preselected_and_removes(self):
         screen = Screen(self, child=CHILD)
         open_model(screen, DOWN, "opus")
-        lines = screen.press(DOWN * 3, lambda lines: lines[-1] == KEYS["remove"])
+        lines = screen.press(DOWN * 2, lambda lines: lines[-1] == KEYS["remove"])
         self.assertEqual(highlighted(lines), "› Remove")
         before = screen.path.read_bytes()
         mark = len(screen.text())
@@ -225,7 +222,7 @@ class ModelScreen(unittest.TestCase):
         open_model(screen, b"", "opus")
         before = screen.path.read_bytes()
         mark = len(screen.text())
-        lines = screen.press(DOWN * 3 + ENTER,
+        lines = screen.press(DOWN * 2 + ENTER,
                              lambda lines: "the config needs one model" in lines[-3])
         self.assertEqual(highlighted(lines), "› Remove")
         self.assertNotIn("Remove opus", screen.text()[mark:])     # nothing asked
@@ -264,12 +261,16 @@ class ModelScreen(unittest.TestCase):
                              lambda lines: title(lines) == "agentkit · config · haiku")
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
-        self.assertEqual(lines[2:4], ["› model id", "    ‹ claude-haiku-4-5 ›"])
-        self.assertIn("  Reviews its own company's work", lines)
+        self.assertEqual(lines[2:5], ["› model id  ‹ claude-haiku-4-5 ›",
+                                      "  effort    ‹ xhigh ›",
+                                      "  Remove"])
+        self.assertNotIn("Reviews its own company's work", "\n".join(lines))
         # a click on the id's left arrow steps it back, past the Sonnet 5
-        number = lines.index("    ‹ claude-haiku-4-5 ›") + 1
-        lines = screen.click(5, number,
-                             lambda lines: "    ‹ claude-sonnet-4-6 ›" in lines)
+        number = next(n for n, line in enumerate(lines, 1)
+                      if "‹ claude-haiku-4-5 ›" in line)
+        lines = screen.click(13, number,
+                             lambda lines: any("‹ claude-sonnet-4-6 ›" in line
+                                               for line in lines))
         self.assertEqual(screen.saved()["models"]["haiku"]["model"], "claude-sonnet-4-6")
         self.assertEqual(screen.saved()["models"]["haiku"]["effort"], "high")   # was xhigh
         screen.press(ESC, lambda lines: title(lines) == "agentkit · config")
