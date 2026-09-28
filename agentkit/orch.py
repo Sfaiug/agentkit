@@ -981,6 +981,48 @@ def agentless(socket, names):
     return found
 
 
+def bind_pane(session):
+    """Give an older Claude launch its pane once, from its own interactive command.
+
+    The client is the pane's process or the immediate child of our compact wrapper.
+    Searching deeper would let a shell's or another client's nested Claude claim it.
+    """
+    from .harness import claude
+    if session.get("exited"):
+        return
+    name, server = session["name"], seat_socket(session)
+    record = config.session_records().get(name, {})
+    conversation = record.get("conversation")
+    if seat_harness(record) != "claude" or not claude.resumable(record, None, conversation):
+        return
+    rc, saved = tmux_out("show-options", "-qv", "-t", f"={name}:", PANE_OPTION, socket=server)
+    if rc or saved:
+        return
+    rc, out = tmux_out("list-panes", "-s", "-t", f"={name}:", "-F",
+                       "#{pane_id}\t#{pane_pid}\t#{pane_dead}", socket=server)
+    if rc or not out:
+        return
+    table, candidates = processes() or {}, []
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if (len(parts) != 3 or not re.fullmatch(r"%[0-9]+", parts[0])
+                or not parts[1].isdigit() or parts[2] != "0"):
+            continue
+        pane, root = parts[0], int(parts[1])
+        root_words = table.get(root, (0, []))[1]
+        clients = ([words for parent, words in table.values() if parent == root]
+                   if program(root_words) == "idle-compact.py" else [root_words])
+        for words in clients:
+            command = root_words + words
+            if (claude.is_process(words) and "-p" not in command and "--print" not in command
+                    and any((flag, conversation) in zip(argv, argv[1:])
+                            for argv in (root_words, words) for flag in ("--session-id", "--resume"))):
+                candidates.append(pane)
+                break
+    if len(candidates) == 1:
+        tmux_out("set-option", "-t", f"={name}:", PANE_OPTION, candidates[0], socket=server)
+
+
 def owns_hook(session, pid, is_client):
     """A hook must come from the client in the pane agentkit launched.
 
@@ -1781,11 +1823,16 @@ def launch(name, model, cwd, cmd, conversation, session=None):
     if env:
         cmd = ["env", *(f"{key}={value}" for key, value in env.items()), *cmd]
     if session:
-        # Keep the launched pane even if another window is active; older seats without a
-        # saved pane keep their existing target until this launch records it.
+        # Keep the launched pane even if another window is active. If it was removed,
+        # respawn the session's current pane as older launches did, and record that one.
         server = seat_socket(session)
         rc, pane = tmux_out("show-options", "-qv", "-t", f"={name}:", PANE_OPTION, socket=server)
         target = pane if rc == 0 and re.fullmatch(r"%[0-9]+", pane) else f"={name}:"
+        if target == pane:
+            rc, owner = tmux_out("display-message", "-p", "-t", pane, "#{session_name}",
+                                 socket=server)
+            if rc or owner != name:
+                target = f"={name}:"
         rc, out = tmux_out("respawn-pane", "-k", "-t", target, shlex.join(cmd),
                            socket=server)
         if rc != 0:

@@ -2869,6 +2869,7 @@ def health(cfg, state, dry_run, log):
                 continue
             if not dry_run:
                 try:
+                    orch.bind_pane(session)
                     renamed = follow_title(session, log)
                     if renamed:
                         session = dict(session, name=renamed)
