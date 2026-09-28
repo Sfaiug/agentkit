@@ -194,10 +194,12 @@ class MemoryCap(unittest.TestCase):
         self.assertNotIn("rounds", run.handback_reason(state))
 
     def test_the_config_key_changes_the_cap(self):
-        # No key: the smaller of 4 GB and 40% of the ceiling handed in.
+        # No key: 40% of the ceiling handed in, with no 4 GB top; no ceiling
+        # anywhere is the only thing that keeps the 4 GB bound.
         self.assertIsNone(config.run_memory_max_mb())
-        self.assertEqual(run.memory_cap_mb(20000), 4096)
+        self.assertEqual(run.memory_cap_mb(20000), 8000)
         self.assertEqual(run.memory_cap_mb(5000), 2000)
+        self.assertEqual(run.memory_cap_mb(), 4096)
         self.assertEqual(run.memory_cap_line(4096), "killed: memory cap 4 GB")
         self.assertEqual(run.memory_cap_line(512), "killed: memory cap 0.5 GB")
         drop = self.root / ".config/systemd/user/agentkit-test.slice.d"
@@ -320,8 +322,8 @@ class MemoryCap(unittest.TestCase):
         joined = " ".join(run_argv)
         self.assertIn("CPUWeight=40", joined)
         self.assertIn("IOWeight=40", joined)
-        self.assertIn("MemoryMax=4096M", joined)
-        self.assertIn("MemorySwapMax=4096M", joined)
+        self.assertIn("MemoryMax=8000M", joined)
+        self.assertIn("MemorySwapMax=8000M", joined)
         # 40 is the runs' weight; the seats' drop-in is 100, checked with the installer.
         self.assertLess(40, 100)
 

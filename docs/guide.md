@@ -80,7 +80,7 @@ regardless. Runs have no count cap and wait FIFO while free memory is under the 
 slice CPU pressure is above 40%, or the nearest limited cgroup is past 75% of its `memory.high` outside reclaimable
 file cache; a pinned `max_load` restores the host-load check instead, each run the host has frozen counting 1 while held; a
 worker's own test runs share the parent's slot, and a third level is refused. A run that hits its own memory cap, the
-smaller of 4 GB and 40% of the slice ceiling unless `run_memory_max_mb` sets it, ends `fail` with `killed: memory cap`.
+40% of the slice ceiling, 4 GB where there is no ceiling, unless `run_memory_max_mb` sets it, ends `fail` with `killed: memory cap`.
 `ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the CPU gate but still waiting for the memory floor, and takes its repository's next gate turn first, marked `first` in `ak run status`.
 A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run
 scope and cap; one run from a terminal runs its tasks in its own process.
@@ -350,8 +350,8 @@ adding none unasked. `gh auth login`, the Claude worker token, and the Discord w
 once, only where missing and there is a terminal; the git credential helper and author are set from `gh` without asking.
 On a server it also writes: the bypass defaults and update pins into `~/.claude/settings.json` (backed up beside itself
 when it changes) and `~/.codex/config.toml`, each harness's lifecycle hooks through `adapters/<h>.sh hooks`, and the browser MCP registration. The server installs the tick's cron and, where a user systemd manager exists, writes
-`~/.config/systemd/user/agentkit.slice.d/limits.conf` once: seats in `agentkit-seats.slice`, runs in the lower-weight
-`agentkit-runs.slice`, both under `agentkit.slice`. Under a HOME not the account's own it touches nothing outside it.
+`~/.config/systemd/user/agentkit.slice.d/limits.conf` on every install, pinned by `slice_tasks_max`, `slice_memory_high`,
+`slice_memory_max`, `slice_cpu_quota`: seats in `agentkit-seats.slice`, runs in the lower-weight `agentkit-runs.slice`. Under a HOME not the account's own it touches nothing outside it.
 
 `ak update` upgrades the harnesses this host has (any other is a `skipped` line), and none while a session works (it
 names those sessions and exits 0); it verifies them with the gates that can run there and rolls back a harness the gates
@@ -399,5 +399,5 @@ retry), `result.md` (linking a scratch run's files) and `round-<r>/<role>/{promp
 - A dropped Mac file the server cannot read: open a new Mac terminal tab or run `ak macbridge --reader` there, then fetch again.
 - Test one headless turn: `ak worker opus prompt.md --workspace ~/code/foo`.
 - A stale usage reading: open the menu; it reads each provider again within a minute.
-- The slice ceiling: edit `~/.config/systemd/user/agentkit.slice.d/limits.conf`, or `systemctl --user set-property agentkit.slice TasksMax=4096`.
+- The slice ceiling: pin `slice_tasks_max` and friends in `~/.agentkit/config.toml` (an install rewrites its own `limits.conf`), or `systemctl --user set-property agentkit.slice TasksMax=4096` for now.
 - A failed `ak update` that could not restore Muse: its snapshot is under `~/.agentkit/tmp/muse-snapshot-*`, named in the log.
