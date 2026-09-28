@@ -38,6 +38,9 @@ class Sandbox(unittest.TestCase):
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         self.cfg = config.load()
         config.ensure_dirs()
+        system_tmp = self.root / "system-tmp"
+        system_tmp.mkdir(exist_ok=True)
+        self.stack.enter_context(patch.object(run, "TMP_BASE", system_tmp))
 
     def ended(self, name, owner="gone-seat", **extra):
         directory = config.RUNS / name
