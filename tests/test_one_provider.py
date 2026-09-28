@@ -238,15 +238,15 @@ class OneProvider(unittest.TestCase):
         with self.assertRaises(run.QuotaDry):
             self.pick()
         self.assertEqual(run.pair_refusal(self.cfg, self.providers, None),
-                         "no two of the workers alpha, gamma make an allowed executor and "
-                         "reviewer (gamma: other is not logged in); log in to another harness "
-                         "or add another model to the workers")
+                         "workers alpha, gamma and reviewers alpha, gamma make no allowed executor "
+                         "and reviewer pair (gamma: other is not logged in); "
+                         "log in to another harness or add another model to the groups")
         self.assertIsNone(run.pair_refusal(self.cfg, self.providers, ["alpha", "beta", "gamma"]))
         # a spent meter refills; a list of one model never grows a second, in a session or not
         self.providers = self.meters(b=100)
         self.assertIsNone(run.pair_refusal(self.cfg, self.providers, None))
-        refusal = ("no two of the workers alpha make an allowed executor and reviewer; "
-                   "log in to another harness or add another model to the workers")
+        refusal = ("workers alpha and reviewers alpha make no allowed executor and reviewer pair; "
+                   "log in to another harness or add another model to the groups")
         self.assertEqual(run.pair_refusal(self.cfg, self.providers, ["alpha"]), refusal)
         self.cfg["defaults"]["workers"] = ["alpha"]
         self.assertEqual(run.pair_refusal(self.cfg, self.providers, None), refusal)

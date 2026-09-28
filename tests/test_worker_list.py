@@ -241,9 +241,10 @@ class WorkerList(unittest.TestCase):
         self.why["codex"] = "codex is not logged in"
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
-        refusal = ("no two of the workers alpha, beta make an allowed executor and reviewer "
+        refusal = ("workers alpha, beta and reviewers alpha, beta "
+                   "make no allowed executor and reviewer pair "
                    "(beta: codex is not logged in); log in to another harness or add "
-                   "another model to the workers")
+                   "another model to the groups")
         with patch.object(run.worker, "call", side_effect=AssertionError("no turn")), \
                 self.refused(usage.Readings(self.providers())), \
                 patch.object(notify, "shaped", return_value=0), \
@@ -273,8 +274,9 @@ class WorkerList(unittest.TestCase):
             with self.assertRaises(config.Error) as refused:
                 run.main([str(task), "--bg"])
         self.assertTrue(str(refused.exception).startswith(
-            "no two of the workers alpha, beta, gamma, delta make an allowed executor and "
-            "reviewer (beta: codex is not logged in;"), refused.exception)
+            "workers alpha, beta, gamma, delta and reviewers alpha, beta, gamma, delta "
+            "make no allowed executor and reviewer pair (beta: codex is not logged in;"),
+            refused.exception)
         (run_dir,) = run.run_dirs()
         saved = run.read_state(run_dir)
         self.assertEqual((saved["state"], saved["error"]), ("error", str(refused.exception)))

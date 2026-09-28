@@ -332,6 +332,13 @@ def load():
                     f"{', '.join(names)} (got {workers!r})")
     if not workers:
         defaults["workers"] = [names[0]]
+    if "reviewers" in defaults:
+        reviewers = defaults["reviewers"]
+        if (not isinstance(reviewers, list) or not reviewers
+                or any(name not in names for name in reviewers)
+                or len(set(reviewers)) != len(reviewers)):
+            raise Error(f"{path}: [defaults].reviewers must list distinct models of "
+                        f"{', '.join(names)} (got {reviewers!r})")
     for name, entry in cfg["providers"].items():
         listed = entry.get("accounts", []) if isinstance(entry, dict) else []
         # each name is a path component: the adapters keep that account's login under it
@@ -418,6 +425,9 @@ def _fall_back(defaults, left):
         defaults["orchestrator"] = left[0]
     defaults["workers"] = [model for model in defaults.get("workers") or []
                            if model in left] or [left[0]]
+    if "reviewers" in defaults:
+        defaults["reviewers"] = [model for model in defaults["reviewers"]
+                                if model in left] or [left[0]]
 
 
 _CATALOGS = {}
@@ -526,7 +536,7 @@ SAVE_HEADER = ("# agentkit's config, written by the menu's `c` screen. It is rew
                "every change,",
                "# so a comment left here would not survive it; unknown keys are kept as they are.")
 _TOP_ORDER = ("max_runs", "max_gates", "min_free_mb", "max_load", "run_memory_max_mb", "pace_margin")
-_DEFAULTS_ORDER = ("orchestrator", "workers")
+_DEFAULTS_ORDER = ("orchestrator", "workers", "reviewers")
 _MODEL_ORDER = ("harness", "model", "effort", "provider", "reviews_own_provider", "meter")
 _PROVIDER_ORDER = ("mode", "usage_model", "usage_effort")
 
@@ -710,19 +720,23 @@ def _validate_session(cfg, name, data):
         model(cfg, orchestrator)
     except Error as exc:
         raise Error(f"{session_path(name)}: {exc}") from None
-    if (not isinstance(workers, list) or not workers
-            or any(not isinstance(worker, str) for worker in workers)):
-        raise Error(f"{session_path(name)}: workers must be a non-empty list of model names")
-    for worker in workers:
-        try:
-            model(cfg, worker)
-        except Error as exc:
-            raise Error(f"{session_path(name)}: {exc}") from None
-    if len(set(workers)) != len(workers):
-        raise Error(f"{session_path(name)}: workers contains duplicates")
+    for role in ("workers", "reviewers"):
+        if role == "reviewers" and role not in data:
+            continue
+        listed = data.get(role)
+        if (not isinstance(listed, list) or not listed
+                or any(not isinstance(worker, str) for worker in listed)):
+            raise Error(f"{session_path(name)}: {role} must be a non-empty list of model names")
+        for worker in listed:
+            try:
+                model(cfg, worker)
+            except Error as exc:
+                raise Error(f"{session_path(name)}: {exc}") from None
+        if len(set(listed)) != len(listed):
+            raise Error(f"{session_path(name)}: {role} contains duplicates")
     # the orchestrator's own model may work for it too: nothing here excludes one from the other
     # Whatever else the record carries -- where the seat ran, when, and the conversation the
-    # harness kept -- is handed back untouched: only the two model fields are this file's to judge.
+    # harness kept -- is handed back untouched: only the model fields are this file's to judge.
     return {**data, "orchestrator": orchestrator, "workers": workers}
 
 
@@ -739,9 +753,13 @@ def save_session(cfg, name, orchestrator, workers, extra=None):
 
     `extra` is what the seat is besides its models -- its directory, the moment it was created,
     the harness conversation it holds -- because a record has to say enough to open the seat
-    again once tmux is no longer holding it.
+    again once tmux is no longer holding it. New seats inherit explicit default reviewers;
+    loading an older record never adds them.
     """
+    reviewers = cfg.get("defaults", {}).get("reviewers")
     selection = _validate_session(cfg, name, {"orchestrator": orchestrator, "workers": workers,
+                                              **({"reviewers": list(reviewers)}
+                                                 if reviewers is not None else {}),
                                               **(extra or {})})
     _write_json(session_path(name), selection)
     return selection
@@ -872,6 +890,23 @@ def workers(cfg):
     """The session's selection, else the default workers."""
     session = active_session(cfg)
     return session["workers"] if session else list(cfg["defaults"]["workers"])
+
+
+def reviewers(cfg):
+    """An omitted reviewer selection uses that same record's workers, never another seat's."""
+    selection = active_session(cfg) or cfg["defaults"]
+    return list(selection.get("reviewers", selection["workers"]))
+
+
+def role_groups(cfg, workers=None, reviewers=None):
+    """Bind unbound picks only for explicit reviewers; preserve absence for legacy overrides."""
+    if workers is None:
+        selection = active_session(cfg) or cfg["defaults"]
+        if "reviewers" in selection:
+            workers = selection["workers"]
+            if reviewers is None:
+                reviewers = selection["reviewers"]
+    return workers, reviewers
 
 
 def adapter(harness):
