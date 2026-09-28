@@ -14,7 +14,6 @@ import os
 from pathlib import Path
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 import time
@@ -118,7 +117,8 @@ def conversation(record, cwd=None):
 def forget(record):
     remote = read(record).get("remote")
     if isinstance(remote, str) and re.fullmatch(r"[0-9a-f]{32}", remote):
-        shutil.rmtree(config.STATE / f"codex-remote-{remote}", ignore_errors=True)
+        subprocess.run([sys.executable, str(config.REPO / "tools/codex-seat.py"),
+                        "--forget", str(config.STATE / f"codex-remote-{remote}")], check=True)
     path = path_for(record)
     if path:
         path.unlink(missing_ok=True)
@@ -333,6 +333,6 @@ def main(argv, launch=None):
         else:
             print("orch: Codex cannot capture seat ownership on this version; "
                   "an unbound seat starts fresh next time", file=sys.stderr)
-    if launch and receipt:
+    if launch and receipt and os.environ.get(CAPTURE_ENV):
         return launch(cmd, receipt)
     os.execvp(cmd[0], cmd)

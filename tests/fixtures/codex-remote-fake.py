@@ -8,11 +8,13 @@ import runpy
 import shlex
 import signal
 import socketserver
+import sqlite3
 import struct
 import subprocess
 import sys
 import time
 import tomllib
+import uuid
 
 args = sys.argv[1:]
 home = Path.home()
@@ -21,11 +23,26 @@ ch = Path(os.environ.get('CODEX_HOME', home / '.codex'))
 if args == ['--help']:
     print('old CLI' if os.environ.get('FAKE_UNSUPPORTED') else '--dangerously-bypass-hook-trust')
     sys.exit(0)
+if os.environ.get('FAKE_UNSUPPORTED') and args != ['--help']:
+    assert '--remote' not in args and 'app-server' not in args
+    (home / 'last-command.json').write_text(json.dumps(args))
+    sys.exit(0)
 if args[:1] == ['app-server']:
     assert '--remote-control' in args
     path = args[args.index('--listen') + 1].removeprefix('unix://')
     data = {'argv': args, 'env': dict(os.environ), 'cwd': os.getcwd(), 'pid': os.getpid()}
     (ch / 'fake-server.json').write_text(json.dumps(data))
+    identity = ch / 'installation_id'
+    if not identity.exists():
+        identity.write_text('acme-' + uuid.uuid4().hex)
+    database = ch / 'state_5.sqlite'
+    with sqlite3.connect(database) as db:
+        db.execute('CREATE TABLE IF NOT EXISTS remote_control_enrollments '
+                   '(environment_id TEXT, account_id TEXT)')
+        if not db.execute('SELECT 1 FROM remote_control_enrollments').fetchone():
+            db.execute('INSERT INTO remote_control_enrollments VALUES (?, ?)',
+                       ('env_acme_' + uuid.uuid4().hex, 'acme-account'))
+        environment = db.execute('SELECT environment_id FROM remote_control_enrollments').fetchone()[0]
     settings = {}
     for i, word in enumerate(args[:-1]):
         if word == '-c':
@@ -55,6 +72,7 @@ if args[:1] == ['app-server']:
                 '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest())
             self.wfile.write(b'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n'
                              b'Connection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + b'\r\n\r\n')
+            monitor = False
             while first := self.rfile.read(2):
                 size = first[1] & 127
                 if size == 126:
@@ -67,15 +85,16 @@ if args[:1] == ['app-server']:
                 method, params = msg['method'], msg.get('params') or {}
                 result = {}
                 if method == 'remoteControl/status/read':
-                    result = {'status': 'connected', 'environmentId': 'env_acme_' + ch.name,
-                              'serverName': 'acme-host', 'installationId': 'acme-installation'}
+                    monitor = True
+                    result = {'status': 'connected', 'environmentId': environment,
+                              'serverName': 'acme-host', 'installationId': identity.read_text()}
                 elif method == 'remoteControl/client/list':
                     result = {'data': [] if os.environ.get('FAKE_PAIRING') else [{'clientId': 'acme-phone'}]}
                 elif method == 'remoteControl/pairing/start':
                     with (home / 'pairings.jsonl').open('a') as fh:
                         fh.write(json.dumps(params) + '\n')
                     result = {'manualPairingCode': 'ACME-1234', 'pairingCode': 'invented',
-                              'environmentId': 'env_acme_' + ch.name, 'expiresAt': 2000000000}
+                              'environmentId': environment, 'expiresAt': 2000000000}
                 elif method in ('thread/start', 'thread/resume'):
                     sid = params.get('threadId') or os.environ['FAKE_THREAD']
                     transcript = ch / 'sessions' / ('rollout-' + sid + '.jsonl')
@@ -97,9 +116,18 @@ if args[:1] == ['app-server']:
                 header = bytes([129, len(wire)]) if len(wire) < 126 else (
                     bytes([129, 126]) + struct.pack('!H', len(wire)))
                 self.wfile.write(header + wire)
+            if monitor:
+                (ch / 'fake-monitor-closed').touch()
 
     class Server(socketserver.ThreadingUnixStreamServer):
         daemon_threads = True
+    if gate := os.environ.get('FAKE_STOP_GATE'):
+        def stopped(signum, frame):
+            Path(gate + '.waiting').touch()
+            while not Path(gate).exists():
+                time.sleep(.05)
+            raise SystemExit(0)
+        signal.signal(signal.SIGTERM, stopped)
     server = Server(path, Handler)
     try:
         server.serve_forever(poll_interval=.05)

@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
 """Keep a seat's app server alive exactly as long as its remote TUI."""
 import base64
+from contextlib import closing
 import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
+import select
 import shlex
 import shutil
 import signal
 import socket
+import sqlite3
 import struct
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config, notify
@@ -150,129 +156,266 @@ class Client:
         self.socket.close()
 
 
+def remote_request(auth, environment, method, body=None):
+    tokens = json.loads(Path(auth).read_text())["tokens"]
+    url = ("https://chatgpt.com/backend-api/wham/remote/control/environments/"
+           + urllib.parse.quote(environment, safe=""))
+    request = urllib.request.Request(url, method=method,
+        headers={"Authorization": "Bearer " + tokens["access_token"],
+                 "ChatGPT-Account-Id": tokens["account_id"], "Content-Type": "application/json"},
+        data=json.dumps(body).encode() if body is not None else None)
+    # The backend briefly still sees an online connection after its process exits.
+    for attempt in range(6):
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                response.read()
+            return
+        except urllib.error.HTTPError as exc:
+            if method == "DELETE" and exc.code == 404:
+                return
+            if method != "DELETE" or exc.code != 409 or attempt == 5:
+                raise config.Error(f"Codex remote {method}: HTTP {exc.code}") from exc
+            time.sleep(1)
+
+
+def enrollments(home):
+    path = home / "agentkit-enrollments.json"
+    records = json.loads(path.read_text()) if path.exists() else {}
+    # A pane can close before the first connected status was read. Codex's own
+    # cache still names that enrollment; preserve it before changing accounts.
+    auth = home / "auth.json"
+    if auth.exists():
+        account = (json.loads(auth.read_text()).get("tokens") or {}).get("account_id")
+        for database in home.glob("state_*.sqlite"):
+            with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as db:
+                if not db.execute("SELECT 1 FROM sqlite_master WHERE name = ?",
+                                  ("remote_control_enrollments",)).fetchone():
+                    continue
+                for (environment,) in db.execute(
+                        "SELECT environment_id FROM remote_control_enrollments WHERE account_id = ?",
+                        (account,)):
+                    records.setdefault(environment, {"auth": str(auth.resolve())})
+    return records
+
+
+def enroll(home, status, named):
+    environment = status.get("environmentId")
+    if not environment:
+        return
+    path = home / "agentkit-enrollments.json"
+    records = enrollments(home)
+    entry = records.setdefault(environment, {"auth": str((home / "auth.json").resolve())})
+    # Save the deletion receipt before an HTTP request can fail. Each account's
+    # login remains addressable after the next launch retargets auth.json.
+    path.write_text(json.dumps(records))
+    name = config.resolve_session(os.environ[config.SESSION_ENV])
+    if named != (environment, name):
+        remote_request(entry["auth"], environment, "PATCH", {"name": name})
+    return environment, name
+
+
+def pairing_key(environment):
+    return hashlib.sha256(("codex-pair:" + environment).encode()).hexdigest()
+
+
+def close_pairing(environment, status):
+    with notify.outbox_lock():
+        event = notify._read_event(pairing_key(environment))
+        if not event or event.get("closed"):
+            return
+        receipt = event.get("receipt", {})
+        left = notify.close_needs({"open_needs": [
+            {**receipt, "embed": event["payload"]["embeds"][0]}]} if receipt else None, status)
+        if not left:
+            event.update(closed=status, status="disabled", next_attempt=None)
+            notify._write_event(event)
+
+
 def pairing(client, home, status):
-    """An enrollment asks once, across reconnects, restarts and seat renames."""
+    """Pairing belongs to an enrollment, never to a conversation's turn or card."""
     environment = status["environmentId"]
     clients = client.call("remoteControl/client/list", {"environmentId": environment})
     if clients["data"]:
+        close_pairing(environment, "Paired")
         return
-    stamp = home / "agentkit-pairing.json"
-    with stamp.open("a+") as fh:
-        fcntl.flock(fh, fcntl.LOCK_EX)
-        fh.seek(0)
-        previous = fh.read()
-        if previous and json.loads(previous).get("environment") == environment:
-            return
-        pair = client.call("remoteControl/pairing/start", {"manualCode": True})
-        name = config.resolve_session(os.environ[config.SESSION_ENV])
-        retry = shlex.join(["python3", str(Path(__file__).resolve()), "--pair", str(home)])
-        step = (f"In the ChatGPT app, open Remote and pair this computer with code "
-                f"{pair['manualPairingCode']}, then open {name}. "
-                f"If the code expires, run {retry} on the host for a new code.")
-        # Pairing has an exact owner action, unlike the usual card pointing at the
-        # pane. Keep its text on the card and use the existing durable outbox.
-        key = hashlib.sha256(("codex-pair:" + environment).encode()).hexdigest()
-        with notify.session_lock(name), notify.outbox_lock():
-            event = notify._read_event(key)
-            if event is None:
-                payload = {"username": "agentkit", "embeds": [
-                    {**notify.embed("needs", name, step), "description": step}]}
-                if who := notify.mention():
-                    payload["content"] = who
-                event = {"id": key, "source": "card:" + key, "episode": key,
-                         "session": name, "kind": "needs", "text": step, "pr": None,
-                         "files": [], "payload": payload, "message": f"Needs you · {name}: {step}",
-                         "created_at": time.time(), "sink": notify.sink() is not None,
-                         "status": "pending", "attempts": 0, "next_attempt": 0}
-                notify._write_event(event)
-                previous = notify.last(name, include_seen=True) or {}
-                notify.record(name, "needs", step, source=event["source"],
-                              time=event["created_at"], event_id=key)
-                notify._card_write(name, {"word": "needs you", "since": event["created_at"],
-                                         "began": event["created_at"], "episode": key,
-                                         "sent": True, "open_needs": previous.get("open_needs", [])})
-            notify._attempt(event)
-            notify._remember_card(event)
-        fh.seek(0)
-        json.dump({"environment": environment}, fh)
-        fh.truncate()
+    key = pairing_key(environment)
+    with notify.outbox_lock():
+        event = notify._read_event(key)
+        if event is None:
+            pair = client.call("remoteControl/pairing/start", {"manualCode": True})
+            name = config.resolve_session(os.environ[config.SESSION_ENV])
+            retry = shlex.join(["python3", str(Path(__file__).resolve()), "--pair", str(home)])
+            step = (f"In the ChatGPT app, open Remote and pair {name} with code "
+                    f"{pair['manualPairingCode']}, then open {name}. "
+                    f"If the code expires, run {retry} on the host for a new code.")
+            payload = {"username": "agentkit", "embeds": [
+                {**notify.embed("needs", name, step), "description": step}]}
+            if who := notify.mention():
+                payload["content"] = who
+            # A session-less outbox event is durable but cannot satisfy the Stop
+            # rule or be answered by a prompt, a working tick or a seat rename.
+            event = {"id": key, "source": "codex-pair:" + environment,
+                     "session": None, "kind": "needs", "text": step, "pr": None,
+                     "files": [], "payload": payload, "message": f"Needs you · {name}: {step}",
+                     "created_at": time.time(), "sink": notify.sink() is not None,
+                     "status": "pending", "attempts": 0, "next_attempt": 0}
+            notify._write_event(event)
+        notify._attempt(event)
 
 
-def launch(cmd, receipt):
-    home = seat_home(receipt)
-    env = {**os.environ, "CODEX_HOME": str(home), "CODEX_SQLITE_HOME": str(home)}
-    # A short private runtime directory also works when the seat's HOME is a
-    # long worktree path. Codex resolves relative socket paths before binding.
+def remove_home(home):
+    for environment, entry in enrollments(home).items():
+        remote_request(entry["auth"], environment, "DELETE")
+        close_pairing(environment, "Closed")
+    shutil.rmtree(home, ignore_errors=True)
+
+
+def forget(home):
+    home = Path(home)
+    home.with_suffix(".forgotten").touch(mode=0o600)
+    with home.with_suffix(".lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return 0  # the live guard removes it after stopping the server
+        remove_home(home)
+    return 0
+
+
+def serve(cmd, receipt, parent):
+    data = json.loads(Path(receipt).read_text())
+    home = config.STATE / ("codex-remote-" + data["remote"])
+    forgotten = home.with_suffix(".forgotten")
+
+    def ended(signum, frame):
+        raise SystemExit(128 + signum)
+
+    def alive():
+        return not forgotten.exists() and not select.select([parent], [], [], 0)[0]
+
+    for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, ended)
+    # prepare replaces the receipt BEFORE tmux kills the old pane. The receipt
+    # is not a deletion signal. Serialize both launches, including their cleanup.
+    with home.with_suffix(".lock").open("a") as lock:
+        while alive():
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                time.sleep(.05)
+        else:
+            return 0
+        if not Path(receipt).exists():
+            return 0
+        home = seat_home(receipt)
+        return connected(cmd, home, alive)
+
+
+def connected(cmd, home, alive):
+    env = {**os.environ, "CODEX_HOME": str(home)}
+    env.pop("CODEX_SQLITE_HOME", None)
+    cmd = [*cmd, "-c", "sqlite_home=" + json.dumps(str(home))]
     runtime = tempfile.TemporaryDirectory(prefix=".cx-")
     path = Path(runtime.name) / "s"
-    socket = str(path)
-    server = [cmd[0], "app-server", "--remote-control", "--listen", "unix://" + socket]
+    server = [cmd[0], "app-server", "--remote-control", "--listen", "unix://" + str(path)]
     for i, word in enumerate(cmd[:-1]):
         if word in ("-c", "--config"):
             server += ["-c", cmd[i + 1]]
         elif word in ("-m", "--model"):
             server += ["-c", "model=" + json.dumps(cmd[i + 1])]
     server += ["-c", 'approval_policy="never"', "-c", 'sandbox_mode="danger-full-access"']
-    processes = []
-    client = None
-    old_signals = {}
-
-    def ended(signum, frame):
-        raise SystemExit(128 + signum)
-
+    # Only Codex itself needs the private home. Shells and their ak workers keep
+    # the caller's home variables, including an explicitly selected login.
+    source = os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))
+    server += ["-c", "shell_environment_policy.set.CODEX_HOME=" + json.dumps(source)]
+    if "CODEX_SQLITE_HOME" in os.environ:
+        server += ["-c", "shell_environment_policy.set.CODEX_SQLITE_HOME="
+                   + json.dumps(os.environ["CODEX_SQLITE_HOME"])]
+    proc = tui = None
     try:
-        for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
-            old_signals[sig] = signal.signal(sig, ended)
         with (home / "server.log").open("w") as log:
             proc = subprocess.Popen(server, env=env, stdin=subprocess.DEVNULL,
                                     stdout=log, stderr=log, start_new_session=True)
-            processes.append(proc)
             deadline = time.monotonic() + 15
             while not path.exists():
+                if not alive():
+                    return 0
                 if proc.poll() is not None or time.monotonic() > deadline:
                     raise config.Error(f"Codex seat server did not start; see {home / 'server.log'}")
                 time.sleep(.05)
-            client = Client(socket)
             # --remote is global and must precede the resume subcommand.
-            tui = subprocess.Popen([cmd[0], "--remote", "unix://" + socket, *cmd[1:]], env=env)
-            # The TUI stays in the pane's foreground process group for terminal input.
+            tui = subprocess.Popen([cmd[0], "--remote", "unix://" + str(path), *cmd[1:]], env=env)
             with (home / "connection.json").open("w") as fh:
                 json.dump({"socket": str(path)}, fh)
-            try:
-                checked = False
-                while tui.poll() is None:
-                    if proc.poll() is not None:
-                        raise config.Error("Codex seat server stopped")
-                    if not checked:
-                        try:
-                            status = client.call("remoteControl/status/read")
-                            if status["status"] == "connected":
-                                pairing(client, home, status)
-                                checked = True
-                        except (OSError, ValueError, config.Error) as exc:
-                            print(f"Codex remote control: {exc}", file=log, flush=True)
-                    time.sleep(.25 if checked else 1)
-                return tui.returncode
-            finally:
-                if tui.poll() is None:
-                    tui.terminate()
+            check_at = 0
+            named = None
+            while tui.poll() is None and alive():
+                if proc.poll() is not None:
+                    raise config.Error("Codex seat server stopped")
+                if time.monotonic() >= check_at:
+                    client = None
                     try:
-                        tui.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        tui.kill()
-                        tui.wait()
+                        client = Client(str(path))
+                        status = client.call("remoteControl/status/read")
+                        named = enroll(home, status, named)
+                        if status["status"] == "connected":
+                            pairing(client, home, status)
+                            check_at = time.monotonic() + 30
+                    except (OSError, ValueError, config.Error) as exc:
+                        print(f"Codex remote control: {exc}", file=log, flush=True)
+                    finally:
+                        if client:
+                            client.close()
+                    check_at = max(check_at, time.monotonic() + 1)
+                time.sleep(.25)
+            return tui.returncode or 0
     finally:
-        # Cleanup cannot itself be interrupted by tmux closing the pane.
-        for sig in old_signals:
+        for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
             signal.signal(sig, signal.SIG_IGN)
-        if client:
-            client.close()
-        for proc in reversed(processes):
-            stop(proc)
+        if tui and tui.poll() is None:
+            tui.terminate()
+            try:
+                tui.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                tui.kill()
+                tui.wait()
+        stop(proc)
         runtime.cleanup()
         (home / "connection.json").unlink(missing_ok=True)
-        if not Path(receipt).exists():
-            shutil.rmtree(home, ignore_errors=True)
+        (home / "agentkit-enrollments.json").write_text(json.dumps(enrollments(home)))
+        if home.with_suffix(".forgotten").exists():
+            remove_home(home)
+
+
+def launch(cmd, receipt):
+    # A guard owns both children. Only this wrapper holds the pipe's write end;
+    # even SIGKILL closes it, so cleanup does not depend on a wrapper's finally.
+    reader, writer = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        os.close(writer)
+        try:
+            return serve(cmd, receipt, reader)
+        finally:
+            os.close(reader)
+    os.close(reader)
+    old_signals = {}
+    def ended(signum, frame):
+        raise SystemExit(128 + signum)
+    try:
+        for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
+            old_signals[sig] = signal.signal(sig, ended)
+        _, status = os.waitpid(pid, 0)
+        return os.waitstatus_to_exitcode(status)
+    finally:
+        for sig in old_signals:
+            signal.signal(sig, signal.SIG_IGN)
+        os.close(writer)
+        try:
+            os.waitpid(pid, 0)
+        except ChildProcessError:
+            pass
         for sig, handler in old_signals.items():
             signal.signal(sig, handler)
 
@@ -291,6 +434,8 @@ def pair_again(home):
 
 if __name__ == "__main__":
     try:
+        if len(sys.argv) == 3 and sys.argv[1] == "--forget":
+            sys.exit(forget(sys.argv[2]))
         if len(sys.argv) == 3 and sys.argv[1] == "--pair":
             sys.exit(pair_again(sys.argv[2]))
         sys.exit(main(sys.argv[1:], launch=launch))

@@ -610,3 +610,32 @@ ids and pairing codes are replaced whole with invented values; response fields
 are otherwise retained. The transport and mobile flow are described in the
 [official app-server documentation](https://learn.chatgpt.com/docs/app-server)
 and [Remote connections](https://learn.chatgpt.com/docs/remote-connections).
+
+### Review regression probes
+
+`codex-seat-review-evidence.json` records additional 0.153.4 probes on 2026-09-28,
+using copied authentication in temporary HOMEs, without model turns or owner
+notifications. Values are excerpts from the responses or comparisons made by the
+probe; paths and ids are replaced whole. PATCH of a remote environment requires
+`name`, not `display_name`; GET then returned the seat name while retaining the
+host name. DELETE can briefly return 409 after shutdown, then succeeds with 204.
+An offline environment remained readable, so stopping its server alone is not
+removal. The implementation retains deletion receipts until deletion succeeds.
+`command/exec` confirmed that a server can keep its private home while tool
+commands receive the original CODEX_HOME and no private SQLite environment.
+Two servers under the same `ak-probe-acme` hostname obtained distinct enrollments;
+the first stayed connected while the second was still connecting at 30 seconds.
+Both were stopped and their enrollments deleted (204).
+
+All probe processes and credential copies were removed. One early probe's DELETE
+returned 409 before it went offline; its temporary id receipt had already been
+removed. Subsequent account listings were empty, so that one deletion is
+unconfirmed. Later probes retained ids until DELETE succeeded. No phone was paired.
+
+`codex-remote-http-fake.py` is a synthetic `sitecustomize` used only by the isolated
+test subprocesses. It records enrollment names and deletions and rejects deletion
+while its fake server is alive. The fake Codex now persists installation and
+SQLite enrollment identities. The regression tests cover preparation before pane
+replacement, delayed cleanup, account changes, pairing independent of turn cards,
+monitor disconnects, SIGKILL, legacy fallback and enrollment removal. Test homes
+and sockets live in temporary directories outside the checkout.

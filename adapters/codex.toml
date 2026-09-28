@@ -5,7 +5,7 @@
 version = 1
 
 [launch]
-seat_env = ["CODEX_HOME", "CODEX_SQLITE_HOME", "AGENTKIT_CODEX_RECEIPT", "AGENTKIT_CODEX_CAPTURE"]
+seat_env = ["AGENTKIT_CODEX_RECEIPT", "AGENTKIT_CODEX_CAPTURE"]
 
 # How `ak update` moves this harness: npm installs a named version, so a failed upgrade goes
 # back by command.  `[usage] reset` says this adapter speaks `reset-status` and `reset`, which is

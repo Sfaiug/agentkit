@@ -21,7 +21,7 @@ from agentkit.harness import codex as codex_plugin
 
 class Ownership(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".codex-seat-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".codex-seat-")
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -39,7 +39,12 @@ class Ownership(unittest.TestCase):
         self.cwd = self.root / "shared cwd"
         self.cwd.mkdir()
         (self.root / ".codex").mkdir()
+        (self.root / '.codex/auth.json').write_text(json.dumps({
+            'tokens': {'access_token': 'acme-token', 'account_id': 'acme-account'}}))
         (self.root / "sockets").mkdir(mode=0o700)
+        (self.root / 'sitecustomize.py').write_text(
+            (REPO / 'tests/fixtures/codex-remote-http-fake.py').read_text())
+        self.stack.enter_context(patch.dict(os.environ, {'PYTHONPATH': str(self.root)}))
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.stack.enter_context(patch.dict(os.environ, {"PATH": f"{self.bin}:{os.environ['PATH']}"}))
@@ -48,7 +53,7 @@ class Ownership(unittest.TestCase):
 assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
 ''')
         self.stack.enter_context(patch.dict(os.environ, {
-            "FAKE_CODEX_REPO": str(REPO), "TMPDIR": str(REPO)}))
+            "FAKE_CODEX_REPO": str(REPO), "TMPDIR": str(self.root)}))
         self.fake("codex", (REPO / "tests/fixtures/codex-remote-fake.py").read_text())
         adapters = self.root / "adapters"
         adapters.mkdir()
