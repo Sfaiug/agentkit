@@ -4189,10 +4189,12 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                 # once a pass, and only when a run waits on a pick, never on an empty tick
                 providers, asked = usage.readiness(cfg, providers), True
             bound = run_mod.run_workers(cfg, state) or workers
+            review_bound = run_mod.run_reviewers(cfg, state) or bound
             # one line per worker the pick leaves out, for the run's own log -- written only
             # when this pass resumes it, so a run waiting through tick after tick gets none
             skipped = []
-            available = run_mod.executable_models(cfg, providers, bound, now, skipped.append)
+            available = run_mod.executable_models(cfg, providers, bound, now, skipped.append,
+                                                 reviewers=review_bound)
             with run_mod.recovery_lock(run_dir):
                 state = run_mod.read_state(run_dir) or state
                 if state.get("state") != "exhausted":
@@ -4238,7 +4240,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                             and 0 <= now - last < run_mod.ERROR_RETRY_CAP):
                         continue  # re-resumed within the hour: a dead reviewer gets an
                         # hour like an error, not a reviewer turn every ten minutes
-                    reviewers = run_mod.reviewable_models(cfg, providers, bound, now,
+                    reviewers = run_mod.reviewable_models(cfg, providers, review_bound, now,
                                                           executor=saved)
                     if not reviewers:
                         continue  # no reviewer is eligible yet; the run keeps waiting, silently
@@ -4260,7 +4262,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                         # (`run.next_executor`): keeping the reviewer would force a dearer
                         # executor on the run.  Nothing resumes until a legal pair exists; a
                         # run with none left stays parked and waits for one.
-                        review_order = run_mod.ready_order(cfg, providers, bound,
+                        review_order = run_mod.ready_order(cfg, providers, review_bound,
                                                            role="reviewer", quiet=True)
                         pairs = {name: run_mod.reviewer_order(cfg, name, review_order)
                                  for name, _ in candidates}

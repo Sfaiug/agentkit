@@ -143,7 +143,7 @@ class WorkerList(unittest.TestCase):
             session["workers"] = [*workers, "fable"]
             for resuming in (False, True):
                 for executor, reviewer in (("fable", "beta"), ("beta", "fable")):
-                    with self.assertRaisesRegex(config.Error, "not a (worker|reviewer)"):
+                    with self.assertRaisesRegex(config.Error, "not a worker"):
                         run.pick_models(self.cfg, providers, executor, reviewer,
                                         self.logs.append, workers=workers, resuming=resuming)
             lp = self.loop("beta", "delta", workers)
@@ -241,7 +241,8 @@ class WorkerList(unittest.TestCase):
         self.why["codex"] = "codex is not logged in"
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
-        refusal = ("workers alpha, beta and reviewers alpha, beta make no allowed executor and reviewer pair "
+        refusal = ("workers alpha, beta and reviewers alpha, beta "
+                   "make no allowed executor and reviewer pair "
                    "(beta: codex is not logged in); log in to another harness or add "
                    "another model to the groups")
         with patch.object(run.worker, "call", side_effect=AssertionError("no turn")), \
@@ -274,7 +275,8 @@ class WorkerList(unittest.TestCase):
                 run.main([str(task), "--bg"])
         self.assertTrue(str(refused.exception).startswith(
             "workers alpha, beta, gamma, delta and reviewers alpha, beta, gamma, delta "
-            "make no allowed executor and reviewer pair (beta: codex is not logged in;"), refused.exception)
+            "make no allowed executor and reviewer pair (beta: codex is not logged in;"),
+            refused.exception)
         (run_dir,) = run.run_dirs()
         saved = run.read_state(run_dir)
         self.assertEqual((saved["state"], saved["error"]), ("error", str(refused.exception)))

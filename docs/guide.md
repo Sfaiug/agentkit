@@ -190,19 +190,19 @@ test suites' `$AK_NOTIFY_SINK` outranks the webhook, so a test never reaches you
 
 ## The picker
 
-Session records and `[defaults]` may list `reviewers` beside `workers`; omitted reviewers use that record's workers.
-Executors use only workers; reviews (including `--review-pr`) and spares use only reviewers. A model can be in both.
-Runs save explicit groups in `run.json` at launch and keep them through handovers, refusals and resumes despite later edits; old records keep their shared worker list. Each group ranks by budget: the fraction of allowance left plus a week
+Session records and `[defaults]` may list `reviewers` beside `workers`; new seats copy explicit default reviewers.
+With separate groups, executors use only workers; reviews (including `--review-pr`) and spares use only reviewers. A model can be in both.
+Runs save explicit groups in `run.json` at launch, show them in status and the preflight log, and keep them through handovers, refusals and resumes despite later edits; omitted reviewers keep the old shared-list behavior. Each group ranks by budget: the fraction of allowance left plus a week
 per reset held, divided by the fraction of window left, using the smallest provider non-session meter. The executor is
-highest budget, with Fable preferred only if listed and its meter trails the shared Claude week; the reviewer is highest
+highest budget, with Fable preferred when listed and its meter trails the shared Claude week (legacy picks outside a seat may add it); the reviewer is highest
 budget on another provider, else a different model on the same provider unless its `reviews_own_provider = false`. A
 meter at 100% used excludes a worker, and so does a harness not installed or not logged in (no adapter or program, or
 its `auth` verb says no, asked at every pick), with one `skipped <model>: <harness> is not logged in` line in the run's
-log per pick; `--exec` or `--review` outside its group or naming an unavailable harness is refused, as is a resume whose saved executor no other model can take
+log per pick; `--exec` or `--review` outside a bound group or naming an unavailable harness is refused, as is a resume whose saved executor no other model can take
 over. An unknown budget ranks last, a pay-as-you-go provider joins only while every subscription that can run is ahead
 of pace by more than `pace_margin`, and a run with no eligible pair parks `exhausted`, but a launch no refill can pair
 (skipped harnesses, or groups with no allowed pair) is refused naming the groups, by a `--bg` launch's parent too. The orchestrator choice ignores pace (see `n`; every model spent launches the default with a WARN); a run without a session uses the
-default groups. Meters are cached for five minutes and each provider is probed at most once a minute host-wide, a refused worker or a spent reset included (Muse's billed probe once in ten, whatever its meters do); a spent-window
+default groups; without `reviewers`, legacy unbound explicit picks and orchestrator resumes still work. Meters are cached for five minutes and each provider is probed at most once a minute host-wide, a refused worker or a spent reset included (Muse's billed probe once in ten, whatever its meters do); a spent-window
 refusal parks the provider until it refills (spending a Codex reset first when held); `ak usage` shows the choices.
 
 ## The tick
@@ -225,15 +225,15 @@ once. A job whose launcher dies is relaunched by the next tick in its launch dir
 order, while that directory is there, its seat's session exists and you did not close it, its launcher was alive (its heartbeat) under 24 hours ago, no unfinished task whose run stopped short of its ending was handed back, carded or
 acknowledged, none was stopped, and this is not a third death within an hour; otherwise `ak run status` names `ak run
 resume <job>` under it. A run with no output for 20 minutes has its step stopped and the loop carries on; a second
-silence resumes the loop with both roles re-picked from its worker list and execution on another provider; a third parks
+silence resumes the loop with each role re-picked from its own group and execution on another provider; a third parks
 it `stalled` for `ak run resume <id>`. Quota `exhausted` resumes when its window refills, a reviewer-transport one as
 below; other `exhausted` runs wait for `ak run resume <id>`; an expired login parks `waiting_login` until the harness's
 `auth` verb answers `yes`. A transient fault (`API Error`, `Overloaded`, a 5xx, an empty answer) retries the same
-session after a minute; a second failure in a row hands the role to the next worker, and with nobody else the same session
+session after a minute; a second failure in a row hands the role to the next model in its group, and with nobody else the same session
 is retried after 5, 15, 30 and 60 minutes, then hourly; the tick's silence clock starts where each wait ends. An empty
 answer whose stderr (the adapter's own included) says the harness never ran (not installed, an unknown flag or model, a
 refused login, even quoted as `API Error`) and names no 5xx, overload or capacity error goes to another provider at
-once, or ends the run, a PR review included, `blocked` on that line. A refusal that names the account re-picks both roles by budget from its worker list, same worktree and round.
+once, or ends the run, a PR review included, `blocked` on that line. A refusal that names the account re-picks each role by budget from its own group, same worktree and round.
 
 `ak run resume <id> [--rounds N] [--bg]` resumes the worktree, the worker sessions and the options a run left; it
 refuses `blocked` and `stopped`, and needs the worktree, which lives seven days. `ak run merge <id>` retries the

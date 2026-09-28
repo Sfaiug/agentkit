@@ -238,9 +238,9 @@ class OneProvider(unittest.TestCase):
         with self.assertRaises(run.QuotaDry):
             self.pick()
         self.assertEqual(run.pair_refusal(self.cfg, self.providers, None),
-                         "workers alpha, gamma and reviewers alpha, gamma make no allowed executor and "
-                         "reviewer pair (gamma: other is not logged in); log in to another harness "
-                         "or add another model to the groups")
+                         "workers alpha, gamma and reviewers alpha, gamma make no allowed executor "
+                         "and reviewer pair (gamma: other is not logged in); "
+                         "log in to another harness or add another model to the groups")
         self.assertIsNone(run.pair_refusal(self.cfg, self.providers, ["alpha", "beta", "gamma"]))
         # a spent meter refills; a list of one model never grows a second, in a session or not
         self.providers = self.meters(b=100)
@@ -292,7 +292,7 @@ class OneProvider(unittest.TestCase):
         self.assertEqual(run.read_state(lp.run_dir)["review_session"], "existing-review")
         self.assertFalse(any("reviewer re-picked" in line for line in self.logs))
 
-    def test_even_the_default_orchestrator_must_be_a_selected_worker_to_resume(self):
+    def test_only_the_default_orchestrator_can_resume_as_an_unselected_worker(self):
         session = {"name": "fixture", "orchestrator": "gamma", "workers": ["alpha", "beta"]}
         with patch.object(config, "active_session", return_value=session):
             for resuming in (False, True):
@@ -300,9 +300,8 @@ class OneProvider(unittest.TestCase):
                     run.pick_models(self.cfg, self.providers, "gamma", "alpha",
                                     self.logs.append, resuming=resuming)
             session["orchestrator"] = "seat"
-            with self.assertRaisesRegex(config.Error, "not a worker"):
-                run.pick_models(self.cfg, self.providers, "seat", "alpha",
-                                self.logs.append, resuming=True)
+            self.assertEqual(run.pick_models(self.cfg, self.providers, "seat", "alpha",
+                                             self.logs.append, resuming=True), ("seat", "alpha"))
 
     def test_lag_preference_and_display_use_same_company_pair_policy(self):
         cfg = tomllib.loads((REPO / "config.default.toml").read_text())
@@ -311,7 +310,6 @@ class OneProvider(unittest.TestCase):
         cfg["defaults"]["workers"] = [m for m in cfg["defaults"]["workers"]
                                       if cfg["models"][m]["provider"] in
                                       ("anthropic", "openai", "meta")]
-        cfg["defaults"]["workers"].append("fable")
         meter = self.providers["a"]["meters"][0]
         providers = {
             "anthropic": {"meters": [{**meter, "name": "weekly_all", "used": 80},
