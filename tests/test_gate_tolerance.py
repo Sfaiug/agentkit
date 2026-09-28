@@ -236,6 +236,31 @@ class GateTolerance(unittest.TestCase):
         self.assertEqual(self.probes("claude"), [])
         self.assertEqual(self.probes("codex"), [])
 
+    def test_held_check_1_leaves_no_ask_for_a_later_sandbox_read(self):
+        # smoke_home copies the host's probe ages in, so a later sandbox ask (check 3's
+        # `ak usage`, an `ak run`, an `ak orch` seat) obeys the same hold through _cooling.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        (caller / ".agentkit/state/anthropic-probe.lock").write_text(repr(time.time()))
+        state = self.home / ".agentkit/state"
+        state.mkdir(parents=True)
+        (state / "anthropic-probe.lock").write_text(
+            (caller / ".agentkit/state/anthropic-probe.lock").read_text())
+        self.healthy()
+        block = f"SMOKE_CALLER_HOME={shlex.quote(str(caller))}\n" + CHECK_1
+        result = self.shell(block)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
+        self.assertEqual(self.probes("claude"), [])
+        # Check 3's line, seconds later in the same sandbox HOME: Claude still held and
+        # silent, while a provider the host never asked answers normally.
+        later = subprocess.run([str(REPO / "bin/ak"), "usage", "--json"], cwd=self.root,
+                               env={**self.env, "REPO": str(REPO)},
+                               text=True, capture_output=True, timeout=120)
+        self.assertEqual(later.returncode, 0, later.stdout + later.stderr)
+        self.assertEqual(self.probes("claude"), [])
+        self.assertEqual(self.probes("codex"), ["usage"])
+
     def test_retry_past_cadence_that_gets_an_answer_passes(self):
         # Codex's minute with the default 60 s sleep: the retry is past the cadence, so it
         # asks again and the new answer passes. Claude's fifteen still holds its own retry.

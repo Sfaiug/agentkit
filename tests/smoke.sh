@@ -264,6 +264,14 @@ PY
     [ ! -f "$SMOKE_CALLER_HOME/.agentkit/state/$path" ] ||
       cp -p "$SMOKE_CALLER_HOME/.agentkit/state/$path" "$HOME/.agentkit/state/$path"
   done
+  # The cadence and Retry-After belong to the host: copy its probe ages in, so every
+  # sandbox ask obeys them through _cooling itself, at every check and for every provider.
+  # Copies, never links: the gate never writes the host's own ages.
+  for path in "$SMOKE_CALLER_HOME"/.agentkit/state/*-probe.lock \
+              "$SMOKE_CALLER_HOME"/.agentkit/state/*-probe.retry; do
+    [ -f "$path" ] || continue
+    cp -p -- "$path" "$HOME/.agentkit/state/${path##*/}" || exit 1
+  done
 }
 smoke_source() {   # smoke_source <caller's file>: 0 to borrow it, 1 when nothing is there
   # A file this user cannot read, or cannot reach through a directory or a link, is there and
