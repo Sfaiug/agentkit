@@ -7599,10 +7599,11 @@ def read_state(run_dir):
         return None
 
 
-# One run's memory, below the slice ceiling.  4 GB, or 40% of that ceiling when the
-# ceiling is the smaller of the two: a leak has to die inside its own scope, while
-# the seat slice -- accounted apart, and with the higher weight -- is never the thing
-# the kernel throttles.  Swap is capped at the same size so the excess cannot hide there.
+# One run's memory, below the slice ceiling.  40% of that ceiling: a leak has to die
+# inside its own scope, while the seat slice -- accounted apart, and with the higher
+# weight -- is never the thing the kernel throttles.  Swap is capped at the same size
+# so the excess cannot hide there.  4 GB is only the fallback where there is no
+# ceiling to read.
 RUN_MEMORY_DEFAULT_MB = 4096
 RUN_MEMORY_SHARE = 40
 
@@ -7616,23 +7617,21 @@ def scope_is_real(scope):
 def memory_cap_mb(ceiling_mb=None):
     """The cap for one run, in mebibytes.
 
-    `run_memory_max_mb` in the config, when it is set.  Otherwise the smaller of
-    4 GB and 40% of the slice's MemoryMax.  No ceiling at all -- a host with no
-    drop-in, a Mac -- keeps the 4 GB bound, which is still below an uncapped user
-    unit.  The share is integer arithmetic so 40% of an odd ceiling does not
-    drift.
+    `run_memory_max_mb` in the config, when it is set.  Otherwise 40% of the
+    slice's MemoryMax, with no top: a larger machine grows the slice, and the
+    run's share grows with it.  No ceiling at all -- a host with no drop-in, a
+    Mac -- falls back to 4 GB, which is still below an uncapped user unit.  The
+    share is integer arithmetic so 40% of an odd ceiling does not drift.
     """
     configured = config.run_memory_max_mb()
     if configured is not None:
         return configured
     if ceiling_mb is None:
         ceiling_mb = orch.slice_memory_max_mb()
-    cap = RUN_MEMORY_DEFAULT_MB
     if (isinstance(ceiling_mb, (int, float)) and not isinstance(ceiling_mb, bool)
             and ceiling_mb > 0):
-        share = max(1, (int(ceiling_mb) * RUN_MEMORY_SHARE) // 100)
-        cap = min(cap, share)
-    return cap
+        return max(1, (int(ceiling_mb) * RUN_MEMORY_SHARE) // 100)
+    return RUN_MEMORY_DEFAULT_MB
 
 
 def memory_cap_line(mb):

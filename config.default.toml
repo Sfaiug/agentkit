@@ -7,7 +7,7 @@ max_gates = 3             # done-when gates of one repository at once, host-wide
 # min_free_mb defaults from this host's RAM. A pinned max_load restores the host load check instead.
 # Set either to 0 to disable that one resource check.
 # run_memory_max_mb, when set, is one run's memory cap in MiB. Unset, the cap is
-# the smaller of 4 GB and 40% of the slice's MemoryMax, and swap is capped the same.
+# 40% of the slice's MemoryMax (4 GB where there is no ceiling), and swap is capped the same.
 pace_margin = 10          # the one knob: a subscription more than this far ahead of pace no
                           # longer keeps a payg provider out; workers rank on budget, not on
                           # pace, and the orchestrator choice reads neither
