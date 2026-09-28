@@ -2,8 +2,8 @@
 
 These used to live in test_v4r.py beside the runs drill-down.  They are the usage row's own
 behaviours, so they are their own file now, and they read the row as it stands today: the
-provider's shared week, when that week resets, a scoped cap only where it differs, and the
-adapter's own reason when a probe failed.
+provider's shared week, when that week resets, a scoped cap only where it differs, the
+5-hour window's note, and the adapter's own reason when a probe failed.
 """
 
 from contextlib import redirect_stdout
@@ -190,7 +190,8 @@ class UsageRow(Sandbox):
             meters[0]["used"], meters[1]["used"] = all_used, scoped_used
             self.cache()
             line = menu.usage_lines(self.cfg, 100)[1]
-            self.assertRegex(line, rf"Claude\s+[█░]+\s+{left}% left · resets Sun 00:00 · {note}$")
+            self.assertRegex(line, rf"Claude\s+[█░]+\s+{left}% left · resets Sun 00:00 · "
+                                   rf"{note} · 5h spent until 00:00$")
             # the picker and the table keep ranking on the tightest meter, as they always did
             table = {"anthropic": {"meters": [{**m, "elapsed": 50, "pace": 0} for m in meters]}}
             self.assertEqual(usage.rows(self.cfg, table)[0][2],
@@ -262,13 +263,15 @@ class UsageRow(Sandbox):
         self.cache()
         # The bar gives way to the notes, down to four cells, and only then do the notes give
         # way -- each on its own, the least worth keeping first, so one note too long for the
-        # room never takes a shorter one with it.
+        # room never takes a shorter one with it.  A spent 5h window is worth most, so it is
+        # the note that survives where only one can, ahead of the reset and the scoped cap.
         for width, claude, chatgpt, muse in (
                 (30, "░   21% left", "░   69% left", "░    0% left"),
                 (40, "░   21% left · Fable 47%", "░   69% left", "░    0% left"),
-                (56, "░   21% left · resets Sun 00:00", "░   69% left · resets Sun 00:00",
+                (56, "░   21% left · 5h spent until 00:00", "░   69% left · resets Sun 00:00",
                  "░    0% left · resets Thu 22:00"),
-                (100, "░   21% left · resets Sun 00:00 · Fable 47% · ? claude usage exited 1",
+                (100, "░   21% left · resets Sun 00:00 · 5h spent until 00:00 · "
+                      "? claude usage exited 1",
                  "░   69% left · resets Sun 00:00",
                  "░    0% left · resets Thu 22:00")):
             lines = menu.usage_lines(self.cfg, width)
