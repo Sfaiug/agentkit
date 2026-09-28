@@ -1849,7 +1849,8 @@ def launch(name, model, cwd, cmd, conversation, session=None):
     else:
         start(name, cwd, cmd, model)
     if plugin.title_command(name):
-        config.update_session(name, session_title=name, title_sync=None)
+        config.update_session(name, session_title=name if plugin.title_facts["at_launch"] else None,
+                              title_sync=None)
     from . import watch
     # launched under the name again: not the stopped one, and not the owner's closed one
     watch.seat_write(name, stopped_at=None, closed_by_owner=None,
