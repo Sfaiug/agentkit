@@ -194,9 +194,9 @@ Session records and `[defaults]` may list `reviewers` beside `workers`; new seat
 With separate groups, executors use only workers; reviews (including `--review-pr`) and spares use only reviewers. A model can be in both.
 Runs save explicit groups in `run.json` at launch, show them in status and the preflight log, and keep them through handovers, refusals and resumes despite later edits; omitted reviewers keep the old shared-list behavior. Each group ranks by budget: the fraction of allowance left plus a week
 per reset held, divided by the fraction of window left, using the smallest provider non-session meter. The executor is
-highest budget, with Fable preferred when listed and its meter trails the shared Claude week (legacy picks outside a seat may add it); the reviewer is highest
-budget on another provider, else a different model on the same provider unless its `reviews_own_provider = false`. A
-meter at 100% used excludes a worker, and so does a harness not installed or not logged in (no adapter or program, or
+highest budget; equal budgets keep list order, and no model or run history gets a preference. The reviewer is highest
+budget on another provider, else a different model on the same provider unless its `reviews_own_provider = false`. A model's own
+`meter` still gates it. A meter at 100% used excludes a worker, as does a harness not installed or not logged in (no adapter or program, or
 its `auth` verb says no, asked at every pick), with one `skipped <model>: <harness> is not logged in` line in the run's
 log per pick; `--exec` or `--review` outside a bound group or naming an unavailable harness is refused, as is a resume whose saved executor no other model can take
 over. An unknown budget ranks last, a pay-as-you-go provider joins only while every subscription that can run is ahead
@@ -387,10 +387,9 @@ are no step's), tokens where the harness reports them (else unknown), peak proce
 words, goal points, checks and files changed. Smoke and e2e runs are never recorded; an older agentkit's rows are read
 as written, never rewritten, and a median keeps a few that counted waits from pulling an estimate far. Statistics skip
 stopped runs and suite runs, by name or run record. History is best effort. The last twenty runs estimate a task's
-memory and active time; `ak usage` shows each model's success rate and median active time, the picker reads that only
-when budgets are within 0.15 of each other, and `ak run status --history` prints one line per repository (`last 20
-tasks: median N rounds · over 400 words: median M rounds …`) for the orchestrator to size tasks by, then each model's as
-orchestrator, executor and reviewer (`opus: orchestrator: 90% over 12 runs, ~45m`). A run's own directory is
+memory and active time. `ak run status --history` prints one line per repository (`last 20 tasks: median N rounds ·
+over 400 words: median M rounds …`) for the orchestrator to size tasks by. Neither it nor `ak usage` prints per-model
+success rates: a run's verdict describes the task, not the quality of its models. A run's own directory is
 `~/.agentkit/runs/<YYYYMMDD-HHMM>-<slug>/`: `task.md`, `run.json`, `log.txt` (the whole loop, with a `WARN` line per
 retry), `result.md` (linking a scratch run's files) and `round-<r>/<role>/{prompt.md,final.md,stderr.log,events.jsonl}`.
 

@@ -2568,29 +2568,29 @@ balancecheck() {   # balancecheck <named check> <test script> <test names...>
     no "$label"; tail -30 "$log"
   fi
 }
-balancecheck "8o-a Fable behind (80/53): Fable executes only if listed or seatless, astra or spark reviews" \
-  test_usage_balance.py WeeklyBalance.test_behind_prefers_fable_executor_with_cross_provider_reviewer
+balancecheck "8o-a live budget alone selects the executor and a cross-provider reviewer" \
+  test_usage_balance.py WeeklyBalance.test_budget_alone_selects_executor_with_cross_provider_reviewer
 balancecheck "8o-b Opus retains real headroom and remains selectable across the provider boundary" \
   test_usage_balance.py WeeklyBalance.test_behind_keeps_opus_selectable_for_normal_cross_provider_pick
-balancecheck "8o-c Fable ahead, in step or within the margin: normal selection" \
-  test_usage_balance.py WeeklyBalance.test_ahead_in_step_and_margin_use_normal_selection
-balancecheck "8o-d one funded provider: Fable executes with Opus reviewing; Fable never reviews Opus" \
-  test_usage_balance.py WeeklyBalance.test_same_provider_headroom_allows_fable_with_opus_review
+balancecheck "8o-c scoped meter gaps never override budget order" \
+  test_usage_balance.py WeeklyBalance.test_scoped_meter_gap_never_overrides_budget
+balancecheck "8o-d same-provider pair policy preserves budget order; Fable never reviews Opus" \
+  test_usage_balance.py WeeklyBalance.test_same_provider_pair_policy_preserves_budget_order
 balancecheck "8o-e real exhaustion, session gates, payg, cache refresh and unchanged single meters" \
   test_usage_balance.py WeeklyBalance.test_requested_balance_cases \
   WeeklyBalance.test_only_real_meters_exhaust_models WeeklyBalance.test_session_still_gates_and_contributes_to_pace \
   WeeklyBalance.test_real_pace_controls_payg_overflow WeeklyBalance.test_single_meter_and_real_outlook_unchanged \
   WeeklyBalance.test_split_comes_from_config_and_requires_both_meters \
   WeeklyBalance.test_cached_and_fresh_reads_drop_effective_without_changing_real_meters \
-  WeeklyBalance.test_preference_respects_worker_selection_payg_and_real_session_gate
+  WeeklyBalance.test_budget_respects_worker_selection_payg_and_real_session_gate
 balancecheck "8o-f saved Fable executors remain resumable after the meters catch up" \
   test_usage_balance.py WeeklyBalance.test_fable_seat_resume_keeps_executor_after_meters_catch_up
 balancecheck "8o-g reviewers keep the normal ranking when Fable is behind" \
   test_usage_balance.py WeeklyBalance.test_reviewers_keep_normal_order_when_fable_is_behind
 balancecheck "8o-h the launch banner agrees with the new seat's executor order" \
   test_usage_balance.py WeeklyBalance.test_launch_banner_matches_the_new_seats_executor_order
-balancecheck "8o-i unavailable Fable preferences display normal selection" \
-  test_usage_balance.py WeeklyBalance.test_verdict_reports_normal_selection_when_preference_cannot_apply
+balancecheck "8o-i split meter display reports facts without model preferences" \
+  test_usage_balance.py WeeklyBalance.test_split_meter_display_reports_facts_without_preferences
 balancecheck "8o-j ak run resume --rounds preserves a listed Fable executor in its own seat" \
   test_audit_enforce_review_contract.py ReviewContract.test_fable_executor_resumes_review_from_its_seat_with_more_rounds
 

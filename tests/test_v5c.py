@@ -249,7 +249,7 @@ class UsageRow(Sandbox):
             # the split-week detail says what is left too (wrapped on a phone); the gap stays
             # in points of the week
             self.assertIn("weekly_all 21% left, weekly_scoped 47% left, gap 26", " ".join(rendered.split()))
-            self.assertIn("fable behind by 26", rendered)
+            self.assertNotIn("preferring", rendered)
             self.assertNotIn("used", rendered)
             self.assertNotRegex(rendered, r"weekly_(all|scoped) (79|53)%")
             self.assertIn("21%", rendered)

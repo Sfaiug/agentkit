@@ -303,13 +303,11 @@ class OneProvider(unittest.TestCase):
             self.assertEqual(run.pick_models(self.cfg, self.providers, "seat", "alpha",
                                              self.logs.append, resuming=True), ("seat", "alpha"))
 
-    def test_lag_preference_and_display_use_same_company_pair_policy(self):
+    def test_budget_order_and_display_use_same_company_pair_policy(self):
         cfg = tomllib.loads((REPO / "config.default.toml").read_text())
         # the fixture below answers for three companies, so the default workers are scoped
         # to them and the scenario stays what it says
-        cfg["defaults"]["workers"] = [m for m in cfg["defaults"]["workers"]
-                                      if cfg["models"][m]["provider"] in
-                                      ("anthropic", "openai", "meta")]
+        cfg["defaults"]["workers"] = ["opus", "fable", "astra", "spark"]
         meter = self.providers["a"]["meters"][0]
         providers = {
             "anthropic": {"meters": [{**meter, "name": "weekly_all", "used": 80},
@@ -318,17 +316,17 @@ class OneProvider(unittest.TestCase):
             "meta": {"meters": [{**meter, "used": 100}]}}
         usage._gate_flags(providers, time.time(), cfg)
         order = usage.pick_order(cfg, providers, quiet=True)
-        self.assertEqual(order, ["fable", "opus"])
+        self.assertEqual(order, ["opus", "fable"])
         with patch.object(terminal, "width", return_value=100):
             text = usage.render(cfg, providers, order)
-        self.assertIn("preferring Fable as executor", text)
-        self.assertIn("pick order: fable, opus\nreview: fable by opus", text)
+        self.assertNotIn("preferring Fable", text)
+        self.assertIn("pick order: opus, fable\nreview: fable by opus", text)
         self.assertIn("one provider: reviewer on the same company", text)
         cfg["models"]["opus"]["reviews_own_provider"] = False
-        self.assertFalse(usage._fable_pair_available(cfg, providers, order))
+        self.assertIsNone(usage.review_pair(cfg, providers))
         cfg["models"]["opus"]["reviews_own_provider"] = True
         cfg["models"]["opus"]["model"] = cfg["models"]["fable"]["model"]
-        self.assertFalse(usage._fable_pair_available(cfg, providers, order))
+        self.assertIsNone(usage.review_pair(cfg, providers))
 
     def resume_integration(self, reviewer="beta"):
         lp = self.loop(reviewer=reviewer)

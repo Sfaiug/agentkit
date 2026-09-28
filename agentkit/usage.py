@@ -7,8 +7,6 @@ meter for at all (`[usage] none`) is neutral at 1.0, ranked by the same rules an
 only a failed probe is unknown. A reset in hand is one whole weekly
 allowance, exactly as headroom counts it, so the provider holding a spare week is drained first
 and every subscription runs out at the same moment.
-When Fable's scoped allowance lags the shared week, prefer it as executor with a legal reviewer
-that has headroom. Opus still ranks on its real meters, so the gap never parks it.
 
 pace = used% - elapsed% of the meter's window.  Positive means burning faster than the window
 refills.  A provider's pace is the max over its meters.  It no longer ranks anything: pace_margin
@@ -51,7 +49,6 @@ PROBE_EVERY = 60
 PROBE_TRUSTED_FOR = 6 * 3600
 PROVIDER_METERS = "provider meters"
 SESSION_SECS = 18000      # the 5h rolling window every harness reports as its session meter
-FABLE_GAP_MARGIN = 2      # percentage points of slack before preferring Fable as executor
 
 # --- the usage-limit reset --------------------------------------------------------------------
 # A ChatGPT subscription earns "usage limit resets" that put the weekly window back to 0% and
@@ -1124,21 +1121,9 @@ def model_spent(cfg, name, providers):
     return False, f"{worst['name']} {worst['used']}% used < 100"
 
 
-def _fable_pair_available(cfg, providers, order, reviewers=None):
-    """Fable can execute and a legal reviewer in this order has reported headroom."""
-    from . import run
-    if "fable" not in order or model_spent(cfg, "fable", providers)[0]:
-        return False
-    if (model_budget(cfg, "fable", providers)[1] is not None
-            and any(model_budget(cfg, n, providers)[1] is None for n in order)):
-        return False
-    return any((model_headroom(cfg, n, providers) or 0) > 0
-               for n in run.reviewer_order(cfg, "fable", order if reviewers is None else reviewers))
-
-
 def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=None, quiet=False,
                repo=None, skip=(), reviewers=None):
-    """The workers, highest budget first, with a Fable executor preference when it lags.
+    """The workers, highest budget first, for every role.
 
     Budget divides the fraction unspent, plus one whole allowance for each usage-limit reset in
     hand, by the fraction of its window still to go. Unknown readings have budget zero and sort
@@ -1149,9 +1134,7 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     whose meters report nothing counts as below it.  Where the harness's own config says what
     a model is paid from, that outranks the provider's `mode`.
 
-    A worker selection is absolute; lag can only prefer a model already in it.
-    Reviewers keep the normal ranking within their own selection. A launch banner supplies the new
-    orchestrator explicitly, since the caller may still be in another seat. JSON output uses
+    Each role stays within its selection. History never affects the order. JSON output uses
     `quiet` because the providers already carry their unknown reasons as structured fields.
     """
     if workers is None:
@@ -1160,20 +1143,6 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
             workers = reviewers
     tier_b = (list(workers) if workers is not None else
               config.reviewers(cfg) if role == "reviewer" else config.workers(cfg))
-    if orchestrator is None:
-        session = config.active_session(cfg)
-        orchestrator = session.get("orchestrator") if session else None
-    fable = cfg["models"].get("fable", {})
-    provider = fable.get("provider")
-    split = _split_week(cfg, provider, providers.get(provider, {}))
-    behind = (role == "executor" and split is not None
-              and split["scoped"]["name"] == fable.get("meter")
-              and split["gap"] > FABLE_GAP_MARGIN)
-    added = False
-    if behind and "fable" not in tier_b and "fable" in config.offered(cfg):
-        if workers is None and orchestrator is None:
-            tier_b = [*tier_b, "fable"]
-            added = True
     tier_b = [n for n in tier_b if n not in skip]
     limit = margin(cfg)
 
@@ -1202,37 +1171,7 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
             reason = reason.removeprefix("unknown: ")
             print(f"pick {role}: {name} ({provider}) budget {budget:g} unknown: {reason}; "
                   "ranked last", file=sys.stderr)
-    order = sorted(candidates, key=lambda n: (budgets[n][1] is not None, -budgets[n][0]))
-    # A close budget is deliberately the only place history can influence selection.  Keep
-    # models without five finished samples at their budget positions; the historical models
-    # occupying those positions are then ordered by success, with speed as the tie-break.
-    try:
-        from . import history
-        best = max((budgets[name][0] for name in order), default=None)
-        if best is not None:
-            close = [name for name in order if budgets[name][1] is None
-                     and best - budgets[name][0] <= .15]
-            stats = ({name: history.role_stats(repo, role, name) for name in close}
-                     if repo is not None else {name: None for name in close})
-            eligible = [name for name in close if stats[name] and stats[name][1] >= 5]
-            positions = [index for index, name in enumerate(order) if name in eligible]
-            ranked = sorted(eligible, key=lambda name: (
-                -stats[name][0], stats[name][2] if stats[name][2] is not None else float("inf"),
-                order.index(name)))
-            for index, name in zip(positions, ranked):
-                order[index] = name
-    except (AttributeError, OSError, TypeError, ValueError, KeyError):
-        pass
-    if behind and reviewers is not None:
-        reviewers = pick_order(cfg, providers, reviewers, role="reviewer", quiet=True,
-                               repo=repo, skip=skip)
-    if behind and _fable_pair_available(cfg, providers, order, reviewers):
-        return ["fable", *(n for n in order if n != "fable")]
-    if added:
-        # Adding a subscription worker can change payg eligibility; restore the normal pick too.
-        return pick_order(cfg, providers, [n for n in tier_b if n != "fable"], role="reviewer",
-                          quiet=quiet, repo=repo)
-    return order
+    return sorted(candidates, key=lambda n: (budgets[n][1] is not None, -budgets[n][0]))
 
 
 # `resets` is when the shared week opens again, the same answer the menu row gives after that
@@ -1420,19 +1359,9 @@ def render(cfg, providers, order, *, repo=None):
             continue
         scoped, gap = split["scoped"], split["gap"]
         models = [(n, e) for n, e in cfg["models"].items() if e["provider"] == name]
-        owners = ", ".join(n for n, e in models if e.get("meter") == scoped["name"])
-        workers = ", ".join(n.capitalize() for n, e in models if not e.get("meter"))
-        preference = ("preferring Fable as executor" if order[:1] == ["fable"]
-                      and _fable_pair_available(cfg, providers, order) else "normal selection")
-        verdict = (f"{owners} behind by {gap:g}: {preference}"
-                   if gap > FABLE_GAP_MARGIN else f"{owners} ahead by {-gap:g}: {workers} preferred"
-                   if gap < -FABLE_GAP_MARGIN else "in step")
-        if gap > FABLE_GAP_MARGIN and split["all_used"] >= 100:
-            verdict = f"{owners} behind by {gap:g}: weekly_all exhausted"
         # the same polarity as the column; the gap stays in points of the week spent
         lines += [f"{name}: weekly_all {_pct(_left(split['all_used']))} left, "
-                  f"{scoped['name']} {_pct(_left(scoped['used']))} left, gap {gap:g}",
-                  f"  {verdict}"]
+                  f"{scoped['name']} {_pct(_left(scoped['used']))} left, gap {gap:g}"]
         budgets = [(n, model_budget(cfg, n, providers, now)) for n, _ in models]
         if len({value for _, value in budgets}) > 1:
             lines.append("  budget: " + "; ".join(f"{n} {_budget_label(*value)}"
@@ -1464,16 +1393,6 @@ def render(cfg, providers, order, *, repo=None):
     # a reset the policy spent, for as long as the meters it went and re-read stay cached
     lines += [f"{name}: {note}" for name, prov in providers.items()
               for note in prov.get("notes") or []]
-    try:
-        from . import history
-        if repo is not None:
-            for model in order:
-                for role in ("executor", "reviewer"):
-                    line = history.usage_line(repo, model, role)
-                    if line:
-                        lines.append(terminal.styled(line, "dim"))
-    except (OSError, TypeError, ValueError):
-        pass
     lines.append("pick order: " + (", ".join(order) if order else "(none: every worker's provider is exhausted)"))
     pair = review_pair(cfg, providers)
     if pair:
