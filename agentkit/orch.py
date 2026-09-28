@@ -939,8 +939,9 @@ def processes():
 
 
 def agentless(socket, names):
-    """Of those sessions, the ones with no agent harness anywhere under a live pane of theirs.
+    """Of those sessions, the ones with no interactive harness under a live pane of theirs.
 
+    An ak worker and everything under it belong to a run, not an interactive seat.
     A pane the reading has not seen is newer than it, and says nothing yet; neither does
     anything tmux or `ps` could not answer, and nothing is called agentless on it.
     """
@@ -974,6 +975,12 @@ def agentless(socket, names):
             seen.add(pid)
             running = program(table[pid][1])
             if any(fnmatch.fnmatchcase(running, pattern) for pattern in patterns):
+                try:
+                    env = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
+                    if b"AK_RUN_ROLE=worker" in env:
+                        continue         # its descendants cannot make a seat either
+                except OSError:
+                    pass                 # an unreadable role is no proof this is a worker
                 break
             stack.extend(children.get(pid, []))
         else:
