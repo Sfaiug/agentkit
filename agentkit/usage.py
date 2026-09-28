@@ -880,16 +880,17 @@ def _split_week(cfg, provider, prov):
 def _gating_meters(cfg, name, providers):
     """The meters that actually constrain this model.
 
-    A model naming a `meter` is gated by that one and the shared weekly_all.  Otherwise use
-    the provider's meters minus any meter another model claims: `weekly_scoped` is Fable's cap,
-    so it must not gate Opus -- otherwise the orchestrator fallback from Fable to Opus could
-    never fire.
+    A model naming a `meter` is gated by that one, the shared weekly_all and the 5h session
+    window, which every model of the subscription runs inside.  Otherwise use the provider's
+    meters minus any meter another model claims: `weekly_scoped` is Fable's cap, so it must not
+    gate Opus -- otherwise the orchestrator fallback from Fable to Opus could never fire.
     """
     entry = config.model(cfg, name)
     meters = providers.get(entry["provider"], {}).get("meters", [])
     want = entry.get("meter")
     if want:
-        return [m for m in meters if m["name"] in (want, "weekly_all")], want
+        return [m for m in meters if m["name"] in (want, "weekly_all")
+                or m.get("window_secs") == SESSION_SECS], want
     claimed = {e["meter"] for n, e in cfg["models"].items()
                if n != name and e.get("meter") and e["provider"] == entry["provider"]}
     return [m for m in meters if m["name"] not in claimed], PROVIDER_METERS
