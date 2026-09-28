@@ -6,6 +6,8 @@ Offline: real hook input, fake tmux and card delivery, and a temporary HOME.
 import json
 import os
 import subprocess
+import sys
+import time
 import unittest
 from unittest.mock import patch
 
@@ -16,6 +18,36 @@ SEAT = "fix-api"
 QUESTION = "Which schema should acme use?"
 HANDBACK = "Run fix-parser finished: PASS. Decide the next step."
 PROMPT = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text()
+
+# No command falls through to the host's tmux, including an inherited pane on another server.
+FAKE_TMUX = r"""#!/bin/bash
+[[ $1 = -L && $2 = agentkit-test ]] || exit 1
+shift 2
+case $1 in
+  list-sessions) printf '%s\t%s\t100\t0\t1\n' "$FAKE_SEAT" "$HOME" ;;
+  list-panes) printf '%s\t0\n' "$FAKE_SEAT" ;;
+  display-message) case $4 in
+                     %7) printf '/fake/agentkit-test\t%s\n' "$FAKE_SEAT" ;;
+                     %8) printf '/fake/agentkit-test\tacme-other\n' ;;
+                     *) exit 1 ;;
+                   esac ;;
+  capture-pane) [[ $6 = "=$FAKE_SEAT:" ]] || exit 1
+                cat "$FAKE_CAPTURE" ;;
+  set-option) ;;
+  *) exit 1 ;;
+esac
+"""
+
+# Wait for each detached look to finish before assertions or sandbox cleanup. Bound it even
+# if an assertion fails, and report its exit status despite the hook's silent redirects.
+PYTHON = r"""#!/bin/bash
+if [[ $1 = -c && $2 = *watch.hook_look* ]]; then
+  timeout -k 2 15 "$TEST_PYTHON" "$@"
+  printf '%s\n' "$?" >"$LOOK_FINISHED"
+else
+  exec "$TEST_PYTHON" "$@"
+fi
+"""
 
 
 class AnswerClosesQuestion(Sandbox):
@@ -39,6 +71,13 @@ class AnswerClosesQuestion(Sandbox):
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.stack.enter_context(patch.object(watch, "KEY_GAP", 0))
         self.stack.enter_context(patch.object(notify, "close_needs", side_effect=self.close))
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        for name, script in (("tmux", FAKE_TMUX), ("python3", PYTHON)):
+            path = self.bin / name
+            path.write_text(script)
+            path.chmod(0o755)
+        self.looks = []
 
     def tmux(self, *args, **kwargs):
         if args[0] in ("capture-pane", "send-keys"):
@@ -67,15 +106,36 @@ class AnswerClosesQuestion(Sandbox):
                                   "episode": "acme-question", "sent": True,
                                   "open_needs": pending})
 
-    def hook(self, event, script="seat-state.sh", **payload):
+    def wait_look(self, finished):
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            if finished.exists() and finished.read_text():
+                self.assertEqual(finished.read_text().strip(), "0")
+                return
+            time.sleep(0.01)
+        self.fail("the hook's background look did not finish")
+
+    def hook(self, event, script="seat-state.sh", wait=True, timeout=15, env=None, **payload):
+        finished = self.root / f"look-{len(self.looks)}"
+        self.looks.append(finished)
+        environ = {"HOME": str(self.root), "PATH": f"{self.bin}:{os.environ['PATH']}",
+                   "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator",
+                   "AGENTKIT_TMUX_SOCKET": "agentkit-test", "AK_NOTIFY_SINK": "dry-run",
+                   "TMUX": "/fake/agentkit-test,1,0", "TMUX_PANE": "%7",
+                   "FAKE_SEAT": self.seat["name"],
+                   "FAKE_CAPTURE": str(REPO / "tests/fixtures/claude-prompt-pane.txt"),
+                   "TEST_PYTHON": sys.executable, "LOOK_FINISHED": str(finished), **(env or {})}
+        looks = script == "seat-state.sh" and environ["TMUX"] and environ["TMUX_PANE"]
+        if looks:
+            self.addCleanup(self.wait_look, finished)
         result = subprocess.run(["bash", str(REPO / "hooks" / script)],
                                 input=json.dumps({"hook_event_name": event, **payload}),
-                                text=True, capture_output=True, timeout=15,
-                                env={"HOME": str(self.root), "PATH": os.environ["PATH"],
-                                     "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator"})
+                                text=True, capture_output=True, timeout=timeout, env=environ)
         self.assertEqual((result.returncode, result.stderr), (0, ""))
         if script == "seat-state.sh":
             self.assertEqual(result.stdout, "")
+        if looks and wait:
+            self.wait_look(finished)
         return result.stdout
 
     def prompt(self, **payload):
@@ -125,6 +185,56 @@ class AnswerClosesQuestion(Sandbox):
         self.prompt()
         self.assert_answered()
 
+    def test_prompt_never_waits_for_the_notice_lock_and_the_answer_lands_after_release(self):
+        self.notice()
+        # This process holds the lock while the harness's hook and its look run elsewhere.
+        with notify.session_lock(SEAT):
+            began = time.monotonic()
+            self.hook("UserPromptSubmit", prompt="Use the second schema.", wait=False, timeout=1)
+            self.assertLess(time.monotonic() - began, 1)
+            self.assertNotIn("answered_at", notify.last(SEAT, include_seen=True))
+        self.wait_look(self.looks[-1])
+        self.assertEqual(notify.last(SEAT, include_seen=True)["answered_at"],
+                         json.loads(config.stop_path(SEAT).read_text())["turn"])
+        self.assert_answered()
+
+    def test_remote_control_prompt_answers_the_seats_question(self):
+        self.notice()
+        self.prompt(message="Use the second schema.")
+        self.assert_answered()
+
+    def test_prompt_leaves_a_watcher_alert_open(self):
+        self.notice(watcher=True)
+        for text in ("Use the second schema.", HANDBACK):
+            with self.subTest(text=text):
+                self.prompt(prompt=text)
+                self.hook("Stop")
+                notice = notify.last(SEAT, include_seen=True)
+                self.assertNotIn("answered_at", notice)
+                self.assertFalse(notify.resolved(notice))
+                self.assertEqual(notify.transition(SEAT, seat=self.seat), 0)
+                self.assertEqual(self.edits, [])
+                self.assertNotIn("closed", notify._card_read(SEAT))
+        # Recovery still owns the alert's ending.
+        notify.clear(SEAT, notice=QUESTION)
+        self.assertTrue(notify.resolved(notify.last(SEAT, include_seen=True)))
+
+    def test_slash_commands_leave_a_question_open(self):
+        self.notice()
+        for field in ("prompt", "message"):
+            for command in ("/compact", "/rename x", " \n /compact"):
+                with self.subTest(field=field, command=command):
+                    self.prompt(**{field: command})
+                    self.assert_open()
+
+    def test_prompt_outside_the_seats_pane_leaves_a_question_open(self):
+        self.notice()
+        for outside in ({"TMUX_PANE": "%8"}, {"TMUX": "/fake/other-server,1,0"},
+                        {"TMUX_PANE": ""}, {"TMUX": ""}):
+            with self.subTest(outside=outside):
+                self.prompt(prompt="Use the second schema.", env=outside)
+                self.assert_open()
+
     def test_launch_name_answers_after_rename_and_releases_title_sync(self):
         self.notice()
         for name in ("fix-schema", "fix-parser"):
@@ -142,9 +252,10 @@ class AnswerClosesQuestion(Sandbox):
         self.assert_open()
 
     def test_a_hook_finishing_after_a_newer_notice_cannot_answer_it(self):
-        turn = self.prompt()
-        self.notice(time=turn)
-        notify.answered(SEAT, turn)
+        with notify.session_lock(SEAT):
+            turn = self.prompt(prompt="Use the second schema.", wait=False)
+            self.notice(time=turn)
+        self.wait_look(self.looks[-1])
         self.assert_open()
 
     def test_cross_session_prompt_leaves_it_open(self):

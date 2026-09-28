@@ -410,14 +410,15 @@ def resolved(data):
 
 
 def answered(session, at):
-    """The owner submitted a prompt; only a question already standing can be its answer.
+    """The owner submitted a prompt; only the seat's question already standing is answered.
 
     The hook owns this fact. Keep it on the notice so a later peer prompt or a rename
-    cannot reopen it, and leave card delivery to the tick rather than delaying the harness.
+    cannot reopen it. The background look checks the pane and waits for this lock; card
+    delivery stays with the tick. Watcher alerts end through their own recovery rules.
     """
     with session_lock(session) as session:
         previous = last(session)
-        if not previous or previous["kind"] != "needs":
+        if not previous or previous["kind"] != "needs" or previous.get("watcher") is True:
             return
         previous["answered_at"] = at
         if resolved(previous):
