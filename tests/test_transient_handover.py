@@ -205,6 +205,28 @@ class TransientHandover(unittest.TestCase):
         self.assertEqual(sleeps, [60, 300])
         self.assertEqual(lp.reviewer, "alpha")
 
+    def test_flake_then_silence_still_falls_back_to_self_review(self):
+        # two flakes wait without consuming the only spare: when the reviewer then
+        # stays silent twice, the executor's own model still reviews
+        lp = self.loop(executor="charlie", reviewer="alpha", spares=["charlie"])
+        calls, fake = self.worker([
+            (1, "API Error: 500 Internal server error\n", "sess-r"),
+            (1, "Overloaded: the provider is busy\n", "sess-r"),
+            (0, "No verdict yet.\n", "sess-r"),
+            (0, "Still thinking.\n", "sess-r"),
+            (0, "VERDICT: PASS\n\n## Findings\n- none\n", "sess-c"),
+        ])
+        sleeps = []
+        with patch.object(run.worker, "call", side_effect=fake), \
+                patch.object(run.time, "sleep", side_effect=sleeps.append), \
+                patch.object(run, "collect_usage", return_value=self.providers):
+            verdict = run.review(lp, "Work done.", True, "$ true\n[exit 0]")
+        self.assertEqual(verdict, "PASS")
+        self.assertEqual([args[1] for args in calls],
+                         ["alpha", "alpha", "alpha", "alpha", "charlie"])
+        self.assertEqual(sleeps, [60, 300])
+        self.assertEqual(lp.reviewer, "charlie")
+
 
 if __name__ == "__main__":
     unittest.main()

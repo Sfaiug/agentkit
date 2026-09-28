@@ -3693,17 +3693,21 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                             role="reviewer", repo=lp.state.get("repo"))
         own = lp.state.get("own_orchestrator") if lp.state.get("own_pr") else None
         exec_for_rule = own or lp.executor
-        lp.spares = reviewer_order(lp.cfg, exec_for_rule,
-                                  [n for n in order if n in lp.spares and n != lp.reviewer])
+        spares = reviewer_order(lp.cfg, exec_for_rule,
+                                [n for n in order if n in lp.spares and n != lp.reviewer])
         if not allow_self:
             # A flake waits unless another model can review: only a reviewer that cannot
-            # come back settles for the executor's own model.
-            lp.spares = [n for n in lp.spares
-                         if not same_model(lp.cfg, exec_for_rule, n)]
-        if not lp.spares:
+            # come back settles for the executor's own model.  The filter is local, so a
+            # later fallback with a real reason still finds it.
+            offered = [n for n in spares
+                       if not same_model(lp.cfg, exec_for_rule, n)]
+        else:
+            offered = spares
+        if not offered:
             raise Exhausted(f"reviewer {lp.reviewer} {reason} and no eligible reviewer is left "
                             f"to review; waiting for review. See {out}*/stderr.log")
-        lp.reviewer, lp.review_sid = lp.spares.pop(0), None
+        lp.reviewer, lp.review_sid = offered.pop(0), None
+        lp.spares = [n for n in spares if n != lp.reviewer]
         lp.save()
         # said only where it is true: a spare may share the executor's company
         theirs, spare = review_providers(lp.cfg, exec_for_rule, lp.reviewer)
