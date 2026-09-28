@@ -18,7 +18,7 @@ The browser reaches the harnesses through one shared `@playwright/mcp` process, 
 session: `browser-bridge-mcp.service` holds `--cdp-endpoint` without `--isolated`, which is the
 profile's own default context, where the cookies are, and `--shared-browser-context`, so every
 seat over HTTP stays in that same logged-in context.  URL-capable harnesses are registered to
-its `http://127.0.0.1:8931/mcp` endpoint; anything else keeps a per-session stdio command onto
+its `http://localhost:8931/mcp` endpoint; anything else keeps a per-session stdio command onto
 the same pinned install.  The desktop reaches them through `tools/desktop-mcp.py`, whose
 xdotool calls land on the same `:99`.
 """
@@ -63,7 +63,9 @@ CDP_TIMEOUT = 4
 APT_CAP = 15 * 60
 PLAYWRIGHT_MCP_VERSION = "0.0.82"   # pinned 28 Sep 2026; `ak browser install` puts this one
                                     # into the bridge directory, once, and no session fetches another
-MCP_HOST = "127.0.0.1"              # loopback only, like the CDP it attaches to
+MCP_HOST = "localhost"               # loopback only, like the CDP it attaches to; the name,
+                                    # not the IP: the server's DNS-rebinding allowlist answers
+                                    # 403 to Host 127.0.0.1 and 200 to localhost
 MCP_PORT = 8931
 MCP_URL = f"http://{MCP_HOST}:{MCP_PORT}/mcp"
 MCP_UNIT = "browser-bridge-mcp.service"

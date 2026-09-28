@@ -643,9 +643,9 @@ esac
                 fake = root / name
                 fake.write_text(f'#!/bin/sh\necho {name} >> "$WORK/calls"\necho "{answer}"\n')
                 fake.chmod(0o755)
-            # The shared-browser precondition is a fixture too; no local service is required.
+            # The shared-browser preconditions are fixtures too; no local service is required.
             fake = root / "python3"
-            fake.write_text('#!/bin/sh\ncase "$*" in *urllib.request*) exit 0 ;; esac\n'
+            fake.write_text('#!/bin/sh\ncase "$*" in *urllib.request*|*create_connection*) exit 0 ;; esac\n'
                             f'exec {shlex.quote(sys.executable)} "$@"\n')
             fake.chmod(0o755)
             env = {**os.environ, "HOME": directory, "WORK": directory, "REPO": str(REPO),

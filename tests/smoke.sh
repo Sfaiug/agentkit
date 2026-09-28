@@ -4779,7 +4779,7 @@ if sorted(servers) != ["browser", "desktop", "existing"]:
 if claude.get("numStartups") != 3 or list(claude.get("projects", {})) != ["/tmp"]:
     problems.append("claude.json lost keys it did not own")
 browser = servers.get("browser", {})
-if browser != {"type": "http", "url": "http://127.0.0.1:8931/mcp"}:
+if browser != {"type": "http", "url": "http://localhost:8931/mcp"}:
     problems.append(f"claude browser server = {browser}")
 if not servers.get("desktop", {}).get("args", [""])[0].endswith("desktop-mcp.py"):
     problems.append(f"claude desktop server = {servers.get('desktop')}")
@@ -4787,7 +4787,7 @@ if servers.get("desktop", {}).get("env", {}).get("DISPLAY") != ":99":
     problems.append("claude desktop server has no DISPLAY")
 if sorted(codex.get("mcp_servers", {})) != ["browser", "desktop"]:
     problems.append(f"codex mcp_servers={sorted(codex.get('mcp_servers', {}))}")
-if codex.get("mcp_servers", {}).get("browser", {}) != {"url": "http://127.0.0.1:8931/mcp"}:
+if codex.get("mcp_servers", {}).get("browser", {}) != {"url": "http://localhost:8931/mcp"}:
     problems.append(f"codex browser server = {codex.get('mcp_servers', {}).get('browser')}")
 if "@playwright/mcp@latest" in raw or "npx" in raw:
     problems.append("config.toml still fetches the browser server per session")

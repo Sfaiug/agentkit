@@ -98,7 +98,7 @@ class OneServer(unittest.TestCase):
         codex_text = (self.home / ".codex" / "config.toml").read_text(encoding="utf-8")
         servers = json.loads(claude_text)["mcpServers"]
         self.assertEqual(servers["browser"], {"type": "http", "url": browser.MCP_URL})
-        self.assertEqual(servers["browser"]["url"], "http://127.0.0.1:8931/mcp")
+        self.assertEqual(servers["browser"]["url"], "http://localhost:8931/mcp")
         self.assertTrue(servers["desktop"]["args"][0].endswith("desktop-mcp.py"))
         codex = tomllib.loads(codex_text)
         self.assertEqual(codex["mcp_servers"]["browser"], {"url": browser.MCP_URL})
