@@ -1,6 +1,6 @@
 // hooks/opencode-seat/index.js -- the seat-state facts for an OpenCode seat.
 //
-// An OpenCode 2.0.13 plugin (the v2 shape: a default-exported {id, setup}), installed per
+// An OpenCode 2.0.14 plugin (the v2 shape: a default-exported {id, setup}), installed per
 // launch: adapters/opencode.sh `interactive` names this directory in OPENCODE_CONFIG_CONTENT,
 // beside the rulebook, so every seat carries that launch's hooks and nothing is written into
 // the user's own ~/.config/opencode.  The package.json beside this file pins ESM: without
@@ -18,7 +18,7 @@
 //   permission.asked                                         -> PermissionRequest, with the
 //     action as the kind (a seat opened with --auto is never asked, but the fact is wired
 //     for one opened without it)
-// Everything else on the event stream -- deltas, config updates, the shutdown -- is ignored.
+// session.renamed also restores ak's title below; deltas and config updates are ignored.
 //
 // And the session the seat is talking in, for the seat to come back to: where a prompt goes in,
 // its id is written into this launch's receipt, the directory agentkit/harness/opencode.py
@@ -27,7 +27,7 @@
 //
 // Every failure is silent: a hook that fails loudly is a harness that stops.
 import { spawnSync } from "node:child_process";
-import { renameSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -76,6 +76,41 @@ function keep(sessionID) {
   } catch {
     // Nothing written: the receipt says what it said before.
   }
+}
+
+// The plugin owns the API connection, so naming never types into a composer. The receipt
+// pairs a request generation with the prompted session: a late reply or an earlier use of
+// the same name cannot confirm a newer request. Polling also catches ak renames at idle.
+function titleSync(ctx) {
+  let busy = false;
+  return async () => {
+    if (!RECEIPT || busy) return;
+    busy = true;
+    try {
+      const request = readFileSync(join(RECEIPT, "title-request.json"), "utf8");
+      const { title, id } = JSON.parse(request);
+      const sessionID = readFileSync(join(RECEIPT, "session"), "utf8").trim();
+      if (typeof title !== "string" || !title.trim() || typeof id !== "string"
+        || !/^ses_[0-9A-Za-z]+$/.test(sessionID)) return;
+      let info = await ctx.session.get({ sessionID });
+      if (info?.id !== sessionID || info.parentID != null) return;
+      if (info.title !== title) {
+        rmSync(join(RECEIPT, "title-applied.json"), { force: true });
+        await ctx.session.update({ sessionID, title });
+        info = await ctx.session.get({ sessionID });
+      }
+      if (info?.id !== sessionID || info.title !== title || info.parentID != null
+        || readFileSync(join(RECEIPT, "session"), "utf8").trim() !== sessionID
+        || readFileSync(join(RECEIPT, "title-request.json"), "utf8") !== request) return;
+      const next = join(RECEIPT, "title-applied.next");
+      writeFileSync(next, JSON.stringify({ title, id, sessionID }));
+      renameSync(next, join(RECEIPT, "title-applied.json"));
+    } catch {
+      // A missing receipt or a refused update waits for the next tick, never a typed retry.
+    } finally {
+      busy = false;
+    }
+  };
 }
 
 // The session that event shows a prompt going into, or null.  Only a prompt says which
@@ -149,13 +184,23 @@ export default {
     console.log("[agentkit.seat] reporting seat-state facts to hooks/seat-state.sh");
     const controller = new AbortController();
     const lastStep = new Map(); // session id -> context total of its latest finished step
+    const syncTitle = titleSync(ctx);
+    const timer = setInterval(syncTitle, 1000);
+    timer.unref();
+    void syncTitle();
     void (async () => {
       try {
         for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
           try {
             // awaited in turn, so a later prompt's id is never overwritten by an earlier one's
             const sid = promptedSession(event);
-            if (sid && await own(ctx, sid)) keep(sid);
+            if (sid && await own(ctx, sid)) {
+              keep(sid);
+              await syncTitle();
+            }
+            // Generated and owner titles use this same event in 2.0.14. Both give way
+            // to ak's name; neither is evidence that the owner renamed the seat.
+            if (event.type === "session.renamed") await syncTitle();
             const fact = seatFact(event, lastStep);
             if (fact) send(fact);
           } catch {
@@ -166,6 +211,6 @@ export default {
         // The stream ended, the server with it; the cleanup below runs on unload.
       }
     })();
-    return () => controller.abort();
+    return () => { clearInterval(timer); controller.abort(); };
   },
 };
