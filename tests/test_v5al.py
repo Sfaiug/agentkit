@@ -13,6 +13,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import sys
 import tempfile
@@ -70,9 +71,9 @@ class Boundary(unittest.TestCase):
                     for part in parts:
                         if isinstance(part, ast.Constant) and part.value in REAL:
                             found.add((path.name, part.value))
-        # agentkit/worker.py keeps one: the shell-timeout cap a Claude turn is given, which is
-        # outside this change's file list.  It is pinned here so that nothing new joins it.
-        self.assertEqual(found, {("worker.py", "claude")})
+        # Existing exceptions: Claude's worker shell-timeout cap and the launcher binding
+        # an older Claude seat to its client pane. Pin them so nothing new joins them.
+        self.assertEqual(found, {("worker.py", "claude"), ("orch.py", "claude")})
 
     def test_v5al_no_harness_table_is_left_in_the_core(self):
         self.assertFalse(hasattr(update, "HARNESSES"))
@@ -108,6 +109,8 @@ class Fixture(unittest.TestCase):
         sockets.mkdir(mode=0o700)
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "NO_COLOR": "1", "AGENTKIT_SESSION": "",
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "AGENTKIT_RUN_DIR": "", "AGENTKIT_DISCORD_WEBHOOK": "off",
             "AGENTKIT_TMUX_SOCKET": "agentkit-test", "TMUX_TMPDIR": str(sockets), "TMUX": "",
             "PYTHONDONTWRITEBYTECODE": "1", config.ADAPTER_DIR_ENV: str(self.adapters)}))
@@ -347,7 +350,8 @@ class Seats(Fixture):
         self.assertEqual(printed[0], "")
         self.assertEqual(printed[1], "orch: echo (--model)")
         self.assertIn("session echo-seat in ", printed[2])
-        self.assertEqual(printed[-1], os.environ.get("SHELL") or "/bin/sh")
+        self.assertEqual(shlex.split(printed[-1]),
+                         ["env", "AGENTKIT_ACCOUNT=", os.environ.get("SHELL") or "/bin/sh"])
         record = config.session_records()["echo-seat"]
         self.assertEqual(record["orchestrator"], "echo")
         # its TUI cannot be told an id (echo.sh exits 3), so the seat is given none

@@ -44,7 +44,7 @@ watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None)
 }
 
 seat_state() {
-  local payload=$1 jq=$2 seat event kind text ts dir tmp row next hop
+  local payload=$1 jq=$2 seat event kind text ts dir tmp row next hop owner
   seat=${AGENTKIT_SESSION:-}
   [[ -n $seat ]] || return 0
   [[ ${AK_RUN_ROLE:-} != worker ]] || return 0
@@ -101,11 +101,13 @@ seat_state() {
     '{session: $session, event: $event, kind: $kind, text: $text, at: $at}' \
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
   /bin/mv -f -- "$tmp" "$dir/hook-$row.json" || /bin/rm -f -- "$tmp"
-  look "$seat"
 
   # A new prompt is a new turn: hooks/orchestrator-stop.sh judges that turn against this
   # moment, and the two blocks it is allowed start again from zero here.
-  [[ $event = UserPromptSubmit ]] || return 0
+  if [[ $event != UserPromptSubmit ]]; then
+    look "$seat"
+    return 0
+  fi
   # A prompt another session's message opened -- Claude Code wraps it in
   # <cross-session-message> -- keeps the seat's standing done: the seat only
   # acknowledged the message, so its done from before the turn still tells.
@@ -130,6 +132,25 @@ seat_state() {
     '{session: $session, turn: $turn, blocks: 0, peer: $peer, asked: $asked}' \
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
   /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
+  # The owner's prompt answers an older question wherever it was typed. The launch
+  # name still resolves after a rename; messages from sessions or tasks answer nothing.
+  # Background reports keep the normal stop rules, so they must not set the peer latch.
+  owner=true
+  if [[ $peer = true ]] ||
+    "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
+               | any(contains("<task-notification"))' <<<"$payload" >/dev/null 2>&1; then
+    owner=false
+  fi
+  if [[ $owner = true ]]; then
+    /usr/bin/env python3 -c '
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
+from agentkit import notify
+notify.answered(sys.argv[2], float(sys.argv[3]))
+' "${BASH_SOURCE[0]}" "$seat" "$ts" || true
+  fi
+  look "$seat"
 }
 
 # The process that ran this hook, and the ones above it, newest first.  The wrapper looks for

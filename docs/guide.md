@@ -166,7 +166,7 @@ parked `stalled`, or `exhausted` on a window or a dead reviewer, which the tick 
 still needs attention (see below), or an `exhausted` run the tick cannot resume (rounds spent, a stopped `git`, no verdict), handed back or not, until `ak run resume <id>` or `ak run stop <id>`, unless a later merged run replaced it, is `needs you` (`run <id> parked: <reason>`);
 nobody in the seat any more is `needs you` with `session closed: press N to reopen`; the seat's own `ak notify done` is
 `done` with the summary's first line until a newer notice, however often the session is opened, read or scrolled (a question on its screen, or typed text nobody sent, reads `needs you` over it; a job's `all N tasks finished` is no declaration of the seat's, though its card is still `Done`); otherwise it is at its prompt, which is `needs you`
-with the question it asked or `waiting for you`. `ak orch why <seat>` says what decided it, on what evidence, since when.
+with the question it asked or `waiting for you`. Your prompt after a question answers it, in the pane or over Remote Control, even after a rename: it stops blocking hand-backs and title sync and leaves the reason. Earlier prompts, `<cross-session-message>` prompts and `<task-notification>` prompts answer nothing; opening through ak followed by fresh output still answers it. These exclusions do not change the turn-ending rules. `ak orch why <seat>` says what decided it, on what evidence, since when.
 
 A row is number, name, orchestrator, state, and one last column: the reason for `needs you` and `done`, and for
 `working` the tasks bar (`tasks ██░░░ 2/5`, from `~/.agentkit/state/plan-<session>.md` under the seat's name or any name it was renamed from, the newest such plan winning, else from its unfinished jobs' tasks, and what history says the rest takes: `· ~45m left`, `· ~5h left`, `· ~36d left`) else empty, never `N running`. An
@@ -177,7 +177,7 @@ itself has an open circle (`○ waiting for claude login`), which is not a fourt
 Discord hears two things and nothing else. A `needs you` word held for 60 seconds with no client attached sends one
 amber `Needs you · <session>` card. A `done` word sends one green `Done · <session>` card, red when the summary starts
 with `FAIL`; an unfinished run delays it and a failed run drops the declaration with one log line. One card per episode
-and declaration: opening the session edits open needs cards to `Answered`, a done edits them to `Done`, and edits never
+and declaration: opening the session or answering its question edits open needs cards to `Answered`, a done edits them to `Done`, and edits never
 ping; an edit Discord did not take stays on the card and is tried again at the next one. No card or retry goes out for
 a seat you closed (`x`, `ak orch stop`, a pause script), whose row keeps its number, or an episode begun before this
 install (`installed-at` or a fast-forward's newest module; a gone seat's when it went); `ak notify` counts from the
