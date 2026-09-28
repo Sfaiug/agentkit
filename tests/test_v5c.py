@@ -139,11 +139,11 @@ class UsageRow(Sandbox):
                   "not reached"),
                  ({"meters": [], "error": "unknown: could not obtain a Meta credential"},
                   "not reached"),
-                 # ... and a probe the endpoint refused says so, with no reading to keep.
+                 # ... and a probe the endpoint refused says nothing, with no reading to keep.
                  ({"meters": [], "probe_error": "unknown: HTTP 429 from api.meta.ai"},
-                  "rate limited"),
+                  "no reading yet"),
                  ({"meters": [], "probe_error": "unknown: HTTP 502 from api.meta.ai"},
-                  "unavailable"),
+                  "no reading yet"),
                  ({"meters": [self.meter("weekly", 40, reset=9000)]}, "window reset"),
                  # a week that rolled over beside one that cannot be read is not a window reset
                  ({"meters": [self.meter("weekly_all", 40, reset=9000),

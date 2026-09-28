@@ -221,24 +221,24 @@ class GentleProbe(unittest.TestCase):
         self.assertEqual(prov["stale_since"], NOW + usage.PROBE_EVERY)
         self.assertIn("429", prov["probe_error"])
         self.assertIsNone(prov["error"])         # the refusal is not the reading's own error
-        # The row keeps its bar and its percentage, and wears the two words and no age.
+        # The row keeps its bar and its percentage, and wears neither the refusal nor an age.
         row = self.rows()[1]
         self.assertRegex(row, r"Alpha\s+[█░]+\s+60% left")
-        self.assertIn("rate limited", row)
+        self.assertNotIn("rate limited", row)
         self.assertNotIn("old", row)
         self.assertNotIn("no login", row)
         self.assertNotIn("?", row)
-        # `ak usage` says the same two words under its table.
+        # `ak usage` says nothing about the refusal under its table either.
         rendered = usage.render(self.cfg, usage.collect(self.cfg), ["one", "two"])
-        self.assertIn("note: alpha rate limited", rendered)
-        # A 5xx and a timeout are the other way a probe is refused, and say `unavailable`.
+        self.assertNotIn("rate limited", rendered)
+        # A 5xx and a timeout are the other way a probe is refused, and say nothing either.
         for error in ("unknown: HTTP 503 from api.example/usage",
                       "unknown: fake.sh usage timed out after 30s"):
             self.now[0] += usage.PROBE_EVERY
             self.answer("alpha", [], error)
             prov = usage.collect(self.cfg, refresh=True)["alpha"]
             self.assertEqual([m["used"] for m in prov["meters"]], [40])
-            self.assertIn("unavailable", self.rows()[1])
+            self.assertNotIn("unavailable", self.rows()[1])
             self.assertEqual(prov["stale_since"], NOW + usage.PROBE_EVERY)   # since the first
 
     def test_no_login_is_said_only_when_the_auth_verb_says_no(self):
