@@ -399,6 +399,57 @@ the captured index and row shapes; that overwrite is a regression scenario, not 
 observed result of these pre-prompt renames. They require one repair, no repeated
 typing after acknowledgement, and at most three attempts if Codex refuses the repair.
 
+## Codex remote seat feasibility (0.153.4)
+
+Captured 2026-09-28 with the installed npm Codex 0.153.4. Remote seats were not
+implemented: the remote TUI drops the per-launch hooks and rulebook that bind an
+agentkit seat to its conversation. These are probe evidence, not acceptance
+fixtures for a working remote-control integration.
+
+All probes used a throwaway HOME and CODEX_HOME inside the checkout, with a copy
+of the caller's `auth.json`. No prompt was submitted to a model. Only `/hooks`,
+its trust action for a harmless recorder, and `/new` were entered. The actual
+seat wrapper was also launched against a separate `codex app-server --listen
+ws://127.0.0.1:PORT` process, with a loopback TCP proxy recording its thread-start
+request. All probe TUIs, app servers and private tmux servers were stopped; the
+throwaway home and credential copy were removed. No managed daemon was installed
+or enrolled, and no shell profile or real Codex configuration was changed.
+
+- `codex-remote-start.txt` is the failure from `codex remote-control start --json`:
+  this npm installation requires a managed standalone executable. That installation
+  prerequisite alone is not the reason the task stopped.
+- `codex-remote-local-hooks-pane.txt` is the local TUI's `/hooks` screen after
+  trusting a command-line SessionStart recorder. It lists one installed, active
+  hook. The command was `python3 /home/acme/probe/record.py
+  /home/acme/probe/local-events.jsonl`; the recorder reads one JSON object from
+  stdin and appends it to that file. Its definition was passed as
+  `-c 'hooks.SessionStart=[{hooks=[{type="command",command="…",timeout=5}]}]'`.
+- `codex-remote-hooks-pane.txt` is `/hooks` after launching the unmodified
+  `tools/codex-seat.py --rulebook /home/acme/probe/rulebook.md -- codex --remote
+  ws://127.0.0.1:PORT --no-alt-screen -c check_for_update_on_startup=false` with
+  `AGENTKIT_SESSION=acme-seat` and `AGENTKIT_CODEX_RECEIPT` pointing to the probe
+  receipt. The rulebook contained `ACME fixture instructions.`. The wrapper added
+  its SessionStart and four seat-state hook overrides, but the remote screen
+  lists zero installed hooks for every event.
+- `codex-remote-thread-start.json` is that wrapper launch's outbound `thread/start`
+  request, with only `dynamicTools` omitted (the TUI's built-in task tools). The
+  complete `config` contains neither the hooks nor the rulebook;
+  `developerInstructions` and `sessionStartSource` are null. A direct TUI probe
+  with an inline hook and developer instructions, including `/new`, sent the
+  same omissions. Merely moving hooks to daemon configuration would also lose
+  the pane's launch-specific environment used by the receipt and state hooks.
+- `codex-remote-receipt.json` is the wrapper's receipt after the remote launch,
+  unchanged from its prepared contents. Idle local launches also did not invoke
+  the recorder, even after hook trust and `/new`; receipt absence alone was not
+  treated as proof. The missing remote hook definitions and wire overrides are
+  the decisive observations.
+
+The pane captures are 100×30 `tmux capture-pane -p` output. Paths and the request
+UUID were replaced with invented values; wrapping and blank rows are retained.
+The official [app-server documentation](https://learn.chatgpt.com/docs/app-server#connect-the-cli-terminal-ui)
+describes this listener/TUI connection; the observations above are from 0.153.4,
+not an inference that every later Codex release has the same limitation.
+
 ## Grok seat titles (1.0.40)
 
 `grok-title-{idle,composed,accepted,auto,working,working-composed,working-accepted}-pane.txt`
