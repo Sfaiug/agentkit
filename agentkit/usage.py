@@ -36,17 +36,20 @@ from .harness import load as harness_plugin
 CACHE_TTL = 300
 # A usage endpoint has a rate limit of its own, and everything here wants the same answer: the
 # tick, every open menu, `ak usage`, every pick.  So the cadence belongs to the provider rather
-# than to the caller -- nobody asks a provider's adapter again inside PROBE_EVERY, whoever they
+# than to the caller -- nobody asks a provider's adapter again inside its cadence, whoever they
 # are and whatever for, a refused worker and a spent reset included, and a second caller past
-# that age waits on the first one's lock instead of making a second request.  A minute is
-# short enough that a row's reading is fresh whenever the endpoint answers: an open menu
-# asks that often, and the tick asks whenever it comes round.  Only a probe the endpoint
-# refused leaves a reading to age, and past half an hour the row says when it was taken.
-# Muse's usage call spends a model request,
-# so its adapter answers from its own ten-minute cache in between (`muse_usage.CACHE_TTL`).
-# A probe the endpoint refuses keeps the reading it could not replace, and that reading still
-# ranks for PROBE_TRUSTED_FOR: a meter nobody could read again is not a meter nobody ever read,
-# and calling one unknown is how a rate limit came to push every run onto the other providers.
+# that age waits on the first one's lock instead of making a second request.  How often that
+# is is the harness's own `[usage] probe_every`, a minute where it names none; Claude's names
+# fifteen, and its Retry-After outlives even that.  A minute is short enough that a row's
+# reading is fresh whenever the endpoint answers: an open menu asks that often, and the tick
+# asks whenever it comes round.  Only a probe that brings back no meters leaves a reading to
+# age, and past half an hour the row says when it was taken.  Muse's usage call spends
+# a model request, so its adapter answers from its own ten-minute cache in between
+# (`muse_usage.CACHE_TTL`).
+# A probe that brings back no meters keeps the reading it could not replace, and that reading
+# still ranks for PROBE_TRUSTED_FOR: a meter nobody could read again is not a meter nobody ever
+# read, and calling one unknown is how a rate limit came to push every run onto the other
+# providers.
 PROBE_EVERY = 60
 PROBE_TRUSTED_FOR = 6 * 3600
 AS_OF_AFTER = 1800   # a reading older than this says when it was taken, on its row and under
@@ -167,6 +170,12 @@ def _probe(cfg, provider, now, account=None):
     out = {"provider": provider, "harness": harness, "via": via, "meters": [],
            "error": data.get("error"), "pace": None, "resets": _resets(harness),
            "exhausted": False, "probed_at": now}
+    retry = _number(data.get("retry_after"))
+    if retry is not None and retry > 0:
+        # The endpoint's own not-before, in seconds: `_probe_gently` writes it down beside
+        # the lock, so the next ask waits for it however it arrives.  It travels with the
+        # refusal, whether the reading beside it is kept or replaced.
+        out["retry_after"] = retry
     if facts["strips_timestamp"]:
         # an adapter that does not say when it measured leaves that to its own plugin: until
         # something recognises this response, it is not a response with an age
@@ -231,31 +240,82 @@ def _lock(provider, account=None):
                            else f"{provider}.{account}-probe.lock")
 
 
-def _cooling(provider, account=None):
-    """Whether this provider's adapter was asked at all -- answered or not -- inside PROBE_EVERY.
+def _probe_every(cfg, provider):
+    """How long one ask of this provider's adapter answers for, in seconds.
+
+    The harness's own `[usage] probe_every` where it names one, else the host's usual minute:
+    Claude's endpoint answers every token with 429 when asked too often, so it names fifteen.
+    A cadence that is no cadence -- missing, unusable, or nothing -- is the minute as well.
+    """
+    try:
+        harness, _ = config.provider_harness(cfg, provider)
+    except config.Error:
+        return PROBE_EVERY
+    every = _number(harness_plugin(harness).usage.get("probe_every"))
+    return every if every is not None and every > 0 else PROBE_EVERY
+
+
+def _retry_file(provider, account=None):
+    """Where the endpoint's own not-before is kept: beside the lock, per provider or account."""
+    return config.STATE / (f"{provider}-probe.retry" if account is None
+                           else f"{provider}.{account}-probe.retry")
+
+
+def _note_retry(provider, fresh, now, account=None):
+    """Write down the Retry-After this ask came back with, as an absolute not-before.
+
+    Beside the lock file rather than in the snapshot, for the same reason the last ask is:
+    deleting the snapshot must not buy an earlier ask.  A write that fails loses only this
+    ask's own deadline, which the cadence still bounds.
+    """
+    secs = _number((fresh or {}).get("retry_after"))
+    if secs is None or secs <= 0:
+        return
+    try:
+        config.ensure_dirs()
+        _retry_file(provider, account).write_text(repr(now + secs))
+    except (OSError, ValueError):
+        pass
+
+
+def _cooling(provider, account=None, every=None):
+    """Whether this provider's adapter was asked at all -- answered or not -- inside `every`.
 
     The moment is the one its lock file holds, written under that lock as the request goes out:
     not the snapshot's `probed_at`, which a caller that began its collection earlier can write
     back over a newer one, and which goes with the snapshot when that is deleted.  Each account
-    of a provider is asked on its own minute: they are different logins.
+    of a provider is asked on its own cadence: they are different logins.  And never before the
+    Retry-After of its last refusal, which outlives the cadence: the endpoint named its own
+    not-before, and that is the one that is kept.
     """
+    every = PROBE_EVERY if every is None else every
+    now = time.time()
     try:
         asked = _number(float(_lock(provider, account).read_text()))
     except (OSError, ValueError):
+        asked = None
+    if asked is not None and 0 <= now - asked < every:
+        return True
+    try:
+        until = _number(float(_retry_file(provider, account).read_text()))
+    except (OSError, ValueError):
         return False
-    return asked is not None and 0 <= time.time() - asked < PROBE_EVERY
+    return until is not None and now < until
 
 
 def _kept(cached, fresh, now):
-    """`fresh` where the adapter answered, and the reading it could not replace where it did not.
+    """`fresh` where the adapter answered with meters, else the reading it could not replace.
 
-    A refused probe leaves the meters, the moment they were really measured at, the resets counted
-    beside them and their own error exactly as they stood, and records three things of its own:
-    `probe_error` is what the endpoint said, `probe_failed_at` is when it said it, and
-    `stale_since` is when this reading stopped being refreshed -- the first refusal after the last
-    real answer, which is the age the picker measures its trust in the reading against.
+    An ask that brings back no meters -- a 429, a 401, a 5xx, a timeout, anything -- keeps the
+    last real reading: its meters, the moment they were really measured at, the resets counted
+    beside them and their own error, exactly as they stood.  Three things of the failed ask's
+    own are recorded beside them: `probe_error` is what the endpoint said, `probe_failed_at`
+    is when it said it, and `stale_since` is when this reading stopped being refreshed -- the
+    first failure after the last real answer, which is the age the picker measures its trust
+    in the reading against.  Only an answer with meters replaces them -- or a meterless
+    harness's own answer, which is a reading with nothing to keep.
     """
-    if probe_refused(fresh.get("error")) is None:
+    if fresh.get("meters") or fresh.get("none"):
         return fresh
     cached = cached if isinstance(cached, dict) else {}
     since = _number(cached.get("stale_since")) if cached.get("probe_error") else None
@@ -271,15 +331,17 @@ def _kept(cached, fresh, now):
 
 
 def _probe_gently(cfg, provider, account=None):
-    """`_probe`, but at most once per PROBE_EVERY per provider across this whole host.
+    """`_probe`, but at most once per cadence per provider across this whole host.
 
     Whoever asks -- the tick, an open menu, `ak usage`, a pick, a refused worker, a spent
     reset -- a reading younger than that is the answer, and only the first caller past it
-    probes.  It writes the moment down in the provider's lock file, under that lock, before it
-    asks, and every caller reads it under the same lock, so a second caller waits for the first
-    one's answer instead of taking the reading from before it, or making a second request of an
-    endpoint that has a rate limit of its own.  The clock is read there and not when the caller
-    began: a caller reading several providers one after another asks each at its own moment.
+    probes.  The cadence is the harness's own (`_probe_every`), and a Retry-After outlives
+    it.  The probe writes the moment down in the provider's lock file, under that lock,
+    before it asks, and every caller reads it under the same lock, so a second caller waits
+    for the first one's answer instead of taking the reading from before it, or making a
+    second request of an endpoint that has a rate limit of its own.  The clock is read there
+    and not when the caller began: a caller reading several providers one after another asks
+    each at its own moment.
     Every probe under that lock is bounded -- 30 seconds for an adapter that runs no model, Muse's own
     budget for the one that does -- so the wait for it is bounded as well, and a holder that
     dies gives the lock back with its file.
@@ -307,16 +369,20 @@ def _probe_gently(cfg, provider, account=None):
         handle = lock.open("a")          # never "w": the file keeps when it was last asked
     except OSError:
         now = time.time()                # no lock to take: still one probe
-        return _kept(_cached_provider(provider, account), _probe(cfg, provider, now, account), now)
+        fresh = _probe(cfg, provider, now, account)
+        _note_retry(provider, fresh, now, account)
+        return _kept(_cached_provider(provider, account), fresh, now)
     with handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         # Whoever we waited for has written their answer by now, and it is this one.
         cached = _cached_provider(provider, account)
-        if _cooling(provider, account):
+        if _cooling(provider, account, _probe_every(cfg, provider)):
             return cached
         now = time.time()
         lock.write_text(repr(now))
-        prov = _kept(cached, _probe(cfg, provider, now, account), now)
+        fresh = _probe(cfg, provider, now, account)
+        _note_retry(provider, fresh, now, account)
+        prov = _kept(cached, fresh, now)
         # The mark travels with the record that replaces it, exactly as it does on the way out of
         # `collect`: a provider parked until it says it has capacity must not read as eligible in
         # the moment between this write and that one.  The caller still gets the bare reading, so
@@ -414,7 +480,7 @@ def _reset_policy(cfg, provider, prov, now, depleted):
         pass                 # the claim above still stands, so this costs a day and no credit
     if not spent:
         return prov, False
-    # The re-read keeps the host's minute like any other.  Inside it the reading in hand is of
+    # The re-read keeps the host's cadence like any other.  Inside it the reading in hand is of
     # the window the credit just replaced, so it goes, as a rolled window does (`_reread`),
     # and a mark it carried is lifted (`_carry_mark`).  The week that replaced it is the one
     # the spend itself read back, when it could: `reset` asks the meters once the credit has
@@ -427,11 +493,12 @@ def _reset_policy(cfg, provider, prov, now, depleted):
     kept = {key: value for key, value in prov.items() if not week or key not in
             ("fetched_at", "probe_error", "probe_failed_at", "stale_since")}
     fresh = _without_past({**kept, "meters": week, "resets": None, "exhausted_until": None}
-                          if _cooling(provider) else _probe_gently(cfg, provider),
+                          if _cooling(provider, every=_probe_every(cfg, provider))
+                          else _probe_gently(cfg, provider),
                           now, "the adapter")
     left = max(0.0, available - 1 if left is None else left)
     # The re-read counts the resets again, and when it cannot -- the credits list is a second
-    # request, free to fail on its own, and inside the minute there is no re-read -- the count
+    # request, free to fail on its own, and inside the cadence there is no re-read -- the count
     # the spend itself came back with stands.
     # Losing it here would understate the headroom and outlook shown for the fresh week.
     if _number(fresh.get("resets")) is None:
@@ -506,7 +573,7 @@ def _gate_flags(providers, now, cfg):
                 prov.clear()
                 prov.update(accounts[best], accounts=accounts, account=best)
         # A quota the harness recorded when it refused a run is the reading at once: it is a
-        # file and no request, so neither the snapshot's five minutes nor the probe's minute
+        # file and no request, so neither the snapshot's five minutes nor the probe's cadence
         # stands between it and a pick.  It is normalized as a probed meter is, because every
         # reader of the snapshot -- the table, the menu, the pick -- reads a probed one.
         recorded = harness_plugin(prov.get("harness")).usage_recorded(config.STATE, now)
@@ -666,8 +733,8 @@ def collect(cfg, *, refresh=False):
     still owns its longer probe cache: reading it does not force a paid request.
 
     A refresh is not a licence to probe, and neither is deleting state/usage.json:
-    `_probe_gently` holds every caller to one request per provider per PROBE_EVERY, so what either
-    really bypasses is this snapshot, not the adapters behind it. The snapshot's own
+    `_probe_gently` holds every caller to one request per provider per its harness's cadence,
+    so what either really bypasses is this snapshot, not the adapters behind it. The snapshot's own
     `fetched_at` is when it was last assembled, which is what the five minutes above are
     counted from.
     """
@@ -781,7 +848,7 @@ def replenish(cfg, provider, depleted=True):
     is spent whatever the cached used% said.  So the five-minute due clock and the 90%
     threshold are both out of the way here -- and nothing else is.  The day is still claimed
     on disk before the credit is asked for, still at most one reset in RESET_EVERY_SECS, the
-    adapter is still asked at most once in PROBE_EVERY, and the reading goes into the cache so
+    adapter is still asked at most once in its harness's cadence, and the reading goes into the cache so
     the next pick ranks on what the provider says now.  A seat stalled on its quota is not
     that proof (`watch.spend_reset`): `depleted=False` keeps the threshold.
 

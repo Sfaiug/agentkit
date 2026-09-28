@@ -12,6 +12,12 @@ version = ["claude", "--version"]
 upgrade = ["claude", "install", "latest"]
 revert = ["claude", "install", "{version}"]
 
+# The usage endpoint answers every token with 429 and a Retry-After when asked too often,
+# so this harness is asked at most once every fifteen minutes, whoever asks, and never
+# before the Retry-After of its last refusal.
+[usage]
+probe_every = 900
+
 # Its hooks live in a config file its launch reads (`adapters/claude.sh hooks` writes them
 # there), so a seat opened before the last install is missing whatever that install added and
 # says `restart to pick up updates`.
