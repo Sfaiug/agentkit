@@ -41,6 +41,24 @@ class QuestionWithMessageUnder(Sandbox):
         self.assertEqual(live["state"], "asking")
         self.assertEqual(live["authority"], "screen")
 
+    def test_multi_question_and_edit_hint_footers_are_asking(self):
+        single = "Enter to select · ↑/↓ to navigate · Esc to cancel"
+        footers = (
+            "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+            "Enter to select · ↑/↓ to navigate · ctrl+g to edit in vim · Esc to cancel",
+            "Enter to select · Tab/Arrow keys to navigate · ctrl+g to edit in vim · Esc to cancel",
+        )
+        idle = {"event": "Notification", "kind": "idle_prompt", "at": NOW - 60}
+        for footer in footers:
+            pane = DIALOG.replace(single, footer)
+            for queued in ("", MESSAGE):
+                for fact in ({}, idle):
+                    with self.subTest(footer=footer, queued=bool(queued),
+                                      fact=fact.get("kind", "none")):
+                        live = self.classify(pane + queued, fact)
+                        self.assertEqual(live["state"], "asking")
+                        self.assertEqual(live["authority"], "screen")
+
     def test_message_under_empty_composer_is_not_a_draft(self):
         self.assertEqual(self.classify(PROMPT + MESSAGE)["state"], "at_prompt")
 
