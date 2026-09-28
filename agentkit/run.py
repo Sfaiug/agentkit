@@ -2046,6 +2046,14 @@ def note_flake(run_dir, cmd, last):
         pass              # the gate output already says it; the file is the copy
 
 
+def leftover_junk(path):
+    """Match names, not targets: a dependency symlink is junk even when Git ignores only directories."""
+    parts = path.rstrip("/").split("/")
+    return (parts[0].startswith(SANDBOX_PREFIXES)
+            or any(part in ("recovery.lock", "delivery.lock", "node_modules", "venv", ".venv")
+                   for part in parts))
+
+
 def commit_leftovers(wt, log, artifacts):
     """Commit whatever the executor left uncommitted, so the reviewer sees a real diff.
 
@@ -2056,16 +2064,15 @@ def commit_leftovers(wt, log, artifacts):
     Everything the done-when commands generated is left alone.  Committing that instead earns
     a FAIL on junk the next round's commands recreate, so the fixer can never get out of it.
 
-    A test sandbox is left alone too: a path under a suite sandbox prefix, or one `git
-    check-ignore` would ignore, is never committed, whatever the repository's .gitignore
-    says -- a test killed mid-way must not ship its stub git and fake adapters.  Sandboxes
-    git already ignores are listed back for the count below, since `dirty_paths` never
-    sees them.
+    Test sandboxes, run locks and dependency trees are left alone too, including symlinks
+    and staged paths, whatever the repository's .gitignore says.  Anything `git check-ignore`
+    would ignore stays out as well.  Ignored junk is listed back for the count below, since
+    `dirty_paths` never sees it.
     """
     paths = [p for p in dirty_paths(wt) if p not in artifacts]
     real, sandbox = [], []
     for path in paths:
-        if path.split("/", 1)[0].startswith(SANDBOX_PREFIXES):
+        if leftover_junk(path):
             sandbox.append(path)
         elif git_out(wt, "check-ignore", "-q", "--", path)[0] == 0:
             sandbox.append(path)
@@ -2091,7 +2098,7 @@ def commit_leftovers(wt, log, artifacts):
 
 
 def ignored_sandbox_paths(wt, artifacts):
-    """Ignored sandbox files: invisible to `dirty_paths`, still uncommitted.
+    """Ignored sandbox files, run locks and dependencies: invisible to `dirty_paths`, still uncommitted.
 
     Once the repository's .gitignore names the suite's sandbox prefixes, a killed test's
     sandbox never reaches the leftover sweep's classifier -- and without this listing its
@@ -2104,7 +2111,7 @@ def ignored_sandbox_paths(wt, artifacts):
     for entry in out.split("\0"):
         if not entry or entry in artifacts:
             continue
-        if not entry.rstrip("/").split("/", 1)[0].startswith(SANDBOX_PREFIXES):
+        if not leftover_junk(entry):
             continue
         if not entry.endswith("/"):
             found.append(entry)

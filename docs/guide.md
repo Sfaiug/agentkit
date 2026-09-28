@@ -143,7 +143,7 @@ A run never waits forever. A check with no output for 20 minutes is killed with 
 round; the whole checks list has a six-hour ceiling. A model turn with no harness event for 20 minutes is killed and
 retried on the same conversation. Every `git` and `gh` call runs under 120 seconds with prompts disabled; one that stops
 ends the run `exhausted` with the remedy, or `pass` with `merge_failed` while the review still stands. Before the first
-turn the run adds build junk (`__pycache__/`, `node_modules/`, …) to the repo's `.git/info/exclude`.
+turn the run adds build junk (`__pycache__/`, `node_modules/`, …) to the repo's `.git/info/exclude`. Before review it commits executor leftovers, leaving test sandboxes, run locks (`recovery.lock`, `delivery.lock`) and dependency trees (`node_modules`, `venv`, `.venv`, including nested paths and symlinks) uncommitted and counted in the sandbox log regardless of `.gitignore` or staging.
 `~/.agentkit/env/<repo>.env` is exported into every worker and check for that repo.
 
 ### New features in live projects
