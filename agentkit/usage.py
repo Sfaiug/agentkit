@@ -314,18 +314,19 @@ def _kept(cached, fresh, now):
     is when it said it, and `stale_since` is when this reading stopped being refreshed -- the
     first failure after the last real answer, which is the age the picker measures its trust
     in the reading against.  Only an answer with meters replaces them -- or a meterless
-    harness's own answer, which is a reading with nothing to keep.  A failed ask where that
-    last reading was meterless keeps its none: there is no reading to stand in, so the ask's
-    error is the error, as on origin/main.
+    harness's own answer, which is a reading with nothing to keep.  A failed ask where
+    there is no reading to stand in -- meterless, or never a meter -- keeps that none and
+    the ask's own error is the error.
     """
     if fresh.get("meters") or fresh.get("none"):
         return fresh
     cached = cached if isinstance(cached, dict) else {}
     since = _number(cached.get("stale_since")) if cached.get("probe_error") else None
     keys = ("meters", "fetched_at", "resets", "error", "notes", "none", "none_reason")
-    if cached.get("none"):
+    if cached.get("none") or not cached.get("meters"):
         # No reading to keep, so nothing overwrites the ask's own error: dropping none here
-        # is how the row came to say `window reset` for a provider that never had a window.
+        # is how a meterless row came to say `window reset`, and keeping an old error here
+        # is how a 429 came to still say 401.
         keys = ("meters", "fetched_at", "resets", "notes", "none", "none_reason")
     kept = {key: cached[key] for key in keys if key in cached}
     if "fetched_at" not in kept:

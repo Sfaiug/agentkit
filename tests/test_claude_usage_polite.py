@@ -21,7 +21,7 @@ from unittest.mock import patch, PropertyMock
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, usage  # noqa: E402
+from agentkit import config, menu, usage  # noqa: E402
 from agentkit.harness import Harness, load as harness_plugin  # noqa: E402
 
 NOW = 1800000000.0
@@ -317,6 +317,13 @@ class PoliteClaude(unittest.TestCase):
         first = usage._kept({}, {"meters": [], "error": "unknown: HTTP 401 x"}, NOW)
         self.assertEqual(first["meters"], [])
         self.assertIn("401", first["probe_error"])
+        # With never a meter there is no reading to keep, so the new ask's error stands,
+        # never the old one: after a 401 then a 429, the error says 429.
+        cold = usage._kept({}, {"meters": [], "error": "unknown: HTTP 401 x"}, NOW)
+        cold = usage._kept(cold, {"meters": [], "error": "unknown: HTTP 429 y"},
+                           NOW + FIFTEEN)
+        self.assertIn("429", cold["error"])
+        self.assertIn("429", cold["probe_error"])
         # An answer with meters, and a meterless harness's own answer, replace.
         fresh = {"meters": [{"name": "weekly", "used": 10}], "error": None}
         self.assertIs(usage._kept(cached, fresh, NOW), fresh)
@@ -325,8 +332,7 @@ class PoliteClaude(unittest.TestCase):
 
     def test_a_failed_ask_on_a_meterless_harness_keeps_it_meterless(self):
         # OpenCode and Grok Build report no meter at all: a failed ask keeps that none,
-        # and the ask's error stands as the error, as on origin/main -- never invented
-        # as a window that reset.
+        # and the ask's error stands as the error -- never invented as a window that reset.
         cached = {"meters": [], "none": True, "none_reason": "no meter: smoke fake",
                   "resets": 0.0, "probed_at": NOW, "error": None}
         error = "unknown: no provider key (is missing); run opencode auth login"
@@ -341,6 +347,7 @@ class PoliteClaude(unittest.TestCase):
         budget, reason = usage.provider_budget(shown, NOW + FIFTEEN)
         self.assertEqual(budget, 0.0)
         self.assertIn("no provider key", reason)
+        self.assertEqual(menu.unread(shown, [], [], NOW + FIFTEEN), "not reached")
 
     def test_an_expired_seat_login_is_never_sent(self):
         (self.root / ".claude-second").mkdir()

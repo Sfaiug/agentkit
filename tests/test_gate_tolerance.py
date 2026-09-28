@@ -18,6 +18,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
@@ -27,7 +28,10 @@ SMOKE = (REPO / "tests/smoke.sh").read_text()
 CHECK_1 = SMOKE[SMOKE.index("# --- 1: usage"):SMOKE.index("# --- 2:")]
 # Checks 6 and 6b together: 6b reads the ORCHHOME fixtures and logs check 6 builds, so a
 # test that slices 6 off alone proves the skip while proving nothing about its consumers.
-CHECK_6 = SMOKE[SMOKE.index("# --- 6: orch"):SMOKE.index("# --- 6c:")]
+# The helpers live in check 1's section, so check 6 runs with them prepended: without that
+# the slice calls `host_held`, `reprobe` and `skip_unavailable` as missing commands.
+CHECK_1_PREAMBLE = CHECK_1[:CHECK_1.index('U="$WORK/usage.json"')]
+CHECK_6 = CHECK_1_PREAMBLE + SMOKE[SMOKE.index("# --- 6: orch"):SMOKE.index("# --- 6c:")]
 
 FAR_FUTURE = 1999999999
 
@@ -213,6 +217,37 @@ class GateTolerance(unittest.TestCase):
         self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
         self.assertIn("HTTP 429", result.stdout)
         self.assertNotIn("FAIL", result.stdout)
+        self.assertEqual(self.probes("claude"), ["usage"])
+
+    def test_host_cadence_holds_the_gate_without_asking(self):
+        # The host asked Claude seconds ago: check 1 skips with that hold reason without
+        # sending any request. The caller HOME is set the way smoke.sh sets it, as a plain
+        # shell variable inside the block, never exported.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        (caller / ".agentkit/state/anthropic-probe.lock").write_text(repr(time.time()))
+        self.healthy()
+        block = f"SMOKE_CALLER_HOME={shlex.quote(str(caller))}\n" + CHECK_1
+        result = self.shell(block)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
+        self.assertIn("next ask in", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+        self.assertEqual(self.probes("claude"), [])
+        self.assertEqual(self.probes("codex"), [])
+
+    def test_retry_past_cadence_that_gets_an_answer_passes(self):
+        # Codex's minute with the default 60 s sleep: the retry is past the cadence, so it
+        # asks again and the new answer passes. Claude's fifteen still holds its own retry.
+        self.adapter("claude", meters("anthropic"))
+        self.adapter("codex", refused("openai", "unknown: HTTP 503 from "
+                                      "chatgpt.com/backend-api/wham/usage"),
+                     then=meters("openai", 45))
+        self.adapter("muse", meters("meta", 40))
+        result = self.shell(CHECK_1, AK_METER_RETRY_SECS="60")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS  1 ak usage --json", result.stdout)
+        self.assertEqual(self.probes("codex"), ["usage", "usage"])
         self.assertEqual(self.probes("claude"), ["usage"])
 
     def usage_json(self):
