@@ -95,6 +95,16 @@ class SelfReviewLast(unittest.TestCase):
         self.cfg["defaults"]["workers"] = ["acme-one"]
         self.assertEqual(self.pick(), ("acme-one", "acme-one"))
 
+    def test_a_reviewers_group_bounds_the_tiers(self):
+        # where a reviewers group is set, the tiers rank its models, not the workers:
+        # cross-company beta-one is out, so same-company acme-two reviews
+        self.assertEqual(run.pick_models(self.cfg, self.providers, "acme-one", None,
+                                         self.logs.append, reviewers=["acme-two"]),
+                         ("acme-one", "acme-two"))
+        self.assertEqual(run.pick_models(self.cfg, self.providers, "acme-one", None,
+                                         self.logs.append, reviewers=["acme-one"]),
+                         ("acme-one", "acme-one"))
+
     def test_an_explicit_self_review_is_allowed(self):
         self.assertEqual(self.pick("acme-one", "acme-one"), ("acme-one", "acme-one"))
         self.assertEqual(run.review_providers(self.cfg, "acme-one", "acme-one"),
@@ -135,9 +145,10 @@ class SelfReviewLast(unittest.TestCase):
         providers.harnesses = {"test": "test is not logged in"}
         self.assertEqual(
             run.pair_refusal(self.cfg, providers, ["acme-one", "beta-one"]),
-            "none of the workers acme-one, beta-one can run here "
-            "(acme-one: test is not logged in; beta-one: test is not logged in); "
-            "log in to another harness or add another model to the workers")
+            "none of the workers acme-one, beta-one and reviewers acme-one, beta-one "
+            "can run here (acme-one: test is not logged in; "
+            "beta-one: test is not logged in); log in to another harness or add "
+            "another model to the groups")
 
     def fallback(self, lp, silent):
         calls = []
