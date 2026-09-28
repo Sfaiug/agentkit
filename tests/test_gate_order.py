@@ -1,4 +1,4 @@
-"""A freed gate turn goes to the longest waiter, `--first` before the rest.  Offline.
+"""A freed heavy turn goes to the longest waiter, `--first` before the rest.  Offline.
 
 A temporary HOME, fake run records and fake repositories; live waiters are this
 process's own records, the dead one a pid that already exited. Nothing here
@@ -29,12 +29,13 @@ ELSEWHERE = "/home/fixture/other/acme"  # the same folder name, another reposito
 class Gate(threading.Thread):
     """One `run_done_when` in a thread of its own, its result or its exception kept."""
 
-    def __init__(self, case, name, repo, cmds, first=False, **kw):
+    def __init__(self, case, name, repo, cmds, first=False, heavy=True, **kw):
         super().__init__(daemon=True)
         self.run_dir = case.record(name, repo, first)
         self.logs, self.result, self.error = [], None, None
         self.args = (cmds, case.root, self.run_dir / "donewhen.log", set())
-        self.kw = {"log": self.logs.append, "run_dir": self.run_dir, **kw}
+        self.kw = {"log": self.logs.append, "run_dir": self.run_dir,
+                   "heavy": heavy, **kw}
 
     def run(self):
         try:
@@ -43,7 +44,7 @@ class Gate(threading.Thread):
             self.error = exc
 
     def waited(self):
-        return any(line.startswith("done-when: waiting for a gate turn") for line in self.logs)
+        return any(line.startswith("done-when: waiting for a heavy suite turn") for line in self.logs)
 
 
 class GateOrder(unittest.TestCase):
@@ -155,7 +156,7 @@ class GateOrder(unittest.TestCase):
         self.waiter("dead-first", ACME, 500, first=True, owner={"pid": self.dead})
         self.waiter("stale-first", ACME, 400, first=True, stale=True)
         dead = run.read_state(config.RUNS / "dead-first")
-        self.assertEqual(run.gate_turn_note(dead), "waiting for a gate turn of acme")
+        self.assertEqual(run.gate_turn_note(dead), "waiting for a heavy suite turn")
         self.assertEqual(dead["gate_turn"]["of"], ACME)
         stale = run.read_state(config.RUNS / "stale-first")
         self.assertEqual(run.gate_turn_note(stale), "")
@@ -166,22 +167,15 @@ class GateOrder(unittest.TestCase):
         self.assertFalse(run._gate_waiter_before(repo, "first-run", True, 2000))
         self.assertTrue(run._gate_waiter_before(repo, "plain", False, 1000))
 
-    def test_waiter_of_same_named_checkout_elsewhere_is_ignored(self):
+    def test_waiter_of_another_checkout_counts_host_wide(self):
         self.waiter("elsewhere-first", ELSEWHERE, 500, first=True)
         state = run.read_state(config.RUNS / "elsewhere-first")
-        self.assertEqual(run.gate_turn_note(state), "waiting for a gate turn of acme")
+        self.assertEqual(run.gate_turn_note(state), "waiting for a heavy suite turn")
         self.assertEqual(state["gate_turn"]["of"], ELSEWHERE)
         repo = run.main_checkout(ACME)
-        self.assertFalse(run._gate_waiter_before(repo, "ghost", False, 3000))
-        self.assertFalse(run._gate_waiter_before(repo, "ghost-first", True, 3000))
-        gate = Gate(self, "quick", ACME, [self.mark("quick")])
-        gate.start()
-        gate.join(20)
-        self.assertIsNone(gate.error, gate.error)
-        self.assertTrue(gate.result[0])
-        self.assertFalse(gate.waited(), gate.logs)
-        self.assertEqual(self.marks.read_text(), "quick\n")
-        # and a waiter of this checkout still counts
+        self.assertTrue(run._gate_waiter_before(repo, "ghost", False, 3000))
+        self.assertTrue(run._gate_waiter_before(repo, "ghost-first", True, 3000))
+        # a live waiter holds a newcomer back whichever checkout it checks
         self.waiter("plain", ACME, 1000)
         self.assertTrue(run._gate_waiter_before(repo, "ghost", False, 3000))
 
