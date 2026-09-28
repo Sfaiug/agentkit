@@ -2153,7 +2153,8 @@ def title_record(name):
     record = config.session_records().get(name, {})
     conversation = record.get("conversation")
     if record.get("title_conversation", conversation) != conversation:
-        config.update_session(name, session_title=None, title_sync=None, title_superseded=None,
+        # Retiring sends does not invalidate the title already recorded by a launch or receipt.
+        config.update_session(name, title_sync=None, title_superseded=None,
                               title_conversation=conversation)
         record = config.session_records().get(name, {})
     return record
@@ -2206,7 +2207,8 @@ def sync_title(session, log=lambda _: None, *, force=False):
             plain = strip_sgr(raw).strip()
             if chrome_line(chrome, plain):
                 break
-            parts.append(plain)
+            if not has_dim(raw):
+                parts.append(plain)
         return re.sub(r"\s+", "", "".join(parts))
 
     with notify.session_lock(session["name"]) as name:

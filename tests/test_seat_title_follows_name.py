@@ -157,6 +157,39 @@ class SeatTitle(Sandbox):
         self.tick()
         self.assertEqual(self.typed, [])
 
+    def test_renamed_seat_fresh_launch_does_not_retype_its_remote_control_title(self):
+        orch.rename("lagoon", "reed", log=self.logs.append)
+        before = len(self.commands)
+        cmd, conversation = orch.fresh_command(self.cfg, "opus", seat="reed")
+        orch.launch("reed", "opus", self.root, cmd, conversation, self.seat)
+        self.assertEqual(cmd[cmd.index("--remote-control") + 1], "reed")
+        self.assertEqual(self.record()["session_title"], "reed")
+        self.tick()
+        self.tick()
+        self.assertFalse(any(args[0] == "send-keys" for args in self.commands[before:]))
+        self.assertEqual(self.record()["session_title"], "reed")
+
+    def test_renamed_seat_clear_does_not_retype_its_recorded_title(self):
+        orch.rename("lagoon", "reed", log=self.logs.append)
+        config.update_session("reed", conversation="next-conversation")
+        self.transcript = self.transcript.with_name("next-conversation.jsonl")
+        self.transcript.touch()
+        before = len(self.commands)
+        self.tick()
+        self.tick()
+        self.assertFalse(any(args[0] == "send-keys" for args in self.commands[before:]))
+        self.assertEqual(self.record()["session_title"], "reed")
+
+    def test_reconciled_conversation_does_not_retype_its_recorded_title(self):
+        orch.rename("lagoon", "reed", log=self.logs.append)
+        config.update_session("reed", id_source="unverified")
+        self.assertNotIn("conversation", orch.records()["reed"])
+        before = len(self.commands)
+        self.tick()
+        self.tick()
+        self.assertFalse(any(args[0] == "send-keys" for args in self.commands[before:]))
+        self.assertEqual(self.record()["session_title"], "reed")
+
     def test_resume_records_the_name_passed_to_remote_control(self):
         config.update_session("lagoon", conversation="fake-conversation", id_source=orch.LAUNCHER,
                               session_title="former-name",
@@ -291,6 +324,21 @@ class SeatTitle(Sandbox):
         self.tick()
         self.assertEqual(self.pane, pane)
         self.assertFalse(any(args[0] == "send-keys" for args in self.commands[before:]))
+
+    def test_wrapped_dim_suggestion_does_not_block_title_sync(self):
+        config.update_session("lagoon", session_title=None)
+        self.pane = self.fixture("prompt").replace(
+            "❯\u00a0\n", "❯ \x1b[2mTry checking the\x1b[0m\n  \x1b[2mparser next\x1b[0m\n")
+
+        def tmux(*args, **kwargs):
+            if args[0] == "send-keys" and "-l" in args:
+                self.pane = self.fixture("prompt")    # typing replaces the suggestion
+            return self.tmux(*args, **kwargs)
+
+        with patch.object(orch, "tmux_out", side_effect=tmux):
+            self.tick()
+        self.assertEqual(self.typed, ["/rename lagoon"])
+        self.assertEqual(self.record()["session_title"], "lagoon")
 
     def test_empty_composer_is_not_a_receipt_until_the_transcript_confirms(self):
         self.confirm_title = False
