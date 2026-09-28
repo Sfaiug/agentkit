@@ -21,11 +21,10 @@ import time
 from collections import Counter
 from contextlib import ExitStack, contextmanager, nullcontext
 from datetime import datetime
-from itertools import chain
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import command_help, config, history, notify, orch, retention, usage, watch, worker
+from . import command_help, config, history, notify, orch, proc_snapshot, retention, usage, watch, worker
 from .harness import load as harness_plugin
 
 DIFF_CAP = 300 * 1024
@@ -7987,44 +7986,44 @@ def tmp_protected(name):
             or name.startswith("systemd-private-"))
 
 
-def tmp_processes():
-    """Paths and argv from every user's processes, or no proof that /tmp is idle.
-
-    Unlike recorded run artifacts, arbitrary temporary files have no writer lease.
-    Skipping an unreadable process or descriptor could discard their only owner.
-    Even a process disappearing during this scan defers collection until next time.
-    """
-    paths, table = set(), {}
+def tmp_hidden_processes(pids):
+    """Inspect hidden handles with existing noninteractive sudo; never delete as root."""
     try:
-        for proc in retention.process_dirs():
-            if not proc.name.isdigit():
-                continue
-            fields = (proc / "stat").read_text().rsplit(")", 1)[1].split()
-            state, parent = fields[0], int(fields[1])
-            if state in ("Z", "X"):
-                continue
-            args = [os.fsdecode(arg) for arg in (proc / "cmdline").read_bytes().split(b"\0")
-                    if arg]
-            if not args:
+        probe = subprocess.run(["sudo", "-n", "/usr/bin/python3", "-I", "-S", "-B",
+                                proc_snapshot.__file__, *map(str, pids)],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, text=True, timeout=10)
+        if probe.returncode:
+            return None
+        inspected, hidden = json.loads(probe.stdout)
+        return None if hidden else {int(pid): row for pid, row in inspected.items()}
+    except (OSError, ValueError, TypeError, AttributeError, subprocess.TimeoutExpired):
+        return None
+
+
+def tmp_processes():
+    """Paths and identities from every user's processes, or no proof /tmp is idle.
+
+    Unlike exited pids and kernel threads, hidden foreign processes may hold our
+    files. Ask the read-only inspector rather than ignoring them or giving up at pid 1.
+    """
+    try:
+        table, hidden = proc_snapshot.collect(retention.process_dirs())
+        if hidden:
+            inspected = tmp_hidden_processes(hidden)
+            if inspected is None:
                 return None, None
-            table[int(proc.name)] = (parent, state, args)
-            # Keep the listing descriptor open: our own fd inventory includes it.
-            with os.scandir(proc / "fd") as handles:
-                for link in chain([proc / "cwd"], (proc / "fd" / entry.name for entry in handles)):
-                    target = os.readlink(link).removesuffix(" (deleted)")
-                    if target.startswith("/"):
-                        paths.add(target)
-            paths.update(arg for arg in args if arg.startswith("/"))
-    except (OSError, ValueError, IndexError):
+            table.update(inspected)
+        return {path for row in table.values() for path in row["paths"]}, table
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
         return None, None
-    return paths, table
 
 
 def tmp_listdir(path):
     """Sorted names in that directory, its atime unchanged when possible.
 
     /tmp itself is root's, so O_NOATIME refuses it; its own atime is evidence
-    for nobody, and the entries' mtimes are what the planner judges.  Raises
+    for nobody, and the entries' modification/change times determine age. Raises
     OSError when the directory cannot be listed at all.
     """
     try:
@@ -8041,7 +8040,7 @@ def tmp_listdir(path):
 
 
 def tmp_tree_newest(path):
-    """The newest mtime in that tree, or None when it is not ours alone to take.
+    """The newest modification/change time, or None when it is not ours alone to take.
 
     Ours alone is every entry owned by this user, no link at the top, and no
     socket, fifo or device inside: links inside are unlinked, never traversed,
@@ -8051,7 +8050,8 @@ def tmp_tree_newest(path):
     if not retention.safe(path):
         return None
     try:
-        newest = path.lstat().st_mtime
+        info = path.lstat()
+        newest = max(info.st_mtime, info.st_ctime)
     except OSError:
         return None
     if not path.is_dir():
@@ -8072,11 +8072,11 @@ def tmp_tree_newest(path):
             if info.st_uid != os.getuid():
                 return None
             if child.is_symlink():
-                newest = max(newest, info.st_mtime)
+                newest = max(newest, info.st_mtime, info.st_ctime)
                 continue
             if not retention.safe(child):
                 return None
-            newest = max(newest, info.st_mtime)
+            newest = max(newest, info.st_mtime, info.st_ctime)
             if child.is_dir():
                 stack.append(child)
     return newest
@@ -8096,32 +8096,48 @@ def tmp_entry_stale(path, now, paths):
     return f"untouched for {int((now - newest) // 86400)} days"
 
 
-def tmp_claude_running(table):
-    """Any Claude client may own scratch whose conversation is absent from argv.
+def tmp_claude_sessions(table):
+    """Current conversations of live clients, or None for an unidentified client.
 
-    Hand launches need no id and /clear replaces it without changing argv. Retain
-    all Claude scratch while any client runs; an unreadable inventory also stays.
+    Claude updates its pid record after /clear. Match procStart too, so a reused
+    pid or a stale record in another account cannot stand in for the live client.
     """
     from .harness import claude
+    if table is None:
+        return None
     try:
-        if not isinstance(table, dict):
-            return True
-        for _, (_, state, args) in table.items():
-            if state in ("Z", "X"):
+        roots = [path for path in Path.home().glob(".claude*") if path.is_dir()]
+        if os.environ.get("CLAUDE_CONFIG_DIR"):
+            roots.append(Path(os.environ["CLAUDE_CONFIG_DIR"]))
+        live = set()
+        for pid, row in table.items():
+            if row["uid"] != os.getuid():
                 continue
-            if not args or claude.is_process(args):
-                return True
+            if not row["args"]:
+                return None
+            if not claude.is_process(row["args"]):
+                continue
+            found = set()
+            for root in roots:
+                record = retention.read_json(root / "sessions" / f"{pid}.json") or {}
+                session = record.get("sessionId")
+                if (record.get("pid") == pid and str(record.get("procStart")) == row["start"]
+                        and isinstance(session, str) and re.fullmatch(r"[A-Za-z0-9_-]+", session)):
+                    found.add(session)
+            if not found:
+                return None
+            live.update(found)
+        return live
     except (OSError, ValueError, TypeError, AttributeError):
-        return True
-    return False
+        return None
 
 
-def tmp_claude_session_stale(path, now, paths, table):
+def tmp_claude_session_stale(path, now, paths, live):
     """Why that Claude session folder goes, or None when it stays.
 
     Its session is gone, untouched for a day, and held by nobody.
     """
-    if retention.busy(path, paths) or tmp_claude_running(table):
+    if retention.busy(path, paths) or live is None or path.name in live:
         return None
     newest = tmp_tree_newest(path)
     if newest is None or not retention.expired(newest, now, TMP_CLAUDE_AGE):
@@ -8130,14 +8146,20 @@ def tmp_claude_session_stale(path, now, paths, table):
     return f"session {path.name} is gone, untouched for {days} day{'s' if days != 1 else ''}"
 
 
-def tmp_top_stale(path, now, paths, table):
+def tmp_top_stale(path, now, paths, live):
     """Why that top-level /tmp entry goes whole, or None.
 
     The same live-client protection covers both whole trees and session folders.
     """
     name = path.name
     if name.startswith("claude-") and name[7:].isdigit():
-        if tmp_claude_running(table):
+        if live is None:
+            return None
+        try:
+            if live and any((path / project / session).is_dir()
+                            for project in tmp_listdir(path) for session in live):
+                return None
+        except OSError:
             return None
     return tmp_entry_stale(path, now, paths)
 
@@ -8155,9 +8177,10 @@ def stale_tmp_entries(now):
         return []
     if not names:
         return []
-    paths, live = tmp_processes()
+    paths, table = tmp_processes()
     if paths is None:
         return []
+    live = tmp_claude_sessions(table)
     found, planned = [], set()
     for name in names:
         if tmp_protected(name):
@@ -8170,7 +8193,7 @@ def stale_tmp_entries(now):
             planned.add(str(path))
     for name in names:
         if (name != f"claude-{os.getuid()}" or str(base / name) in planned
-                or tmp_claude_running(live) or not retention.safe(base / name)):
+                or live is None or not retention.safe(base / name)):
             continue
         try:
             projects = tmp_listdir(base / name)
@@ -8530,6 +8553,7 @@ def gc(report, automatic=False):
                     caller(message)
                 report("gc: automatic collection started")
                 config._write_json(stamp, {"started_at": time.time()})
+            tmp_inventory = None
             for item in gc_candidates():
                 path = Path(item["path"])
                 try:
@@ -8562,13 +8586,16 @@ def gc(report, automatic=False):
                     elif item["kind"] == "harness-entries":
                         done = retention.prune_harness(path)
                     elif item["kind"] in ("tmp-entry", "claude-session"):
-                        # the planner's proof once more, now: touched or held since, and it stays
-                        paths, table = tmp_processes()
+                        # One fresh inventory for the batch, then recheck each tree's age.
+                        if tmp_inventory is None:
+                            paths, table = tmp_processes()
+                            tmp_inventory = paths, tmp_claude_sessions(table)
+                        paths, live = tmp_inventory
                         if item["kind"] == "tmp-entry":
-                            ok = tmp_top_stale(path, time.time(), paths, table) is not None
+                            ok = tmp_top_stale(path, time.time(), paths, live) is not None
                         else:
                             ok = tmp_claude_session_stale(path, time.time(), paths,
-                                                          table) is not None
+                                                          live) is not None
                         if not ok or path.is_symlink():
                             continue
                         if path.is_dir():
