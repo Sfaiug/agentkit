@@ -1,14 +1,14 @@
-"""`m` on a session opens its executors and reviewers with its current groups chosen: a
-flip saves to the session's record at once, each group keeps one model, and a choice
-leaving no allowed pair is refused in one line.
+"""`m` on a session opens its orchestrator, executors and reviewers with its current
+models chosen: a role flip saves to the session's record at once, each group keeps one
+model, and a choice leaving no allowed pair is refused in one line.
 
 The offline tests flip `menu.session_mark` against session records in a throwaway HOME and
 prove the run boundary: a run launched next reads the new groups, one already going keeps
 the groups its receipt saved. The screen tests run `menu.loop` in a child process on a pty
 of its own, the way tests/test_close_and_info.py does, with the seat listing, each seat's
-word, the usage rows and the probe faked; the session records are real files in the child's
-temporary HOME, and the flips land in them. Nothing here starts a seat or a tmux server,
-and the only process signalled is the test's own child.
+word, the usage rows, the probe and the orchestrator switch faked; the session records
+are real files in the child's temporary HOME, and the flips land in them. Nothing here
+starts a seat or a tmux server, and the only process signalled is the test's own child.
 """
 
 from contextlib import redirect_stdout
@@ -54,6 +54,8 @@ menu.seat_row_state = lambda cfg, session, **facts: {"word": "working", "reason"
 menu.usage_lines = lambda cfg, width: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
+orch.switch_orchestrator = lambda cfg, name, model, providers=None, log=print: (
+    config.update_session(name, orchestrator=model), "")[1]
 menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>",
                                                         flush=True)
 sys.exit(menu.loop(cfg, dry_run=False))
@@ -65,7 +67,7 @@ INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", 
 
 
 def marks(line):
-    return "".join(char for char in terminal.plain(line) if char in "■□")
+    return "".join(char for char in terminal.plain(line) if char in "●○■□")
 
 
 class Screen:
@@ -211,12 +213,12 @@ class SessionModels(Sandbox):
         with patch.object(terminal, "layout_width", return_value=100):
             lines, places = menu.session_models_body(self.cfg, self.selected("old"),
                                                      self.notes())
-        self.assertEqual(lines[0].split(), ["exec", "review"])
+        self.assertEqual(lines[0].split(), ["orch", "exec", "review"])
         rows = {terminal.plain(line): marks(line) for line in lines if marks(line)}
-        self.assertEqual(rows[next(line for line in rows if "Opus 5.5" in line)], "■■")
-        self.assertEqual(rows[next(line for line in rows if "Fable 5.1" in line)], "□□")
+        self.assertEqual(rows[next(line for line in rows if "Opus 5.5" in line)], "●■■")
+        self.assertEqual(rows[next(line for line in rows if "Fable 5.1" in line)], "○□□")
         cells = next(cells for name, cells in places.values() if name == "opus")
-        self.assertEqual([cell[2] for cell in cells], [0, 1])
+        self.assertEqual([cell[2] for cell in cells], [0, 1, 2])
         selected = self.selected("old")
         self.assertEqual(menu.session_mark(self.cfg, "old", selected, "opus", 1, {}), "")
         record = config.load_session(self.cfg, "old")
@@ -272,12 +274,12 @@ class SessionModels(Sandbox):
         noted["opus"] = "spent · resets Fri 14:00"
         with patch.object(terminal, "layout_width", return_value=100):
             lines, _ = menu.session_models_body(self.cfg, self.selected("fix-api"), noted,
-                                                "opus", 0)
+                                                "opus", 1)
         rows = {terminal.plain(line): marks(line) for line in lines if marks(line)}
         self.assertEqual(len(rows), len(config.offered(self.cfg)))
-        self.assertEqual(rows[next(line for line in rows if "Opus 5.5" in line)], "■□")
+        self.assertEqual(rows[next(line for line in rows if "Opus 5.5" in line)], "●■□")
         self.assertEqual(rows[next(line for line in rows if "Astra" in line)],
-                         "■■")
+                         "○■■")
         row = next(line for line in lines if "Opus 5.5" in terminal.plain(line))
         self.assertIn("spent · resets Fri 14:00", terminal.plain(row))
         with patch.object(terminal, "layout_width", return_value=40):
@@ -292,6 +294,7 @@ class SessionModels(Sandbox):
             menu.show_session_models("fix-api", dry_run=True)
         screen = out.getvalue()
         self.assertIn("agentkit · fix-api models", screen)
+        self.assertIn("orch", screen)
         self.assertIn("exec", screen)
         self.assertIn("review", screen)
         self.assertIn("esc back", screen)
@@ -314,11 +317,11 @@ class SessionModelsScreen(unittest.TestCase):
         mark = screen.mark()
         screen.send(b"m")
         shown = screen.models("fix-api", after=mark)
-        self.assertEqual(shown[2].split(), ["exec", "review"])
+        self.assertEqual(shown[2].split(), ["orch", "exec", "review"])
         rows = {line: marks(line) for line in shown if marks(line)}
-        self.assertEqual(rows[next(line for line in rows if "Opus 5.5" in line)], "■□")
+        self.assertEqual(rows[next(line for line in rows if "Opus 5.5" in line)], "●■□")
         self.assertEqual(rows[next(line for line in rows
-                                   if "Astra" in line)], "■■")
+                                   if "Astra" in line)], "○■■")
         self.assertIn("⏎ mark", shown[-1])
         self.assertIn("esc back", shown[-1])
         mark = screen.mark()
@@ -333,9 +336,9 @@ class SessionModelsScreen(unittest.TestCase):
         mark = screen.mark()
         screen.send(b"m")
         screen.models("fix-api", after=mark)
-        screen.send(SPACE)                # Fable, first row, executes: into the workers
+        screen.send(RIGHT + SPACE)        # Fable, first row, executes: into the workers
         screen.models("fix-api", lambda lines: any(
-            "Fable 5.1" in line and marks(line) == "■□" for line in lines), after=mark)
+            "Fable 5.1" in line and marks(line) == "○■□" for line in lines), after=mark)
         record = screen.record("fix-api")
         self.assertEqual(record["workers"], ["opus", "astra", "fable"])
         self.assertEqual(record["reviewers"], ["astra"])
@@ -350,12 +353,12 @@ class SessionModelsScreen(unittest.TestCase):
         mark = screen.mark()
         screen.send(b"m")
         screen.models("fix-api", after=mark)
-        screen.send(DOWN + RIGHT + SPACE)         # Opus joins the reviewers
+        screen.send(DOWN + RIGHT + RIGHT + SPACE)   # Opus joins the reviewers
         screen.models("fix-api", lambda lines: any(
-            "Opus 5.5" in line and marks(line) == "■■" for line in lines), after=mark)
+            "Opus 5.5" in line and marks(line) == "●■■" for line in lines), after=mark)
         screen.send(DOWN + SPACE)                 # Astra leaves them: reviewers [opus]
         screen.models("fix-api", lambda lines: any(
-            "Astra" in line and marks(line) == "■□" for line in lines),
+            "Astra" in line and marks(line) == "○■□" for line in lines),
             after=mark)
         screen.send(LEFT + SPACE)                 # Astra leaves executes: no pair left
         shown = screen.models("fix-api", lambda lines: any(
@@ -381,7 +384,7 @@ class SessionModelsScreen(unittest.TestCase):
         column = shown[2].index("exec") + 2       # inside the executes column
         screen.click(column, row)
         screen.models("fix-api", lambda lines: any(
-            "Spark 1.3" in line and marks(line) == "■□" for line in lines), after=mark)
+            "Spark 1.3" in line and marks(line) == "○■□" for line in lines), after=mark)
         self.assertEqual(screen.record("fix-api")["workers"], ["opus", "astra", "spark"])
         mark = screen.mark()
         screen.send(ESC)
@@ -398,8 +401,8 @@ class SessionModelsScreen(unittest.TestCase):
         shown = screen.models("other-seat", after=mark)
         rows = {line: marks(line) for line in shown if marks(line)}
         self.assertEqual(rows[next(line for line in rows
-                                   if "Astra" in line)], "■■")
-        self.assertEqual(rows[next(line for line in rows if "Opus 5.5" in line)], "□□")
+                                   if "Astra" in line)], "●■■")
+        self.assertEqual(rows[next(line for line in rows if "Opus 5.5" in line)], "○□□")
         mark = screen.mark()
         screen.send(ESC)
         screen.frame(after=mark)

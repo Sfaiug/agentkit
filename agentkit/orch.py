@@ -2883,6 +2883,122 @@ def role_mark(cfg, selected, name, column, providers):
     return changed, ""
 
 
+def handover_text(name, old_model, transcript):
+    """The new orchestrator's first prompt: it took over, and where to continue from.
+
+    From which model, where the seat's plan file is, to read `ak run status`, and where
+    the old conversation's transcript is so it can read the last exchange -- or that the
+    old conversation keeps no file to read, where its harness stores its sessions.
+    """
+    plan = config.plan_path(name)
+    if transcript:
+        old = (f"The previous conversation's transcript is at {transcript}; "
+               "read the last exchange to continue.")
+    else:
+        old = ("The previous conversation has no transcript file to read; "
+               "continue from the plan and the runs.")
+    return (f"You took over this seat from {old_model}. The seat's plan is at {plan}. "
+            f"Run `ak run status` to see its runs. {old}")
+
+
+def _switch_account(cfg, record, model, providers):
+    """The login the seat keeps or takes when it moves to `model`.
+
+    The same provider keeps its login; another one takes the first of its accounts whose
+    seat login passes, in the seat's order, else the default login to be judged below.
+    """
+    old_model = record.get("orchestrator")
+    try:
+        old_provider = config.model(cfg, old_model)["provider"]
+    except config.Error:
+        old_provider = None
+    new_provider = config.model(cfg, model)["provider"]
+    if new_provider == old_provider:
+        return record.get("account")
+    accounts = config.accounts(cfg, new_provider)
+    if not accounts:
+        return None
+    order = account_order(cfg, model, providers.get(new_provider, {}).get("accounts") or {})
+    harness = harness_plugin(config.model(cfg, model)["harness"])
+    picked = next((name for name in [*order, *(a for a in accounts if a not in order)]
+                   if harness.seat_auth(name)[0] is True), None)
+    return picked if picked is not None else config.DEFAULT_ACCOUNT
+
+
+def switch_refusal(cfg, name, model, providers):
+    """Why the seat cannot move to `model`, or "" where it can.
+
+    The same model is already there. A harness that is not installed or whose seat login
+    says no, and a model whose meter reads spent, are refused in one line, and the seat
+    stays as it was. No answer withholds nothing, the way a turn goes ahead on an `auth`
+    verb that said nothing.
+    """
+    try:
+        record = config.load_session(cfg, name, required=False)
+    except config.Error as exc:
+        return str(exc)
+    if record is None:
+        return f"session: {name} has no saved models"
+    if record["orchestrator"] == model:
+        return ""
+    try:
+        harness = config.model(cfg, model)["harness"]
+    except config.Error as exc:
+        return str(exc)
+    unready = usage.harness_unready(harness)
+    if unready and "not installed" in unready:
+        return f"{model}: {unready}"
+    account = _switch_account(cfg, record, model, providers)
+    ok, why = harness_plugin(harness).seat_auth(account)
+    if ok is False:
+        return f"{model}: {why}"
+    note = spent_note(cfg, model, providers)
+    if note:
+        return f"{model} is {note}"
+    return ""
+
+
+def switch_orchestrator(cfg, name, model, providers=None, log=print):
+    """Move the open seat to another orchestrator at once, under the same name.
+
+    The old harness process ends and the new one starts in the seat's directory: a live or
+    exited pane is respawned, a seat tmux has lost is started again. The runs it launched
+    are never stopped or re-parented -- the name is the same, so endings report to the new
+    seat -- and its plan file stays. The record stays with the new orchestrator in it, on
+    the conversation the new launch owns. The new orchestrator's first prompt is the
+    handover: from which model, the plan file, `ak run status`, and the old transcript.
+    A refusal leaves the seat as it was. What to say under the rows, or "".
+    """
+    providers = usage.collect(cfg) if providers is None else providers
+    note = switch_refusal(cfg, name, model, providers)
+    if note:
+        return note
+    record = config.session_records().get(name) or {}
+    old_model = record["orchestrator"]
+    if old_model == model:
+        return ""
+    old_harness = config.model(cfg, old_model)["harness"]
+    old_conversation = seat_conversation(record, old_harness)
+    transcript = harness_plugin(old_harness).transcript(
+        record, record.get("cwd"), old_conversation)
+    account = _switch_account(cfg, record, model, providers)
+    session = find(name)
+    ran_in = Path(record.get("cwd") or (session or {}).get("path") or "")
+    cwd = ran_in if ran_in.is_dir() else seat_cwd()
+    cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
+    launch(name, model, cwd, cmd, conversation, session)
+    config.update_session(name, orchestrator=model, account=account)
+    text = handover_text(name, old_model, transcript)
+    live = find(name) or {"name": name}
+    for args in (("send-keys", "-t", f"={name}:", "-l", text),
+                 ("send-keys", "-t", f"={name}:", "Enter")):
+        rc, out = tmux_out(*args, socket=seat_socket(live))
+        if rc != 0:
+            log(f"WARN could not send the handover to {name}: {out[-200:]}")
+            break
+    return ""
+
+
 def picker_lines(cfg, notes, selected, at, column, room):
     """Every model once with three marks; detail and spent notes wrap below on a phone."""
     names = list(notes)

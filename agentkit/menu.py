@@ -75,8 +75,9 @@ click opens a seat, and a click on the key line does what its key does (`loop`,
 `terminal.Keyboard`).  `x` is
 the highlighted seat's: a done one is closed at once, and any other is asked about under its row,
 `Keep` or `Stop` -- so the key line says `x close` while a done seat is highlighted.  `m` is
-its executors and reviewers, flipped with the same keys and saved at once.  `i` is one
-screen read with the same keys, back on Esc.
+its orchestrator, executors and reviewers: the orchestrator moves the seat at once, the
+roles flip with the same keys and save at once.  `i` is one screen read with the same
+keys, back on Esc.
 `ak run status` and `ak browser` stay as commands for
 orchestrators; the menu no longer offers them. A gone session reads `session closed: press N
 to reopen`; an ended run is its orchestrator's business, so no row ever says `press r`.
@@ -2928,18 +2929,19 @@ def show_config(dry_run=False, keyboard=None):
 def session_models_body(cfg, selected, notes, at=None, column=0):
     """The `m` screen's lines, and where its rows sit on them: {line: (name, cells)}.
 
-    Every model once, the way `n` shows its two role columns: the title, then `exec` and
-    `review` (`■` in the group, `□` dim out of it), the harness and effort dim beside them,
-    a spent model dim with its reset note. `selected` is the session's groups, `notes` its
-    spent lines; a record without reviewers shows its workers in both columns until the
-    first flip writes them apart. `at` is the highlighted model's name and `column` the
-    cell the keys flip, 0 executes and 1 reviews; `cells` are (first, last, column) for a
+    Every model once, the way `n` shows its three columns: the title, then `orch` (`●`
+    holding the seat, `○` dim elsewhere), `exec` and `review` (`■` in the group, `□` dim
+    out of it), the harness and effort dim beside them, a spent model dim with its reset
+    note. `selected` is the session's models, `notes` its spent lines; a record without
+    reviewers shows its workers in both role columns until the first flip writes them
+    apart. `at` is the highlighted model's name and `column` the cell the keys act on, 0
+    orchestrator, 1 executes and 2 reviews; `cells` are (first, last, column) for a
     click, counted from 1 as the terminal counts.
     """
     room, utf, colour = terminal.layout_width(), terminal.utf8(), terminal.colour_depth()
     names = list(notes)
-    marks = "■□" if utf else "x."
-    heads = orch.ROLE_HEADS[1:]
+    marks = "●○■□" if utf else "*.x."
+    heads = orch.ROLE_HEADS
     titles = {name: orch.model_title(cfg, name) for name in names}
     rest = sum(len(head) + 2 for head in heads)
     wide = min(max(terminal.cells(title) for title in titles.values()),
@@ -2950,12 +2952,14 @@ def session_models_body(cfg, selected, notes, at=None, column=0):
     for name in names:
         entry, note = config.model(cfg, name), notes[name]
         line = "  " + terminal.pad(titles[name], wide)
-        texts = (marks[name not in selected["workers"]], marks[name not in reviewers])
+        texts = (marks[name != selected["orchestrator"]],
+                 marks[2 + (name not in selected["workers"])],
+                 marks[2 + (name not in reviewers)])
         own = []
         for number, (text, head) in enumerate(zip(texts, heads)):
             first = terminal.cells(line) + 3
             shown = f" {text} "
-            kind = "dim" if note or text == marks[1] else None
+            kind = "dim" if note or text in (marks[1], marks[3]) else None
             if name == at and column == number:
                 kind = "reverse"
                 if not colour:
@@ -2978,14 +2982,22 @@ def session_models_body(cfg, selected, notes, at=None, column=0):
 
 
 def session_mark(cfg, name, selected, model, column, providers):
-    """Flip one of a session's role marks, saving it to the session's record at once.
+    """Act on one of a session's marks, saving it to the session's record at once.
 
-    `column` is 1 for executes and 2 for reviews, as `orch.role_mark` numbers them: each
-    group keeps one model, and a flip leaving no allowed executor/reviewer pair is
-    refused. A run launched afterwards reads the record as left here; one already going
-    keeps the groups its receipt saved. A refusal or a save that fails leaves the
-    record, and `selected`, alone. What to say under the rows, or "".
+    `column` is 0 for the orchestrator and 1 for executes and 2 for reviews, as
+    `orch.role_mark` numbers them. The orchestrator moves the seat to that model at once,
+    under the same name, and a harness that is not installed or not logged in, or a meter
+    that is spent, is refused in one line with the seat as it was. Each role group keeps
+    one model, and a flip leaving no allowed executor/reviewer pair is refused. A run
+    launched afterwards reads the record as left here; one already going keeps the groups
+    its receipt saved. A refusal or a save that fails leaves the record, and `selected`,
+    alone. What to say under the rows, or "".
     """
+    if column == 0:
+        note = orch.switch_orchestrator(cfg, name, model, providers)
+        if not note:
+            selected["orchestrator"] = model
+        return note
     changed, note = orch.role_mark(cfg, selected, model, column, providers)
     if note:
         return note
@@ -3002,14 +3014,17 @@ def session_mark(cfg, name, selected, model, column, providers):
 
 @terminal.clicks_its_own
 def show_session_models(name, dry_run=False, keyboard=None):
-    """`m` on a seat: its executors and reviewers, flipped with the matrix's keys until Esc.
+    """`m` on a seat: its orchestrator, executors and reviewers, with the matrix's keys.
 
-    The two role columns `n` shows, holding the session's current groups: ↑/↓ move between
-    models and ←/→ between executes and reviews; Enter, space or a click flips a mark and
-    saves it to the session's record at once, for the runs it launches next. Each group
-    keeps one model, and a flip leaving no allowed pair is refused in one line under the
-    rows. A dry run, and a menu with no keyboard to read -- a pipe -- draw it once and
-    read nothing. Esc, `q` or a click on `esc back` goes back.
+    The three columns `n` shows, holding the session's current models: ↑/↓ move between
+    models and ←/→ between the orchestrator, executes and reviews. Enter, space or a
+    click on the orchestrator moves the seat to that model at once, under the same name,
+    with a handover as its first prompt; on a role it flips a mark and saves it to the
+    session's record at once, for the runs it launches next. Each group keeps one model,
+    a flip leaving no allowed pair is refused in one line under the rows, and so is a
+    model whose harness is not installed or not logged in, or whose meter is spent. A dry
+    run, and a menu with no keyboard to read -- a pipe -- draw it once and read nothing.
+    Esc, `q` or a click on `esc back` goes back.
     """
     try:
         cfg = config.load()
@@ -3039,16 +3054,16 @@ def show_session_models(name, dry_run=False, keyboard=None):
             terminal.frame(f"{name} models", body, "esc back")
             return
         act, here, clicked, top = matrix_key(f"{name} models", body, places, rows, here, top,
-                                             note, keys)
+                                             note, keys, marks=3)
         if act is None:
             continue                  # a resize: drawn again at the new size
         note, column = "", column if clicked is None else clicked
         if act == "back":
             return
         if act in ("left", "right"):
-            column = 1 if act == "right" else 0
+            column = min(max(column + (1 if act == "right" else -1), 0), 2)
         elif act in ("enter", "space"):
-            note = session_mark(cfg, name, selected, here, column + 1, providers)
+            note = session_mark(cfg, name, selected, here, column, providers)
 
 
 # A production project's feature switches are live data in the project, reached through the one

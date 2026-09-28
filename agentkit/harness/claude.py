@@ -23,6 +23,13 @@ def transcript_path(record, conversation):
     return directory / "projects" / slug / f"{conversation}.jsonl"
 
 
+def transcript(record, cwd, conversation):
+    """The transcript the new orchestrator reads the last exchange from."""
+    if not conversation or not record.get("cwd"):
+        return None
+    return str(transcript_path(record, conversation))
+
+
 def resumable(record, cwd, conversation):
     from . import LAUNCHER
     return bool(conversation) and record.get("id_source") in (LAUNCHER, SOURCE)
