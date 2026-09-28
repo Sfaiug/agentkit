@@ -81,10 +81,17 @@ function keep(sessionID) {
 // The plugin owns the API connection, so naming never types into a composer. The receipt
 // pairs a request generation with the prompted session: a late reply or an earlier use of
 // the same name cannot confirm a newer request. Polling also catches ak renames at idle.
+// A tick whose applied file already confirms its request is quiet: no API call, no write.
+// A rename event always verifies, since the title may have changed under a matching ack.
 function titleSync(ctx) {
   let busy = false;
-  return async () => {
-    if (!RECEIPT || busy) return;
+  let queued = false;
+  async function run(verify = false) {
+    if (!RECEIPT) return;
+    if (busy) {
+      if (verify) queued = true;
+      return;
+    }
     busy = true;
     try {
       const request = readFileSync(join(RECEIPT, "title-request.json"), "utf8");
@@ -92,6 +99,7 @@ function titleSync(ctx) {
       const sessionID = readFileSync(join(RECEIPT, "session"), "utf8").trim();
       if (typeof title !== "string" || !title.trim() || typeof id !== "string"
         || !/^ses_[0-9A-Za-z]+$/.test(sessionID)) return;
+      if (!verify && confirmed(title, id, sessionID)) return;
       let info = await ctx.session.get({ sessionID });
       if (info?.id !== sessionID || info.parentID != null) return;
       if (info.title !== title) {
@@ -102,6 +110,7 @@ function titleSync(ctx) {
       if (info?.id !== sessionID || info.title !== title || info.parentID != null
         || readFileSync(join(RECEIPT, "session"), "utf8").trim() !== sessionID
         || readFileSync(join(RECEIPT, "title-request.json"), "utf8") !== request) return;
+      if (confirmed(title, id, sessionID)) return;
       const next = join(RECEIPT, "title-applied.next");
       writeFileSync(next, JSON.stringify({ title, id, sessionID }));
       renameSync(next, join(RECEIPT, "title-applied.json"));
@@ -109,8 +118,26 @@ function titleSync(ctx) {
       // A missing receipt or a refused update waits for the next tick, never a typed retry.
     } finally {
       busy = false;
+      if (queued) {
+        queued = false;
+        await run(true);
+      }
     }
-  };
+  }
+  return run;
+}
+
+// Whether the applied file already confirms this request on this session: the shape
+// agentkit/harness/opencode.py accepts, exactly, so a stale or foreign ack never quiets.
+function confirmed(title, id, sessionID) {
+  try {
+    const applied = JSON.parse(readFileSync(join(RECEIPT, "title-applied.json"), "utf8"));
+    return applied !== null && typeof applied === "object" && applied.title === title
+      && applied.id === id && applied.sessionID === sessionID
+      && Object.keys(applied).length === 3;
+  } catch {
+    return false;
+  }
 }
 
 // The session that event shows a prompt going into, or null.  Only a prompt says which
@@ -188,19 +215,29 @@ export default {
     const timer = setInterval(syncTitle, 1000);
     timer.unref();
     void syncTitle();
+    // Prompt session ids, kept in event order, never holding a fact: a stuck session call
+    // delays only the keeps behind it, while each fact is sent below without waiting.
+    let keeping = Promise.resolve();
     void (async () => {
       try {
         for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
           try {
-            // awaited in turn, so a later prompt's id is never overwritten by an earlier one's
             const sid = promptedSession(event);
-            if (sid && await own(ctx, sid)) {
-              keep(sid);
-              await syncTitle();
+            if (sid) {
+              keeping = keeping.then(async () => {
+                try {
+                  if (await own(ctx, sid)) {
+                    keep(sid);
+                    void syncTitle();
+                  }
+                } catch {
+                  // One session that cannot be kept costs that keep, never the chain.
+                }
+              });
             }
             // Generated and owner titles use this same event in 2.0.14. Both give way
             // to ak's name; neither is evidence that the owner renamed the seat.
-            if (event.type === "session.renamed") await syncTitle();
+            if (event.type === "session.renamed") void syncTitle(true);
             const fact = seatFact(event, lastStep);
             if (fact) send(fact);
           } catch {
