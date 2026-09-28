@@ -163,6 +163,48 @@ class TransientHandover(unittest.TestCase):
         self.assertTrue(any("no other worker" in line for line in self.logs),
                         self.logs)
 
+    def test_transient_executor_waits_rather_than_handing_to_a_self_review(self):
+        # bravo is the only other worker: moving there would leave it reviewing
+        # itself, so the flake waits out the backoff on its own session instead
+        lp = self.loop(executor="alpha", reviewer="bravo", spares=[])
+        lp.state["workers"] = ["alpha", "bravo"]
+        calls, fake = self.worker([
+            (1, "API Error: 500 Internal server error\n", "sess-a"),
+            (1, "API Error: 503 Service unavailable\n", "sess-a"),
+            (0, "## Summary\nDone after the outage.\n", "sess-a"),
+        ])
+        sleeps = []
+        with patch.object(run.worker, "call", side_effect=fake), \
+                patch.object(run.time, "sleep", side_effect=sleeps.append), \
+                patch.object(run, "collect_usage", return_value=self.providers):
+            summary = run.execute(lp, "executor", "Do the thing.", "executor")
+        self.assertIn("Done after the outage.", summary)
+        self.assertEqual([args[1] for args in calls], ["alpha"] * 3)
+        self.assertEqual(sleeps, [60, 300])
+        self.assertEqual(lp.executor, "alpha")
+        history = lp.state.get("executor_history") or []
+        self.assertEqual([(entry["from"], entry["to"], entry["reason"]) for entry in history],
+                         [("alpha", "alpha", "dry (no other provider)")])
+
+    def test_transient_reviewer_waits_rather_than_falling_back_to_self_review(self):
+        # the executor is the only spare: falling back would review its own work,
+        # so the flake waits out the backoff on its own session instead
+        lp = self.loop(executor="charlie", reviewer="alpha", spares=["charlie"])
+        calls, fake = self.worker([
+            (1, "API Error: 500 Internal server error\n", "sess-r"),
+            (1, "Overloaded: the provider is busy\n", "sess-r"),
+            (0, "VERDICT: PASS\n\n## Findings\n- none\n", "sess-r"),
+        ])
+        sleeps = []
+        with patch.object(run.worker, "call", side_effect=fake), \
+                patch.object(run.time, "sleep", side_effect=sleeps.append), \
+                patch.object(run, "collect_usage", return_value=self.providers):
+            verdict = run.review(lp, "Work done.", True, "$ true\n[exit 0]")
+        self.assertEqual(verdict, "PASS")
+        self.assertEqual([args[1] for args in calls], ["alpha"] * 3)
+        self.assertEqual(sleeps, [60, 300])
+        self.assertEqual(lp.reviewer, "alpha")
+
 
 if __name__ == "__main__":
     unittest.main()

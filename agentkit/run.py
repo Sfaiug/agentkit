@@ -2624,7 +2624,8 @@ def note_handover(state, before, why, rnd, to=None, reason="dry"):
     state["exec_session"] = None
 
 
-def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, reviewers=None):
+def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, reviewers=None,
+                  allow_self=True):
     """(executor, reviewer) for work whose provider has run dry, or Exhausted when none is left.
 
     Both roles are re-picked by budget under the one-provider rule, so the cheapest legal
@@ -2636,7 +2637,9 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
     `dry` is every provider that has already refused this piece of work, not just the last one:
     a refusal the meters cannot see is still a refusal, and handing the work back to a provider
     that has just turned it down is how a handover becomes a circle.  `workers`, when given,
-    is the run's bound list: nothing outside it is ever picked.
+    is the run's bound list: nothing outside it is ever picked.  `allow_self` False keeps a
+    flaky provider's handover off a self-review pair: the flake usually answers after a wait,
+    so only a provider that cannot run the work settles for one.
     """
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     order = [n for n in ready_order(cfg, providers, workers, log, repo=repo, reviewers=reviewers)
@@ -2647,6 +2650,8 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
                     if config.model(cfg, n)["provider"] not in dry]
     for executor in order:
         candidates = reviewer_order(cfg, executor, review_order)
+        if not allow_self:
+            candidates = [n for n in candidates if not same_model(cfg, executor, n)]
         if candidates:
             return executor, candidates[0]
     raise QuotaDry(f"nothing is left to execute with a legal reviewer: "
@@ -2675,8 +2680,11 @@ def hand_executor(lp, why, detail, dry):
         pass
     try:
         providers = collect_usage(lp.cfg)
+        # Only "transient" may still answer where it is: a flake waits out the backoff
+        # unless another model can take the role with an independent review beside it.
         new, reviewer = next_executor(lp.cfg, providers, dry, lp.reviewer, lp.log,
-                                      lp.state.get("repo"), workers, reviewers)
+                                      lp.state.get("repo"), workers, reviewers,
+                                      allow_self=why != "transient")
     except (Exhausted, config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
         new = None
     rnd = started_round(lp.run_dir, lp.state)
@@ -3672,7 +3680,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     # The round is read off `dir`, which is what free_dir writes through.
     rd = lp.dir("reviewer").parent
     name = open_review(rd)[0] or "reviewer"
-    def fall_back(reason, out):
+    def fall_back(reason, out, allow_self=True):
         """The path a dry, twice-silent or twice-transient reviewer takes: next spare, else Exhausted."""
         # Recheck at the point of fallback, including spares from saved/legacy callers, and
         # against the meters as they read now: a spare whose own provider has run dry is none.
@@ -3687,6 +3695,11 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         exec_for_rule = own or lp.executor
         lp.spares = reviewer_order(lp.cfg, exec_for_rule,
                                   [n for n in order if n in lp.spares and n != lp.reviewer])
+        if not allow_self:
+            # A flake waits unless another model can review: only a reviewer that cannot
+            # come back settles for the executor's own model.
+            lp.spares = [n for n in lp.spares
+                         if not same_model(lp.cfg, exec_for_rule, n)]
         if not lp.spares:
             raise Exhausted(f"reviewer {lp.reviewer} {reason} and no eligible reviewer is left "
                             f"to review; waiting for review. See {out}*/stderr.log")
@@ -3720,7 +3733,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
 
         def handover(detail, out=out):
             try:
-                return fall_back(detail, out)
+                return fall_back(detail, out, allow_self=False)
             except Exhausted:
                 return None
         try:
