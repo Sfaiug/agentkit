@@ -36,6 +36,7 @@ class SeatFollowsClear(Sandbox):
         self.stack.enter_context(patch.object(watch, "announce_state"))
         self.stack.enter_context(patch.object(watch, "KEY_GAP", 0))
         self.typed = []
+        self.pane = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text()
         self.bound_pane = "%7"
         self.active_pane = "%7"
         self.server_up = True
@@ -88,11 +89,13 @@ class SeatFollowsClear(Sandbox):
         if args[0] == "rename-session":
             self.seat = dict(self.seat, name=args[-1])
         elif args[0] == "capture-pane":
-            return 0, (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text()
+            return 0, self.pane
         elif args[0] == "send-keys":
             if "-l" in args:
                 self.typed.append(args[-1])
+                self.pane = self.pane.replace("❯\u00a0\n", f"❯ {args[-1]}\n")
             elif args[-1] == "Enter":
+                self.pane = self.pane.replace(f"❯ {self.typed[-1]}\n", "❯\u00a0\n")
                 self.title(self.record()["conversation"], self.typed[-1].removeprefix("/rename "))
         return 0, ""
 

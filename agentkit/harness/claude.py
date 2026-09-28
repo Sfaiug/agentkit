@@ -4,7 +4,7 @@ An alternate login also needs the seat's trust and hooks in its own config direc
 """
 
 from pathlib import Path
-import hashlib
+import codecs
 import json
 import os
 import re
@@ -80,6 +80,12 @@ def session_title(record):
     """Read only this seat's conversation, under the login its launch selected."""
     from .. import config
 
+    # The old conversation notes had no seat to collect them.
+    for old in config.STATE.glob("claude-title-*.json"):
+        try:
+            old.unlink(missing_ok=True)
+        except OSError:
+            pass
     conversation, cwd = record.get("conversation"), record.get("cwd")
     if not conversation or not cwd:
         return None
@@ -90,22 +96,41 @@ def session_title(record):
         return None
     stamp = [found.st_dev, found.st_ino, found.st_size, found.st_mtime_ns, found.st_ctime_ns]
     # Cron starts a fresh process each tick, so the last reading lives on disk.
-    cache = config.STATE / f"claude-title-{hashlib.sha256(str(path).encode()).hexdigest()}.json"
+    name = next((name for name, seat in config.session_records().items()
+                 if all(seat.get(key) == record.get(key)
+                        for key in ("cwd", "conversation", "account"))), None)
+    cache = config.STATE / f"title-{name}.json" if name else None
     try:
-        cached = json.loads(cache.read_text(encoding="utf-8"))
+        cached = json.loads(cache.read_text(encoding="utf-8")) if cache else None
     except (OSError, ValueError):
         cached = None
-    # Older caches did not distinguish a readable transcript without a title from a bad read.
-    if (isinstance(cached, dict) and cached.get("stamp") == stamp
+    title, offset, readable = None, 0, True
+    # An older note cannot tell an absent title from a failed read.
+    if (isinstance(cached, dict) and cached.get("path") == str(path)
             and isinstance(cached.get("readable"), bool)):
-        if not cached["readable"]:
-            return None
-        title = cached.get("title")
-        return title if isinstance(title, str) and title.strip() else ""
-    title = None
+        before, stop = cached.get("stamp"), cached.get("offset")
+        if (isinstance(before, list) and len(before) == len(stamp)
+                and isinstance(before[2], int) and isinstance(stop, int)
+                and 0 <= stop <= before[2]):
+            if before == stamp:
+                if not cached["readable"]:
+                    return None
+                title = cached.get("title")
+                return title if isinstance(title, str) and title.strip() else ""
+            if before[:2] == stamp[:2] and before[2] < stamp[2]:
+                title, offset, readable = cached.get("title"), stop, cached["readable"]
     try:
-        with path.open(encoding="utf-8") as transcript:
-            for line in transcript:
+        with path.open("rb") as transcript:
+            transcript.seek(offset)
+            # A pending line may split UTF-8; keep its byte offset until the newline arrives.
+            while offset < found.st_size:
+                line = transcript.readline(found.st_size - offset)
+                if not line.endswith(b"\n"):
+                    # A split codepoint can finish later; corrupt bytes still mean unreadable.
+                    codecs.utf_8_decode(line, "strict", False)
+                    break
+                offset = transcript.tell()
+                line = line.decode("utf-8")
                 if '"custom-title"' not in line:
                     continue
                 try:
@@ -118,11 +143,12 @@ def session_title(record):
     except OSError:
         return None
     except UnicodeError:
-        title = None
-    else:
-        title = title if isinstance(title, str) and title.strip() else ""
+        readable = False
+    title = (title if isinstance(title, str) and title.strip() else "") if readable else None
     try:
-        _write(cache, {"stamp": stamp, "title": title, "readable": title is not None})
+        if cache:
+            _write(cache, {"path": str(path), "stamp": stamp, "offset": offset,
+                           "title": title, "readable": readable})
     except OSError:
         pass        # a cache that cannot be written must not hide the title
     return title
