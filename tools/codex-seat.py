@@ -264,10 +264,14 @@ def pairing(client, home, status):
 
 
 def remove_home(home):
+    # A failed DELETE raises before the rmtree: the home stays with its receipt
+    # and .forgotten marker, and the next forget retries it.
     for environment, entry in enrollments(home).items():
         remote_request(entry["auth"], environment, "DELETE")
         close_pairing(environment, "Closed")
     shutil.rmtree(home, ignore_errors=True)
+    home.with_suffix(".forgotten").unlink(missing_ok=True)
+    home.with_suffix(".lock").unlink(missing_ok=True)
 
 
 def forget(home):
@@ -385,7 +389,10 @@ def connected(cmd, home, alive):
         (home / "connection.json").unlink(missing_ok=True)
         (home / "agentkit-enrollments.json").write_text(json.dumps(enrollments(home)))
         if home.with_suffix(".forgotten").exists():
-            remove_home(home)
+            try:
+                remove_home(home)
+            except (OSError, ValueError, config.Error) as exc:
+                print(f"Codex remote cleanup deferred: {exc}", file=sys.stderr)
 
 
 def launch(cmd, receipt):

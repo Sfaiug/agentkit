@@ -317,6 +317,8 @@ if 'kill-session' in sys.argv:
             codex.forget(config.session_records()['acme-seat'])
             proc.wait(timeout=10)
             self.wait_for(lambda: not home.exists())
+            self.assertFalse(home.with_suffix('.forgotten').exists())
+            self.assertFalse(home.with_suffix('.lock').exists())
         with self.assertRaises(ProcessLookupError):
             os.kill(server, 0)
         self.assertFalse(receipt.exists())
@@ -333,8 +335,46 @@ if 'kill-session' in sys.argv:
         self.stop(proc, home)
         codex.forget(config.session_records()['acme-seat'])
         self.assertFalse(home.exists())
+        self.assertFalse(home.with_suffix('.forgotten').exists())
+        self.assertFalse(home.with_suffix('.lock').exists())
         calls = [json.loads(s) for s in (self.root / 'remote-http.jsonl').read_text().splitlines()]
         self.assertEqual([c['method'] for c in calls], ['PATCH', 'DELETE'])
+
+    def test_forget_offline_still_forgets_and_retries_enrollment_later(self):
+        proc, home, _ = self.start()
+        self.wait_for(lambda: (home / 'fake-monitor-closed').exists())
+        self.stop(proc, home)
+        record = config.session_records()['acme-seat']
+        with patch.dict(os.environ, {'FAKE_HTTP_OFFLINE': '1'}):
+            codex.forget(record)
+        self.assertFalse(codex.path_for(record).exists())
+        self.assertTrue(home.exists())
+        self.assertTrue(home.with_suffix('.forgotten').exists())
+        self.assertTrue((home / 'agentkit-enrollments.json').exists())
+        calls = [json.loads(s) for s in (self.root / 'remote-http.jsonl').read_text().splitlines()]
+        self.assertEqual([c['method'] for c in calls], ['PATCH'])
+        codex.forget(record)
+        self.assertFalse(home.exists())
+        self.assertFalse(home.with_suffix('.forgotten').exists())
+        self.assertFalse(home.with_suffix('.lock').exists())
+        calls = [json.loads(s) for s in (self.root / 'remote-http.jsonl').read_text().splitlines()]
+        self.assertEqual([c['method'] for c in calls], ['PATCH', 'DELETE'])
+
+    def test_forget_retries_after_persistent_delete_conflict(self):
+        proc, home, _ = self.start()
+        self.wait_for(lambda: (home / 'fake-monitor-closed').exists())
+        self.stop(proc, home)
+        record = config.session_records()['acme-seat']
+        with patch.dict(os.environ, {'FAKE_DELETE_BUSY_ALWAYS': '1'}):
+            codex.forget(record)
+        self.assertFalse(codex.path_for(record).exists())
+        self.assertTrue(home.exists())
+        calls = [json.loads(s) for s in (self.root / 'remote-http.jsonl').read_text().splitlines()]
+        self.assertEqual([c['method'] for c in calls], ['PATCH'] + ['DELETE'] * 6)
+        codex.forget(record)
+        self.assertFalse(home.exists())
+        calls = [json.loads(s) for s in (self.root / 'remote-http.jsonl').read_text().splitlines()]
+        self.assertEqual([c['method'] for c in calls], ['PATCH'] + ['DELETE'] * 7)
 
     def test_forget_recovers_enrollment_if_pane_exited_before_monitor(self):
         with patch.dict(os.environ, {'FAKE_HOLD': ''}):

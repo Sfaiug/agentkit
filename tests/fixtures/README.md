@@ -627,15 +627,24 @@ Two servers under the same `ak-probe-acme` hostname obtained distinct enrollment
 the first stayed connected while the second was still connecting at 30 seconds.
 Both were stopped and their enrollments deleted (204).
 
-All probe processes and credential copies were removed. One early probe's DELETE
-returned 409 before it went offline; its temporary id receipt had already been
-removed. Subsequent account listings were empty, so that one deletion is
-unconfirmed. Later probes retained ids until DELETE succeeded. No phone was paired.
+One early probe's DELETE returned 409 before it went offline; its temporary id
+receipt had already been removed. Subsequent account listings were empty, so that
+one deletion is unconfirmed. Later probes retained ids until DELETE succeeded.
+An `ak-probe-delete` probe then exercised deletion through the production helper
+after an unpaired enrollment connected, but stopped before its own cleanup. A
+follow-up DELETE removed that enrollment (204) and a GET confirmed it gone (404).
+No phone was paired and no owner notification was sent.
+
+All probe processes, enrollments, credential copies and scratch homes were
+removed afterwards; no probe home or server remains. Paths, UUIDs, enrollment
+ids and pairing codes are replaced whole with invented values.
 
 `codex-remote-http-fake.py` is a synthetic `sitecustomize` used only by the isolated
 test subprocesses. It records enrollment names and deletions and rejects deletion
-while its fake server is alive. The fake Codex now persists installation and
+while its fake server is alive, and can fail every request as offline or every
+DELETE with 409. The fake Codex now persists installation and
 SQLite enrollment identities. The regression tests cover preparation before pane
 replacement, delayed cleanup, account changes, pairing independent of turn cards,
-monitor disconnects, SIGKILL, legacy fallback and enrollment removal. Test homes
+monitor disconnects, SIGKILL, legacy fallback, enrollment removal, and forget
+while offline or under persistent 409 with a later retry. Test homes
 and sockets live in temporary directories outside the checkout.

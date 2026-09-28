@@ -115,10 +115,28 @@ def conversation(record, cwd=None):
 
 
 def forget(record):
+    """Local cleanup always completes; a failed enrollment DELETE is retried later.
+
+    A seat whose pane already exited deletes its enrollment inline, but chatgpt.com
+    may be unreachable or still see the server as online (HTTP 409). Either way the
+    home stays behind with its .forgotten marker and deletion receipt, and every
+    forget retries all such homes, so `ak stop` never fails on a network error and
+    enrollments cannot pile up silently.
+    """
+    homes = []
     remote = read(record).get("remote")
     if isinstance(remote, str) and re.fullmatch(r"[0-9a-f]{32}", remote):
-        subprocess.run([sys.executable, str(config.REPO / "tools/codex-seat.py"),
-                        "--forget", str(config.STATE / f"codex-remote-{remote}")], check=True)
+        homes.append(config.STATE / f"codex-remote-{remote}")
+    for marker in sorted(config.STATE.glob("codex-remote-*.forgotten")):
+        if (home := marker.with_suffix("")) not in homes:
+            homes.append(home)
+    for home in homes:
+        try:
+            subprocess.run([sys.executable, str(config.REPO / "tools/codex-seat.py"),
+                            "--forget", str(home)], check=True)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            print(f"orch: Codex remote cleanup for {home.name} failed ({exc}); "
+                  "its enrollment stays until the next forget", file=sys.stderr)
     path = path_for(record)
     if path:
         path.unlink(missing_ok=True)
