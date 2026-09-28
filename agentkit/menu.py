@@ -44,8 +44,9 @@ opening the menu, like drawing it, calls git for nothing at all.  A usage row is
 *shared* weekly meter -- the one every model of it draws on: a bar and `NN% left`, then
 `resets <weekday> <HH:MM>` in local time, then `Fable 41%` for a scoped cap that reads
 differently, then `? <reason>` when the last probe errored though the meter it read still
-stands, or `rate limited` / `unavailable` when the endpoint would not answer it at all and this
-reading stood in.  No row says how old its reading is: the readings are kept current instead.
+stands, or `as of HH:MM` when that reading is older than half an hour, with the weekday when
+it is not from today.  A probe the endpoint would not answer says nothing at all: its reading
+stands as it was, and past half an hour its age says the rest.
 The bar's filled cells are the company's own colour (`COLOURS`, or the provider's `colour` key),
 and the rows run red through violet by that colour's hue, the near-greys last.  `—` is drawn
 only when there is no shared week to draw -- no reading at all, or nothing but one model's
@@ -1575,8 +1576,8 @@ def unread(prov, weekly, readable, now):
 
     `no login` is said here and nowhere else, and only on the harness's own `auth` verb saying
     no: the seat's credentials are absent or expired, and the remedy is to log in.  A probe the
-    endpoint refused says `rate limited` or `unavailable` instead, because the credentials it
-    went out with were never the question.
+    endpoint refused says nothing anywhere: its reading stands on the row where there is one,
+    and where there is none the words below say that instead.
     """
     if readable:
         return "no shared week"
@@ -1588,8 +1589,6 @@ def unread(prov, weekly, readable, now):
         return "bad reading"
     if prov.get("logged_in") is False:
         return "no login"
-    if refusal(prov):
-        return refusal(prov)
     error = str(prov.get("error") or "")
     for pattern, words in UNREAD:
         if pattern.search(error):
@@ -1638,22 +1637,11 @@ def fault(prov):
     return ("? " + reason).strip() if prov.get("error") else ""
 
 
-def refusal(prov):
-    """`rate limited` or `unavailable`: the last probe was refused and this reading stood in.
-
-    Two dim words beside the reading, never a `?` and never `no login`: a 429 from a usage
-    endpoint, or one briefly unreachable, is not a word about the credentials it was asked
-    with.  The reading itself is the one that was really taken, which is why the row keeps its
-    bar.
-    """
-    return usage.probe_refused(prov.get("probe_error")) or ""
-
-
 def fitting(notes, room):
     """Which of these notes fit in `room` cells, drawn in the order the row reads them.
 
     A note too long for the room gives way on its own, and the ones after it are not thrown
-    out with it: `rate limited` beside a four-cell bar is worth having on a phone even where
+    out with it: `as of 14:02` beside a four-cell bar is worth having on a phone even where
     `resets Fri 14:00` will never fit.  Each note carries how much it is worth keeping when
     only some can be -- when the week is back, then why the reading may be wrong, then the
     scoped cap -- and they are offered in that order and drawn in the row's.  The bar has
@@ -1704,9 +1692,9 @@ def usage_lines(cfg, width):
     `resets <weekday> <HH:MM>` from that meter, or `resets <day> <month>` more than six days
     out in a window longer than a week; one note per scoped meter whose figure differs
     (`Fable 41%`); `? <reason>` when the last probe errored although the meter it read still
-    stands, or `rate limited` / `unavailable` when the endpoint refused to answer the last probe
-    at all and this reading is the one it could not replace.  Nothing says how old a reading is:
-    the probe cadence keeps them current, and a refused probe says so in its own words.  The
+    stands, or `as of HH:MM` when the reading is older than half an hour, with the weekday
+    when it is not from today.  A probe the endpoint refused to answer says nothing at all:
+    the reading it could not replace stands as it was, and its age says the rest.  The
     filled cells are the provider's `colour`, the empty ones dim, and the rows run by that
     colour's `hue`.  `ak usage` keeps the rest -- week elapsed, session, the resets in hand,
     headroom, budget, outlook -- and the picker keeps ranking on the tightest meter: only
@@ -1757,7 +1745,7 @@ def usage_lines(cfg, width):
         notes = [(rank, part) for rank, part in
                  [(0, resets_note(week, now)),
                   *((2, note) for note in scoped_notes(cfg, name, readable, week)),
-                  (1, fault(prov) or refusal(prov))] if part]
+                  (1, fault(prov) or usage.as_of(prov, now))] if part]
         percent = f"{shown:3d}% left"
         base = terminal.cells(prefix) + len(percent) + 2   # all but the bar and the notes
         parts = fitting(notes, width - base - floor - 3)   # what the bar gives way to
