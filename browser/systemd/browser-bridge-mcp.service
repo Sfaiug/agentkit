@@ -12,7 +12,7 @@ Environment="HOME=@HOME@"
 Environment=DISPLAY=:99
 Environment="XAUTHORITY=@TARGET@/Xauthority"
 UMask=0077
-ExecStart=/usr/bin/node "@TARGET@/mcp/node_modules/@playwright/mcp/cli.js" --cdp-endpoint http://127.0.0.1:9222 --host 127.0.0.1 --port 8931 --shared-browser-context
+ExecStart="@NODE@" "@TARGET@/mcp/node_modules/@playwright/mcp/cli.js" --cdp-endpoint http://127.0.0.1:9222 --host 127.0.0.1 --port 8931 --shared-browser-context
 Restart=always
 RestartSec=3
 

@@ -10,6 +10,8 @@ systemctl and subprocess are injected fakes, HOME is a temporary directory.
 """
 import io
 import json
+import os
+import pwd
 import sys
 import tomllib
 import unittest
@@ -42,7 +44,7 @@ class OneServer(unittest.TestCase):
                                               self.home / ".local/share/browser-bridge"))
         self.stack.enter_context(patch.object(browser, "UNIT_DIR", self.home / "units"))
         self.commands, self.systemd = [], []
-        self.active = False
+        self.active, self.enabled, self.cat_overrides = False, False, {}
         self.stack.enter_context(patch.object(browser.subprocess, "run",
                                               side_effect=self.fake_run))
         self.stack.enter_context(patch.object(browser, "systemctl",
@@ -72,6 +74,11 @@ class OneServer(unittest.TestCase):
         self.systemd.append((list(args), sudo))
         if args[0] == "is-active":
             return (0, "active\n") if self.active else (3, "inactive\n")
+        if args[0] == "is-enabled":
+            return (0, "enabled\n") if self.enabled else (1, "disabled\n")
+        if args[0] == "cat":
+            return (0, self.cat_overrides[args[-1]]) if args[-1] in self.cat_overrides \
+                else (1, "")
         return 0, ""
 
     def test_url_harnesses_register_the_shared_server(self):
@@ -133,16 +140,87 @@ class OneServer(unittest.TestCase):
         self.assertIn("--cdp-endpoint http://127.0.0.1:9222", installed)
         self.assertNotIn("--isolated", installed)
         self.assertNotRegex(installed, r"@[A-Z0-9_]+@")
-        # Once it is up, the same call changes nothing: no npm, no install, no restart.
-        self.active = True
+        self.assertIn('"/fake/bin/node"', installed)
+        self.assertNotIn("/usr/bin/node", installed)
+        # Once it is up, the same call changes nothing: no npm, no install, no enable,
+        # no restart.  Only the read-only checks run.
+        self.active, self.enabled = True, True
         self.commands.clear()
         self.systemd.clear()
         self.assertEqual(browser.ensure_mcp_service(), "already active")
         self.assertEqual(self.commands, [])
         verbs = [args[0] for args, _ in self.systemd]
-        self.assertNotIn("start", verbs)
-        self.assertNotIn("restart", verbs)
-        self.assertNotIn("daemon-reload", verbs)
+        for verb in ("start", "restart", "enable", "daemon-reload"):
+            self.assertNotIn(verb, verbs)
+
+    def test_foreign_stack_is_left_untouched(self):
+        me = pwd.getpwuid(os.getuid()).pw_name
+        units = self.home / "units"
+        units.mkdir(exist_ok=True)
+        (units / browser.UNITS[0]).write_text("[Service]\nUser=foreign-owner\n")
+        self.assertIn("another account", browser.ensure_mcp_service())
+        self.assertEqual(self.commands, [])
+        verbs = [args[0] for args, _ in self.systemd]
+        self.assertNotIn("enable", verbs)
+        self.assertFalse((units / browser.MCP_UNIT).exists())
+        self.assertFalse(browser.mcp_dir().exists())
+        (units / browser.UNITS[0]).write_text(
+            f"[Service]\nUser={me}\n# Browser bridge host: another-host\n")
+        self.commands.clear()
+        self.systemd.clear()
+        self.assertIn("another host", browser.ensure_mcp_service())
+        self.assertEqual(self.commands, [])
+        # A drop-in override of User wins over the base file, as in the installer.
+        self.cat_overrides[browser.UNITS[0]] = (
+            f"# {units / browser.UNITS[0]}\n[Service]\nUser={me}\n"
+            "# /etc/systemd/system/owner.conf\n[Service]\nUser=foreign-owner\n")
+        self.commands.clear()
+        self.systemd.clear()
+        self.assertIn("another account", browser.ensure_mcp_service())
+        self.assertEqual(self.commands, [])
+
+    def test_sandbox_home_installs_nothing(self):
+        with patch.object(browser.Path, "home", return_value=self.home / "elsewhere"):
+            self.assertIn("sandbox HOME", browser.ensure_mcp_service())
+        self.assertEqual(self.commands, [])
+        self.assertEqual(self.systemd, [])
+        self.assertFalse(browser.mcp_dir().exists())
+
+    def test_missing_node_fails_before_mutations(self):
+        with patch.object(browser.shutil, "which",
+                          side_effect=lambda name: None if name == "node"
+                          else f"/fake/bin/{name}"):
+            with self.assertRaisesRegex(browser.config.Error, "node is not installed"):
+                browser.render_mcp_unit()
+        self.assertEqual(self.commands, [])
+
+    def test_status_reports_the_shared_server(self):
+        states = {unit: "active (running)" for unit in browser.UNITS}
+        with patch.object(browser, "unit_states", return_value=states), \
+                patch.object(browser, "mcp_active", return_value=True), \
+                patch.object(browser, "cdp", return_value={"Browser": "Test"}), \
+                patch.object(browser, "tabs", return_value=[]), \
+                patch.object(browser, "desktop_tools", return_value=("x", "y")), \
+                patch.object(browser, "novnc_url", return_value="http://x/"), \
+                patch.object(browser, "tab_records_path",
+                             return_value=self.home / "no-tabs.json"):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(browser.status([]), 0)
+            self.assertIn(f"{browser.MCP_URL} active", output.getvalue())
+            with patch.object(browser, "mcp_active", return_value=False):
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    self.assertEqual(browser.status([]), 1)
+                self.assertIn("not active", output.getvalue())
+        with patch.object(browser, "unit_states", return_value=None), \
+                patch.object(browser, "cdp", side_effect=OSError("away")), \
+                patch.object(browser, "desktop_tools", return_value=(None, None)), \
+                patch.object(browser, "novnc_url", return_value=None):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(browser.status([]), 0)
+            self.assertIn("mcp", output.getvalue())
 
     def test_no_latest_fetch_remains(self):
         sources = [REPO / "agentkit" / "browser.py", REPO / "browser" / "bootstrap.py",
@@ -153,6 +231,9 @@ class OneServer(unittest.TestCase):
         self.assertNotIn("npx", browser.codex_block())
         command, args = browser.servers()["browser"]
         self.assertNotIn("npx", command + "".join(args))
+        template = (REPO / "browser" / "systemd" / browser.MCP_UNIT).read_text()
+        self.assertIn("@NODE@", template)
+        self.assertNotIn("/usr/bin/node", template)
 
 
 if __name__ == "__main__":

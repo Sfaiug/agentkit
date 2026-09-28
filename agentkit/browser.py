@@ -416,6 +416,7 @@ def status(argv):
     healthy, states = True, unit_states()
     if states is None:
         say("units      no systemd on this machine; the stack lives on the server")
+        say("mcp        no systemd on this machine; the shared server lives on the server")
     else:
         for unit, state in states.items():
             say(f"  {unit:<32} {state}")
@@ -423,6 +424,12 @@ def status(argv):
             say("units      none installed here; `ak browser install` puts them in")
         elif any(not state.startswith("active") for state in states.values()):
             healthy = False
+        if mcp_active():
+            say(f"mcp        {MCP_URL} active ({MCP_UNIT})")
+        else:
+            say(f"mcp        {MCP_URL} not active; `ak browser install` sets it up")
+            if any(state != "absent" for state in states.values()):
+                healthy = False
     try:
         version = cdp("/json/version")
         open_tabs = tabs()
@@ -783,14 +790,23 @@ def ensure_mcp_package():
 
 
 def render_mcp_unit():
-    """The shared server's unit, rendered from the payload template for this account."""
+    """The shared server's unit, rendered from the payload template for this account.
+
+    The node executable is the one on PATH here, validated now: the unit would otherwise
+    name a /usr/bin/node a machine with its node elsewhere does not have, and the server
+    it just installed would never start.
+    """
     try:
         template = (PAYLOAD / "systemd" / MCP_UNIT).read_text(encoding="utf-8")
     except OSError as exc:
         raise config.Error(f"cannot read the {MCP_UNIT} template: {exc}") from None
+    node = shutil.which("node")
+    if node is None:
+        raise config.Error("node is not installed here, so the browser MCP server cannot run; "
+                           "install node first")
     account = pwd.getpwuid(os.getuid())
     values = {"USER": account.pw_name, "HOME": account.pw_dir,
-              "TARGET": str(BRIDGE), "HOST": socket.gethostname()}
+              "TARGET": str(BRIDGE), "HOST": socket.gethostname(), "NODE": node}
     for key, value in values.items():
         if any(ord(char) < 32 or ord(char) == 127 for char in value):
             raise config.Error(f"{key}: control characters cannot be used in a systemd unit")
@@ -823,15 +839,55 @@ def sudo_run(cmd, what):
     return proc
 
 
+def installed_owner(unit):
+    """(present, user, host) for an installed unit, drop-ins included.
+
+    Read through `systemctl cat`, like the stack's own installer, so a drop-in override of
+    User is not missed; the plain file is the fallback.  Absent units report no owner.
+    """
+    code, out = systemctl(["cat", "--no-pager", unit])
+    if code == 0 and out.strip():
+        text = out
+    else:
+        try:
+            text = (UNIT_DIR / unit).read_text(encoding="utf-8")
+        except OSError:
+            return False, None, None
+    user, host = None, None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("User="):
+            user = stripped.split("=", 1)[1].strip().strip('"')
+        if host is None:
+            match = re.match(r"# Browser bridge host: (.+)$", stripped)
+            if match:
+                host = match[1]
+    return True, user, host
+
+
 def ensure_mcp_service():
     """Set the shared server up once: pinned package, unit, enabled and active.
 
     Idempotent: when the pinned version is installed, the unit on disk matches the template
     and the unit is active, nothing runs but the read-only checks.  Never restarts a running
-    server it did not change, so seats keep their tabs.
+    server it did not change, so seats keep their tabs.  Under a sandbox HOME, or beside a
+    stack that belongs to another account or host, nothing is installed or restarted at all:
+    the machine-wide unit must not point into a throwaway HOME or onto a foreign browser.
     """
     if shutil.which("systemctl") is None:
         return "no systemd on this machine; nothing to set up"
+    account = pwd.getpwuid(os.getuid())
+    if Path.home().resolve() != Path(account.pw_dir).resolve():
+        return "sandbox HOME cannot install system units"
+    here = socket.gethostname()
+    for unit in (*UNITS, MCP_UNIT):
+        present, user, host = installed_owner(unit)
+        if not present:
+            continue
+        if user != account.pw_name:
+            return f"{unit} belongs to another account, left untouched"
+        if host is not None and host != here:
+            return f"{unit} belongs to another host, left untouched"
     package = ensure_mcp_package()
     rendered = render_mcp_unit()
     try:
@@ -852,9 +908,11 @@ def ensure_mcp_service():
         code, _ = systemctl(["daemon-reload"], sudo=True)
         if code != 0:
             raise config.Error(f"systemctl daemon-reload exited {code}")
-    code, _ = systemctl(["enable", MCP_UNIT], sudo=True)
-    if code != 0:
-        raise config.Error(f"systemctl enable {MCP_UNIT} exited {code}")
+    code, out = systemctl(["is-enabled", MCP_UNIT])
+    if not (code == 0 and out.strip() == "enabled"):
+        code, _ = systemctl(["enable", MCP_UNIT], sudo=True)
+        if code != 0:
+            raise config.Error(f"systemctl enable {MCP_UNIT} exited {code}")
     if mcp_active():
         if changed or package == "installed":
             code, _ = systemctl(["restart", MCP_UNIT], sudo=True)
@@ -869,11 +927,12 @@ def ensure_mcp_service():
 
 
 def install(argv):
-    """Stand the stack up where there is none; on the machine that has it, verify and stop.
+    """Stand the stack up where there is none; on the machine that has it, verify it.
 
     The stack's own installer restarts all five units at the end, which is exactly what must
     not happen to a Chromium holding live sessions.  So it is run only when the units are not
-    there at all, and the machine that already has them gets the package check and nothing more.
+    there at all, and the machine that already has them gets the package check, then the
+    shared browser tool: a pinned install and one unit, set up once and never per session.
     """
     if argv:
         raise config.Error(f"ak browser install takes no arguments; got {' '.join(argv)}")

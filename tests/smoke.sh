@@ -4727,15 +4727,17 @@ fi
 # --- 31: the shared browser and the desktop ---------------------------------
 # 31a-c are offline and run on every machine. 31d and 31e make real model calls through the
 # MCP servers `ak browser mcp-register` wrote, so they only run where the shared Chromium is
-# actually listening on 9222 -- the server. On a Mac they are skipped, not failed.
+# actually listening on 9222 and its shared MCP server on 8931 -- the server, after
+# `ak browser install`. On a Mac, or where the shared server is not up, they skip, not fail.
 BST=0
 ak browser status >"$WORK/browser-status.txt" 2>&1 || BST=$?
 BSO=$(cat "$WORK/browser-status.txt")
 if [ "$BST" = 0 ] &&
    printf '%s' "$BSO" | grep -q '^cdp  *http://127\.0\.0\.1:9222' &&
    printf '%s' "$BSO" | grep -q '^desktop  *DISPLAY=:99' &&
+   printf '%s' "$BSO" | grep -q '^mcp ' &&
    printf '%s' "$BSO" | grep -q '^novnc '; then
-  ok "31a ak browser status: units, cdp, desktop and the noVNC URL, exit 0"
+  ok "31a ak browser status: units, cdp, desktop, the shared server and the noVNC URL, exit 0"
 else
   no "31a ak browser status exited $BST"
   sed 's/^/      /' "$WORK/browser-status.txt" | head -8
@@ -4824,17 +4826,18 @@ else
   no "31c tools/desktop-mcp.py over stdio: $(head -c 200 "$WORK/desktop-err.log")"
 fi
 
-# 31d/31e: real calls, only where the shared browser is up.
+# 31d/31e: real calls, only where the shared browser and its MCP server are up. The suite
+# never installs the machine-wide service itself: under its sandbox HOME that would render a
+# unit pointing into the sandbox, restart the real service onto it, and break it on cleanup.
 if python3 -c "
-import sys, urllib.request
+import socket, urllib.request
 try:
     urllib.request.urlopen('http://127.0.0.1:9222/json/version', timeout=3).read()
+    socket.create_connection(('127.0.0.1', 8931), timeout=3).close()
 except Exception:
     sys.exit(1)
 " 2>/dev/null; then
   # Codex's config is private to this suite, so give it the same MCP servers locally.
-  # The shared browser server first: the URL registration below needs it listening.
-  checked "$WORK/mcp-install.log" ak browser install || no "31d/31e MCP shared server"
   checked "$WORK/mcp-register.log" ak browser mcp-register || no "31d/31e MCP registration"
   if skip_spent 31d opus; then
     :
