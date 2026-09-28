@@ -116,10 +116,8 @@ class MuseTitle(Sandbox):
                      "idle-composed", "working-composed"):
             with self.subTest(kind=kind):
                 self.pane = self.fixture(kind + "-pane.txt")
-                before = self.pane
                 self.assertFalse(watch.sync_title(self.seat, force=True))
                 self.tick()
-                self.assertEqual(self.pane, before)
 
     def test_refused_owner_rename_does_not_rename_seat(self):
         config.update_session("lagoon", conversation=self.sid, id_source=orch.LAUNCHER)

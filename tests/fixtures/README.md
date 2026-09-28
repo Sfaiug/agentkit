@@ -497,3 +497,8 @@ an ak seat; these are not successful-rename or automatic-title captures.
 This replaces the earlier prompt-free idle/busy captures: those proved nothing
 about naming after a real turn. All throwaway sessions, homes and tmux servers were
 removed. Muse title hooks remain absent: no successful rename contract was observed.
+The throwaway HOME is not why renames are refused: the caller's real index
+also reads `session_name_snapshot_fingerprint = unavailable`, with no named
+sessions. The `muse start --host … --name` string in the binary is an MSP
+session-host coordinator command from an embedded skill doc, not a TUI launch
+option: the installed TUI lists no `start` subcommand and rejects `--name`.
