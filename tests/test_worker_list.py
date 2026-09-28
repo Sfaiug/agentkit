@@ -228,9 +228,9 @@ class WorkerList(unittest.TestCase):
         self.assertEqual([line for line in self.logs if line.startswith("skipped")],
                          ["skipped delta: codex is not logged in"])
 
-    def test_a_launch_its_skipped_harnesses_leave_without_a_pair_is_refused(self):
-        # beta's harness is logged out, so alpha is alone and may not review itself: the
-        # launch says so in one sentence and ends, rather than parking for a window
+    def test_a_launch_its_skipped_harnesses_leave_with_nobody_is_refused(self):
+        # every harness is logged out, so no worker can run: the launch says so in one
+        # sentence and ends, rather than parking for a window
         run_dir = self.root / "refused"
         run_dir.mkdir()
         (run_dir / "task.md").write_text(
@@ -239,12 +239,12 @@ class WorkerList(unittest.TestCase):
         run.save_state(run_dir, {"run_id": run_dir.name, "workers": ["alpha", "beta"]})
         self.cfg["models"]["beta"]["harness"] = "codex"
         self.why["codex"] = "codex is not logged in"
+        self.why["claude"] = "claude is not logged in"
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
-        refusal = ("workers alpha, beta and reviewers alpha, beta "
-                   "make no allowed executor and reviewer pair "
-                   "(beta: codex is not logged in); log in to another harness or add "
-                   "another model to the groups")
+        refusal = ("none of the workers alpha, beta and reviewers alpha, beta can run here "
+                   "(alpha: claude is not logged in; beta: codex is not logged in); "
+                   "log in to another harness or add another model to the groups")
         with patch.object(run.worker, "call", side_effect=AssertionError("no turn")), \
                 self.refused(usage.Readings(self.providers())), \
                 patch.object(notify, "shaped", return_value=0), \
@@ -257,15 +257,16 @@ class WorkerList(unittest.TestCase):
         self.assertNotIn("quota_dry", saved)
         self.assertIn("skipped beta: codex is not logged in", (run_dir / "log.txt").read_text())
 
-    def test_a_background_launch_with_no_allowed_pair_is_refused_before_its_child(self):
-        # every harness but alpha's is logged out: the parent says so in one sentence and
-        # ends the run it prepared, and no background child is ever started
+    def test_a_background_launch_with_no_runnable_worker_is_refused_before_its_child(self):
+        # every harness is logged out: the parent says so in one sentence and ends the
+        # run it prepared, and no background child is ever started
         task = self.root / "bg.md"
         task.write_text("---\nrepo: none\nrounds: 1\n---\n# Background fixture\n\n"
                         "## Done when\n```bash\ntrue\n```\n")
         for name in ("beta", "gamma", "delta"):
             self.cfg["models"][name]["harness"] = "codex"
         self.why["codex"] = "codex is not logged in"
+        self.why["claude"] = "claude is not logged in"
         with patch.object(config, "load", return_value=self.cfg), \
                 patch.object(usage, "collect", return_value=usage.Readings(self.providers())), \
                 patch.object(run, "spawn_bg", side_effect=AssertionError("child started")), \
@@ -274,8 +275,8 @@ class WorkerList(unittest.TestCase):
             with self.assertRaises(config.Error) as refused:
                 run.main([str(task), "--bg"])
         self.assertTrue(str(refused.exception).startswith(
-            "workers alpha, beta, gamma, delta and reviewers alpha, beta, gamma, delta "
-            "make no allowed executor and reviewer pair (beta: codex is not logged in;"),
+            "none of the workers alpha, beta, gamma, delta and reviewers alpha, beta, gamma, delta "
+            "can run here (alpha: claude is not logged in; beta: codex is not logged in;"),
             refused.exception)
         (run_dir,) = run.run_dirs()
         saved = run.read_state(run_dir)
