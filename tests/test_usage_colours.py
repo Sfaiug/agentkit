@@ -42,7 +42,7 @@ class UsageColours(Sandbox):
 
     def test_no_row_heading_or_note_says_how_old_its_reading_is(self):
         # Hours old, from before anybody dated a reading, and refused on the last probe: the
-        # rows are the same rows, the refusal says so in its own words, and nothing says `old`.
+        # rows are the same rows, the old reading says when it was taken, and nothing says `old`.
         providers = {name: {"meters": [self.meter(50)], "fetched_at": 10000 - 7200,
                             "probed_at": 10000 - 7200} for name in SIX}
         providers["meta"] = {"meters": [self.meter(50)], "fetched_at": None}
@@ -55,13 +55,13 @@ class UsageColours(Sandbox):
                 self.assertEqual(lines[0], "  usage left")
                 self.assertNotRegex("\n".join(lines), r"\bold\b|age unknown", lines)
                 self.assertTrue(all(terminal.cells(line) <= width for line in lines), lines)
-            self.assertRegex(self.rows()[0], r"50% left · resets \w+ \d\d:\d\d · rate limited$")
+            self.assertRegex(self.rows()[0], r"50% left · resets \w+ \d\d:\d\d · as of (\w+ )?\d\d:\d\d$")
         with patch.object(terminal, "width", return_value=170), \
                 patch.object(usage, "review_pair", return_value=None):
             read = {name: {**prov, "meters": [{**self.meter(50), "elapsed": 50, "pace": 0}]}
                     for name, prov in providers.items()}
             rendered = usage.render(self.cfg, usage._gate_flags(read, 10000, self.cfg), [])
-        self.assertIn("note: anthropic rate limited: HTTP 429 from api.anthropic.com", rendered)
+        self.assertRegex(rendered, r"note: anthropic as of (\w+ )?\d\d:\d\d")
         self.assertNotRegex(rendered, r"\bold\b|last reading")
 
     def test_the_six_companies_fill_their_bars_in_their_own_colours(self):
