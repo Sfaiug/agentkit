@@ -199,7 +199,7 @@ log per pick; `--exec` or `--review` outside a bound group or naming an unavaila
 over. An unknown budget ranks last, a pay-as-you-go provider joins only while every subscription that can run is ahead
 of pace by more than `pace_margin`, and a run with no eligible pair parks `exhausted`, but a launch no refill can pair
 (skipped harnesses, or groups with no allowed pair) is refused naming the groups, by a `--bg` launch's parent too. The orchestrator choice ignores pace (see `n`; every model spent launches the default with a WARN); a run without a session uses the
-default groups; without `reviewers`, legacy unbound picks and orchestrator resumes still work, and explicit PR reviewers may be outside workers even in a seat. Meters are cached for five minutes and each provider is probed at most once a minute host-wide, a refused worker or a spent reset included (Muse's billed probe once in ten, whatever its meters do); a spent-window
+default groups; without `reviewers`, legacy unbound picks and orchestrator resumes still work, and explicit PR reviewers may be outside workers even in a seat. Meters are cached for five minutes and each provider is probed at most once a minute host-wide, a refused worker or a spent reset included (Claude once in fifteen, and never before its last `Retry-After`; Muse's billed probe once in ten, whatever its meters do); a spent-window
 refusal parks the provider until it refills (spending a Codex reset first when held); `ak usage` shows the choices, and a reading older than half an hour says `as of HH:MM` on its row and under `ak usage`.
 
 ## The tick
@@ -394,6 +394,6 @@ retry), `result.md` (linking a scratch run's files) and `round-<r>/<role>/{promp
 - A harness login expired: open the seat and log in there; for `gh login expired`, run `gh auth login` on the server. Parked runs resume by themselves. For `claude worker token expires in N days`, run `claude setup-token` and replace `~/.agentkit/secrets/claude_oauth_token`.
 - A dropped Mac file the server cannot read: open a new Mac terminal tab or run `ak macbridge --reader` there, then fetch again.
 - Test one headless turn: `ak worker opus prompt.md --workspace ~/code/foo`.
-- A stale usage reading: open the menu; it reads each provider again within a minute.
+- A stale usage reading: open the menu; it reads each provider again within a minute, Claude within fifteen.
 - The slice ceiling: pin `slice_tasks_max` and friends in `~/.agentkit/config.toml` (an install rewrites its own `limits.conf`), or `systemctl --user set-property agentkit.slice TasksMax=4096` for now; the user unit's ceiling above it follows the machine where `sudo` needs no password.
 - A failed `ak update` that could not restore Muse: its snapshot is under `~/.agentkit/tmp/muse-snapshot-*`, named in the log.
