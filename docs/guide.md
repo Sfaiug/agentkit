@@ -89,11 +89,13 @@ The worktree is `~/.agentkit/wt/<id>` on branch `ak/<slug>`, the first name free
 writes and commits, its commands in the foreground. The loop runs the checks itself and hands the diff and their output
 to the reviewer, a different model; it never re-runs them and answers `VERDICT: PASS` or `VERDICT: FAIL`, and one with
 no verdict is asked once more, never failed. A round is FAIL only for a blocking finding: a correctness defect, a safety
-or data-loss risk, a weakened check, or work outside the task. Everything else goes under `## Follow-ups`; the loop
+or data-loss risk, a weakened check, or work outside the task, with evidence: a command that fails, a reproduction, or
+quoted diff lines showing the defect. Findings without evidence and everything else go under `## Follow-ups`; the loop
 writes those into the PR description and appends them to `~/.agentkit/followups/<repo>.md`, which the orchestrator reads
 before the next task. An item at the `path:line` of an open one, or in its words, is not appended again; a file of the
 same name in another case is merged in once; and past 24 KB the oldest items move to `<repo>.archive.md`, which keeps
-them all. A FAIL starts a fix round with the findings. Three rounds is the budget: at the third FAIL the run ends
+them all. A FAIL starts a fix round: the fixer fixes every undisputed finding, or lists a finding and evidence that it is wrong under `## Disputed` in its summary.
+Re-review rules on each dispute first, upheld or dropped, and says why. Three rounds is the budget: at the third FAIL the run ends
 `fail`, hands back its open findings (their first 600 characters) with `three rounds spent: split or re-scope`; no `--rounds` above three starts or resumes, and a job gives it no more rounds and no rerun on another model.
 
 On PASS the run brings the branch up to date with `origin/<target>` (a rebase, or a merge where `merge: merge` is asked
