@@ -1842,7 +1842,7 @@ def launch(name, model, cwd, cmd, conversation, session=None):
     else:
         start(name, cwd, cmd, model)
     if plugin.title_command(name):
-        config.update_session(name, session_title=name)
+        config.update_session(name, session_title=name, title_sync=None)
     from . import watch
     # launched under the name again: not the stopped one, and not the owner's closed one
     watch.seat_write(name, stopped_at=None, closed_by_owner=None,
@@ -2077,13 +2077,14 @@ def rename(old, new, log=print, *, auto=False):
         title = config.STATE / f"title-{old}.json"
         if title.exists():
             title.replace(config.STATE / f"title-{new}.json")
-        config.update_session(new, unnamed=None)
-        record = config.session_records().get(new, {})
+        record = watch.title_record(new)
         pending = record.get("title_sync") or {}
+        echoes = set(record.get("title_superseded", [])) - {new}
         if pending.get("tries") and pending.get("name") != new:
             # Its line can be sent or recorded later, after a newer title is confirmed.
-            echoes = set(record.get("title_superseded", [])) | {pending["name"]}
-            config.update_session(new, title_superseded=sorted(echoes))
+            echoes.add(pending["name"])
+        config.update_session(new, unnamed=None, title_superseded=sorted(echoes) or None,
+                              title_conversation=record.get("conversation"))
         state = watch.load_state()
         if old in state["stalls"]:
             state["stalls"][new] = state["stalls"].pop(old)
