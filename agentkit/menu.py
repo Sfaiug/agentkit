@@ -44,9 +44,9 @@ opening the menu, like drawing it, calls git for nothing at all.  A usage row is
 *shared* weekly meter -- the one every model of it draws on: a bar and `NN% left`, then
 `resets <weekday> <HH:MM>` in local time, then `Fable 41%` for a scoped cap that reads
 differently, then `? <reason>` when the last probe errored though the meter it read still
-stands, or `as of HH:MM` when that reading is older than half an hour, with the weekday when
-it is not from today.  A probe the endpoint would not answer says nothing at all: its reading
-stands as it was, and past half an hour its age says the rest.
+stands, and `as of HH:MM` beside it when that reading is older than half an hour, with
+the weekday when it is not from today.  A probe the endpoint would not answer says nothing
+at all: its reading stands as it was, and past half an hour its age says the rest.
 The bar's filled cells are the company's own colour (`COLOURS`, or the provider's `colour` key),
 and the rows run red through violet by that colour's hue, the near-greys last.  `—` is drawn
 only when there is no shared week to draw -- no reading at all, or nothing but one model's
@@ -1632,7 +1632,11 @@ def fault(prov):
 
     The meter the failed probe read still stands, so the row keeps its bar; the reason is
     beside it because a bare `?` sends the reader to `ak usage` to learn a single sentence.
+    A refusal is not a reason: words that only say the probe was refused say nothing here,
+    and the reading's age says the rest.
     """
+    if usage.refusal_text(prov, prov.get("error")):
+        return ""
     reason = " ".join(str(prov.get("error") or "").split()).removeprefix("unknown: ")
     return ("? " + reason).strip() if prov.get("error") else ""
 
@@ -1692,9 +1696,10 @@ def usage_lines(cfg, width):
     `resets <weekday> <HH:MM>` from that meter, or `resets <day> <month>` more than six days
     out in a window longer than a week; one note per scoped meter whose figure differs
     (`Fable 41%`); `? <reason>` when the last probe errored although the meter it read still
-    stands, or `as of HH:MM` when the reading is older than half an hour, with the weekday
-    when it is not from today.  A probe the endpoint refused to answer says nothing at all:
-    the reading it could not replace stands as it was, and its age says the rest.  The
+    stands, and `as of HH:MM` beside it when the reading is older than half an hour, with
+    the weekday when it is not from today.  A probe the endpoint refused to answer says
+    nothing at all: the reading it could not replace stands as it was, and its age says the
+    rest.  The
     filled cells are the provider's `colour`, the empty ones dim, and the rows run by that
     colour's `hue`.  `ak usage` keeps the rest -- week elapsed, session, the resets in hand,
     headroom, budget, outlook -- and the picker keeps ranking on the tightest meter: only
@@ -1745,7 +1750,7 @@ def usage_lines(cfg, width):
         notes = [(rank, part) for rank, part in
                  [(0, resets_note(week, now)),
                   *((2, note) for note in scoped_notes(cfg, name, readable, week)),
-                  (1, fault(prov) or usage.as_of(prov, now))] if part]
+                  (1, fault(prov)), (1, usage.as_of(prov, now))] if part]
         percent = f"{shown:3d}% left"
         base = terminal.cells(prefix) + len(percent) + 2   # all but the bar and the notes
         parts = fitting(notes, width - base - floor - 3)   # what the bar gives way to

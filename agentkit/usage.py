@@ -1267,6 +1267,18 @@ def as_of(prov, now=None):
         return ""
 
 
+def refusal_text(prov, text):
+    """Whether these words are the refusal talking, and so say nothing anywhere.
+
+    A lone error is displayable whatever its words -- `? muse usage timed out after 30s`
+    is the adapter's own line for a probe that failed.  But beside `probe_error` the same
+    words are the endpoint refusing: the first refused probe leaves them as the reading's
+    error with nothing kept, and a later one keeps them with the reading.  The row and
+    `ak usage` print no such words; the reading's age says the rest.
+    """
+    return prov.get("probe_error") is not None and probe_refused(text) is not None
+
+
 def _rate(meter):
     """Used% per hour, as this window has actually been spent, or None when it cannot be seen.
 
@@ -1407,20 +1419,27 @@ def render(cfg, providers, order, *, repo=None):
             continue
         one = count == 1
         budget, reason = provider_budget(prov, now)
-        detail = (f"budget {_num(budget - budget_from_resets(prov, now), 1)} "
-                  f"without {'it' if one else 'them'}" if reason is None else
-                  "budget unknown: " + reason.removeprefix("unknown: "))
+        if reason is None:
+            detail = (f"budget {_num(budget - budget_from_resets(prov, now), 1)} "
+                      f"without {'it' if one else 'them'}")
+        elif refusal_text(prov, reason):
+            detail = "budget unknown"
+        else:
+            detail = "budget unknown: " + reason.removeprefix("unknown: ")
         lines.append(f"{name}: {count:g} reset{'' if one else 's'} in hand counted as "
                      f"{'one full week' if one else f'{count:g} full weeks'} ({detail})")
-    # the numbers say the provider is unknown; only the adapter can say why
+    # the numbers say the provider is unknown; only the adapter can say why -- and a
+    # refusal is not a why, so an error that only says the probe was refused says nothing
     lines += [f"note: {name} {prov['error']}" for name, _, prov in _accounts(providers)
-              if prov.get("error")]
+              if prov.get("error") and not refusal_text(prov, prov["error"])]
     # ... and a reading older than half an hour says when it was taken, in the menu row's
-    # own words; a probe the endpoint would not answer says nothing about that at all
+    # own words -- while a meter of it remains; a probe the endpoint would not answer says
+    # nothing about that at all
     for name, _, prov in _accounts(providers):
         note = as_of(prov, now)
-        if note:
-            lines.append(f"note: {name} {note}")
+        meters = prov.get("meters") or []
+        if note and any(not _past(meter, now) for meter in meters):
+            lines.append(terminal.styled(f"note: {name} {note}", "dim"))
     # a reset the policy spent, for as long as the meters it went and re-read stay cached
     lines += [f"{name}: {note}" for name, prov in providers.items()
               for note in prov.get("notes") or []]

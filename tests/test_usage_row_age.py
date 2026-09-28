@@ -92,11 +92,37 @@ class UsageRowAge(Sandbox):
                 self.assertRegex(self.row(), tail)
                 self.assertNotRegex(self.row(), "rate limited|unavailable|no login")
                 self.assertNotRegex(self.rendered(prov), "rate limited|unavailable")
-        # A fault still wins the note's place: the adapter's own line, and no age beside it.
+        # A fault keeps its note beside the age: the adapter's own line, and when taken.
         prov = {"meters": [self.meter()], "fetched_at": OLD, "error": "unknown: offline"}
         self.cache(prov)
-        self.assertIn("? offline", self.row())
-        self.assertNotIn("as of", self.row())
+        self.assertRegex(self.row(), r"\? offline · as of 01:46$")
+        self.assertIn("note: acme unknown: offline", self.rendered(prov))
+        self.assertRegex(self.rendered(prov), r"note: acme as of 01:46")
+
+    def test_words_that_only_say_refused_say_nothing_anywhere(self):
+        refused = "unknown: HTTP 503 from api.acme.example/usage"
+        # The first refused probe: the refusal is the reading's error, with nothing kept.
+        prov = {"meters": [], "error": refused, "probe_error": refused,
+                "probe_failed_at": NOW, "stale_since": NOW}
+        self.assertNotIn("note: acme", self.rendered(prov))
+        self.assertNotRegex(self.rendered(prov), "503|rate limited|unavailable")
+        # A stale reading beside a reset credit: the budget stays unknown, bare of why.
+        prov = {"meters": [self.meter()], "fetched_at": NOW - 7 * 3600, "resets": 1,
+                "probe_error": refused, "stale_since": NOW - 7 * 3600}
+        rendered = self.rendered(prov)
+        self.assertIn("(budget unknown)", rendered)
+        self.assertNotRegex(rendered, "503|rate limited|unavailable")
+        # The menu's fault says nothing either: the age stands alone beside the bar.
+        prov = {"meters": [self.meter()], "fetched_at": OLD, "error": refused,
+                "probe_error": refused, "stale_since": OLD}
+        self.cache(prov)
+        self.assertRegex(self.row(), r"60% left · resets \w+ \d\d:\d\d · as of 01:46$")
+        self.assertNotIn("?", self.row())
+        # But a kept error of the reading's own still says it, beside the refusal's age.
+        prov = {"meters": [self.meter()], "fetched_at": OLD, "error": "unknown: offline",
+                "probe_error": refused, "stale_since": OLD}
+        self.cache(prov)
+        self.assertRegex(self.row(), r"\? offline · as of 01:46$")
         self.assertIn("note: acme unknown: offline", self.rendered(prov))
 
     def test_a_phone_width_row_keeps_the_age_note(self):
@@ -113,6 +139,20 @@ class UsageRowAge(Sandbox):
         self.assertEqual(self.row().split(), ["Acme", "—", "window", "reset"])
         self.cache({"meters": [], "probe_error": "unknown: HTTP 429 from api.acme.example"})
         self.assertEqual(self.row().split(), ["Acme", "—", "no", "reading", "yet"])
+
+    def test_no_meter_left_means_no_age_under_ak_usage(self):
+        # Dropped or rolled over: no reading remains for an age to date.
+        dropped = {"meters": [], "fetched_at": OLD,
+                   "error": "unknown: every meter the adapter reports has already reset"}
+        self.assertNotIn("as of", self.rendered(dropped))
+        rolled = {"meters": [{**self.meter(), "resets_at": NOW - 1}], "fetched_at": OLD}
+        self.assertNotIn("as of", self.rendered(rolled))
+
+    def test_the_ak_usage_age_note_is_dim(self):
+        prov = {"meters": [self.meter()], "fetched_at": OLD}
+        with patch.object(terminal, "colour_depth", return_value=8):
+            rendered = self.rendered(prov)
+        self.assertIn("\033[2mnote: acme as of 01:46\033[0m", rendered)
 
 
 if __name__ == "__main__":
