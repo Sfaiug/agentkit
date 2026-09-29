@@ -45,6 +45,8 @@ class TokenExpiry(unittest.TestCase):
             "HOME": str(self.home), "AGENTKIT_DISCORD_WEBHOOK": "",
             "AGENTKIT_DISCORD_USER_ID": "", "CLAUDE_CODE_OAUTH_TOKEN": "",
             "NO_COLOR": "1", "PYTHONDONTWRITEBYTECODE": "1"}))
+        # a worker on another subscription names its account; these ask the usual login
+        os.environ.pop(config.ACCOUNT_ENV, None)
         config.ensure_dirs()
         self.token = config.SECRETS / "claude_oauth_token"
 

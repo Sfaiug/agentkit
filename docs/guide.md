@@ -314,6 +314,8 @@ optionally `reset-status` and `reset` where the provider hands out usage-limit r
 token, since grok renews its six-hour key itself. Antigravity's `usage` reads the Gemini window of agy's own `/usage`
 panel off that panel's endpoint. Refused, both `usage` verbs let their harness renew (`grok models`, `agy models`) and
 ask again, and a renewed grok key still refused is `no login` until grok holds another or the endpoint answers it.
+Claude's `auth` and `usage` first have Claude Code renew a lapsed seat login that holds a refresh token, one login at a
+time, with its cheapest turn (`haiku`, one word, no tools, no saved conversation); only a failed renewal says `run /login`.
 
 `interactive` is where the rulebook goes: `python3 tools/rulebook.py "$AGENTKIT_SESSION"` writes it and prints its path,
 and the command line hands it to the harness, adding no instructions of its own, so an orchestrator behaves one way
