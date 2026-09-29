@@ -5733,7 +5733,9 @@ line = [ln for ln in open(sys.argv[1]).read().splitlines() if "OPENCODE_CONFIG_C
 words = shlex.split(line)
 content = next(w for w in words if w.startswith("OPENCODE_CONFIG_CONTENT=")).split("=", 1)[1]
 doc = json.loads(content)
-assert doc["model"] == "mimo/mimo-v2.6-pro", doc["model"]   # at `none`, bare
+assert doc["model"] == "mimo/mimo-v2.6-pro#high", doc["model"]   # the shipped `high`
+variant = doc["provider"]["mimo"]["models"]["mimo-v2.6-pro"]["variants"]["high"]
+assert variant == {"extraBody": {"thinking": {"type": "enabled"}}}, variant   # thinking on
 assert doc["agents"]["build"]["system"].startswith("# You are the orchestrator"), "rulebook"
 assert doc["plugins"][0].endswith("hooks/opencode-seat"), doc["plugins"]
 PY
