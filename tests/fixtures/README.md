@@ -399,6 +399,57 @@ the captured index and row shapes; that overwrite is a regression scenario, not 
 observed result of these pre-prompt renames. They require one repair, no repeated
 typing after acknowledgement, and at most three attempts if Codex refuses the repair.
 
+## Codex remote seat feasibility (0.153.4)
+
+Captured 2026-09-28 with the installed npm Codex 0.153.4. Remote seats were not
+implemented: the remote TUI drops the per-launch hooks and rulebook that bind an
+agentkit seat to its conversation. These are probe evidence, not acceptance
+fixtures for a working remote-control integration.
+
+All probes used a throwaway HOME and CODEX_HOME inside the checkout, with a copy
+of the caller's `auth.json`. No prompt was submitted to a model. Only `/hooks`,
+its trust action for a harmless recorder, and `/new` were entered. The actual
+seat wrapper was also launched against a separate `codex app-server --listen
+ws://127.0.0.1:PORT` process, with a loopback TCP proxy recording its thread-start
+request. All probe TUIs, app servers and private tmux servers were stopped; the
+throwaway home and credential copy were removed. No managed daemon was installed
+or enrolled, and no shell profile or real Codex configuration was changed.
+
+- `codex-remote-start.txt` is the failure from `codex remote-control start --json`:
+  this npm installation requires a managed standalone executable. That installation
+  prerequisite alone is not the reason the task stopped.
+- `codex-remote-local-hooks-pane.txt` is the local TUI's `/hooks` screen after
+  trusting a command-line SessionStart recorder. It lists one installed, active
+  hook. The command was `python3 /home/acme/probe/record.py
+  /home/acme/probe/local-events.jsonl`; the recorder reads one JSON object from
+  stdin and appends it to that file. Its definition was passed as
+  `-c 'hooks.SessionStart=[{hooks=[{type="command",command="…",timeout=5}]}]'`.
+- `codex-remote-hooks-pane.txt` is `/hooks` after launching the unmodified
+  `tools/codex-seat.py --rulebook /home/acme/probe/rulebook.md -- codex --remote
+  ws://127.0.0.1:PORT --no-alt-screen -c check_for_update_on_startup=false` with
+  `AGENTKIT_SESSION=acme-seat` and `AGENTKIT_CODEX_RECEIPT` pointing to the probe
+  receipt. The rulebook contained `ACME fixture instructions.`. The wrapper added
+  its SessionStart and four seat-state hook overrides, but the remote screen
+  lists zero installed hooks for every event.
+- `codex-remote-thread-start.json` is that wrapper launch's outbound `thread/start`
+  request, with only `dynamicTools` omitted (the TUI's built-in task tools). The
+  complete `config` contains neither the hooks nor the rulebook;
+  `developerInstructions` and `sessionStartSource` are null. A direct TUI probe
+  with an inline hook and developer instructions, including `/new`, sent the
+  same omissions. Merely moving hooks to daemon configuration would also lose
+  the pane's launch-specific environment used by the receipt and state hooks.
+- `codex-remote-receipt.json` is the wrapper's receipt after the remote launch,
+  unchanged from its prepared contents. Idle local launches also did not invoke
+  the recorder, even after hook trust and `/new`; receipt absence alone was not
+  treated as proof. The missing remote hook definitions and wire overrides are
+  the decisive observations.
+
+The pane captures are 100×30 `tmux capture-pane -p` output. Paths and the request
+UUID were replaced with invented values; wrapping and blank rows are retained.
+The official [app-server documentation](https://learn.chatgpt.com/docs/app-server#connect-the-cli-terminal-ui)
+describes this listener/TUI connection; the observations above are from 0.153.4,
+not an inference that every later Codex release has the same limitation.
+
 ## Grok seat titles (1.0.40)
 
 `grok-title-{idle,composed,accepted,auto,working,working-composed,working-accepted}-pane.txt`
@@ -502,3 +553,98 @@ also reads `session_name_snapshot_fingerprint = unavailable`, with no named
 sessions. The `muse start --host … --name` string in the binary is an MSP
 session-host coordinator command from an embedded skill doc, not a TUI launch
 option: the installed TUI lists no `start` subcommand and rejects `--name`.
+
+## Codex seat-owned app server (0.153.4)
+
+Captured 2026-09-28 with the same installed npm binary as the earlier remote-seat
+probe. This time the **server** receives the seat wrapper's hooks and rulebook,
+and the TUI connects to its Unix socket. No standalone install or daemon is used.
+All real probes used a throwaway HOME/CODEX_HOME in this checkout, with a copied
+`auth.json`. A private UTS namespace named the remote enrollments `ak-probe-acme`
+or `ak-probe-beta`; it changed no host settings and is probe tooling, not part of
+the implementation. No real Codex configuration was written.
+
+Two one-line prompts were sent: `Reply with the probe response word.` from the
+pane, then `What is the probe response word?` from a second app-server connection
+after restarting the server with `--remote-control` and resuming the thread.
+The server's rulebook specified `ACME_RULEBOOK_OK`. Both turns produced it, and
+the pane displayed the second client's turn. The first prompt was a statement,
+so agentkit's real Stop hook blocked twice before its normal limit let it end;
+the second was a question, so its answer ended without a block. This also proves
+the hooks execute with the seat's environment, not merely appear in `/hooks`.
+
+- `codex-seat-server-hooks-pane.txt` lists the six active server-provided hooks:
+  SessionStart, UserPromptSubmit, PermissionRequest, Interrupt and two Stop hooks.
+- `codex-seat-server-turn-pane.txt` shows the resumed conversation and the second
+  client's turn. The rate-limit chooser appeared after the completed answer.
+- `codex-seat-server-evidence.json` contains the server command, rulebook, filled
+  SessionStart receipt, connected remote status, manual pairing response, second
+  client's turn response, isolation checks, explicit title-index entries, the
+  launcher's pairing-card payload and the three successful deletion responses.
+  The title-index's first two entries are automatic titles; the last two follow
+  explicit `/rename ak-probe-acme` commands, including through the new launcher.
+- `codex-remote-fake.py` is synthetic test machinery, not a capture: a fake Codex
+  with a Unix WebSocket server, real hook subprocesses and invented replies.
+  `test_codex_remote.py` and the ownership regressions install it under temporary
+  HOMEs with fake tmux. It never calls a model or the real Codex binary.
+
+Isolation matters: a second server with the same CODEX_HOME and a fresh SQLite
+home reused the first enrollment and reported `errored`. A new CODEX_HOME with
+that reused database did too. A new installation identity **and** fresh database
+connected with a different enrollment. The launcher therefore keeps these two
+private to the seat while sharing its login, settings and conversation files.
+The installed `app-server proxy` relays raw WebSocket bytes, not JSON lines;
+the launcher's small standard-library client performs the Unix HTTP upgrade.
+Codex also resolves relative socket paths before binding, so a short private
+runtime directory is needed when the seat's home is a long worktree path.
+
+The final probe ran the actual launcher in private tmux, resumed the same thread,
+renamed it and produced a pairing notice only in the disabled notification sink.
+No phone was paired and no owner notification was sent. Every probe server and
+private tmux server was stopped; inspection of processes with the probes' exact
+CODEX_HOME values found none left. All three actual remote enrollments were
+removed through their remote-control environment endpoint (HTTP 204); failed
+isolation attempts reused those enrollments. The credential copies and scratch
+files were removed afterwards. Pane captures are 100×35. Paths, UUIDs, enrollment
+ids and pairing codes are replaced whole with invented values; response fields
+are otherwise retained. The transport and mobile flow are described in the
+[official app-server documentation](https://learn.chatgpt.com/docs/app-server)
+and [Remote connections](https://learn.chatgpt.com/docs/remote-connections).
+
+### Review regression probes
+
+`codex-seat-review-evidence.json` records additional 0.153.4 probes on 2026-09-28,
+using copied authentication in temporary HOMEs, without model turns or owner
+notifications. Values are excerpts from the responses or comparisons made by the
+probe; paths and ids are replaced whole. PATCH of a remote environment requires
+`name`, not `display_name`; GET then returned the seat name while retaining the
+host name. DELETE can briefly return 409 after shutdown, then succeeds with 204.
+An offline environment remained readable, so stopping its server alone is not
+removal. The implementation retains deletion receipts until deletion succeeds.
+`command/exec` confirmed that a server can keep its private home while tool
+commands receive the original CODEX_HOME and no private SQLite environment.
+Two servers under the same `ak-probe-acme` hostname obtained distinct enrollments;
+the first stayed connected while the second was still connecting at 30 seconds.
+Both were stopped and their enrollments deleted (204).
+
+One early probe's DELETE returned 409 before it went offline; its temporary id
+receipt had already been removed. Subsequent account listings were empty, so that
+one deletion is unconfirmed. Later probes retained ids until DELETE succeeded.
+An `ak-probe-delete` probe then exercised deletion through the production helper
+after an unpaired enrollment connected, but stopped before its own cleanup. A
+follow-up DELETE removed that enrollment (204) and a GET confirmed it gone (404).
+No phone was paired and no owner notification was sent.
+
+All probe processes, enrollments, credential copies and scratch homes were
+removed afterwards; no probe home or server remains. Paths, UUIDs, enrollment
+ids and pairing codes are replaced whole with invented values.
+
+`codex-remote-http-fake.py` is a synthetic `sitecustomize` used only by the isolated
+test subprocesses. It records enrollment names and deletions and rejects deletion
+while its fake server is alive, and can fail every request as offline or every
+DELETE with 409. The fake Codex now persists installation and
+SQLite enrollment identities. The regression tests cover preparation before pane
+replacement, delayed cleanup, account changes, pairing independent of turn cards,
+monitor disconnects, SIGKILL, legacy fallback, enrollment removal, and forget
+while offline or under persistent 409 with a later retry. Test homes
+and sockets live in temporary directories outside the checkout.

@@ -1,0 +1,32 @@
+{
+  "codex_version": "0.153.4",
+  "remote_name": {
+    "endpoint": "/backend-api/wham/remote/control/environments/env_acme",
+    "initial_get": {"status": 200, "display_name": "ak-probe-acme", "host_name": "ak-probe-acme", "name": "ak-probe-acme"},
+    "wrong_patch": {"body": {"display_name": "ak-probe-acme-seat"}, "status": 400, "error": "Field required: name"},
+    "patch": {"body": {"name": "ak-probe-acme-seat"}, "status": 200},
+    "readback": {"status": 200, "display_name": "ak-probe-acme-seat", "host_name": "ak-probe-acme", "name": "ak-probe-acme-seat"},
+    "offline_get": 200,
+    "delete": [409, 204],
+    "delete_409_detail": "Remote environment is online"
+  },
+  "tool_environment": {
+    "server_config": ["sqlite_home=\"/home/acme/probe/h\"", "shell_environment_policy.set.CODEX_HOME=\"/home/acme/probe/ordinary\""],
+    "method": "command/exec",
+    "result": {"exitCode": 0, "stdout": "{\"CODEX_HOME\": \"/home/acme/probe/ordinary\", \"CODEX_SQLITE_HOME\": null}\n", "stderr": ""}
+  },
+  "same_hostname": {
+    "hostname": "ak-probe-acme",
+    "first_status": "connected",
+    "second_status_at_30_seconds": "connecting",
+    "distinct_enrollments": true,
+    "first_still_connected": true,
+    "deletions": [204, 204]
+  },
+  "cleanup": {
+    "all_probe_processes_stopped": true,
+    "unconfirmed_early_deletion": "One early unpaired ak-probe-acme enrollment returned HTTP 409. Its temporary receipt had already been removed; account listings returned no entries, so its deletion could not be confirmed. Later probes retained their ids until DELETE succeeded.",
+    "owner_notifications_sent": 0,
+    "additional_model_prompts": 0
+  }
+}

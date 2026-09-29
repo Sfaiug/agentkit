@@ -21,7 +21,7 @@ from agentkit.harness import codex as codex_plugin
 
 class Ownership(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".codex-seat-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".codex-seat-")
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -30,14 +30,21 @@ class Ownership(unittest.TestCase):
             "HOME": str(self.root), "CODEX_HOME": str(self.root / ".codex"),
             "AGENTKIT_TMUX_SOCKET": "agentkit-test", "TMUX_TMPDIR": str(self.root / "sockets"),
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_SESSION": "",
-            "AGENTKIT_RUN_DIR": "", "PYTHONDONTWRITEBYTECODE": "1", "NO_COLOR": "1"}))
+            "AGENTKIT_RUN_DIR": "", "AGENTKIT_RUN": "", "AK_PARENT_RUN": "",
+            "AK_RUN_LOG": "", "AK_RUN_ROLE": "", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
+            "PYTHONDONTWRITEBYTECODE": "1", "NO_COLOR": "1"}))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         config.ensure_dirs()
         self.cwd = self.root / "shared cwd"
         self.cwd.mkdir()
         (self.root / ".codex").mkdir()
+        (self.root / '.codex/auth.json').write_text(json.dumps({
+            'tokens': {'access_token': 'acme-token', 'account_id': 'acme-account'}}))
         (self.root / "sockets").mkdir(mode=0o700)
+        (self.root / 'sitecustomize.py').write_text(
+            (REPO / 'tests/fixtures/codex-remote-http-fake.py').read_text())
+        self.stack.enter_context(patch.dict(os.environ, {'PYTHONPATH': str(self.root)}))
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.stack.enter_context(patch.dict(os.environ, {"PATH": f"{self.bin}:{os.environ['PATH']}"}))
@@ -45,30 +52,9 @@ class Ownership(unittest.TestCase):
         self.fake("tmux", '''import sys
 assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
 ''')
-        self.fake("codex", '''import json, os, pathlib, shlex, subprocess, sys, tomllib
-a = sys.argv[1:]
-if a == ["--help"]:
-    print("--dangerously-bypass-hook-trust" if not os.environ.get("FAKE_UNSUPPORTED") else "old CLI")
-    sys.exit(0)
-assert "AGENTKIT_CODEX_RECEIPT" not in os.environ
-assert "--dangerously-bypass-hook-trust" not in a
-p = pathlib.Path.home()
-sid = a[a.index("resume") + 1] if "resume" in a else os.environ["FAKE_THREAD"]
-(p / "last-command.json").write_text(json.dumps(a))
-path = p / ".codex" / "sessions" / ("rollout-" + sid + ".jsonl")
-path.parent.mkdir(exist_ok=True)
-if not path.exists():
-    path.write_text(json.dumps({"type": "session_meta", "payload": {
-        "id": sid, "cwd": os.getcwd(), "timestamp": os.environ.get("FAKE_STAMP", "2026-09-11T08:00:00Z")}}) + "\\n")
-event = {"session_id": sid, "transcript_path": str(path), "cwd": os.getcwd(),
-         "hook_event_name": "SessionStart", "source": "resume" if "resume" in a else "startup"}
-for arg in a:
-    if arg.startswith("hooks.SessionStart=") and not os.environ.get("FAKE_UNTRUSTED"):
-        groups = tomllib.loads(arg)["hooks"]["SessionStart"]
-        for group in groups:
-            for hook in group["hooks"]:
-                subprocess.run(shlex.split(hook["command"]), input=json.dumps(event), text=True, check=True)
-''')
+        self.stack.enter_context(patch.dict(os.environ, {
+            "FAKE_CODEX_REPO": str(REPO), "TMPDIR": str(self.root)}))
+        self.fake("codex", (REPO / "tests/fixtures/codex-remote-fake.py").read_text())
         adapters = self.root / "adapters"
         adapters.mkdir()
         for harness in ("claude", "codex", "muse"):
