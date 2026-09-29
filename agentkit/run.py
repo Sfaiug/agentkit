@@ -2572,8 +2572,10 @@ class Loop:
         # Keep the launch limits on resume; older receipts and review-only runs get defaults.
         self.done_when_limit = 3600 * state.get("ceiling_hours", CEILING_HOURS)
         self.turn_limit = 60 * state.get("silence_minutes", SILENCE_MINUTES)
-        # the record as this loop last read or wrote it: what `save` measures its changes by
-        self.written = read_state(run_dir) or {}
+        # the record as this loop was handed it -- every caller saves it first -- or last wrote
+        # it: what `save` measures its own changes by.  Never read back off the disk, where a
+        # key another writer set since would read as one this loop removed.
+        self.written = copy.deepcopy(state)
 
     def role(self, name):
         """The preamble this run's workers get: a scratch run has no commits to talk about."""
@@ -2595,17 +2597,16 @@ class Loop:
         return self.round_dir / name
 
     def save(self):
-        """Write what this loop changed since it last read or wrote the record, and no more.
+        """Write what this loop changed since it was handed the record or last wrote it, no more.
 
         The watcher and a rename write a live run's record too -- a freeze, a stall entry, a
         seat's new name -- and a whole save from this loop's memory would put the old record
         back over them.  `state` is written every time, so a stop that landed in between is
-        refused by `record`'s guard as a whole save refused it.  What the others wrote is
-        taken back into this loop's memory, so a whole save after this one keeps it too.
+        refused by `record`'s guard as a whole save refused it.
         """
         self.state.update(executor=self.executor, reviewer=self.reviewer,
                           exec_session=self.exec_sid, review_session=self.review_sid)
-        if not self.written:
+        if not (self.run_dir / "run.json").exists():
             save_state(self.run_dir, self.state)
         else:
             with record(self.run_dir) as current:
@@ -2615,11 +2616,6 @@ class Loop:
                     elif (key == "state" or key not in self.written
                           or self.written[key] != self.state[key]):
                         current[key] = self.state[key]
-            for key in [key for key in self.state if key not in current]:
-                del self.state[key]
-            for key, value in current.items():
-                if key not in self.state or self.state[key] != value:
-                    self.state[key] = value
         self.written = copy.deepcopy(self.state)
         history.update_run(self.state.get("run_id"), repo=self.state.get("repo"),
                            executor=self.executor, reviewer=self.reviewer,
@@ -12061,6 +12057,7 @@ def cmd_merge(argv):
     cmds = with_suite(done_when(body, run_dir / "task.md"), state["worktree"],
                       state.get("target") or state.get("base"))
     body += project_lessons(state.get("repo") or None, state, log)
+    save_state(run_dir, state)  # the Loop measures its saves against the record it is handed
     lp = Loop(cfg, run_dir, state, {}, log, Path(state["worktree"]),
               body, cmds, f"Repo checkout: {state['worktree']}\n\n{body}", [])
     # A delivery retry stays a delivery retry: a pickup would resume the run through

@@ -80,6 +80,14 @@ class LiveRun(Fixture):
             self.assertEqual(orch.rename("lagoon", "quay", log=lambda _: None), "quay")
         self.assertEqual(self.loop_saves("execute")["launched_session"], "quay")
 
+    def test_a_write_before_the_loop_is_built_survives_its_first_save(self):
+        handed = run.read_state(self.run_dir)
+        with patch.object(watch, "frozen_cgroup", return_value="/agentkit.slice"):
+            watch.recover_runs({}, log=lambda _: None, now=5000)
+        self.lp = run.Loop({}, self.run_dir, handed, {}, lambda _: None, self.root, "", [], "",
+                           [])
+        self.assertEqual(self.loop_saves("execute")["frozen_since"], 5000)
+
     def test_a_stop_between_two_saves_still_ends_the_loop(self):
         state = run.read_state(self.run_dir)
         run.save_state(self.run_dir, {**state, "state": "stopped"})
