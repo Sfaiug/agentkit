@@ -1821,13 +1821,21 @@ def spent(providers):
     return providers is not None and usage.model_exhausted(cfg, model, providers)[0]
 providers = providers_of(sys.argv[2])
 if not spent(providers):
+    provider = config.model(cfg, model)["provider"]
+    sandbox = providers.get(provider) if isinstance(providers, dict) else None
+    if isinstance(sandbox, dict) and sandbox.get("meters"):
+        sys.exit(0)  # this read measured the provider itself; its room stands
     # The sandbox shares the host's probe cadence but not its answers: where the host
-    # asked inside the cadence, this read is empty and knows nothing. The host's own
-    # cache is the same account's spent-knowledge, read only, so a week it has parked
-    # binds this skip too: without it the gate spends real calls finding that out
-    # again, as 429s.
+    # asked inside the cadence, this read is empty and knows nothing. Only then does
+    # the host's own cache stand in -- the same account's spent-knowledge, read only,
+    # its meters past their reset dropped as a live read drops them, so a stale week
+    # never parks a call.
     host = os.path.join(os.environ["SMOKE_CALLER_HOME"], ".agentkit/state/usage.json")
     providers = providers_of(host)
+    record = providers.get(provider) if isinstance(providers, dict) else None
+    if isinstance(record, dict):
+        providers = {**providers, provider: usage._without_past(
+            record, time.time(), "the host cache")}
     if not spent(providers):
         sys.exit(0)  # unknown usage cannot justify skipping a real call
 meters, _ = usage._gating_meters(cfg, model, providers)

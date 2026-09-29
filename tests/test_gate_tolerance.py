@@ -518,6 +518,49 @@ class GateTolerance(unittest.TestCase):
         self.assertNotIn("FAIL", result.stdout)
         self.assertEqual(self.probes("codex"), [])
 
+    def stale_host_week(self, caller, reset):
+        """The host's cache with openai at 100% in a window that ended at `reset`."""
+        (caller / ".agentkit/state/usage.json").write_text(json.dumps({
+            "fetched_at": reset - 7200, "providers": {
+                "openai": {
+                    "provider": "openai", "exhausted": True,
+                    "meters": [{"name": "primary_window", "used": 100,
+                                "resets_at": float(reset), "window_secs": 604800,
+                                "exhausted": True}]}}}))
+
+    def test_live_sandbox_room_overrules_the_host_stale_week(self):
+        # The sandbox measured openai itself at 45%; the host cache still says 100%
+        # in a window that reset an hour ago. A stale week never parks a call the
+        # sandbox read live.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        (caller / ".agentkit/state/openai-probe.lock").write_text(
+            repr(time.time() - 3600))
+        self.stale_host_week(caller, int(time.time()) - 3600)
+        self.healthy()
+        result = self.shell(self.share(caller) + self.skip_astra())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("DECISION: attempt", result.stdout)
+        self.assertNotIn("SKIP  3a", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+        self.assertEqual(self.probes("codex"), ["usage"])
+
+    def test_held_sandbox_read_ignores_the_host_reset_week(self):
+        # Held and empty, and the host's 100% sits in a window that already reset:
+        # past meters are dropped as a live read drops them, leaving nothing spent,
+        # so the call goes out instead of skipping to a time already past.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        (caller / ".agentkit/state/openai-probe.lock").write_text(repr(time.time()))
+        self.stale_host_week(caller, int(time.time()) - 3600)
+        self.healthy()
+        result = self.shell(self.share(caller) + self.skip_astra())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("DECISION: attempt", result.stdout)
+        self.assertNotIn("SKIP  3a", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+        self.assertEqual(self.probes("codex"), [])
+
 
 if __name__ == "__main__":
     unittest.main()
