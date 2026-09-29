@@ -347,6 +347,23 @@ cat "$dir/bridge-eval"
         proc = self.adapter("auth", env={"PATH": bare})
         self.assertEqual(proc.returncode, 2)
 
+    def test_auth_store_counts_only_a_mimo_login(self):
+        # `auth list` names every provider holding a saved login, the way 2.0.14 prints it;
+        # only MiMo's serves a turn here, so a store holding another provider's alone is a no
+        def listed(*ids):
+            return json.dumps([{"id": i, "name": i.title(), "connections": [
+                {"type": "credential", "id": f"cred_{i}", "label": i.title(), "method": "key"}]}
+                for i in ids], indent=4)
+        proc = self.adapter("auth", env={"STUB_AUTH_LIST": listed("anthropic")})
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        proc = self.adapter("login", env={"STUB_AUTH_LIST": listed("anthropic")},
+                            stdin=subprocess.DEVNULL)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("not logged in", proc.stderr)
+        proc = self.adapter("auth", env={"STUB_AUTH_LIST": listed("anthropic", "mimo")})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("auth store", proc.stdout)
+
     def test_usage_reports_none_with_reason(self):
         # no key is a failed probe: an unauthenticated account must not rank neutral
         self.write_config("")

@@ -53,7 +53,7 @@ FAKE_BINARY = """#!/usr/bin/env bash
 # opencode login check asks it.  Anything else is a test bug, said out loud.
 case "$1" in
   --version) echo "{name} version {version}" ;;
-  auth) printf '[{{"id": "fake-login"}}]' ;;
+  auth) printf '[{{"id": "mimo"}}]' ;;
   *) echo "fake {name}: unexpected $*" >&2; exit 2 ;;
 esac
 """

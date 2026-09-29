@@ -60,15 +60,17 @@ have_key() {
       "$CFG" >/dev/null 2>&1
 }
 
-# 0 when the auth store holds a login: what `opencode auth login` keeps beside the config.
+# 0 when the auth store holds a MiMo login: what `opencode auth login` keeps beside the config.
 # Slow -- it boots a private server -- so the config check runs first and this only on its
 # `no`.  `--standalone` is load-bearing: without it the call waits on the shared background
-# service instead of answering.
+# service instead of answering.  The list names every provider with a saved login, one
+# `"id": "<provider>"` each; another provider's -- an Anthropic key -- cannot run a `mimo/`
+# turn.  Matched as text, since a saved login is a yes even where jq is missing.
 store_key() {
   listed=$(command -v opencode >/dev/null \
     && opencode auth list --standalone --format json 2>/dev/null) || listed=""
-  case "$listed" in ""|"[]") return 1 ;; esac
-  return 0
+  case "${listed//[[:space:]]/}" in *'"id":"mimo"'*) return 0 ;; esac
+  return 1
 }
 
 case "$cmd" in
