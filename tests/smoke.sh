@@ -2128,13 +2128,17 @@ METER_WHY=""
 # Check 1 on a hold left a placeholder, not meters: refresh it now.  The suite has asked
 # since (checks 3 and 4), so a hold no longer decides this: the refresh serves that fresh
 # reading where the cadence holds, and asks where it allows.  Only a refresh with neither
-# meters nor a throttled error to stand on keeps the hold's own reason.
+# meters nor a throttled error to stand on keeps the hold's own reason.  `ak usage` alone
+# would serve its five-minute snapshot, which can be check 3's read from inside the hold,
+# with no meters, so the refresh asks first.  The hold is read before that ask: read after
+# it, a hold that ran out in between would let the pick run on the reading it left.
 if [ -n "${HOST_SKIPPED_1:-}" ]; then
+  HOST_WHY=$(host_held anthropic openai 2>/dev/null) || HOST_WHY=""
+  reprobe anthropic openai
   ak usage --json >"$U" 2>"$WORK/usage.err" || true
-  if ! meter_unavailable "$U" anthropic openai \
+  if [ -n "$HOST_WHY" ] && ! meter_unavailable "$U" anthropic openai \
       && ! jq -e '(.providers.anthropic.meters | length >= 1) and
-        (.providers.openai.meters | length >= 1)' "$U" >/dev/null 2>&1 \
-      && HOST_WHY=$(host_held anthropic openai 2>/dev/null); then
+        (.providers.openai.meters | length >= 1)' "$U" >/dev/null 2>&1; then
     METER_WHY="$HOST_WHY"
   fi
 fi

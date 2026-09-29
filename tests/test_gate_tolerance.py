@@ -452,6 +452,29 @@ class GateTolerance(unittest.TestCase):
         # Check 1 asked nothing; the one suite ask served check 6 from the cache.
         self.assertEqual(self.probes("claude"), ["usage"])
 
+    def test_held_check_1_picks_once_the_hold_lifts_after_a_held_read(self):
+        # Check 3's `ak usage` ran while the hold lasted and cached Claude with no meters;
+        # the hold lifts minutes later, inside that snapshot's five.  Check 6's refresh asks
+        # now that it may, rather than picking on the empty reading the hold left behind.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        state = caller / ".agentkit/state"
+        (state / "anthropic-probe.lock").write_text(repr(time.time()))
+        self.healthy()
+        # Minutes pass between checks 3 and 6: both cadences run out.
+        aged = ("python3 -c 'import sys, time; [open(p, \"w\").write(repr(time.time() - 901)) "
+                "for p in sys.argv[1:]]' "
+                + shlex.quote(str(state / "anthropic-probe.lock")) + " "
+                + shlex.quote(str(state / "openai-probe.lock")))
+        block = (self.share(caller) + CHECK_1 + "\n"
+                 "ak usage --json >/dev/null\n" + aged + "\n" + CHECK_6)
+        result = self.shell(block)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
+        self.assertIn("PASS  6 ak orch --dry-run", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+        self.assertEqual(self.probes("claude"), ["usage"])
+
     def test_held_check_1_skips_check_6_while_the_hold_lasts(self):
         # The hold that skipped check 1 still lasts at check 6 and the suite asked
         # nothing since: the refresh has neither meters nor a throttled error, so
