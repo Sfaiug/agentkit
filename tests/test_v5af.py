@@ -1,4 +1,4 @@
-"""agentkit v5af: a done-when line ending in `# once` runs once, on the commit that ships.
+"""agentkit v5af: a done-when line ending in `# once` runs in the round, re-run at landing only on overlap.
 
 Entirely offline: throwaway repositories with a bare `origin`, a fake adapter and a
 fake `gh`, with done-when commands that append to a counter file so each test can
@@ -52,12 +52,12 @@ if reviewer:
     if verdict == "FAIL":
         text += "\\n\\n## Findings\\n- work.txt:1 - stale pattern - why it matters\\n"
     code = 0
-elif "## The final check failed" in prompt:
+elif "## The final check failed" in prompt or "## The suite checks failed" in prompt:
     with (cwd / "fixed").open("a") as fh: fh.write("fixed\\n")
     git(cwd, "add", "fixed")
     if (cwd / "regent").exists():
         git(cwd, "rm", "-q", "regent")
-    git(cwd, "commit", "-m", "fix the final check")
+    git(cwd, "commit", "-m", "fix the suite")
     record("final-fixer", cwd)
     text, code = "## Summary\\nFixed the root cause.", 0
 else:
@@ -195,7 +195,7 @@ class V5af(unittest.TestCase):
                          ["cmd-a", "cmd-b  # once", "cmd-c #once", "cmd-d # once more",
                           'echo "# once"', "echo '# once'"])
 
-    def test_v5af_rounds_run_only_the_every_commands(self):
+    def test_v5af_rounds_run_the_once_commands_alongside(self):
         self.plan = {"reviews": ["FAIL", "PASS"]}
         code, state = self.launch(self.every_cmd(), f"{self.every_cmd('once')}  # once",
                                   rounds=3, flags=("--no-merge",))
@@ -203,31 +203,34 @@ class V5af(unittest.TestCase):
         self.assertEqual(state["verdict"], "PASS")
         self.assertEqual(len(state["round_summaries"]), 2)
         self.assertEqual(self.counts("every"), 2)
-        self.assertEqual(self.counts("once"), 0)
+        self.assertEqual(self.counts("once"), 2)
+        self.assertEqual(state["final_check"]["where"], "round")
+        self.assertEqual(state["final_check"]["round"], 2)
 
-    def test_v5af_final_check_runs_the_once_command_on_the_pushed_commit(self):
+    def test_v5af_suite_runs_in_the_round_on_the_pushed_commit(self):
         once = (f"echo \"once $(git rev-parse HEAD)\" >> {shlex.quote(str(self.counter))}"
                 "  # once")
         code, state = self.launch(self.every_cmd(), once)
         self.assertEqual(code, 0, self.log_text())
         self.assertTrue(state["merged"])
-        self.assertEqual(self.counts("every"), 2)     # one round plus the final check
+        self.assertEqual(self.counts("every"), 1)     # the round only; landing reuses it
         rows = [line.split() for line in self.counter.read_text().splitlines()
                 if line.startswith("once ")]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][1], state["delivery_sha"])
         pushed = run.git(self.remote, "rev-parse", f"refs/heads/{state['branch']}")
         self.assertEqual(rows[0][1], pushed)
-        self.assertIn("final check: all passed", self.log_text())
+        self.assertIn("suite: all passed", self.log_text())
+        self.assertIn("already passed in round 1", self.log_text())
         self.assertIn(" ; once: ", self.log_text())
-        log = (self.directory / "final-check.log").read_text()
+        log = (self.directory / "round-1" / "once.log").read_text()
         self.assertIn("Commit: ", log)
         result = (self.directory / "result.md").read_text()
-        self.assertIn(f"final check: passed on {state['delivery_sha']}", result)
+        self.assertIn(f"final check: passed in round 1 on {state['delivery_sha']}", result)
 
-    def test_v5af_failing_once_command_gets_a_fixer_turn_then_merges(self):
-        # the branch carries a regression the target never had: the failing gate names
-        # its file, so the target's tip is never probed and the fixer runs as before
+    def test_v5af_failing_suite_gets_a_fixer_turn_then_merges(self):
+        # the branch carries a regression the target never had: round one fails the
+        # suite, round two's fixer removes it with the suite output and the findings
         (self.wt / "regent").write_text("branch regression\n")
         run.git(self.wt, "add", "regent")
         run.git(self.wt, "commit", "-m", "branch regression")
@@ -237,29 +240,26 @@ class V5af(unittest.TestCase):
         code, state = self.launch(self.every_cmd(), gate)
         self.assertEqual(code, 0, self.log_text())
         self.assertTrue(state["merged"])
-        self.assertTrue(any("## The final check failed. Fix the root cause." in prompt
+        self.assertTrue(any("## The suite checks failed. Fix the root cause." in prompt
                             for prompt in self.prompts()),
-                        "no fixer turn ran on the final check output")
+                        "no fixer turn ran on the suite output")
         self.assertEqual(self.counts("once-fail"), 2)     # the failing run and its re-run
-        self.assertEqual(self.counts("once-pass"), 1)     # the recheck
-        self.assertIn("final check: FAILED", self.log_text())
-        self.assertIn("final check: all passed", self.log_text())
+        self.assertEqual(self.counts("once-pass"), 1)     # round two, landing reuses it
+        self.assertIn("suite: FAILED", self.log_text())
+        self.assertIn("suite: all passed", self.log_text())
         result = (self.directory / "result.md").read_text()
-        self.assertIn(f"final check: passed on {state['delivery_sha']}", result)
+        self.assertIn(f"final check: passed in round 2 on {state['delivery_sha']}", result)
 
-    def test_v5af_once_command_failing_at_the_budget_fails_with_a_continue_hint(self):
-        # the branch's own file fails the gate where the target passes it, so the
-        # fixer still runs and the identical failure still blocks with its line
+    def test_v5af_suite_failing_at_the_budget_fails_with_a_continue_hint(self):
+        # the suite fails in the only round: a FAIL at the budget with its line and
+        # the resume hint, never a wait for a target the branch broke
         code, state = self.launch(self.every_cmd(), "test ! -f work.txt  # once", rounds=1)
         self.assertEqual(code, 1, self.log_text())
-        # the check fails the same way after its own fixer round: blocked on the line it
-        # fails on, never a FAIL that spends the budget and asks for `--rounds`
-        self.assertEqual(state["verdict"], "BLOCKED")
-        self.assertIn("final check: FAILED", self.log_text())
+        self.assertEqual(state["verdict"], "FAIL")
+        self.assertIn("suite: FAILED", self.log_text())
         result = (self.directory / "result.md").read_text()
-        self.assertIn("final check: failed on ", result)
-        self.assertIn("the final check still fails on `test ! -f work.txt`", state["error"])
-        self.assertNotIn("--rounds", result)
+        self.assertIn("final check: failed in round 1 on ", result)
+        self.assertIn("--rounds", result)
 
     def test_v5af_no_once_commands_means_no_final_check(self):
         code, state = self.launch(self.every_cmd())
@@ -278,8 +278,8 @@ class V5af(unittest.TestCase):
         self.assertEqual(code, 0, self.log_text())
         prompt = (self.directory / "round-1" / "executor" / "prompt.md").read_text()
         self.assertIn("Done-when commands, all must exit 0", prompt)
-        heading = ("The loop runs these once, in the final check on the commit about to "
-                   "ship; do not run them yourself:")
+        heading = ("The loop runs these alongside the review, and again at landing "
+                   "only if the target touched your files; do not run them yourself:")
         self.assertIn(heading, prompt)
         self.assertLess(prompt.index("Done-when commands, all must exit 0"),
                         prompt.index(heading))

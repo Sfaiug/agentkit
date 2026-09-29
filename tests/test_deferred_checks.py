@@ -1,4 +1,4 @@
-"""Deferred done-when commands are explained to reviewers and in result.md."""
+"""Suite commands running alongside are explained to reviewers and in result.md."""
 
 from pathlib import Path
 import shutil
@@ -67,9 +67,11 @@ class DeferredChecks(unittest.TestCase):
 
     def test_reviewer_body_lists_each_deferred_command_and_explanation(self):
         prompt = self.reviewer_prompt(("bash tests/smoke.sh", "python3 tests/test_extra.py"))
-        first = "deferred to the final check on the shipping commit: bash tests/smoke.sh"
-        second = "deferred to the final check on the shipping commit: python3 tests/test_extra.py"
-        sentence = "These run after this review passes; their absence here is by design and is never a finding."
+        first = "runs alongside this review on the commit under review: bash tests/smoke.sh"
+        second = ("runs alongside this review on the commit under review: "
+                  "python3 tests/test_extra.py")
+        sentence = ("These run alongside this review; their absence here is by design "
+                    "and is never a finding.")
         self.assertIn(first, prompt)
         self.assertIn(second, prompt)
         self.assertIn(sentence, prompt)
@@ -79,25 +81,33 @@ class DeferredChecks(unittest.TestCase):
 
     def test_review_without_deferred_commands_adds_no_deferred_note(self):
         prompt = self.reviewer_prompt()
-        self.assertNotIn("deferred to the final check", prompt)
+        self.assertNotIn("runs alongside this review", prompt)
         self.assertNotIn("Their absence here is by design", prompt)
 
     def test_reviewer_preambles_explain_deferred_commands(self):
-        clause = "except the commands marked deferred, which run on the shipping commit after your PASS"
+        clause = "except the commands marked deferred, which run alongside your review"
         self.assertIn(clause, worker.PREAMBLES["reviewer"])
         self.assertIn(clause, worker.PREAMBLES["reviewer-scratch"])
 
     def test_result_marks_once_command_as_final_check(self):
         root = Path(tempfile.mkdtemp(prefix=".deferred-result-", dir=REPO))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
-        state = {"title": "Fixture", "verdict": "PASS", "round_summaries": [], "rounds": 1,
-                 "scratch": True, "worktree": str(root), "executor": "executor",
-                 "reviewer": "reviewer"}
-        with patch.object(run, "delivery", return_value="PASS, delivered"):
-            run.write_result(root, state, ["true", "bash tests/smoke.sh # once"])
-        result = (root / "result.md").read_text()
-        self.assertIn("true\nbash tests/smoke.sh (once, final check)", result)
-        self.assertNotIn("bash tests/smoke.sh # once", result)
+        for where, suffix, line in (
+                ({"outcome": "passed", "sha": "abc123", "where": "round", "round": 2},
+                 "(once, in round 2)", "final check: passed in round 2 on abc123"),
+                ({"outcome": "passed", "sha": "abc123", "where": "landing"},
+                 "(once, at landing)", "final check: passed at landing on abc123")):
+            with self.subTest(where=where["where"]):
+                state = {"title": "Fixture", "verdict": "PASS", "round_summaries": [],
+                         "rounds": 1, "scratch": True, "worktree": str(root),
+                         "executor": "executor", "reviewer": "reviewer",
+                         "final_check": dict(where)}
+                with patch.object(run, "delivery", return_value="PASS, delivered"):
+                    run.write_result(root, state, ["true", "bash tests/smoke.sh # once"])
+                result = (root / "result.md").read_text()
+                self.assertIn(f"true\nbash tests/smoke.sh {suffix}", result)
+                self.assertIn(line, result)
+                self.assertNotIn("bash tests/smoke.sh # once", result)
 
 
 if __name__ == "__main__":

@@ -358,7 +358,7 @@ class MergeStep(unittest.TestCase):
         state["state"] = "fail"
         self.assertEqual(run.handback_reason(state),
                          "after 1 rounds, the reviewer said PASS but exited 1; the final "
-                         "check failed: `bash tests/smoke.sh` — FAIL  2 the gate")
+                         "check failed at landing: `bash tests/smoke.sh` — FAIL  2 the gate")
 
     def test_a_gate_overridden_final_check_review_gets_a_fixer_on_the_gate(self):
         # after a final-check fix a done-when command fails and the reviewer still says PASS:
