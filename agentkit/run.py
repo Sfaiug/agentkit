@@ -3304,14 +3304,15 @@ def verify_work(lp, cmds=None):
 
 
 def verify_once(lp):
-    """Run the `# once` commands on the commit under review, alongside the review.
+    """Run the `# once` commands on the commit under review, while the reviewer works.
 
     Only rounds that passed their per-round commands reach here, on the commit
     `verify_work` just pinned in `lp.validation`.  The suite takes a heavy-suite
     turn, re-runs a failing command once, and records where it ran: `final_check`
     says `round` with this round's number, so the landing re-runs it only when the
     target moved in the branch's files.  Without a `# once` line there is nothing
-    to run.  The output goes to `<round dir>/once.log`, never to the reviewer.
+    to run.  The output goes to `<round dir>/once.log`, never to the reviewer:
+    it does not exist yet when the review starts.
     """
     if not getattr(lp, "once", ()):
         return True, ""
@@ -3341,6 +3342,48 @@ def verify_once(lp):
                                    "line": first_failure(text)}
     lp.save()
     return ok, text
+
+
+def start_suite(lp):
+    """Run `verify_once` in the background while the reviewer works, and return its handle.
+
+    The thread shares the loop's state dict, so either side's save carries the
+    other's update; it is a daemon, so a review that raises never waits out the
+    suite to report.  The reviewer joins it before judging, so the round still
+    fails when the suite does, and the fixer still gets both outputs.
+    """
+    box = {}
+
+    def run_suite():
+        try:
+            box["result"] = verify_once(lp)
+        except BaseException as exc:
+            box["error"] = exc
+
+    thread = threading.Thread(target=run_suite, name=f"suite-round-{lp.rnd}", daemon=True)
+    thread.start()
+    return thread, box
+
+
+def join_suite(lp):
+    """Wait for the background suite `start_suite` began, then judge it like a gate.
+
+    Sets `lp.once_ok`/`lp.once_log` for the reviewer's override, logs the outcome,
+    and records the gate's history.  Nothing to wait for without a suite thread.
+    An error the suite raised comes out here, where the round can answer it.
+    """
+    thread = getattr(lp, "suite_thread", None)
+    if thread is None:
+        return
+    thread.join()
+    box = getattr(lp, "suite_box", {}) or {}
+    lp.suite_thread = lp.suite_box = None
+    if "error" in box:
+        raise box["error"]
+    lp.once_ok, lp.once_log = box.get("result", (True, ""))
+    lp.log(f"suite: {'all passed' if lp.once_ok else 'FAILED'}")
+    same_failure(lp, lp.once_ok, lp.once_log, gate="once",
+                 compare=getattr(lp, "suite_compare", True))
 
 
 def pending_review(lp, reason):
@@ -3383,10 +3426,10 @@ def resume_review(lp, verified=None):
     # compare against it
     same_failure(lp, ok, dw_log, compare=False)
     lp.once_ok, lp.once_log = True, ""
+    lp.suite_thread = lp.suite_box = None
+    lp.suite_compare = False
     if ok and getattr(lp, "once", ()) and not lp.state.get("landing"):
-        lp.once_ok, lp.once_log = verify_once(lp)
-        lp.log(f"suite: {'all passed' if lp.once_ok else 'FAILED'}")
-        same_failure(lp, lp.once_ok, lp.once_log, gate="once", compare=False)
+        lp.suite_thread, lp.suite_box = start_suite(lp)
     return review(lp, pending["summary"], ok, dw_log,
                   pending.get("reason", "Resume the unfinished review."),
                   **({"record": False} if pending.get("record") is False else {}))
@@ -3814,10 +3857,11 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
 
     The reviewer judges that work against the done-when output the loop already ran on the
     commit under review; it is told so, with the commit and the exit counts, and not to run
-    the commands again.  The `# once` suite runs alongside on the same commit through
-    `verify_once`, whose outcome `lp.once_ok` carries: the round is PASS only when the
-    reviewer says PASS and that suite passed, and the reviewer is told its absence from
-    the input is by design.
+    the commands again.  The `# once` suite runs at the same time on the same commit:
+    the caller starts it with `start_suite`, the reviewer works while it runs, and this
+    joins it before judging.  The round is PASS only when the reviewer says PASS and
+    that suite passed, and the reviewer is told its absence from the input is by design
+    -- the output does not exist yet when the review starts.
 
     `record` is off for a merge pipeline's conflict rounds only: they are not task rounds
     and must not spend one, so no summary of them enters the rounds' own history -- see
@@ -4057,6 +4101,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
         name = fall_back("gave no verdict twice", out2)
 
+    # the suite ran alongside the reviewer above; its verdict lands here, before judging
+    join_suite(lp)
     verdicts = review_verdicts(text)
     verdict = verdicts[-1].upper()
     overridden = None       # why the loop failed what the reviewer passed, for the hand-back
@@ -4213,6 +4259,8 @@ def rounds(lp, execv=None):
                 lp.log(f"done-when after fix: {'all passed' if ok else 'still FAILING'}")
         same_failure(lp, ok, dw_log)
         lp.once_ok, lp.once_log = True, ""
+        lp.suite_thread = lp.suite_box = None
+        lp.suite_compare = True
         if ok and getattr(lp, "once", ()):
             once_path = lp.round_dir / "once.log"
             if cut == "reviewer" and once_path.is_file():
@@ -4223,9 +4271,8 @@ def rounds(lp, execv=None):
                 lp.once_ok = not failing_checks(lp.once_log) if lp.once_log else True
                 same_failure(lp, lp.once_ok, lp.once_log, gate="once", compare=False)
             else:
-                lp.once_ok, lp.once_log = verify_once(lp)
-                lp.log(f"suite: {'all passed' if lp.once_ok else 'FAILED'}")
-                same_failure(lp, lp.once_ok, lp.once_log, gate="once")
+                # alongside the review below: it joins the suite before judging
+                lp.suite_thread, lp.suite_box = start_suite(lp)
 
         if review(lp, summary, ok, dw_log, "Re-review after fixes." if lp.rnd > 1 else "") == "PASS":
             return
@@ -4547,23 +4594,40 @@ def abort_stopped_integration(lp, how):
     lp.log(f"--- merge: aborted the stopped {how}; {lp.state['branch']} back on its head")
 
 
+def target_disjoint_from_branch(wt, base, head_before, tip):
+    """Whether the target's moves since `base` touch none of the branch's files.
+
+    Both sides are read off `base`: the branch's files from `base..head_before`,
+    the target's from `base..tip`.  Disjoint means a clean rebase changed only the
+    parent, so the round's checks still verify the rebased commit.  Anything git
+    cannot compare is overlapping: the checks run again.
+    """
+    try:
+        ours = git(wt, "diff", "--no-renames", "--name-only", base, head_before).splitlines()
+        theirs = git(wt, "diff", "--no-renames", "--name-only", base, tip).splitlines()
+    except (Stopped, config.Error):
+        return False
+    return not (set(ours) & set(theirs))
+
+
 def integrate(lp, upstream):
     """Fetch origin and bring the branch up to date with it, resolving conflicts if there are any.
 
     A rebase, unless `how_to_integrate` says this branch's history has to survive the trip.
     Under a landing the lap's gate turn is already held, so the fetch and the rebase run on
-    the target's tip as it reads now, and the checks run on exactly that commit.  The tip is
-    resolved once per lap and every check after it uses that pinned commit, never
-    the moving branch name again.  A lap re-checking under a lent reserved hold skips the
-    second fetch: borrowers may have landed disjoint moves during its check, and `land`
-    carries those over under the delivery turn without another re-check.  Otherwise, when
-    origin moved while the lap landed, the lap goes round again, at most three laps; a move
-    still unlanded after the third parks the run `waiting`, as a conflict does, and never
-    ends it FAIL.  A re-check that fails on the target's own
-    tip too parks on it at once, spending no fixer round.  A branch left with no diff is
-    False too, a PASS noted as already on the target, so no caller pushes it.
-    A commit whose checks pass here is marked on the loop, so the final check runs only
-    what has not run on it yet, once.
+    the target's tip as it reads now, and the checks run on exactly that commit -- unless
+    the target moved only outside the branch's files, which lands on the round's checks
+    without re-running them.  The tip is resolved once per lap and every check after it
+    uses that pinned commit, never the moving branch name again.  A lap re-checking under
+    a lent reserved hold skips the second fetch: borrowers may have landed disjoint moves
+    during its check, and `land` carries those over under the delivery turn without
+    another re-check.  Otherwise, when origin moved while the lap landed, the lap goes
+    round again, at most three laps; a move still unlanded after the third parks the run
+    `waiting`, as a conflict does, and never ends it FAIL.  A re-check that fails on the
+    target's own tip too parks on it at once, spending no fixer round.  A branch left
+    with no diff is False too, a PASS noted as already on the target, so no caller
+    pushes it.  A commit whose checks pass here is marked on the loop, so the final
+    check runs only what has not run on it yet, once.
 
     A fetch, merge or rebase that stops -- out of time, or refused its prompt -- is not a
     conflict and never reaches `resolve_conflicts`: `git_out` raises Stopped, the worktree
@@ -4624,14 +4688,39 @@ def integrate(lp, upstream):
             # the conflict round re-tested this commit and the review passed on it
             lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
         else:
+            old_base = lp.state.get("base_sha")
             set_base(lp, tip)
             if current_review(lp):
                 lp.log("--- merge: unchanged commit; reusing done-when and review evidence")
             else:
                 # a passed review survives a clean integration whatever it leaves, an empty
                 # diff included: the done-when runs again on the new commit, and only its
-                # failure or a commit it changed sends the work back to the reviewer
+                # failure or a commit it changed sends the work back to the reviewer --
+                # unless the target moved only outside the branch's files, which lands on
+                # the round's checks without re-running them
+                carried = lp.state.get("final_check")
+                carried_here = (isinstance(carried, dict)
+                                and carried.get("outcome") == "passed"
+                                and carried.get("sha") == old_head)
                 if (was_pass and saved is not None and pre_identity is not None
+                        and saved.get("head_sha") == pre_identity.get("head_sha")
+                        and saved.get("tree_sha") == pre_identity.get("tree_sha")
+                        and not on_pass(lp) and old_base and old_head and carried_here
+                        and target_disjoint_from_branch(lp.wt, old_base, old_head, tip)):
+                    new_identity = commit_identity(lp.wt)
+                    lp.log(f"--- merge: clean {how} of {upstream}; target moved outside "
+                           "this branch's files, landing on the round's checks")
+                    lp.state["review"] = {**saved, "head_sha": new_identity["head_sha"],
+                                          "tree_sha": new_identity["tree_sha"],
+                                          "rebased_from": old_head,
+                                          "patch_id": patch_id(lp.wt, tip)}
+                    lp.state["verdict"] = saved_verdict
+                    lp.state["final_check"] = {**carried,
+                                               "sha": new_identity["head_sha"]}
+                    lp.state.pop("review_pending", None)
+                    lp.save()
+                    lp.lap_every_sha = new_identity["head_sha"]
+                elif (was_pass and saved is not None and pre_identity is not None
                         and saved.get("head_sha") == pre_identity.get("head_sha")
                         and saved.get("tree_sha") == pre_identity.get("tree_sha")):
                     try:
@@ -5595,8 +5684,13 @@ def disjoint_move(lp, upstream, verified, tip):
         raise
     if rc == 0:
         set_base(lp, tip)
-        kept["review"] = {**kept["review"], **commit_identity(lp.wt),
+        landed = commit_identity(lp.wt)
+        kept["review"] = {**kept["review"], **landed,
                           "rebased_from": old_head, "patch_id": patch_id(lp.wt, tip)}
+        carried = lp.state.get("final_check")
+        if (isinstance(carried, dict) and carried.get("outcome") == "passed"
+                and carried.get("sha") == old_head):
+            kept["final_check"] = {**carried, "sha": landed["head_sha"]}
         moved = git(lp.wt, "rev-list", "--count", f"{verified}..{tip}")
         lp.log(f"--- merge: {upstream} moved {moved} commits, none touching this branch's "
                "files; landing on the verified checks")
@@ -6690,15 +6784,18 @@ def retry_command(state):
 def final_check_line(state, cmds):
     """The run's `final check:` result.md line: what the once-commands came to, and where."""
     record = state.get("final_check") or {}
-    if record.get("outcome") in ("passed", "failed") and record.get("sha"):
+    if record.get("outcome") in ("passed", "failed") and (
+            record.get("sha") or record.get("where") in ("round", "landing")):
+        sha = f" on {record['sha']}" if record.get("sha") else ""
         where = record.get("where")
         if where == "round":
             rnd = record.get("round")
             loc = f"in round {rnd}" if rnd else "in round"
-            return f"final check: {record['outcome']} {loc} on {record['sha']}"
+            return f"final check: {record['outcome']} {loc}{sha}"
         if where == "landing":
-            return f"final check: {record['outcome']} at landing on {record['sha']}"
-        return f"final check: {record['outcome']} on {record['sha']}"
+            return f"final check: {record['outcome']} at landing{sha}"
+        if record.get("sha"):
+            return f"final check: {record['outcome']} on {record['sha']}"
     if not group_commands(cmds)[1]:
         return "final check: none (no once-commands)"
     return "final check: not run"
@@ -11010,6 +11107,13 @@ def status_final_check(directory, state):
         cmds = done_when(body, directory / "task.md")
     except (OSError, config.Error):
         return None
+    if not state.get("scratch") and not state.get("review_pr"):
+        wt = state.get("worktree")
+        if wt:
+            try:
+                cmds = with_suite(cmds, Path(wt), state.get("target") or state.get("base"))
+            except Exception:
+                pass
     return final_check_line(state, cmds)
 
 

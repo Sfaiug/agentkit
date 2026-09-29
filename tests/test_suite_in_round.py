@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -253,6 +254,136 @@ class SuiteInRound(unittest.TestCase):
         text = (run_dir2 / "result.md").read_text()
         self.assertIn("(once, at landing)", text)
         self.assertIn("final check: passed at landing on ", text)
+
+    def test_reviewer_starts_before_the_suite_finishes(self):
+        self.commit("---\ntests: sleep 3; test -f AGENTS.md\n---\n# acme\n")
+        marks = {}
+        real_worker = worker.call
+        real_gate = run.run_done_when
+
+        def timed_worker(cfg, name, body, workspace, out_dir, role, session, **kwargs):
+            if role.startswith("reviewer") and "reviewer" not in marks:
+                marks["reviewer"] = time.monotonic()
+            return self.worker(cfg, name, body, workspace, out_dir, role, session,
+                               **kwargs)
+
+        def timed_gate(cmds, cwd, log_path, *args, **kwargs):
+            if Path(log_path).name == "once.log" and "suite_start" not in marks:
+                marks["suite_start"] = time.monotonic()
+                try:
+                    return real_gate(cmds, cwd, log_path, *args, **kwargs)
+                finally:
+                    marks["suite_end"] = time.monotonic()
+            return real_gate(cmds, cwd, log_path, *args, **kwargs)
+
+        with patch.object(worker, "call", side_effect=timed_worker):
+            with patch.object(run, "run_done_when", side_effect=timed_gate):
+                directory = config.RUNS / "alongside-timing"
+                directory.mkdir()
+                task = directory / "task.md"
+                task.write_text(f"---\nrepo: {self.repo}\nbase: main\nrounds: 1\n---\n"
+                                "# Timing\n\n## Goal\nShip.\n\n## Done when\n```bash\n"
+                                "true\n```\n")
+                state = run.loop(self.cfg, directory, task, self.opts, self.logs.append)
+        self.assertEqual(state["state"], "pass", self.logs)
+        self.assertIn("reviewer", marks, marks)
+        self.assertIn("suite_end", marks, marks)
+        self.assertLess(marks["reviewer"] - marks["suite_start"], 3, marks)
+
+    def test_disjoint_target_move_lands_on_the_round_checks(self):
+        origin = self.root / "disjoint-origin.git"
+        subprocess.run(["git", "init", "-q", "--bare", "--initial-branch=main", str(origin)],
+                       check=True, capture_output=True, text=True)
+        owner = self.root / "disjoint-owner"
+        subprocess.run(["git", "clone", "-q", str(origin), str(owner)], check=True,
+                       capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(owner), "config", "user.name", "t"], check=True)
+        subprocess.run(["git", "-C", str(owner), "config", "user.email", "t@localhost"],
+                       check=True)
+        (owner / "base.txt").write_text("base\n")
+        subprocess.run(["git", "-C", str(owner), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(owner), "commit", "-q", "-m", "base"], check=True)
+        subprocess.run(["git", "-C", str(owner), "push", "-q", "-u", "origin", "main"], check=True)
+        counter = self.root / "disjoint-counter"
+        counter.write_text("")
+        once = f"echo once >> {counter}  # once"
+        wt = self.root / "disjoint-wt"
+        subprocess.run(["git", "clone", "-q", str(origin), str(wt)], check=True,
+                       capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(wt), "config", "user.name", "t"], check=True)
+        subprocess.run(["git", "-C", str(wt), "config", "user.email", "t@localhost"], check=True)
+        subprocess.run(["git", "-C", str(wt), "checkout", "-q", "-b", "ak/disjoint"], check=True)
+        (wt / "work.txt").write_text("work\n")
+        subprocess.run(["git", "-C", str(wt), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(wt), "commit", "-q", "-m", "work"], check=True)
+        head = subprocess.run(["git", "-C", str(wt), "rev-parse", "HEAD"], check=True,
+                              capture_output=True, text=True).stdout.strip()
+        tree = subprocess.run(["git", "-C", str(wt), "rev-parse", "HEAD^{tree}"],
+                              check=True, capture_output=True, text=True).stdout.strip()
+        base = subprocess.run(["git", "-C", str(wt), "rev-parse", "origin/main^{commit}"],
+                              check=True, capture_output=True, text=True).stdout.strip()
+        (owner / "other.txt").write_text("other\n")
+        subprocess.run(["git", "-C", str(owner), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(owner), "commit", "-q", "-m", "other"], check=True)
+        subprocess.run(["git", "-C", str(owner), "push", "-q", "origin", "main"], check=True)
+        run_dir = config.RUNS / "disjoint"
+        run_dir.mkdir()
+        (run_dir / "log.txt").touch()
+        (run_dir / "round-1").mkdir(exist_ok=True)
+        providers = run.review_providers(self.cfg, "opus", "astra")
+        state = {"run_id": "disjoint", "title": "disjoint", "state": "running",
+                 "verdict": "PASS",
+                 "review": {"executor": "opus", "executor_provider": providers[0],
+                            "reviewer": "astra", "reviewer_provider": providers[1],
+                            "returncode": 0, "verdict": "PASS", "done_when": True,
+                            "head_sha": head, "tree_sha": tree},
+                 "round_summaries": [{"round": 1, "verdict": "PASS", "done_when": True,
+                                      "summary": "work", "head_sha": head,
+                                      "tree_sha": tree}],
+                 "rounds": 3, "base": "origin/main", "target": "origin/main",
+                 "base_sha": base, "branch": "ak/disjoint", "worktree": str(wt),
+                 "repo": str(wt), "executor": "opus", "reviewer": "astra",
+                 "merge_method": "squash", "merged": False, "merge_failed": False,
+                 "merge_note": None, "findings": "",
+                 "final_check": {"outcome": "passed", "sha": head,
+                                 "where": "round", "round": 1}}
+        run.save_state(run_dir, state)
+        logs = []
+        lp = run.Loop(self.cfg, run_dir, state, {}, logs.append, wt,
+                      "body", ["true", once], "context", [])
+        before = counter.read_text()
+        with patch.object(run, "run_done_when", wraps=run.run_done_when) as watched:
+            self.assertTrue(run.land(lp, "origin/main",
+                                    lambda: run.integrate(lp, "origin/main")
+                                    and run.final_check(lp, "origin/main"), lambda: True))
+            names = [Path(call.args[2]).name for call in watched.call_args_list]
+        self.assertNotIn("final-check.log", names, names)
+        self.assertNotIn("once.log", names, names)
+        self.assertNotIn("donewhen.log", names, names)
+        self.assertEqual(counter.read_text(), before)
+        self.assertEqual(run.read_state(run_dir)["final_check"]["where"], "round")
+        self.assertIn("landing on the round's checks", "\n".join(logs))
+
+    def test_status_names_the_declared_suite_before_it_runs(self):
+        self.commit("---\ntests: bash tests/smoke.sh\n---\n# acme\n")
+        directory = config.RUNS / "status-suite"
+        directory.mkdir()
+        (directory / "task.md").write_text("---\nrepo: %s\nbase: main\n---\n# T\n\n## Goal\nG\n\n"
+                                           "## Done when\n```bash\ntrue\n```\n" % self.repo)
+        wt = self.root / "status-wt"
+        subprocess.run(["git", "clone", "-q", str(self.repo), str(wt)], check=True,
+                       capture_output=True, text=True)
+        state = {"worktree": str(wt), "target": "origin/main", "base": "main"}
+        line = run.status_final_check(directory, state)
+        self.assertEqual(line, "final check: not run")
+
+    def test_scratch_result_says_where_the_suite_ran(self):
+        state = {"final_check": {"outcome": "passed", "sha": "", "where": "round",
+                                 "round": 1}}
+        self.assertEqual(run.final_check_line(state, ["test -d .  # once"]),
+                         "final check: passed in round 1")
+        self.assertIn("(once, in round 1)",
+                      run.result_done_when(["test -d .  # once"], state)[0])
 
 
 if __name__ == "__main__":
