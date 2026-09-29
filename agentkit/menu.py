@@ -1271,7 +1271,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         return page, (len(pages) if ordered else 1)
     # Home and write over, each line cleared past its end and the screen below the last: one
     # write, so no draw ever shows a blank screen or a half-drawn one.
-    sys.stdout.write("\033[H" + "".join(f"{line}\033[K\n" for line in out) + "\033[J")
+    sys.stdout.write("\033[H" + "".join(f"\033[K{line}\n" for line in out) + "\033[J")
     sys.stdout.flush()
     drawn.update(order=order, cursor=cursor, words=words,
                  ask=top + at + len(asked) - 1 if at else None,
