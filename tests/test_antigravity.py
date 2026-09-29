@@ -92,8 +92,10 @@ class Antigravity(unittest.TestCase):
         self.bin.mkdir()
         (self.bin / "agy").write_text(STUB)
         (self.bin / "agy").chmod(0o755)
+        # the usual login unless a test names another: a worker on a named account carries its
+        # name, and the probes run in-process here would hand it to the adapter
         self.env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin",
-                    "AGENTKIT_SESSION": "fakesession"}
+                    "AGENTKIT_SESSION": "fakesession", "AGENTKIT_ACCOUNT": ""}
         self.argv_log = self.root / "argv.log"
         self.token = self.home / ".gemini/antigravity-cli/antigravity-oauth-token"
 
