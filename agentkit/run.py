@@ -11927,12 +11927,20 @@ def update_scope_line(run_dir, state):
 def finish(state, run_dir, log, cfg=None):
     try:
         start_followups(state, run_dir, log, cfg)
-    except (config.Error, OSError, StopRequested) as exc:
-        log(f"follow-ups could not start: {exc}")
+    except StopRequested as exc:
+        # A stop on a fix run being launched is that fix's failure, not this
+        # run's: only this run's own `stopped` receipt aborts its ending.
+        if (read_state(run_dir) or {}).get("state") == "stopped":
+            raise
+        log(f"WARN could not start follow-ups: {exc}")
+    except Exception as exc:  # noqa: BLE001 - the ending matters, not the follow-ups
+        log(f"WARN could not start follow-ups: {exc}")
     try:
         refresh_seat_tally(launched_session(state))   # the ending lands on the bar too
-    except config.Error:
-        pass
+    except StopRequested:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the ending matters, not the bar
+        log(f"WARN could not refresh seat tally: {exc}")
     announce(state, run_dir, log, cfg)
     history_finish(state, log)
     settle_run(read_state(run_dir) or state, run_dir, log)
