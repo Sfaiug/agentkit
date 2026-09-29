@@ -14,20 +14,21 @@ On a terminal, and only for what is missing, it asks: which harness to install w
 
 ## Use
 
-Type `ak`. One screen: your sessions, what each is doing, and one line at the top: `nothing needs you` or `2 need you`. Six keys:
+Type `ak`. One screen: your sessions, what each is doing, and one line at the top: `nothing needs you` or `2 need you`. Seven keys:
 
 ```
 1 2 3   open that session
 n       start a session
 x       stop a session, or close a done one
 c       change the config
+m       change the session's models
 i       show info
 q       leave
 ```
 
 On a terminal a key acts the moment you press it, no Enter. One session is highlighted: ↑↓ (or `k` `j`, or the wheel) move it and Enter opens it. A click on a session opens it, and a click on the key line does what that key does. Two digits within half a second are one number.
 
-`x` is the highlighted session's. When a session is done, press `x` on it and it is closed at once: its runs, checkouts, conversation and files go with it, and the key line says `x close` while it is highlighted. Any other session asks first, under its row: `Stop <name> and everything it runs?`, with `Keep` picked until you move to `Stop`; Esc keeps it. `i` is one screen: the three states, the keys, the worker token's date and the build. Esc goes back.
+`x` is the highlighted session's. When a session is done, press `x` on it and it is closed at once: its runs, checkouts, conversation and files go with it, and the key line says `x close` while it is highlighted. Any other session asks first, under its row: `Stop <name> and everything it runs?`, with `Keep` picked until you move to `Stop`; Esc keeps it. `m` is the highlighted session's executors and reviewers, flipped with the arrow keys and Enter or a click, each flip saved to its record at once for the runs it launches next; each group keeps one model, and a choice leaving no allowed pair is refused in one line. `i` is one screen: the three states, the keys, the worker token's date and the build. Esc goes back.
 
 `c` is every model once, under its company: `orch` (`●`) marks the orchestrator a new session takes, `exec` and `review` (`■`) mark its executors and reviewers, and `‹ xhigh ›` is the model's effort. ↑↓ move between models and ←→ between those columns, the effort's too; Enter, space or a click flips a mark, Enter or space on an effort steps it up through that model's own efforts and from the highest back to the lowest, and a click on `‹` or `›` steps it down or up. Each change is saved at once; each group keeps at least one model, and a choice leaving no allowed executor/reviewer pair is refused in one line. Older defaults without reviewers show the worker list in both role columns; the first mark flipped writes separate lists. ← from the marks reaches a model's label, and Enter there opens its own screen: its model id picked from its harness's catalog (the effort stays if the new model takes it, else moves to the nearest it does), its effort, `Reviews its own company's work` (yes or no), and `Remove`, which asks `Keep` or `Remove` and is refused for the last model. Esc goes back to its row. Under the models, `+ add a model` is three lists in one screen: a harness of a company the config has, then a model its catalog offers (one already configured is marked, and can be added at another effort), then an effort that model takes; Enter on the effort adds it, named from its label (`sonnet`, `sonnet-2`), and Esc steps back one list. `Providers` lists your providers in their colours; ←→ choose `+ add` or `− remove`. `+ add` offers the ones agentkit ships that you have not added, installs the one you pick if its harness is missing, logs it in on the terminal, and adds it as it ships with its catalog's first model. `− remove` asks `Remove <provider> and its models?`, `Keep` picked, and takes its models and its usage rows with it; the last provider stays. A provider that lists `accounts` has one usage row per account in config order, the usual login as `Claude` and the others as `Claude second`, each with its week's bar and its 5-hour window (`5h 40% left`, or `5h spent until 14:00` once spent). Enter runs `Discord` (connected or not; its two secrets are the only typing left) and `Update` (the build, then `up to date` or the newer commit). Esc goes back.
 

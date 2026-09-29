@@ -21,7 +21,7 @@ existing seat. As soon as the project is known, `ak orch project [<seat>] <check
 counting a run from its launch, still queued for a slot or not, for the checkout under `~/code` or `~/agentkit`
 (agentkit's own; a second clone at `~/code/agentkit` counts as it) its task's `repo:` names, else for the one its task's `~/.agentkit/tasks/<project>/` is named for, never
 one it merely inherits, and a worktree, sandbox or scratch workspace for nothing; a tie keeps its project. A seat with no
-project is filed at the next menu draw or `ak watch` tick once one of its runs counts.
+project is filed at the next menu draw or `ak watch` tick once one of its runs counts. `m` on its row opens that session's executors and reviewers with its current groups chosen: the arrow keys move, Enter, space or a click flips a mark and saves it to the session's record at once for the runs it launches next, Esc goes back; each group keeps one model and a choice leaving no allowed pair is refused in one line.
 
 The orchestrator is launched with `orchestrator.md` as its rulebook, plus `~/.agentkit/rules.md` where you wrote one on
 this host, handed over by its adapter for that launch only (Antigravity's as the body of an `--agent` definition in
