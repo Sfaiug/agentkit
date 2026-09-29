@@ -41,7 +41,7 @@ days; a seat that has launched nothing says `no runs yet`.
 
 The title is `agentkit` and the clock, and says nothing about the machine or the build;
 drawing the menu calls git for nothing at all, and opening it only to ask origin whether
-~/agentkit is behind, which updates it first (start_update).  A usage row is one
+~/agentkit is behind, which updates it first (update_first).  A usage row is one
 account's *shared* weekly meter -- the one every model of it draws on: a provider that lists
 `accounts` has one row per account in config order, numbered in roman numerals (`Claude I`,
 `Claude II`), each from its own reading, and a provider without them keeps its
@@ -3484,13 +3484,13 @@ def client(alias, dry_run):
 UPDATE_TAIL = 10   # how many of a failed start-up update's last lines `ak` shows
 
 
-def start_update():
+def update_first():
     """`ak` opens on the latest agentkit: when origin's main has moved past ~/agentkit, one screen
-    says `Updating agentkit` over the session rows' bar through fetch, pull and install, then
+    says `Updating agentkit` over the session rows' bar through update_agentkit's steps, then
     the menu starts again on the new code.
 
     Only the checkout this runs from moves, as with the tick (update.go_live), so a worktree's
-    `bin/ak` -- a test's above all -- never pulls the live one under it.  One somebody works in,
+    `bin/ak` -- a test's above all -- never moves the live one under it.  One somebody works in,
     dirty or off main, is left as it is, and so is one whose origin does not answer within
     update.START_WAIT: the menu opens as it is.  A step that fails says why before it opens.
     """
@@ -3508,7 +3508,7 @@ def start_update():
         failed = update.update_agentkit(draw)
     if failed:
         pause(*said.getvalue().splitlines()[-UPDATE_TAIL:])
-    if update.agentkit_version() != before:     # pulled, even where install.sh then failed
+    if update.agentkit_version() != before:     # moved, even where install.sh then failed
         sys.stdout.flush()
         os.execv(sys.executable, [sys.executable, *sys.argv])
 
@@ -3520,7 +3520,7 @@ def main(argv):
     way a client's menu does nor runs the maintenance that a menu opening a seat runs: reaping
     runs and retiring seats over a session the user is sitting in is not what `Ctrl-b m` was
     pressed for.  Nor does it wait on origin to update agentkit first: a client's `ak` and the
-    server's `ak --client` behind it each do (start_update).
+    server's `ak --client` behind it each do (update_first).
     """
     if command_help.show("attach", argv):
         return 0
@@ -3530,7 +3530,7 @@ def main(argv):
             raise config.Error(f"{USAGE}  (got {arg!r})")
         flags[arg] = True
     if not (flags["--dry-run"] or flags["--overlay"]):
-        start_update()
+        update_first()
     if not flags["--dry-run"]:
         from . import macbridge
         macbridge.start_background()
