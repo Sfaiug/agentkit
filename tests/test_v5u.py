@@ -60,7 +60,7 @@ class Back(unittest.TestCase):
         screen, read = self.config_screen()
         self.assertEqual(read.call_count, 0)
         self.assertTrue(screen.startswith("agentkit · config"), screen)
-        self.assertIn("orchestrator  worker  effort", screen)
+        self.assertIn("orch  exec  review  effort", screen)
 
     def test_v5u_i_reads_no_line(self):
         # on a terminal `i` is read with the keys (tests/test_close_and_info.py); from a pipe

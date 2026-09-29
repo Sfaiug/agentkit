@@ -3408,7 +3408,7 @@ grep -q '^  n new   x stop   c config   i info   q leave' "$WORK/menu-q.log" || 
 grep -q 'p preview\|b browser\|r runs\|u update\|s shell' "$WORK/menu-q.log" && MENU=1
 # `c` lists the config with its values and `i` is one screen; `r`/`p`/`b`/`s`/`u` are not keys
 printf 'c\nq\nq\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-c.log" 2>&1 || MENU=1
-grep -q 'orchestrator  worker  effort' "$WORK/menu-c.log" || MENU=1
+grep -q 'orch  exec  review  effort' "$WORK/menu-c.log" || MENU=1
 printf 'i\nq\nq\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-i.log" 2>&1 || MENU=1
 grep -q '^agentkit: you talk to one orchestrator' "$WORK/menu-i.log" || MENU=1
 for key in r p b s u; do
@@ -5282,7 +5282,7 @@ assert not any("press r" in line for line in lines), lines
 for key in ("r", "p", "b", "s", "u"):
     out = menu_lines(f"{key}\nq\n")
     assert any(f"not a key: {key!r}" in line for line in out), (key, out)
-assert any("orchestrator  worker  effort" in line for line in menu_lines("c\nq\nq\n")), lines
+assert any("orch  exec  review  effort" in line for line in menu_lines("c\nq\nq\n")), lines
 info = menu_lines("i\nq\nq\n")
 assert any("agentkit: you talk to one orchestrator" in line for line in info), info
 assert watch.plan_progress("atoll-fix") == (2, 5)

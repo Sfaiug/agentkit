@@ -105,7 +105,7 @@ class Editor(unittest.TestCase):
         self.path.write_text(OWN)
         before = self.path.read_bytes()
         _, screen = self.drive("right", "enter")
-        self.assertIn("the default workers need one model", screen)
+        self.assertIn("exec needs one model", screen)
         self.assertEqual(self.path.read_bytes(), before)
 
     def test_choosing_the_default_orchestrator(self):
@@ -117,7 +117,7 @@ class Editor(unittest.TestCase):
         self.assertEqual(self.path.read_text(), OWN)
         self.drive("enter")
         self.assertEqual(self.path.read_text(), OWN)      # the one there is: nothing to save
-        self.drive("right", "right", "enter")
+        self.drive("right", "right", "right", "enter")
         saved = tomllib.loads(self.path.read_text())
         self.assertNotIn("tiers", saved)
         self.assertEqual(saved["defaults"], {"orchestrator": "solo", "workers": ["solo"]})
@@ -130,7 +130,7 @@ class Editor(unittest.TestCase):
         with patch.object(config, "catalog", return_value=levels):
             for keys, want in ((("enter",), "max"), (("enter",), "low"), (("enter", "enter"), "high")):
                 with self.subTest(want=want):
-                    self.drive("right", "right", *keys)
+                    self.drive("right", "right", "right", *keys)
                     effort = tomllib.loads(self.path.read_text())["models"]["fable"]["effort"]
                     self.assertEqual(effort, want)
 
@@ -217,7 +217,8 @@ class Editor(unittest.TestCase):
                 patch.object(config, "catalog", return_value=levels), \
                 patch.object(terminal, "width", return_value=40), \
                 patch.object(terminal, "height", return_value=24):
-            for keys in (("enter",), ("right", "enter"), ("right", "right", "enter")):
+            for keys in (("enter",), ("right", "enter"), ("right", "right", "enter"),
+                         ("right", "right", "right", "enter")):
                 with self.subTest(keys=keys):
                     left, screen = self.drive(*keys)
                     self.assertEqual(left["defaults"], {"orchestrator": "opus",
@@ -241,7 +242,7 @@ class Editor(unittest.TestCase):
     def test_main_screen_lists_values(self):
         _, screen = self.drive()
         self.assertTrue(screen.startswith("agentkit · config"), screen)
-        for bit in ("orchestrator  worker  effort", "Claude", "opus    claude", "●", "■", "□",
+        for bit in ("orch  exec  review  effort", "Claude", "opus    claude", "●", "■", "□",
                     "‹ xhigh ›", "add a model", "Discord", "Update",
                     "abc1234 · up to date · harnesses", "esc back"):
             self.assertIn(bit, screen)
