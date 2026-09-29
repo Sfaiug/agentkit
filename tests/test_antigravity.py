@@ -33,13 +33,17 @@ FIXTURES = REPO / "tests/fixtures"
 
 STUB = """#!/usr/bin/env bash
 # canned agy for tests/test_antigravity.py: --version answers, `models` renews the login the
-# way agy does -- $STUB_RENEWED, when set, written over the token file -- and anything else
-# prints $STUB_STDERR on stderr, cats $STUB_EVENTS and exits $STUB_RC.  Every argv lands in
-# $STUB_ARGV_LOG and whatever stdin held in $STUB_STDIN_LOG, for the assertions.
+# way agy does -- $STUB_RENEWED, when set, written over the token file of the data directory
+# it was given -- and anything else prints $STUB_STDERR on stderr, cats $STUB_EVENTS and exits
+# $STUB_RC.  Every argv lands in $STUB_ARGV_LOG, the session bus and API key it was handed in
+# $STUB_ENV_LOG and whatever stdin held in $STUB_STDIN_LOG, for the assertions.
 [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$*" >>"$STUB_ARGV_LOG"
+[ -n "${STUB_ENV_LOG:-}" ] &&
+  printf '%s|%s\\n' "${DBUS_SESSION_BUS_ADDRESS-}" "${GEMINI_API_KEY-}" >>"$STUB_ENV_LOG"
+data=antigravity-cli; case "${1:-}" in --app_data_dir=*) data=${1#*=}; shift ;; esac
 [ "${1:-}" = --version ] && { echo "1.2.9-test"; exit 0; }
 [ "${1:-}" = models ] && { [ -z "${STUB_RENEWED:-}" ] ||
-  cp -- "$STUB_RENEWED" "$HOME/.gemini/antigravity-cli/antigravity-oauth-token"; exit 0; }
+  cp -- "$STUB_RENEWED" "$HOME/.gemini/$data/antigravity-oauth-token"; exit 0; }
 [ -n "${STUB_STDIN_LOG:-}" ] && cat >"$STUB_STDIN_LOG"
 [ -n "${STUB_STDERR:-}" ] && printf '%s\\n' "$STUB_STDERR" >&2
 cat -- "$STUB_EVENTS"
@@ -88,8 +92,10 @@ class Antigravity(unittest.TestCase):
         self.bin.mkdir()
         (self.bin / "agy").write_text(STUB)
         (self.bin / "agy").chmod(0o755)
+        # the usual login unless a test names another: a worker on a named account carries its
+        # name, and the probes run in-process here would hand it to the adapter
         self.env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin",
-                    "AGENTKIT_SESSION": "fakesession"}
+                    "AGENTKIT_SESSION": "fakesession", "AGENTKIT_ACCOUNT": ""}
         self.argv_log = self.root / "argv.log"
         self.token = self.home / ".gemini/antigravity-cli/antigravity-oauth-token"
 
@@ -358,6 +364,77 @@ class Antigravity(unittest.TestCase):
         self.assertIn("no hooks installed", proc.stdout)
         self.assertEqual([p.name for p in (self.home / ".gemini").rglob("*")
                           if p.is_file()], ["antigravity-oauth-token"])
+
+    # --- accounts ------------------------------------------------------------
+    def test_a_named_account_uses_its_own_login_and_the_usual_conversations(self):
+        # The usual login is here, beside an API key and a keyring's session bus: none of it
+        # may answer for `second`, whose login lives in a data directory of its own.
+        self.fake_endpoint((FIXTURES / "antigravity-quota-summary.json").read_text(),
+                           live="second-access")
+        usual = self.token.read_text()
+        env_log = self.root / "env.log"
+        named = {"AGENTKIT_ACCOUNT": "second", "GEMINI_API_KEY": "usual-key",
+                 "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/usual-bus",
+                 "STUB_ARGV_LOG": str(self.argv_log), "STUB_ENV_LOG": str(env_log)}
+        own = self.home / ".gemini/antigravity-cli-second/antigravity-oauth-token"
+        signin = "DBUS_SESSION_BUS_ADDRESS=disabled: agy --app_data_dir=antigravity-cli-second"
+        proc = self.adapter("auth", env=named)
+        self.assertEqual((proc.returncode, proc.stderr.splitlines()),
+                         (1, [f"agy: no {own}; run `{signin}` and sign in"]))
+        proc = self.adapter("login", env=named, stdin=subprocess.DEVNULL)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn(f"run `{signin}` in a terminal", proc.stderr)
+        self.assertIn(f"no login in {own}", json.loads(self.adapter("usage", env=named).stdout)["error"])
+        # signed in to its own home, that login is the one every verb uses
+        own.write_text(usual.replace("dummy-access", "second-access"))
+        self.assertEqual(self.adapter("auth", env=named).returncode, 0)
+        meters = json.loads(self.adapter("usage", env=named).stdout)
+        self.assertEqual((meters["error"], len(meters["meters"])), (None, 1))
+        proc, out = self.turn(EVENTS_CONTINUED, "c-two", **named)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        words = shlex.split(self.adapter("interactive", "gemini-3.8-flash", "high", "c-two",
+                                         env=named).stdout)
+        self.assertEqual(words[:11], ["env", "-u", "GEMINI_API_KEY", "-u", "GOOGLE_API_KEY",
+                                      "-u", "AGY_ADC_AUTH", "DBUS_SESSION_BUS_ADDRESS=disabled:",
+                                      "AGY_CLI_DISABLE_AUTO_UPDATE=1", "agy",
+                                      "--app_data_dir=antigravity-cli-second"])
+        self.assertEqual(words[words.index("--conversation") + 1], "c-two")
+        # `--version` reads no login; the turn is agy on that login's own directory
+        calls = self.argv_log.read_text()
+        self.assertTrue(calls.startswith("--version\n--app_data_dir=antigravity-cli-second -p "))
+        self.assertIn(" --conversation c-two\n", calls)
+        self.assertEqual(env_log.read_text().splitlines(), ["disabled:|"] * 2)
+        # A conversation begun on either account is in the store both read, the usual one's.
+        for store in ("conversations", "brain"):
+            self.assertEqual((own.parent / store).resolve(),
+                             (self.token.parent / store).resolve())
+        # and of the usual login nothing was read or changed
+        self.assertEqual(self.token.read_text(), usual)
+        self.assertEqual(sorted(p.name for p in self.token.parent.iterdir()),
+                         ["antigravity-oauth-token", "brain", "conversations"])
+
+    def test_the_usual_login_stays_today_s_beside_a_named_one(self):
+        # `default` is the empty name: only the usual login answers, never `second`'s
+        self.write_token("dummy-refresh")
+        own = self.home / ".gemini/antigravity-cli-second/antigravity-oauth-token"
+        own.parent.mkdir(parents=True)
+        self.token.rename(own)
+        env_log = self.root / "env.log"
+        usual = {"AGENTKIT_ACCOUNT": "", "GEMINI_API_KEY": "", "STUB_ENV_LOG": str(env_log),
+                 "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/usual-bus"}
+        self.assertEqual(self.adapter("auth", env=usual).returncode, 1)
+        self.write_token("dummy-refresh")
+        self.assertEqual(self.adapter("auth", env=usual).returncode, 0)
+        proc, out = self.turn(EVENTS_CONTINUED, "c-two", **usual)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("--app_data_dir", self.argv_log.read_text())
+        self.assertEqual(env_log.read_text().splitlines(), ["unix:path=/run/usual-bus|"])
+        words = shlex.split(self.adapter("interactive", "gemini-3.8-flash", "high",
+                                         env=usual).stdout)
+        self.assertEqual(words[:3], ["env", "AGY_CLI_DISABLE_AUTO_UPDATE=1", "agy"])
+        self.assertNotIn("--app_data_dir", " ".join(words))
+        self.assertEqual([p.name for p in self.token.parent.iterdir()], ["antigravity-oauth-token"])
+        self.assertEqual([p.name for p in own.parent.iterdir()], ["antigravity-oauth-token"])
 
     # --- screen --------------------------------------------------------------
     def test_screen_rules_read_the_captures(self):

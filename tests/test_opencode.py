@@ -605,6 +605,39 @@ cat "$dir/bridge-eval"
         self.assertEqual(proc.returncode, 0)
         self.assertIn("nothing to write", proc.stdout)
 
+    # --- accounts ------------------------------------------------------------
+    def test_a_named_account_is_refused_by_every_verb(self):
+        # A login of its own would be a database of its own, conversations and all: every verb
+        # for `second` says so in one line, and neither opencode nor the usual key is asked.
+        self.write_config("tp-dummy")
+        named = {"AGENTKIT_ACCOUNT": "second", "STUB_ARGV_LOG": str(self.argv_log)}
+        out = self.root / "out"
+        prompt = self.root / "prompt.md"
+        prompt.write_text("say hello\n")
+        for args in (("run", "mimo/mimo-v2.6-pro", "high", str(self.root), str(prompt), str(out)),
+                     ("interactive", "mimo/mimo-v2.6-pro", "high"), ("usage",), ("install",),
+                     ("login",), ("auth",), ("auth", "seat"), ("hooks",), ("models",)):
+            with self.subTest(args=args):
+                proc = self.adapter(*args, env=named, stdin=subprocess.DEVNULL)
+                said = (proc.stdout + proc.stderr).splitlines()
+                self.assertEqual(len(said), 1, said)
+                if args == ("usage",):   # a failed probe, in the shape every probe answers
+                    self.assertEqual(proc.returncode, 0)
+                    answer = json.loads(said[0])
+                    self.assertEqual((answer["provider"], answer["meters"]), ("mimo", []))
+                    said = [answer["error"]]
+                else:
+                    self.assertEqual(proc.returncode, 1)
+                self.assertIn("account second refused", said[0])
+        self.assertFalse(self.argv_log.exists())
+        self.assertFalse(out.exists())
+        self.assertEqual([p.relative_to(self.home) for p in self.home.rglob("*") if p.is_file()],
+                         [Path(".config/opencode/opencode.json")])
+        # `default` is the empty name, and the usual login is today's
+        proc = self.adapter("auth", env={"AGENTKIT_ACCOUNT": ""})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn(str(self.cfgdir / "opencode.json"), proc.stdout)
+
     # --- screen --------------------------------------------------------------
     def test_screen_rules_read_the_captures(self):
         self.assertEqual(self.decide("prompt")["state"], "at_prompt")
