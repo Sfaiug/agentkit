@@ -42,8 +42,8 @@ days; a seat that has launched nothing says `no runs yet`.
 The title is `agentkit` and the clock, and says nothing about the machine or the build;
 opening the menu, like drawing it, calls git for nothing at all.  A usage row is one
 account's *shared* weekly meter -- the one every model of it draws on: a provider that lists
-`accounts` has one row per account in config order, the usual login as `Claude` and the
-others as `Claude second`, each from its own reading, and a provider without them keeps its
+`accounts` has one row per account in config order, numbered in roman numerals (`Claude I`,
+`Claude II`), each from its own reading, and a provider without them keeps its
 single row.  A bar and `NN% left`, then `resets <weekday> <HH:MM>` in local time, then
 `Fable 41%` for a scoped cap that reads differently, then `5h 40% left` for the 5-hour
 window (`5h spent until 14:00` once it reads 100% used), then `? <reason>` when the last
@@ -1740,9 +1740,8 @@ def usage_lines(cfg, width):
     A row is one account's shared weekly meter -- the one every model of it draws on -- that
     a bar can be drawn from: a numeric used% in a window that has not rolled over, as a bar
     and `NN% left`.  A provider that lists `accounts` has one row per account in config
-    order, the usual login under the provider's name (`Claude`) and the others with the
-    account's (`Claude second`), each from its own reading; a provider without them keeps
-    its single row.  After the percentage, joined with ` · ` and each only when it applies:
+    order, the provider's name numbered in roman numerals (`Claude I`, `Claude II`), each
+    from its own reading; a provider without them keeps its single row.  After the percentage, joined with ` · ` and each only when it applies:
     `resets <weekday> <HH:MM>` from that meter, or `resets <day> <month>` more than six days
     out in a window longer than a week; one note per scoped meter whose figure differs
     (`Fable 41%`); `5h 40% left` for the 5-hour window, or `5h spent until 14:00` once it
@@ -1774,9 +1773,7 @@ def usage_lines(cfg, width):
         listed = config.accounts(cfg, name)
         if listed:
             for account in listed:
-                label = (shown[name] if account == config.DEFAULT_ACCOUNT
-                         else f"{shown[name]} {account}")
-                rows.append((name, account, label))
+                rows.append((name, account, config.account_label(cfg, name, account, shown[name])))
         else:
             rows.append((name, None, shown[name]))
     label_room = min(16, max((terminal.cells(terminal.plain(label)) for _, _, label in rows),

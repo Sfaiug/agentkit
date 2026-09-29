@@ -1471,12 +1471,13 @@ def outlook(prov):
     return "on track" if hours >= window_left else f"runs out in ~{max(1, round(hours / 24))}d"
 
 
-def _accounts(providers):
+def _accounts(cfg, providers):
     """(label, provider, record) per provider, and per account of one that lists several."""
     for name, prov in providers.items():
         accounts = prov.get("accounts")
         if isinstance(accounts, dict) and accounts:
-            yield from ((f"{name}:{account}", name, record) for account, record in accounts.items())
+            yield from ((config.account_label(cfg, name, account, name), name, record)
+                        for account, record in accounts.items())
         else:
             yield name, name, prov
 
@@ -1488,11 +1489,11 @@ def rows(cfg, providers):
     `resets` is the shared week's, because that is the week the menu row names and the two
     must say the same thing.  On a split allowance they can be different meters, which is why
     the two lines under the table print both.  A provider with several accounts is a row per
-    account, `anthropic:second`, each on its own meters.
+    account, `anthropic II`, each on its own meters.
     """
     now = time.time()
     out = []
-    for label, name, prov in _accounts(providers):
+    for label, name, prov in _accounts(cfg, providers):
         week = _weekly(prov)
         session = _worst([m for m in prov.get("meters") or []
                           if m.get("window_secs") == SESSION_SECS])
@@ -1530,8 +1531,8 @@ def render(cfg, providers, order, *, repo=None):
         table[0] = ("provider", "model(s)", "left", "resets", "elapsed", "session",
                     "held", "room", "budget", "outlook")
         widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
-        # an account's row keeps its whole name: `anthropic:s…` would not say which one it is
-        named = max((terminal.cells(label) for label, name, _ in _accounts(providers)
+        # an account's row keeps its whole name: `anthropic I…` would not say which one it is
+        named = max((terminal.cells(label) for label, name, _ in _accounts(cfg, providers)
                      if label != name), default=0)
         for i, cap in ((1, 14), (0, max(12, named)), (9, 18)):   # model(s), provider, outlook
             widths[i] = min(widths[i], cap)
@@ -1586,12 +1587,12 @@ def render(cfg, providers, order, *, repo=None):
                      f"{'one full week' if one else f'{count:g} full weeks'} ({detail})")
     # the numbers say the provider is unknown; only the adapter can say why -- and a
     # refusal is not a why, so an error that only says the probe was refused says nothing
-    lines += [f"note: {name} {prov['error']}" for name, _, prov in _accounts(providers)
+    lines += [f"note: {name} {prov['error']}" for name, _, prov in _accounts(cfg, providers)
               if prov.get("error") and not refusal_text(prov, prov["error"])]
     # ... and a reading older than half an hour says when it was taken, in the menu row's
     # own words -- while a meter of it remains; a probe the endpoint would not answer says
     # nothing about that at all
-    for name, _, prov in _accounts(providers):
+    for name, _, prov in _accounts(cfg, providers):
         note = as_of(prov, now)
         meters = prov.get("meters") or []
         if note and any(not _past(meter, now) for meter in meters):

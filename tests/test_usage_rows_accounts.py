@@ -1,7 +1,8 @@
 """Every subscription has its own usage row, and each row shows its 5-hour window.
 
 A provider that lists `accounts` gets one row per account in config order -- the usual
-login as `Claude`, the others as `Claude second` -- each from its own reading.  A row
+provider's name numbered in roman numerals, `Claude I` and `Claude II` -- each from its own
+reading, and a provider with one login is its name alone.  A row
 whose account reports a 5-hour window carries `5h 40% left`, or `5h spent until 14:00`
 once that window reads 100% used.  Offline, with invented readings.
 """
@@ -71,16 +72,16 @@ class UsageRowsAccounts(Sandbox):
     def test_one_row_per_account_in_config_order(self):
         rows = self.rows()
         self.assertEqual(len(rows), 4, rows)
-        self.assertTrue(rows[1].startswith("Claude ") and
-                        not rows[1].startswith("Claude second"), rows)
-        self.assertTrue(rows[2].startswith("Claude second"), rows)
-        self.assertTrue(rows[3].startswith("ChatGPT"), rows)
-        # ... and the order is the config's, not the logins':
+        self.assertTrue(rows[1].startswith("Claude I ") and "52% left" in rows[1], rows)
+        self.assertTrue(rows[2].startswith("Claude II ") and "80% left" in rows[2], rows)
+        self.assertTrue(rows[3].startswith("ChatGPT ") and "ChatGPT I" not in rows[3], rows)
+        # ... and the order and the numbers are the config's, not the logins':
         self.cfg["providers"]["anthropic"]["accounts"] = ["second", "default"]
         rows = self.rows()
-        self.assertTrue(rows[1].startswith("Claude second"), rows)
-        self.assertTrue(rows[2].startswith("Claude ") and
-                        not rows[2].startswith("Claude second"), rows)
+        self.assertTrue(rows[1].startswith("Claude I ") and "80% left" in rows[1], rows)
+        self.assertTrue(rows[2].startswith("Claude II ") and "52% left" in rows[2], rows)
+        # ... and the account's own name is never shown
+        self.assertFalse(any("second" in row or "default" in row for row in rows), rows)
 
     def test_each_row_draws_its_own_reading(self):
         rows = self.rows()
@@ -101,8 +102,8 @@ class UsageRowsAccounts(Sandbox):
         cached["anthropic"]["accounts"]["second"] = {}
         self.cache(cached)
         rows = self.rows()
-        self.assertRegex(rows[1], r"Claude\s+[█░]+\s+52% left")
-        self.assertEqual(rows[2].split(), ["Claude", "second", "—", "no", "reading", "yet"])
+        self.assertRegex(rows[1], r"Claude I\s+[█░]+\s+52% left")
+        self.assertEqual(rows[2].split(), ["Claude", "II", "—", "no", "reading", "yet"])
 
     def test_a_provider_without_accounts_keeps_its_single_row(self):
         rows = self.rows()
