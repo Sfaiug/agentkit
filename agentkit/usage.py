@@ -1517,7 +1517,8 @@ def review_pair(cfg, providers):
         return None
     return {"executor": executor, "reviewer": reviewer,
             "same_provider": config.model(cfg, executor)["provider"] ==
-                             config.model(cfg, reviewer)["provider"]}
+                             config.model(cfg, reviewer)["provider"],
+            "self_reviewed": run.same_model(cfg, executor, reviewer)}
 
 
 def render(cfg, providers, order, *, repo=None):
@@ -1601,7 +1602,8 @@ def render(cfg, providers, order, *, repo=None):
     lines.append("pick order: " + (", ".join(order) if order else "(none: every worker's provider is exhausted)"))
     pair = review_pair(cfg, providers)
     if pair:
-        lines.append(f"review: {pair['executor']} by {pair['reviewer']}")
+        lines.append(f"review: {pair['executor']} by {pair['reviewer']}"
+                     + (", self-reviewed" if pair.get("self_reviewed") else ""))
         if pair["same_provider"]:
             lines.append("one provider: reviewer on the same company")
     return "\n".join(part for line in lines for part in

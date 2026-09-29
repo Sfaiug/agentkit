@@ -4274,17 +4274,19 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                         chosen, provider = kept
                         reviewer = None          # a kept executor keeps its pair as it is
                     else:
-                        # A handover re-picks both roles by budget under the one-provider rule
-                        # (`run.next_executor`): keeping the reviewer would force a dearer
-                        # executor on the run.  Nothing resumes until a legal pair exists; a
-                        # run with none left stays parked and waits for one.
+                        # A handover re-picks both roles as one pair (`run.best_pair`):
+                        # keeping the reviewer would force a dearer executor on the run.
+                        # Nothing resumes until a legal pair exists; a run with none left
+                        # stays parked and waits for one.
                         review_order = run_mod.ready_order(cfg, providers, review_bound,
                                                            role="reviewer", quiet=True)
-                        pairs = {name: run_mod.reviewer_order(cfg, name, review_order)
-                                 for name, _ in candidates}
-                        chosen, provider = next(((n, p) for n, p in candidates if pairs.get(n)),
-                                                (None, None))
-                        reviewer = (pairs.get(chosen) or [None])[0]
+                        pair = run_mod.best_pair(cfg, [n for n, _ in candidates],
+                                                 review_order)
+                        if pair is None:
+                            chosen, provider, reviewer = None, None, None
+                        else:
+                            chosen, reviewer = pair
+                            provider = next(p for n, p in candidates if n == chosen)
                     if not chosen:
                         continue
                     why = f"{provider} window refilled"

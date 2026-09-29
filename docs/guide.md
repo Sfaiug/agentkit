@@ -1,8 +1,7 @@
 # How agentkit works
 
 One interactive orchestrator plans with you, does small, clear work itself (its PR goes through `ak run --review-pr`) and
-writes task files for the rest. Headless workers execute, a different model reviews,
-and a script keeps going until the checks pass and the reviewer says PASS; then the run merges its own PR. Wired in:
+writes task files for the rest. Headless workers execute, another model reviews where the workers allow one, else the executor's own, and a script keeps going until the checks pass and the reviewer says PASS; then the run merges its own PR. Wired in:
 Claude Code, Codex CLI, Muse Code, Grok Build, OpenCode and Antigravity CLI. Standard library Python 3.11 and bash only.
 
 ## The session
@@ -13,9 +12,9 @@ and the orchestrator's process too. A bare `ak` is the menu on the server, on a 
 and that runs no interactive agent in its panes, such as a watcher loop, is not a session: no row, no card, no count.
 Ak workers (`AK_RUN_ROLE=worker`) and their descendants do not count; any old card closes on the next tick.
 
-`n` and bare `ak orch` first ask `Name (Enter: auto):`; a taken name asks again, `q` goes back. Enter (or pipe EOF) leaves `new`, then `new-2`, unnamed until its orchestrator knows the job and names it as briefly as possible in at most three words. Any rename ends auto naming; an unnamed seat gets the rule again on resume. `n` then shows every model with `orch` (one choice), `exec` and `review` marks. ↑↓ move between models, ←→ between roles, space flips the selected mark, a click flips the mark clicked, Enter starts, Esc goes back. The role headings stay visible while rows scroll. Both role groups are saved in the session; each keeps at least one model, and a choice or start leaving no allowed executor/reviewer pair is refused in one line. Chosen already: `[defaults]
+`n` and bare `ak orch` first ask `Name (Enter: auto):`; a taken name asks again, `q` goes back. Enter (or pipe EOF) leaves `new`, then `new-2`, unnamed until its orchestrator knows the job and names it as briefly as possible in at most three words. Any rename ends auto naming; an unnamed seat gets the rule again on resume. `n` then shows every model with `orch` (one choice), `exec` and `review` marks. ↑↓ move between models, ←→ between roles, space flips the selected mark, a click flips the mark clicked, Enter starts, Esc goes back. The role headings stay visible while rows scroll. Both role groups are saved in the session; each keeps at least one model, and only a choice or start no run could start from is refused in one line. Chosen already: `[defaults]
 orchestrator` (shipped `opus`), or while it is spent the first model in config order that is not, and the `[defaults]
-workers` (`opus astra`) and `reviewers` (workers when omitted) not spent; an empty group falls back to a fresh model that permits a pair if possible. From a pipe the name, orchestrator and workers read one line each, Enter taking each default; reviewers inherit the defaults, and
+workers` (`opus astra`) and `reviewers` (workers when omitted) not spent; an empty group falls back to another company's fresh model before the executor's company's, before the executor itself. From a pipe the name, orchestrator and workers read one line each, Enter taking each default; reviewers inherit the defaults, and
 `--dry-run` starts no session. The seat opens in `~/code`; `ak orch <name>` keeps the shell's directory and reopens an
 existing seat. As soon as the project is known, `ak orch project [<seat>] <checkout>` files this seat (or the named one) by checkout name or path; only known checkouts are accepted. Each launched run refiles it under the project most of its runs belong to,
 counting a run from its launch, still queued for a slot or not, for the checkout under `~/code` or `~/agentkit`
@@ -84,7 +83,7 @@ A job started with `--bg` or relaunched by the tick gives each task, its resume 
 
 The worktree is `~/.agentkit/wt/<id>` on branch `ak/<slug>`, the first name free locally and on `origin`. The executor
 writes and commits, its commands in the foreground. The loop runs the checks itself and hands the diff and their output
-to the reviewer, a different model. Task reviewers may run whatever is needed to prove or dismiss a finding, except done-when commands, the repository's `tests:` suite, and checks marked deferred.
+to the reviewer, another model where the workers allow one, else the executor's own. Task reviewers may run whatever is needed to prove or dismiss a finding, except done-when commands, the repository's `tests:` suite, and checks marked deferred.
 They keep the work under review read-only; probes leave nothing behind outside a temporary directory. Reviewers of others' PRs stay read-only and may run tests and commands.
 A reviewer answers `VERDICT: PASS` or `VERDICT: FAIL`; one with no verdict is asked once more, never failed. A round is FAIL only for a blocking finding: a correctness defect, a safety
 or data-loss risk, a weakened check, or work outside the task, with evidence: a command that fails, a reproduction, or quoted diff lines showing the defect. A follow-up needs the same evidence and severity, plus proof it existed before
@@ -190,15 +189,13 @@ test suites' `$AK_NOTIFY_SINK` outranks the webhook, so a test never reaches you
 Session records and `[defaults]` may list `reviewers` beside `workers`; new seats copy explicit default reviewers.
 With separate groups, executors use only workers; reviews (including `--review-pr`) and spares use only reviewers. A model can be in both.
 Runs save explicit groups in `run.json` at launch, show them in status and the preflight log, and keep them through handovers, refusals and resumes despite later edits; omitted reviewers keep the old shared-list behavior. Each group ranks by budget: the fraction of allowance left plus a week
-per reset held, divided by the fraction of window left, using the smallest provider non-session meter. The executor is
-highest budget; equal budgets keep list order, and no model or run history gets a preference. The reviewer is highest
-budget on another provider, else a different model on the same provider unless its `reviews_own_provider = false`. A model's own
+per reset held, divided by the fraction of window left, using the smallest provider non-session meter. The pair is the best by reviewer company -- another provider, then the executor's company, then the executor's own model -- then executor budget, then reviewer budget; equal budgets keep list order, and no model or run history gets a preference. A self-review is marked `self-reviewed` on the launch line, in `ak run status` and in `ak usage`. A model's own
 `meter` still gates it. A meter at 100% used excludes a worker, as does a harness not installed or not logged in (no adapter or program, or
 its `auth` verb says no, asked at every pick), with one `skipped <model>: <harness> is not logged in` line in the run's
 log per pick; `--exec` or `--review` outside a bound group or naming an unavailable harness is refused, as is a resume whose saved executor no other model can take
 over. An unknown budget ranks last, a pay-as-you-go provider joins only while every subscription that can run is ahead
-of pace by more than `pace_margin`, and a run with no eligible pair parks `exhausted`, but a launch no refill can pair
-(skipped harnesses, or groups with no allowed pair) is refused naming the groups, by a `--bg` launch's parent too. The orchestrator choice ignores pace (see `n`; every model spent launches the default with a WARN); a run without a session uses the
+of pace by more than `pace_margin`, and a run with no eligible pair parks `exhausted`, but a launch with no runnable
+worker or reviewer (every harness skipped) is refused naming the groups, by a `--bg` launch's parent too. The orchestrator choice ignores pace (see `n`; every model spent launches the default with a WARN); a run without a session uses the
 default groups; without `reviewers`, legacy unbound picks and orchestrator resumes still work, and explicit PR reviewers may be outside workers even in a seat. Meters are cached for five minutes and each provider is probed at most once a minute host-wide, a refused worker or a spent reset included (Claude once in fifteen, and never before its last `Retry-After`; Muse's billed probe once in ten, whatever its meters do); a spent-window
 refusal parks the provider until it refills (spending a Codex reset first when held); `ak usage` shows the choices, and a reading older than half an hour says `as of HH:MM` on its row and under `ak usage`. A Claude worker turn's last `rate_limit_event` becomes its account's session and weekly_all reading at once, with no request; any other meter keeps the endpoint's reading, and an older reading never replaces a newer one.
 
@@ -272,10 +269,9 @@ reporting count and space freed. The tick takes a leftover merged tree only if c
 ## The config file
 
 `~/.agentkit/config.toml` is copied from the checkout's `config.default.toml` by the first `install.sh` and never
-overwritten. The menu's `c` screen changes it at once: `orch` (`●`), `exec` and `review` (`■`) are the `[defaults]`, `‹ xhigh ›` a model's `effort`. Each group keeps one model and a flip leaving no allowed pair is refused. Omitted reviewers show the worker marks until the first mark flipped writes separate lists.
-A model's own screen sets its `model` from the harness's catalog (the effort following to one it lists), `effort`
-and `reviews_own_provider`; `Remove` asks first, keeps the last model and the model's `[providers.*]` table even when it
-was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-5`). The keys:
+overwritten. The menu's `c` screen changes it at once: `orch` (`●`), `exec` and `review` (`■`) are the `[defaults]`, `‹ xhigh ›` a model's `effort`. Each group keeps one model and only a flip no run could start from is refused. Omitted reviewers show the worker marks until the first mark flipped writes separate lists.
+A model's own screen sets its `model` from the harness's catalog (the effort following to one it lists) and its `effort`;
+`Remove` asks first, keeps the last model and the model's `[providers.*]` table even when it was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-5`). The keys:
 
 - `max_runs` (0, no count cap; `ak run status` names the cap in force), `min_free_mb`, `max_load` (unset: ak's CPU pressure
   gates; pinned: the host load check, 0 disables it), `run_memory_max_mb` (one run's cap in MiB); `AK_MAX_RUNS`, `AK_MIN_FREE_MB` and `AK_MAX_LOAD` override them.
@@ -283,7 +279,7 @@ was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-
 - `pace_margin` (10): the picker's pay-as-you-go margin above. `[defaults]`: `orchestrator`, `workers`, optional `reviewers`; an older
   file's `[tiers]` reads as the first of `A` over `B` without it, and `c` writes `[defaults]` on its next save.
 - `[models.<name>]`: `harness`, `model`, `effort` (one that model takes, per `adapters/<h>.sh models`, or `none`), `provider`,
-  `reviews_own_provider` (true), `meter` (a meter of its provider that gates only this model).
+  `meter` (a meter of its provider that gates only this model).
 - `[providers.<name>]`: `mode` (`subscription` or `payg`). MiMo's comes from the global OpenCode `opencode.json`: a
   plain `https://` token-plan URL is a subscription, and anything else -- another host or scheme, a backslash or user
   part, a substitution, `OPENCODE_CONFIG`, a file not plain JSON -- is payg. OpenCode runs with project config off, so

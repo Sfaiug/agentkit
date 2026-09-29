@@ -2933,8 +2933,9 @@ def pick(cfg, providers, default):
 
     `agentkit · new session`, `n` on a terminal: what Enter takes is chosen before a key is
     pressed -- `default`, which is `choose()`'s, and both default groups with something left
-    to spend. An empty group falls back to the first fresh model that permits a pair, or
-    the first fresh model when no pair is possible. A
+    to spend. An empty group falls back by tier -- another company's fresh model before
+    the other group's company's, before its own -- among the fresh models a run could
+    start from, else among all fresh models. A
     spent model is still a choice, only never a preselected one, so with every model spent
     nothing is chosen and Enter takes the highlight to the column that still wants a choice.
     ↑/↓, k/j and the wheel move through models, ←/→ through roles; space or a click chooses,
@@ -2943,6 +2944,7 @@ def pick(cfg, providers, default):
     None where there is no terminal to take -- a pipe, a file, the smoke suite -- and the
     caller asks its two questions a line at a time.
     """
+    from . import run
     names = config.offered(cfg)
     notes = {name: spent_note(cfg, name, providers) for name in names}
     fresh = [name for name in names if not notes[name]]
@@ -2954,9 +2956,23 @@ def pick(cfg, providers, default):
                               if name in fresh]}
     for role, other in (("workers", "reviewers"), ("reviewers", "workers")):
         if not selected[role]:
-            selected[role] = next(([name] for name in fresh if not role_refusal(
-                cfg, {**selected, role: [name], other: selected[other] or fresh}, providers)),
-                fresh[:1])
+            if not fresh:
+                continue
+            peers = selected[other] or fresh
+            permitting = [name for name in fresh if not role_refusal(
+                cfg, {**selected, role: [name], other: peers}, providers)]
+            pool = permitting or fresh
+
+            def tier(name):
+                tiers = []
+                for peer in peers:
+                    found = (run.pair_tier(cfg, name, peer) if role == "workers"
+                             else run.pair_tier(cfg, peer, name))
+                    if found is not None:
+                        tiers.append(found)
+                return min(tiers) if tiers else 3
+
+            selected[role] = [min(pool, key=lambda name: (tier(name), fresh.index(name)))]
     with closing(terminal.Keyboard()) as keyboard:
         if not keyboard.take():
             return None

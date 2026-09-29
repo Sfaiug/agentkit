@@ -348,9 +348,9 @@ class Quota(unittest.TestCase):
         self.assertEqual(saved["state"], "exhausted")
         self.assertNotIn("quota_dry", saved)
 
-    def test_quota_handover_never_lands_on_the_reviewers_provider(self):
-        # opus is live but reviews: handing the turn to it would error in review(),
-        # so the round ends exhausted instead.
+    def test_quota_handover_lands_on_the_reviewers_provider_with_self_review(self):
+        # opus is live and reviews: the dry turn is handed to it, and opus reviews its
+        # own work; only when it runs dry too does the round end exhausted.
         from types import SimpleNamespace
         run_dir = config.RUNS / "20260916-1205-quota-reviewer"
         run_dir.mkdir(parents=True)
@@ -377,10 +377,11 @@ class Quota(unittest.TestCase):
                 redirect_stderr(io.StringIO()):
             with self.assertRaises(run.QuotaDry):
                 run.execute(lp, "executor", "Do the task.", "executor")
-        self.assertEqual(lp.executor, "astra")
+        self.assertEqual(lp.executor, "opus")
         history = run.read_state(run_dir)["executor_history"]
-        self.assertTrue(any(entry["reason"] == "dry (no other provider)" for entry in history),
-                        history)
+        self.assertEqual([(entry["from"], entry["to"], entry["reason"]) for entry in history],
+                         [("astra", "opus", "dry"),
+                          ("opus", "opus", "dry (no other provider)")])
 
     def test_quota_words_must_stand_on_their_own(self):
         self.assertEqual(run.worker_dry(self.cfg, "astra", "API Error: rate limit exceeded"),
@@ -833,11 +834,12 @@ class QuotaDry(unittest.TestCase):
     # --- (f): nothing left is `exhausted`, and resume hands over ----------------------------
 
     def test_v5i_nothing_left_is_exhausted_and_resume_hands_over_instead_of_relaunching(self):
-        # One model per company: no same-company pair survives the refusals.
+        # One model per company: the refusals leave opus reviewing itself, then nothing.
         self.eligible.remove("fable")
         self.repository()
         self.providers["meta"]["meters"] = [self.meter(100)]
-        self.plan({"astra": [{"code": 1, **REFUSALS["codex"]}]})
+        self.plan({"astra": [{"code": 1, **REFUSALS["codex"]}],
+                   "opus": [{"code": 1, **REFUSALS["claude"]}]})
         code, directory, state = self.launch("--exec", "astra", "--review", "opus", "--no-merge")
         self.assertEqual(code, 1)
         self.assertEqual(state["state"], "exhausted")      # never `error`: this is resumable
@@ -845,8 +847,8 @@ class QuotaDry(unittest.TestCase):
         self.assertIn("no other provider can execute", state["error"])
         self.assertIn("nothing is picked on openai until",
                       (directory / "log.txt").read_text())
-        self.assertEqual([row["model"] for row in self.calls()], ["astra"])
-        self.assertEqual(state["executor"], "astra")
+        self.assertEqual([row["model"] for row in self.calls()], ["astra", "opus"])
+        self.assertEqual(state["executor"], "opus")
         self.assertTrue(run.needs_recovery(state) or state["state"] == "exhausted")
         # a meter refills; the resume must not put the work back on the model that ran dry.
         # refilled spark is the cheaper executor, so the cheapest legal pair takes the round
@@ -855,15 +857,18 @@ class QuotaDry(unittest.TestCase):
         state = run.read_state(directory)
         self.assertEqual(state["state"], "pass")
         self.assertEqual(state["executor"], "spark")
-        self.assertEqual(state["reviewer"], "opus")
-        self.assertEqual([row["model"] for row in self.calls()], ["astra", "spark", "opus"])
+        self.assertEqual(state["reviewer"], "spark")
+        self.assertEqual([row["model"] for row in self.calls()],
+                         ["astra", "opus", "spark", "spark"])
         # astra started round 1 and never finished it, and that is what it is credited with;
-        # the failed first handover attempt stays on the record beside the move itself
+        # the failed handover attempt stays on the record beside the moves themselves
         self.assertEqual(state["executor_history"],
-                         [{"from": "astra", "to": "astra", "reason": "dry (no other provider)",
+                         [{"from": "astra", "to": "opus", "reason": "dry",
                            "model": "astra", "rounds": [1], "why": "ran dry"},
-                          {"from": "astra", "to": "spark", "reason": "dry",
-                           "model": "astra", "rounds": [1], "why": "ran dry"}])
+                          {"from": "opus", "to": "opus", "reason": "dry (no other provider)",
+                           "model": "opus", "rounds": [1], "why": "ran dry"},
+                          {"from": "opus", "to": "spark", "reason": "dry",
+                           "model": "opus", "rounds": [1], "why": "ran dry"}])
         self.assertEqual(self.calls()[1]["session"], [])   # a fresh session, not astra's
         # the model taking over is told it is joining a round somebody else started
         self.assertIn("astra began this round", self.calls()[1]["prompt"])
@@ -944,8 +949,8 @@ class QuotaDry(unittest.TestCase):
         self.assertFalse([line for line in lines if "ran dry" in line])
 
     def test_v5i_two_models_that_shared_a_round_both_hold_it(self):
-        """astra hands round 1 to spark, spark runs dry too, and a resume records both."""
-        # One model per company: no same-company pair survives the refusals.
+        """astra hands round 1 to spark, spark to opus, and a resume records all three."""
+        # One model per company: the refusals leave opus reviewing itself, then nothing.
         self.eligible.remove("fable")
         self.repository()
         # spark and then astra are the cheaper executors of their handovers, which is the
@@ -953,17 +958,20 @@ class QuotaDry(unittest.TestCase):
         self.providers["meta"]["meters"] = [self.meter(5)]
         self.providers["openai"]["meters"] = [self.meter(5)]
         self.plan({"astra": [{"code": 1, **REFUSALS["codex"]}],
-                   "spark": [{"code": 1, "final": "model failed: usage limit reached"}]})
+                   "spark": [{"code": 1, "final": "model failed: usage limit reached"}],
+                   "opus": [{"code": 1, **REFUSALS["claude"]}]})
         code, directory, state = self.launch("--exec", "astra", "--review", "opus", "--no-merge")
         self.assertEqual((code, state["state"]), (1, "exhausted"))
-        self.assertEqual([row["model"] for row in self.calls()], ["astra", "spark"])
-        self.assertEqual(state["executor"], "spark")
+        self.assertEqual([row["model"] for row in self.calls()], ["astra", "spark", "opus"])
+        self.assertEqual(state["executor"], "opus")
         self.assertEqual(state["executor_history"],
                          [{"from": "astra", "to": "spark", "reason": "dry",
                            "model": "astra", "rounds": [1], "why": "ran dry"},
-                          {"from": "spark", "to": "spark", "reason": "dry (no other provider)",
-                           "model": "spark", "rounds": [1], "why": "ran dry"}])
-        # openai refills; the resume takes the work off spark, which held round 1 as well
+                          {"from": "spark", "to": "opus", "reason": "dry",
+                           "model": "spark", "rounds": [1], "why": "ran dry"},
+                          {"from": "opus", "to": "opus", "reason": "dry (no other provider)",
+                           "model": "opus", "rounds": [1], "why": "ran dry"}])
+        # openai refills; the resume takes the work off opus, which held round 1 as well
         self.providers["openai"].pop("exhausted_until")
         self.plan({})
         self.assertEqual(run.cmd_resume([directory.name]), 0)
@@ -972,11 +980,14 @@ class QuotaDry(unittest.TestCase):
         self.assertEqual(state["executor_history"],
                          [{"from": "astra", "to": "spark", "reason": "dry",
                            "model": "astra", "rounds": [1], "why": "ran dry"},
-                          {"from": "spark", "to": "spark", "reason": "dry (no other provider)",
+                          {"from": "spark", "to": "opus", "reason": "dry",
                            "model": "spark", "rounds": [1], "why": "ran dry"},
-                          {"from": "spark", "to": "astra", "reason": "dry",
-                           "model": "spark", "rounds": [1], "why": "ran dry"}])
-        self.assertEqual(run.executor_line(state), "astra \u2192 spark \u2192 astra (ran dry)")
+                          {"from": "opus", "to": "opus", "reason": "dry (no other provider)",
+                           "model": "opus", "rounds": [1], "why": "ran dry"},
+                          {"from": "opus", "to": "astra", "reason": "dry",
+                           "model": "opus", "rounds": [1], "why": "ran dry"}])
+        self.assertEqual(run.executor_line(state),
+                         "astra \u2192 spark \u2192 opus \u2192 astra (ran dry)")
 
     def test_v5i_a_tick_handover_still_names_its_models_and_rounds(self):
         """A babysitter `{at, from, to, reason}` entry has no model half: the status line
@@ -993,7 +1004,7 @@ class QuotaDry(unittest.TestCase):
 
     def test_v5i_an_undated_refusal_still_parks_and_a_handover_cannot_circle(self):
         """Nothing naming a time is still a refusal; without a mark the work would come back."""
-        # One model per company: no same-company pair survives the refusals.
+        # One model per company: the refusals leave spark reviewing itself, then nothing.
         self.eligible.remove("fable")
         self.repository()
         for prov in self.providers.values():         # meters that name no window either
@@ -1008,9 +1019,9 @@ class QuotaDry(unittest.TestCase):
         code, directory, state = self.launch("--exec", "astra", "--review", "opus", "--no-merge")
         self.assertEqual((code, state["state"]), (1, "exhausted"))
         # no provider was asked twice: the handover never circled back to one
-        self.assertEqual([row["model"] for row in self.calls()], ["astra", "opus"])
+        self.assertEqual([row["model"] for row in self.calls()], ["astra", "opus", "spark"])
         self.assertEqual(sorted(provider for provider, _ in self.marked),
-                         ["anthropic", "openai"])
+                         ["anthropic", "meta", "openai"])
         # with nothing to go on, an hour is what a refusal buys
         self.assertEqual({until - self.now for _, until in self.marked}, {usage.DRY_FOR})
         self.assertIn("ran dry", (directory / "log.txt").read_text())

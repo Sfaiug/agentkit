@@ -309,6 +309,9 @@ class Limits(unittest.TestCase):
         self.assertEqual(state["verdict"], "PASS")
         self.assertEqual(len(self.calls("executor")), 4)
         self.assertTrue(self.calls("reviewer"))
+        # a flake waits out the ladder instead of trading the review away: opus hangs
+        # three times on its own session, and astra still reviews another model
+        self.assertEqual(state["executor"], "opus")
         waits = [call.args[0] for call in self.sleep.call_args_list
                  if call.args and call.args[0] in run.TRANSIENT_BACKOFF]
         self.assertEqual(waits, [60, 300, 900])

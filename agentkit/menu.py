@@ -2122,8 +2122,8 @@ CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mar
                "row": ("↑↓ move   ⏎ open", "arrows move   enter open"),
                "label": ("↑↓←→ move   ⏎ open", "arrows move   enter open")}
 CONFIG_TAIL = 10   # how many of an update's last lines the `c` screen shows
-# A model's own screen: the three values ←/→ step, then the one that asks first.
-MODEL_ROWS = ("model id", "effort", "Reviews its own company's work", "Remove")
+# A model's own screen: the two values ←/→ step, then the one that asks first.
+MODEL_ROWS = ("model id", "effort", "Remove")
 MODEL_KEYS = {"step": ("↑↓ move   ←→ choose", "arrows move   left/right choose"),
               "remove": ("↑↓ move   ⏎ remove", "arrows move   enter remove")}
 REMOVE_ASK = "Remove {} from the config?"   # what `Remove` asks, `Keep` picked until moved
@@ -2372,28 +2372,18 @@ def config_model_id(cfg, name, step):
     return _saved(cfg, entry, before)
 
 
-def config_review(cfg, name):
-    """`name`'s `reviews_own_provider` flipped and saved; a model without it reviews its own
-    company's work, the way run.py reads it.  What to say under the screen, or ""."""
-    entry = cfg["models"][name]
-    before = dict(entry)
-    entry["reviews_own_provider"] = not entry.get("reviews_own_provider", True)
-    return _saved(cfg, entry, before)
-
-
 def model_body(cfg, name, at=None):
     """A model's own screen's lines, and where its rows sit on them: {line: (row, first,
     last)}, the columns of the value on that line, counted from 1, for a click.
 
-    Its model id, its effort and whether it reviews its own company's work, each between the
-    arrows that step it, then `Remove`; `at` is the highlighted row.  On a phone, where a
-    label and its value do not fit on one line, the value goes under its label.
+    Its model id and its effort, each between the arrows that step it, then `Remove`;
+    `at` is the highlighted row.  On a phone, where a label and its value do not fit on
+    one line, the value goes under its label.
     """
     entry, room = cfg["models"][name], terminal.layout_width()
     arrows = "‹ {} ›" if terminal.utf8() else "< {} >"
     values = [arrows.format(value) for value in (
-        entry.get("model", "?"), entry.get("effort", "?"),
-        "yes" if entry.get("reviews_own_provider", True) else "no")] + [""]
+        entry.get("model", "?"), entry.get("effort", "?"))] + [""]
     wide = max(terminal.cells(row) for row in MODEL_ROWS)
     under = 2 + wide + 2 + max(terminal.cells(value) for value in values) > room
     lines, places = [], {}
@@ -2411,14 +2401,13 @@ def model_body(cfg, name, at=None):
 
 @terminal.clicks_its_own
 def config_model(cfg, name):
-    """`config · <name>`: one model's id, effort and review rule, and `Remove`, read with the
-    matrix's keys until Esc or `q`, each change saved and drawn at once.
+    """`config · <name>`: one model's id and effort, and `Remove`, read with the matrix's
+    keys until Esc or `q`, each change saved and drawn at once.
 
     ↑/↓, k/j and the wheel move between rows and ←/→ step the value on one: the id through
     its harness's catalog (config.catalog) and nothing else, the effort through the efforts
-    that catalog lists for it, and `Reviews its own company's work` -- `reviews_own_provider`
-    -- flips, as it does with Enter, space or a click.  Nothing is typed, so no id or effort
-    the catalog does not offer is ever written.  Enter on `Remove` asks `Keep` or `Remove` under it, `Keep`
+    that catalog lists for it.  Nothing is typed, so no id or effort the catalog does not
+    offer is ever written.  Enter on `Remove` asks `Keep` or `Remove` under it, `Keep`
     picked and Esc keeping it; the last model is refused without asking, and one removed goes
     back to the matrix at once.
     """
@@ -2444,8 +2433,8 @@ def config_model(cfg, name):
                     return
                 continue
             here, first, last = place
-            inside = first <= key.col <= last     # on the value: an arrow steps it, yes/no flips
-            act = ("enter" if here == "Remove" or here == MODEL_ROWS[2] and inside
+            inside = first <= key.col <= last     # on the value: an arrow steps it
+            act = ("enter" if here == "Remove"
                    else "left" if inside and key.col <= first + 1
                    else "right" if inside and key.col >= last - 1 else "")
         if act in ("esc", "eof") or key.char in ("q", "Q"):
@@ -2467,8 +2456,6 @@ def config_model(cfg, name):
                 before = copy.deepcopy(cfg)
                 config.remove_model(cfg, name)
                 note = _saved(cfg, cfg, before)
-        elif here == MODEL_ROWS[2] and act in ("left", "right", "enter", "space"):
-            note = config_review(cfg, name)
         elif here in MODEL_ROWS[:2] and act in ("left", "right"):
             step = 1 if act == "right" else -1
             note = (config_model_id(cfg, name, step) if here == "model id"

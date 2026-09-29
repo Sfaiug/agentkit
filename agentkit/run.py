@@ -1,4 +1,8 @@
-"""The review loop: executor -> done-when -> another model's review, until PASS, then the merge.
+"""The review loop: executor -> done-when -> review, until PASS, then the merge.
+
+The reviewer is another model where the workers allow one, else the executor's own:
+a model tends to miss the mistakes it makes, so its own review is the last choice,
+never a refusal.
 
 No LLM decides anything here; the loop is a script and the verdict is a parsed line.
 
@@ -332,15 +336,15 @@ def collect_usage(cfg):
 
 
 def handover_executor(state, cfg, reason, dry=(), log=None):
-    """Hand a worker turn to the cheapest legal pair on a provider that refused nothing yet.
+    """Hand a worker turn to the best pair on a provider that refused nothing yet.
 
-    Returns the new executor, or None where none is eligible.  Both roles are re-picked by
-    budget under the one-provider rule, so the cheapest legal pair runs and the pair is
-    always a legal one -- a reviewer kept from before can be the very model now executing.
-    A refused provider never gets the work back (that is how a handover becomes a circle);
-    its review is a different matter and takes the spares road if it refuses that too.
-    Records the move in `executor_history` with the reason (`stalled`, `dry`). `dry` is
-    every provider that already refused this piece of work.
+    Returns the new executor, or None where none is eligible.  Both roles are re-picked
+    as one pair (`best_pair`), so tier beats budget and the pair is always a legal one --
+    a reviewer kept from before can be the very model now executing.  A refused provider
+    never gets the work back (that is how a handover becomes a circle); its review is a
+    different matter and takes the spares road if it refuses that too.  Records the move
+    in `executor_history` with the reason (`stalled`, `dry`). `dry` is every provider that
+    already refused this piece of work.
     """
     current = state.get("executor")
     try:
@@ -358,11 +362,9 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
         order = [n for n in ready_order(cfg, providers, workers, log, reviewers=reviewers)
                  if n != current and config.model(cfg, n)["provider"] not in refused]
         review_order = ready_order(cfg, providers, reviewers, role="reviewer")
-        for name in order:
-            candidates = reviewer_order(cfg, name, review_order)
-            if candidates:
-                new, reviewer = name, candidates[0]
-                break
+        pair = best_pair(cfg, order, review_order)
+        if pair is not None:
+            new, reviewer = pair
     except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
         pass
     if new is None:
@@ -783,29 +785,34 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
             raise config.Error(f"{want_review!r} is not a worker of {where}")
         refuse_unready(cfg, providers, want_review)
         reviewer = want_review
+        if want_exec is None:
+            # A named reviewer takes the best executor for it: tier first, then
+            # budget, through the same pair choice every automatic pick uses.
+            pair = best_pair(cfg, order, [reviewer])
+            if pair is not None:
+                executor = pair[0]
     else:
         review_order = ready_order(cfg, providers, reviewers if reviewers is not None else workers,
                                    role="reviewer", quiet=quiet, repo=repo)
-        for executor in [want_exec] if want_exec else order:
-            candidates = reviewer_order(cfg, executor, review_order)
-            if candidates:
-                reviewer = candidates[0]
-                break
-        else:
-            raise QuotaDry(f"no eligible reviewer: no legal second model for executor {executor}; "
-                           "waiting for review")
+        pair = best_pair(cfg, [want_exec] if want_exec else order, review_order)
+        if pair is None:
+            where = f" for executor {want_exec}" if want_exec else ""
+            raise QuotaDry("no eligible reviewer: no worker with budget is left to review"
+                           f"{where}; waiting for review")
+        executor, reviewer = pair
     review_providers(cfg, executor, reviewer)
     return executor, reviewer
 
 
 def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, reviewers=None):
-    """The one sentence a launch is refused with when no allowed pair can form, or None.
+    """The one sentence a launch is refused with when no worker can run, or None.
 
     Budgets are left out: a spent meter refills, and a run waiting on one is parked for a
-    reason.  Nothing refills a harness that is not installed or not logged in, and waiting
-    grows no second model, so a launch left without an allowed executor and reviewer is
-    refused instead of parking on a review nobody can give. Legacy explicit names remain
-    unbound; only automatic candidates fall back to the configured worker selection.
+    reason.  Nothing refills a harness that is not installed or not logged in, so a launch
+    left with no runnable executor or reviewer is refused instead of parking on a review
+    nobody can give.  One runnable worker is enough to launch: it reviews its own work,
+    marked self-reviewed.  Legacy explicit names remain unbound; only automatic candidates
+    fall back to the configured worker selection.
     """
     listed, review_list = config.role_groups(cfg, workers, reviewers)
     bound_exec = listed is not None
@@ -823,38 +830,115 @@ def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, revi
     if any(reviewer_order(cfg, name, reviews) for name in ready):
         return None
     why = "; ".join(f"{name}: {reason}" for name, reason in skipped.items() if reason)
-    return (f"workers {', '.join(listed)} and reviewers {', '.join(review_list)} "
-            "make no allowed executor and reviewer pair"
+    missing = []
+    if not ready:
+        missing.append(f"workers {', '.join(listed)}")
+    if not reviews:
+        missing.append(f"reviewers {', '.join(review_list)}")
+    if not missing:  # an unknown explicit name refuses below; name both lists
+        missing = [f"workers {', '.join(listed)}",
+                   f"reviewers {', '.join(review_list)}"]
+    return (f"none of the {' and '.join(missing)} can run here"
             + (f" ({why})" if why else "")
             + "; log in to another harness or add another model to the groups")
 
 
 def review_providers(cfg, executor, reviewer):
-    """Never the executor's model; its company is allowed unless the reviewer opts out."""
+    """The (executor, reviewer) providers.  Any reviewer may review any executor --
+    another company is only preferred, by reviewer_order, never required."""
     executed = config.model(cfg, executor) if executor else None
     reviewed = config.model(cfg, reviewer)
-    exec_provider = executed["provider"] if executed else None
-    review_provider = reviewed["provider"]
-    if executor == reviewer or (executed and exec_provider == review_provider
-                                and executed["model"] == reviewed["model"]):
-        raise config.Error(f"reviewer {reviewer} is the same model as executor {executor}")
-    if exec_provider == review_provider:
-        if not reviewed.get("reviews_own_provider", True):
-            raise config.Error(f"reviewer {reviewer} shares provider {exec_provider} with executor "
-                               f"{executor}; reviews_own_provider = false requires a different provider")
-    return exec_provider, review_provider
+    return (executed["provider"] if executed else None), reviewed["provider"]
+
+
+def same_model(cfg, first, second):
+    """Whether two worker names are the same model: the same name, or the same provider
+    and model id under another name -- the `sonnet-2` the `c` screen adds an already
+    configured model as at another effort."""
+    if not first or not second:
+        return False
+    if first == second:
+        return True
+    try:
+        one, two = config.model(cfg, first), config.model(cfg, second)
+    except config.Error:
+        return False
+    return one["provider"] == two["provider"] and one["model"] == two["model"]
 
 
 def reviewer_order(cfg, executor, order):
-    """Keep budget order within each company preference, dropping forbidden pairs."""
-    cross, same = [], []
+    """Another company's models, then the executor's company's, then its own; budget order
+    within each tier.  A model tends to miss the mistakes it makes, so its own review is
+    the last choice -- but only a choice, never a refusal: one worker reviews itself."""
+    try:
+        executed = config.model(cfg, executor) if executor else None
+    except config.Error:
+        return []
+    cross, same, own = [], [], []
     for name in order:
         try:
-            executed, reviewed = review_providers(cfg, executor, name)
+            reviewed = config.model(cfg, name)
         except config.Error:
             continue
-        (same if executed == reviewed else cross).append(name)
-    return cross + same
+        if executed is None or reviewed["provider"] != executed["provider"]:
+            cross.append(name)
+        elif name == executor or reviewed["model"] == executed["model"]:
+            own.append(name)
+        else:
+            same.append(name)
+    return cross + same + own
+
+
+def pair_tier(cfg, executor, reviewer):
+    """This pair's tier: 0 another company, 1 the executor's company, 2 its own model.
+
+    None when either name is unknown: no pick weighs a pair it cannot name.
+    """
+    if same_model(cfg, executor, reviewer):
+        return 2
+    try:
+        executed = config.model(cfg, executor)["provider"]
+        reviewed = config.model(cfg, reviewer)["provider"]
+    except config.Error:
+        return None
+    return 0 if executed != reviewed else 1
+
+
+def best_pair(cfg, executors, reviewers, allow_self=True):
+    """The pair every automatic pick takes: tier first, then executor budget, then reviewer.
+
+    Both lists are already budget-ordered, so the first pair in tier order wins: a review
+    by another company beats one by the executor's company, which beats the executor
+    reviewing itself.  A first pick that stopped at the cheapest executor would keep a
+    self-review while a cross-company pair is ready.  None when no pair forms -- or only
+    a self-review when `allow_self` is off, which a flake waits out.
+    """
+    best, key = None, None
+    for ei, executor in enumerate(executors or []):
+        for ri, reviewer in enumerate(reviewers or []):
+            tier = pair_tier(cfg, executor, reviewer)
+            if tier is None or (tier == 2 and not allow_self):
+                continue
+            found = (tier, ei, ri)
+            if key is None or found < key:
+                key, best = found, (executor, reviewer)
+    return best
+
+
+def self_reviewed(state, cfg=None):
+    """Whether the executor's own model reviews this run: the recorded review's pair
+    where a round was reviewed, else the current one.  A seat's own PR has no executor,
+    so its writer -- the seat's orchestrator -- counts as the executor.  `cfg` tells an
+    alias (the same provider and model id under another name) from another model;
+    without it only the same name counts."""
+    evidence = state.get("review") if isinstance(state.get("review"), dict) else {}
+    reviewer = evidence.get("reviewer") or state.get("reviewer")
+    executor = evidence.get("executor")
+    if executor is None:
+        executor = state.get("own_orchestrator") if state.get("own_pr") else state.get("executor")
+    if not reviewer or not executor or reviewer == executor:
+        return bool(reviewer and reviewer == executor)
+    return cfg is not None and same_model(cfg, executor, reviewer)
 
 
 def review_pass(state, cfg):
@@ -2573,19 +2657,22 @@ def note_handover(state, before, why, rnd, to=None, reason="dry"):
     state["exec_session"] = None
 
 
-def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, reviewers=None):
+def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, reviewers=None,
+                  allow_self=True):
     """(executor, reviewer) for work whose provider has run dry, or Exhausted when none is left.
 
-    Both roles are re-picked by budget under the one-provider rule, so the cheapest legal
-    pair runs: the first executor in the pick order that leaves a legal reviewer, with that
-    reviewer beside it.  Keeping the current reviewer instead would force a dearer executor
-    on the run -- on 2026-09-22 a Grok refusal kept reviewer Muse and pushed execution onto
-    Claude, though executor Muse with reviewer Claude was legal and cheaper.
+    Both roles are re-picked as one pair (`best_pair`), so tier beats budget: a cross-company
+    review beats a same-company one, which beats a self-review.  Keeping the current reviewer
+    instead would force a dearer executor on the run -- on 2026-09-22 a Grok refusal kept
+    reviewer Muse and pushed execution onto Claude, though executor Muse with reviewer Claude
+    was legal and cheaper.
 
     `dry` is every provider that has already refused this piece of work, not just the last one:
     a refusal the meters cannot see is still a refusal, and handing the work back to a provider
     that has just turned it down is how a handover becomes a circle.  `workers`, when given,
-    is the run's bound list: nothing outside it is ever picked.
+    is the run's bound list: nothing outside it is ever picked.  `allow_self` False keeps a
+    flaky provider's handover off a self-review pair: the flake usually answers after a wait,
+    so only a provider that cannot run the work settles for one.
     """
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     order = [n for n in ready_order(cfg, providers, workers, log, repo=repo, reviewers=reviewers)
@@ -2594,10 +2681,9 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
                                           reviewers if reviewers is not None else workers,
                                           role="reviewer", repo=repo)
                     if config.model(cfg, n)["provider"] not in dry]
-    for executor in order:
-        candidates = reviewer_order(cfg, executor, review_order)
-        if candidates:
-            return executor, candidates[0]
+    pair = best_pair(cfg, order, review_order, allow_self=allow_self)
+    if pair is not None:
+        return pair
     raise QuotaDry(f"nothing is left to execute with a legal reviewer: "
                    f"{', '.join(sorted(dry))} ran dry; resume when a meter refills")
 
@@ -2624,8 +2710,11 @@ def hand_executor(lp, why, detail, dry):
         pass
     try:
         providers = collect_usage(lp.cfg)
+        # Only "transient" may still answer where it is: a flake waits out the backoff
+        # unless another model can take the role with an independent review beside it.
         new, reviewer = next_executor(lp.cfg, providers, dry, lp.reviewer, lp.log,
-                                      lp.state.get("repo"), workers, reviewers)
+                                      lp.state.get("repo"), workers, reviewers,
+                                      allow_self=why != "transient")
     except (Exhausted, config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
         new = None
     rnd = started_round(lp.run_dir, lp.state)
@@ -3621,7 +3710,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     # The round is read off `dir`, which is what free_dir writes through.
     rd = lp.dir("reviewer").parent
     name = open_review(rd)[0] or "reviewer"
-    def fall_back(reason, out):
+    def fall_back(reason, out, allow_self=True):
         """The path a dry, twice-silent or twice-transient reviewer takes: next spare, else Exhausted."""
         # Recheck at the point of fallback, including spares from saved/legacy callers, and
         # against the meters as they read now: a spare whose own provider has run dry is none.
@@ -3634,12 +3723,21 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                             role="reviewer", repo=lp.state.get("repo"))
         own = lp.state.get("own_orchestrator") if lp.state.get("own_pr") else None
         exec_for_rule = own or lp.executor
-        lp.spares = reviewer_order(lp.cfg, exec_for_rule,
-                                  [n for n in order if n in lp.spares and n != lp.reviewer])
-        if not lp.spares:
+        spares = reviewer_order(lp.cfg, exec_for_rule,
+                                [n for n in order if n in lp.spares and n != lp.reviewer])
+        if not allow_self:
+            # A flake waits unless another model can review: only a reviewer that cannot
+            # come back settles for the executor's own model.  The filter is local, so a
+            # later fallback with a real reason still finds it.
+            offered = [n for n in spares
+                       if not same_model(lp.cfg, exec_for_rule, n)]
+        else:
+            offered = spares
+        if not offered:
             raise Exhausted(f"reviewer {lp.reviewer} {reason} and no eligible reviewer is left "
                             f"to review; waiting for review. See {out}*/stderr.log")
-        lp.reviewer, lp.review_sid = lp.spares.pop(0), None
+        lp.reviewer, lp.review_sid = offered.pop(0), None
+        lp.spares = [n for n in spares if n != lp.reviewer]
         lp.save()
         # said only where it is true: a spare may share the executor's company
         theirs, spare = review_providers(lp.cfg, exec_for_rule, lp.reviewer)
@@ -3669,7 +3767,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
 
         def handover(detail, out=out):
             try:
-                return fall_back(detail, out)
+                return fall_back(detail, out, allow_self=False)
             except Exhausted:
                 return None
         try:
@@ -5673,6 +5771,42 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 executor, reviewer = pick_models(cfg, providers, executor, reviewer, log,
                                                  resuming=True, repo=repo, workers=workers,
                                                  reviewers=reviewers)
+                if reviewer is not None and same_model(cfg, executor, reviewer):
+                    # A saved self-review steps aside when a better pair is ready: its own
+                    # model reviews only as the last choice, never while another pair runs.
+                    # Once the round's executor has answered, only the reviewer moves: the
+                    # work is already its author's, and handing it over would record the
+                    # review against a model that never ran it.
+                    answered = bool(state.get("review_pending"))
+                    if not answered:
+                        try:
+                            nxt = len(state.get("round_summaries") or []) + 1
+                            rd = Path(run_dir) / f"round-{nxt}"
+                            answered = (finished_answer(rd, "executor") is not None or
+                                        finished_answer(rd, "fixer") is not None)
+                        except (OSError, ValueError, TypeError, AttributeError):
+                            answered = False
+                    try:
+                        if answered:
+                            better = best_pair(cfg, [executor], order)
+                        else:
+                            exec_order = ready_order(cfg, providers, workers, None, repo=repo,
+                                                     reviewers=reviewers, quiet=True)
+                            better = best_pair(cfg, exec_order, order)
+                    except (config.Error, OSError, ValueError, KeyError, TypeError,
+                            AttributeError):
+                        better = None
+                    if better is not None and not same_model(cfg, *better):
+                        if better[0] != executor:
+                            handed = executor
+                            executor, reviewer = better
+                            note_handover(state, handed, "self-review",
+                                          started_round(run_dir, state), to=executor,
+                                          reason="self-review")
+                            log(f"handing executor to {executor}: {handed} "
+                                "was to review its own work")
+                        else:
+                            executor, reviewer = better
         if reviewer != state.get("reviewer"):
             state["review_session"] = None
     elif (preset_exec and not opts["--exec"] and not opts["--review"]
@@ -5706,7 +5840,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         # print, not the timestamped log: this one line is the launch announcement.
         # A --bg child stays silent -- its stdout is the log, and the parent, which
         # picked first, already printed it on the terminal.
-        print(launch_line(run_dir.name, title, executor, reviewer))
+        print(launch_line(run_dir.name, title, executor, reviewer,
+                          self_review=same_model(cfg, executor, reviewer)))
 
     if state.get("scratch"):
         where = (f"Workspace: {wt}\nThere is no git repository here: nothing to commit, no branch "
@@ -10347,7 +10482,7 @@ def status_id_cell(name, room):
     return head + current + "…"
 
 
-def status_rows(found, width, index=None):
+def status_rows(found, width, index=None, cfg=None):
     """The status table's header and one line group per row.
 
     Fixed columns with two-space gutters, sized once from the rows on screen:
@@ -10355,9 +10490,12 @@ def status_rows(found, width, index=None):
     remaining width, wrapped once at a word onto an indented continuation, cut
     with ` \u2026` only past that), state, worker, round, age. The state reads the
     table's words from terminal.STATES: unfinished, working, done or failed.
+    The worker pair carries `self-reviewed` where the executor's own model reviews.
     Returns (header, groups): the header drawn once, each group's lines for
     one row, so the caller can print a run's detail lines indented under it.
     `index` is the listing's `supersession_index`, for `status_state_word`.
+    `cfg` tells an alias from another model for the mark; without it only the
+    same name marks.
     """
     from . import menu, terminal
     if not found:
@@ -10372,10 +10510,11 @@ def status_rows(found, width, index=None):
         rounds = f"round {rnd}/{total or '?'}"
         if state.get("extended"):
             rounds += f" (+{state['extended']})"
+        worker = f"{state.get('executor', '?')}/{state.get('reviewer', '?')}"
+        if self_reviewed(state, cfg):
+            worker += " self-reviewed"
         rows.append([directory.name, state.get("title") or directory.name,
-                     status_state_word(state, index),
-                     f"{state.get('executor', '?')}/{state.get('reviewer', '?')}",
-                     rounds,
+                     status_state_word(state, index), worker, rounds,
                      resume_age(state) or terminal.format_age(menu.run_age_secs(state))])
     fixed = [2, 3, 4, 5]
     natural = [max([terminal.cells(row[i]) for row in rows] + [terminal.cells(STATUS_HEADERS[i])])
@@ -10660,6 +10799,8 @@ def cmd_status(argv):
                 line += f"  {outcome}"
             if step:
                 line += f"  {step}"
+            if self_reviewed(state, plain_cfg):
+                line += "  self-reviewed"
             resumed = resume_age(state)
             if resumed:
                 line += f"  {resumed}"
@@ -10702,7 +10843,11 @@ def cmd_status(argv):
                 print(f"  {onward}")
     else:
         from . import terminal
-        header, groups = status_rows(found, terminal.content_width(), index)
+        try:
+            table_cfg = config.load()
+        except config.Error:
+            table_cfg = None
+        header, groups = status_rows(found, terminal.content_width(), index, table_cfg)
         if wanted or why:
             # one id, or every run with --why: each run's lines indented under
             # its own row, never in one block after the table. The usage cache
@@ -11547,13 +11692,20 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
     refresh_seat_tally(session_at_launch)   # the seat's bar counts it from the start
 
 
-def launch_line(run_id, title, executor, reviewer):
+def launch_line(run_id, title, executor, reviewer, *, self_review=None):
     """The one line a launch from a seat puts on the seat's terminal.
 
     A review-only run has no executor, so it names its reviewer instead of a pair;
     every other launch names both models.  One builder, every launch path.
+    A round reviewed by the executor's own model says `self-reviewed`: the pair says
+    it by name, except a review-only run of the seat's own PR, whose caller passes it.
+    Callers that know the config pass identity, so an alias marks too.
     """
+    if self_review is None:
+        self_review = bool(executor and executor == reviewer)
     models = f"{executor}/{reviewer}" if executor else f"{reviewer} review"
+    if self_review:
+        models += ", self-reviewed"
     return (f"run {run_id} launched: {title} ({models}); "
             "it counts on this bar and in the menu; you will be told when it ends")
 
@@ -12420,7 +12572,7 @@ def own_pr_orchestrator(cfg, session_name, author):
     The seat's own PR is a review launched from a seat on a PR by this host's
     GitHub login: the orchestrator did the work itself and opened the PR, so its
     reviewer is picked against that model as if it had executed, through the
-    same `review_providers` rule. Ownership is the launch plus the author; the
+    same `reviewer_order` preference. Ownership is the launch plus the author; the
     orchestrator is the writer whose identity the independence check needs. An
     own PR with no session record or an unknown orchestrator model keeps its
     classification but cannot be reviewed or merged until the writer is known.
@@ -12723,7 +12875,9 @@ def review_pr(cfg, run_dir, url, opts, log):
     if session_at_launch and not prior.get("reviewer"):
         # the first reviewer pick starts the review: the launch line (on the terminal
         # for a foreground launch, in the log for a --bg child whose parent printed it)
-        print(launch_line(run_dir.name, title, None, reviewer))
+        print(launch_line(run_dir.name, title, None, reviewer,
+                          self_review=bool(is_own and same_model(cfg, orchestrator,
+                                                                 reviewer))))
     body += project_lessons(repo, state, log)
     save_state(run_dir, state)
     context = f"Repo checkout: {wt}\nBranch: {branch} (PR #{number} head, based on origin/{base})\n\n{body}"
@@ -12938,7 +13092,10 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
             rc = spawn_bg(run_dir, argv)
             if reviewer and title and launch_session(run_dir):
                 # the seat's terminal sees the launch line; the child's stdout is the log
-                print(launch_line(run_dir.name, title, None, reviewer))
+                saved = read_state(run_dir) or {}
+                print(launch_line(run_dir.name, title, None, reviewer,
+                                  self_review=bool(saved.get("own_pr") and same_model(
+                                      cfg, saved.get("own_orchestrator"), reviewer))))
             return rc
     opts = dict(opts, **flags)
     log = logger(run_dir, not resumed)
@@ -13568,10 +13725,10 @@ def job_start_task(cfg, job_dir, task, opts, log):
                 "--anyway": bool(opts.get("--anyway")), "--first": bool(opts.get("--first")),
                 "--bg": False}
     if task.get("rerun_attempted") and run_opts["--review"]:
-        try:
-            review_providers(cfg, run_opts["--exec"], run_opts["--review"])
-        except config.Error as exc:
-            log(f"{task['name']}: {exc}; the rerun will pick another reviewer")
+        kept = run_opts["--review"]
+        if same_model(cfg, run_opts["--exec"], kept):
+            log(f"{task['name']}: reviewer {kept} is the rerun executor's own model; "
+                "the rerun will pick another reviewer")
             run_opts["--review"] = None
     prepare(run_dir, run_opts, logger(run_dir, True), cfg, job_id=job_dir.name, task_file=task_path)
     if task.get("from_pass"):
@@ -13775,7 +13932,8 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
         nxt = job_next_executor(cfg, task.get("executor") or run_state.get("executor"),
                                 run_workers(cfg, run_state))
         if nxt:
-            # Keep the job's reviewer when legal; otherwise the fresh run picks from live budgets.
+            # The rerun keeps the job's reviewer unless it is the rerun executor's own
+            # model; then the fresh run picks another reviewer (`job_start_task`).
             task.pop("review_override", None)
             task["rerun_attempted"] = True
             task["rerun_executor"] = nxt
@@ -14497,7 +14655,8 @@ def main(argv):
             rc = spawn_bg(run_dir, argv)
             if executor and reviewer and launch_session(run_dir):
                 # the seat's terminal sees the launch line; the child's stdout is the log
-                print(launch_line(run_dir.name, title, executor, reviewer))
+                print(launch_line(run_dir.name, title, executor, reviewer,
+                                  self_review=same_model(cfg, executor, reviewer)))
             return rc
 
     log = logger(run_dir, not resumed)

@@ -1,4 +1,4 @@
-"""The role marks stay independent, save atomically, and admit only launchable pairs. Offline."""
+"""The role marks stay independent, save atomically, and refuse only what no run could start from. Offline."""
 
 import copy
 from contextlib import redirect_stdout
@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, run, terminal
+from agentkit import config, menu, orch, run, terminal, usage
 from test_v4n import Sandbox
 from test_config_matrix import Screen as ConfigScreen, row
 from test_new_session_screen import Screen, RIGHT, LEFT, DOWN, ENTER, SPACE, highlighted, marks
@@ -75,27 +75,45 @@ class RoleMarks(Sandbox):
             menu.config_mark(self.cfg, "astra", 1)
         self.assertNotIn("reviewers", self.cfg["defaults"])
 
-    def test_invalid_pair_is_refused_without_a_save(self):
+    def test_only_a_pair_no_run_could_start_from_is_refused_without_a_save(self):
         self.cfg["defaults"].update(workers=["opus"], reviewers=["opus", "astra"])
-        before = copy.deepcopy(self.cfg)
+        # Opus reviewing itself could start -- one worker reviews its own work -- so it saves.
         with patch.object(config, "save") as save:
-            self.assertEqual(menu.config_mark(self.cfg, "astra", 2),
-                             "no allowed executor/reviewer pair")
-            save.assert_not_called()
-        self.assertEqual(self.cfg, before)
+            self.assertEqual(menu.config_mark(self.cfg, "astra", 2), "")
+            save.assert_called_once()
+        self.assertEqual(self.cfg["defaults"]["reviewers"], ["opus"])
+        # Nothing runnable refuses, without touching the saved groups.
+        down = usage.Readings({})
+        down.harnesses = {"claude": "claude is not logged in",
+                          "codex": "codex is not logged in"}
+        selected = {"orchestrator": "opus", "workers": ["opus"],
+                    "reviewers": ["opus", "astra"]}
+        kept, note = orch.role_mark(self.cfg, selected, "astra", 2, down)
+        self.assertEqual(note, "no allowed executor/reviewer pair")
+        self.assertEqual(kept, selected)
 
-    def test_pair_check_matches_launch_for_aliases_and_company_policy(self):
+    def test_pair_check_matches_launch_for_aliases_and_only_refuses_the_unrunnable(self):
         self.cfg["models"]["copy"] = dict(self.cfg["models"]["opus"])
-        self.cfg["models"]["fable"]["reviews_own_provider"] = False
+        self.cfg["models"]["fable"]["reviews_own_provider"] = False  # a stale key, ignored
         selected = {"orchestrator": "opus", "workers": ["opus"]}
         for reviewer in ("opus", "copy", "fable", "astra"):
             selected["reviewers"] = [reviewer]
-            self.assertEqual(bool(orch.role_refusal(self.cfg, selected, {})), reviewer != "astra")
-            self.assertEqual(bool(orch.role_refusal(self.cfg, selected, {})), bool(
-                run.pair_refusal(self.cfg, {}, ["opus"], reviewers=[reviewer])))
+            # Any of these could start -- the executor's own review is the last choice,
+            # never a refusal -- so the screens allow what the launch allows.
+            self.assertEqual(orch.role_refusal(self.cfg, selected, {}), "")
+            self.assertIsNone(run.pair_refusal(self.cfg, {}, ["opus"], reviewers=[reviewer]))
         self.cfg["models"]["fable"]["reviews_own_provider"] = True
         selected["reviewers"] = ["fable"]
         self.assertEqual(orch.role_refusal(self.cfg, selected, {}), "")
+        # Nothing runnable refuses, on the screens as on the launch.
+        down = usage.Readings({})
+        down.harnesses = {"claude": "claude is not logged in",
+                          "codex": "codex is not logged in"}
+        for reviewer in ("opus", "astra"):
+            selected["reviewers"] = [reviewer]
+            self.assertEqual(orch.role_refusal(self.cfg, selected, down),
+                             "no allowed executor/reviewer pair")
+            self.assertTrue(run.pair_refusal(self.cfg, down, ["opus"], reviewers=[reviewer]))
 
     def test_create_records_the_screen_reviewers_without_changing_defaults(self):
         self.cfg["defaults"]["reviewers"] = ["astra"]
@@ -177,21 +195,25 @@ class RoleMarksScreen(unittest.TestCase):
         screen.saw("<created new opus opus,astra opus,astra,mimo>")
         screen.leave()
 
-    def test_config_reviewer_click_saves_and_refusal_is_one_line_on_a_phone(self):
+    def test_config_reviewer_click_saves_self_pair_and_last_one_is_one_line(self):
         text = (REPO / "config.default.toml").read_text().replace(
             'workers = ["opus", "astra"]', 'workers = ["opus"]\nreviewers = ["opus", "astra"]')
         screen = ConfigScreen(self, text=text, cols=40, rows=24)
         lines = screen.frame()
         number, line = row(lines, "astra")
         first = lines[2].index("review") + 1
+        # Opus reviewing itself could start, so removing Astra saves.
+        lines = screen.click(first, number,
+                             lambda lines: marks(row(lines, "astra")[1]) == "○□□")
+        self.assertEqual(screen.saved()["defaults"]["reviewers"], ["opus"])
+        self.assertFalse(any("no allowed" in line for line in lines))
         before = screen.path.read_bytes()
-        lines = screen.click(first, number, lambda lines: any("no allowed" in line for line in lines))
-        self.assertEqual([line.strip() for line in lines if "no allowed" in line],
-                         ["no allowed executor/reviewer pair"])
-        self.assertEqual(screen.path.read_bytes(), before)
         number, line = row(lines, "opus")
-        screen.click(first + 4, number, lambda lines: marks(row(lines, "opus")[1]) == "●■□")
-        self.assertEqual(screen.saved()["defaults"]["reviewers"], ["astra"])
+        lines = screen.click(first + 4, number,
+                             lambda lines: any("needs one model" in line for line in lines))
+        self.assertEqual([line.strip() for line in lines if "needs one model" in line],
+                         ["review needs one model"])
+        self.assertEqual(screen.path.read_bytes(), before)
         screen.leave()
 
     def test_new_session_copies_explicit_defaults_and_creates_with_changed_reviewers(self):
@@ -208,10 +230,12 @@ class RoleMarksScreen(unittest.TestCase):
         screen.send(f"\x1b[<0;{col};{number}M\x1b[<0;{col};{number}m".encode())
         screen.picker(lambda lines: "Astra" in highlighted(lines)
                       and marks(highlighted(lines)) == "○■□")
-        screen.send(LEFT + SPACE)              # Removing the only pair must leave Astra executing
-        screen.picker(lambda lines: any("no allowed" in line for line in lines))
+        screen.send(LEFT + SPACE)              # Opus reviewing itself could start, so it goes
+        lines = screen.picker(lambda lines: "Astra" in highlighted(lines)
+                              and marks(highlighted(lines)) == "○□□")
+        self.assertFalse(any("no allowed" in line for line in lines))
         screen.send(ENTER)
-        screen.saw("<created new opus opus,astra opus>")
+        screen.saw("<created new opus opus opus>")
         record = json.loads((screen.home / ".agentkit/state/session-new.json").read_text())
         self.assertEqual(record["reviewers"], ["opus"])
         screen.leave()

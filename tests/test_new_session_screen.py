@@ -269,11 +269,9 @@ class NewSessionScreen(unittest.TestCase):
         self.assertIn("spent · resets", opus[0])
         self.assertRegex(screen.text()[mark:], r"\x1b\[[0-9;]*mOpus 5\.5")
         self.assertEqual(marks(highlighted(lines)), "●■■")
+        # Astra reviewing itself could start, so Enter creates a self-review.
         screen.send(ENTER)
-        screen.picker(lambda lines: "no allowed executor/reviewer pair" in "\n".join(lines))
-        # Select another reviewer explicitly; spent models remain a manual choice.
-        screen.send(RIGHT * 2 + DOWN + SPACE + ENTER)
-        screen.saw("<created new astra astra astra,spark>")
+        screen.saw("<created new astra astra astra>")
         screen.leave()
 
     def test_with_everything_spent_nothing_is_chosen_and_enter_waits_for_a_choice(self):

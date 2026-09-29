@@ -632,8 +632,8 @@ class WeeklyBalance(unittest.TestCase):
                              ("astra", "opus"))
         self.assertEqual(run.pick_models(self.cfg, providers, "fable", "opus", lambda _: None),
                          ("fable", "opus"))
-        with self.assertRaisesRegex(config.Error, "same model"):
-            run.pick_models(self.cfg, providers, "fable", "fable", lambda _: None)
+        self.assertEqual(run.pick_models(self.cfg, providers, "fable", "fable", lambda _: None),
+                         ("fable", "fable"))
 
     def test_scoped_meter_gap_never_overrides_budget(self):
         for all_used, scoped, executor, reviewer in (
@@ -663,17 +663,17 @@ class WeeklyBalance(unittest.TestCase):
                     if "fable" not in workers:
                         self.assertEqual(usage.pick_order(self.cfg, providers)[0], "opus")
                         if used == 100:
-                            with self.assertRaises(run.QuotaDry):
-                                run.pick_models(self.cfg, providers, None, None, lambda _: None)
+                            self.assertEqual(run.pick_models(self.cfg, providers, None, None,
+                                                             lambda _: None), ("opus", "opus"))
                         else:
                             self.assertEqual(run.pick_models(self.cfg, providers, None, None,
                                                              lambda _: None), ("opus", "astra"))
                         continue
                     self.assertEqual(usage.pick_order(self.cfg, providers)[0], "opus")
                     pair = run.pick_models(self.cfg, providers, None, None, lambda _: None)
-                    self.assertEqual(pair, ("fable", "opus") if used == 100 else ("opus", "astra"))
-                    with self.assertRaisesRegex(config.Error, "reviews_own_provider"):
-                        run.review_providers(self.cfg, "opus", "fable")
+                    self.assertEqual(pair, ("opus", "fable") if used == 100 else ("opus", "astra"))
+                    self.assertEqual(run.review_providers(self.cfg, "opus", "fable"),
+                                     ("anthropic", "anthropic"))
 
     def test_budget_respects_worker_selection_payg_and_real_session_gate(self):
         providers = self.providers(80, 53)
@@ -763,6 +763,21 @@ class WeeklyBalance(unittest.TestCase):
                     rendered = usage.render(self.cfg, providers, order)
                     self.assertIn("weekly_all 20% left, weekly_scoped 47% left, gap 27", rendered)
                     self.assertNotIn("preferring Fable", rendered)
+
+    def test_pair_reviews_itself_only_when_nothing_else_can_review(self):
+        for reason in ("reviewers spent", "reviewers unknown"):
+            with self.subTest(reason=reason):
+                providers = self.providers(80, 53)
+                session = {"name": "fable-seat", "orchestrator": "fable",
+                           "workers": ["astra", "spark", "fable"]}
+                for provider in ("openai", "meta"):
+                    providers[provider]["meters"] = ([self.meter("weekly", 100)]
+                                                     if reason.endswith("spent") else [])
+                usage._gate_flags(providers, self.now, self.cfg)
+                with patch.object(config, "active_session", return_value=session):
+                    self.assertEqual(run.pick_models(self.cfg, providers, None, None,
+                                                     lambda _: None),
+                                     ("fable", "fable" if reason.endswith("spent") else "astra"))
 
 
 if __name__ == "__main__":
