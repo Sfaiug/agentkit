@@ -19,6 +19,8 @@
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                  `agy models` folded, else the [catalog] table of
 #                                  adapters/antigravity.toml
+#                     $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then
+#                     uses that subscription's own login, and no other
 # Verified against agy 1.2.9; see tests/fixtures/README.md for the captures.
 set -uo pipefail
 command -v agy >/dev/null || PATH="$HOME/.local/bin${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
@@ -29,6 +31,28 @@ export AGY_CLI_DISABLE_AUTO_UPDATE=1   # `ak update` owns that; nothing mid-run 
 # another file, a variable or a command line; no value in it is printed anywhere from here.
 TOKEN="$HOME/.gemini/antigravity-cli/antigravity-oauth-token"
 API=https://daily-cloudcode-pa.googleapis.com/v1internal   # the host agy's own log names
+# An account other than the usual login keeps agy's application data, its login among it, in
+# a directory of its own beside the usual one: `--app_data_dir`, a flag of agy's that `agy
+# --help` does not list, puts it in ~/.gemini/antigravity-cli-<name> (agy 1.2.13).  Every agy
+# call made for it carries that flag.  Its conversations/ and brain/ are the usual ones,
+# linked before agy can make its own, so a conversation begun on one account is resumed on
+# the next -- verified by a `--conversation` turn that answered out of the other's first.
+# Nothing of the usual login answers for it: agy's API-key sign-ins are dropped, and agy asks
+# the desktop keyring ahead of the file, so the session bus is closed and it reads and writes
+# the file alone.  How a person signs it in by hand is $SIGNIN.
+ACCOUNT=${AGENTKIT_ACCOUNT:-}
+DATA="" SIGNIN=agy
+if [ -n "$ACCOUNT" ]; then
+  DATA="--app_data_dir=antigravity-cli-$ACCOUNT"
+  TOKEN="$HOME/.gemini/antigravity-cli-$ACCOUNT/antigravity-oauth-token"
+  SIGNIN="DBUS_SESSION_BUS_ADDRESS=disabled: agy $DATA"
+  unset GEMINI_API_KEY GOOGLE_API_KEY AGY_ADC_AUTH
+  export DBUS_SESSION_BUS_ADDRESS=disabled:
+  for store in conversations brain; do
+    mkdir -p -- "$HOME/.gemini/antigravity-cli/$store" "${TOKEN%/*}" 2>/dev/null
+    [ -e "${TOKEN%/*}/$store" ] || ln -s -- "../antigravity-cli/$store" "${TOKEN%/*}/$store" 2>/dev/null
+  done
+fi
 cmd=${1:-}; shift 2>/dev/null || true
 
 # jq is the tool most likely to be missing, so build the error object with printf
@@ -59,8 +83,8 @@ run)
   # stream's last event is that same object under `result`.  --disable-slash-commands hands
   # agy the prompt as written, never a slash command or skill expansion of it.  stdin is
   # closed: logged out, agy waits a minute for a pasted code, and its stderr says why at once.
-  set -- -p "$msg" --output-format stream-json --dangerously-skip-permissions --print-timeout 0 \
-    --disable-slash-commands --model "$model"
+  set -- ${DATA:+"$DATA"} -p "$msg" --output-format stream-json --dangerously-skip-permissions \
+    --print-timeout 0 --disable-slash-commands --model "$model"
   # `none` is a model agy runs at no effort (`claude-sonnet-4-6`), which is handed no --effort
   [ "$effort" = none ] || set -- "$@" --effort "$effort"
   [ -n "$sid" ] && set -- "$@" --conversation "$sid"
@@ -110,8 +134,12 @@ interactive)
   # runs at no effort (`claude-sonnet-4-6`, effort `none`) is its own full id.
   case $1 in *-"$2") model=$1 ;; *) model="$1-$2" ;; esac
   [ "$2" = none ] && model=$1
-  printf 'env AGY_CLI_DISABLE_AUTO_UPDATE=1 agy %s--add-dir %q --agent agentkit --model %q --dangerously-skip-permissions\n' \
-      "$resume" "$agents" "$model" ;;
+  # A named account's seat carries what this file set above for it: the command runs later,
+  # outside this adapter's environment.
+  acct=""
+  [ -n "$ACCOUNT" ] && acct="-u GEMINI_API_KEY -u GOOGLE_API_KEY -u AGY_ADC_AUTH DBUS_SESSION_BUS_ADDRESS=disabled: "
+  printf 'env %sAGY_CLI_DISABLE_AUTO_UPDATE=1 agy %s%s--add-dir %q --agent agentkit --model %q --dangerously-skip-permissions\n' \
+      "$acct" "${DATA:+$DATA }" "$resume" "$agents" "$model" ;;
 usage)
   # agy's `/usage` panel draws what `retrieveUserQuotaSummary` answers for the project
   # `loadCodeAssist` names: groups of models, each with its windows, the share of one left and
@@ -123,7 +151,7 @@ usage)
   # neutral would be picked ahead of logged-in ones, only for the turn to fail authentication.
   command -v agy >/dev/null || err "agy is not installed"
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
-  GEMINI_API_KEY= logged_in || err "no login in $TOKEN; run agy once to sign in"
+  GEMINI_API_KEY= logged_in || err "no login in $TOKEN; run $SIGNIN once to sign in"
   # One deadline over everything below -- agy's version, both requests, a renewal and both
   # again -- so the probe answers inside its ten seconds whatever hangs.  A call still running
   # at it is sent TERM, then KILL a second later, and answers 124.  The shell watches the call
@@ -162,11 +190,11 @@ usage)
   # token nothing has renewed yet: `agy models` renews it at startup, writing the file itself,
   # and asks no model.  The endpoint is then asked once more with whatever agy left.
   quota
-  [ "$code" = 401 ] && { within agy models </dev/null >/dev/null 2>&1; quota; }
+  [ "$code" = 401 ] && { within agy ${DATA:+"$DATA"} models </dev/null >/dev/null 2>&1; quota; }
   # `timed out` is the endpoint out of reach, never a logout: the menu keeps the reading
   # it could not replace, a spent window included, as it does for any probe refused
   [ "$code" = "timed out" ] && err "timed out asking ${API#https://}"
-  [ "$code" = 200 ] || err "HTTP ${code:-000} from ${API#https://}; run agy once to sign in again"
+  [ "$code" = 200 ] || err "HTTP ${code:-000} from ${API#https://}; run $SIGNIN once to sign in again"
   jq -c '{provider:"google", error:null, meters:[.groups[]? | select(.displayName // "" | test("gemini"; "i"))
       | .buckets[]? | select(.disabled != true and .remainingFraction != null and .resetTime != null)
       | {name:.bucketId, used:(100 - .remainingFraction * 100),
@@ -180,9 +208,9 @@ install)
 login)
   command -v agy >/dev/null || { echo "antigravity.sh login: agy is not installed" >&2; exit 2; }
   logged_in && { echo "agy: already logged in"; exit 0; }
-  [ -t 0 ] || { echo "agy: not logged in; run \`agy\` in a terminal, open the URL it prints and paste the code back" >&2; exit 1; }
+  [ -t 0 ] || { echo "agy: not logged in; run \`$SIGNIN\` in a terminal, open the URL it prints and paste the code back" >&2; exit 1; }
   echo "agy: choose Google OAuth, open the URL, paste the code back, then leave with /exit"
-  agy ;;
+  agy ${DATA:+"$DATA"} ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
   # saying why not; anything else is no answer, and the caller carries on as before.  A
@@ -192,8 +220,8 @@ auth)
   logged_in; rc=$?
   [ $rc -eq 0 ] && { echo "agy: a login is saved"; exit 0; }
   [ $rc -eq 2 ] && { echo "antigravity.sh auth: jq is required to read $TOKEN" >&2; exit 2; }
-  if [ -e "$TOKEN" ]; then echo "agy: $TOKEN holds no refresh token; run \`agy\` and sign in" >&2
-  else echo "agy: no $TOKEN; run \`agy\` and sign in" >&2; fi
+  if [ -e "$TOKEN" ]; then echo "agy: $TOKEN holds no refresh token; run \`$SIGNIN\` and sign in" >&2
+  else echo "agy: no $TOKEN; run \`$SIGNIN\` and sign in" >&2; fi
   exit 1 ;;
 hooks)
   # agy 1.2.9 runs hooks from ~/.gemini/config/hooks.json or a workspace's .agents/hooks.json
@@ -210,7 +238,7 @@ models)
   # outlasts ten seconds or says nothing leaves the [catalog] table, and so does a host with
   # no `timeout` to bound it (stock macOS): nothing waits on a listing it cannot stop.
   listed=$(command -v timeout >/dev/null && command -v agy >/dev/null \
-    && timeout 10 agy models 2>/dev/null | awk -F'\t' '
+    && timeout 10 agy ${DATA:+"$DATA"} models 2>/dev/null | awk -F'\t' '
     NF >= 2 {
       id = $1; label = $2; effort = ""
       if (match(id, /-(low|medium|high)$/)) {
