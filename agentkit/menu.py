@@ -1541,7 +1541,7 @@ def run_progress(state):
             if not wrote or wrote <= last + 1:
                 word = f"silent {orch.span(time.time() - last)}"
     else:
-        word = ("working" if going else "done" if state.get("state") in ("pass", "stopped") else
+        word = ("working" if going else "done" if state.get("state") in ("pass", "stopped", "not_needed") else
                 "interrupted" if state.get("state") == "interrupted" else "FAIL")
     elapsed = (orch.span(time.time() - (state.get("interrupted_at") or started)
                          if run.needs_recovery(state) else time.time() - started
