@@ -55,8 +55,7 @@ tmux is swept, unless a run of the seat's is unfinished or a question in it is u
 Stopping a session (`x` on its highlighted row, after its one question under the row, `Keep` or `Stop`; `x` on a done session and `ak orch stop <name>` ask
 nothing, so a finished session closes with one `x`) stops every run it launched, removes each run's worktree and local branch, deletes every
 state file named for the seat or for a name it had before a rename, rulebook, idle-compact stamps and locks included, edits its open Discord card to `Answered`, and closes the tabs the seat or its
-runs opened; the collector takes the stop mark a day later. The remote branch stays for the PR,
-and the run directory for its result. `q` leaves a seat running and is not a stop.
+runs opened; the collector takes the stop mark a day later. The remote branch stays for the PR, and the run directory for its result. `q` leaves a seat running and is not a stop.
 
 ## The run
 
@@ -68,8 +67,7 @@ scratch workspace), `base` (the repo's default branch), `target` (the branch the
 dependency, repeatable). A check ending in `# once` runs only on the commit that ships; the reviewer sees it marked
 deferred. The full suite a repository names as `tests:` in its `AGENTS.md` front matter is such a check in every run
 there, from the target branch where the checkout predates it, and a done-when line with the same command runs once with it, so a task lists only the checks for its change.
-A command that fails runs once more at once, within the same ceiling, and passes if the re-run does: the output keeps
-the first failure's last lines under `flaky:`, which joins the run's follow-ups as evidence.
+A command that fails runs once more at once, within the same ceiling, and passes if the re-run does: the output keeps the first failure's last lines under `flaky:`, which joins the run's follow-ups as evidence.
 The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt, up to 4 KB; past
 that, the run's hand-back names the file and asks the orchestrator to tighten it.
 
@@ -82,8 +80,7 @@ file cache; a pinned `max_load` restores the host-load check instead, each run t
 worker's own test runs share the parent's slot, and a third level is refused. A run that hits its own memory cap, the
 40% of the slice ceiling, 4 GB where there is no ceiling, unless `run_memory_max_mb` sets it, ends `fail` with `killed: memory cap`.
 `ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the CPU gate but still waiting for the memory floor, and takes the next heavy suite turn first, marked `first` in `ak run status`.
-A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run
-scope and cap; one run from a terminal runs its tasks in its own process.
+A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run scope and cap; one run from a terminal runs its tasks in its own process.
 
 The worktree is `~/.agentkit/wt/<id>` on branch `ak/<slug>`, the first name free locally and on `origin`. The executor
 writes and commits, its commands in the foreground. The loop runs the checks itself and hands the diff and their output
@@ -104,8 +101,7 @@ Re-review rules on each dispute first, upheld or dropped, and says why. Three ro
 
 On PASS the run brings the branch up to date with `origin/<target>` (a rebase, or a merge where `merge: merge` is asked
 or the branch already carries merge commits), pushes, opens the PR, waits out the required checks and merges it, squash
-by default. Each landing lap rebases onto the target's tip and runs each check once on that commit, only the heavy suite taking a turn. A clean integration keeps its review if the
-done-when passes again; an empty one ends PASS. A conflict or a failing `# once`
+by default. Each landing lap rebases onto the target's tip and runs each check once on that commit, only the heavy suite taking a turn. A clean integration keeps its review if the done-when passes again; an empty one ends PASS. A conflict or a failing `# once`
 check gets up to three fixer rounds, never task rounds, then parks `waiting` on the target ref and SHA until the tick sees it move (a check
 names its first failing line); one failing on the target's own tip too parks at once with `<target> itself fails: <line>`, spending no round, unless the command names a file only the branch has (including root files, globs and paths after `cd`): the fixer runs without a probe and the log names the missing file. File-existence tests still probe. A host lands one run per repository and target branch at a time, and the first lap's merge turn covers only a fetch, the push, the PR, its required checks and the merge: the
 rebase, the done-when and final check re-runs, and every fixer and re-review they need run before it. A target still on
@@ -118,8 +114,7 @@ the loop overrode a PASS. A base-branch merge race re-fetches, rechecks the PR h
 changes and retries three times with growing waits before parking. Without push rights it forks, opens the PR upstream
 and ends `PASS, not merged: waiting for the maintainer`, exiting 0; the tick follows the PR and hands the decision to the seat. `--no-merge` stops at the verdict. Other ended `merged: no` runs name their reason and exit 1.
 Before each round and each landing lap's verify, a run whose installed agentkit moved replaces itself in place with
-`ak run resume <id>` — same pid, slot and saved PASS — saying `picked up agentkit <old>..<new>; continuing on it`; it
-never moves holding a turn or a child, and a landing resumed mid-laps keeps its lap count.
+`ak run resume <id>` — same pid, slot and saved PASS — saying `picked up agentkit <old>..<new>; continuing on it`; it never moves holding a turn or a child, and a landing resumed mid-laps keeps its lap count.
 
 A run ends `blocked` when the task is wrong: an executor or fixer ends its turn with `## Blocked` instead of `##
 Summary`, or a fix round leaves the same checks failing the same way (or no harness can run it, see Resumption). No
@@ -139,8 +134,7 @@ its own commits (`git rebase --onto <target> <tip>`), so a squash merge cannot c
 keeps it waiting; one ending unmerged skips it (`skipped: <dep> did not merge`), its branch kept. `repo: none` delivers
 files in `~/.agentkit/work/<id>`, which its hand-back names, not a PR. `ak run --review-pr URL` reviews a PR with
 no executor and posts the verdict as a GitHub review: a seat's own PR merges on PASS with green checks, anyone
-else's asks the inbox. `ak run status` lists every run of the last seven days but
-the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
+else's asks the inbox. `ak run status` lists every run of the last seven days but the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
 `workspace:` and `continue:` lines. An ending handed back, acknowledged or superseded (by a later merged run of its
 title, or a relaunch `from:` its branch) reads `done`, as does a parked run a later merged run replaced, and a job's tasks read their runs as they are now. `ak run` exits 0 on PASS, 1 on FAIL, `exhausted`, `blocked` or an unfinished merge, 2 on error.
 
@@ -338,8 +332,7 @@ bottom of the pane), `[stall]` (its own words for a fault, a refusal and a spent
 (title, remedy, signatures), `[compact]` (the keys, the signal, where context is read), `[effort]` (its vocabulary),
 `[catalog]` (models, efforts) and `[worker_token]` where it mints one. Then add `[providers.<name>]`.
 `$AGENTKIT_ADAPTER_DIR` points at another adapter directory, which is how the offline suites run the loop with no model
-behind it. Behaviour that needs Python goes in `agentkit/harness/<h>.py` behind one interface where every hook has a
-default (`tokens` reads `events.jsonl`; Muse's are in its session store).
+behind it. Behaviour that needs Python goes in `agentkit/harness/<h>.py` behind one interface where every hook has a default (`tokens` reads `events.jsonl`; Muse's are in its session store).
 
 ## The installer and updating
 
@@ -354,7 +347,8 @@ once, only where missing and there is a terminal; the git credential helper and 
 On a server it also writes: the bypass defaults and update pins into `~/.claude/settings.json` (backed up beside itself
 when it changes) and `~/.codex/config.toml`, each harness's lifecycle hooks through `adapters/<h>.sh hooks`, and the browser MCP registration. The server installs the tick's cron and, where a user systemd manager exists, writes
 `~/.config/systemd/user/agentkit.slice.d/limits.conf` on every install, pinned by `slice_tasks_max`, `slice_memory_high`,
-`slice_memory_max`, `slice_cpu_quota`: seats in `agentkit-seats.slice`, runs in the lower-weight `agentkit-runs.slice`. Under a HOME not the account's own it touches nothing outside it.
+`slice_memory_max`, `slice_cpu_quota`: seats in `agentkit-seats.slice`, runs in the lower-weight `agentkit-runs.slice`. Where `sudo` needs no password it first derives the user unit's own `agentkit-limits.conf` from the machine (80%/90% memory,
+4% of tasks, the slice's CPU quota, `OOMPolicy=continue`), taking over only its own or the hand-written file and leaving other drop-ins alone; without it, one line says to run `sudo -v` and re-run the install. Under a HOME not the account's own it touches nothing outside it.
 
 `ak update` upgrades the harnesses this host has (any other is a `skipped` line), and none while a session works (it
 names those sessions and exits 0); it verifies them with the gates that can run there and rolls back a harness the gates
@@ -379,8 +373,7 @@ on `localhost:8931` serves every seat over HTTP, from a package `ak browser inst
 Agents reach it through the `browser` (by URL) and `desktop` MCP servers `ak browser mcp-register` registers for Claude
 Code and Codex, and Muse through `browser/bridge.py`. `ak browser status` shows the units, tabs and noVNC URL; `ak browser
 login` prints the URL and password for signing a site in by hand; `ak browser install` stands it up where there is none.
-The tick closes a tab idle for an hour or past twelve open, and one a run or seat opened closes when it ends or stops;
-Chromium is never restarted. noVNC binds to the Tailscale address.
+The tick closes a tab idle for an hour or past twelve open, and one a run or seat opened closes when it ends or stops; Chromium is never restarted. noVNC binds to the Tailscale address.
 
 ## The history
 
@@ -402,5 +395,5 @@ retry), `result.md` (linking a scratch run's files) and `round-<r>/<role>/{promp
 - A dropped Mac file the server cannot read: open a new Mac terminal tab or run `ak macbridge --reader` there, then fetch again.
 - Test one headless turn: `ak worker opus prompt.md --workspace ~/code/foo`.
 - A stale usage reading: open the menu; it reads each provider again within a minute.
-- The slice ceiling: pin `slice_tasks_max` and friends in `~/.agentkit/config.toml` (an install rewrites its own `limits.conf`), or `systemctl --user set-property agentkit.slice TasksMax=4096` for now.
+- The slice ceiling: pin `slice_tasks_max` and friends in `~/.agentkit/config.toml` (an install rewrites its own `limits.conf`), or `systemctl --user set-property agentkit.slice TasksMax=4096` for now; the user unit's ceiling above it follows the machine where `sudo` needs no password.
 - A failed `ak update` that could not restore Muse: its snapshot is under `~/.agentkit/tmp/muse-snapshot-*`, named in the log.
