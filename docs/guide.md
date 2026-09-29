@@ -65,8 +65,8 @@ The orchestrator writes the task from `templates/task.md`: a title, `## Goal`, `
 under `## Done when` whose every command must exit 0. Optional front matter: `repo` (the launching checkout; `none` is a
 scratch workspace), `base` (the repo's default branch), `target` (the branch the PR merges into, default `base`), `from`
 (a local branch to cut from), `merge` (`squash`, `merge` or `rebase`), `rounds` (3, the most), `after` (a job
-dependency, repeatable). A check ending in `# once` runs only on the commit that ships, in the final check; the executor is told not to run it,
-the reviewer sees it marked deferred. The full suite a repository names as `tests:` in its `AGENTS.md` front matter is such a check in every run
+dependency, repeatable). A check ending in `# once` runs alongside the review on the commit under review; the executor is told not to run it,
+its absence from the reviewer's input by design. The full suite a repository names as `tests:` in its `AGENTS.md` front matter is such a check in every run
 there, from the target branch where the checkout predates it, and a done-when line with the same command runs once with it, so a task lists only the checks for its change.
 A command that fails runs once more at once, within the same ceiling, and passes if the re-run does: the output keeps the lines the failed run printed that its passing re-run did not, at most 20 (its last lines when the re-run repeated them all), under `flaky:`, which joins the run's follow-ups as evidence.
 The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt, up to 4 KB; past
@@ -85,9 +85,9 @@ A job started with `--bg` or relaunched by the tick gives each task, its resume 
 
 The worktree is `~/.agentkit/wt/<id>` on branch `ak/<slug>`, the first name free locally and on `origin`. The executor
 writes and commits, its commands in the foreground. The loop runs the checks itself and hands the diff and their output
-to the reviewer, another model where the workers allow one, else the executor's own. Task reviewers may run whatever is needed to prove or dismiss a finding, except done-when commands, the repository's `tests:` suite, and checks marked deferred.
+to the reviewer, another model where the workers allow one, else the executor's own. Task reviewers may run whatever is needed to prove or dismiss a finding, except done-when commands, the repository's `tests:` suite, and checks marked deferred, which run alongside the review.
 They keep the work under review read-only; probes leave nothing behind outside a temporary directory. Reviewers of others' PRs stay read-only and may run tests and commands.
-A reviewer answers `VERDICT: PASS` or `VERDICT: FAIL`; one with no verdict is asked once more, never failed. A round is FAIL only for a blocking finding: a correctness defect, a safety
+A reviewer answers `VERDICT: PASS` or `VERDICT: FAIL`; one with no verdict is asked once more, never failed. A round passes only when the reviewer says PASS and the suite passes; a failing suite fails the round and its output goes to the fixer with the findings. A round is FAIL only for a blocking finding: a correctness defect, a safety
 or data-loss risk, a weakened check, or work outside the task, with evidence: a command that fails, a reproduction, or quoted diff lines showing the defect. A follow-up needs the same evidence and severity, plus proof it existed before
 the task: a named base commit or a quote from main before the task. Only these go under `## Follow-ups`, without a
 number limit; everything else is omitted everywhere. A fixer is handed the review without its follow-ups. The run's `run.json` and PR description carry only the final
@@ -102,7 +102,7 @@ Re-review rules on each dispute first, upheld or dropped, and says why. Three ro
 
 On PASS the run brings the branch up to date with `origin/<target>` (a rebase, or a merge where `merge: merge` is asked
 or the branch already carries merge commits), pushes, opens the PR, waits out the required checks and merges it, squash
-by default. Each landing lap rebases onto the target's tip and runs each check once on that commit, only the heavy suite taking a turn. A clean integration keeps its review if the done-when passes again; an empty one ends PASS. A conflict or a failing `# once`
+by default. Each landing lap rebases onto the target's tip and runs each check once on that commit, only the heavy suite taking a turn. A clean integration keeps its review if the done-when passes again; an empty one ends PASS. `ak run status` and the result say where each check ran, in the round or at landing. A conflict or a failing `# once`
 check gets up to three fixer rounds, never task rounds, then parks `waiting` on the target ref and SHA until the tick sees it move (a check
 names its first failing line); one failing on the target's own tip too parks at once with `<target> itself fails: <line>`, spending no round, unless the command names a file only the branch has (including root files, globs and paths after `cd`): the fixer runs without a probe and the log names the missing file. File-existence tests still probe. A host lands one run per repository and target branch at a time, and the first lap's merge turn covers only a fetch, the push, the PR, its required checks and the merge: the
 rebase, the done-when and final check re-runs, and every fixer and re-review they need run before it. A target still on
