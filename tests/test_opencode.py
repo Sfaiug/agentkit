@@ -231,7 +231,8 @@ cat "$dir/bridge-eval"
                             env={"STUB_EVENTS": str(events), "STUB_EXPORT": str(export),
                                  "STUB_ARGV_LOG": str(self.argv_log)})
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual((out / "final.md").read_text(), "hello\nworld\n")
+        # the turn's last message alone, as every other harness hands back
+        self.assertEqual((out / "final.md").read_text(), "world\n")
         self.assertEqual((out / "session_id").read_text(), "ses_last")
         argv = self.argv_log.read_text()
         self.assertIn("-m mimo/mimo-v2.6-pro#high", argv)

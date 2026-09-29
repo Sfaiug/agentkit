@@ -70,7 +70,7 @@ the reviewer sees it marked deferred. The full suite a repository names as `test
 there, from the target branch where the checkout predates it, and a done-when line with the same command runs once with it, so a task lists only the checks for its change.
 A command that fails runs once more at once, within the same ceiling, and passes if the re-run does: the output keeps the lines the failed run printed that its passing re-run did not, at most 20 (its last lines when the re-run repeated them all), under `flaky:`, which joins the run's follow-ups as evidence.
 The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt, up to 4 KB; past
-that, the run's hand-back names the file and asks the orchestrator to tighten it. Every prompt also carries the body of the repository's `AGENTS.md` as on the base commit, front matter removed, up to 8 KB, whatever the worker's harness loads on its own.
+that, the run's hand-back names the file and asks the orchestrator to tighten it. Every prompt also carries the body of the repository's `AGENTS.md` as on the base commit, front matter removed, up to 8 KB. A worker's harness loads no instruction file of its own where it has a switch for that; its adapter's manifest says in one line what no switch reaches.
 
 One behaviour per task. A launch is refused when the goal has more than three numbered points, the body more than 500
 words outside the checks block, the checks more than six commands or `rounds` more than three, whatever `--anyway` says;
@@ -306,7 +306,7 @@ On `Providers`, `+ add` offers a provider `config.default.toml` has and the conf
 A harness is `adapters/<h>.sh`, `adapters/<h>.toml`, and a `[models.<name>]` line naming it. No module outside
 `agentkit/harness/` names a harness, so nothing in the core changes when one arrives; `tests/fixtures/adapters/echo.sh`
 and `echo.toml` are a whole working harness in two pages. The script implements the verbs: `run <model> <effort>
-<workspace> <prompt> <out> [<session>]` (headless; writes `final.md`, `session_id`, `stderr.log`, `events.jsonl`),
+<workspace> <prompt> <out> [<session>]` (headless: the prompt goes from its file or stdin, never as one argument, which Linux caps at 128 KiB; writes `final.md` with the turn's last message, `session_id`, `stderr.log`, `events.jsonl`),
 `usage` (one JSON object of meters, `error` set rather than a non-zero exit), `auth [seat]` (one line, exit 0 with a
 token or 1 with why not; never a network call), `interactive <model> <effort> [<session> [new]]` (the TUI command line,
 with the harness's own bypass flag), `hooks` (install its lifecycle hooks idempotently), `models` (an `id<TAB>label<TAB>efforts` line per model, efforts strongest last, `none` for a model that runs at no effort, empty

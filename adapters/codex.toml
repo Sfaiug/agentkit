@@ -2,6 +2,7 @@
 # authority to say what that seat is doing.  Paired with adapters/codex.sh; the format is the
 # adapter contract in docs/guide.md, "Adding a harness".
 # Verified against Codex 0.153.4; see tests/fixtures/README.md for the captures.
+# A worker turn still loads ~/.codex/AGENTS.md: Codex 0.153.4 has no switch for it, only for the repository's.
 version = 1
 
 [launch]

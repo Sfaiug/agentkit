@@ -92,6 +92,10 @@ run)
   # falls back to whatever the seat's own login leaves there, exactly as it always did.
   tok=$(cat "$TOKEN" 2>/dev/null) && [ -n "$tok" ] && export CLAUDE_CODE_OAUTH_TOKEN="$tok"
   if [ -n "$sid" ]; then set -- -p --resume "$sid"; else set -- -p; fi
+  # The prompt goes down stdin.  No CLAUDE.md or .claude/rules, the user's or the repository's,
+  # and no auto-memory MEMORY.md reach the turn (2.1.280's own switches): a worker's rules are
+  # the ones ak's prompt carries, whatever harness runs it.
+  CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 \
   claude "$@" --model "$model" --effort "$effort" --dangerously-skip-permissions \
       --output-format stream-json --verbose <"$pf" >"$out/events.jsonl" 2>"$out/stderr.log"
   rc=$?

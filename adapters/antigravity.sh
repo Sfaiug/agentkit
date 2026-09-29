@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Antigravity CLI adapter (Google's `agy`, successor of gemini-cli).
 #                     run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]
-#                     -> `agy -p` headless: --model/--effort, --dangerously-skip-permissions,
-#                        --print-timeout 0 and --output-format stream-json, --conversation to
-#                        continue one; writes final.md, session_id, stderr.log and events.jsonl
+#                     -> `agy` headless on the prompt down stdin: --model/--effort,
+#                        --dangerously-skip-permissions, --print-timeout 0 and --output-format
+#                        stream-json, --conversation to continue one; writes final.md,
+#                        session_id, stderr.log and events.jsonl
 #                     usage        -> the Gemini window of agy's `/usage` panel, read off the
 #                        endpoint the panel reads; no login is a failed probe
 #                     interactive <model> <effort> [session-id [new]] -> the TUI command line,
@@ -76,19 +77,25 @@ run)
   out=$(cd -- "$out" && pwd) || exit 2
   [ -d "$ws" ] || { echo "antigravity.sh: no such workspace: $ws" >&2; exit 2; }
   command -v agy >/dev/null || { echo "antigravity.sh: agy is not installed" >&2; exit 2; }
-  msg=$(cat -- "$pf") || { echo "antigravity.sh: cannot read $pf" >&2; exit 2; }
+  # The prompt goes down stdin, opened before the cd so a relative path still names it: with no
+  # -p, agy 1.2.13 takes a non-empty stdin as its print-mode prompt, and an argument over
+  # 128 KiB -- a reviewer's prompt is three times that -- is one Linux refuses.  An empty one
+  # would open the TUI instead.  The loop's own stdin never reaches agy: logged out, it asks
+  # the terminal for a pasted code, and a turn with none fails at once saying why.
+  [ -s "$pf" ] || { echo "antigravity.sh: no prompt in $pf" >&2; exit 2; }
+  exec <"$pf" || { echo "antigravity.sh: cannot read $pf" >&2; exit 2; }
   cd -- "$ws" || exit 2
   # stream-json and not json: json prints its one object when the turn is over, and a turn
   # whose events.jsonl stays silent that long is killed as dead by the loop's watchdog.  The
   # stream's last event is that same object under `result`.  --disable-slash-commands hands
-  # agy the prompt as written, never a slash command or skill expansion of it.  stdin is
-  # closed: logged out, agy waits a minute for a pasted code, and its stderr says why at once.
-  set -- ${DATA:+"$DATA"} -p "$msg" --output-format stream-json --dangerously-skip-permissions \
+  # agy the prompt as written, never a slash command or skill expansion of it.  agy has no
+  # switch for the GEMINI.md and AGENTS.md it loads, as adapters/antigravity.toml says.
+  set -- ${DATA:+"$DATA"} --output-format stream-json --dangerously-skip-permissions \
     --print-timeout 0 --disable-slash-commands --model "$model"
   # `none` is a model agy runs at no effort (`claude-sonnet-4-6`), which is handed no --effort
   [ "$effort" = none ] || set -- "$@" --effort "$effort"
   [ -n "$sid" ] && set -- "$@" --conversation "$sid"
-  agy "$@" </dev/null >"$out/events.jsonl" 2>"$out/stderr.log"
+  agy "$@" >"$out/events.jsonl" 2>"$out/stderr.log"
   rc=$?
   events() { jq -R "fromjson? | objects | $1" "$out/events.jsonl" 2>/dev/null; }
   events 'select(.event == "result") | .result.response // empty' | jq -j . >"$out/final.md" 2>/dev/null || true

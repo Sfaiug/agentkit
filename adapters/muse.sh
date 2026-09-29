@@ -71,7 +71,10 @@ run)
   [ -d "$ws" ] || { echo "muse.sh: no such workspace: $ws" >&2; exit 2; }
   home || exit 2
   prov=${AGENTKIT_MUSE_PROVIDER:-meta}
-  set -- exec --provider "$prov" --yolo --approval-judge off --workspace "$ws" --prompt-file "$pf" --json
+  # --no-foreign-personal-context keeps Claude's and Codex's personal rules and skills out of the
+  # turn: a worker's rules are the ones ak's prompt carries.
+  set -- exec --provider "$prov" --yolo --approval-judge off --no-foreign-personal-context \
+    --workspace "$ws" --prompt-file "$pf" --json
   [ "$prov" = meta ] && set -- "$@" --model "$model" --reasoning-effort "$effort"
   [ -n "$sid" ] && set -- "$@" --session-id "$sid"
   MUSE_NO_AUTO_UPDATE=1 muse "$@" >"$out/events.jsonl" 2>"$out/stderr.log"

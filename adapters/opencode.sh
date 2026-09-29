@@ -36,7 +36,8 @@ fi
 command -v opencode >/dev/null || PATH="$HOME/.opencode/bin${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
 export OPENCODE_DISABLE_AUTOUPDATE=1   # `ak update` owns that; nothing mid-run moves
 # No project's opencode.json reaches a turn: the global one is the only config, which is where
-# agentkit/harness/opencode.py reads how MiMo is paid, and a workspace can never move it.
+# agentkit/harness/opencode.py reads how MiMo is paid, and a workspace can never move it.  The
+# same switch keeps the repository's AGENTS.md from a turn, so a worker's rules are ak's.
 # OpenCode reads OPENCODE_CONFIG_PROJECT_DISABLE ahead of the older name (2.0.14), so an
 # inherited `=0` of it would win: both are pinned.
 export OPENCODE_DISABLE_PROJECT_CONFIG=1 OPENCODE_CONFIG_PROJECT_DISABLE=1
@@ -109,36 +110,25 @@ run)
   # `<run-id>/<role>` in `opencode session list`, anything else as its own directory.
   title=$(basename -- "$out")
   [ -f "$out/../../run.json" ] && title="$(basename -- "$(dirname -- "$(dirname -- "$out")")")/$title"
-  # The prompt goes as the message: `opencode run` reads neither stdin nor a prompt file, and
-  # `--prompt` is not one of its flags.  `--session` continues that session; `--standalone`
-  # keeps the turn on a private server rather than the shared background service.
-  # A prompt over 100 KiB cannot go that way: Linux refuses a single argument over 128 KiB,
-  # and the exec fails at once with `Argument list too long`.  It is attached whole with
-  # --file instead, with a short message pointing to it; the message stays before --file,
-  # which swallows a trailing prompt as another filename.
-  psize=$(wc -c <"$pf" 2>/dev/null) || { echo "opencode.sh: cannot read $pf" >&2; exit 2; }
-  psize=${psize//[^0-9]/}
-  via_file=0
-  if [ "${psize:-0}" -gt 102400 ]; then
-    via_file=1
-    msg="The full prompt is attached. Read it whole and follow it as your task: $pf"
-  else
-    msg=$(cat -- "$pf") || { echo "opencode.sh: cannot read $pf" >&2; exit 2; }
-  fi
+  # The prompt is attached whole with --file, and the message only points to it: `opencode
+  # run` reads neither stdin nor a prompt file, `--prompt` is not one of its flags, and Linux
+  # refuses a single argument over 128 KiB -- the exec fails at once with `Argument list too
+  # long`.  The message stays before --file, which swallows a trailing prompt as another
+  # filename.  `--session` continues that session; `--standalone` keeps the turn on a private
+  # server rather than the shared background service.
+  [ -r "$pf" ] || { echo "opencode.sh: cannot read $pf" >&2; exit 2; }
+  msg="The full prompt is attached. Read it whole and follow it as your task: $pf"
   set -- run --standalone --auto --format json -m "$tagged" --title "$title"
   [ -n "$sid" ] && set -- "$@" --session "$sid"
-  if [ "$via_file" = 1 ]; then
-    opencode "$@" "$msg" --file "$pf" >"$out/events.jsonl" 2>"$out/stderr.log"
-  else
-    opencode "$@" "$msg" >"$out/events.jsonl" 2>"$out/stderr.log"
-  fi
+  opencode "$@" "$msg" --file "$pf" >"$out/events.jsonl" 2>"$out/stderr.log"
   rc=$?
-  # Every text part in turn order: a tool turn speaks between its calls, and the last word
-  # alone would drop what it said before them.  No fallback truncates this: jq writes the
-  # good parts before it meets an unparsable trailing line, so `|| : >final.md` would throw
-  # the whole answer away for one bad line.
-  jq -r 'select(.type == "text") | (.part.text // empty)' \
-      "$out/events.jsonl" >"$out/final.md" 2>/dev/null || true
+  # The turn's last message, as every other harness hands back: the text parts of the message
+  # the last one belongs to, where a tool turn's earlier messages are narration between its
+  # calls.  Read a line at a time, so an unparsable line costs only itself.
+  jq -nrR '[inputs | fromjson? | select(.type? == "text") | .part | objects] as $p
+      | ($p | last | .messageID) as $m
+      | if $m == null then $p[-1:] else $p | map(select(.messageID == $m)) end
+      | .[] | .text // empty' "$out/events.jsonl" >"$out/final.md" 2>/dev/null || true
   # the last id seen wins -- an id does not change within a turn anyway -- and an empty
   # stream leaves an empty file, which is what a turn that never authenticated says
   sid=$(jq -r 'select(.sessionID != null) | .sessionID' "$out/events.jsonl" 2>/dev/null | tail -1 2>/dev/null)

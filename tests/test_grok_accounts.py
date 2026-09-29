@@ -50,7 +50,7 @@ elif args[:1] == ["models"]:
     if renewed.exists():
         (home / "auth.json").write_text(renewed.read_text())
     print("  * grok-4.7 (default)")
-elif "-p" in args:
+elif "--prompt-file" in args:
     flag = "--resume" if "--resume" in args else "--session-id"
     sid = args[args.index(flag) + 1]
     conversation = home / "sessions" / quote(os.getcwd(), safe="") / sid
