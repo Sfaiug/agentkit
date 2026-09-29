@@ -22,6 +22,10 @@ from agentkit.harness import load as harness_plugin
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "muse"
 AUTH = CONFIG / "auth.json"
 CACHE_TTL = 600     # one billed request in ten minutes, however often the menu asks
+# One of the provider's `accounts`, or "" for the usual login: adapters/muse-usage.sh has
+# pointed XDG_CONFIG_HOME at its login, and its cache, lock and quota record are its own too.
+ACCOUNT = os.environ.get(config.ACCOUNT_ENV) or ""
+STEM = f"usage-meta.{ACCOUNT}" if ACCOUNT else "usage-meta"
 
 
 def left(reserve=0.0):
@@ -274,15 +278,15 @@ def save(path, data):
 def cached():
     state = config.STATE
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
-    cache = state / "usage-meta-probe.json"
+    cache = state / f"{STEM}-probe.json"
     # Claim before spending a request: a killed probe or a second reader cannot cause a
     # fresh request inside the TTL. All outcomes, including unknown, use the same cache, and so
     # does a meter that has reset since: the TTL is between paid requests, and a window that
     # rolls over inside it is dropped by `ak usage` until the next one reads the new window.
-    with (state / "usage-meta-probe.lock").open("w") as lock:
+    with (state / f"{STEM}-probe.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         now = time.time()
-        recorded = read(state / "usage-meta.json")
+        recorded = read(state / f"{STEM}.json")
         meters = [m for m in recorded.get("meters", []) if m.get("resets_at", 0) > now]
         if meters:
             return result(meters)
@@ -301,6 +305,8 @@ if __name__ == "__main__":
         argv, env = usage_probe.command([sys.executable, str(Path(__file__).resolve())])
         os.execve(sys.executable, argv, env)
     try:
-        print(json.dumps(cached()))
+        data = cached()
     except Exception:
-        print(json.dumps(result(error="Muse usage probe failed")))
+        data = result(error="Muse usage probe failed")
+    # an account's answer names it, so agentkit/harness/muse.py dates it from its own files
+    print(json.dumps({**data, "account": ACCOUNT} if ACCOUNT else data))

@@ -65,6 +65,7 @@ class V5AH(unittest.TestCase):
         env["HOME"] = str(self.home)
         env["PATH"] = str(self.bindir) + os.pathsep + env.get("PATH", "")
         env.pop("AGENTKIT_MUSE_PROVIDER", None)
+        env.pop("AGENTKIT_ACCOUNT", None)   # the usual login, whatever login runs this test
         return env
 
     def _workspace(self, name):

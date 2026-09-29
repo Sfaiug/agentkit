@@ -12,6 +12,8 @@
 #                     hooks        -> a no-op: Muse has none, so its seats are read off the screen
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs,
 #                                  from the [catalog] table of adapters/muse.toml
+#                     $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then
+#                     uses that subscription's own login, and no other
 # AGENTKIT_MUSE_PROVIDER=echo selects the offline stub (tests); --model/--reasoning-effort
 # are only legal with --provider meta.
 set -uo pipefail
@@ -27,7 +29,38 @@ export MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0
 # launch that asks for a rulebook gets one, and no worker is ever told it is the orchestrator.
 unset TBH_EVAL_APPEND_SYSTEM_PROMPT_FILE
 STATE="$HOME/.agentkit/state"
+# An account other than the usual login keeps its auth.json in a config home of its own,
+# ~/.muse-<name>, where `XDG_CONFIG_HOME=~/.muse-<name> muse login` puts it: Muse Code 1.4.1
+# reads its login from $XDG_CONFIG_HOME/muse and has no other switch for where.  Its sessions
+# stay under XDG_DATA_HOME, which is left alone, so a conversation begun on one login resumes
+# on the next.  Nothing of the usual login -- its auth.json, a META_API_KEY exported for it, the
+# quota recorded about it -- ever answers for an account: that would spend the wrong
+# subscription, or read its meters as this one's.  A seat on an account hands its config home
+# to everything it starts, so a call that names no account drops one for the same reason.
+case ${XDG_CONFIG_HOME:-} in "$HOME"/.muse-*) unset XDG_CONFIG_HOME ;; esac
+USUAL=${XDG_CONFIG_HOME:-$HOME/.config}
+ACCOUNT=${AGENTKIT_ACCOUNT:-}
+QUOTA="$STATE/usage-meta${ACCOUNT:+.$ACCOUNT}.json"
+LOGIN="muse login"
+if [ -n "$ACCOUNT" ]; then
+  export XDG_CONFIG_HOME="$HOME/.muse-$ACCOUNT"
+  unset META_API_KEY
+  LOGIN="XDG_CONFIG_HOME=$XDG_CONFIG_HOME muse login"
+fi
 AUTH="${XDG_CONFIG_HOME:-$HOME/.config}/muse/auth.json"
+# The account's config home is every other program's too -- a turn's tools and a seat's shell
+# inherit it -- so all of the usual one but its muse/ is linked in, and gh or git read on.
+home() {
+  [ -n "$ACCOUNT" ] || return 0
+  mkdir -p -- "$XDG_CONFIG_HOME/muse" || return 1
+  local entry link
+  for entry in "$USUAL"/* "$USUAL"/.[!.]*; do
+    link=$XDG_CONFIG_HOME/${entry##*/}
+    [ "${entry##*/}" = muse ] || [ ! -e "$entry" ] || [ -e "$link" ] || [ -L "$link" ] ||
+      ln -sn -- "$entry" "$link" 2>/dev/null
+  done
+  return 0
+}
 cmd=${1:-}; shift 2>/dev/null || true
 
 case "$cmd" in
@@ -36,6 +69,7 @@ run)
   model=$1 effort=$2 ws=$3 pf=$4 out=$5 sid=${6:-}
   mkdir -p -- "$out" || exit 2
   [ -d "$ws" ] || { echo "muse.sh: no such workspace: $ws" >&2; exit 2; }
+  home || exit 2
   prov=${AGENTKIT_MUSE_PROVIDER:-meta}
   set -- exec --provider "$prov" --yolo --approval-judge off --workspace "$ws" --prompt-file "$pf" --json
   [ "$prov" = meta ] && set -- "$@" --model "$model" --reasoning-effort "$effort"
@@ -70,10 +104,11 @@ run)
     if [ -n "${epoch:-}" ] && mkdir -p -- "$STATE"; then
       secs=18000; [ $((epoch - $(date -u +%s))) -gt 18000 ] && secs=604800
       printf '{"meters":[{"name":"quota","used":100,"resets_at":%s,"window_secs":%s}]}\n' "$epoch" "$secs" \
-        >"$STATE/usage-meta.json"
+        >"$QUOTA"
       # Neither cache is deleted: state/usage.json holds every other provider's reading, and
-      # usage-meta-probe.json when a paid request was last spent.  Every read of the snapshot
-      # applies this file at once (`usage_recorded` in agentkit/harness/muse.py).
+      # usage-meta-probe.json when a paid request was last spent.  Where the provider lists no
+      # accounts, every read of the snapshot applies this file at once (`usage_recorded` in
+      # agentkit/harness/muse.py); an account's row reads its own through `usage` below.
     fi
   fi
   exit $rc ;;
@@ -108,32 +143,40 @@ interactive)
   rb=$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}") || {
     echo "muse.sh interactive: no rulebook for this seat" >&2; exit 2; }
   rules=$(printf 'TBH_EVAL_APPEND_SYSTEM_PROMPT_FILE=%q ' "$rb")
+  # The printed command runs later, outside this adapter's environment: an account's login
+  # goes into it by name.
+  login=""
+  if [ -n "$ACCOUNT" ]; then
+    home || exit 2
+    login=$(printf 'env -u META_API_KEY XDG_CONFIG_HOME=%q ' "$XDG_CONFIG_HOME")
+  fi
   # --model/--reasoning-effort are only legal with --provider meta, so it is named here too
-  printf 'python3 %q --harness muse -- env MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0 %smuse %s--yolo --provider meta --model %q --reasoning-effort %q\n' \
-      "$REPO/tools/idle-compact.py" "$rules" "$resume" "$1" "$2" ;;
+  printf '%spython3 %q --harness muse -- env MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0 %smuse %s--yolo --provider meta --model %q --reasoning-effort %q\n' \
+      "$login" "$REPO/tools/idle-compact.py" "$rules" "$resume" "$1" "$2" ;;
 usage)
   # Recorded run quotas take precedence, even in a copied adapter without the probe helper.
   # One limit: each meter is trusted for at most its own window, so a weekly file is never
   # read more than seven days after it was written, whatever its reset timestamp says.
   now=$(date -u +%s)
-  if [ -s "$STATE/usage-meta.json" ] &&
+  if [ -s "$QUOTA" ] &&
      jq -e --argjson now "$now" '[.meters[]? | select((.resets_at // 0) > $now)] | length > 0' \
-        "$STATE/usage-meta.json" >/dev/null 2>&1; then
-    mtime=$(stat -c %Y "$STATE/usage-meta.json" 2>/dev/null \
-      || stat -f %m "$STATE/usage-meta.json" 2>/dev/null || true)
+        "$QUOTA" >/dev/null 2>&1; then
+    mtime=$(stat -c %Y "$QUOTA" 2>/dev/null \
+      || stat -f %m "$QUOTA" 2>/dev/null || true)
     case "$mtime" in ''|*[!0-9]*) mtime="";; esac
     if [ -n "$mtime" ] && jq -e --argjson now "$now" --argjson age "$((now - mtime))" \
         '[.meters[]? | select((.resets_at // 0) > $now and (.window_secs // 0) > $age)] | length > 0' \
-        "$STATE/usage-meta.json" >/dev/null 2>&1; then
-      jq -c --argjson now "$now" --argjson age "$((now - mtime))" \
-        '.meters |= map(select((.resets_at // 0) > $now and (.window_secs // 0) > $age))' \
-        "$STATE/usage-meta.json"
+        "$QUOTA" >/dev/null 2>&1; then
+      # an account's answer names it, so the record it came from is the one that dates it
+      jq -c --argjson now "$now" --argjson age "$((now - mtime))" --arg account "$ACCOUNT" \
+        '.meters |= map(select((.resets_at // 0) > $now and (.window_secs // 0) > $age))
+         | if $account == "" then . else .account = $account end' "$QUOTA"
       exit 0
     fi
     # Past its window the record would be read straight back by the probe helper below,
     # which trusts it on its reset timestamp alone: drop it so the probe answers as when
     # no record exists.
-    rm -f -- "$STATE/usage-meta.json"
+    rm -f -- "$QUOTA"
   fi
   # One supervised, cached model request; the same deadline applies through ak usage.
   here=$(cd "$(dirname "$0")" && pwd)
@@ -150,7 +193,8 @@ install)
 login)
   command -v muse >/dev/null || { echo "muse.sh login: muse is not installed" >&2; exit 2; }
   if [ -s "$AUTH" ]; then echo "muse: already logged in"; exit 0; fi
-  [ -t 0 ] || { echo "muse: not logged in; run \`muse login\` in a terminal" >&2; exit 1; }
+  [ -t 0 ] || { echo "muse: not logged in; run \`$LOGIN\` in a terminal" >&2; exit 1; }
+  home || exit 2
   MUSE_NO_AUTO_UPDATE=1 muse login ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
@@ -161,7 +205,7 @@ auth)
   [ "${AGENTKIT_MUSE_PROVIDER:-meta}" = meta ] || { echo "muse: the $AGENTKIT_MUSE_PROVIDER provider needs no login"; exit 0; }
   [ -n "${META_API_KEY:-}" ] && { echo "muse: META_API_KEY is set"; exit 0; }
   grep -q '[^[:space:]]' "$AUTH" 2>/dev/null || {
-    echo "muse: no $AUTH; run \`muse login\`" >&2; exit 1; }
+    echo "muse: no $AUTH; run \`$LOGIN\`" >&2; exit 1; }
   echo "muse: the login in $AUTH is saved" ;;
 hooks)
   # Muse Code 1.2.1 offers no lifecycle hooks, so every state one of its seats can be caught in

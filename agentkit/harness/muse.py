@@ -32,21 +32,29 @@ def identity(text, argv):
     return f"{text} (installed build {build})" if build and build not in text else text
 
 
+def _stem(account):
+    """What one login's quota record and probe cache are named after: an account's are its own."""
+    return f"usage-meta.{account}" if account else "usage-meta"
+
+
 def usage_extra(out, data, state_dir):
     """Muse's adapter strips its probe timestamp.
 
     Match the source before carrying its age into the snapshot; an unidentifiable response must
     not look newly measured.  `out["fetched_at"]` is already None -- `[usage] strips_timestamp`
-    -- so a response nothing here recognises stays unmeasured.
+    -- so a response nothing here recognises stays unmeasured.  An account's response names it,
+    and is matched against that account's files alone.
     """
     from .. import usage   # here, not at the top: usage is what calls this
-    for filename in ("usage-meta.json", "usage-meta-probe.json"):
+    account = data.get("account")
+    stem = _stem(account if isinstance(account, str) else "")
+    for filename in (f"{stem}.json", f"{stem}-probe.json"):
         path = state_dir / filename
         try:
             cached = json.loads(path.read_text())
             if (cached.get("meters") == data.get("meters")
                     and cached.get("error") == data.get("error")):
-                out["fetched_at"] = (path.stat().st_mtime if filename == "usage-meta.json"
+                out["fetched_at"] = (path.stat().st_mtime if filename == f"{stem}.json"
                                      else usage._number(cached.get("fetched_at")))
                 break
         except (OSError, ValueError, TypeError, AttributeError):
@@ -57,7 +65,15 @@ def usage_recorded(state_dir, now):
     """The quota adapters/muse.sh recorded when a run was refused, for as long as it stands.
 
     Each meter is trusted for at most its own window, as the adapter's `usage` verb trusts it.
+    Where `[providers.meta]` lists accounts every login has a record of its own, and nothing
+    here says which row is being read: none is applied, and each reaches its own row through
+    that account's `usage` verb, which answers with it first.
     """
+    try:
+        if config.accounts(config.load(), "meta"):
+            return []
+    except config.Error:
+        pass
     path = state_dir / "usage-meta.json"
     try:
         age = now - path.stat().st_mtime
