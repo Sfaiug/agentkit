@@ -406,8 +406,8 @@ class OneRulebook(unittest.TestCase):
 
     def test_adding_a_harness_names_the_shared_rulebook_rule(self):
         section = self.adding_a_harness()
-        self.assertIn("shared helper", section)
-        self.assertIn("may not add instructions of its own", section)
+        self.assertIn("tools/rulebook.py", section)
+        self.assertIn("adding no instructions of its own", section)
 
     def test_project_agent_files_are_conventions_not_rules(self):
         text = (REPO / "docs/guide.md").read_text()
