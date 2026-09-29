@@ -2142,7 +2142,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     A command that exits non-zero runs once more at once, within the same ceiling, and the
     re-run decides it: under load a timing test fails by chance far more often than a change
     breaks it.  A pass that took the re-run is said, not hidden -- a `flaky:` record after
-    the command's keeps the first failure's last lines for the run's follow-ups. A killed
+    the command's keeps the lines the failed run printed that its passing re-run did not,
+    in their order, at most 20 (its last lines when the re-run repeated them all), for the
+    run's follow-ups. A killed
     command is not re-run: it spent the silence window or ceiling, which a second go would
     only spend again.
 
@@ -2191,9 +2193,13 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                           f"{out[-OUT_CAP:]}".rstrip())
             if first is not None and code == 0:
                 # blank lines dropped: a record is what lies between two, and these are one
-                tail = [line for line in first.splitlines() if line.strip()][-20:]
+                lines = [line for line in first.splitlines() if line.strip()]
+                # the failure is what the failed run said that its passing re-run did not:
+                # a tally and a passing tail both repeat, so the last lines alone name neither
+                reran = set(out.splitlines())
+                diff = [line for line in lines if line not in reran][:20]
                 chunks.append("\n".join([f"flaky: {cmd} failed, then passed on its re-run",
-                                         *tail]))
+                                         *(diff or lines[-20:])]))
                 if log is not None:
                     log(f"done-when: flaky: {cmd} failed, then passed on its re-run")
             if killed:
