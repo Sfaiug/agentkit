@@ -320,6 +320,20 @@ class GentleProbe(unittest.TestCase):
         self.assertIsNone(prov["budget_reason"])
         self.assertNotIn("probe_error", prov)
 
+    def test_a_replenish_that_spends_nothing_keeps_the_refusal_mark(self):
+        # Alpha refused a worker an hour ago while its adapter still reports room: the
+        # re-read a quota stall asks for spends no reset, so the mark stays, and the
+        # next pick -- the gate's skip is this same `model_exhausted` -- still sees it
+        # spent instead of sending real calls at the week that just refused one.
+        usage.collect(self.cfg)
+        usage.mark_exhausted(self.cfg, "alpha", until=NOW + 3600)
+        self.assertTrue(usage.model_exhausted(self.cfg, "one", usage.collect(self.cfg))[0])
+        self.now[0] += usage.PROBE_EVERY
+        self.assertEqual(usage.replenish(self.cfg, "alpha", depleted=False), (False, 0.0))
+        providers = usage.collect(self.cfg)
+        self.assertEqual(providers["alpha"].get("exhausted_until"), NOW + 3600)
+        self.assertTrue(usage.model_exhausted(self.cfg, "one", providers)[0])
+
     def test_usage_json_carries_the_probe_error_and_when_the_reading_went_stale(self):
         self.refused()
         out = io.StringIO()
