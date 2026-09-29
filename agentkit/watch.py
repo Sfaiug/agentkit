@@ -1196,10 +1196,11 @@ def screen_state(harness, tail):
     placeholder -- is empty; one holding bright text is a draft.  The draft and suggestion
     rules are read out of the manifest like every other rule: their `lines` bound the window,
     their `none` marks skip them (a turn in flight owns the composer), and `at_composer`
-    keeps them at the composer -- only the bottom-most prompt-marked line counts, and only
-    where the line right under it and the pane's last line are chrome, so a transcript
-    echoing a past turn above newer output can never read as one, while whatever the
-    harness draws between its composer and its footer, a user's status line, never hides it.
+    keeps them at the composer -- only the bottom-most prompt-marked line counts where the
+    line right under it and the pane's last line are chrome, one with more than the footer
+    under it first, so a transcript echoing a past turn above newer output can never read as
+    one, while whatever the harness draws between its composer and its footer, a user's
+    status line, never hides it or reads as it, even where it starts with a prompt mark.
     """
     # A queued inbound message is below the active UI, not part of its dialog or composer.
     inbound = _pattern((config.manifest(harness).get("screen") or {}).get("inbound"),
@@ -1217,17 +1218,22 @@ def screen_state(harness, tail):
             if rule["none"] and any(mark in "\n".join(region).lower()
                                    for mark in rule["none"]):
                 continue
-            at = next((index for index in range(len(region) - 1, -1, -1)
-                       if re.match(r"(?:│\s*)?[❯›⟩]", region[index])), None)
-            if at is None:
-                continue
+            prompt = r"(?:│\s*)?[❯›⟩]"
+            marked = [index for index in range(len(region) - 1, -1, -1)
+                      if re.match(prompt, region[index])]
             if rule["chrome"]:
                 # The composer's own rule sits right under it and the footer at the bottom;
-                # what the harness draws between them, a user's status line, is not the draft.
-                below = lines[len(lines) - len(region) + at + 1:]
-                if below and not (chrome_line(chrome, below[0])
-                                  and chrome_line(chrome, below[-1])):
-                    continue
+                # what the harness draws between them, a user's status line, is not the draft
+                # even where it starts with a prompt mark: a line right on the footer, where
+                # Codex draws its composer, counts only under no composer with its own rule.
+                marked = [index for index in marked if index + 1 == len(region)
+                          or (chrome_line(chrome, region[index + 1])
+                              and chrome_line(chrome, region[-1]))]
+                marked = [index for index in marked if index + 2 < len(region)
+                          and not re.match(prompt, region[index + 1])] or marked
+            at = next(iter(marked), None)
+            if at is None:
+                continue
             if rule["id"] == "prompt.draft":
                 draft = _draft_text(raws[at], region[at], chrome["composer"])
                 if draft:
