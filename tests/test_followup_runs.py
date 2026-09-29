@@ -50,6 +50,9 @@ else:
     elif mode == "evidence":
         answer = ("not needed: another open run fixes this site\n"
                   "verified in run.json: a queued run fixes broken.py:1")
+    elif mode == "preamble":
+        answer = ("I fetched origin/main and ran first([]); it returns None there.\n\n"
+                  "## Summary\n\nnot needed: target already fixes empty input")
     else:
         test = wt / "test_empty.py"
         test.write_text("from broken import first\nassert first([]) is None\n")
@@ -332,6 +335,50 @@ class FollowupRuns(unittest.TestCase):
             self.assertIn("finished DONE: not needed:", self.endings[-1])
         self.assertEqual(self.gh_calls, [])
 
+    def test_not_needed_with_preamble_before_summary_ends_quietly(self):
+        directory, state = self.source("summary-preamble")
+        child = self.start(directory, state)[0]
+        with patch.object(run, "verify_work", side_effect=AssertionError("checked")), \
+                patch.object(run, "review", side_effect=AssertionError("reviewed")):
+            code, ended = self.drive(child, "preamble")
+        self.assertEqual(code, 0, "\n".join(self.logs))
+        self.assertEqual(ended["state"], "not_needed")
+        self.assertIsNone(ended["pr"])
+        self.assertIn("finished DONE: not needed:", self.endings[-1])
+        self.assertEqual(self.gh_calls, [])
+
+    def test_not_needed_matcher_accepts_usual_summary_forms(self):
+        class Stub:
+            pass
+        lp = Stub()
+        lp.state = {"followup": {"place": "broken.py:1"}}
+        positives = [
+            ("not needed: target already fixes empty input",
+             "target already fixes empty input"),
+            ("I fetched origin/main and ran first([]); it returns None there.\n\n"
+             "## Summary\n\nnot needed: target already fixes empty input",
+             "target already fixes empty input"),
+            ("## Summary\n\n- not needed: another open run fixes this site",
+             "another open run fixes this site"),
+            ("## Summary\n\n**not needed:** target already fixes empty input",
+             "target already fixes empty input"),
+            ("### Summary\nnot needed: gone",
+             "gone"),
+            ("## Summary\nFetched origin/main; first([]) returns None there.\n"
+             "not needed: target already fixes empty input",
+             "target already fixes empty input"),
+        ]
+        for text, why in positives:
+            with self.subTest(text=text), self.assertRaises(run.NotNeeded) as raised:
+                run.followup_not_needed(lp, text)
+            self.assertEqual(str(raised.exception), why)
+        for text in ("## Summary\nRegression test failed with IndexError before; passed after.",
+                     "## Blocked\nShould empty input return None or raise ValueError?",
+                     "## Summary\nThe extra logging is not needed: removed it.",
+                     "## Summary\nnot needed:"):
+            with self.subTest(text=text):
+                run.followup_not_needed(lp, text)
+
     def test_not_needed_under_gone_seat_neither_revives_nor_cards(self):
         directory = config.RUNS / "quiet"
         directory.mkdir()
@@ -352,6 +399,8 @@ class FollowupRuns(unittest.TestCase):
         directory, state = self.source("parent")
         child_dir = config.RUNS / "fix"
         child_dir.mkdir()
+        wt = self.root / "wt-fix"
+        wt.mkdir()
         base = {"run_id": "fix", "followup": {"run": "parent", "text": DEFECT,
                                               "place": run.followup_place(DEFECT)},
                 "launched_session": "seat", "repo": str(self.repo)}
@@ -361,16 +410,23 @@ class FollowupRuns(unittest.TestCase):
             {"state": "queued", "pid": "dead", "slot_waiting": True},
             {"state": "exhausted", "quota_dry": True},
             {"state": "waiting_login", "waiting_for": "claude"},
-            {"state": "pass"},
+            {"state": "interrupted", "worktree": str(wt),
+             "deaths": [{"at": 1, "pid": 1, "reason": "loop gone"}]},
         ]
         quiet = [
             {"state": "queued", "pid": "dead"},
             {"state": "queued", "pid": "dead", "slot_waiting": False},
             {"state": "interrupted"},
+            {"state": "interrupted", "worktree": str(wt),
+             "deaths": [{"at": 1, "pid": 1, "reason": "loop gone", "parked": True}]},
+            {"state": "interrupted",
+             "deaths": [{"at": 1, "pid": 1, "reason": "loop gone"}]},
             {"state": "exhausted", "error": "tool stopped"},
             {"state": "stalled"},
             {"state": "not_needed", "not_needed": "gone"},
+            {"state": "pass"},
             {"state": "pass", "merged": True},
+            {"state": "pass", "merge_failed": True},
             {"state": "fail"},
             {"state": "blocked"},
             {"state": "stopped"},

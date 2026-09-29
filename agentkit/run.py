@@ -2875,8 +2875,10 @@ def blocked_reason(section):
 
 def followup_not_needed(lp, summary):
     if lp.state.get("followup") and not lp.state.get("round_summaries"):
-        answer = re.match(r"(?:## Summary\s+)?not needed:[ \t]*(\S[^\n]*)",
-                           summary.strip(), re.I)
+        # Any line that starts with the verdict, wherever the summary puts it: workers
+        # preamble before the heading and verify before they conclude, and decorate.
+        answer = re.search(r"^[ \t>]*?(?:[-*+][ \t]+|\d+[.)][ \t]+)?[*_`]*not needed"
+                           r"[*_`]*:[*_`]*[ \t]*(\S.*)", summary or "", re.M | re.I)
         if answer:
             raise NotNeeded(answer.group(1).strip())
 
@@ -3264,8 +3266,8 @@ def open_followup(state, text):
                          and (process_active(other) or other.get("slot_waiting")))
                      or (other.get("state") in ("waiting", "waiting_login", "exhausted",
                                                 "error") and going(other))
-                     or (other.get("state") == "pass" and not other.get("merged")
-                         and not other.get("no_merge") and not other.get("on_target")))):
+                     or (other.get("state") == "interrupted" and other.get("deaths")
+                         and tick_resumes(other)))):
             return directory.name
     return None
 
