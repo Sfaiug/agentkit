@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -190,6 +191,90 @@ class TurnMeters(unittest.TestCase):
         self.assertEqual(next(m["used"] for m in accounts["acme-second"]["meters"]
                                if m["name"] == "weekly_all"), 13.0)
         self.assertIn("probe_error", accounts["default"])
+
+    def test_a_turn_leaves_the_endpoints_cadence_alone(self):
+        self.cache()
+        meters = claude_hook.turn_meters(self.out(self.event(0.02, 0.13)))
+        # Real time, as a turn records it: a fake future stamp would read as no
+        # ask at all, however the cadence file was written.
+        self.assertTrue(usage.record_turn_meters(self.cfg, "anthropic", meters,
+                                                 "acme-second"))
+        # No ask went out, so none is written down: the account is not cooling.
+        self.assertFalse(usage._cooling("anthropic", "acme-second", 900))
+        # A stale snapshot still asks the endpoint, and the meter the turn does
+        # not carry takes the endpoint's answer.
+        blob = json.loads((config.STATE / "usage.json").read_text())
+        blob["fetched_at"] = self.now - 600
+        blob["reset_checked_at"] = self.now - 600
+        (config.STATE / "usage.json").write_text(json.dumps(blob))
+        asked = []
+
+        def endpoint(cfg, provider, now, account=None):
+            asked.append(account)
+            scoped = 100 if account == "acme-second" else 40
+            week = 60 if account == "acme-second" else 50
+            return {"provider": provider, "harness": "claude", "via": "opus",
+                    "meters": [self.meter("session", 20, 3600, SESSION, at=now),
+                               self.meter("weekly_all", week, 3 * 86400, WEEK, at=now),
+                               self.meter("weekly_scoped", scoped, 3 * 86400, WEEK,
+                                          at=now)],
+                    "error": None, "pace": None, "resets": 0.0,
+                    "exhausted": False, "probed_at": now}
+
+        with patch.object(usage, "_probe", side_effect=endpoint):
+            providers = usage.collect(self.cfg)
+        self.assertEqual(sorted(asked), ["acme-second", "default"])
+        second = providers["anthropic"]["accounts"]["acme-second"]
+        self.assertEqual(next(m["used"] for m in second["meters"]
+                               if m["name"] == "weekly_scoped"), 100)
+        # The probe moved the cadence, as a real ask does.
+        self.assertTrue(usage._cooling("anthropic", "acme-second", 900))
+
+    def test_a_refused_probe_in_flight_keeps_the_turns_newer_reading(self):
+        self.cache(second_weekly=90)
+        blob = json.loads((config.STATE / "usage.json").read_text())
+        blob["providers"]["anthropic"]["accounts"]["acme-second"]["probed_at"] = (
+            self.now - 3600)
+        (config.STATE / "usage.json").write_text(json.dumps(blob))
+        entered, release, errors = (threading.Event(), threading.Event(), [])
+
+        def slow(cfg, provider, now, account=None):
+            entered.set()
+            if not release.wait(30):
+                raise AssertionError("probe was never released")
+            return {"provider": provider, "meters": [],
+                    "error": "unknown: HTTP 429 from api.anthropic.com",
+                    "probed_at": now}
+
+        def probe():
+            try:
+                with patch.object(usage, "_probe", side_effect=slow):
+                    usage._probe_gently(self.cfg, "anthropic", "acme-second")
+            except Exception as exc:  # a thread cannot fail the test; its error does
+                errors.append(exc)
+
+        worker = threading.Thread(target=probe, daemon=True)
+        worker.start()
+        try:
+            self.assertTrue(entered.wait(30), "probe never started")
+            # The probe holds the account's lock from here to its write; the
+            # turn waits on it, then records over the refusal it wrote back.
+            timer = threading.Timer(1.0, release.set)
+            timer.start()
+            try:
+                meters = claude_hook.turn_meters(self.out(self.event(0.02, 0.13)))
+                self.assertTrue(usage.record_turn_meters(
+                    self.cfg, "anthropic", meters, "acme-second", now=self.now + 10))
+            finally:
+                timer.join(30)
+        finally:
+            worker.join(60)
+        self.assertFalse(worker.is_alive(), "probe thread never finished")
+        self.assertEqual(errors, [])
+        kept = usage._cached_provider("anthropic", "acme-second")
+        self.assertEqual(next(m["used"] for m in kept["meters"]
+                               if m["name"] == "weekly_all"), 13.0)
+        self.assertNotIn("probe_error", kept)
 
     def test_a_finished_turn_records_through_the_loop(self):
         self.cache(default_weekly=10, second_weekly=30)

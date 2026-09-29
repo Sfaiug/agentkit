@@ -923,12 +923,14 @@ def mark_exhausted(cfg, provider, until=None, account=None):
 def record_turn_meters(cfg, provider, meters, account=None, now=None):
     """The meters a worker turn reported about the account it ran on become that reading.
 
-    A file and no request, so neither the snapshot's five minutes nor the probe's minute
-    stands between it and the menu, `ak usage` and the next pick. Only the meters the
-    turn carries are replaced -- any other keeps the endpoint's last reading -- and only
-    on that account: a turn never moves another login's meters. A turn that said nothing
-    changes nothing, and an older reading never replaces a newer one. Returns whether
-    anything was written.
+    A file and no request, so neither the snapshot's five minutes nor any probe stands
+    between it and the menu, `ak usage` and the next pick. The endpoint's own cadence
+    is untouched -- no ask went out, so none is written down, and a meter the turn
+    does not carry keeps refreshing on it. Only the meters the turn carries are
+    replaced, and only on that account: a turn never moves another login's meters. A
+    turn that said nothing changes nothing, and an older reading never replaces a
+    newer one: the write shares the probe's own lock, so a probe in flight cannot
+    write back the reading from before the turn. Returns whether anything was written.
     """
     if not isinstance(meters, list) or not meters:
         return False
@@ -939,6 +941,24 @@ def record_turn_meters(cfg, provider, meters, account=None, now=None):
     measured = _number(now) if now is not None else time.time()
     if measured is None:
         measured = time.time()
+    # `_probe_gently` reads its `cached` under this same lock, so sharing it puts the
+    # two writes in one order: its refusal can only keep a reading this turn wrote,
+    # never write back the one from before it. Nothing is written to the lock file
+    # itself: no ask went out, so the endpoint's own cadence must not move.
+    try:
+        config.ensure_dirs()
+        handle = _lock(provider, account).open("a")
+    except OSError:
+        handle = None
+    if handle is None:
+        return _record_turn_meters(cfg, provider, fresh, account, measured)
+    with handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        return _record_turn_meters(cfg, provider, fresh, account, measured)
+
+
+def _record_turn_meters(cfg, provider, fresh, account, measured):
+    """The read-modify-write itself, with the account's probe lock held."""
     cached = _cached_provider(provider, account)
     cached = cached if isinstance(cached, dict) else {}
     # The measurement, not the ask: a refused probe's `probed_at` is fresh and its
@@ -971,12 +991,6 @@ def record_turn_meters(cfg, provider, meters, account=None, now=None):
     for key in ("fetched_at", "probe_error", "probe_failed_at", "stale_since"):
         prov.pop(key, None)
     _patch(provider, prov, measured, account)
-    # The probe's minute, without a probe: the next read takes this answer instead of
-    # making a request of its own, even where the snapshot itself is stale.
-    try:
-        _lock(provider, account).write_text(repr(measured))
-    except OSError:
-        pass
     return True
 
 
