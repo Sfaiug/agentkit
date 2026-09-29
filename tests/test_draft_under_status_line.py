@@ -24,8 +24,11 @@ STATUS = (
     "acme main* · $0.42",
     "acme · fix-api\n[####      ] 40% · 3h left",
 )
-# ... and may start with a prompt mark, on its first line or a later one: still no composer.
-MARKED = ("❯ acme main*", "❯", "acme · fix-api\n› 40% · 3h left", "⟩ acme main*\n[####  ] 40%")
+# ... and may start with a prompt mark, on its first line or a later one: still no composer,
+# even over a line that reads like the harness's own chrome.
+MARKED = ("❯ acme main*", "❯", "acme · fix-api\n› 40% · 3h left", "⟩ acme main*\n[####  ] 40%",
+          "❯ acme main*\n? for shortcuts", "❯ acme\nbypass permissions on",
+          "› acme\n● high · /effort")
 
 
 def under_status(pane, status):
