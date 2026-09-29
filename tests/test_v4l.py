@@ -714,8 +714,9 @@ esac
                             mark = watch.stalled_on("muse", watch.pane_tail(pane), name, logs.append)
                             self.assertEqual(mark, None if progress else "429")
                             self.assertEqual(len(logs), int(bool(progress)))
-                            tmux("kill-session", "-t", f"={name}")
             finally:
+                # Every subtest's session lives until here: killing a server's last session
+                # makes it exit, and the next new-session could reach it mid-exit and fail.
                 subprocess.run(["tmux", "-L", "agentkit-test", "kill-server"], env=env,
                                capture_output=True)
 
