@@ -91,6 +91,21 @@ class FlakyRerun(unittest.TestCase):
         record = record.split("\n\n")[0]
         self.assertEqual(record, "FAIL: the one that broke")
 
+    def test_a_failure_above_a_tail_past_the_cap_still_names_it(self):
+        q = shlex.quote
+        pad = "x" * 72
+        tail = f"for i in $(seq 1 300); do echo \"shared line $i {pad}\"; done"
+        extra = f"for i in $(seq 1 100); do echo \"extra line $i {pad}\"; done"
+        cmd = (f"echo ran >> {q(str(self.runs))}; if test -f {q(str(self.root / 'seen'))}; "
+               f"then {tail}; {extra}; else touch {q(str(self.root / 'seen'))}; "
+               f"echo 'FAIL: the one that broke'; {tail}; exit 1; fi")
+        ok, text, logs = self.gate([cmd])
+        self.assertTrue(ok, text)
+        self.assertEqual(self.count(), 2)
+        record = text.split(f"flaky: {cmd} failed, then passed on its re-run\n", 1)[1]
+        record = record.split("\n\n")[0]
+        self.assertEqual(record, "FAIL: the one that broke")
+
     def test_a_rerun_that_repeats_everything_keeps_the_last_lines(self):
         q = shlex.quote
         tail = "; ".join(f"echo repeat line {i}" for i in range(25))

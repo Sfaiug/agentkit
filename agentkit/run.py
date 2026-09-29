@@ -2164,6 +2164,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
         log_path.write_text("")
         for cmd in cmds:
             first = None        # the output of a first run that failed, while its re-run decides
+            first_span = None   # its byte span in the gate log: the flaky diff reads whole runs
             while True:
                 stop_check(run_dir)
                 left = deadline - time.monotonic()
@@ -2177,12 +2178,14 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         ["bash", "-c", cmd], left, silence=silence, activity=log_path,
                         on_timeout=reason.append, cwd=str(cwd), output=progress,
                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=run_child_env())
+                    end = progress.tell()
                 with log_path.open("rb") as progress:
                     progress.seek(max(offset, log_path.stat().st_size - OUT_CAP))
                     out = progress.read().decode("utf-8", errors="replace")
                 if code == 0 or killed or first is not None:
                     break
                 first = out
+                first_span = (offset, end)
             if left <= 0 and first is None:
                 # the list is out of time: starting this command would give it a limit of its own
                 spent, killed, kept = cmd, False, ""
@@ -2193,10 +2196,19 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                           f"{out[-OUT_CAP:]}".rstrip())
             if first is not None and code == 0:
                 # blank lines dropped: a record is what lies between two, and these are one
-                lines = [line for line in first.splitlines() if line.strip()]
+                # both runs read whole from the gate log: the capped `out` starts mid-output
+                # on a chatty suite, which hides a failure above the cap and frames shared
+                # lines the re-run's own window dropped as lines it never printed
+                with log_path.open("rb") as progress:
+                    progress.seek(first_span[0])
+                    failed = progress.read(first_span[1] - first_span[0])
+                    progress.seek(offset)
+                    rerun = progress.read(end - offset)
+                lines = [line for line in failed.decode("utf-8", errors="replace").splitlines()
+                         if line.strip()]
                 # the failure is what the failed run said that its passing re-run did not:
                 # a tally and a passing tail both repeat, so the last lines alone name neither
-                reran = set(out.splitlines())
+                reran = set(rerun.decode("utf-8", errors="replace").splitlines())
                 diff = [line for line in lines if line not in reran][:20]
                 chunks.append("\n".join([f"flaky: {cmd} failed, then passed on its re-run",
                                          *(diff or lines[-20:])]))
