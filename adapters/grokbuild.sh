@@ -175,7 +175,10 @@ usage)
   # takes its name from the period -- weekly for the SuperGrok window -- and each product
   # usagePercent is the same window broken out.  A currentPeriod may arrive as protobuf
   # seconds or as an ISO instant; either is the window, and the billing period is only the
-  # fallback when the period itself did not parse.  Spend without a percent is not a meter
+  # fallback when the period itself did not parse.  The body is protobuf JSON, which leaves
+  # a zero out: a currentPeriod with no creditUsagePercent is a window nothing has used yet
+  # (captured 29 Sep, the morning a weekly window began), so it reads 0.  Spend without a
+  # currentPeriod or a percent is not a meter
   # and falls through, as does any answer but 200: only 401/403 is terminal, an expired
   # login, which must fail the probe like a missing one instead of reading neutral.  An
   # XAI_API_KEY alone never probes: it is not the session this endpoint authenticates.
@@ -259,7 +262,9 @@ usage)
                       else null end)
                  end) as $w
               | select($w != null)
-              | ([{name: $w.name, used: $c.creditUsagePercent}]
+              | ([{name: $w.name,
+                   used: (if $c.creditUsagePercent == null and $fromp != null then 0
+                          else $c.creditUsagePercent end)}]
                  + [$c.productUsage[]? | {name: .product, used: .usagePercent}])
               | map(select(((.name // "") | type) == "string" and (.name | test("[^[:space:]]"))
                           and ((.used | type) == "number") and .used >= 0)
