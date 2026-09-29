@@ -139,10 +139,10 @@ def _probe(cfg, provider, now, account=None):
                 "pace": None, "resets": None, "exhausted": False, "probed_at": now}
     facts = harness_plugin(harness).usage
     said = None      # the adapter's own words for a call that ran; see the `auth` question below
-    argv = [str(adapter), "usage"]
-    if account is not None:
-        # one account's meters: named to the adapter, whatever a turn this runs under was named
-        argv = ["env", *(f"{k}={v}" for k, v in config.account_env(account).items()), *argv]
+    # one account's meters, the usual login's for none: named to the adapter, whatever a turn
+    # this runs under was named
+    argv = ["env", *(f"{k}={v}" for k, v in config.account_env(account).items()),
+            str(adapter), "usage"]
     try:
         if facts["capture"]:
             # a usage call that runs a model shares the caller's deadline, descendants included
