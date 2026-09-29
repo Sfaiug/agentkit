@@ -24,6 +24,9 @@
 #   * META_API_KEY, when set (Muse honours it over the account login).
 #   * $XDG_CONFIG_HOME/muse/auth.json -> providers.meta.api_key.  Muse's file credential
 #     backend, which is what Linux gets: the minted key sits there in plaintext.
+#   * $AGENTKIT_ACCOUNT names one of the provider's `accounts`: then its own login alone, the
+#     auth.json in its config home ~/.muse-<name> (see adapters/muse.sh), never META_API_KEY,
+#     and its own cache and quota record beside the usual login's.
 #   * macOS keeps the key in the login Keychain (service ai.meta.dev.credentials), and its ACL
 #     is muse-only -- `security find-generic-password -w` opens a blocking GUI prompt, so it is
 #     useless headless.  Instead muse itself is asked for it: started with --base-url pointed at
@@ -34,5 +37,8 @@
 # The model and reasoning effort come from config.toml. The Python supervisor enforces
 # one 45s total budget (including cleanup); AGENTKIT_MUSE_USAGE_TIMEOUT may shorten it.
 set -uo pipefail
+case ${XDG_CONFIG_HOME:-} in "$HOME"/.muse-*) unset XDG_CONFIG_HOME ;; esac
+[ -z "${AGENTKIT_ACCOUNT:-}" ] || {
+  export XDG_CONFIG_HOME="$HOME/.muse-$AGENTKIT_ACCOUNT"; unset META_API_KEY; }
 here=$(cd "$(dirname "$0")" && pwd)
 exec python3 "$here/../agentkit/muse_usage.py"

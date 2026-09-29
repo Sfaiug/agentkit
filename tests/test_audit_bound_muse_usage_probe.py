@@ -173,6 +173,7 @@ raise AssertionError("this regression needs no tmux server")
             "MUSE_FIXTURE": str(self.root), "FIXTURE_SECRET": self.secret, "META_API_KEY": self.secret,
             "AGENTKIT_MUSE_USAGE_TIMEOUT": "2", "AGENTKIT_MUSE_USAGE_MODEL": "ignored-env-model",
             "AGENTKIT_ADAPTER_DIR": str(self.fixture_repo / "adapters"), "AGENTKIT_SESSION": "",
+            "AGENTKIT_ACCOUNT": "",
             "AGENTKIT_RUN_DIR": "", "AGENTKIT_DISCORD_WEBHOOK": "off", "NO_COLOR": "1",
             "AGENTKIT_TMUX_SOCKET": "agentkit-test", "TMUX_TMPDIR": str(sockets), "TMUX": "",
             "RESPONSE": "success", "RESPONSE_DELAY": "0", "CREDENTIAL": "success", "CREDENTIAL_DELAY": "0",
