@@ -26,7 +26,9 @@ TOKEN="$HOME/.agentkit/secrets/claude_oauth_token"
 # name, and its interactive login in a config directory of its own, where `CLAUDE_CONFIG_DIR=
 # ~/.claude-<name> claude` puts it.  Nothing of the usual login -- its files, its Keychain entry,
 # a token exported for it -- ever answers for an account: that would spend the wrong
-# subscription, or read its meters as this one's.
+# subscription, or read its meters as this one's.  A seat on an account hands its directory
+# to everything it starts, so a call that names no account drops one for the same reason.
+case ${CLAUDE_CONFIG_DIR:-} in "$HOME"/.claude-*) unset CLAUDE_CONFIG_DIR ;; esac
 ACCOUNT=${AGENTKIT_ACCOUNT:-}
 if [ -n "$ACCOUNT" ]; then
   TOKEN="$TOKEN.$ACCOUNT"
