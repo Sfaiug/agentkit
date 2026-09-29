@@ -1225,7 +1225,7 @@ def screen_state(harness, tail):
                 # The composer's own rule sits right under it and the footer at the bottom;
                 # what the harness draws between them, a user's status line, is not the draft
                 # even where it starts with a prompt mark: a line right on the footer, where
-                # Codex draws its composer, counts only under no composer with its own rule.
+                # a harness may draw its composer, counts only under no composer with its own rule.
                 marked = [index for index in marked if index + 1 == len(region)
                           or (chrome_line(chrome, region[index + 1])
                               and chrome_line(chrome, region[-1]))]
