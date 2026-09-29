@@ -379,16 +379,19 @@ class SessionModelsScreen(unittest.TestCase):
         mark = screen.mark()
         screen.send(b"m")
         screen.models("fix-api", after=mark)
+        screen.send(DOWN + RIGHT + RIGHT + SPACE)   # Opus joins the reviewers
+        screen.models("fix-api", lambda lines: any(
+            "Opus 5.5" in line and marks(line) == "●■■" for line in lines), after=mark)
         # Claude is down in this child, so Astra leaving executes leaves no
         # runnable worker: refused in one line, and the record stays as it was.
-        screen.send(DOWN + DOWN + RIGHT + SPACE)
+        screen.send(DOWN + LEFT + SPACE)
         shown = screen.models("fix-api", lambda lines: any(
             "no allowed executor/reviewer pair" in line for line in lines), after=mark)
         self.assertEqual([line.strip() for line in shown if "no allowed" in line],
                          ["no allowed executor/reviewer pair"])
         record = screen.record("fix-api")
         self.assertEqual(record["workers"], ["opus", "astra"])
-        self.assertEqual(record["reviewers"], ["astra"])
+        self.assertEqual(record["reviewers"], ["astra", "opus"])
         mark = screen.mark()
         screen.send(ESC)
         screen.frame(after=mark)
