@@ -28,13 +28,15 @@ and its `max` counts only go down.
 - `run.py`: the run loop. Hides task parsing, staffing, turns, the done-when gate, review
   rounds, landing, hand-back, run.json and its stop-safe write, provider-failure
   classification, slots and host admission, worktrees, gc and jobs. Offers `main`,
-  `save_state`/`read_state`, `going`, `pick_models`. Used by watch (about 60 functions),
-  orch, menu, notify, usage, worker, retention and a hook.
+  `save_state`/`read_state`, `record` (a live record's read-change-write under its lock;
+  the loop's own saves merge through it), `going`, `pick_models`. Used by watch (about 60
+  functions), orch, menu, notify, usage, worker, retention and a hook.
   Leaks: harness failure text in `TRANSIENT`/`OUTAGE`, Claude temp-file gc.
 - `watch.py`: the tick. Hides watch.json, reading each manifest's screen rules and words
   (`quotas`, `stalls`, `auth_expiry`), seat state (`session_state`, `waiting_on`), typing
   into and reviving seats, resuming runs, PR scanning, `doctor`. Used by run, orch, menu,
-  notify, update, usage, worker and both hooks. Leaks: run.json writes, run states (`GOING`).
+  notify, update, usage, worker and both hooks. Leaks: run.json writes (the stall ladder and
+  freeze marks through `run.record`, the resume passes whole), run states (`GOING`).
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename`. Used by menu, watch, run, notify, usage, update.

@@ -3281,26 +3281,28 @@ def stall_clock(run_dir, state):
     return max(run_last_write(run_dir), state.get("thawed_at") or 0, until)
 
 
-def note_freeze(run_dir, state, frozen, now):
+def note_freeze(run_dir, frozen, now):
     """Pause this run's stall clock while the host holds it, and restart it at the thaw.
 
     Said once per run, in the run's own log, and to nobody else: a frozen host is the owner's
     own doing and a run waiting one out is neither stalled nor anything to be told about.
+    Read again under the record's lock, so two ticks over one frozen run say it once between
+    them, and neither writes over a run that has moved on.
     """
     from . import run as run_mod
-    state = dict(state)
-    if frozen:
-        if state.get("frozen_since"):
-            return state
-        state["frozen_since"] = now
-        stamp = time.strftime("%H:%M:%S", time.localtime(now))
-        with (run_dir / "log.txt").open("a") as fh:
-            fh.write(f"[{stamp}] host frozen since {stamp}; stall clock paused\n")
-    else:
-        state.pop("frozen_since", None)
-        state["thawed_at"] = now
-    run_mod.save_state(run_dir, state)
-    return state
+    with run_mod.record(run_dir) as state:
+        if state.get("state") != "running":
+            return
+        if frozen:
+            if state.get("frozen_since"):
+                return
+            state["frozen_since"] = now
+            stamp = time.strftime("%H:%M:%S", time.localtime(now))
+            with (run_dir / "log.txt").open("a") as fh:
+                fh.write(f"[{stamp}] host frozen since {stamp}; stall clock paused\n")
+        else:
+            state.pop("frozen_since", None)
+            state["thawed_at"] = now
 
 
 def run_last_write(run_dir):
@@ -3572,21 +3574,16 @@ def tell_parked(run_id, step, seat, log):
     return False
 
 
-def note_stall(run_dir, entry, line):
-    """Record one rung: the entry first, then the log line, so the entry's time -- read back
-    off the finished writes -- marks when the handling landed, not when it started."""
-    from . import run as run_mod
-    state = run_mod.read_state(run_dir) or {}
-    stalls = list(state.get("stalls") or [])
-    stalls.append(entry)
-    state["stalls"] = stalls
-    run_mod.save_state(run_dir, state)
+def note_stall(run_dir, state, entry, line):
+    """Record one rung on the `record` the ladder holds: the entry first, then the log line, so
+    the entry's time -- read back off the finished writes -- marks when the handling landed,
+    not when it started."""
+    state["stalls"] = [*(state.get("stalls") or []), entry]
+    state.flush()
     with (run_dir / "log.txt").open("a") as fh:
         fh.write(f"[{time.strftime('%H:%M:%S')}] {line}\n")
+    # the entry is the record's own, so the block's exit writes its time
     entry["time"] = run_last_write(run_dir) or entry["time"]
-    state["stalls"] = [*stalls[:-1], entry] if stalls else [entry]
-    run_mod.save_state(run_dir, state)
-    return state
 
 
 def _resume_ordered(state, now):
@@ -3936,20 +3933,14 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
                     log(f"would pause the stall clock of {run_dir.name}: {frozen}" if frozen
                         else f"would restart the stall clock of {run_dir.name} at the thaw")
                     continue
-                with run_mod.recovery_lock(run_dir):
-                    # under the lock and read again, so two ticks over one frozen run say it
-                    # once between them, and neither writes over a run that has moved on
-                    state = run_mod.read_state(run_dir) or state
-                    if state.get("state") == "running":
-                        note_freeze(run_dir, state, frozen, now)
+                note_freeze(run_dir, frozen, now)
                 continue
             minutes = run_mod.stall_minutes_for(run_dir, state)
             silent = now - stall_clock(run_dir, state)
             if silent < minutes * 60:
                 continue
             resume_after_lock = False
-            with run_mod.recovery_lock(run_dir):
-                state = run_mod.read_state(run_dir) or state
+            with run_mod.record(run_dir) as state:
                 if state.get("state") != "running":
                     continue
                 pid = state.get("pid")
@@ -3987,7 +3978,6 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
                         seat = None
                     if tell_parked(run_dir.name, step, seat, log):
                         state["stalled_notified"] = True
-                    run_mod.save_state(run_dir, state)
                     log(f"{run_dir.name}: {line}; parked as stalled")
                 elif len(stalls) >= 1 or kind == "none":
                     if alive:
@@ -4005,9 +3995,9 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
                             new = None
                         action = f"resumed with handover to {new}" if new else "resumed"
                     entry = {"time": now, "round": rnd, "step": step, "action": action}
-                    state["stall_resume_at"] = now  # reap leaves this killed loop alone;
-                    run_mod.save_state(run_dir, state)  # the resume below adopts it
-                    state = note_stall(run_dir, entry, f"{line}; {action}")
+                    # reap leaves this killed loop alone; the resume below adopts it
+                    state["stall_resume_at"] = now
+                    note_stall(run_dir, state, entry, f"{line}; {action}")
                     resume_after_lock = True
                     log(f"{run_dir.name}: {line}; {action}")
                 else:
@@ -4018,8 +4008,8 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
                         action = "killed step"
                     else:
                         action = "step already gone"
-                    state = note_stall(run_dir, {"time": now, "round": rnd, "step": step,
-                                                 "action": action}, line)
+                    note_stall(run_dir, state, {"time": now, "round": rnd, "step": step,
+                                                "action": action}, line)
                     log(f"{run_dir.name}: {line}")
             if resume_after_lock:
                 launch_resume(run_dir.name, log)
