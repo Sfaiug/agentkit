@@ -176,12 +176,12 @@ class Accounts(unittest.TestCase):
         self.assertFalse(usage.model_exhausted(self.cfg, "opus", providers)[0])
         # `ak usage`: each account's meters on a line of its own
         rows = {row[0]: row for row in usage.rows(self.cfg, providers)}
-        self.assertEqual(rows["anthropic:default"][2], "0%")
-        self.assertEqual(rows["anthropic:second"][2], "80%")
+        self.assertEqual(rows["anthropic I"][2], "0%")
+        self.assertEqual(rows["anthropic II"][2], "80%")
         self.assertNotIn("anthropic", rows)
         text = usage.render(self.cfg, providers, ["opus"])
-        self.assertIn("anthropic:default", text)
-        self.assertIn("anthropic:second", text)
+        self.assertIn("anthropic I ", text)
+        self.assertIn("anthropic II", text)
 
         code, answer, session, _ = self.turn()
         self.assertEqual((code, session), (0, "s1"))

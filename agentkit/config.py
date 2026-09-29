@@ -1052,6 +1052,25 @@ def accounts(cfg, provider):
     return list(listed) if isinstance(listed, list) else []
 
 
+def account_label(cfg, provider, account, name):
+    """What a person reads for one of a provider's subscriptions: `name`, the provider's own,
+    and for one of several its place in `accounts` in roman numerals -- `Claude II`.  The
+    account's name in `accounts` is ak's own and is never shown; one no longer listed there
+    keeps it, since no place would say which one it is."""
+    listed = accounts(cfg, provider)
+    if account not in listed:
+        return name if account in (None, DEFAULT_ACCOUNT) else f"{name} {account}"
+    if len(listed) < 2:
+        return name
+    number, numeral = listed.index(account) + 1, ""
+    for value, digits in ((1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"),
+                          (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"),
+                          (4, "IV"), (1, "I")):
+        count, number = divmod(number, value)
+        numeral += digits * count
+    return f"{name} {numeral}"
+
+
 def account_env(account):
     """What an adapter call for that account is told: its name in AGENTKIT_ACCOUNT, and for
     `default` the empty name -- the login the adapter uses when no account is named at all."""
