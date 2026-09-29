@@ -350,11 +350,16 @@ def content_width(term_width=None):
 
 
 def header_line(screen, clock, term_width=None):
-    """`agentkit` at the left, the screen name after it, the clock at the right."""
+    """`agentkit` at the left, the screen name after it, the clock at the right.
+
+    The title gives way, never the clock: a name too long for the width is cut to leave
+    the clock and one space whole.
+    """
     room = layout_width(term_width)
-    title = "agentkit" if not screen else f"agentkit · {screen}"
-    gap = max(1, room - cells(title) - cells(clock))
-    return title + " " * gap + clock
+    if room <= cells(clock):
+        return cut(clock, room)
+    title = cut("agentkit" if not screen else f"agentkit · {screen}", room - cells(clock) - 1)
+    return title + " " * (room - cells(title) - cells(clock)) + clock
 
 
 def rule_line(term_width=None):
@@ -438,7 +443,10 @@ def frame(name, body=(), keyline="q back"):
     lines = [header_line(name, time.strftime("%H:%M")), rule_line(), *body, "",
              *key_line(keyline)]
     if taken():
-        sys.stdout.write("\033[H" + "".join(f"{line}\033[K\n" for line in lines) + "\033[J")
+        # each line is cleared before it is written, never after: a line filling the last
+        # column leaves the cursor on it, and a clear there erases that column -- the clock's
+        # last digit on any terminal no wider than the layout
+        sys.stdout.write("\033[H" + "".join(f"\033[K{line}\n" for line in lines) + "\033[J")
         sys.stdout.flush()
         return
     if (sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
@@ -891,7 +899,7 @@ def scroll(name, body, keyline="esc back"):
                  for number, line in enumerate(key_line(keys), 1)
                  for first, last, key in key_spans(line)]
         lines += key_line(keys)
-        sys.stdout.write("\033[H" + "".join(f"{line}\033[K\n" for line in lines) + "\033[J")
+        sys.stdout.write("\033[H" + "".join(f"\033[K{line}\n" for line in lines) + "\033[J")
         sys.stdout.flush()
         key = read_key()
         if key is None:

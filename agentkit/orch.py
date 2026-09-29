@@ -3156,7 +3156,7 @@ def _picking(cfg, providers, notes, selected):
                  for number, line in enumerate(terminal.key_line(keys), 1)
                  for begin, end, key in terminal.key_spans(line)]
         lines += terminal.key_line(keys)
-        sys.stdout.write("\033[H" + "".join(f"{line}\033[K\n" for line in lines) + "\033[J")
+        sys.stdout.write("\033[H" + "".join(f"\033[K{line}\n" for line in lines) + "\033[J")
         sys.stdout.flush()
         key = terminal.read_key()
         if key is None:
