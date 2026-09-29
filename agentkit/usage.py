@@ -98,8 +98,8 @@ def _normalized(meter, now):
             "exhausted": False}
 
 
-def _resets(harness):
-    """Usage-limit resets this provider still holds, or None when its adapter cannot say.
+def _resets(harness, account=None):
+    """Usage-limit resets that account still holds, or None when its adapter cannot say.
 
     Only an adapter whose manifest says `[usage] reset` has any: the others answer 0 without
     being asked, because a count nobody can spend is not an unknown.  A reset is a whole meter
@@ -108,7 +108,8 @@ def _resets(harness):
     """
     if not harness_plugin(harness).usage["reset"]:
         return 0.0
-    available = _number((_adapter_json(harness, "reset-status", 30) or {}).get("available"))
+    said = _adapter_json(harness, "reset-status", 30, account) or {}
+    available = _number(said.get("available"))
     return None if available is None else max(0.0, available)
 
 
@@ -168,7 +169,7 @@ def _probe(cfg, provider, now, account=None):
     # company -- it has a fresh ask and no fresh measurement -- which is why `_kept` writes the
     # measurement down.
     out = {"provider": provider, "harness": harness, "via": via, "meters": [],
-           "error": data.get("error"), "pace": None, "resets": _resets(harness),
+           "error": data.get("error"), "pace": None, "resets": _resets(harness, account),
            "exhausted": False, "probed_at": now}
     retry = _number(data.get("retry_after"))
     if retry is not None and retry > 0:
@@ -399,10 +400,12 @@ def _probe_gently(cfg, provider, account=None):
         return prov
 
 
-def _adapter_json(harness, verb, timeout):
-    """The one JSON object `<adapter> <verb>` printed, or None when it said nothing usable."""
+def _adapter_json(harness, verb, timeout, account=None):
+    """The one JSON object `<adapter> <verb>` printed about that account, the usual login for
+    none whatever the caller's was, or None when it said nothing usable."""
     try:
         proc = subprocess.run([str(config.adapter(harness)), verb], capture_output=True,
+                              env={**os.environ, **config.account_env(account)},
                               timeout=timeout, encoding="utf-8", errors="replace")
         data = json.loads(proc.stdout)
     except (config.Error, subprocess.TimeoutExpired, OSError, ValueError):
@@ -475,7 +478,7 @@ def _reset_policy(cfg, provider, prov, now, depleted):
         _write_reset_state(path, {**record, "applied_at": now, "outcome": "asked"})
     except OSError:
         return prov, False   # a spend that cannot be recorded is a spend that is not made
-    result = _adapter_json(harness, "reset", 60) or {}
+    result = _adapter_json(harness, "reset", 60, prov.get("account")) or {}
     spent = result.get("code") == "reset"
     left = _number(result.get("available"))
     try:
@@ -776,7 +779,7 @@ def collect(cfg, *, refresh=False):
                         harness, _ = config.provider_harness(cfg, name)
                     except config.Error:
                         continue      # a provider whose models were all removed: nothing to ask
-                    providers[name]["resets"] = _resets(harness)
+                    providers[name]["resets"] = _resets(harness, providers[name].get("account"))
                 if due:
                     # the cached records already carry their own marks; a reset replaces the
                     # whole record, which is how a fresh week lifts one

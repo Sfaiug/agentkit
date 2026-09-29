@@ -310,7 +310,7 @@ class GentleProbe(unittest.TestCase):
                    "reset": {"code": "reset", "available": 1, "weekly_used": 5,
                              "resets_at": NOW + WEEK}}
         self.stack.enter_context(patch.object(usage, "_adapter_json",
-                                              side_effect=lambda h, verb, t: answers[verb]))
+                                              side_effect=lambda h, verb, *_: answers[verb]))
         self.refused()
         self.now[0] = NOW + usage.PROBE_EVERY + usage.PROBE_TRUSTED_FOR + 1
         self.assertIn("429", usage.collect(self.cfg)["alpha"]["budget_reason"])
