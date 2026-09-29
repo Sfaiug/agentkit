@@ -848,7 +848,7 @@ stop();
             self.assertEqual(cmd[0], "env")
             receipt = Path(cmd[1].split("=", 1)[1])
             self.assertTrue(cmd[1].startswith("AGENTKIT_OPENCODE_RECEIPT="))
-            self.assertEqual(list(receipt.iterdir()), [])
+            self.assertEqual(json.loads((receipt / "title-request.json").read_text())["title"], name)
             self.run_plugin(receipt, self.turn(sid), {sid: None})
         for name, sid, other in (("alpha", "ses_alpha", "ses_beta"),
                                  ("beta", "ses_beta", "ses_alpha")):

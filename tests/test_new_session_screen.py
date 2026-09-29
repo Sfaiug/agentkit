@@ -13,7 +13,6 @@ import fcntl
 import json
 import os
 from pathlib import Path
-import re
 import shlex
 import struct
 import subprocess
@@ -37,8 +36,9 @@ def refused(*args, **kwargs):
     raise AssertionError("refused: nothing here launches")
 
 def create(cfg, name, cwd, *args, selection=None, **kwargs):
-    model, _, workers = selection[1]
-    print(f"<created {name} {model} {','.join(workers)}>", flush=True)
+    model, _, workers, reviewers = selection[1]
+    config.save_session(cfg, name, model, workers, {"reviewers": reviewers})
+    print(f"<created {name} {model} {','.join(workers)} {','.join(reviewers)}>", flush=True)
     return ["fake"]
 
 def open_session(cfg, session, dry_run):
@@ -58,6 +58,7 @@ if not dry_run:     # a dry run keeps the real listing, rows, probe, notices, cr
     orch.create, menu.open_session = create, open_session
 sys.exit(menu.loop(config.load(), dry_run=dry_run))
 """
+RIGHT, LEFT = b"\x1b[C", b"\x1b[D"
 DOWN, ENTER, ESC, SPACE = b"\x1b[B", b"\r", b"\x1b", b" "
 SPENT = {"anthropic": {"meters": [{"name": "weekly_all", "used": 100, "exhausted": True,
                                    "resets_at": time.time() + 3 * 86400}]}}
@@ -71,7 +72,7 @@ EVERYTHING_SPENT = {**{name: {"meters": [{"name": "weekly_all", "used": 100,
 class Screen:
     """One child menu on a pty: what it wrote so far, and keys sent to it."""
 
-    def __init__(self, case, providers=None, dry_run=False, rows=40, cols=100, models=""):
+    def __init__(self, case, providers=None, dry_run=False, rows=40, cols=100, models="", reviewers=None):
         self.case = case
         home = tempfile.TemporaryDirectory(prefix="new-session-screen-")
         case.addCleanup(home.cleanup)
@@ -83,9 +84,11 @@ class Screen:
         tmux.chmod(0o755)
         (self.home / "adapters").mkdir()
         (self.home / ".agentkit" / "state").mkdir(parents=True)
-        if models:      # the shipped config and these models after it
-            (self.home / ".agentkit" / "config.toml").write_text(
-                (REPO / "config.default.toml").read_text() + "\n" + models)
+        text = (REPO / "config.default.toml").read_text() + "\n" + models
+        if reviewers is not None:
+            text = text.replace("\n[defaults]\n", "\n[defaults]\nreviewers = "
+                                + json.dumps(reviewers) + "\n")
+        (self.home / ".agentkit" / "config.toml").write_text(text)
         if dry_run:     # every provider asked just now, so neither a read nor a probe asks again
             now, state = time.time(), self.home / ".agentkit" / "state"
             for name in EVERYTHING_SPENT:
@@ -181,10 +184,12 @@ def highlighted(lines):
     return next(line for line in lines if line.startswith("›"))
 
 
-def group(lines, heading):
-    """The rows under one heading, highlight mark and all, up to the blank line after them."""
-    rows = lines[lines.index(heading) + 1:]
-    return rows[:rows.index("")] if "" in rows else rows
+def models(lines):
+    return [line for line in lines if any(mark in line for mark in "●○■□")]
+
+
+def marks(line):
+    return "".join(char for char in line if char in "●○■□")
 
 
 class NewSessionScreen(unittest.TestCase):
@@ -197,14 +202,14 @@ class NewSessionScreen(unittest.TestCase):
         lines = screen.picker()
         self.assertTrue(lines[0].startswith("agentkit · new session"), lines)
         self.assertIn("Opus 5.5", highlighted(lines))                 # the cursor starts there
-        orchestrator, workers = group(lines, "Orchestrator"), group(lines, "Workers")
-        self.assertEqual(len(orchestrator), len(workers))             # every model in each
-        self.assertEqual([row for row in orchestrator if "●" in row], [highlighted(lines)])
-        self.assertRegex(highlighted(lines), r"^› ● Opus 5\.5 +claude · xhigh$")
-        self.assertEqual([row.split()[1] for row in workers if "■" in row], ["Opus", "Astra"])
-        self.assertTrue(lines[-1].startswith("  ↑↓ move   space choose   ⏎ start   esc back"))
+        self.assertEqual(lines[2].split(), ["orch", "exec", "review"])
+        self.assertEqual(len(models(lines)), 7)
+        self.assertEqual(marks(highlighted(lines)), "●■■")
+        self.assertEqual([row.split()[0 if not row.startswith("›") else 1]
+                          for row in models(lines) if marks(row)[1] == "■"], ["Opus", "Astra"])
+        self.assertTrue(lines[-1].startswith("  ↑↓←→ move   space choose   ⏎ start   esc back"))
         screen.send(ENTER)
-        screen.saw("<created new opus opus,astra>", "<opened new>")
+        screen.saw("<created new opus opus,astra opus,astra>", "<opened new>")
         screen.menu(after=screen.text().index("<opened new>"))
         screen.leave()
 
@@ -218,11 +223,11 @@ class NewSessionScreen(unittest.TestCase):
         screen.send(DOWN)
         screen.picker(lambda lines: "Astra" in highlighted(lines))
         screen.send(SPACE)
-        lines = screen.picker(lambda lines: "● Astra" in highlighted(lines))
-        self.assertEqual([row for row in group(lines, "Orchestrator") if "●" in row],
+        lines = screen.picker(lambda lines: "Astra" in highlighted(lines) and marks(highlighted(lines))[0] == "●")
+        self.assertEqual([row for row in models(lines) if "●" in row],
                          [highlighted(lines)])                         # one choice, moved
         screen.send(ENTER)
-        screen.saw("<created new astra opus,astra>")
+        screen.saw("<created new astra opus,astra opus,astra>")
         screen.leave()
 
     def test_a_worker_toggled_off_and_the_last_one_kept(self):
@@ -232,21 +237,22 @@ class NewSessionScreen(unittest.TestCase):
         screen.saw("Name (Enter: auto): ")
         screen.send(ENTER)
         screen.picker()
-        screen.send(DOWN * 7)                  # from the orchestrator Opus to the worker Opus
-        lines = screen.picker(lambda lines: highlighted(lines) in group(lines, "Workers")
-                              and "Opus" in highlighted(lines))
-        screen.send(SPACE)
-        screen.picker(lambda lines: "□ Opus" in highlighted(lines))
+        screen.send(RIGHT + SPACE)             # Opus's executor mark
+        screen.picker(lambda lines: marks(highlighted(lines)) == "●□■")
         mark = len(screen.text())
-        screen.send(DOWN + SPACE)              # Astra, the one worker left, stays chosen
-        lines = screen.picker(lambda lines: "Astra" in highlighted(lines), after=mark)
-        self.assertIn("■ Astra", highlighted(lines))
-        # a click on a row chooses it, as space does: Spark, under Astra
-        row = lines.index(highlighted(lines)) + 2
-        screen.send(f"\x1b[<0;8;{row}M\x1b[<0;8;{row}m".encode())
-        lines = screen.picker(lambda lines: "■ Spark" in highlighted(lines))
+        screen.send(DOWN + SPACE)              # Astra, the last executor, stays chosen
+        lines = screen.picker(lambda lines: "exec needs one model" in "\n".join(lines),
+                              after=mark)
+        self.assertEqual(marks(highlighted(lines)), "○■■")
+        # A click chooses Spark's executor mark even with the cursor in the orch column.
+        screen.send(LEFT)
+        row = next(number for number, line in enumerate(lines, 1) if "Spark" in line)
+        col = lines[2].index("exec") + 2
+        screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
+        screen.picker(lambda lines: "Spark" in highlighted(lines)
+                      and marks(highlighted(lines))[1] == "■")
         screen.send(ENTER)
-        screen.saw("<created new opus astra,spark>")
+        screen.saw("<created new opus astra,spark opus,astra>")
         screen.leave()
 
     def test_a_spent_model_reads_dim_and_is_not_preselected(self):
@@ -258,17 +264,16 @@ class NewSessionScreen(unittest.TestCase):
         screen.send(ENTER)
         lines = screen.picker()
         opus = [row for row in lines if "Opus 5.5" in row]
-        self.assertEqual(len(opus), 2)
-        for row in opus:
-            self.assertRegex(row, r"^  [○□] Opus 5\.5 +claude · xhigh · spent · resets \w{3} \d\d:\d\d$")
-        # drawn dim all along: the escape comes before the name
-        drawn = screen.text()[mark:]
-        self.assertRegex(drawn, r"\x1b\[[0-9;]*m○ Opus 5\.5")
-        self.assertIn("● Astra", highlighted(lines))                  # choose()'s fall-through
-        self.assertEqual([row.split()[1] for row in group(lines, "Workers") if "■" in row],
-                         ["Astra"])
+        self.assertEqual(len(opus), 1)
+        self.assertEqual(marks(opus[0]), "○□□")
+        self.assertIn("spent · resets", opus[0])
+        self.assertRegex(screen.text()[mark:], r"\x1b\[[0-9;]*mOpus 5\.5")
+        self.assertEqual(marks(highlighted(lines)), "●■■")
         screen.send(ENTER)
-        screen.saw("<created new astra astra>")
+        screen.picker(lambda lines: "no allowed executor/reviewer pair" in "\n".join(lines))
+        # Select another reviewer explicitly; spent models remain a manual choice.
+        screen.send(RIGHT * 2 + DOWN + SPACE + ENTER)
+        screen.saw("<created new astra astra astra,spark>")
         screen.leave()
 
     def test_with_everything_spent_nothing_is_chosen_and_enter_waits_for_a_choice(self):
@@ -280,14 +285,11 @@ class NewSessionScreen(unittest.TestCase):
         lines = screen.picker()
         self.assertEqual([row for row in lines if "●" in row or "■" in row], [])
         # a week at 100% whose reset nobody knows is spent all the same, only with no time
-        self.assertEqual(len([row for row in lines
-                              if re.search(r"Astra +codex · xhigh · spent$", row)]), 2, lines)
-        screen.send(ENTER)                     # no orchestrator: the highlight stays on that list
-        screen.send(SPACE + ENTER)             # Fable, and on to the workers, which want one too
-        screen.picker(lambda lines: "□ Fable" in highlighted(lines)
-                      and highlighted(lines) in group(lines, "Workers"))
-        screen.send(SPACE + ENTER)
-        screen.saw("<created new fable fable>")
+        self.assertEqual(len([row for row in lines if "Astra" in row and "spent" in row]), 1)
+        screen.send(ENTER + SPACE + ENTER)     # Fable orchestrates; executor column wants a choice
+        screen.send(SPACE + ENTER)             # Fable executes; reviewer column wants a choice
+        screen.send(DOWN * 2 + SPACE + ENTER)  # Astra reviews
+        screen.saw("<created new fable fable astra>")
         screen.leave()
         self.assertEqual(screen.text().count("<created"), 1)
 
@@ -300,7 +302,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.saw("Name (Enter: auto): ")
         screen.send(ENTER)
         lines = screen.picker()
-        self.assertEqual(len([line for line in lines if "Mmmmmmmmmmmm…   codex" in line]), 2)
+        self.assertEqual(len([line for line in lines if "Mmmmmmmmmmmm…" in line]), 1)
         self.assertEqual([line for line in lines if terminal.cells(line) > 40], [])
         mark = len(screen.text())
         screen.send(ESC)
@@ -328,9 +330,10 @@ class NewSessionScreen(unittest.TestCase):
         screen.send(ENTER)
         lines = screen.picker()
         self.assertTrue(lines[0].startswith("agentkit · new session"), lines)
-        self.assertIn("● Astra", highlighted(lines))
+        self.assertIn("Astra", highlighted(lines))
+        self.assertEqual(marks(highlighted(lines)), "●■■")
         self.assertIn("spent · resets", "\n".join(lines))
-        screen.send(ENTER)
+        screen.send(RIGHT * 2 + DOWN + SPACE + ENTER)
         text = screen.saw("would attach new")
         screen.menu(after=text.index("would attach new"))
         screen.leave()

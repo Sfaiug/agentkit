@@ -350,8 +350,11 @@ fi
 # Chromium holding real logins -- so it is stood up on the server only, never under a sandbox
 # HOME. The bootstrap checks ownership before touching the machine's shared stack.
 # Registration writes this HOME's harness configs, sandbox HOME included on a server.
+# The shared browser MCP server is the machine's too: one pinned install and one unit for
+# every seat, set up here once rather than fetched per session.
 if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
   bash "$REPO/browser/install.sh" || note "browser step did not finish; continuing install; \`ak browser status\` says what is missing"
+  ak browser install || note "ak browser install did not finish; the browser tool has no shared server"
 fi
 if [ "$ROLE" = server ] && { have claude || have codex; }; then
   ak browser mcp-register || note "ak browser mcp-register did not finish; the harnesses have no browser tool"
@@ -720,14 +723,101 @@ if have tmux; then
   fi
 fi
 
+# --- (g2b) the ceiling over the slice: the user unit's own ---------------
+# Above agentkit.slice sits user@<uid>.service, and its ceiling holds every process the
+# user runs, so ssh and the owner's own shells keep room under load.  Where this install
+# may use sudo without a password, every install rewrites that ceiling from this
+# machine's own numbers before (g3), so the slice derives from the new value: memory as
+# shares above the slice's 60%/70%, tasks as a share of the kernel's thread limit, the
+# slice's own CPU quota, always OOMPolicy=continue.  Only agentkit-limits.conf is ever written: a file that is
+# missing, that opens with agentkit's own first line, or that is the hand-written file
+# this replaces (named agentkit-limits.conf, with its five fixed settings) is agentkit's;
+# any other drop-in in that directory is left alone.  Without passwordless sudo nothing
+# is written and one line says what to run instead; sudo is never asked for a password.
+# There are no pins for this ceiling: the slice's slice_* pins stay what they are.
+user_manager() {   # is there a user systemd manager here, to hold a slice and its limits?
+  have systemctl || return 1
+  # An install run from cron, over ssh without a login shell or from a sudo -u has no session
+  # environment, and `systemctl --user` then has no idea where to look: the runtime directory
+  # is the uid's own and the bus is the socket inside it.  Exported, because the reload below
+  # needs the same answer.
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+  case "$(systemctl --user is-system-running 2>/dev/null)" in
+    initializing|starting|running|degraded|maintenance|stopping) return 0 ;;
+  esac
+  return 1
+}
+UNIT_LIMITS="${AK_SYSTEMD_SYSTEM:-/etc/systemd/system}/user@$(id -u).service.d/agentkit-limits.conf"
+unit_handwritten() { # unit_handwritten <file>: is it the fixed-numbers file this replaces?
+  local file=$1 key
+  for key in "TasksMax=4096" "MemoryHigh=11G" "MemoryMax=12500M" "CPUQuota=700%" "OOMPolicy=continue"; do
+    grep -qF -- "$key" "$file" 2>/dev/null || return 1
+  done
+}
+if [ "$ROLE" != server ]; then
+  :   # a client starts no agent here; the ceiling belongs where the seats are
+elif [ "$SANDBOX" = 1 ]; then
+  echo "user-unit: sandbox HOME, so the user@$(id -u).service ceiling is not written"
+elif ! user_manager; then
+  echo "user-unit: no user systemd manager here; no unit ceiling to write"
+else
+  unit_first=""
+  if [ -e "$UNIT_LIMITS" ]; then unit_first=$(head -n 1 -- "$UNIT_LIMITS" 2>/dev/null || true); fi
+  case "$unit_first" in
+    "# Written by agentkit's install.sh"*) unit_ours=1 ;;
+    *) unit_ours=0 ;;
+  esac
+  if [ -e "$UNIT_LIMITS" ] && [ "$unit_ours" = 0 ] && unit_handwritten "$UNIT_LIMITS"; then
+    unit_ours=1   # today's hand-written file, named agentkit-limits.conf: taken over
+  fi
+  if [ -e "$UNIT_LIMITS" ] && [ "$unit_ours" = 0 ]; then
+    echo "user-unit: $UNIT_LIMITS is yours, not agentkit's; left byte-identical"
+  elif ! have sudo || ! sudo -n true 2>/dev/null; then
+    echo "user-unit: no passwordless sudo, so $UNIT_LIMITS is not written; run \`sudo -v\` and re-run ./install.sh to add it"
+  else
+  # Memory is shares above the slice's 60%/70%, and tasks are a share of the kernel's
+  # thread limit, so systemd follows this machine with no rewrite: 4% keeps the hand-written
+  # ceiling's headroom on its own host and grows on a larger one, where a per-core count
+  # would silently shrink the slice on a small one.  The CPU quota is the slice's own,
+  # leaving one core to everything else.
+  unit_tasks=4%
+  unit_cpus=$(nproc 2>/dev/null || echo 1)
+  case "$unit_cpus" in ''|*[!0-9]*) unit_cpus=1 ;; esac
+  unit_quota=$(( (unit_cpus - 1) * 100 )); [ "$unit_quota" -ge 100 ] || unit_quota=100
+  if sudo -n mkdir -p -- "${UNIT_LIMITS%/*}" 2>/dev/null &&
+     sudo -n tee "$UNIT_LIMITS" >/dev/null 2>/dev/null <<EOF
+# Written by agentkit's install.sh: the ceiling over the slice, for user@$(id -u).service.
+# Rewritten on every install from this machine's own numbers; a larger machine raises it
+# by itself.  The slice's slice_* pins hold slice values still; this ceiling always follows.
+[Service]
+TasksMax=$unit_tasks
+MemoryHigh=80%
+MemoryMax=90%
+CPUQuota=${unit_quota}%
+OOMPolicy=continue
+EOF
+  then
+    sudo -n systemctl daemon-reload 2>/dev/null ||
+      note "run \`sudo systemctl daemon-reload\` to pick up $UNIT_LIMITS"
+    echo "user-unit: $UNIT_LIMITS caps user@$(id -u).service at $unit_tasks tasks, 90% of memory and ${unit_quota}% CPU"
+  else
+    note "user-unit: $UNIT_LIMITS could not be written; run \`sudo -v\` and re-run ./install.sh"
+  fi
+  fi
+fi
+
 # --- (g3) the ceiling for everything the toolkit starts ---------------------
 # `ak orch` starts its tmux servers inside `agentkit.slice`, and tmux leaves every pane in a
 # scope under that slice, so one ceiling there holds every agent process on the machine --
 # while the shells and editors the owner starts by hand stay outside it and keep the box
 # usable when the herd is at its heaviest.  The ceiling is a drop-in in the user's own unit
-# directory: no root, and nothing outside $HOME.  An existing file is the owner's own answer
-# and is never rewritten; `systemctl --user set-property agentkit.slice TasksMax=...` changes
-# it on a running system, and editing the file makes that survive a reboot.
+# directory: no root, and nothing outside $HOME.  Every install rewrites the file when it
+# is agentkit's own -- its first line says so -- deriving tasks and CPU from this machine
+# and writing memory as shares, so a larger machine raises its own ceiling.  To hold a
+# value still, pin it in ~/.agentkit/config.toml: slice_tasks_max, slice_memory_high,
+# slice_memory_max, slice_cpu_quota.  A file whose first line is not agentkit's is the
+# owner's own answer and is left byte-identical.
 user_manager() {   # is there a user systemd manager here, to hold a slice and its limits?
   have systemctl || return 1
   # An install run from cron, over ssh without a login shell or from a sudo -u has no session
@@ -742,6 +832,16 @@ user_manager() {   # is there a user systemd manager here, to hold a slice and i
   return 1
 }
 LIMITS="$HOME/.config/systemd/user/agentkit.slice.d/limits.conf"
+slice_pin() { # slice_pin <key>: that pin from ~/.agentkit/config.toml, verbatim, or nothing
+  local file="$HOME/.agentkit/config.toml" line value
+  [ -f "$file" ] || return 1
+  line=$(grep -E "^[[:space:]]*$1[[:space:]]*=" -- "$file" | tail -n 1) || return 1
+  [ -n "$line" ] || return 1
+  value=$(printf '%s' "${line#*=}" | sed -e 's/[[:space:]]*#.*$//' -e 's/^[[:space:]]*//' \
+    -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/")
+  [ -n "$value" ] || return 1
+  printf '%s' "$value"
+}
 if [ "$ROLE" != server ]; then
   :   # a client starts no agent here; the ceiling belongs where the seats are
 elif [ "$SANDBOX" = 1 ]; then
@@ -750,38 +850,45 @@ elif ! user_manager; then
   echo "slice: no user systemd manager here; seats start plainly, as they always did"
 else
   WEIGHTS_CHANGED=0
-  if [ -e "$LIMITS" ]; then
-    echo "slice: $LIMITS is already there; left as it is"
+  first=""
+  if [ -e "$LIMITS" ]; then first=$(head -n 1 -- "$LIMITS" 2>/dev/null || true); fi
+  case "$first" in
+    "# Written by agentkit's install.sh"*) ours=1 ;;
+    *) ours=0 ;;
+  esac
+  if [ -e "$LIMITS" ] && [ "$ours" = 0 ]; then
+    echo "slice: $LIMITS is yours, not agentkit's; left byte-identical (to pin ours: slice_tasks_max, slice_memory_high, slice_memory_max, slice_cpu_quota in ~/.agentkit/config.toml)"
   else
   # Three quarters of the user unit's own task ceiling, so the toolkit can never take the last
   # thread the owner's login needs; a user unit with no ceiling offers no share to take, and a
-  # plain number stands in for it.  Memory is 60% and 70% of what this machine has, read off
-  # MemTotal and written in mebibytes so the file says what it means; the CPU quota leaves one
-  # core to everything else.
+  # plain number stands in for it.  Memory is shares of what this machine has, so systemd
+  # follows it with no rewrite; the CPU quota leaves one core to everything else.
   user_tasks=$(systemctl show "user@$(id -u).service" -p TasksMax --value 2>/dev/null || true)
   case "$user_tasks" in ''|*[!0-9]*) slice_tasks=3072 ;; *) slice_tasks=$((user_tasks * 3 / 4)) ;; esac
-  mem_kb=$(awk '/^MemTotal:/ { print $2; exit }' "${MEMINFO:-/proc/meminfo}" 2>/dev/null || true)
-  # a machine that will not say how much memory it has still gets the same two shares: systemd
-  # reads a percentage as a share of the memory it finds
-  case "$mem_kb" in ''|*[!0-9]*) mem_high=60% mem_max=70% ;;
-    *) mem_high=$((mem_kb * 60 / 100 / 1024))M mem_max=$((mem_kb * 70 / 100 / 1024))M ;; esac
+  mem_high=60% mem_max=70%
   cpus=$(nproc 2>/dev/null || echo 1)
   case "$cpus" in ''|*[!0-9]*) cpus=1 ;; esac
   quota=$(( (cpus - 1) * 100 )); [ "$quota" -ge 100 ] || quota=100
+  cpu_quota=${quota}%
+  if pin=$(slice_pin slice_tasks_max); then slice_tasks=$pin; fi
+  if pin=$(slice_pin slice_memory_high); then mem_high=$pin; fi
+  if pin=$(slice_pin slice_memory_max); then mem_max=$pin; fi
+  if pin=$(slice_pin slice_cpu_quota); then cpu_quota=$pin; fi
   mkdir -p -- "${LIMITS%/*}"
   cat >"$LIMITS" <<EOF
-# Written by agentkit's install.sh, once: the ceiling for every process the toolkit starts.
-# Edit it here, or run \`systemctl --user set-property agentkit.slice TasksMax=...\` for a
-# running system.  An installer that finds this file leaves it exactly as it is.
+# Written by agentkit's install.sh: the ceiling for every process the toolkit starts.
+# Rewritten on every install from this machine's own numbers; a larger machine raises it
+# by itself.  To hold a value still, pin it in ~/.agentkit/config.toml: slice_tasks_max,
+# slice_memory_high, slice_memory_max, slice_cpu_quota.
 [Slice]
 TasksMax=$slice_tasks
 MemoryHigh=$mem_high
 MemoryMax=$mem_max
-CPUQuota=${quota}%
+CPUQuota=$cpu_quota
 EOF
   systemctl --user daemon-reload 2>/dev/null ||
     note "run \`systemctl --user daemon-reload\` to pick up $LIMITS"
-  echo "slice: $LIMITS caps agentkit at $slice_tasks tasks, $mem_max of memory and ${quota}% CPU"
+  echo "slice: $LIMITS caps agentkit at $slice_tasks tasks, $mem_max of memory and $cpu_quota CPU"
   fi
   # Sessions keep the larger share of a busy host.  These are separate child slices so a
   # leaking detached run cannot consume the session slice's weight.

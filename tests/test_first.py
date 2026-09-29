@@ -1,4 +1,4 @@
-"""`ak run --first` jumps the admission queue and its repository's gate turns."""
+"""`ak run --first` jumps the admission queue and the heavy suite turns."""
 
 import fcntl
 import json
@@ -27,12 +27,13 @@ FAKE_OWNER = {"pid": 999999, "process_identity": {"boot": "test", "ticks": 1}}
 class Gate(threading.Thread):
     """One `run_done_when` in a thread of its own, its result or its exception kept."""
 
-    def __init__(self, case, name, repo, cmds, first=False, **kw):
+    def __init__(self, case, name, repo, cmds, first=False, heavy=True, **kw):
         super().__init__(daemon=True)
         self.run_dir = case.record(name, repo, first)
         self.logs, self.result, self.error = [], None, None
         self.args = (cmds, case.root, self.run_dir / "donewhen.log", set())
-        self.kw = {"log": self.logs.append, "run_dir": self.run_dir, **kw}
+        self.kw = {"log": self.logs.append, "run_dir": self.run_dir,
+                   "heavy": heavy, **kw}
 
     def run(self):
         try:

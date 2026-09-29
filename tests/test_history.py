@@ -294,7 +294,7 @@ class HistoryTests(unittest.TestCase):
                 run.execute(Fixture(), "executor", "the task", "executor")
         self.assertEqual(history.get("r1")["executor_tokens"], 460)
 
-    def test_row_names_its_orchestrator_and_history_reports_every_role(self):
+    def test_row_records_every_role_but_status_shows_only_task_size(self):
         state = self.home / "state"
         state.mkdir()
         (state / "session-seat.json").write_text(json.dumps(
@@ -304,15 +304,19 @@ class HistoryTests(unittest.TestCase):
                                "reviewer": "astra", "launched_session": "seat", "started_at": 1})
         history.add_seconds("r1", "executor", 1200)
         history.add_seconds("r1", "reviewer", 600)
-        history.finish_run("r1", finished_at=90000, final_state="pass", verdict="PASS")
+        history.finish_run("r1", finished_at=90000, final_state="pass", verdict="PASS",
+                           rounds_used=2)
+        history.update_run("r1", task_words=500, task_points=4)
         self.assertEqual(history.get("r1")["orchestrator"], "fable")
         runs = self.home / "runs"
         runs.mkdir()
         with patch.object(config, "RUNS", runs), redirect_stdout(io.StringIO()) as out:
             self.assertEqual(run.cmd_status(["--history"]), 0)
-        self.assertIn("fable: orchestrator: 100% over 1 runs, ~30m", out.getvalue())
-        self.assertIn("opus: executor: 100% over 1 runs, ~20m", out.getvalue())
-        self.assertIn("astra: reviewer: 100% over 1 runs, ~10m", out.getvalue())
+        self.assertIn("project: last 20 tasks: median 2 rounds · over 400 words: median 2 rounds · "
+                      "over 3 points: median 2 rounds", out.getvalue())
+        for role in ("orchestrator", "executor", "reviewer"):
+            self.assertNotIn(f": {role}:", out.getvalue())
+        self.assertNotIn("% over", out.getvalue())
 
     def test_muse_tokens_come_from_its_session_store_and_silence_reads_unknown(self):
         out = self.home / "reviewer"
@@ -356,61 +360,36 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(history.estimate_memory_mb("project"), 500)
         self.assertEqual(history.memory_requirement("project", 100), 600)
 
-    def test_picker_history_only_reorders_close_budgets_with_five_runs(self):
+    def test_picker_ignores_history_for_every_role_and_keeps_ties_in_list_order(self):
         entry = {"harness": "x", "model": "x", "effort": "x", "meter": None}
-        cfg = {"tiers": {"A": ["slow"], "B": ["slow", "fast"]}, "models": {
+        cfg = {"models": {
             "slow": {**entry, "provider": "p"}, "fast": {**entry, "provider": "q"}},
             "providers": {"p": {}, "q": {}}}
-        with patch.object(usage, "model_exhausted", return_value=(False, None)), \
-                patch.object(usage, "model_pace", return_value=(None, "provider meters")), \
-                patch.object(usage, "model_budget", side_effect=lambda _c, name, _p, _n=None:
-                             (1.0 if name == "slow" else .95, None)), \
-                patch.object(history, "role_stats", side_effect=lambda _r, _role, name:
-                             (90, 5, 60) if name == "fast" else (50, 5, 120)):
-            self.assertEqual(usage.pick_order(cfg, {"p": {}, "q": {}}, ["slow", "fast"], repo="project"),
-                             ["fast", "slow"])
+        for role in ("executor", "reviewer", "orchestrator"):
+            for budget in (.8, .95, 1.0):
+                with self.subTest(role=role, budget=budget), \
+                        patch.object(usage, "model_exhausted", return_value=(False, None)), \
+                        patch.object(usage, "model_pace", return_value=(None, "provider meters")), \
+                        patch.object(usage, "model_budget", side_effect=lambda _c, name, _p, _n:
+                                     (1.0 if name == "slow" else budget, None)), \
+                        patch.object(history, "role_stats", side_effect=lambda _r, _role, name:
+                                     (100, 30, 30) if name == "fast" else (50, 30, 120)) as stats:
+                    self.assertEqual(usage.pick_order(cfg, {"p": {}, "q": {}}, ["slow", "fast"],
+                                                      role=role, repo="project"), ["slow", "fast"])
+                    stats.assert_not_called()
 
-    def test_picker_history_keeps_budget_gap_and_sparse_models_in_place(self):
-        entry = {"harness": "x", "model": "x", "effort": "x", "meter": None}
-        cfg = {"tiers": {"A": ["slow"], "B": ["slow", "fast"]}, "models": {
-            "slow": {**entry, "provider": "p"}, "fast": {**entry, "provider": "q"}},
-            "providers": {"p": {}, "q": {}}}
-        with patch.object(usage, "model_exhausted", return_value=(False, None)), \
-                patch.object(usage, "model_pace", return_value=(None, "provider meters")), \
-                patch.object(usage, "model_budget", side_effect=lambda _c, name, _p, _n=None:
-                             (1.0 if name == "slow" else .9, None)), \
-                patch.object(history, "role_stats", return_value=(100, 4, 60)):
-            self.assertEqual(usage.pick_order(cfg, {"p": {}, "q": {}}, ["slow", "fast"],
-                                              repo="project"), ["slow", "fast"])
-        with patch.object(usage, "model_exhausted", return_value=(False, None)), \
-                patch.object(usage, "model_pace", return_value=(None, "provider meters")), \
-                patch.object(usage, "model_budget", side_effect=lambda _c, name, _p, _n=None:
-                             (1.0 if name == "slow" else .8, None)), \
-                patch.object(history, "role_stats", return_value=(100, 10, 60)):
-            self.assertEqual(usage.pick_order(cfg, {"p": {}, "q": {}}, ["slow", "fast"],
-                                              repo="project"), ["slow", "fast"])
-
-    def test_picker_history_ties_break_on_median_seconds(self):
-        entry = {"harness": "x", "model": "x", "effort": "x", "meter": None}
-        cfg = {"tiers": {"A": ["slow"], "B": ["slow", "fast"]}, "models": {
-            "slow": {**entry, "provider": "p"}, "fast": {**entry, "provider": "q"}},
-            "providers": {"p": {}, "q": {}}}
-        stats = {"slow": (80, 5, 120), "fast": (80, 5, 30)}
-        with patch.object(usage, "model_exhausted", return_value=(False, None)), \
-                patch.object(usage, "model_pace", return_value=(None, "provider meters")), \
-                patch.object(usage, "model_budget", return_value=(1.0, None)), \
-                patch.object(history, "role_stats", side_effect=lambda _r, _role, name: stats[name]):
-            self.assertEqual(usage.pick_order(cfg, {"p": {}, "q": {}}, ["slow", "fast"],
-                                              repo="project"), ["fast", "slow"])
-
-    def test_usage_render_prints_history_line(self):
-        history.start_run("r1", repo="project", executor="opus", started_at=1)
+    def test_usage_render_omits_model_success_rates(self):
+        history.start_run("r1", repo="project", executor="opus", reviewer="astra",
+                          orchestrator="fable", started_at=1)
         history.finish_run("r1", started_at=1, finished_at=61, verdict="PASS",
                            final_state="pass", executor="opus")
         with patch.object(usage, "rows", return_value=[]), \
                 patch.object(usage, "review_pair", return_value=None):
-            rendered = usage.render({}, {}, ["opus"], repo="project")
-        self.assertIn("opus: executor: 100% over 1 runs", rendered)
+            rendered = usage.render({}, {}, ["opus", "astra", "fable"], repo="project")
+        self.assertIn("pick order: opus, astra, fable", rendered)
+        for role in ("orchestrator", "executor", "reviewer"):
+            self.assertNotIn(f": {role}:", rendered)
+        self.assertNotIn("% over", rendered)
 
     def test_run_status_json_carries_history_fields(self):
         runs = self.home / "runs"

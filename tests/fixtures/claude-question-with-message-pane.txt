@@ -1,0 +1,19 @@
+[38;5;246m────────────────────────────────────────────────────────────────────────────────────────────────────
+← [38;5;16m[48;5;153m ☐ Change [39m[49m ✔ Submit  →
+
+[1m[38;5;231mWhich change should I build?[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [ ] [38;5;153mA: update the search page[39m
+         [38;5;246mAdd a filter to the search page.[39m
+  [38;5;246m2.[39m [ ] B: update the settings page
+         [38;5;246mAdd a setting for saved searches.[39m
+  [38;5;246m3.[39m [ ] Neither for now
+         [38;5;246mLeave both pages as they are.[39m
+  [38;5;246m4. [39m[ ] [38;5;246mType something[39m
+     [1mSubmit[0m
+[38;5;246m────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  5. Chat about this
+
+[38;5;246mEnter to select · ↑/↓ to navigate · Esc to cancel[39m
+
+[38;5;246m› Message from @build-check[3m: The search tests passed.[0m[38;5;246m (ctrl+o to expand)[39m

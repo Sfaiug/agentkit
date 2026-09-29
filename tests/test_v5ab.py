@@ -157,7 +157,7 @@ sys.exit(1)
         code, directory, state, repo = self.launch_repo(PASS)
         self.assertEqual(code, 0, self.log(directory))
         prompt = self.calls("reviewer")[0]["prompt"]
-        self.assertIn("Do not run them again", prompt)
+        self.assertIn("except done-when commands", prompt)
         self.assertNotIn("(running tests/commands is fine)", prompt)
         head = run.git(repo, "rev-parse", "HEAD")
         self.assertEqual(state["review"]["head_sha"], head)
@@ -175,8 +175,8 @@ sys.exit(1)
         code, directory, state = self.launch_scratch(PASS)
         self.assertEqual(code, 0, self.log(directory))
         prompt = self.calls("reviewer")[0]["prompt"]
-        self.assertIn("Do not run them again", prompt)
-        self.assertIn("never a whole test suite", prompt)
+        self.assertIn("except done-when commands", prompt)
+        self.assertIn("the repository's `tests:` suite, and checks marked deferred", prompt)
         self.assertNotIn("(running tests/commands is fine)", prompt)
         match = re.search(r"^## Done-when output \(run by the loop; (\d+) of (\d+) "
                           r"commands exited 0\)$", prompt, re.M)
@@ -258,7 +258,7 @@ sys.exit(1)
         self.assertEqual(state["round_summaries"][0]["verdict"], "FAIL")
         fixer = self.calls("executor")[1]["prompt"]
         self.assertIn("re-run the per-round done-when commands", fixer)
-        self.assertNotIn("Do not run them again", self.calls("executor")[0]["prompt"])
+        self.assertNotIn("except done-when commands", self.calls("executor")[0]["prompt"])
         for role in ("fixer", "fixer-scratch"):
             self.assertIn("re-run the per-round done-when commands",
                           worker.PREAMBLES[role].format(workspace=self.root))
@@ -284,13 +284,17 @@ sys.exit(1)
     def test_v5ab_reviewer_pr_still_may_run_commands(self):
         text = worker.PREAMBLES["reviewer-pr"].format(workspace=self.root)
         self.assertIn("(running tests/commands is fine)", text)
-        self.assertNotIn("Do not run them again", text)
+        self.assertNotIn("except done-when commands", text)
         for role in ("reviewer", "reviewer-scratch"):
             with self.subTest(role=role):
                 text = worker.PREAMBLES[role].format(workspace=self.root)
-                self.assertIn("Read-only: do not edit files", text)
-                self.assertIn("Do not run them again", text)
-                self.assertIn("single targeted command", text)
+                self.assertIn("Read-only: do not edit files under review", text)
+                self.assertIn("Run whatever is needed to prove or dismiss a finding, except "
+                              "done-when commands, the repository's `tests:` suite, and checks "
+                              "marked deferred", text)
+                self.assertIn("probes must leave nothing behind outside a temporary directory", text)
+                self.assertNotIn("single targeted command", text)
+                self.assertNotIn("never a whole test suite", text)
 
 
 if __name__ == "__main__":

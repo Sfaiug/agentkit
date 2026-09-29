@@ -1,4 +1,4 @@
-"""A repository's done-when gates take turns, `max_gates` at a time, host-wide.  Offline.
+"""Heavy suites take host-wide turns, pinned or derived, light checks run free.  Offline.
 
 A temporary HOME, repositories that are only paths on the run records or fake ones made
 here, and short shell commands; nothing here touches the real ~/.agentkit or any real process.
@@ -22,18 +22,19 @@ from agentkit import config, run, worker
 
 ACME = "/home/fixture/code/acme"        # main checkouts as the records name them; never opened
 WIDGET = "/home/fixture/code/widget"
-WAITING = "waiting for a gate turn · 1 of acme running"
+WAITING = "waiting for a heavy suite turn · 1 running"
 
 
 class Gate(threading.Thread):
     """One `run_done_when` in a thread of its own, its result or its exception kept."""
 
-    def __init__(self, case, name, repo, cmds, **kw):
+    def __init__(self, case, name, repo, cmds, heavy=True, **kw):
         super().__init__(daemon=True)
         self.run_dir = case.record(name, repo)
         self.logs, self.result, self.error = [], None, None
         self.args = (cmds, case.root, self.run_dir / "donewhen.log", set())
-        self.kw = {"log": self.logs.append, "run_dir": self.run_dir, **kw}
+        self.kw = {"log": self.logs.append, "run_dir": self.run_dir,
+                   "heavy": heavy, **kw}
 
     def run(self):
         try:
@@ -121,28 +122,28 @@ class GateTurns(unittest.TestCase):
         self.until(lambda: gate_log.is_file() and gate_log.read_text() == WAITING + "\n",
                    "the gate log's waiting line")
         state = run.read_state(second.run_dir)
-        self.assertEqual(run.gate_turn_note(state), "waiting for a gate turn of acme")
-        self.assertIn("  waiting for a gate turn of acme",
+        self.assertEqual(run.gate_turn_note(state), "waiting for a heavy suite turn")
+        self.assertIn("  waiting for a heavy suite turn",
                       run.status_details(second.run_dir, state))
         first.join(20)
         second.join(20)
         self.assertEqual(self.marks.read_text(), "start\nend\nstart\nend\n")
         self.assertFalse(first.waited(), first.logs)
         self.assertEqual(second.logs[0], f"done-when: {WAITING}")
-        self.assertRegex(second.logs[1], r"^done-when: took a gate turn of acme after \d+s$")
+        self.assertRegex(second.logs[1], r"^done-when: took a heavy suite turn after \d+s$")
         self.assertTrue(second.result[0], second.result[1])
         self.assertNotIn("waiting", second.result[1])
         self.assertEqual(run.gate_turn_note(run.read_state(second.run_dir)), "")
 
-    def test_gates_of_different_repositories_do_not_wait_on_each_other(self):
-        first = Gate(self, "one", ACME, [self.mark("start", 3), self.mark("end")])
+    def test_gates_of_different_repositories_share_heavy_turns_host_wide(self):
+        first = Gate(self, "one", ACME, [self.mark("start", 1), self.mark("end")])
         other = Gate(self, "two", WIDGET, [self.mark("other")])
         self.started(first)
         other.start()
         other.join(20)
         first.join(20)
-        self.assertEqual(self.marks.read_text(), "start\nother\nend\n")
-        self.assertFalse(other.waited(), other.logs)
+        self.assertEqual(self.marks.read_text(), "start\nend\nother\n")
+        self.assertTrue(other.waited(), other.logs)
         self.assertTrue(first.result[0] and other.result[0])
 
     def test_a_wait_past_the_silence_window_costs_neither_the_gate_nor_its_ceiling(self):
@@ -218,34 +219,36 @@ class GateTurns(unittest.TestCase):
         self.until(lambda: gate_log.is_file() and gate_log.read_text() == WAITING + "\n",
                    "the linked worktree's gate to wait")
         self.assertEqual(run.gate_turn_note(run.read_state(second.run_dir)),
-                         "waiting for a gate turn of acme")
+                         "waiting for a heavy suite turn")
         self.assertEqual(self.marks.read_text(), "start\n")
         self.release()
         first.join(20)
         second.join(20)
         self.assertEqual(self.marks.read_text(), "start\nlinked\n")
         self.assertTrue(first.result[0] and second.result[0], (first.result, second.result))
-        self.assertRegex(second.logs[1], r"^done-when: took a gate turn of acme after \d+s$")
+        self.assertRegex(second.logs[1], r"^done-when: took a heavy suite turn after \d+s$")
 
-    def test_a_bad_config_runs_the_gate_under_the_default_and_names_the_problem(self):
+    def test_a_bad_config_runs_the_suite_derived_and_names_the_problem(self):
+        import json
         path = config.HOME / config.CONFIG_NAME
         path.write_text('max_gates = "x"\n')
-        with ExitStack() as held:
-            for slot in range(config.RUN_DEFAULTS["max_gates"]):
-                holder = held.enter_context(run.gate_lock(ACME, slot).open("a"))
+        readings = {"cpus": 8, "load": 8, "free_mb": 100, "mem_total_mb": 16384,
+                    "unit_memory_current_mb": 900, "unit_memory_high_mb": 1000}
+        with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(readings)}):
+            with run.gate_lock(ACME, 0).open("a") as holder:
                 fcntl.flock(holder, fcntl.LOCK_EX)
-            gate = Gate(self, "one", ACME, [self.mark("ran")])
-            gate.start()
-            gate_log = gate.run_dir / "donewhen.log"
-            self.until(lambda: gate_log.is_file()
-                       and gate_log.read_text() == "waiting for a gate turn · 3 of acme running\n",
-                       "the gate to wait on the default's three turns")
-        gate.join(20)
+                gate = Gate(self, "one", ACME, [self.mark("ran")])
+                gate.start()
+                gate_log = gate.run_dir / "donewhen.log"
+                self.until(lambda: gate_log.is_file() and gate_log.read_text() ==
+                           "waiting for a heavy suite turn · 1 running\n",
+                           "the suite to wait on its one derived turn")
+            gate.join(20)
         self.assertTrue(gate.result[0], gate.result[1])
         self.assertEqual(self.marks.read_text(), "ran\n")
         problem = f"{path}: max_gates must be a non-negative integer"
-        self.assertEqual(gate.logs[0], f"done-when: {problem} · the gate takes one of the shipped "
-                                       "default's 3 turns")
+        self.assertEqual(gate.logs[0], f"done-when: {problem} · the heavy suite takes "
+                                       "a derived turn")
 
 
 if __name__ == "__main__":

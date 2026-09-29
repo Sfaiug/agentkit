@@ -398,12 +398,14 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "draw", return_value=(0, 1)), \
                 patch.object(menu, "read", side_effect=lambda *_: next(answers)), \
+                patch.object(menu, "wait_key", side_effect=lambda *_: next(answers)), \
+                patch.object(menu, "Live"), \
                 patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(menu.loop({}), 0)
         screen = out.getvalue()
-        self.assertIn("orchestrator  worker  effort", screen)
+        self.assertIn("orch  exec  review  effort", screen)
         self.assertIn("you talk to one orchestrator", screen)
         self.assertIn("not a key: 'r'", screen)
 

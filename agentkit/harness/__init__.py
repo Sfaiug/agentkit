@@ -28,7 +28,10 @@ UPDATE = {"version": None, "upgrade": None, "revert": None, "env": {}, "cannot":
           "snapshot_dir": ""}
 # `[usage]`: what its usage call needs beyond `<adapter> usage`.  `none` is the harness
 # without a meter at all: no reading is a neutral provider, never a failed probe.
-USAGE = {"capture": False, "strips_timestamp": False, "reset": False, "none": False}
+# `probe_every` is how often the harness may be asked at all, in seconds: its own fact,
+# and None where the manifest names none, which is the host's usual minute.
+USAGE = {"capture": False, "strips_timestamp": False, "reset": False, "none": False,
+         "probe_every": None}
 
 _LOADED = {}
 
@@ -165,6 +168,11 @@ class Harness:
         """The line that changes a seat's launch title, or None for a harness without one."""
         hook = self._hook("title_command")
         return hook(name) if hook else None
+
+    def sync_title(self, name, record):
+        """Set a title without typing: True once confirmed, False pending, None unsupported."""
+        hook = self._hook("sync_title")
+        return hook(name, record) if hook else None
 
     @property
     def title_facts(self):

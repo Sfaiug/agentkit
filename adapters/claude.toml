@@ -12,6 +12,12 @@ version = ["claude", "--version"]
 upgrade = ["claude", "install", "latest"]
 revert = ["claude", "install", "{version}"]
 
+# The usage endpoint answers every token with 429 and a Retry-After when asked too often,
+# so this harness is asked at most once every fifteen minutes, whoever asks, and never
+# before the Retry-After of its last refusal.
+[usage]
+probe_every = 900
+
 # Its hooks live in a config file its launch reads (`adapters/claude.sh hooks` writes them
 # there), so a seat opened before the last install is missing whatever that install added and
 # says `restart to pick up updates`.
@@ -64,6 +70,8 @@ state = "at_prompt"
 kinds = ["idle_prompt"]
 
 [screen]
+# Queued session messages sit below dialogs and composers; they are neither controls nor drafts.
+inbound = '› Message from @[^:]+: .* \(ctrl\+o to expand\)'
 # fullmatch against a bottom line: the input box, which is chrome and not anything Claude said
 composer = '(?:(?:│\s*)?[>❯](?:\s+Try ["“].*["”])?\s*(?:│)?|⏵⏵ bypass permissions on(?: \(shift\+tab to cycle\))?(?: · \d+ \w+)? · ← for agents|● \w+ · /effort|[✻✽✶✳✢] \w+ for .+ · done .+)$'
 # and the key hints under it, on top of the box-drawing and prompt footer every harness shares
@@ -83,6 +91,15 @@ state = "asking"
 lines = 6
 all = ["❯ ", "enter to confirm", "esc to cancel"]
 newest = '(?i)enter to confirm'
+
+# AskUserQuestion's controls remain newest after queued messages are removed. One
+# question navigates with ↑/↓, two or more with Tab/Arrow keys; a focused "Type
+# something" adds a ctrl+g edit hint before the cancel.
+[[rule]]
+id = "asking.question"
+state = "asking"
+lines = 1
+newest = '^Enter to select · (?:↑/↓|Tab/Arrow keys) to navigate(?: · ctrl\+g to edit in .+)? · Esc to cancel$'
 
 # Claude's permission prompt has no capture here -- it needs a tool call, which needs a model --
 # so its Notification hook is its authority and no screen rule guesses at its shape.

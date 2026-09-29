@@ -1,0 +1,8 @@
+Error: managed standalone Codex install not found at /home/acme/probe/home/.codex/packages/standalone/current/codex
+
+This command requires the standalone install managed by the Codex installer, because the daemon starts and updates app-server from that fixed path.
+
+Install it with:
+  curl -fsSL https://chatgpt.com/codex/install.sh | sh
+
+Then rerun the command you just tried.

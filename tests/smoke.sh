@@ -190,6 +190,40 @@ if [ "${1:-}" = --stall-panes ]; then
   python3 "$REPO/tests/capture_stall_panes.py" "${@:2}"
   exit $?
 fi
+smoke_share_probes() {   # link the sandbox probe files at the host's own, per provider
+  # A gate ask is a real request against the same account, so the sandbox reads and writes
+  # the host's own cadence and Retry-After files, not copies of them: a host ask at any point
+  # in the suite holds every later sandbox ask through _cooling itself -- check 4's `ak run`
+  # and check 6d's `ak orch` as much as checks 1 and 6 -- and a sandbox ask holds the host's
+  # own.  _probe_gently opens the lock with "a", writes it with write_text and never unlinks
+  # it, so a link works as-is, even a dangling one for a file the host has yet to write --
+  # as long as the host state directory is there for it to resolve in, which it is not on
+  # a host that has never run agentkit: without it every ask goes out unheld.
+  # The sandbox asks with the default login, so each sandbox file points at the host file
+  # that tracks that login: its .default file where the host lists accounts for the
+  # provider, else its plain one.  Every provider the sandbox config offers is covered.
+  PYTHONPATH="$REPO" SMOKE_CALLER_HOME="$SMOKE_CALLER_HOME" python3 - <<'PY' || exit 1
+import os, tomllib
+from pathlib import Path
+from agentkit import config
+host = Path(os.environ["SMOKE_CALLER_HOME"]) / ".agentkit"
+for path in (host, host / "state"):
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(path, 0o700)   # a dir someone else created stays 0700 too
+try:
+    with (host / "config.toml").open("rb") as fh:
+        listed = tomllib.load(fh).get("providers")
+except (OSError, ValueError):
+    listed = None
+listed = listed if isinstance(listed, dict) else {}
+for provider in config.load()["providers"]:
+    accounts = listed.get(provider)
+    accounts = accounts.get("accounts") if isinstance(accounts, dict) else None
+    tracked = f"{provider}.default" if isinstance(accounts, list) and accounts else provider
+    for suffix in ("-probe.lock", "-probe.retry"):
+        (config.STATE / f"{provider}{suffix}").symlink_to(host / "state" / f"{tracked}{suffix}")
+PY
+}
 smoke_home() {
   # Borrow credential files, never directories: hooks, settings, trust and caches are local.
   local path source target caller_config caller_data caller_claude caller_codex caller_grok
@@ -264,6 +298,9 @@ PY
     [ ! -f "$SMOKE_CALLER_HOME/.agentkit/state/$path" ] ||
       cp -p "$SMOKE_CALLER_HOME/.agentkit/state/$path" "$HOME/.agentkit/state/$path"
   done
+  # The cadence and Retry-After belong to the host: share its probe ages live, so every
+  # sandbox ask obeys them through _cooling itself, at every check and for every provider.
+  smoke_share_probes
 }
 smoke_source() {   # smoke_source <caller's file>: 0 to borrow it, 1 when nothing is there
   # A file this user cannot read, or cannot reach through a directory or a link, is there and
@@ -435,21 +472,24 @@ with tempfile.TemporaryDirectory(prefix=".usage-fresh-", dir=config.REPO) as tmp
         if width == 100:
             assert re.search(r"92% left · resets \w+ \d\d:\d\d · Fable 91%$", screen[1]), screen
     assert paid.call_count == 0 and probe_cache.read_bytes() == probe_before
-    # Three minutes later the tick is past the minute's cadence: it reads both free meters
-    # again and updates the menu from those reads; Muse's paid cache stays put.
+    # Three minutes later the tick is past the minute's cadence but not Claude's
+    # fifteen: it reads the minute's meter again and updates the menu from those reads,
+    # while Claude's reading stands; Muse's paid cache stays put.
     now[0] += 180
     meters["codex"][0]["used"] = 44
     tick()
-    assert calls.count(("claude", "usage")) == calls.count(("codex", "usage")) == 2, calls
+    assert calls.count(("claude", "usage")) == 1, calls
+    assert calls.count(("codex", "usage")) == 2, calls
     assert json.loads(cache.read_text())["fetched_at"] == now[0]
     assert re.search(r"ChatGPT\s+[█░]+\s+56%", lines()[5]), lines()
     assert paid.call_count == 0 and probe_cache.read_bytes() == probe_before
-    # Inside usage.PROBE_EVERY the tick asks no adapter anything: one cadence, host-wide, so
+    # Inside every cadence the tick asks no adapter anything: one cadence, host-wide, so
     # it re-assembles the snapshot off the reading already in it.
     now[0] += usage.PROBE_EVERY - 1
     meters["codex"][0]["used"] = 43
     tick()
-    assert calls.count(("claude", "usage")) == calls.count(("codex", "usage")) == 2, calls
+    assert calls.count(("claude", "usage")) == 1, calls
+    assert calls.count(("codex", "usage")) == 2, calls
     assert json.loads(cache.read_text())["fetched_at"] == now[0]
     assert re.search(r"ChatGPT\s+[█░]+\s+56%", lines()[5]), lines()
     # Rendering never updates the snapshot, and never says how old it is.
@@ -482,15 +522,17 @@ with tempfile.TemporaryDirectory(prefix=".usage-fresh-", dir=config.REPO) as tmp
     # the reset policy's own clock and the row's words, and both want a reading per tick. The
     # cadence itself is checked above and in tests/test_usage_probe.py.
     stack.enter_context(patch.object(usage, "PROBE_EVERY", 0))
+    stack.enter_context(patch.object(usage, "_probe_every", return_value=0))
     # With no shared week reported there is no provider percentage to draw: Fable's own cap
     # is never shown as Claude's, whatever the row would otherwise have said.
     meters["claude"] = [meter("weekly_scoped", 9)]
     tick()
     assert lines()[1].split() == ["Claude", "—", "no", "shared", "week"], lines()
-    # Failed free reads say so, never the previous allowance stamped as fresh.
+    # A failed free read keeps the previous allowance, with the failure recorded beside it.
     meters["claude"] = []
     tick()
-    assert lines()[1].endswith("—  no reading yet") and "57% left" in lines()[5], lines()
+    assert lines()[1].endswith("—  no shared week") and "57% left" in lines()[5], lines()
+    assert "returned no meters" in json.loads(cache.read_text())["providers"]["anthropic"]["probe_error"]
     assert paid.call_count == 1
 
     # Watch is read-only, but ordinary consumers still exercise the real reset policy from
@@ -1628,7 +1670,70 @@ skip_unavailable() {   # skip_unavailable <check labels> <required models...>
   done
   return 1
 }
+reprobe() { # reprobe <provider...>: ask each named provider again where allowed
+  # A live retry keeps the snapshot and every cooldown: each provider is asked again only
+  # where its own cadence and Retry-After allow, and a provider still held keeps the
+  # reading it has.  Any failure refreshes nothing, and the snapshot below is read as is.
+  PYTHONPATH="$REPO" python3 - "$@" <<'PY' 2>/dev/null
+import sys
+from agentkit import config, usage
+cfg = config.load()
+for name in sys.argv[1:]:
+    usage._probe_gently(cfg, name)
+PY
+}
+host_held() { # host_held <provider...>: why the shared cadence holds one back, or 1
+  # The sandbox probe files are links at the host's own (smoke_share_probes), so a provider
+  # the host asked inside its cadence, or whose last refusal named a wait still ahead, is
+  # not asked again here: _cooling holds it.  Where a check therefore cannot get a fresh
+  # answer it skips with this reason, as a 429 skips.
+  PYTHONPATH="$REPO" python3 - "$@" <<'PY' 2>/dev/null
+import sys, time
+from agentkit import config, usage
+try:
+    cfg = config.load()
+except Exception:
+    sys.exit(1)
+now = time.time()
+for provider in sys.argv[1:]:
+    every = usage._probe_every(cfg, provider)
+    try:
+        asked = usage._number(float((config.STATE / f"{provider}-probe.lock").read_text()))
+    except (OSError, ValueError):
+        asked = None
+    if asked is not None and 0 <= now - asked < every:
+        left = int(every - (now - asked))
+        print(f"{provider} asked {int(now - asked)}s ago; next ask in {left}s")
+        sys.exit(0)
+    try:
+        until = usage._number(float((config.STATE / f"{provider}-probe.retry").read_text()))
+    except (OSError, ValueError):
+        continue
+    if until is not None and now < until:
+        print(f"{provider} Retry-After until "
+              f"{time.strftime('%H:%M', time.localtime(until))}")
+        sys.exit(0)
+sys.exit(1)
+PY
+}
 U="$WORK/usage.json"
+HOST_WHY=""
+if HOST_WHY=$(host_held anthropic openai); then
+  # The shared cadence or Retry-After holds one of these back: no fresh answer without
+  # asking where asking is not allowed, so skip like a 429, without asking.
+  skip "1: provider meter unavailable ($HOST_WHY)"
+  HOST_SKIPPED_1=1
+  # Check 6 seeds its orch HOME from $U and 6b still runs on a throttled meter: leave the
+  # hold reason where that seeding reads it, without having asked.
+  python3 - "$U" "$HOST_WHY" <<'PY'
+import json, sys
+why = sys.argv[2]
+with open(sys.argv[1], "w") as fh:
+    json.dump({"pick_order": [], "providers": {
+        "anthropic": {"meters": [], "error": f"unknown: {why}", "exhausted": False},
+        "openai": {"meters": [], "error": f"unknown: {why}", "exhausted": False}}}, fh)
+PY
+else
 ak usage --json >"$U" 2>"$WORK/usage.err"; USAGERC=$?
 # Every provider can be exhausted; only then is an empty pick_order expected here.
 checked "$WORK/usage-check.log" jq -e '(.pick_order | type == "array") and
@@ -1642,9 +1747,12 @@ METER_WHY=""
 if { [ "$USAGERC" != 0 ] || [ "$USAGECHECK" != 0 ]; } \
     && METER_WHY=$(meter_unavailable "$U" anthropic openai); then
   sleep "${AK_METER_RETRY_SECS:-60}"
-  METER_RETRIED=1   # check 6 re-probes without sleeping again: its minute has passed
-  # The retry re-asks the adapters: neither the 5 min cache nor a probe lock's minute answers it.
-  rm -f -- "$HOME/.agentkit/state/usage.json" "$HOME/.agentkit/state/"*-probe.lock
+  METER_RETRIED=1   # check 6 asks again without sleeping: its minute has passed
+  # The retry refreshes each provider where asking is allowed, keeping every cached
+  # reading and cooldown; a provider the host asked during the sleep is held like one
+  # this check asked itself, and keeps the reading it has.  The original assertions
+  # below read what came back.
+  reprobe anthropic openai
   ak usage --json >"$U" 2>"$WORK/usage.err"; USAGERC=$?
   checked "$WORK/usage-check.log" jq -e '(.pick_order | type == "array") and
     ((.pick_order | length > 0) or (.providers | length > 0 and all(.[]; .exhausted == true))) and
@@ -1656,7 +1764,10 @@ if { [ "$USAGERC" != 0 ] || [ "$USAGECHECK" != 0 ]; } \
     METER_WHY=$(meter_unavailable "$U" anthropic openai) || METER_WHY=""
   fi
 fi
-if skip_unavailable 1 opus astra; then
+fi
+if [ -n "${HOST_SKIPPED_1:-}" ]; then
+  :
+elif skip_unavailable 1 opus astra; then
   :
 elif [ "$USAGERC" = 0 ] && [ "$USAGECHECK" = 0 ]; then
   ok "1 ak usage --json: anthropic+openai meters and pick_order $(jq -c .pick_order "$U")"
@@ -1991,13 +2102,28 @@ fi
 # --- 6: orch selection -----------------------------------------------------
 # The pick stands on check 1's meters; when the provider throttled those probes the pick
 # has nothing to stand on either.  One retry a minute later, then the same skip the gate
-# counts as passed.  A meter that answers, wrong or right, runs the pick below.
+# counts as passed.  A meter that answers, wrong or right, runs the pick below.  The retry
+# refreshes each provider where asking is allowed; a held one keeps the reading it has.
 METER_WHY=""
-if METER_WHY=$(meter_unavailable "$U" anthropic openai); then
+# Check 1 on a hold left a placeholder, not meters: refresh it now.  The suite has asked
+# since (checks 3 and 4), so a hold no longer decides this: the refresh serves that fresh
+# reading where the cadence holds, and asks where it allows.  Only a refresh with neither
+# meters nor a throttled error to stand on keeps the hold's own reason.
+if [ -n "${HOST_SKIPPED_1:-}" ]; then
+  ak usage --json >"$U" 2>"$WORK/usage.err" || true
+  if ! meter_unavailable "$U" anthropic openai \
+      && ! jq -e '(.providers.anthropic.meters | length >= 1) and
+        (.providers.openai.meters | length >= 1)' "$U" >/dev/null 2>&1 \
+      && HOST_WHY=$(host_held anthropic openai 2>/dev/null); then
+    METER_WHY="$HOST_WHY"
+  fi
+fi
+if [ -z "$METER_WHY" ] && METER_WHY=$(meter_unavailable "$U" anthropic openai); then
   # Check 1 already waited this minute out when it retried, so this re-probe goes at once.
   [ -n "${METER_RETRIED:-}" ] || sleep "${AK_METER_RETRY_SECS:-60}"
-  # The retry re-asks the adapters: neither the 5 min cache nor a probe lock's minute answers it.
-  rm -f -- "$HOME/.agentkit/state/usage.json" "$HOME/.agentkit/state/"*-probe.lock
+  # The retry refreshes each provider where asking is allowed, keeping every cached
+  # reading and cooldown; the throttle verdict below reads what came back.
+  reprobe anthropic openai
   ak usage --json >"$U" 2>"$WORK/usage.err"
   METER_WHY=$(meter_unavailable "$U" anthropic openai) || METER_WHY=""
 fi
@@ -2568,31 +2694,33 @@ balancecheck() {   # balancecheck <named check> <test script> <test names...>
     no "$label"; tail -30 "$log"
   fi
 }
-balancecheck "8o-a Fable behind (80/53): Fable executes only if listed or seatless, astra or spark reviews" \
-  test_usage_balance.py WeeklyBalance.test_behind_prefers_fable_executor_with_cross_provider_reviewer
+balancecheck "8o-a live budget alone selects the executor and a cross-provider reviewer" \
+  test_usage_balance.py WeeklyBalance.test_budget_alone_selects_executor_with_cross_provider_reviewer
 balancecheck "8o-b Opus retains real headroom and remains selectable across the provider boundary" \
   test_usage_balance.py WeeklyBalance.test_behind_keeps_opus_selectable_for_normal_cross_provider_pick
-balancecheck "8o-c Fable ahead, in step or within the margin: normal selection" \
-  test_usage_balance.py WeeklyBalance.test_ahead_in_step_and_margin_use_normal_selection
-balancecheck "8o-d one funded provider: Fable executes with Opus reviewing; Fable never reviews Opus" \
-  test_usage_balance.py WeeklyBalance.test_same_provider_headroom_allows_fable_with_opus_review
+balancecheck "8o-c scoped meter gaps never override budget order" \
+  test_usage_balance.py WeeklyBalance.test_scoped_meter_gap_never_overrides_budget
+balancecheck "8o-d same-provider pair policy preserves budget order; Fable never reviews Opus" \
+  test_usage_balance.py WeeklyBalance.test_same_provider_pair_policy_preserves_budget_order
 balancecheck "8o-e real exhaustion, session gates, payg, cache refresh and unchanged single meters" \
   test_usage_balance.py WeeklyBalance.test_requested_balance_cases \
   WeeklyBalance.test_only_real_meters_exhaust_models WeeklyBalance.test_session_still_gates_and_contributes_to_pace \
   WeeklyBalance.test_real_pace_controls_payg_overflow WeeklyBalance.test_single_meter_and_real_outlook_unchanged \
   WeeklyBalance.test_split_comes_from_config_and_requires_both_meters \
   WeeklyBalance.test_cached_and_fresh_reads_drop_effective_without_changing_real_meters \
-  WeeklyBalance.test_preference_respects_worker_selection_payg_and_real_session_gate
+  WeeklyBalance.test_budget_respects_worker_selection_payg_and_real_session_gate
 balancecheck "8o-f saved Fable executors remain resumable after the meters catch up" \
   test_usage_balance.py WeeklyBalance.test_fable_seat_resume_keeps_executor_after_meters_catch_up
 balancecheck "8o-g reviewers keep the normal ranking when Fable is behind" \
   test_usage_balance.py WeeklyBalance.test_reviewers_keep_normal_order_when_fable_is_behind
 balancecheck "8o-h the launch banner agrees with the new seat's executor order" \
   test_usage_balance.py WeeklyBalance.test_launch_banner_matches_the_new_seats_executor_order
-balancecheck "8o-i unavailable Fable preferences display normal selection" \
-  test_usage_balance.py WeeklyBalance.test_verdict_reports_normal_selection_when_preference_cannot_apply
+balancecheck "8o-i split meter display reports facts without model preferences" \
+  test_usage_balance.py WeeklyBalance.test_split_meter_display_reports_facts_without_preferences
 balancecheck "8o-j ak run resume --rounds preserves a listed Fable executor in its own seat" \
   test_audit_enforce_review_contract.py ReviewContract.test_fable_executor_resumes_review_from_its_seat_with_more_rounds
+balancecheck "8o-k worker lists bind every role and listed models rank by budget alone" \
+  test_worker_list.py
 
 # 8f: budget ranks workers, the resets in hand in it; headroom counts them too (offline, fakes)
 # No cache and no network: four adapters of the suite's own answer `usage`, and the codex one
@@ -2977,7 +3105,16 @@ s.update(merged=True, finished_at=time.time() - 8 * 86400)
 p.write_text(json.dumps(s, indent=2))
 PY
 IWT=$(jq -r '.worktree // empty' "$IJSON")
-HOME="$IHOME" ak run gc >"$WORK/gc.log" 2>&1
+HOME="$IHOME" PYTHONPATH="$REPO" python3 - "$REPO/bin/ak" "$WORK/gc-tmp" >"$WORK/gc.log" 2>&1 <<'PY'
+import pathlib, runpy, sys
+from agentkit import run
+
+# HOME does not relocate /tmp. Keep the worktree check's real process/socket inventories.
+run.TMP_BASE = pathlib.Path(sys.argv[2])
+run.TMP_BASE.mkdir()
+sys.argv = [sys.argv[1], "run", "gc"]
+runpy.run_path(sys.argv[0], run_name="__main__")
+PY
 if grep -q "remove merged-worktree" "$WORK/gc.log" && [ ! -d "$IWT" ] &&
    [ -f "$IHOME/.agentkit/runs/$IRUNID/result.md" ] &&
    ! grep -qF "$IWT" <<<"$(git -C "$R" worktree list)"; then
@@ -3397,7 +3534,7 @@ grep -q '^  n new   x stop   c config   i info   q leave' "$WORK/menu-q.log" || 
 grep -q 'p preview\|b browser\|r runs\|u update\|s shell' "$WORK/menu-q.log" && MENU=1
 # `c` lists the config with its values and `i` is one screen; `r`/`p`/`b`/`s`/`u` are not keys
 printf 'c\nq\nq\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-c.log" 2>&1 || MENU=1
-grep -q 'orchestrator  worker  effort' "$WORK/menu-c.log" || MENU=1
+grep -q 'orch  exec  review  effort' "$WORK/menu-c.log" || MENU=1
 printf 'i\nq\nq\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-i.log" 2>&1 || MENU=1
 grep -q '^agentkit: you talk to one orchestrator' "$WORK/menu-i.log" || MENU=1
 for key in r p b s u; do
@@ -4727,15 +4864,18 @@ fi
 # --- 31: the shared browser and the desktop ---------------------------------
 # 31a-c are offline and run on every machine. 31d and 31e make real model calls through the
 # MCP servers `ak browser mcp-register` wrote, so they only run where the shared Chromium is
-# actually listening on 9222 -- the server. On a Mac they are skipped, not failed.
+# actually listening on 9222 -- the server. On a Mac they are skipped, not failed. Where the
+# browser answers but its shared MCP server does not, they fail without installing anything:
+# the suite never touches the machine-wide service itself.
 BST=0
 ak browser status >"$WORK/browser-status.txt" 2>&1 || BST=$?
 BSO=$(cat "$WORK/browser-status.txt")
 if [ "$BST" = 0 ] &&
    printf '%s' "$BSO" | grep -q '^cdp  *http://127\.0\.0\.1:9222' &&
    printf '%s' "$BSO" | grep -q '^desktop  *DISPLAY=:99' &&
+   printf '%s' "$BSO" | grep -q '^mcp ' &&
    printf '%s' "$BSO" | grep -q '^novnc '; then
-  ok "31a ak browser status: units, cdp, desktop and the noVNC URL, exit 0"
+  ok "31a ak browser status: units, cdp, desktop, the shared server and the noVNC URL, exit 0"
 else
   no "31a ak browser status exited $BST"
   sed 's/^/      /' "$WORK/browser-status.txt" | head -8
@@ -4776,16 +4916,18 @@ if sorted(servers) != ["browser", "desktop", "existing"]:
 if claude.get("numStartups") != 3 or list(claude.get("projects", {})) != ["/tmp"]:
     problems.append("claude.json lost keys it did not own")
 browser = servers.get("browser", {})
-if browser.get("command") != "npx" or "--isolated" in browser.get("args", []):
+if browser != {"type": "http", "url": "http://localhost:8931/mcp"}:
     problems.append(f"claude browser server = {browser}")
-if browser.get("args", [])[-2:] != ["--cdp-endpoint", "http://127.0.0.1:9222"]:
-    problems.append("claude browser server does not point at the CDP endpoint")
-if browser.get("env", {}).get("DISPLAY") != ":99":
-    problems.append("claude browser server has no DISPLAY")
 if not servers.get("desktop", {}).get("args", [""])[0].endswith("desktop-mcp.py"):
     problems.append(f"claude desktop server = {servers.get('desktop')}")
+if servers.get("desktop", {}).get("env", {}).get("DISPLAY") != ":99":
+    problems.append("claude desktop server has no DISPLAY")
 if sorted(codex.get("mcp_servers", {})) != ["browser", "desktop"]:
     problems.append(f"codex mcp_servers={sorted(codex.get('mcp_servers', {}))}")
+if codex.get("mcp_servers", {}).get("browser", {}) != {"url": "http://localhost:8931/mcp"}:
+    problems.append(f"codex browser server = {codex.get('mcp_servers', {}).get('browser')}")
+if "@playwright/mcp@latest" in raw or "npx" in raw:
+    problems.append("config.toml still fetches the browser server per session")
 if codex.get("approval_policy") != "never" or list(codex.get("projects", {})) != ["/home/x/code"]:
     problems.append("config.toml lost keys it did not own")
 if "# kept" not in raw:
@@ -4832,6 +4974,16 @@ except Exception:
 " 2>/dev/null; then
   # Codex's config is private to this suite, so give it the same MCP servers locally.
   checked "$WORK/mcp-register.log" ak browser mcp-register || no "31d/31e MCP registration"
+  # A browser whose shared server never bound its port fails here; the suite installs
+  # nothing itself, since under its sandbox HOME that would point the real unit at a
+  # directory the cleanup then deletes.
+  if python3 -c "
+import socket, sys
+try:
+    socket.create_connection(('127.0.0.1', 8931), timeout=3).close()
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
   if skip_spent 31d opus; then
     :
   else
@@ -4864,6 +5016,9 @@ except Exception:
   else
     no "31e codex over MCP: $(tail -c 200 "$WORK/mcp-codex.txt")"
   fi
+  fi
+  else
+    no "31d/31e MCP shared server is not listening on 127.0.0.1:8931; run \`ak browser install\` on the server"
   fi
 else
   skip_checks 31d/31e "the shared browser is not on this host: nothing listens on 127.0.0.1:9222"
@@ -5253,7 +5408,7 @@ assert not any("press r" in line for line in lines), lines
 for key in ("r", "p", "b", "s", "u"):
     out = menu_lines(f"{key}\nq\n")
     assert any(f"not a key: {key!r}" in line for line in out), (key, out)
-assert any("orchestrator  worker  effort" in line for line in menu_lines("c\nq\nq\n")), lines
+assert any("orch  exec  review  effort" in line for line in menu_lines("c\nq\nq\n")), lines
 info = menu_lines("i\nq\nq\n")
 assert any("agentkit: you talk to one orchestrator" in line for line in info), info
 assert watch.plan_progress("atoll-fix") == (2, 5)

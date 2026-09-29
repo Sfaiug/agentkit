@@ -1,4 +1,5 @@
-host: 8 cpus · load 1 · 4 G free · a run is admitted while ≥ 3.2 G free and load ≤ 8
+host: 8 cpus · ak cpu 12% · 4 G free · a run is admitted while ≥ 3.2 G free and ak cpu ≤ 40%
+heavy suites: 2 at once (derived)
 id                                 title                     state        worker      round      age
 20260101-0900-ship-the-tally       Ship the tally so every   ● working    opus/astra  round 2/3  7m
                                    seat row says what the …

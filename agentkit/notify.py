@@ -6,10 +6,10 @@ last notification, which is what the menu shows as that session's state. `ak not
 the reason or declaration; the session-state transition sends the card.
 
 Workers are silent by construction. A needs episode is sent once after it has stood for a minute
-with no client attached. A done episode is sent once when the session state becomes done, and a
-declaration once whatever episodes, or versions, it turns up in. Opening its seat or finishing
-edits outstanding questions without pinging. Nothing is sent, or retried, for a seat the owner
-closed himself, or for an episode that began before the agentkit running now was installed.
+with no attached client input since it began. A done episode is sent once when the session state
+becomes done, and a declaration once whatever episodes, or versions, it turns up in. Seat input
+or finishing edits outstanding questions without pinging. Nothing is sent, or retried, for a
+seat the owner closed himself, or an episode begun before this agentkit was installed.
 
 A run stays quiet while the orchestrator that launched it is alive to report it -- a job that
 fans out into a dozen runs must not fan out into a dozen pings -- and speaks for itself only
@@ -787,18 +787,28 @@ def _end_done_episode(session, previous):
         _card_write(session, card)
 
 
-def _attached(session, seat=None):
-    """Ask the session's own server, never the caller's inherited tmux client."""
+def _attached(session, since, seat=None):
+    """Input since this episode began counts; an untouched attached client does not.
+
+    Ask the seat's own server. Focus flags are not evidence with focus-events off.
+    """
     from . import orch
     if seat is None:
         seat = orch.find(session)
-    rc, output = orch.tmux_out("list-clients", "-t", session,
+    rc, output = orch.tmux_out("list-clients", "-t", f"={session}",
+                               "-F", "#{session_name}\t#{client_activity}",
                                socket=orch.seat_socket(seat))
     if rc:
         return False
-    lines = [line for line in output.splitlines() if line.strip()]
-    return any(line.split("\t")[1:2] == [session] for line in lines) or \
-        any("\t" not in line for line in lines)
+    for line in output.splitlines():
+        name, _, activity = line.partition("\t")
+        if name == session:
+            try:
+                if int(activity) >= since:
+                    return True
+            except ValueError:
+                pass
+    return False
 
 
 def failed_declaration(notice, mine, index=None):
@@ -943,7 +953,7 @@ def _carded(session, declared):
 
 
 def needs_transition(session, card, answer, now, seat=None):
-    """One amber card after a minute of needs you, while nobody is attached to the seat.
+    """One amber card after a minute of needs you without attached client input since it began.
 
     Never for an episode that is history, nor for a seat the owner closed himself -- `x`,
     `ak orch stop` or a pause script: its row says so and its number reopens it, and nobody
@@ -952,12 +962,12 @@ def needs_transition(session, card, answer, now, seat=None):
     declared = last(session, include_seen=True)
     answered_here = (declared and resolved(declared)
                      and (declared.get("answered_at") or 0) > card["since"])
-    if _attached(session, seat) or answered_here:
+    if _attached(session, card["since"], seat) or answered_here:
         if not card.get("closed") or card.get("open_needs"):
             if card.get("sent"):
                 _close_card(session, card, "Answered")
             else:
-                # Seen live and left unasked: this episode ends without a card.
+                # Input in this episode: it ends without a card.
                 card["closed"] = "Answered"
             _card_write(session, card)
         return 0

@@ -184,6 +184,72 @@ class Rule(unittest.TestCase):
                 self.assertTrue(state["own"][PR]["done"])
         self.assertEqual((self.requests, self.typed()), ([], []))
 
+    def test_v5d_pr_lifecycle_with_live_seat_records_on_run_and_tells_seat_once(self):
+        for pr_state, decision, expected, worktree in (
+                ("MERGED", None, "merged by the maintainer", True),
+                ("CLOSED", None, "closed by the maintainer without a merge", False),
+                ("OPEN", "CHANGES_REQUESTED", "the maintainer requested changes", True)):
+            with self.subTest(pr_state=pr_state):
+                for stale in config.RUNS.glob("*"):
+                    shutil.rmtree(stale)
+                self.tmux.clear()
+                run_dir = self.finished_run(f"20260915-0001-{pr_state.lower()}", worktree)
+                with patch.object(run, "start_followups") as starts:
+                    state = self.decision(pr_state, decision, seat=self.seat())
+                lines = self.typed()
+                self.assertEqual(len(lines), 1, lines)
+                self.assertIn(expected, lines[0])
+                saved = run.read_state(run_dir)
+                self.assertEqual(saved["merge_note"], f"PR #7 Fix the parser: {expected}")
+                self.assertEqual(saved["merged"], pr_state == "MERGED")
+                self.assertIn(expected, (run_dir / "result.md").read_text())
+                own = state["own"][PR]
+                if pr_state == "OPEN":
+                    self.assertEqual(own["decision"], "CHANGES_REQUESTED")
+                else:
+                    self.assertTrue(own["done"])
+                self.assertEqual(starts.call_count, 1 if pr_state == "MERGED" else 0)
+        self.assertEqual(self.requests, [])
+
+    def test_v5d_pr_retry_after_failed_typing_records_and_starts_once(self):
+        text = "PR #7 Fix the parser: merged by the maintainer"
+        run_dir = self.finished_run("20260915-0001-merged")
+        with patch.object(watch, "type_into", side_effect=[False, True]) as typ, \
+                patch.object(orch, "find", return_value=self.seat()), \
+                patch.object(run, "start_followups") as starts:
+            self.assertFalse(watch.say(False, self.log.append, text, PR, "seat", merged=True))
+            # the run learns it even though the seat is still owed its line
+            self.assertEqual(run.read_state(run_dir)["merge_note"], text)
+            self.assertTrue(run.read_state(run_dir)["merged"])
+            self.assertTrue(watch.say(False, self.log.append, text, PR, "seat", merged=True))
+            self.assertEqual((typ.call_count, starts.call_count), (2, 1))
+        saved = run.read_state(run_dir)
+        self.assertEqual((saved["merge_note"], saved["merged"]), (text, True))
+        self.assertEqual(len([line for line in self.log if line.startswith("told the")]), 1,
+                         self.log)
+        self.assertEqual(len([line for line in self.log
+                              if line.startswith("recorded on run")]), 1, self.log)
+        # a decision that starts no fix runs still records only once
+        for stale in config.RUNS.glob("*"):
+            shutil.rmtree(stale)
+        self.log.clear()
+        run_dir = self.finished_run("20260915-0001-changes")
+        changes = "PR #7 Fix the parser: the maintainer requested changes"
+        real_record = run.record_decision
+        records = []
+
+        def counting(*args, **kwargs):
+            records.append(1)
+            return real_record(*args, **kwargs)
+
+        with patch.object(watch, "type_into", side_effect=[False, True]) as typ, \
+                patch.object(orch, "find", return_value=self.seat()), \
+                patch.object(run, "record_decision", side_effect=counting):
+            self.assertFalse(watch.say(False, self.log.append, changes, PR, "seat"))
+            self.assertEqual(run.read_state(run_dir)["merge_note"], changes)
+            self.assertTrue(watch.say(False, self.log.append, changes, PR, "seat"))
+            self.assertEqual((typ.call_count, len(records)), (2, 1))
+
     # --- (b, c) the hourly alerts ------------------------------------------
 
     def test_v5d_an_hour_of_stall_on_an_idle_seat_says_nothing(self):

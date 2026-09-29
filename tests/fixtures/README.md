@@ -238,6 +238,14 @@ carries neither, and is unedited. Its Gemini window, 0.917436 left, is the panel
 
 ## Seat-state captures (v5n)
 
+`claude-question-with-message-pane.txt` derives from the 2026-09-28 ANSI capture of an
+AskUserQuestion dialog with a queued session message below it. Only the dialog and message
+remain; the question, choices and message use invented text and the sender is `build-check`.
+Rules were shortened to 100 columns; control text and ANSI attributes are preserved. The
+message is grey and italic, not SGR 2 (faint). `test_question_with_message_under.py` also
+replays the dialog without that last message line and appends it to the existing empty
+composer and typed-draft captures below.
+
 `claude-draft-pane.txt`, `codex-draft-pane.txt`, `muse-draft-pane.txt` and the matching
 `*-suggestion-pane.txt` are actual 100×30 `capture-pane -p -e` outputs from **Claude Code 2.1.263**,
 **Codex 0.153.4** and **Muse Code 1.3.0**, captured on 2026-09-16 on `tmux -L agentkit-test`
@@ -353,13 +361,94 @@ blank rows and wrapping are intact; only the thread UUID was replaced, including
 wrapped pieces. All throwaway sessions, homes and the tmux server were removed afterwards.
 
 `codex-title-index.jsonl` is the resulting `session_index.jsonl`: two appended entries
-with `id`, `thread_name` and `updated_at`, with the same UUID replacement. The latest
-complete entry for the owned id is its explicit name. `codex-title-row.json` projects
-that thread's `id`, `title` and `name` from `state_5.sqlite`'s `threads` row: the explicit
-name is `quay`, while `title` is separate and empty. The generated-title test puts an
-invented value in `title` and no name in the index; it is a synthetic variant, not a
-capture of a model naming a thread. The mid-turn refusal test likewise simulates a
-cleared composer without a stored name; this build accepted both captured renames.
+with `id`, `thread_name` and `updated_at`, with the same UUID replacement.
+`codex-title-row.json` projects that thread's `id`, `title` and `name` from
+`state_5.sqlite`'s `threads` row: the name is `quay`, while `title` is separate and
+empty. This prompt-free probe did not establish that index entries are explicit names.
+The mid-turn refusal test simulates a cleared composer without a stored name; this
+build accepted both captured renames.
+
+`codex-title-prompts.json` corrects that gap with live 0.153.4 interactive probes on
+2026-09-28, using the default `gpt-6-astra` model at low effort. Each had a separate
+throwaway HOME and CODEX_HOME under the checkout, a copy of `~/.codex/auth.json`
+(file-only credentials), and a private tmux socket. The one-line prompts requested
+only a word and no tools. The fixture records the index and the thread row's `id`,
+`source`, `title`, `first_user_message` and `name` after each step, plus all column
+names from `pragma table_info(threads)`. UUIDs were replaced whole; all names and
+prompt words are invented. No real Codex home was written. The tmux server and all
+throwaway homes, credentials and probe files were deleted afterwards.
+
+- `plain`: startup; `Reply with the word lagoon. Do not use tools.`; `/rename quay`;
+  `Reply with the word pebble. Do not use tools.`. The first prompt appends its
+  truncated text, then `Reply with lagoon` about five seconds later. Both go into
+  `name`; `title` and `first_user_message` retain the full prompt. `/rename quay`
+  changes the same `name` column and appends the same index shape.
+- `named`: `/rename lagoon` before any prompt; `Reply with the word harbor. Do not
+  use tools.`; `/rename lagoon` again; `Reply with the word meadow. Do not use tools.`.
+  The early name survives both prompts in this capture.
+- `race`: startup; `Reply with the word inlet. Do not use tools.`; `/rename lagoon`
+  immediately after the first index entry; completed prompt; `/rename lagoon` again.
+  The first-prompt snapshot catches the truncated text in both the index and `name`
+  before a generated summary. This early rename also survives in this capture.
+
+Neither store marks who wrote a name: `source` stays `cli` for generated and manual
+names, and no thread column records name provenance. Agentkit therefore acknowledges
+only its own names and does not follow Codex titles, including an owner's `/rename`.
+Tests also simulate a late automatic name replacing ak's earlier name by combining
+the captured index and row shapes; that overwrite is a regression scenario, not an
+observed result of these pre-prompt renames. They require one repair, no repeated
+typing after acknowledgement, and at most three attempts if Codex refuses the repair.
+
+## Codex remote seat feasibility (0.153.4)
+
+Captured 2026-09-28 with the installed npm Codex 0.153.4. Remote seats were not
+implemented: the remote TUI drops the per-launch hooks and rulebook that bind an
+agentkit seat to its conversation. These are probe evidence, not acceptance
+fixtures for a working remote-control integration.
+
+All probes used a throwaway HOME and CODEX_HOME inside the checkout, with a copy
+of the caller's `auth.json`. No prompt was submitted to a model. Only `/hooks`,
+its trust action for a harmless recorder, and `/new` were entered. The actual
+seat wrapper was also launched against a separate `codex app-server --listen
+ws://127.0.0.1:PORT` process, with a loopback TCP proxy recording its thread-start
+request. All probe TUIs, app servers and private tmux servers were stopped; the
+throwaway home and credential copy were removed. No managed daemon was installed
+or enrolled, and no shell profile or real Codex configuration was changed.
+
+- `codex-remote-start.txt` is the failure from `codex remote-control start --json`:
+  this npm installation requires a managed standalone executable. That installation
+  prerequisite alone is not the reason the task stopped.
+- `codex-remote-local-hooks-pane.txt` is the local TUI's `/hooks` screen after
+  trusting a command-line SessionStart recorder. It lists one installed, active
+  hook. The command was `python3 /home/acme/probe/record.py
+  /home/acme/probe/local-events.jsonl`; the recorder reads one JSON object from
+  stdin and appends it to that file. Its definition was passed as
+  `-c 'hooks.SessionStart=[{hooks=[{type="command",command="…",timeout=5}]}]'`.
+- `codex-remote-hooks-pane.txt` is `/hooks` after launching the unmodified
+  `tools/codex-seat.py --rulebook /home/acme/probe/rulebook.md -- codex --remote
+  ws://127.0.0.1:PORT --no-alt-screen -c check_for_update_on_startup=false` with
+  `AGENTKIT_SESSION=acme-seat` and `AGENTKIT_CODEX_RECEIPT` pointing to the probe
+  receipt. The rulebook contained `ACME fixture instructions.`. The wrapper added
+  its SessionStart and four seat-state hook overrides, but the remote screen
+  lists zero installed hooks for every event.
+- `codex-remote-thread-start.json` is that wrapper launch's outbound `thread/start`
+  request, with only `dynamicTools` omitted (the TUI's built-in task tools). The
+  complete `config` contains neither the hooks nor the rulebook;
+  `developerInstructions` and `sessionStartSource` are null. A direct TUI probe
+  with an inline hook and developer instructions, including `/new`, sent the
+  same omissions. Merely moving hooks to daemon configuration would also lose
+  the pane's launch-specific environment used by the receipt and state hooks.
+- `codex-remote-receipt.json` is the wrapper's receipt after the remote launch,
+  unchanged from its prepared contents. Idle local launches also did not invoke
+  the recorder, even after hook trust and `/new`; receipt absence alone was not
+  treated as proof. The missing remote hook definitions and wire overrides are
+  the decisive observations.
+
+The pane captures are 100×30 `tmux capture-pane -p` output. Paths and the request
+UUID were replaced with invented values; wrapping and blank rows are retained.
+The official [app-server documentation](https://learn.chatgpt.com/docs/app-server#connect-the-cli-terminal-ui)
+describes this listener/TUI connection; the observations above are from 0.153.4,
+not an inference that every later Codex release has the same limitation.
 
 ## Grok seat titles (1.0.40)
 
@@ -388,3 +477,174 @@ both. `session_summary` alone is no manual title. The automatic-title test adds 
 invented generated title to the captured auto shape; no model generated that fixture.
 `grok-title-guide.txt` is the session-title section embedded in the installed 1.0.40
 executable: it states that manual titles win until `/rename --auto` unpins them.
+
+## OpenCode seat titles (2.0.14)
+
+`opencode-title-storage.json` captures the installed **OpenCode 2.0.14** on 2026-09-28:
+`api session.create`, `api session.update --param sessionID=<id> --data '{"title":"lagoon"}'`,
+and `api session.get`, each with `--standalone`, under a temporary checkout directory with
+its own HOME and all XDG directories. No prompt was sent, no credentials were supplied,
+and `api DELETE /api/session/<id>` removed the session afterwards (verified in storage).
+The create/get responses retain their `{data: ...}` wrapper; the plugin's `ctx.session.get`
+returns the inner record. Update returns no body. `schema` and `row` are the session's
+`session_v2` table in that HOME's `data/opencode/opencode.db`. IDs, paths and times were
+normalized; `lagoon` is the invented name used in the probe. There is just one `title`,
+with no manual/generated marker. `events` captures a second throwaway session opened in
+the installed TUI on a private tmux socket with the seat plugin and a logging subscriber.
+The plugin set `lagoon` through `ctx.session.update`, read it back and wrote its confirmation;
+the subscriber captured that rename. No prompt was sent. The session, tmux server and
+temporary HOME were deleted afterwards. Its ids and time use the same normalization.
+
+`opencode-title-source.txt` holds exact bundled JavaScript excerpts read from the same
+installed executable: the rename dialog, plugin update method, rename writer and event
+schema, the SQLite title projection, and the automatic title writer and its guards.
+Both the owner and generator publish `session.renamed` with `{sessionID, title}`; no origin
+is carried. `session.updated` belongs to the v1 compatibility schema, not this v2 plugin
+stream. Automatic generation starts only for a default title, and abandons its result if
+the title changed in flight. No generated title was requested for the probe. The automatic
+and other-session events in `tests/test_opencode_title.py` are synthetic variants of that
+captured event, not model captures. Because origin cannot be distinguished, OpenCode
+never renames an ak seat; its plugin restores the ak name through `ctx.session.update`
+and acknowledges only a matching `ctx.session.get` read-back for the owned session.
+
+## Muse title probe (1.4.0-R4302.1): naming unavailable after turns too
+
+The `muse-title-*-pane.txt` files are actual 110×32 `capture-pane -p -e -J`
+screens from Muse Code **1.4.0-R4302.1**, captured on 2026-09-28. The launcher ran
+in a temporary directory inside the checkout with a throwaway HOME, XDG directories
+and tmux socket, only the caller's auth.json linked, and a copied model catalog.
+`MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0` pinned the build. Options were
+`--provider meta --model muse-spark-1.3 --reasoning-effort minimal --yolo
+--disable-shell --disable-write`; Muse selected `muse-spark-1.3-contributor`.
+The workspace display alone is replaced with `/tmp/acme`; SGR and blank rows remain.
+
+- `before-turn-refused`: `/rename lagoon` before any prompt.
+- `idle-{composed,refused}`: `/rename quay` after `Reply with exactly: pebble`
+  completed with `pebble` and returned to the empty composer.
+- `working-{composed,refused}`: `/rename harbor` during the second prompt,
+  `List the integers from 1 to 120, one per line, with no tools.` The pane says
+  `esc to interrupt` both before and after Enter. That turn also completed.
+
+Text and Enter were separated by 300 ms. All three commands cleared the composer
+and printed `Could not change the session name because naming is unavailable`.
+`muse-title-launch-refused.txt` is the error/usage prefix captured from a second
+tmux window with the same options plus `--name lagoon`; it exited 2 before startup.
+`muse-title-resume-pane.txt` is the resume picker after the turns and exit: no saved
+sessions. No generated name was observed; the terminal identity was the session
+id's suffix, not a custom name.
+
+`muse-title-session.jsonl` keeps the session log's metadata, route facts, three
+`command.invoked` records (Muse spells the command `/name`), both accepted user
+intents, run starts and completed terminals, and the first assistant reply.
+All ids are wholly replaced with invented ids, paths with `/tmp/acme` paths, pid
+with 4242 and tty with `/dev/pts/9`. Other event records are omitted; the full log
+contained no `session.name.changed` event. Neither rename text nor its name reached
+a model prompt. `muse-title-unavailable-index.json` projects the actual index's
+`schema_meta`, empty `sessions` and table schema after the turns and resume picker;
+the name snapshot fingerprint is still `unavailable`. Tests insert synthetic
+`generated`/`manual` title rows into that captured schema to check they cannot name
+an ak seat; these are not successful-rename or automatic-title captures.
+
+This replaces the earlier prompt-free idle/busy captures: those proved nothing
+about naming after a real turn. All throwaway sessions, homes and tmux servers were
+removed. Muse title hooks remain absent: no successful rename contract was observed.
+The throwaway HOME is not why renames are refused: the caller's real index
+also reads `session_name_snapshot_fingerprint = unavailable`, with no named
+sessions. The `muse start --host … --name` string in the binary is an MSP
+session-host coordinator command from an embedded skill doc, not a TUI launch
+option: the installed TUI lists no `start` subcommand and rejects `--name`.
+
+## Codex seat-owned app server (0.153.4)
+
+Captured 2026-09-28 with the same installed npm binary as the earlier remote-seat
+probe. This time the **server** receives the seat wrapper's hooks and rulebook,
+and the TUI connects to its Unix socket. No standalone install or daemon is used.
+All real probes used a throwaway HOME/CODEX_HOME in this checkout, with a copied
+`auth.json`. A private UTS namespace named the remote enrollments `ak-probe-acme`
+or `ak-probe-beta`; it changed no host settings and is probe tooling, not part of
+the implementation. No real Codex configuration was written.
+
+Two one-line prompts were sent: `Reply with the probe response word.` from the
+pane, then `What is the probe response word?` from a second app-server connection
+after restarting the server with `--remote-control` and resuming the thread.
+The server's rulebook specified `ACME_RULEBOOK_OK`. Both turns produced it, and
+the pane displayed the second client's turn. The first prompt was a statement,
+so agentkit's real Stop hook blocked twice before its normal limit let it end;
+the second was a question, so its answer ended without a block. This also proves
+the hooks execute with the seat's environment, not merely appear in `/hooks`.
+
+- `codex-seat-server-hooks-pane.txt` lists the six active server-provided hooks:
+  SessionStart, UserPromptSubmit, PermissionRequest, Interrupt and two Stop hooks.
+- `codex-seat-server-turn-pane.txt` shows the resumed conversation and the second
+  client's turn. The rate-limit chooser appeared after the completed answer.
+- `codex-seat-server-evidence.json` contains the server command, rulebook, filled
+  SessionStart receipt, connected remote status, manual pairing response, second
+  client's turn response, isolation checks, explicit title-index entries, the
+  launcher's pairing-card payload and the three successful deletion responses.
+  The title-index's first two entries are automatic titles; the last two follow
+  explicit `/rename ak-probe-acme` commands, including through the new launcher.
+- `codex-remote-fake.py` is synthetic test machinery, not a capture: a fake Codex
+  with a Unix WebSocket server, real hook subprocesses and invented replies.
+  `test_codex_remote.py` and the ownership regressions install it under temporary
+  HOMEs with fake tmux. It never calls a model or the real Codex binary.
+
+Isolation matters: a second server with the same CODEX_HOME and a fresh SQLite
+home reused the first enrollment and reported `errored`. A new CODEX_HOME with
+that reused database did too. A new installation identity **and** fresh database
+connected with a different enrollment. The launcher therefore keeps these two
+private to the seat while sharing its login, settings and conversation files.
+The installed `app-server proxy` relays raw WebSocket bytes, not JSON lines;
+the launcher's small standard-library client performs the Unix HTTP upgrade.
+Codex also resolves relative socket paths before binding, so a short private
+runtime directory is needed when the seat's home is a long worktree path.
+
+The final probe ran the actual launcher in private tmux, resumed the same thread,
+renamed it and produced a pairing notice only in the disabled notification sink.
+No phone was paired and no owner notification was sent. Every probe server and
+private tmux server was stopped; inspection of processes with the probes' exact
+CODEX_HOME values found none left. All three actual remote enrollments were
+removed through their remote-control environment endpoint (HTTP 204); failed
+isolation attempts reused those enrollments. The credential copies and scratch
+files were removed afterwards. Pane captures are 100×35. Paths, UUIDs, enrollment
+ids and pairing codes are replaced whole with invented values; response fields
+are otherwise retained. The transport and mobile flow are described in the
+[official app-server documentation](https://learn.chatgpt.com/docs/app-server)
+and [Remote connections](https://learn.chatgpt.com/docs/remote-connections).
+
+### Review regression probes
+
+`codex-seat-review-evidence.json` records additional 0.153.4 probes on 2026-09-28,
+using copied authentication in temporary HOMEs, without model turns or owner
+notifications. Values are excerpts from the responses or comparisons made by the
+probe; paths and ids are replaced whole. PATCH of a remote environment requires
+`name`, not `display_name`; GET then returned the seat name while retaining the
+host name. DELETE can briefly return 409 after shutdown, then succeeds with 204.
+An offline environment remained readable, so stopping its server alone is not
+removal. The implementation retains deletion receipts until deletion succeeds.
+`command/exec` confirmed that a server can keep its private home while tool
+commands receive the original CODEX_HOME and no private SQLite environment.
+Two servers under the same `ak-probe-acme` hostname obtained distinct enrollments;
+the first stayed connected while the second was still connecting at 30 seconds.
+Both were stopped and their enrollments deleted (204).
+
+One early probe's DELETE returned 409 before it went offline; its temporary id
+receipt had already been removed. Subsequent account listings were empty, so that
+one deletion is unconfirmed. Later probes retained ids until DELETE succeeded.
+An `ak-probe-delete` probe then exercised deletion through the production helper
+after an unpaired enrollment connected, but stopped before its own cleanup. A
+follow-up DELETE removed that enrollment (204) and a GET confirmed it gone (404).
+No phone was paired and no owner notification was sent.
+
+All probe processes, enrollments, credential copies and scratch homes were
+removed afterwards; no probe home or server remains. Paths, UUIDs, enrollment
+ids and pairing codes are replaced whole with invented values.
+
+`codex-remote-http-fake.py` is a synthetic `sitecustomize` used only by the isolated
+test subprocesses. It records enrollment names and deletions and rejects deletion
+while its fake server is alive, and can fail every request as offline or every
+DELETE with 409. The fake Codex now persists installation and
+SQLite enrollment identities. The regression tests cover preparation before pane
+replacement, delayed cleanup, account changes, pairing independent of turn cards,
+monitor disconnects, SIGKILL, legacy fallback, enrollment removal, and forget
+while offline or under persistent 409 with a later retry. Test homes
+and sockets live in temporary directories outside the checkout.

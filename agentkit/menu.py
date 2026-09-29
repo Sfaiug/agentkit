@@ -16,7 +16,7 @@ the moment it is pressed, and from a pipe it is a line.
 
       ↑↓ move   ⏎ open   n new   x stop   c config   i info   q leave
 
-`n` asks for a name, then shows the orchestrator and workers with the defaults chosen already.
+`n` asks for a name, then shows the orchestrator and both roles with the defaults chosen already.
 Enter leaves naming to the orchestrator once it knows the work. The name is the row, the
 status bar and the title of every message it sends until `r` renames it.
 
@@ -40,17 +40,22 @@ nobody has acknowledged) whenever there are any, otherwise `<n> merged` over the
 days; a seat that has launched nothing says `no runs yet`.
 
 The title is `agentkit` and the clock, and says nothing about the machine or the build;
-opening the menu, like drawing it, calls git for nothing at all.  A usage row is the provider's
-*shared* weekly meter -- the one every model of it draws on: a bar and `NN% left`, then
-`resets <weekday> <HH:MM>` in local time, then `Fable 41%` for a scoped cap that reads
-differently, then `? <reason>` when the last probe errored though the meter it read still
-stands, or `rate limited` / `unavailable` when the endpoint would not answer it at all and this
-reading stood in.  No row says how old its reading is: the readings are kept current instead.
+opening the menu, like drawing it, calls git for nothing at all.  A usage row is one
+account's *shared* weekly meter -- the one every model of it draws on: a provider that lists
+`accounts` has one row per account in config order, the usual login as `Claude` and the
+others as `Claude second`, each from its own reading, and a provider without them keeps its
+single row.  A bar and `NN% left`, then `resets <weekday> <HH:MM>` in local time, then
+`Fable 41%` for a scoped cap that reads differently, then `5h 40% left` for the 5-hour
+window (`5h spent until 14:00` once it reads 100% used), then `? <reason>` when the last
+probe errored though the meter it read still stands, and `as of HH:MM` beside it when
+that reading is older than half an hour, with the weekday when it is not from today.
+A probe the endpoint would not answer says nothing at all: its reading stands as it was,
+and past half an hour its age says the rest.
 The bar's filled cells are the company's own colour (`COLOURS`, or the provider's `colour` key),
 and the rows run red through violet by that colour's hue, the near-greys last.  `—` is drawn
 only when there is no shared week to draw -- no reading at all, or nothing but one model's
 private cap -- and the words after it say why.  Everything else `ak usage` knows -- week
-elapsed, session, the resets in hand, headroom, budget, outlook -- stays in `ak usage`.
+elapsed, the resets in hand, headroom, budget, outlook -- stays in `ak usage`.
 
 The main screen is live.  It draws at once from the cached meters, then probes every provider
 in the background and draws again when the answer lands, and again every ten seconds after
@@ -1430,7 +1435,7 @@ def open_session(cfg, session, dry_run):
 
 
 def new_session(cfg, dry_run):
-    """`n`: the name, then the orchestrator and workers on one screen (`orch.pick`), or from
+    """`n`: the name, then the orchestrator and both roles on one screen (`orch.pick`), or from
     a pipe one question at a time; Esc or `q` goes back, nothing created. Enter at the name
     leaves it for the orchestrator to choose, and a dry run only says what it would
     start: it creates no session, so neither its record nor its harness's rulebook."""
@@ -1447,7 +1452,9 @@ def new_session(cfg, dry_run):
         return None
     name = name or orch.unique_name("new", orch.taken_names())
     if dry_run:
-        print(f"would start {name}: {selected[0]}, workers {' '.join(selected[2])}")
+        reviewers = selected[3] if len(selected) == 4 else cfg["defaults"].get("reviewers")
+        print(f"would start {name}: {selected[0]}, workers {' '.join(selected[2])}"
+              + (f", reviewers {' '.join(reviewers)}" if reviewers is not None else ""))
     elif orch.create(cfg, name, orch.seat_cwd(), prompting=True,
                      selection=(providers, selected), unnamed=unnamed) is None:
         return None
@@ -1534,7 +1541,7 @@ def run_progress(state):
             if not wrote or wrote <= last + 1:
                 word = f"silent {orch.span(time.time() - last)}"
     else:
-        word = ("working" if going else "done" if state.get("state") in ("pass", "stopped") else
+        word = ("working" if going else "done" if state.get("state") in ("pass", "stopped", "not_needed") else
                 "interrupted" if state.get("state") == "interrupted" else "FAIL")
     elapsed = (orch.span(time.time() - (state.get("interrupted_at") or started)
                          if run.needs_recovery(state) else time.time() - started
@@ -1575,8 +1582,8 @@ def unread(prov, weekly, readable, now):
 
     `no login` is said here and nowhere else, and only on the harness's own `auth` verb saying
     no: the seat's credentials are absent or expired, and the remedy is to log in.  A probe the
-    endpoint refused says `rate limited` or `unavailable` instead, because the credentials it
-    went out with were never the question.
+    endpoint refused says nothing anywhere: its reading stands on the row where there is one,
+    and where there is none the words below say that instead.
     """
     if readable:
         return "no shared week"
@@ -1588,8 +1595,6 @@ def unread(prov, weekly, readable, now):
         return "bad reading"
     if prov.get("logged_in") is False:
         return "no login"
-    if refusal(prov):
-        return refusal(prov)
     error = str(prov.get("error") or "")
     for pattern, words in UNREAD:
         if pattern.search(error):
@@ -1628,36 +1633,64 @@ def resets_note(meter, now):
     return f"resets {when}" if when else ""
 
 
+def session_window(prov, now):
+    """The 5h window this account reports that a note can be read from, or None.
+
+    The furthest along of its session meters with a numeric used% in a window that has not
+    rolled over; the week aside, this is what stops a turn first.
+    """
+    meters = [m for m in prov.get("meters") or []
+              if m.get("window_secs") == usage.SESSION_SECS
+              and usage._number(m.get("used")) is not None and not usage._past(m, now)]
+    return max(meters, key=lambda m: m["used"]) if meters else None
+
+
+def session_note(prov, now):
+    """(rank, note) for what is left of the 5h window, or None when it reports none.
+
+    `5h 40% left` while it has room; once it reads 100% used, when it opens again (`5h
+    spent until 14:00`, the local hour).  The spent note ranks first, so it is the note that
+    survives where only one can.
+    """
+    meter = session_window(prov, now)
+    if meter is None:
+        return None
+    if meter["used"] >= 100:
+        when = usage.reset_when(meter, now)
+        if when and ":" in when:
+            return -1, f"5h spent until {when.split()[-1]}"
+        if when and when.startswith("in "):
+            return -1, f"5h spent {when}"
+        if when:
+            return -1, f"5h spent until {when}"
+        return -1, "5h spent"
+    return 2, f"5h {percent_left(meter)}% left"
+
+
 def fault(prov):
     """`? <reason>`: the adapter's own one line for a probe that failed, or "" when it did not.
 
     The meter the failed probe read still stands, so the row keeps its bar; the reason is
     beside it because a bare `?` sends the reader to `ak usage` to learn a single sentence.
+    A refusal is not a reason: words that only say the probe was refused say nothing here,
+    and the reading's age says the rest.
     """
+    if usage.refusal_text(prov, prov.get("error")):
+        return ""
     reason = " ".join(str(prov.get("error") or "").split()).removeprefix("unknown: ")
     return ("? " + reason).strip() if prov.get("error") else ""
-
-
-def refusal(prov):
-    """`rate limited` or `unavailable`: the last probe was refused and this reading stood in.
-
-    Two dim words beside the reading, never a `?` and never `no login`: a 429 from a usage
-    endpoint, or one briefly unreachable, is not a word about the credentials it was asked
-    with.  The reading itself is the one that was really taken, which is why the row keeps its
-    bar.
-    """
-    return usage.probe_refused(prov.get("probe_error")) or ""
 
 
 def fitting(notes, room):
     """Which of these notes fit in `room` cells, drawn in the order the row reads them.
 
     A note too long for the room gives way on its own, and the ones after it are not thrown
-    out with it: `rate limited` beside a four-cell bar is worth having on a phone even where
+    out with it: `as of 14:02` beside a four-cell bar is worth having on a phone even where
     `resets Fri 14:00` will never fit.  Each note carries how much it is worth keeping when
-    only some can be -- when the week is back, then why the reading may be wrong, then the
-    scoped cap -- and they are offered in that order and drawn in the row's.  The bar has
-    already given way to its floor by the time anything is offered here.
+    only some can be -- a spent 5h window first, then when the week is back, then why the
+    reading may be wrong, then the 5h window, then the scoped cap -- and they are offered in
+    that order and drawn in the row's.  The bar has already given way to its floor by the
+    time anything is offered here.
     """
     kept, used = set(), 0
     for index in sorted(range(len(notes)), key=lambda i: notes[i][0]):
@@ -1698,22 +1731,27 @@ def hue(kind):
 def usage_lines(cfg, width):
     """The cached weekly allowances, without probing adapters or spending a reset.
 
-    A row is the provider's shared weekly meter -- the one every model of it draws on -- that
+    A row is one account's shared weekly meter -- the one every model of it draws on -- that
     a bar can be drawn from: a numeric used% in a window that has not rolled over, as a bar
-    and `NN% left`.  After the percentage, joined with ` · ` and each only when it applies:
+    and `NN% left`.  A provider that lists `accounts` has one row per account in config
+    order, the usual login under the provider's name (`Claude`) and the others with the
+    account's (`Claude second`), each from its own reading; a provider without them keeps
+    its single row.  After the percentage, joined with ` · ` and each only when it applies:
     `resets <weekday> <HH:MM>` from that meter, or `resets <day> <month>` more than six days
     out in a window longer than a week; one note per scoped meter whose figure differs
-    (`Fable 41%`); `? <reason>` when the last probe errored although the meter it read still
-    stands, or `rate limited` / `unavailable` when the endpoint refused to answer the last probe
-    at all and this reading is the one it could not replace.  Nothing says how old a reading is:
-    the probe cadence keeps them current, and a refused probe says so in its own words.  The
-    filled cells are the provider's `colour`, the empty ones dim, and the rows run by that
-    colour's `hue`.  `ak usage` keeps the rest -- week elapsed, session, the resets in hand,
+    (`Fable 41%`); `5h 40% left` for the 5-hour window, or `5h spent until 14:00` once it
+    reads 100% used; `? <reason>` when the last probe errored although the meter it read
+    still stands, and `as of HH:MM` beside it when the reading is older than half an hour,
+    with the weekday when it is not from today.  A probe the endpoint refused to answer
+    says nothing at all: the reading it could not replace stands as it was, and its age
+    says the rest.  The filled cells are the provider's `colour`, the empty ones dim, and
+    the rows run by that colour's `hue`.  `ak usage` keeps the rest -- week elapsed, the
+    resets in hand,
     headroom, budget, outlook -- and the picker keeps ranking on the tightest meter: only
     this display changed.  The bars are one column, sized once per draw from the row with the
     least room, down to four cells; the bar gives way to the notes first, and only then does
     each note that still will not fit give way on its own (`fitting`), so one long note never
-    takes a short one with it.  A provider whose every readable week is one model's own cap
+    takes a short one with it.  An account whose every readable week is one model's own cap
     has no shared week to show and says so rather than wearing that cap's number.  A row with
     nothing to draw is `—` and the words that say why, never `—` alone.
     """
@@ -1724,8 +1762,18 @@ def usage_lines(cfg, width):
     except (OSError, ValueError, KeyError, TypeError):
         providers = {}
     order = sorted(cfg["providers"], key=lambda name: hue(colour(cfg, name)))
-    names = {name: NAMES.get(name, name.title()) for name in order}
-    label_room = min(16, max((terminal.cells(terminal.plain(n)) for n in names.values()),
+    shown = {name: NAMES.get(name, name.title()) for name in order}
+    rows = []
+    for name in order:
+        listed = config.accounts(cfg, name)
+        if listed:
+            for account in listed:
+                label = (shown[name] if account == config.DEFAULT_ACCOUNT
+                         else f"{shown[name]} {account}")
+                rows.append((name, account, label))
+        else:
+            rows.append((name, None, shown[name]))
+    label_room = min(16, max((terminal.cells(terminal.plain(label)) for _, _, label in rows),
                              default=0), max(1, width - 16))
     bar_width = min(12, max(1, width - label_room - 15))
     now = time.time()
@@ -1733,10 +1781,16 @@ def usage_lines(cfg, width):
     pending = []
     # The bar never drops below this to keep a note; narrower notes give way first.
     floor = min(4, bar_width)
-    for name, label in names.items():
+    for name, account, label in rows:
         prefix = "  " + terminal.pad(label, label_room) + "  "
-        prov = providers.get(name)
-        prov = prov if isinstance(prov, dict) else {}
+        top = providers.get(name)
+        top = top if isinstance(top, dict) else {}
+        if account is None:
+            prov = top
+        else:
+            found = top.get("accounts") if isinstance(top.get("accounts"), dict) else {}
+            rec = found.get(account)
+            prov = rec if isinstance(rec, dict) else {}
         why = None
         try:
             weekly = [m for m in prov.get("meters") or []
@@ -1751,14 +1805,16 @@ def usage_lines(cfg, width):
             pending.append({"kind": "empty", "prefix": prefix, "why": why})
             continue
         left = max(0, min(100, 100 - week["used"]))
-        shown = percent_left(week)
-        spent = shown == 0
+        shown_pct = percent_left(week)
+        spent = shown_pct == 0
+        five = session_note(prov, now)
         # In the order the row reads them, each with how much it is worth keeping (`fitting`).
         notes = [(rank, part) for rank, part in
                  [(0, resets_note(week, now)),
-                  *((2, note) for note in scoped_notes(cfg, name, readable, week)),
-                  (1, fault(prov) or refusal(prov))] if part]
-        percent = f"{shown:3d}% left"
+                  *((3, note) for note in scoped_notes(cfg, name, readable, week)),
+                  *((five,) if five else ()),
+                  (1, fault(prov)), (1, usage.as_of(prov, now))] if part]
+        percent = f"{shown_pct:3d}% left"
         base = terminal.cells(prefix) + len(percent) + 2   # all but the bar and the notes
         parts = fitting(notes, width - base - floor - 3)   # what the bar gives way to
         taken = terminal.cells(" · ".join(parts)) + 3 if parts else 0
@@ -2052,8 +2108,8 @@ COMPANIES = {"anthropic": "Anthropic / Claude Code", "openai": "OpenAI / Codex",
              "meta": "Meta / Muse", "xai": "xAI / Grok Build", "google": "Google / Antigravity",
              "mimo": "Xiaomi / MiMo through OpenCode"}
 REMOVE_PROVIDER_ASK = "Remove {} and its models?"   # what `− remove` asks, `Keep` picked first
-# The matrix's three columns: in full where they fit, short on a phone.
-CONFIG_HEADS = (("orchestrator", "worker", "effort"), ("orch", "work", "effort"))
+# Short headings leave room for both roles and the effort on a phone.
+CONFIG_HEADS = (*orch.ROLE_HEADS, "effort")
 # The key line for the cell the highlight is on, and the same without UTF-8.
 CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mark"),
                "effort": ("↑↓←→ move   ⏎ effort", "arrows move   enter effort"),
@@ -2121,16 +2177,14 @@ def config_models(cfg):
 def config_body(cfg, update_row, at=None, column=0):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
-    Every offered model once, under its provider's name: label, harness (dim), then a mark in
-    the orchestrator and the worker column -- `●` the one default orchestrator, `■` each
-    default worker -- and its effort between the arrows that step it.  Under them `+ add a
-    model`, `Providers` (providers_lines), `Discord` and `Update` with their values.  A row is
+    Every offered model once, under its provider's name: label, harness (dim), three role marks,
+    and its effort between the arrows that step it. Under them `+ add a model`, `Providers`
+    (providers_lines), `Discord` and `Update` with their values. A row is
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
     `Update` is still a model; `at` is the highlighted one and `column` the cell on it the keys
     act on, -1 its label, and on Providers 0 or less `+ add` and 1 or more `− remove`.  `cells`
     are a model row's (first, last, column), or Providers' acts, for a click, counted from 1 as
-    the terminal counts.  On a phone the columns take their short names, then the harness gives
-    way, then the label.
+    the terminal counts. On a phone the harness gives way, then the label.
     """
     room, utf, colour = terminal.layout_width(), terminal.utf8(), terminal.colour_depth()
     marks = "●○■□" if utf else "*.x."
@@ -2140,12 +2194,10 @@ def config_body(cfg, update_row, at=None, column=0):
                for name in names}
     label = max(terminal.cells(name) for name in names)
     harness = max(terminal.cells(str(models[name].get("harness", ""))) for name in names)
-    for heads in CONFIG_HEADS:
-        widths = [terminal.cells(head) for head in heads[:2]]
-        widths.append(max(terminal.cells(text) for text in (heads[2], *efforts.values())))
-        rest = sum(2 + width for width in widths)
-        if 2 + label + 2 + harness + rest <= room:
-            break
+    heads = CONFIG_HEADS
+    widths = [terminal.cells(head) for head in heads[:3]]
+    widths.append(max(terminal.cells(text) for text in (heads[3], *efforts.values())))
+    rest = sum(2 + width for width in widths)
     label = min(label, max(1, room - 2 - rest))
     harness = min(harness, max(0, room - 2 - label - 2 - rest))
     left = 2 + label + (2 + harness if harness else 0)     # the columns before the marks
@@ -2156,7 +2208,9 @@ def config_body(cfg, update_row, at=None, column=0):
         lines.append(terminal.styled(NAMES.get(provider, provider.title()), "accent"))
         for name in (name for name in names if models[name]["provider"] == provider):
             texts = (marks[0] if defaults["orchestrator"] == name else marks[1],
-                     marks[2] if name in defaults["workers"] else marks[3], efforts[name])
+                     marks[2] if name in defaults["workers"] else marks[3],
+                     marks[2] if name in defaults.get("reviewers", defaults["workers"])
+                     else marks[3], efforts[name])
             shown = terminal.cut(name, label)
             line = "  " + (terminal.styled(shown, "reverse") if at == ("model", name)
                            and column < 0 else shown) + " " * (label - terminal.cells(shown))
@@ -2165,15 +2219,15 @@ def config_body(cfg, update_row, at=None, column=0):
                 line += "  " + terminal.styled(terminal.pad(str(models[name].get("harness", "")),
                                                             harness), "dim")
             for number, (text, width) in enumerate(zip(texts, widths)):
-                shown, lead = (f" {text} ", (width - 3) // 2) if number < 2 else (text, 0)
+                shown, lead = (f" {text} ", (width - 3) // 2) if number < 3 else (text, 0)
                 kind = ("reverse" if at == ("model", name) and number == column else
                         "dim" if text in (marks[1], marks[3]) else None)
-                if kind == "reverse" and number < 2 and not colour:
+                if kind == "reverse" and number < 3 and not colour:
                     shown = f"[{text}]"        # with no colour to reverse, brackets say where
                 line += ("  " + " " * lead + (terminal.styled(shown, kind) if kind else shown)
                          + " " * (width - lead - terminal.cells(shown)))
                 # a mark is its whole column; an effort is its own text, arrows and all
-                cells.append((first + 2, first + 1 + (width if number < 2
+                cells.append((first + 2, first + 1 + (width if number < 3
                                                       else terminal.cells(text)), number))
                 first += 2 + width
             places[len(lines)] = (("model", name), cells)
@@ -2241,24 +2295,13 @@ def _saved(cfg, table, before):
 
 
 def config_mark(cfg, name, column):
-    """A mark flipped and saved: `name` is the orchestrator now, or joins or leaves the workers.
-
-    There is always one orchestrator, so choosing another is the only way to move it.  The
-    workers keep one model at least: a new seat takes them with Enter, and an empty list would
-    give it nobody to work.  What to say under the matrix, or "".
-    """
+    """Save a valid role change at once; a refusal or failed save leaves every mark alone."""
     defaults = cfg["defaults"]
-    workers, before = defaults["workers"], dict(defaults)
-    if column == 0:
-        if defaults["orchestrator"] == name:
-            return ""
-        defaults["orchestrator"] = name
-    elif name not in workers:
-        defaults["workers"] = [*workers, name]
-    elif len(workers) == 1:
-        return "the default workers need one model"
-    else:
-        defaults["workers"] = [peer for peer in workers if peer != name]
+    changed, note = orch.role_mark(cfg, defaults, name, column, {})
+    if note or changed == defaults:
+        return note
+    before = dict(defaults)
+    defaults.update(changed)
     return _saved(cfg, defaults, before)
 
 
@@ -2426,7 +2469,7 @@ def config_model(cfg, name):
                     else config_effort(cfg, name, step, _catalog_efforts))
 
 
-def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None):
+def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2):
     """One draw of a matrix screen and the key read on it: (act, here, column, top).
 
     The `c` screen and a project's feature switches are read this way: rows the highlight moves
@@ -2434,8 +2477,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None):
     (first, last, column) counted from 1 as the terminal counts.  On a screen too short for
     every row the part the highlight is on is shown, and `note` has lines of its own under it,
     whatever the height.  ↑/↓, k/j and the wheel move `here` through `rows`.  A click on a row
-    makes it `here`, and one on a cell makes that the column, acting `enter` on a mark (column
-    0 or 1) and `less` or `more` on another's arrows; `column` is None where no cell was
+    makes it `here`, and one on a cell makes that the column, acting `enter` on the first
+    `marks` columns and `less` or `more` on another's arrows; `column` is None where no cell was
     clicked.  `act` is `back` for Esc, `q` or a click on `esc back`, None when the screen wants
     drawing again -- a resize, or `timeout` seconds with no key -- and the key's name otherwise.
     """
@@ -2464,7 +2507,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None):
         for first, last, number in place[1]:
             if first <= key.col <= last:
                 column = number
-                act = ("enter" if number < 2 else "less" if key.col <= first + 1
+                act = ("enter" if number < marks else "less" if key.col <= first + 1
                        else "more" if key.col >= last - 1 else "")
     if act in ("esc", "eof") or key.char in ("q", "Q"):
         return "back", here, column, top
@@ -2498,10 +2541,11 @@ def config_matrix(cfg, keyboard, update_row):
                 *(("row", row) for row in CONFIG_ROWS)]
         here = here if here in rows else rows[0]      # the highlight is the row itself
         where = ("label" if here == PROVIDERS else "row" if here[0] == "row" else "effort"
-                 if column == 2 else "label" if column < 0 else "mark")
+                 if column == 3 else "label" if column < 0 else "mark")
         keys = CONFIG_KEYS[where][0 if terminal.utf8() else 1] + "   esc back"
         body, places = config_body(cfg, update_row, here, column)
-        act, here, clicked, top = matrix_key("config", body, places, rows, here, top, note, keys)
+        act, here, clicked, top = matrix_key("config", body, places, rows, here, top, note, keys,
+                                            marks=3)
         if act is None:
             continue                  # a resize: drawn again at the new size
         note, column = "", column if clicked is None else clicked
@@ -2533,12 +2577,12 @@ def config_matrix(cfg, keyboard, update_row):
                     update_row = _update_value(cfg)
                 keyboard.take()
         elif act in ("left", "right"):
-            column = min(max(column + (1 if act == "right" else -1), -1), 2)
+            column = min(max(column + (1 if act == "right" else -1), -1), 3)
         elif act in ("enter", "space") and column < 0:
             config_model(cfg, here[1])
             if here[1] not in cfg["models"]:
                 here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
-        elif act in ("enter", "space") and column < 2:
+        elif act in ("enter", "space") and column < 3:
             note = config_mark(cfg, here[1], column)
         elif act in ("enter", "space", "less", "more"):     # the effort column
             note = config_effort(cfg, here[1], -1 if act == "less" else 1,

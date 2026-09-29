@@ -1,20 +1,25 @@
 """A smoke check that reads a live provider meter tolerates a rate-limited answer.
 
 Checks 1 and 6 stand on live meters: when a probe answers 429, 5xx or nothing at
-all, the check asks once more (AK_METER_RETRY_SECS later, 0 here) and then skips
-with the provider's own reason, and the gate counts that skip as a pass. A meter
-that answers wrong still fails, with no retry. Entirely offline: the `ak usage`
-under test runs against fake adapters in a throwaway HOME, and the check bodies
-are the suite's own, extracted from tests/smoke.sh.
+all, the check asks once more where the host's cadence and Retry-After allow
+(AK_METER_RETRY_SECS later, 0 here, so an immediate retry asks nothing) and then
+skips with the provider's own reason, and the gate counts that skip as a pass. A
+gate run never sends a request the host would hold back; where it therefore cannot
+get a fresh answer it skips with that hold reason, as a 429 skips. A meter that
+answers wrong still fails, with no retry. Entirely offline: the `ak usage` under
+test runs against fake adapters in a throwaway HOME, and the check bodies are the
+suite's own, extracted from tests/smoke.sh.
 """
 
 import json
 import os
 from pathlib import Path
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
@@ -24,7 +29,13 @@ SMOKE = (REPO / "tests/smoke.sh").read_text()
 CHECK_1 = SMOKE[SMOKE.index("# --- 1: usage"):SMOKE.index("# --- 2:")]
 # Checks 6 and 6b together: 6b reads the ORCHHOME fixtures and logs check 6 builds, so a
 # test that slices 6 off alone proves the skip while proving nothing about its consumers.
-CHECK_6 = SMOKE[SMOKE.index("# --- 6: orch"):SMOKE.index("# --- 6c:")]
+# The helpers live in check 1's section, so check 6 runs with them prepended: without that
+# the slice calls `host_held`, `reprobe` and `skip_unavailable` as missing commands.
+CHECK_1_PREAMBLE = CHECK_1[:CHECK_1.index('U="$WORK/usage.json"')]
+CHECK_6 = CHECK_1_PREAMBLE + SMOKE[SMOKE.index("# --- 6: orch"):SMOKE.index("# --- 6c:")]
+# The suite's own sandbox setup for the shared cadence: smoke_share_probes is defined just
+# above smoke_home, so the slice between the two is the whole function.
+SHARE = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("smoke_home() {")]
 
 FAR_FUTURE = 1999999999
 
@@ -123,6 +134,14 @@ class GateTolerance(unittest.TestCase):
         count = self.root / f"{harness}.count"
         return count.read_text().split() if count.exists() else []
 
+    def share(self, caller):
+        """The suite's own setup: link this sandbox at a caller HOME standing in for
+        the host. The caller HOME is set the way smoke.sh sets it, as a plain shell
+        variable inside the block, never exported."""
+        (self.home / ".agentkit/state").mkdir(parents=True, exist_ok=True)
+        return (SHARE + f"SMOKE_CALLER_HOME={shlex.quote(str(caller))}\n"
+                "smoke_share_probes\n")
+
     def test_429_skips_with_reason_after_one_retry(self):
         counts = self.healthy()
         counts["claude"] = self.adapter(
@@ -133,8 +152,9 @@ class GateTolerance(unittest.TestCase):
         self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
         self.assertIn("HTTP 429", result.stdout)
         self.assertNotIn("FAIL", result.stdout)
-        self.assertEqual(self.probes("claude"), ["usage", "usage"])
-        self.assertEqual(self.probes("codex"), ["usage", "usage"])
+        # The retry is inside every cadence, so it asks nothing: one ask, then the skip.
+        self.assertEqual(self.probes("claude"), ["usage"])
+        self.assertEqual(self.probes("codex"), ["usage"])
 
     def test_5xx_skips_with_reason_after_one_retry(self):
         self.adapter("claude", meters("anthropic"))
@@ -145,7 +165,7 @@ class GateTolerance(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
         self.assertIn("HTTP 503", result.stdout)
-        self.assertEqual(self.probes("claude"), ["usage", "usage"])
+        self.assertEqual(self.probes("claude"), ["usage"])
 
     def test_timeout_skips_with_reason_after_one_retry(self):
         self.adapter("claude", refused("anthropic", "unknown: claude.sh usage "
@@ -156,7 +176,7 @@ class GateTolerance(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
         self.assertIn("timed out", result.stdout)
-        self.assertEqual(self.probes("claude"), ["usage", "usage"])
+        self.assertEqual(self.probes("claude"), ["usage"])
 
     def test_wrong_value_with_healthy_meter_still_fails_without_retry(self):
         self.adapter("claude", {"provider": "anthropic", "meters": [], "error": None})
@@ -196,7 +216,9 @@ class GateTolerance(unittest.TestCase):
         self.assertIn("1 skip for what this host lacks counted as passed", last)
         self.assertEqual(self.probes("codex"), ["usage"])
 
-    def test_retry_that_gets_an_answer_passes(self):
+    def test_retry_held_by_cadence_skips_without_asking(self):
+        # The second answer would pass, but the retry is inside Claude's fifteen minutes,
+        # so it is never asked for: one ask, then the skip with the first answer's reason.
         self.adapter("claude", refused("anthropic", "unknown: HTTP 429 from "
                                                   "api.anthropic.com/api/oauth/usage"),
                      then=meters("anthropic"))
@@ -204,8 +226,131 @@ class GateTolerance(unittest.TestCase):
         self.adapter("muse", meters("meta", 40))
         result = self.shell(CHECK_1)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
+        self.assertIn("HTTP 429", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+        self.assertEqual(self.probes("claude"), ["usage"])
+
+    def test_host_cadence_holds_the_gate_without_asking(self):
+        # The host asked Claude seconds ago: check 1 skips with that hold reason without
+        # sending any request.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        (caller / ".agentkit/state/anthropic-probe.lock").write_text(repr(time.time()))
+        self.healthy()
+        result = self.shell(self.share(caller) + CHECK_1)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
+        self.assertIn("next ask in", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+        self.assertEqual(self.probes("claude"), [])
+        self.assertEqual(self.probes("codex"), [])
+
+    def test_held_check_1_leaves_no_ask_for_a_later_sandbox_read(self):
+        # smoke_home links the sandbox at the host's own probe ages, so a later sandbox
+        # ask (check 3's `ak usage`, an `ak run`, an `ak orch` seat) obeys the same hold
+        # through _cooling.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        (caller / ".agentkit/state/anthropic-probe.lock").write_text(repr(time.time()))
+        self.healthy()
+        result = self.shell(self.share(caller) + CHECK_1)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
+        self.assertEqual(self.probes("claude"), [])
+        # Check 3's line, seconds later in the same sandbox HOME: Claude still held and
+        # silent, while a provider the host never asked answers normally.
+        later = subprocess.run([str(REPO / "bin/ak"), "usage", "--json"], cwd=self.root,
+                               env={**self.env, "REPO": str(REPO)},
+                               text=True, capture_output=True, timeout=120)
+        self.assertEqual(later.returncode, 0, later.stdout + later.stderr)
+        self.assertEqual(self.probes("claude"), [])
+        self.assertEqual(self.probes("codex"), ["usage"])
+
+    def test_host_ask_after_setup_holds_a_later_sandbox_ask(self):
+        # The links are the host's own files, not copies of them: a host ask after the
+        # sandbox is set up still holds a later sandbox ask, which then sends no request.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        self.healthy()
+        setup = self.shell(self.share(caller))
+        self.assertEqual(setup.returncode, 0, setup.stdout + setup.stderr)
+        link = self.home / ".agentkit/state/anthropic-probe.lock"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(Path(os.readlink(link)),
+                         caller / ".agentkit/state/anthropic-probe.lock")
+        # The host asks Claude, and is told by OpenAI to wait, seconds after setup.
+        (caller / ".agentkit/state/anthropic-probe.lock").write_text(repr(time.time()))
+        (caller / ".agentkit/state/openai-probe.retry").write_text(
+            repr(time.time() + 600))
+        later = subprocess.run([str(REPO / "bin/ak"), "usage", "--json"], cwd=self.root,
+                               env={**self.env, "REPO": str(REPO)},
+                               text=True, capture_output=True, timeout=120)
+        self.assertEqual(later.returncode, 0, later.stdout + later.stderr)
+        self.assertEqual(self.probes("claude"), [])
+        self.assertEqual(self.probes("codex"), [])
+        self.assertEqual(self.probes("muse"), ["usage"])
+
+    def test_share_creates_a_missing_host_state_and_holds(self):
+        # A host that has never run agentkit has no ~/.agentkit/state: the setup
+        # creates it (0700) so the links resolve, and repeated asks are then held
+        # to one request by the suite's own cadence mark.
+        caller = self.root / "caller"
+        caller.mkdir()  # no .agentkit at all
+        self.healthy()
+        setup = self.shell(self.share(caller))
+        self.assertEqual(setup.returncode, 0, setup.stdout + setup.stderr)
+        self.assertEqual(stat.S_IMODE((caller / ".agentkit").stat().st_mode), 0o700)
+        self.assertEqual(
+            stat.S_IMODE((caller / ".agentkit/state").stat().st_mode), 0o700)
+        ask = subprocess.run(
+            [sys.executable, "-c",
+             "from agentkit import config, usage\n"
+             "cfg = config.load()\n"
+             "[usage._probe_gently(cfg, 'anthropic') for _ in range(3)]\n"],
+            cwd=self.root,
+            env={**self.env, "REPO": str(REPO), "PYTHONPATH": str(REPO)},
+            text=True, capture_output=True, timeout=120)
+        self.assertEqual(ask.returncode, 0, ask.stdout + ask.stderr)
+        self.assertEqual(self.probes("claude"), ["usage"])
+
+    def test_host_ask_after_setup_holds_through_an_accounts_host(self):
+        # Where the host lists accounts for a provider, its default login's cadence is
+        # that provider's .default file: the sandbox link tracks it, so a host ask after
+        # setup holds a later sandbox ask there too.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        (caller / ".agentkit/config.toml").write_text(
+            '[providers.anthropic]\naccounts = ["default", "second"]\n')
+        self.healthy()
+        setup = self.shell(self.share(caller))
+        self.assertEqual(setup.returncode, 0, setup.stdout + setup.stderr)
+        link = self.home / ".agentkit/state/anthropic-probe.lock"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(Path(os.readlink(link)),
+                         caller / ".agentkit/state/anthropic.default-probe.lock")
+        (caller / ".agentkit/state/anthropic.default-probe.lock").write_text(
+            repr(time.time()))
+        later = subprocess.run([str(REPO / "bin/ak"), "usage", "--json"], cwd=self.root,
+                               env={**self.env, "REPO": str(REPO)},
+                               text=True, capture_output=True, timeout=120)
+        self.assertEqual(later.returncode, 0, later.stdout + later.stderr)
+        self.assertEqual(self.probes("claude"), [])
+        self.assertEqual(self.probes("codex"), ["usage"])
+
+    def test_retry_past_cadence_that_gets_an_answer_passes(self):
+        # Codex's minute with the default 60 s sleep: the retry is past the cadence, so it
+        # asks again and the new answer passes. Claude's fifteen still holds its own retry.
+        self.adapter("claude", meters("anthropic"))
+        self.adapter("codex", refused("openai", "unknown: HTTP 503 from "
+                                      "chatgpt.com/backend-api/wham/usage"),
+                     then=meters("openai", 45))
+        self.adapter("muse", meters("meta", 40))
+        result = self.shell(CHECK_1, AK_METER_RETRY_SECS="60")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("PASS  1 ak usage --json", result.stdout)
-        self.assertEqual(self.probes("claude"), ["usage", "usage"])
+        self.assertEqual(self.probes("codex"), ["usage", "usage"])
+        self.assertEqual(self.probes("claude"), ["usage"])
 
     def usage_json(self):
         """A real `ak usage --json` against the fake adapters, saved as this run's $U."""
@@ -275,6 +420,48 @@ class GateTolerance(unittest.TestCase):
         self.assertIn("PASS  6 ak orch --dry-run", result.stdout)
         self.assertIn("PASS  6b ak orch", result.stdout)
         self.assertNotIn("SKIP", result.stdout)
+
+    def test_held_check_1_picks_once_the_hold_lifts(self):
+        # Check 1 skipped on the host's hold; by check 6 the hold has lifted and the
+        # suite has asked since (checks 3 and 4), so check 6 refreshes $U from that
+        # fresh reading and runs the pick instead of skipping on the suite's own ask.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        lock = caller / ".agentkit/state/anthropic-probe.lock"
+        lock.write_text(repr(time.time()))
+        self.healthy()
+        aged = ("python3 -c 'import sys, time; "
+                "open(sys.argv[1], \"w\").write(repr(time.time() - 901))' "
+                + shlex.quote(str(lock)))
+        block = (self.share(caller) + CHECK_1 + "\n" + aged + "\n"
+                 "ak usage --json >/dev/null\n" + CHECK_6)
+        result = self.shell(block)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
+        self.assertIn("PASS  6 ak orch --dry-run", result.stdout)
+        self.assertIn("PASS  6b ak orch", result.stdout)
+        self.assertNotIn("SKIP  6:", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+        # Check 1 asked nothing; the one suite ask served check 6 from the cache.
+        self.assertEqual(self.probes("claude"), ["usage"])
+
+    def test_held_check_1_skips_check_6_while_the_hold_lasts(self):
+        # The hold that skipped check 1 still lasts at check 6 and the suite asked
+        # nothing since: the refresh has neither meters nor a throttled error, so
+        # check 6 skips with the hold's own reason while 6b still passes.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        (caller / ".agentkit/state/anthropic-probe.lock").write_text(repr(time.time()))
+        self.healthy()
+        result = self.shell(self.share(caller) + CHECK_1 + "\n" + CHECK_6)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SKIP  1: provider meter unavailable (", result.stdout)
+        self.assertIn("SKIP  6: provider meter unavailable (", result.stdout)
+        self.assertIn("next ask in", result.stdout)
+        self.assertIn("PASS  6b ak orch", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+        self.assertEqual(self.probes("claude"), [])
+        self.assertEqual(self.probes("codex"), ["usage"])
 
 
 if __name__ == "__main__":

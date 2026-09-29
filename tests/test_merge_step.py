@@ -371,9 +371,9 @@ class MergeStep(unittest.TestCase):
                 suites.append(1)
                 if len(suites) == 1:
                     return False, "$ bash tests/smoke.sh\n[exit 1]\nFAIL  2 the gate"
-                return True, "$ true\n[exit 0]\n\n$ bash tests/smoke.sh\n[exit 0]\n"
+                return True, "$ bash tests/smoke.sh\n[exit 0]\n"
             gates.append(1)
-            if len(gates) == 1:
+            if len(gates) == 2:
                 return False, "$ true\n[exit 1]\nlint: fix1.txt:1 trailing space"
             return True, "$ true\n[exit 0]\n"
 
@@ -609,6 +609,7 @@ class MergeStep(unittest.TestCase):
     def test_a_base_race_verifies_and_pushes_the_new_head_before_retrying(self):
         _, owner, wt = make_repos(self.root)
         lp, run_dir, _ = make_loop(self.root, wt)
+        lp.state["pr"] = URL
         old = lp.state["delivery_sha"]
         events = []
 
@@ -629,6 +630,10 @@ class MergeStep(unittest.TestCase):
                 events.append(("view", old))
                 return 0, json.dumps({"state": "OPEN", "mergeable": "MERGEABLE",
                                       "headRefOid": old, "baseRefName": "main"})
+            if args[:2] == ("pr", "edit"):
+                self.assertEqual(args[2:4], (URL, "--body-file"))
+                self.assertEqual(Path(args[4]).read_text(), run.pr_body(lp.state))
+                return 0, ""
             raise AssertionError(args)
 
         def checks(lp2, url):

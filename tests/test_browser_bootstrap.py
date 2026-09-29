@@ -336,7 +336,8 @@ class Bootstrap(unittest.TestCase):
     def assert_installer_continues(self, stack):
         # Execute the production installer from section 3b through its final summary. Its
         # earlier package/harness setup is irrelevant here; all OS-facing commands below
-        # are recorders, while browser preflight and both MCP registrations execute for real.
+        # are recorders, while browser preflight, the shared-server setup against the same
+        # stack, and both MCP registrations execute for real.
         fakebin = self.home / 'bin'
         fakebin.mkdir()
         def script(name, body):
@@ -371,13 +372,75 @@ with patch.object(bootstrap.pwd, 'getpwuid', return_value=account), \\
         script('ak', f'''exec {real_python} "$HOME/register-driver.py" "$@"
 ''')
         (self.home / 'register-driver.py').write_text(f'''
+import os
 import sys
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 sys.path.insert(0, {str(REPO)!r})
 from agentkit import browser
+if sys.argv[1:] == ['browser', 'install']:
+    # The real install, against the same stack the bootstrap just saw: a foreign stack
+    # must be left untouched, and a stopped one must stop before any MCP mutation.
+    # Anything it tried to run or change fails this installer run outright, and the
+    # proof below is what the test checks: install.sh would swallow a bare failure.
+    stack = {stack!r}
+    home = Path(os.environ['HOME'])
+    account = SimpleNamespace(pw_name='new-agent', pw_dir=os.environ['HOME'])
+    calls = []
+    def fail_run(cmd, **kwargs):
+        calls.append(cmd)
+        raise AssertionError(f'browser install ran {{cmd}} on {{stack}}')
+    def read_only(args, sudo=False, cap=120):
+        if args[0] in ('cat', 'show'):
+            return (1, '') if args[0] == 'cat' else (0, 'not-found\\n')
+        calls.append(args)
+        raise AssertionError(f'browser install ran systemctl {{args}} on {{stack}}')
+    if stack == 'stopped':
+        states = {{unit: ('active (running)' if unit != browser.UNITS[3]
+                           else 'inactive (dead)') for unit in browser.UNITS}}
+        with patch.object(browser, 'UNIT_DIR', home / 'no-units-here'), \\
+                patch.object(browser, 'missing_packages', return_value=[]), \\
+                patch.object(browser, 'unit_states', return_value=states), \\
+                patch.object(browser.subprocess, 'run', side_effect=fail_run), \\
+                patch.object(browser, 'systemctl', side_effect=read_only), \\
+                patch.object(browser.pwd, 'getpwuid', return_value=account):
+            assert browser.install([]) == 1
+        assert calls == []
+        (home / 'browser-install-proof').write_text('stopped: refused before mutations\\n')
+        sys.exit(0)
+    units = home / 'fake-units'
+    units.mkdir(exist_ok=True)
+    if stack == 'foreign':
+        (units / browser.UNITS[0]).write_text('[Service]\\nUser=foreign-owner\\n')
+    else:
+        assert browser.socket.gethostname() != 'another-host'
+        (units / browser.UNITS[0]).write_text(
+            '[Service]\\nUser=new-agent\\n# Browser bridge host: another-host\\n')
+    seen = []
+    def fake_systemctl(args, sudo=False, cap=120):
+        seen.append(args)
+        if args[0] == 'cat':
+            path = units / args[-1]
+            return (0, path.read_text()) if path.exists() else (1, '')
+        if args[0] == 'show':
+            return 0, 'not-found\\n'
+        raise AssertionError(f'browser install ran systemctl {{args}} on {{stack}}')
+    with patch.object(browser, 'UNIT_DIR', units), \\
+            patch.object(browser, 'missing_packages', return_value=[]), \\
+            patch.object(browser, 'unit_states',
+                         return_value={{u: 'active (running)' for u in browser.UNITS}}), \\
+            patch.object(browser, 'systemctl', side_effect=fake_systemctl), \\
+            patch.object(browser.subprocess, 'run', side_effect=fail_run), \\
+            patch.object(browser.pwd, 'getpwuid', return_value=account):
+        assert browser.install([]) == 0
+    assert seen and all(args[0] in ('cat', 'show') for args in seen), seen
+    assert calls == []
+    assert sorted(p.name for p in units.iterdir()) == [browser.UNITS[0]]
+    (home / 'browser-install-proof').write_text(f'{{stack}}: left untouched\\n')
+    sys.exit(0)
 assert sys.argv[1:] == ['browser', 'mcp-register'], sys.argv
-with patch.object(browser, 'warm_npx', return_value='test: no network'):
-    sys.exit(browser.mcp_register([]))
+sys.exit(browser.mcp_register([]))
 ''')
         script('crontab', '''if [[ "$1" == -l ]]; then cat "$HOME/cron" 2>/dev/null; else cat >"$HOME/cron"; fi
 ''')
@@ -426,6 +489,10 @@ py_ok() {{ python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))'; }}
         self.assertIn('ak attach', (self.home / '.ssh/authorized_keys').read_text())
         self.assertTrue((self.home / '.agentkit/state/installed-at').exists())
         self.assertFalse(self.root.exists())
+        expected = {'foreign': 'foreign: left untouched\n',
+                    'foreign-host': 'foreign-host: left untouched\n',
+                    'stopped': 'stopped: refused before mutations\n'}[stack]
+        self.assertEqual((self.home / 'browser-install-proof').read_text(), expected)
 
 
 if __name__ == '__main__':

@@ -2,12 +2,13 @@
 # when that file does not exist, and never overwrites it afterwards: the config is yours from
 # then on.  Edit the copy in the home directory, not this file.
 
-max_runs = 0              # no count cap; host memory and load are the gates
-max_gates = 3             # done-when gates of one repository at once, host-wide; 0 = no cap
-# min_free_mb and max_load default from this host's RAM and processor count.
+max_runs = 0              # no count cap; host memory and ak's CPU pressure are the gates
+# max_gates, when set, pins the host-wide heavy-suite turns; unset, the count is
+# derived from the slice's live CPU and memory headroom. 0 = no cap.
+# min_free_mb defaults from this host's RAM. A pinned max_load restores the host load check instead.
 # Set either to 0 to disable that one resource check.
 # run_memory_max_mb, when set, is one run's memory cap in MiB. Unset, the cap is
-# the smaller of 4 GB and 40% of the slice's MemoryMax, and swap is capped the same.
+# 40% of the slice's MemoryMax (4 GB where there is no ceiling), and swap is capped the same.
 pace_margin = 10          # the one knob: a subscription more than this far ahead of pace no
                           # longer keeps a payg provider out; workers rank on budget, not on
                           # pace, and the orchestrator choice reads neither
