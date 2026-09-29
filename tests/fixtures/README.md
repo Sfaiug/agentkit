@@ -455,3 +455,50 @@ and other-session events in `tests/test_opencode_title.py` are synthetic variant
 captured event, not model captures. Because origin cannot be distinguished, OpenCode
 never renames an ak seat; its plugin restores the ak name through `ctx.session.update`
 and acknowledges only a matching `ctx.session.get` read-back for the owned session.
+
+## Muse title probe (1.4.0-R4302.1): naming unavailable after turns too
+
+The `muse-title-*-pane.txt` files are actual 110×32 `capture-pane -p -e -J`
+screens from Muse Code **1.4.0-R4302.1**, captured on 2026-09-28. The launcher ran
+in a temporary directory inside the checkout with a throwaway HOME, XDG directories
+and tmux socket, only the caller's auth.json linked, and a copied model catalog.
+`MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0` pinned the build. Options were
+`--provider meta --model muse-spark-1.3 --reasoning-effort minimal --yolo
+--disable-shell --disable-write`; Muse selected `muse-spark-1.3-contributor`.
+The workspace display alone is replaced with `/tmp/acme`; SGR and blank rows remain.
+
+- `before-turn-refused`: `/rename lagoon` before any prompt.
+- `idle-{composed,refused}`: `/rename quay` after `Reply with exactly: pebble`
+  completed with `pebble` and returned to the empty composer.
+- `working-{composed,refused}`: `/rename harbor` during the second prompt,
+  `List the integers from 1 to 120, one per line, with no tools.` The pane says
+  `esc to interrupt` both before and after Enter. That turn also completed.
+
+Text and Enter were separated by 300 ms. All three commands cleared the composer
+and printed `Could not change the session name because naming is unavailable`.
+`muse-title-launch-refused.txt` is the error/usage prefix captured from a second
+tmux window with the same options plus `--name lagoon`; it exited 2 before startup.
+`muse-title-resume-pane.txt` is the resume picker after the turns and exit: no saved
+sessions. No generated name was observed; the terminal identity was the session
+id's suffix, not a custom name.
+
+`muse-title-session.jsonl` keeps the session log's metadata, route facts, three
+`command.invoked` records (Muse spells the command `/name`), both accepted user
+intents, run starts and completed terminals, and the first assistant reply.
+All ids are wholly replaced with invented ids, paths with `/tmp/acme` paths, pid
+with 4242 and tty with `/dev/pts/9`. Other event records are omitted; the full log
+contained no `session.name.changed` event. Neither rename text nor its name reached
+a model prompt. `muse-title-unavailable-index.json` projects the actual index's
+`schema_meta`, empty `sessions` and table schema after the turns and resume picker;
+the name snapshot fingerprint is still `unavailable`. Tests insert synthetic
+`generated`/`manual` title rows into that captured schema to check they cannot name
+an ak seat; these are not successful-rename or automatic-title captures.
+
+This replaces the earlier prompt-free idle/busy captures: those proved nothing
+about naming after a real turn. All throwaway sessions, homes and tmux servers were
+removed. Muse title hooks remain absent: no successful rename contract was observed.
+The throwaway HOME is not why renames are refused: the caller's real index
+also reads `session_name_snapshot_fingerprint = unavailable`, with no named
+sessions. The `muse start --host … --name` string in the binary is an MSP
+session-host coordinator command from an embedded skill doc, not a TUI launch
+option: the installed TUI lists no `start` subcommand and rejects `--name`.
