@@ -137,7 +137,7 @@ class ProviderScreen(unittest.TestCase):
         home = screen.path.parent.parent
         lines = open_providers(screen)
         self.assertEqual(providers(lines), ["Providers      Claude  + add  − remove"])
-        lines, offered = pick(screen, ENTER, ADD, 5)
+        lines, offered = pick(screen, ENTER, ADD, 6)
         self.assertEqual(lines[-1], KEYS["add"])
         self.assertEqual(offered[:3], ["› OpenAI / Codex", "  Meta / Muse", "  xAI / Grok Build"])
         mark = len(screen.text())
@@ -159,7 +159,7 @@ class ProviderScreen(unittest.TestCase):
         self.assertEqual(providers(lines), ["Providers      Claude  Grok  + add  − remove"])
         self.assertTrue(highlighted(lines).startswith("› Providers"))
         # a program already there is logged in and never installed
-        pick(screen, ENTER, ADD, 4)
+        pick(screen, ENTER, ADD, 6)
         screen.press(ENTER, lambda lines: title(lines) == MATRIX and "ChatGPT" in lines)
         self.assertEqual((home / "verbs.log").read_text().split("\n")[2:], ["codex login", ""])
         saved = screen.saved()
@@ -172,7 +172,7 @@ class ProviderScreen(unittest.TestCase):
     def test_an_added_provider_s_usage_model_names_the_model_it_added(self):
         screen = Screen(self, child=CHILD, text=ONE)
         open_providers(screen)
-        pick(screen, ENTER, ADD, 5)
+        pick(screen, ENTER, ADD, 6)
         screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX and "Muse" in lines)
         saved = screen.saved()
         self.assertEqual(saved["providers"]["meta"], SHIPPED["providers"]["meta"])
@@ -185,7 +185,7 @@ class ProviderScreen(unittest.TestCase):
         screen = Screen(self, child=CHILD, text=ONE + spark)
         open_providers(screen)
         before = screen.path.read_bytes()
-        pick(screen, ENTER, ADD, 5)
+        pick(screen, ENTER, ADD, 6)
         screen.press(DOWN + ENTER, lambda lines: "Meta / Muse adds its model as spark, and a "
                                                  "model has that name; nothing added" in lines[-3])
         self.assertEqual(screen.path.read_bytes(), before)
@@ -195,18 +195,20 @@ class ProviderScreen(unittest.TestCase):
     def test_a_provider_already_added_is_not_offered(self):
         screen = Screen(self, child=CHILD, text=ONE)
         open_providers(screen)
-        _, offered = pick(screen, ENTER, ADD, 5)
+        _, offered = pick(screen, ENTER, ADD, 6)
         self.assertEqual(offered, ["› OpenAI / Codex", "  Meta / Muse", "  xAI / Grok Build",
-                                   "  Google / Antigravity", "  Xiaomi / MiMo through OpenCode"])
+                                   "  Google / Antigravity", "  Xiaomi / MiMo through OpenCode",
+                                   "  Claude II"])
         screen.press(ESC, lambda lines: title(lines) == MATRIX)
         screen.leave()
-        # with every shipped provider added there is nothing to offer, and nothing is drawn
+        # with every shipped provider added only another subscription of each is offered
         screen = Screen(self, child=CHILD)
         open_providers(screen)
-        before, mark = screen.path.read_bytes(), len(screen.text())
-        lines = screen.press(ENTER, lambda lines: "every provider agentkit ships is added"
-                                                  in lines[-3])
-        self.assertNotIn("add a provider", screen.text()[mark:])
+        before = screen.path.read_bytes()
+        _, offered = pick(screen, ENTER, ADD, 6)
+        self.assertEqual(offered, ["› Claude II", "  ChatGPT II", "  Muse II", "  Grok II",
+                                   "  Gemini II", "  MiMo II"])
+        screen.press(ESC, lambda lines: title(lines) == MATRIX)
         self.assertEqual(screen.path.read_bytes(), before)
         screen.leave()
         home = screen.path.parent.parent
@@ -329,10 +331,10 @@ class ProviderScreen(unittest.TestCase):
         screen.leave()
         screen = Screen(self, child=CHILD, text=ONE, rows=24, cols=40)
         open_providers(screen)
-        lines, offered = pick(screen, ENTER, ADD, 5)
+        lines, offered = pick(screen, ENTER, ADD, 6)
         for line in lines + offered:
             self.assertLessEqual(terminal.cells(line), 40, line)
-        self.assertEqual(offered[-1], "  Xiaomi / MiMo through OpenCode")
+        self.assertEqual(offered[-2], "  Xiaomi / MiMo through OpenCode")
         screen.press(ESC, lambda lines: title(lines) == MATRIX)
         screen.leave()
 
