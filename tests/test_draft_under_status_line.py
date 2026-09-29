@@ -24,6 +24,8 @@ STATUS = (
     "acme main* · $0.42",
     "acme · fix-api\n[####      ] 40% · 3h left",
 )
+# ... and may start with a prompt mark, on its first line or a later one: still no composer.
+MARKED = ("❯ acme main*", "❯", "acme · fix-api\n› 40% · 3h left", "⟩ acme main*\n[####  ] 40%")
 
 
 def under_status(pane, status):
@@ -38,13 +40,13 @@ class DraftUnderStatusLine(Sandbox):
         return watch.screen_state("claude", watch.pane_tail(pane))
 
     def test_typed_text_over_any_status_line_is_a_draft(self):
-        for status in STATUS:
+        for status in STATUS + MARKED:
             with self.subTest(status=status):
                 self.assertEqual(self.read(under_status(DRAFT, status)),
                                  ("draft", "prompt.draft", TEXT))
 
     def test_an_empty_composer_over_the_same_status_line_is_at_prompt(self):
-        for status in STATUS:
+        for status in STATUS + MARKED:
             with self.subTest(status=status):
                 self.assertEqual(self.read(under_status(PROMPT, status))[:2],
                                  ("at_prompt", "prompt.composer"))
