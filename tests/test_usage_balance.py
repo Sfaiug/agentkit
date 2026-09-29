@@ -564,7 +564,13 @@ class WeeklyBalance(unittest.TestCase):
                     patch.object(usage, "_probe",
                                  side_effect=lambda cfg, name, now, account=None: raw[name]) as probe:
                 fresh = usage.collect(self.cfg)
-                self.assertEqual(fresh, providers)
+                # The meterless fourth provider failed its first ask, so there is no
+                # reading to keep -- but the failure is still recorded beside it.
+                want = copy.deepcopy(providers)
+                want["mimo"] = {**providers["mimo"], "fetched_at": None,
+                                "probe_error": "unknown: no usage source",
+                                "probe_failed_at": self.now, "stale_since": self.now}
+                self.assertEqual(fresh, want)
                 self.assertEqual(probe.call_count, 4)
                 cache = Path(tmp) / "usage.json"
                 # An older/stale derived verdict must not be trusted on a warm read.

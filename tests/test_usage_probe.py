@@ -247,15 +247,36 @@ class GentleProbe(unittest.TestCase):
         self.refused()
         self.assertEqual(self.asked("auth"), [])
         self.assertNotIn("no login", "\n".join(self.rows()))
-        # A probe that failed some other way asks, and a yes is not a logout either: the row
-        # says the probe was not reached, and the reading it had is kept nowhere to be shown.
+        # A probe that failed some other way asks, and whatever the answer the last reading
+        # still stands: the row keeps its bar, and the failure is recorded beside it.
         self.now[0] += usage.PROBE_EVERY
         self.answer("alpha", [], "unknown: no fake token (~/.fake/token); run 'fake' to log in")
         prov = usage.collect(self.cfg, refresh=True)["alpha"]
         self.assertEqual(self.asked("auth"), ["fake auth"])   # only the one that failed
         self.assertTrue(prov["logged_in"])
+        self.assertEqual([m["used"] for m in prov["meters"]], [40])
+        self.assertIn("no fake token", prov["probe_error"])
+        self.assertEqual(prov["stale_since"], NOW + usage.PROBE_EVERY)   # since the 429
+        row = self.rows()[1]
+        self.assertRegex(row, r"Alpha\s+[█░]+\s+60% left")
+        self.assertNotIn("no login", row)
+        # And a no is recorded as one, still beside the reading that stands.
+        (self.fake / "auth-code").write_text("1")
+        (self.fake / "auth-line").write_text("no fake token; run 'fake' to log in\n")
+        self.now[0] += usage.PROBE_EVERY
+        prov = usage.collect(self.cfg, refresh=True)["alpha"]
+        self.assertIs(prov["logged_in"], False)
+        self.assertEqual([m["used"] for m in prov["meters"]], [40])
+        self.assertRegex(self.rows()[1], r"Alpha\s+[█░]+\s+60% left")
+
+    def test_without_a_reading_a_no_from_auth_is_no_login(self):
+        # No probe has ever answered, so there is no reading to keep: the row says what the
+        # failure was, and `no login` comes from the `auth` verb the probe asked, never from
+        # the error's wording.
+        self.answer("alpha", [], "unknown: no fake token (~/.fake/token); run 'fake' to log in")
+        prov = usage.collect(self.cfg)["alpha"]
+        self.assertTrue(prov["logged_in"])
         self.assertEqual(self.rows()[1].split(), ["Alpha", "—", "not", "reached"])
-        # And a no is the one thing that puts `no login` on a row.
         (self.fake / "auth-code").write_text("1")
         (self.fake / "auth-line").write_text("no fake token; run 'fake' to log in\n")
         self.now[0] += usage.PROBE_EVERY

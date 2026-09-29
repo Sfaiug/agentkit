@@ -109,41 +109,59 @@ interactive)
       "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" "${AGENTKIT_SESSION:-}" ;;
 usage)
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
-  # The worker token first, for the same reason `run` prefers it: this probe runs beside a
-  # dozen turns and must not be one more reader of the pair the seat is refreshing.
-  at=${CLAUDE_CODE_OAUTH_TOKEN:-}
-  [ -n "$at" ] || at=$(cat "$TOKEN" 2>/dev/null) || at=
-  worker_first=0; [ -n "$at" ] && worker_first=1
-  if [ "$worker_first" = 0 ]; then
-    tok=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
-      || tok=$(cat "$CREDS" 2>/dev/null) || tok=
-    # pipe, not a here-string: a here-string would put the credentials in a temp file
-    at=$(printf '%s' "${tok:-{\}}" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
+  # One request per ask: the seat login's token while its own expiry is still in the future,
+  # else the worker token -- never both.  A second request per ask kept both tokens inside a
+  # 429 penalty nothing read, and a fallback answer replaced a good reading with an empty one.
+  # The Keychain holds the usual login's pair, the credentials file every login's.
+  tok=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
+    || tok=$(cat "$CREDS" 2>/dev/null) || tok=
+  # pipe, not a here-string: a here-string would put the credentials in a temp file
+  seat_at=$(printf '%s' "${tok:-{\}}" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
+  seat_exp=$(printf '%s' "${tok:-{\}}" | jq -r '.claudeAiOauth.expiresAt // empty' 2>/dev/null)
+  at=
+  case "$seat_exp" in ''|*[!0-9]*) ;; *)
+    # `expiresAt` is epoch milliseconds in every file seen; a ten-digit value is seconds
+    [ "${#seat_exp}" -gt 11 ] || seat_exp="${seat_exp}000"
+    [ "$seat_exp" -gt "$(( $(date +%s) * 1000 ))" ] && [ -n "$seat_at" ] && at=$seat_at ;;
+  esac
+  if [ -z "$at" ]; then
+    # No live seat login: the worker's own token, which never reads or refreshes the pair
+    # the seat is refreshing -- this probe runs beside a dozen turns.
+    at=${CLAUDE_CODE_OAUTH_TOKEN:-}
+    [ -n "$at" ] || at=$(cat "$TOKEN" 2>/dev/null) || at=
   fi
   [ -n "$at" ] || err "no Claude Code OAuth token ($TOKEN / macOS Keychain 'Claude Code-credentials' / $CREDS); run 'claude' once to log in"
   mkdir -p -- "$TMPD" && chmod 700 "$TMPD" 2>/dev/null   # BSD chmod has no -- option
   hf=$(mktemp "$TMPD/.hdr.XXXXXX") || err "cannot create header file in $TMPD"
-  trap 'rm -f -- "$hf"' EXIT HUP INT TERM   # an interrupt must not leave the token on disk
+  df=$(mktemp "$TMPD/.resp.XXXXXX") || err "cannot create header file in $TMPD"
+  trap 'rm -f -- "$hf" "$df"' EXIT HUP INT TERM   # an interrupt must not leave the token on disk
   chmod 600 "$hf"; printf 'Authorization: Bearer %s\n' "$at" >"$hf"
-  body=$(curl -s -m 10 -w $'\n%{http_code}' https://api.anthropic.com/api/oauth/usage -H @"$hf" \
+  body=$(curl -s -m 10 -D "$df" -w $'\n%{http_code}' https://api.anthropic.com/api/oauth/usage -H @"$hf" \
       -H 'anthropic-beta: oauth-2025-04-20' -H 'anthropic-version: 2023-06-01' 2>/dev/null)
   code=${body##*$'\n'}; body=${body%$'\n'*}
-  if [ "$code" != 200 ] && [ "$worker_first" = 1 ]; then
-    # The usage endpoint refuses some setup-minted tokens while the seat's own login answers
-    # 200 at the same second, so a refused worker token gets one try as the seat before the
-    # probe gives up; the error below then names that last answer only.
-    tok=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
-      || tok=$(cat "$CREDS" 2>/dev/null) || tok=
-    at=$(printf '%s' "${tok:-{\}}" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
-    if [ -n "$at" ]; then
-      printf 'Authorization: Bearer %s\n' "$at" >"$hf"
-      body=$(curl -s -m 10 -w $'\n%{http_code}' https://api.anthropic.com/api/oauth/usage -H @"$hf" \
-          -H 'anthropic-beta: oauth-2025-04-20' -H 'anthropic-version: 2023-06-01' 2>/dev/null)
-      code=${body##*$'\n'}; body=${body%$'\n'*}
-    fi
+  # The endpoint's own not-before, when it named one: delay seconds, or the HTTP date to
+  # wait for, answered in seconds from now.  Either arrives with any amount of header
+  # whitespace around it, and leading zeros are decimal, never octal.  Anything else waits
+  # out the harness's own fifteen minutes instead.
+  raw=$(sed -n 's/^[Rr][Ee][Tt][Rr][Yy]-[Aa][Ff][Tt][Ee][Rr]:[[:space:]]*//p' "$df" 2>/dev/null | tail -n 1 | tr -d '\r' | sed 's/[[:space:]]*$//')
+  retry=
+  case "$raw" in
+    ''|*[!0-9]*)
+      exp=$(date -d "$raw" +%s 2>/dev/null || date -j -f '%a, %d %b %Y %T %Z' "$raw" +%s 2>/dev/null) || exp=
+      case "$exp" in ''|*[!0-9]*) ;; *)
+        retry=$(( exp - $(date +%s) ))
+        [ "$retry" -gt 0 ] 2>/dev/null || retry= ;;
+      esac ;;
+    *) retry=$((10#$raw)) ;;
+  esac
+  rm -f -- "$hf" "$df"
+  if [ "$code" != 200 ]; then
+    msg="HTTP ${code:-000} from api.anthropic.com/api/oauth/usage; token may be expired, run 'claude' once to refresh"
+    case "$retry" in ''|0|*[!0-9]*) err "$msg" ;; esac
+    m=${msg//\\/}; m=${m//\"/\'}
+    printf '{"provider":"anthropic","meters":[],"error":"unknown: %s","retry_after":%d}\n' "$m" "$retry"
+    exit 0
   fi
-  rm -f -- "$hf"
-  [ "$code" = 200 ] || err "HTTP ${code:-000} from api.anthropic.com/api/oauth/usage; token may be expired, run 'claude' once to refresh"
   jq -c '{provider:"anthropic", error:null, meters:[ .limits[]
       | select(.resets_at != null and .percent != null)
       | {name:.kind, used:.percent,
