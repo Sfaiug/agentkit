@@ -65,7 +65,7 @@ class Catalog(unittest.TestCase):
         patcher = patch.dict(os.environ, self.env)
         patcher.start()
         self.addCleanup(patcher.stop)
-        for name in (config.ADAPTER_DIR_ENV, "GROK_BIN_DIR", "GROK_HOME"):
+        for name in (config.ADAPTER_DIR_ENV, config.ACCOUNT_ENV, "GROK_BIN_DIR", "GROK_HOME"):
             os.environ.pop(name, None)
         # every harness that can list live has a stub first on PATH, failing until a test
         # hands it a listing, so no path through an adapter reaches an installed CLI

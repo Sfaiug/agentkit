@@ -17,10 +17,22 @@
 #                                  adapters/codex.toml
 # The model `default`, and an empty one, mean this account picks no model: `run` and
 # `interactive` then pass no -m at all -- see the note above the `interactive` printf.
+# $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then uses that
+# subscription's own login, and no other
 set -uo pipefail
 command -v codex >/dev/null || PATH="$HOME/.npm-global/bin${PATH:+:$PATH}"   # install.sh's npm prefix puts it here: the fallback when PATH has no answer
 AUTH="$HOME/.codex/auth.json"
 TMPD="$HOME/.agentkit/tmp"
+# An account other than the usual login keeps its login in a Codex home of its own, where
+# `CODEX_HOME=~/.codex-<name> codex login` puts it.  Nothing of the usual login -- its auth.json,
+# a key exported for it -- ever answers for an account: that would spend the wrong
+# subscription, or read its meters as this one's.
+ACCOUNT=${AGENTKIT_ACCOUNT:-}
+if [ -n "$ACCOUNT" ]; then
+  export CODEX_HOME="$HOME/.codex-$ACCOUNT"
+  AUTH="$CODEX_HOME/auth.json"
+  unset OPENAI_API_KEY CODEX_API_KEY
+fi
 # The three read/write endpoints the Codex TUI itself uses: /usage carries the meters and the
 # reset count, /rate-limit-reset-credits lists the credits, and .../consume spends one.
 API=https://chatgpt.com/backend-api/wham
@@ -59,6 +71,20 @@ mkhdr() {
 get() { curl -s -m 10 -w $'\n%{http_code}' "$1" -H @"$HF" 2>/dev/null; }
 # The login hint for a refused /usage: only a 401 or 403 is the token's fault, never a 429 or 5xx
 expired() { case $1 in 401|403) printf "; token may be expired, run 'codex login' to refresh" ;; esac; }
+# An account's home shares the usual one's conversations and config.toml, so a thread begun on
+# one subscription resumes on the other; auth.json alone is its own.  The shared config.toml
+# may keep logins in the Keychain, so a codex started on an account is told to use the file.
+STORE='cli_auth_credentials_store="file"'
+home() {
+  mkdir -p -- "$CODEX_HOME" || return 1
+  for store in sessions archived_sessions; do
+    mkdir -p -- "$HOME/.codex/$store" || return 1
+    [ -e "$CODEX_HOME/$store" ] || ln -s -- "$HOME/.codex/$store" "$CODEX_HOME/$store" || return 1
+  done
+  if [ -f "$HOME/.codex/config.toml" ] && [ ! -e "$CODEX_HOME/config.toml" ]; then
+    ln -s -- "$HOME/.codex/config.toml" "$CODEX_HOME/config.toml" || return 1
+  fi
+}
 
 case "$cmd" in
 run)
@@ -71,6 +97,7 @@ run)
   # A `default` (or empty) model means this account cannot be told which model to run, so -m is
   # left off entirely and codex runs its own -- see the note above the `interactive` printf.
   case $model in ""|default) ;; *) set -- "$@" -m "$model" ;; esac
+  if [ -n "$ACCOUNT" ]; then home || exit 2; set -- "$@" -c "$STORE"; fi
   codex "$@" -c model_reasoning_effort="$effort" \
       --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --json \
       -o "$out/final.md" <"$pf" >"$out/events.jsonl" 2>"$out/stderr.log"
@@ -83,19 +110,7 @@ run)
   exit $rc ;;
 interactive)
   [ $# -ge 2 ] || { echo "codex.sh interactive needs <model> <effort> [session-id [new]]" >&2; exit 2; }
-  # Keep each login's auth.json separate while every seat can still resume its transcript.
-  account=${AGENTKIT_ACCOUNT:-}
-  if [ -n "$account" ]; then
-    seat_home="$HOME/.codex-$account"
-    mkdir -p -- "$seat_home" || exit 2
-    for store in sessions archived_sessions; do
-      mkdir -p -- "$HOME/.codex/$store" || exit 2
-      [ -e "$seat_home/$store" ] || ln -s -- "$HOME/.codex/$store" "$seat_home/$store" || exit 2
-    done
-    if [ -f "$HOME/.codex/config.toml" ] && [ ! -e "$seat_home/config.toml" ]; then
-      ln -s -- "$HOME/.codex/config.toml" "$seat_home/config.toml" || exit 2
-    fi
-  fi
+  if [ -n "$ACCOUNT" ]; then home || exit 2; fi
   # `codex exec --session-id` is the headless spelling; the TUI takes no thread id of anyone
   # else's making (codex 0.153: `codex --help` has no such flag), so the launcher is told so
   # rather than handed a command that would drop the id on the floor. The seat wrapper records
@@ -133,8 +148,9 @@ interactive)
   # wrapper, which gives this launch's hooks and receipt to its own app server. Both the
   # server and its remote TUI remain children of the process idle-compact.py forked.
   # Headless `ak worker` runs are not wrapped: they are not seats.
-  if [ -n "$account" ]; then
-    printf 'env -u OPENAI_API_KEY -u CODEX_API_KEY CODEX_HOME=%q ' "$seat_home"
+  # The printed command runs later, outside this adapter's environment: it carries the login.
+  if [ -n "$ACCOUNT" ]; then
+    printf 'env -u OPENAI_API_KEY -u CODEX_API_KEY CODEX_HOME=%q ' "$CODEX_HOME"
   fi
   printf "python3 %q codex -- python3 %q --harness codex -- python3 %q %s-- codex %s--yolo %s-c 'model_reasoning_effort=\"%s\"'\n" \
       "$REPO/tools/trust.py" "$REPO/tools/idle-compact.py" "$REPO/tools/codex-seat.py" "$rules" \
@@ -232,7 +248,9 @@ login)
   command -v codex >/dev/null || { echo "codex.sh login: codex is not installed" >&2; exit 2; }
   if [ -s "$AUTH" ]; then echo "codex: already logged in"; exit 0; fi
   [ -t 0 ] || { echo "codex: not logged in; run \`codex login --device-auth\` in a terminal" >&2; exit 1; }
-  codex login --device-auth ;;
+  set --
+  if [ -n "$ACCOUNT" ]; then home || exit 2; set -- -c "$STORE"; fi
+  codex "$@" login --device-auth ;;
 auth)
   # Can a turn authenticate right now?  Exit 0 and say so, or exit 1 with one line saying why
   # not.  Without jq the file cannot be read at all, so the question is not answered: exit 2 is
