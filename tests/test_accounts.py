@@ -104,6 +104,8 @@ class Accounts(unittest.TestCase):
             d.mkdir()
         script(bin / "curl", FAKE_CURL)
         script(bin / "claude", FAKE_CLAUDE)
+        # No Keychain on any host this runs on: the logins here are worker tokens alone.
+        script(bin / "security", "#!/usr/bin/env bash\nexit 1\n")
         script(adapters / "other.sh", FAKE_OTHER)
         (adapters / "claude.sh").symlink_to(REPO / "adapters/claude.sh")
         home = root / ".agentkit"

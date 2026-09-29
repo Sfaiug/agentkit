@@ -190,6 +190,40 @@ if [ "${1:-}" = --stall-panes ]; then
   python3 "$REPO/tests/capture_stall_panes.py" "${@:2}"
   exit $?
 fi
+smoke_share_probes() {   # link the sandbox probe files at the host's own, per provider
+  # A gate ask is a real request against the same account, so the sandbox reads and writes
+  # the host's own cadence and Retry-After files, not copies of them: a host ask at any point
+  # in the suite holds every later sandbox ask through _cooling itself -- check 4's `ak run`
+  # and check 6d's `ak orch` as much as checks 1 and 6 -- and a sandbox ask holds the host's
+  # own.  _probe_gently opens the lock with "a", writes it with write_text and never unlinks
+  # it, so a link works as-is, even a dangling one for a file the host has yet to write --
+  # as long as the host state directory is there for it to resolve in, which it is not on
+  # a host that has never run agentkit: without it every ask goes out unheld.
+  # The sandbox asks with the default login, so each sandbox file points at the host file
+  # that tracks that login: its .default file where the host lists accounts for the
+  # provider, else its plain one.  Every provider the sandbox config offers is covered.
+  PYTHONPATH="$REPO" SMOKE_CALLER_HOME="$SMOKE_CALLER_HOME" python3 - <<'PY' || exit 1
+import os, tomllib
+from pathlib import Path
+from agentkit import config
+host = Path(os.environ["SMOKE_CALLER_HOME"]) / ".agentkit"
+for path in (host, host / "state"):
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(path, 0o700)   # a dir someone else created stays 0700 too
+try:
+    with (host / "config.toml").open("rb") as fh:
+        listed = tomllib.load(fh).get("providers")
+except (OSError, ValueError):
+    listed = None
+listed = listed if isinstance(listed, dict) else {}
+for provider in config.load()["providers"]:
+    accounts = listed.get(provider)
+    accounts = accounts.get("accounts") if isinstance(accounts, dict) else None
+    tracked = f"{provider}.default" if isinstance(accounts, list) and accounts else provider
+    for suffix in ("-probe.lock", "-probe.retry"):
+        (config.STATE / f"{provider}{suffix}").symlink_to(host / "state" / f"{tracked}{suffix}")
+PY
+}
 smoke_home() {
   # Borrow credential files, never directories: hooks, settings, trust and caches are local.
   local path source target caller_config caller_data caller_claude caller_codex caller_grok
@@ -264,6 +298,9 @@ PY
     [ ! -f "$SMOKE_CALLER_HOME/.agentkit/state/$path" ] ||
       cp -p "$SMOKE_CALLER_HOME/.agentkit/state/$path" "$HOME/.agentkit/state/$path"
   done
+  # The cadence and Retry-After belong to the host: share its probe ages live, so every
+  # sandbox ask obeys them through _cooling itself, at every check and for every provider.
+  smoke_share_probes
 }
 smoke_source() {   # smoke_source <caller's file>: 0 to borrow it, 1 when nothing is there
   # A file this user cannot read, or cannot reach through a directory or a link, is there and
@@ -435,21 +472,24 @@ with tempfile.TemporaryDirectory(prefix=".usage-fresh-", dir=config.REPO) as tmp
         if width == 100:
             assert re.search(r"92% left · resets \w+ \d\d:\d\d · Fable 91%$", screen[1]), screen
     assert paid.call_count == 0 and probe_cache.read_bytes() == probe_before
-    # Three minutes later the tick is past the minute's cadence: it reads both free meters
-    # again and updates the menu from those reads; Muse's paid cache stays put.
+    # Three minutes later the tick is past the minute's cadence but not Claude's
+    # fifteen: it reads the minute's meter again and updates the menu from those reads,
+    # while Claude's reading stands; Muse's paid cache stays put.
     now[0] += 180
     meters["codex"][0]["used"] = 44
     tick()
-    assert calls.count(("claude", "usage")) == calls.count(("codex", "usage")) == 2, calls
+    assert calls.count(("claude", "usage")) == 1, calls
+    assert calls.count(("codex", "usage")) == 2, calls
     assert json.loads(cache.read_text())["fetched_at"] == now[0]
     assert re.search(r"ChatGPT\s+[█░]+\s+56%", lines()[5]), lines()
     assert paid.call_count == 0 and probe_cache.read_bytes() == probe_before
-    # Inside usage.PROBE_EVERY the tick asks no adapter anything: one cadence, host-wide, so
+    # Inside every cadence the tick asks no adapter anything: one cadence, host-wide, so
     # it re-assembles the snapshot off the reading already in it.
     now[0] += usage.PROBE_EVERY - 1
     meters["codex"][0]["used"] = 43
     tick()
-    assert calls.count(("claude", "usage")) == calls.count(("codex", "usage")) == 2, calls
+    assert calls.count(("claude", "usage")) == 1, calls
+    assert calls.count(("codex", "usage")) == 2, calls
     assert json.loads(cache.read_text())["fetched_at"] == now[0]
     assert re.search(r"ChatGPT\s+[█░]+\s+56%", lines()[5]), lines()
     # Rendering never updates the snapshot, and never says how old it is.
@@ -482,15 +522,17 @@ with tempfile.TemporaryDirectory(prefix=".usage-fresh-", dir=config.REPO) as tmp
     # the reset policy's own clock and the row's words, and both want a reading per tick. The
     # cadence itself is checked above and in tests/test_usage_probe.py.
     stack.enter_context(patch.object(usage, "PROBE_EVERY", 0))
+    stack.enter_context(patch.object(usage, "_probe_every", return_value=0))
     # With no shared week reported there is no provider percentage to draw: Fable's own cap
     # is never shown as Claude's, whatever the row would otherwise have said.
     meters["claude"] = [meter("weekly_scoped", 9)]
     tick()
     assert lines()[1].split() == ["Claude", "—", "no", "shared", "week"], lines()
-    # Failed free reads say so, never the previous allowance stamped as fresh.
+    # A failed free read keeps the previous allowance, with the failure recorded beside it.
     meters["claude"] = []
     tick()
-    assert lines()[1].endswith("—  no reading yet") and "57% left" in lines()[5], lines()
+    assert lines()[1].endswith("—  no shared week") and "57% left" in lines()[5], lines()
+    assert "returned no meters" in json.loads(cache.read_text())["providers"]["anthropic"]["probe_error"]
     assert paid.call_count == 1
 
     # Watch is read-only, but ordinary consumers still exercise the real reset policy from
@@ -1628,7 +1670,70 @@ skip_unavailable() {   # skip_unavailable <check labels> <required models...>
   done
   return 1
 }
+reprobe() { # reprobe <provider...>: ask each named provider again where allowed
+  # A live retry keeps the snapshot and every cooldown: each provider is asked again only
+  # where its own cadence and Retry-After allow, and a provider still held keeps the
+  # reading it has.  Any failure refreshes nothing, and the snapshot below is read as is.
+  PYTHONPATH="$REPO" python3 - "$@" <<'PY' 2>/dev/null
+import sys
+from agentkit import config, usage
+cfg = config.load()
+for name in sys.argv[1:]:
+    usage._probe_gently(cfg, name)
+PY
+}
+host_held() { # host_held <provider...>: why the shared cadence holds one back, or 1
+  # The sandbox probe files are links at the host's own (smoke_share_probes), so a provider
+  # the host asked inside its cadence, or whose last refusal named a wait still ahead, is
+  # not asked again here: _cooling holds it.  Where a check therefore cannot get a fresh
+  # answer it skips with this reason, as a 429 skips.
+  PYTHONPATH="$REPO" python3 - "$@" <<'PY' 2>/dev/null
+import sys, time
+from agentkit import config, usage
+try:
+    cfg = config.load()
+except Exception:
+    sys.exit(1)
+now = time.time()
+for provider in sys.argv[1:]:
+    every = usage._probe_every(cfg, provider)
+    try:
+        asked = usage._number(float((config.STATE / f"{provider}-probe.lock").read_text()))
+    except (OSError, ValueError):
+        asked = None
+    if asked is not None and 0 <= now - asked < every:
+        left = int(every - (now - asked))
+        print(f"{provider} asked {int(now - asked)}s ago; next ask in {left}s")
+        sys.exit(0)
+    try:
+        until = usage._number(float((config.STATE / f"{provider}-probe.retry").read_text()))
+    except (OSError, ValueError):
+        continue
+    if until is not None and now < until:
+        print(f"{provider} Retry-After until "
+              f"{time.strftime('%H:%M', time.localtime(until))}")
+        sys.exit(0)
+sys.exit(1)
+PY
+}
 U="$WORK/usage.json"
+HOST_WHY=""
+if HOST_WHY=$(host_held anthropic openai); then
+  # The shared cadence or Retry-After holds one of these back: no fresh answer without
+  # asking where asking is not allowed, so skip like a 429, without asking.
+  skip "1: provider meter unavailable ($HOST_WHY)"
+  HOST_SKIPPED_1=1
+  # Check 6 seeds its orch HOME from $U and 6b still runs on a throttled meter: leave the
+  # hold reason where that seeding reads it, without having asked.
+  python3 - "$U" "$HOST_WHY" <<'PY'
+import json, sys
+why = sys.argv[2]
+with open(sys.argv[1], "w") as fh:
+    json.dump({"pick_order": [], "providers": {
+        "anthropic": {"meters": [], "error": f"unknown: {why}", "exhausted": False},
+        "openai": {"meters": [], "error": f"unknown: {why}", "exhausted": False}}}, fh)
+PY
+else
 ak usage --json >"$U" 2>"$WORK/usage.err"; USAGERC=$?
 # Every provider can be exhausted; only then is an empty pick_order expected here.
 checked "$WORK/usage-check.log" jq -e '(.pick_order | type == "array") and
@@ -1642,9 +1747,12 @@ METER_WHY=""
 if { [ "$USAGERC" != 0 ] || [ "$USAGECHECK" != 0 ]; } \
     && METER_WHY=$(meter_unavailable "$U" anthropic openai); then
   sleep "${AK_METER_RETRY_SECS:-60}"
-  METER_RETRIED=1   # check 6 re-probes without sleeping again: its minute has passed
-  # The retry re-asks the adapters: neither the 5 min cache nor a probe lock's minute answers it.
-  rm -f -- "$HOME/.agentkit/state/usage.json" "$HOME/.agentkit/state/"*-probe.lock
+  METER_RETRIED=1   # check 6 asks again without sleeping: its minute has passed
+  # The retry refreshes each provider where asking is allowed, keeping every cached
+  # reading and cooldown; a provider the host asked during the sleep is held like one
+  # this check asked itself, and keeps the reading it has.  The original assertions
+  # below read what came back.
+  reprobe anthropic openai
   ak usage --json >"$U" 2>"$WORK/usage.err"; USAGERC=$?
   checked "$WORK/usage-check.log" jq -e '(.pick_order | type == "array") and
     ((.pick_order | length > 0) or (.providers | length > 0 and all(.[]; .exhausted == true))) and
@@ -1656,7 +1764,10 @@ if { [ "$USAGERC" != 0 ] || [ "$USAGECHECK" != 0 ]; } \
     METER_WHY=$(meter_unavailable "$U" anthropic openai) || METER_WHY=""
   fi
 fi
-if skip_unavailable 1 opus astra; then
+fi
+if [ -n "${HOST_SKIPPED_1:-}" ]; then
+  :
+elif skip_unavailable 1 opus astra; then
   :
 elif [ "$USAGERC" = 0 ] && [ "$USAGECHECK" = 0 ]; then
   ok "1 ak usage --json: anthropic+openai meters and pick_order $(jq -c .pick_order "$U")"
@@ -1991,13 +2102,28 @@ fi
 # --- 6: orch selection -----------------------------------------------------
 # The pick stands on check 1's meters; when the provider throttled those probes the pick
 # has nothing to stand on either.  One retry a minute later, then the same skip the gate
-# counts as passed.  A meter that answers, wrong or right, runs the pick below.
+# counts as passed.  A meter that answers, wrong or right, runs the pick below.  The retry
+# refreshes each provider where asking is allowed; a held one keeps the reading it has.
 METER_WHY=""
-if METER_WHY=$(meter_unavailable "$U" anthropic openai); then
+# Check 1 on a hold left a placeholder, not meters: refresh it now.  The suite has asked
+# since (checks 3 and 4), so a hold no longer decides this: the refresh serves that fresh
+# reading where the cadence holds, and asks where it allows.  Only a refresh with neither
+# meters nor a throttled error to stand on keeps the hold's own reason.
+if [ -n "${HOST_SKIPPED_1:-}" ]; then
+  ak usage --json >"$U" 2>"$WORK/usage.err" || true
+  if ! meter_unavailable "$U" anthropic openai \
+      && ! jq -e '(.providers.anthropic.meters | length >= 1) and
+        (.providers.openai.meters | length >= 1)' "$U" >/dev/null 2>&1 \
+      && HOST_WHY=$(host_held anthropic openai 2>/dev/null); then
+    METER_WHY="$HOST_WHY"
+  fi
+fi
+if [ -z "$METER_WHY" ] && METER_WHY=$(meter_unavailable "$U" anthropic openai); then
   # Check 1 already waited this minute out when it retried, so this re-probe goes at once.
   [ -n "${METER_RETRIED:-}" ] || sleep "${AK_METER_RETRY_SECS:-60}"
-  # The retry re-asks the adapters: neither the 5 min cache nor a probe lock's minute answers it.
-  rm -f -- "$HOME/.agentkit/state/usage.json" "$HOME/.agentkit/state/"*-probe.lock
+  # The retry refreshes each provider where asking is allowed, keeping every cached
+  # reading and cooldown; the throttle verdict below reads what came back.
+  reprobe anthropic openai
   ak usage --json >"$U" 2>"$WORK/usage.err"
   METER_WHY=$(meter_unavailable "$U" anthropic openai) || METER_WHY=""
 fi

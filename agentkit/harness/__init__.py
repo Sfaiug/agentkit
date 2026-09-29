@@ -28,7 +28,10 @@ UPDATE = {"version": None, "upgrade": None, "revert": None, "env": {}, "cannot":
           "snapshot_dir": ""}
 # `[usage]`: what its usage call needs beyond `<adapter> usage`.  `none` is the harness
 # without a meter at all: no reading is a neutral provider, never a failed probe.
-USAGE = {"capture": False, "strips_timestamp": False, "reset": False, "none": False}
+# `probe_every` is how often the harness may be asked at all, in seconds: its own fact,
+# and None where the manifest names none, which is the host's usual minute.
+USAGE = {"capture": False, "strips_timestamp": False, "reset": False, "none": False,
+         "probe_every": None}
 
 _LOADED = {}
 
