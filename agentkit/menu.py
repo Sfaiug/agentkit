@@ -2288,12 +2288,26 @@ def _cancelled(answer):
             or terminal.is_sequence(answer))
 
 
-def _secret_set(name):
-    """Whether ~/.agentkit/secrets/<name> holds anything: install.sh's `-s`, read the same way."""
+def _secret(name):
+    """What ~/.agentkit/secrets/<name> holds, or "": the file install.sh and `Discord` write."""
     try:
-        return (config.SECRETS / name).stat().st_size > 0
+        return (config.SECRETS / name).read_text().strip()
     except OSError:
-        return False
+        return ""
+
+
+def discord_value():
+    """`Discord`'s value: who a card pings and where it goes, `@acme-owner · webhook …a1B2c3`.
+
+    The name is the one a delivered card's receipt gave this user id (notify.pinged), the id's
+    last 4 digits until one has; of the webhook only its last 6 characters are ever shown.
+    """
+    hook, user = _secret("discord_webhook"), _secret("discord_user_id")
+    if not hook:
+        return "not connected"
+    name = notify.pinged(user) if user else None
+    who = f"@{name}" if name else f"id …{user[-4:]}" if user else ""
+    return " · ".join(filter(None, (who, f"webhook …{hook[-6:]}")))
 
 
 def config_models(cfg):
@@ -2363,8 +2377,7 @@ def config_body(cfg, version, at=None, column=0):
             lines.append(terminal.highlight(line) if at == ("model", name) else line)
     lines.append("")
     wide = max(terminal.cells(row) for row in CONFIG_ROWS)
-    values = ("", "", "connected" if _secret_set("discord_webhook") else "not connected",
-              version or "?")
+    values = ("", "", discord_value(), version or "?")
     for row, value in zip(CONFIG_ROWS, values):
         if ("row", row) == PROVIDERS:
             chosen = min(max(column, 0), 1) if at == PROVIDERS else None
@@ -3022,15 +3035,13 @@ def config_remove_provider(cfg):
 
 
 def config_discord():
-    """`Discord`: the two secrets, written the way install.sh writes them.
+    """`Discord`: the two secrets, shown as its row shows them and written the way install.sh
+    writes them.
 
     An empty answer keeps what is there, so one secret can be changed without retyping the
     other; install.sh asks the same way, once, when there is someone to ask.
     """
-    tick, cross = terminal.glyph("done"), terminal.glyph("FAIL")
-    body = [f"  webhook {tick if _secret_set('discord_webhook') else cross}",
-            f"  user id {tick if _secret_set('discord_user_id') else cross}"]
-    terminal.frame("config · discord", body, "q back")
+    terminal.frame("config · discord", [f"  {discord_value()}"], "q back")
     webhook = read("Webhook URL: ", "")
     if _cancelled(webhook):
         return

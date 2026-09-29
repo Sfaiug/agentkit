@@ -179,7 +179,7 @@ a seat you closed (`x`, `ak orch stop`, a pause script), whose row keeps its num
 install (`installed-at` or a fast-forward's newest module; a gone seat's when it went); `ak notify` counts from the
 command. A card the webhook could not take is retried from the outbox after 1, 3, 10, 30 and then every 60 minutes.
 Ghostty shows a desktop notice when another seat turns `needs you` while you are attached. Workers are refused, and the
-test suites' `$AK_NOTIFY_SINK` outranks the webhook, so a test never reaches you. A card whose session is gone, neither a seat nor a saved record any more, or whose record is swept, has its open needs edited to `Answered` on the next tick, and the card goes once Discord has taken every edit.
+test suites' `$AK_NOTIFY_SINK` outranks the webhook, so a test never reaches you. A card whose session is gone, neither a seat nor a saved record any more, or whose record is swept, has its open needs edited to `Answered` on the next tick, and the card goes once Discord has taken every edit. A delivered card's receipt, the message it created, names the user it pinged in its `mentions`: `state/discord-user.json` keeps that id and name, never the webhook, for the `c` screen's `Discord` row, which shows the id's last 4 digits until a card has named it. No call that posts nothing can name the user.
 
 ## The picker
 
