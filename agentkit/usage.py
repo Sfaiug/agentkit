@@ -865,12 +865,6 @@ def replenish(cfg, provider, depleted=True):
     now = time.time()
     prov = _without_past(_probe_gently(cfg, provider), now, "the adapter")
     prov, spent = _reset_policy(cfg, provider, prov, now, depleted)
-    if not spent and not config.accounts(cfg, provider):
-        # No credit went, so this reading is of the window the mark was made in, and the
-        # mark travels with it as it does out of every other write: a parked provider
-        # must not read as eligible until it is refused again.  A spent credit lifts it
-        # instead, and an account's mark is its own, already carried by the probe above.
-        prov = _carry_mark(_cached_provider(provider), prov, now)
     _patch(provider, prov, now)
     return spent, _number(prov.get("resets")) or 0.0
 
