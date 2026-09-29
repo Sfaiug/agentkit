@@ -8666,11 +8666,10 @@ def collectible_worktree(directory, state):
 def seat_file_stale(path, now):
     """The seat a `<kind>-<name>.*` state file is named for, when that seat has no record and
     the file has not been written for a day; None for anything else."""
-    stem, dot, ext = path.name.rpartition(".")
-    kind, sep, name = stem.partition("-")
-    if (kind not in orch.SEAT_FILE_KINDS or not dot or not ext or not sep or not name
-            or not retention.safe(path) or not path.is_file()):
+    owner = config.seat_file_owner(path)
+    if not owner or not retention.safe(path) or not path.is_file():
         return None
+    name = owner[1]
     try:
         if retention.present(config.session_path(name)):
             return None

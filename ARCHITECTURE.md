@@ -43,8 +43,8 @@ and its `max` counts only go down.
   (`run_records`, `tally`) and the seat status bar (`redress`) that watch, run, orch and
   notify import. Leaks: provider colour and name tables; reads `usage.json` itself.
 - `config.py`: every `~/.agentkit` path, config.toml, models, providers, accounts, adapter
-  scripts and manifests, seat records, their rename chain and file names, child env. Used by
-  nearly everything. Leaks: seat file names are rebuilt in hooks, orch, notify, menu, tools.
+  scripts and manifests, seat records, their rename chain and file names (`SEAT_FILES`), child
+  env. Used by nearly everything. Leaks: the shell hooks rebuild seat file names.
 - `worker.py`: one headless turn: role preambles and the review gate text, the adapter `run`
   call, silence watchdog, process kills, auth check. Offers `call`, `kill_marked`,
   `auth_ok`. Used by run, watch, usage, harness. Leak: a Claude-only shell timeout.

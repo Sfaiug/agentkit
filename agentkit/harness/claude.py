@@ -112,7 +112,7 @@ def session_title(record):
     name = next((name for name, seat in config.session_records().items()
                  if all(seat.get(key) == record.get(key)
                         for key in ("cwd", "conversation", "account"))), None)
-    cache = config.STATE / f"title-{name}.json" if name else None
+    cache = config.title_path(name) if name else None
     try:
         cached = json.loads(cache.read_text(encoding="utf-8")) if cache else None
     except (OSError, ValueError):

@@ -289,7 +289,7 @@ class Live:
         """usage.json and every seat record: each one's name, inode and mtime; and each
         project's feature switches as its `list` last answered, so their landing is news too."""
         found = []
-        for path in [config.STATE / "usage.json", *sorted(config.STATE.glob("seat-*.json"))]:
+        for path in [config.STATE / "usage.json", *(path for _, path in config.seat_files("seat"))]:
             try:
                 stat = path.stat()
             except OSError:

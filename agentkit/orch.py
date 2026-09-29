@@ -1980,7 +1980,7 @@ def sweep(log):
         log(f"forgot the session {name}, {'exited' if seat else 'gone'} for {age(since)}")
         for configured in (config.session_path(name), config.notify_path(name),
                            config.seat_state_path(name), config.hook_facts_path(name),
-                           compact_path(name)):
+                           config.compact_path(name)):
             path = configured.parent.resolve() / configured.name
             if retention.safe(path):
                 path.unlink(missing_ok=True)
@@ -2098,9 +2098,6 @@ def rename(old, new, log=print, *, auto=False):
         # New windows get the new name; the running orchestrator follows the alias.
         tmux_out("set-environment", "-t", new, config.SESSION_ENV, new, socket=server)
         config.rename_session(old, new)
-        title = config.STATE / f"title-{old}.json"
-        if title.exists():
-            title.replace(config.STATE / f"title-{new}.json")
         record = watch.title_record(new)
         pending = record.get("title_sync") or {}
         echoes = set(record.get("title_superseded", [])) - {new}
@@ -2247,7 +2244,8 @@ def compacts(session, cfg):
         return f"no: {harness} {harness_version(harness)} does not report context size"
     answer = f"yes ({harness}, {table.get('signal') or 'screen'})"
     try:
-        when = float(json.loads(compact_path(session["name"]).read_text())["last_compact_at"])
+        stamp = json.loads(config.compact_path(session["name"]).read_text())
+        when = float(stamp["last_compact_at"])
         # a record left by an earlier seat of this name compacted that one, not this one
         created = session.get("created")
         if not isinstance(created, (int, float)) or when >= created:
@@ -2255,11 +2253,6 @@ def compacts(session, cfg):
     except (config.Error, OSError, ValueError, TypeError, KeyError):
         pass
     return answer
-
-
-def compact_path(name):
-    """Where tools/idle-compact.py writes down that it compacted that seat."""
-    return config.session_path(name).with_name(f"compact-{config.normalize_session(name)}.json")
 
 
 def explain(session, cfg):
@@ -2500,13 +2493,6 @@ def mark_owner_closed(name):
                      usage_wait=None, usage_refusal=None)
 
 
-# Every per-seat file kind a stop removes, and the daily collector takes once the seat is
-# gone. Anything else under STATE with a hyphen -- usage resets, the browser's tabs, a
-# preview record -- belongs to nobody's seat.
-SEAT_FILE_KINDS = frozenset({"session", "seat", "notify", "card", "hook", "compact",
-                             "plan", "stop", "rulebook", "title"})
-
-
 def session_owned_files(name):
     """Every `<kind>-<name>.*` file this seat owns, for a known per-seat kind, and the
     `idle-compact/<name>-<pid>.json` stamps its harness wrappers left -- under its name, or
@@ -2525,10 +2511,8 @@ def session_owned_files(name):
     names = {name} | {old for old, now in config.session_aliases().items() if now == name}
     found = []
     for path in config.STATE.iterdir():
-        stem, dot, ext = path.name.rpartition(".")
-        kind, sep, rest = stem.partition("-")
-        if (dot and ext and sep and kind in SEAT_FILE_KINDS and rest in names
-                and path.is_file() and not path.is_symlink()):
+        owner = config.seat_file_owner(path)
+        if owner and owner[1] in names and path.is_file() and not path.is_symlink():
             found.append(path)
     stamps = config.STATE / "idle-compact"
     for path in stamps.iterdir() if stamps.is_dir() else ():

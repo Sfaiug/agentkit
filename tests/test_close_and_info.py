@@ -500,6 +500,16 @@ class ClosedSeat(Sandbox):
         for path in left + [config.session_path("atoll"), config.session_path("beta")]:
             self.assertFalse(path.exists(), path)
 
+    def test_a_rename_carries_every_seat_file_but_the_rulebook(self):
+        kinds = config.SEAT_FILES.keys() - {"session"}
+        for kind in kinds:
+            config.seat_file(kind, "atoll").write_text("{}\n")
+        config.rename_session("atoll", "beta")
+        for kind in kinds - {"rulebook"}:
+            self.assertFalse(config.seat_file(kind, "atoll").exists(), kind)
+            self.assertTrue(config.seat_file(kind, "beta").exists(), kind)
+        self.assertTrue(config.rulebook_path("atoll").exists())   # its orchestrator still reads it
+
     def test_idle_compact_names_its_stamp_for_its_seat(self):
         told = self.root / "told"
         env = {key: value for key, value in os.environ.items() if key != "IDLE_COMPACT_STATE"}

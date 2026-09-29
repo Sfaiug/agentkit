@@ -1086,8 +1086,7 @@ def tick_cards(dry_run=False, log=print):
         if os.environ.get("AK_RUN_ROLE") == "worker" or dry_run:
             return
         known = {seat["name"] for seat in seats} | set(config.session_records())
-        for path in sorted(config.STATE.glob("card-*.json")):
-            name = path.name[len("card-"):-len(".json")]
+        for name, _ in config.seat_files("card"):
             if name not in known and orch.seatless(name):
                 forget_card(name, log)
 
