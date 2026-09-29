@@ -1385,7 +1385,7 @@ SH
   python3 "$REPO/tests/test_notify_rule.py" || OFFLINE_RC=1
   python3 "$REPO/tests/test_notify_smoke.py" || OFFLINE_RC=1
   codex_model_flag_check || OFFLINE_RC=1
-  for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py \
+  for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_boundaries.py test_architecture.py \
               test_audit_phone_menu_recovery_layout.py \
               test_audit_retry_required_notifications.py; do
     case "$test" in
@@ -5454,6 +5454,7 @@ if python3 "$REPO/tests/test_stop_hook.py" >"$WORK/stop-hook.log" 2>&1; then
 else
   no "48 end-of-turn rule"; tail -30 "$WORK/stop-hook.log"
 fi
+{ python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 knowledge stays home: no boundary count in tests/test_boundaries.py above its max, and ARCHITECTURE.md maps every module and harness in under 8 KB" || { no "49 boundaries and the map"; tail -30 "$WORK/boundaries.log"; }
 if seat_state_check >"$WORK/seat-state.log" 2>&1; then
   ok "42 seat states: a session is working, needs you or done -- (a) a turn-ended hook fact reads 'needs you', (b) a newer turn-began fact reads 'working' since it began, (c) every harness's dialog fixture reads the 'asking' fact and a transcript quoting it does not, (d) a notified seat reads 'needs you' with its question for a reason and a newer turn outranks it, (e) two renders and a watch tick agree on the word and the since and no live state is ever a reason to type into a seat, (f) the babysitter reads every stall/quota/auth signature from adapters/*.toml and no harness is named in watch.py, (g) a hook writes nothing for a worker or without a seat, (h) ak orch list --why names the word, the authority, the rule and the evidence, (i) every adapter's hooks verb is idempotent"
 else
