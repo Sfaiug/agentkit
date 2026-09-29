@@ -45,6 +45,9 @@
 # per-model in the camelCase `modelUsage` object) -- and event_tokens reads them untaught.
 set -uo pipefail
 command -v grok >/dev/null || PATH="${GROK_BIN_DIR:-$HOME/.grok/bin}${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
+# A seat on an account hands its Grok home to everything it starts, so a call that names no
+# account drops one: that would spend the account's subscription, not the usual login's.
+case ${GROK_HOME:-} in "$HOME"/.grok-*) unset GROK_HOME ;; esac
 GROK_HOME="${GROK_HOME:-$HOME/.grok}"
 # The key grok renewed that the billing endpoint still refused, written down by `usage` as
 # its SHA-256 digest -- never the key itself -- and read by `auth`: that key is a logout

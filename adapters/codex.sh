@@ -26,7 +26,9 @@ TMPD="$HOME/.agentkit/tmp"
 # An account other than the usual login keeps its login in a Codex home of its own, where
 # `CODEX_HOME=~/.codex-<name> codex login` puts it.  Nothing of the usual login -- its auth.json,
 # a key exported for it -- ever answers for an account: that would spend the wrong
-# subscription, or read its meters as this one's.
+# subscription, or read its meters as this one's.  A seat on an account hands its Codex home
+# to everything it starts, so a call that names no account drops one for the same reason.
+case ${CODEX_HOME:-} in "$HOME"/.codex-*) unset CODEX_HOME ;; esac
 ACCOUNT=${AGENTKIT_ACCOUNT:-}
 if [ -n "$ACCOUNT" ]; then
   export CODEX_HOME="$HOME/.codex-$ACCOUNT"
