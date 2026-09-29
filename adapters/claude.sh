@@ -41,6 +41,37 @@ cmd=${1:-}; shift 2>/dev/null || true
 err() { local m=${1//\\/}; m=${m//\"/\'}
         printf '{"provider":"anthropic","meters":[],"error":"unknown: %s"}\n' "$m"; exit 0; }
 
+# The seat login lapses some eight hours after Claude Code last ran on it, and nothing but
+# Claude Code renews it.  A login no seat is open on stays lapsed: `auth seat` sent no seat
+# onto it and `usage` fell back to the worker token, which the usage page refuses.  So before
+# either reads it, a lapsed login that still holds a refresh token gets the smallest turn
+# Claude Code runs on it -- its smallest model, one word, no tools, no conversation kept --
+# one per login at a time: whoever waited finds it renewed and asks nothing.  A login that
+# has not lapsed is never touched, and one the turn could not renew is read as it was.
+lapsed() {
+  local blob exp
+  blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
+    || blob=$(cat "$CREDS" 2>/dev/null) || return 1
+  exp=$(printf '%s' "$blob" | jq -r '.claudeAiOauth | select((.refreshToken // "") != "")
+      | .expiresAt // empty' 2>/dev/null)
+  case "$exp" in ''|*[!0-9]*) return 1 ;; esac
+  [ "${#exp}" -gt 11 ] || exp="${exp}000"
+  [ "$exp" -le "$(( $(date +%s) * 1000 ))" ]
+}
+renew() {
+  lapsed && mkdir -p -- "$TMPD" 2>/dev/null || return 0
+  # flock(2) on fd 9 holds until this subshell closes it, after the turn; python3 because
+  # macOS has no flock(1).  Silent throughout: `auth` answers in one line.
+  ( python3 -c 'import fcntl, signal; signal.alarm(30); fcntl.flock(0, fcntl.LOCK_EX)' <&9 &&
+      lapsed && cd -- "$TMPD" || exit 0
+    # the seat login's own directory, never a token that would stand in for it; a worker's
+    # role keeps the seat hooks quiet when the caller is a seat
+    unset CLAUDE_CODE_OAUTH_TOKEN
+    [ -n "$ACCOUNT" ] || unset CLAUDE_CONFIG_DIR
+    echo hi | AK_RUN_ROLE=worker claude -p --model haiku --tools "" --no-session-persistence 9>&-
+  ) >/dev/null 2>&1 9>>"$TMPD/claude-login${ACCOUNT:+.$ACCOUNT}.lock"
+}
+
 case "$cmd" in
 run)
   [ $# -ge 5 ] || { echo "claude.sh run needs <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]" >&2; exit 2; }
@@ -113,6 +144,7 @@ usage)
   # else the worker token -- never both.  A second request per ask kept both tokens inside a
   # 429 penalty nothing read, and a fallback answer replaced a good reading with an empty one.
   # The Keychain holds the usual login's pair, the credentials file every login's.
+  renew
   tok=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
     || tok=$(cat "$CREDS" 2>/dev/null) || tok=
   # pipe, not a here-string: a here-string would put the credentials in a temp file
@@ -212,6 +244,7 @@ auth)
       exit 0 ;;
     esac
   }
+  renew
   tok=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
     || tok=$(cat "$CREDS" 2>/dev/null) || tok=
   case "$tok" in *accessToken*) ;; *)
