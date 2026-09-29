@@ -201,8 +201,8 @@ stash = "\u0013"
 [effort]
 levels = ["low", "medium", "high", "xhigh", "max", "ultra"]
 
-# The models this harness runs, for `adapters/claude.sh models`: claude has no command that
-# lists them, so this is the model table claude 2.1.280 ships, each model with the efforts its
+# The models this harness runs when Anthropic's models API cannot say (`adapters/claude.sh
+# models` asks it): the model table claude 2.1.280 ships, each model with the efforts its
 # capabilities (`effort`, `xhigh_effort`, `max_effort`) let it take, strongest last.  Haiku 4.5
 # has none of them: it runs at no effort, `none`, which claude warns of and ignores.  Sonnet 5.5
 # is newer than 2.1.280's table: Anthropic's models API lists it with all five efforts (29 Sep),

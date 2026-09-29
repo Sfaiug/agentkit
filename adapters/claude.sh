@@ -10,8 +10,9 @@
 #                                    `seat` asks about the interactive login alone, never the
 #                                    worker token, because the two expire apart
 #                       hooks        -> wire this harness's lifecycle hooks, idempotently
-#                       models       -> one `id<TAB>label<TAB>efforts` line per model it runs,
-#                                    from the [catalog] table of adapters/claude.toml
+#                       models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
+#                                    Anthropic's models API, else the [catalog] table of
+#                                    adapters/claude.toml
 #                       $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then
 #                       uses that subscription's own login, and no other
 set -uo pipefail
@@ -373,9 +374,42 @@ print(f"hooks: {path} hooks.{'/'.join(EVENTS)} -> {command('seat-state.sh')}, "
 HOOKPY
   ;;
 models)
-  # claude has no command that lists its models: the [catalog] table is the answer
+  # claude has no command that lists its models, but Anthropic's models API names every model
+  # this login runs, newest first, a page at a time: its id, its `display_name` without the
+  # leading `Claude `, and the effort levels its `capabilities.effort` supports, weakest first,
+  # or `none` where it takes no effort.  A dated id the [catalog] table knows undated
+  # (`claude-haiku-4-5-20251001`) answers as the table's, so a model added from the table stays
+  # marked as added.  The worker token asks, else the seat's own login, never renewed for this;
+  # $ANTHROPIC_BASE_URL is claude's own, and where the tests' fake API lives.  A listing that
+  # fails, outlasts ten seconds or names nothing leaves the table as it is.
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-  python3 "$REPO/tools/catalog.py" claude ;;
+  table=$(python3 "$REPO/tools/catalog.py" claude)
+  at=${CLAUDE_CODE_OAUTH_TOKEN:-}
+  [ -n "$at" ] || at=$(cat "$TOKEN" 2>/dev/null) || at=
+  [ -n "$at" ] || at=$( { security find-generic-password -s "Claude Code-credentials" -w ||
+      cat "$CREDS"; } 2>/dev/null | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
+  pages= after= deadline=$(( $(date +%s) + 10 ))
+  while [ -n "$at" ]; do
+    left=$(( deadline - $(date +%s) ))
+    # the header on stdin, from a builtin: the token is in no argument list and no file
+    page=$([ "$left" -gt 0 ] && printf 'Authorization: Bearer %s\n' "$at" | curl -sf -m "$left" \
+        -H @- -H 'anthropic-beta: oauth-2025-04-20' -H 'anthropic-version: 2023-06-01' \
+        "${ANTHROPIC_BASE_URL:-https://api.anthropic.com}/v1/models?limit=1000${after:+&after_id=$after}") &&
+      after=$(jq -r 'select(.has_more == true) | .last_id // ""' <<<"$page") || { pages=; break; }
+    pages+=$page$'\n'
+    [ -n "$after" ] || break
+  done
+  listed=$(printf '%s' "$pages" | jq -rs --arg table "$table" '
+      [$table | split("\n")[] | split("\t")[0]] as $known
+      | .[].data[] | (.id | sub("-[0-9]{8}$"; "")) as $bare
+      | [(if any($known[]; . == $bare) then $bare else .id end),
+         ((.display_name // .id) | sub("^Claude "; "")),
+         (.capabilities.effort // {} | if .supported == true
+            then [to_entries[] | select(.value | type == "object" and .supported == true) | .key]
+              | join(" ")
+            else "none" end)]
+      | @tsv' 2>/dev/null) || listed=
+  printf '%s\n' "${listed:-$table}" ;;
 *)
   echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
   exit 2 ;;

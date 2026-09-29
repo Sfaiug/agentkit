@@ -10,8 +10,9 @@
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                  `seat` is the same login here, and is accepted and ignored
 #                     hooks        -> a no-op: Muse has none, so its seats are read off the screen
-#                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs,
-#                                  from the [catalog] table of adapters/muse.toml
+#                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
+#                                  `model/list` over `muse serve`, else the [catalog] table
+#                                  of adapters/muse.toml
 #                     $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then
 #                     uses that subscription's own login, and no other
 # AGENTKIT_MUSE_PROVIDER=echo selects the offline stub (tests); --model/--reasoning-effort
@@ -215,7 +216,20 @@ hooks)
   # is read off its screen by the rules in adapters/muse.toml.  Nothing to install.
   echo "muse: no lifecycle hooks; its seats are read from the screen rules in adapters/muse.toml" ;;
 models)
-  # muse has no command that lists its models: the [catalog] table is the answer
+  # muse has no command that lists its models, but `muse serve` speaks MSP on stdio (`muse
+  # schema`), and its `model/list` names the models this login's provider catalog offers,
+  # newest first, each with its reasoning-effort `variants`, weakest first, and its labels
+  # the ids themselves (1.4.1).  Asked once, stdin closed, so the host answers and exits; no
+  # session is started or kept.  A listing that fails, outlasts ten seconds or names nothing
+  # -- a login-less host lists none -- leaves the [catalog] table, and so does a host with no
+  # `timeout` to bound it (stock macOS): nothing waits on a listing it cannot stop.
+  listed=$(command -v timeout >/dev/null && command -v muse >/dev/null && printf '%s\n' \
+      '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"agentkit","version":"1"}}}' \
+      '{"jsonrpc":"2.0","method":"initialized"}' '{"jsonrpc":"2.0","id":2,"method":"model/list"}' \
+    | timeout 10 muse serve --no-session-log 2>/dev/null | jq -r 'select(.id == 2) | .result.models[]
+      | [.modelId, .displayLabel, (.variants | if type == "array" then join(" ") else "" end)]
+      | @tsv') || listed=""
+  [ -n "$listed" ] && { printf '%s\n' "$listed"; exit 0; }
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" muse ;;
 *)

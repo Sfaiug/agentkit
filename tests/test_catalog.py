@@ -1,8 +1,9 @@
 """Each harness lists the models it can run and the efforts each one takes.
 
 `adapters/<h>.sh models` prints one `id<TAB>label<TAB>efforts` line per model: live where the
-harness lists its own (`opencode models`, `agy models`, `grok models`, `codex debug models`),
-else the `[catalog]` table of its manifest, which is also where a failed or unbounded listing lands.  `none` is
+harness lists its own (`opencode models`, `agy models`, `grok models`, `codex debug models`, and
+Claude's and Muse's in tests/test_live_catalog.py), else the `[catalog]` table of its manifest,
+which is also where a failed or unbounded listing lands.  `none` is
 the one effort of a model that runs at no effort; an empty efforts field, one whose efforts
 its harness does not say.  `config.catalog()` reads that as data,
 `config.efforts()` answers from it for one model, and `ak doctor` names a model set to an
@@ -11,7 +12,8 @@ effort it does not take.
 Offline and deterministic: every HOME is a temporary directory, PATH holds only a stub
 directory and the system's own, and every harness that can list live has a stub there -- one
 that fails unless a test hands it one of the real listings captured under tests/fixtures/ (see
-the README there).  No real harness is asked anything.
+the README there) -- or, for Claude, a models API on a closed loopback port.  No real harness
+or provider is asked anything.
 """
 
 import io
@@ -65,11 +67,14 @@ class Catalog(unittest.TestCase):
         patcher = patch.dict(os.environ, self.env)
         patcher.start()
         self.addCleanup(patcher.stop)
-        for name in (config.ADAPTER_DIR_ENV, config.ACCOUNT_ENV, "GROK_BIN_DIR", "GROK_HOME"):
+        for name in (config.ADAPTER_DIR_ENV, config.ACCOUNT_ENV, "GROK_BIN_DIR", "GROK_HOME",
+                     "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"):
             os.environ.pop(name, None)
         # every harness that can list live has a stub first on PATH, failing until a test
-        # hands it a listing, so no path through an adapter reaches an installed CLI
-        for name in ("agy", "opencode", "grok", "codex"):
+        # hands it a listing, so no path through an adapter reaches an installed CLI; Claude's
+        # models API is a port nothing listens on, whatever login a Keychain holds
+        os.environ["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:9"
+        for name in ("agy", "opencode", "grok", "codex", "muse"):
             self.stub(name, rc=1)
         cache = patch.dict(config._CATALOGS, clear=True)
         cache.start()

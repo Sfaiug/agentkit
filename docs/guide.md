@@ -303,8 +303,8 @@ and `echo.toml` are a whole working harness in two pages. The script implements 
 `usage` (one JSON object of meters, `error` set rather than a non-zero exit), `auth [seat]` (one line, exit 0 with a
 token or 1 with why not; never a network call), `interactive <model> <effort> [<session> [new]]` (the TUI command line,
 with the harness's own bypass flag), `hooks` (install its lifecycle hooks idempotently), `models` (an `id<TAB>label<TAB>efforts` line per model, efforts strongest last, `none` for a model that runs at no effort, empty
-where the harness does not say: live where the harness lists them, else from its `[catalog]`, which also stands in for a
-listing that fails, takes ten seconds or has no `timeout` to stop it), `install` and `login` for a fresh box, and
+where the harness does not say: live where the harness lists them (Claude's models API, Muse's `muse serve` `model/list`),
+else its `[catalog]`, which also stands in for a listing that fails, takes ten seconds or has no `timeout` to stop it), `install` and `login` for a fresh box, and
 optionally `reset-status` and `reset` where the provider hands out usage-limit resets. Grok's `auth` passes on a refresh
 token, since grok renews its six-hour key itself. Antigravity's `usage` reads the Gemini window of agy's own `/usage`
 panel off that panel's endpoint. Refused, both `usage` verbs let their harness renew (`grok models`, `agy models`) and
