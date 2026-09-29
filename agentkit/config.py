@@ -389,14 +389,20 @@ def load():
 
 
 def offered(cfg):
-    """Every model the config offers, in file order: each one can orchestrate, and each can work.
+    """Every model the config offers, each under its provider: each one can orchestrate, and
+    each can work.
 
     A `[models.*]` entry is offered once its provider has a `[providers.*]` table; one whose
-    provider has none stays in the file and out of every choice.
+    provider has none stays in the file and out of every choice.  Every list of models reads
+    this order -- a provider where its first model is in the file, its models in file order
+    under it -- so a model added last still sits with its provider's others on every screen.
     """
-    return [name for name, entry in cfg["models"].items()
-            if isinstance(entry, dict) and isinstance(entry.get("provider"), str)
-            and entry["provider"] in cfg["providers"]]
+    names = [name for name, entry in cfg["models"].items()
+             if isinstance(entry, dict) and isinstance(entry.get("provider"), str)
+             and entry["provider"] in cfg["providers"]]
+    providers = dict.fromkeys(cfg["models"][name]["provider"] for name in names)
+    return [name for provider in providers for name in names
+            if cfg["models"][name]["provider"] == provider]
 
 
 def remove_provider(cfg, name):
