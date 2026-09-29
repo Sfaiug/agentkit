@@ -5,9 +5,9 @@ click flips a mark, and the rows under the models run their steps.
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of
 its own, the way tests/test_close_and_info.py runs the menu, in a temporary HOME whose
 config.toml is the shipped default plus a Haiku.  The harness catalog is faked -- Haiku takes
-only `none`, Opus low to max -- and so are the versions on the Update row and the Discord and
-Update steps themselves.  Nothing here reads or writes the owner's ~/.agentkit, and the only
-process signalled is the test's own child.
+only `none`, Opus low to max -- and so are agentkit's build on the Version row and the Discord
+step itself, and a harness's version is never asked.  Nothing here reads or writes the owner's
+~/.agentkit, and the only process signalled is the test's own child.
 """
 
 import fcntl
@@ -38,11 +38,9 @@ EFFORTS = {"claude-haiku-4-5": ["none"],
            "claude-opus-5-5": ["low", "medium", "high", "xhigh", "max"]}
 config.catalog = lambda harness: [{"id": model, "label": model, "efforts": efforts}
                                   for model, efforts in EFFORTS.items() if harness == "claude"]
-update.version = lambda harness: ""
-update.agentkit_version = lambda: "abc1234"
-update.agentkit_newer = lambda: ""
+update.version = lambda harness: print("<harness version>", flush=True)
+update.agentkit_version = lambda: "abc1234 · 2026-09-29"
 menu.config_discord = lambda: print("<discord step>", flush=True)
-menu.config_update = lambda cfg: print("<update step>", flush=True)
 with closing(terminal.Keyboard()) as keyboard:
     menu.show_config(False, keyboard)
 print("<left>", flush=True)
@@ -193,11 +191,13 @@ class Matrix(unittest.TestCase):
                       tail)
         self.assertTrue(any(line.startswith("Discord") and line.endswith("not connected")
                             for line in tail), tail)
-        self.assertTrue(any(line.startswith("Update") and "abc1234 · up to date" in line
-                            for line in tail), tail)
+        self.assertIn("Version        abc1234 · 2026-09-29", tail)
+        self.assertEqual(tail[tail.index("Version        abc1234 · 2026-09-29") + 1:],
+                         ["", "↑↓←→ move   ⏎ mark   esc back"])     # the last row
         self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
         screen.leave()
         self.assertIn("\x1b[?1049l", screen.text())       # the terminal given back
+        self.assertNotIn("<harness version>", screen.text())
 
     def test_moving_to_a_default_worker_and_flipping_it_is_saved(self):
         screen = Screen(self)
@@ -328,7 +328,7 @@ class Matrix(unittest.TestCase):
         screen.saw("<left>")
         self.assertEqual(screen.proc.wait(15), 0)
 
-    def test_enter_on_discord_or_update_runs_its_step(self):
+    def test_enter_on_discord_runs_its_step_and_on_version_nothing(self):
         screen = Screen(self)
         lines = screen.frame()
         # past every model, `+ add a model` and Providers
@@ -339,14 +339,14 @@ class Matrix(unittest.TestCase):
         screen.press(ENTER)                               # the step, then the screen again
         screen.saw("<discord step>", after=mark)
         self.assertIn("\x1b[?1049l", screen.text()[mark:])    # it had the terminal as it was
-        self.assertNotIn("<update step>", screen.text())
-        lines = screen.press(DOWN, lambda lines: highlighted(lines).startswith("› Update"))
+        lines = screen.press(DOWN, lambda lines: highlighted(lines).startswith("› Version"))
+        self.assertEqual(lines[-1], "  ↑↓ move   esc back")      # no action to name
         mark = len(screen.text())
-        screen.press(ENTER)
-        screen.saw("<update step>", after=mark)
+        lines = screen.press(ENTER)
+        self.assertTrue(highlighted(lines).startswith("› Version"))
+        self.assertNotIn("\x1b[?1049l", screen.text()[mark:])     # the terminal kept
         screen.leave()
         self.assertEqual(screen.text().count("<discord step>"), 1)
-        self.assertEqual(screen.text().count("<update step>"), 1)
 
     def test_a_phone_draws_it_in_forty_columns(self):
         screen = Screen(self, workers=["opus"], rows=24, cols=40)
@@ -361,7 +361,7 @@ class Matrix(unittest.TestCase):
                              lambda lines: "exec needs" in "\n".join(lines))
         self.assertLessEqual(len(lines), 23)
         self.assertIn("opus", highlighted(lines))
-        lines = screen.press(DOWN * 10, lambda lines: highlighted(lines).startswith("› Update"))
+        lines = screen.press(DOWN * 10, lambda lines: highlighted(lines).startswith("› Version"))
         self.assertLessEqual(len(lines), 23)
         self.assertNotIn("exec needs", "\n".join(lines))   # until the next key
         screen.leave()

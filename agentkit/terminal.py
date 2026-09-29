@@ -399,7 +399,8 @@ def key_line(text, term_width=None):
 
 
 def progress_bar(done, total, narrow=False):
-    """`████░░░░ 4/7`: tasks merged, passed or skipped of all tasks. No fake bar."""
+    """`████░░░░ 4/7`: tasks merged, passed or skipped of all tasks, or the steps `ak`'s own
+    update has done of all of them. No fake bar."""
     total = max(0, int(total or 0))
     done = max(0, min(int(done or 0), total)) if total else 0
     size = 4 if narrow else 8

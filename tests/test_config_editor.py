@@ -2,11 +2,11 @@
 
 A temporary HOME holds config.toml and the secrets.  The matrix is driven in-process with
 `terminal.read_key` fed its keys and a keyboard that is always taken (tests/test_config_matrix.py
-drives it on a real pty); Discord and Update read lines through the patched `menu.read` seam,
-the way test_v5u drives the screens.  What is pinned is the round trip: a mark writes the
-default orchestrator and the default workers that `n` then takes with Enter, effort steps
-within its model's own words, add writes a whole block off its three lists, Discord writes the
-two secrets, and Update refuses while a session is working.
+drives it on a real pty); Discord reads lines through the patched `menu.read` seam, the way
+test_v5u drives the screens.  What is pinned is the round trip: a mark writes the default
+orchestrator and the default workers that `n` then takes with Enter, effort steps within its
+model's own words, add writes a whole block off its three lists, Discord writes the two
+secrets, and Version asks no harness anything.
 """
 
 from contextlib import ExitStack, redirect_stdout
@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, terminal, update, watch
+from agentkit import config, menu, orch, terminal, update
 
 OWN = """max_runs = 0
 
@@ -65,10 +65,9 @@ class Editor(unittest.TestCase):
             self.stack.enter_context(patch.object(config, name, self.home / name.lower()))
         self.stack.enter_context(patch.object(terminal, "width", return_value=100))
         self.stack.enter_context(patch.object(terminal, "height", return_value=30))
-        # The update row's versions are subprocesses; the rows are pinned, not the binaries.
-        self.stack.enter_context(patch.object(update, "version", return_value=""))
-        self.stack.enter_context(patch.object(update, "agentkit_version", return_value="abc1234"))
-        self.stack.enter_context(patch.object(update, "agentkit_newer", return_value=""))
+        # The Version row's build is a git call; the row is pinned, not the checkout.
+        self.stack.enter_context(patch.object(update, "agentkit_version",
+                                              return_value="abc1234 · 2026-09-29"))
         self.path = self.home / "config.toml"
         self.path.write_text((REPO / "config.default.toml").read_text())
         config.ensure_dirs()
@@ -189,25 +188,15 @@ class Editor(unittest.TestCase):
         for name, blob in before.items():
             self.assertEqual((config.SECRETS / name).read_bytes(), blob)
 
-    def test_update_refuses_while_working(self):
-        seats = [{"name": "a"}, {"name": "b"}]
-        with patch.object(orch, "listing", return_value=seats), \
-                patch.object(watch, "session_state", return_value={"word": "working"}), \
-                patch.object(update, "main") as harm, \
-                patch.object(update, "update_agentkit") as selfm:
-            screen, _ = self.steps(lambda: menu.config_update(config.load()), "q")
-        self.assertIn("2 sessions are working; try when they are done", screen)
-        self.assertEqual(harm.call_count, 0)
-        self.assertEqual(selfm.call_count, 0)
-
-    def test_update_versions_are_read_once_per_visit(self):
-        # One version call per harness a visit, no matter how often the screen redraws
-        # underneath it: a slow harness binary must not freeze it.
-        harnesses = len(update.harnesses(config.load()))
-        with patch.object(update, "version", return_value="") as versions:
+    def test_the_version_is_read_once_per_visit_and_no_harness_is_asked(self):
+        # One git call a visit, no matter how often the screen redraws underneath it, and no
+        # harness binary or network at all: a slow one must not freeze the screen.
+        with patch.object(update, "version") as versions, \
+                patch.object(update, "agentkit_version", return_value="abc1234") as build, \
+                patch.object(update, "behind") as asked:
             self.drive("down", "down", "right")   # four draws
             self.drive("x")                       # a key that does nothing: two draws
-        self.assertEqual(versions.call_count, 2 * harnesses)
+        self.assertEqual((versions.call_count, build.call_count, asked.call_count), (0, 2, 0))
 
     def test_a_failed_save_changes_nothing_and_says_why_on_a_phone(self):
         levels = [{"id": "claude-fable-5-1", "label": "Fable 5.1",
@@ -231,24 +220,23 @@ class Editor(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), before)
 
     def test_a_model_called_like_a_row_is_a_model(self):
-        self.path.write_text(self.path.read_text() + '\n[models.Update]\nharness = "claude"\n'
+        self.path.write_text(self.path.read_text() + '\n[models.Discord]\nharness = "claude"\n'
                              'model = "m"\neffort = "high"\nprovider = "anthropic"\n')
-        with patch.object(menu, "config_update") as step:
-            self.drive("down", "down", "right", "enter")     # fable, opus, then Update, a Claude
+        with patch.object(menu, "config_discord") as step:
+            self.drive("down", "down", "right", "enter")     # fable, opus, then Discord, a Claude
         self.assertEqual(step.call_count, 0)
         self.assertEqual(tomllib.loads(self.path.read_text())["defaults"]["workers"],
-                         ["opus", "astra", "Update"])
+                         ["opus", "astra", "Discord"])
 
     def test_main_screen_lists_values(self):
         _, screen = self.drive()
         self.assertTrue(screen.startswith("agentkit · config"), screen)
         for bit in ("orch  exec  review  effort", "Claude", "opus    claude", "●", "■", "□",
-                    "‹ xhigh ›", "add a model", "Discord", "Update",
-                    "abc1234 · up to date · harnesses", "esc back"):
+                    "‹ xhigh ›", "add a model", "Discord", "Version        abc1234 · 2026-09-29",
+                    "esc back"):
             self.assertIn(bit, screen)
-        with patch.object(update, "agentkit_newer", return_value="def5678"):
-            _, screen = self.drive()
-        self.assertIn("abc1234 · def5678 available", screen)
+        self.assertNotIn("Update", screen)
+        self.assertNotIn("harnesses", screen)
 
 
 if __name__ == "__main__":
