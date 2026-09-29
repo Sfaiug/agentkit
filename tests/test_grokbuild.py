@@ -385,6 +385,22 @@ fi
         self.assertEqual(self.asked_urls(),
                          ["https://cli-chat-proxy.grok.com/v1/billing?format=credits"])
 
+    def test_usage_reads_an_unused_weekly_window_as_zero(self):
+        # Protobuf JSON leaves a zero out: the morning a weekly window began the credits
+        # body carried currentPeriod and no creditUsagePercent at all (captured 29 Sep).
+        # That is a window nothing has used yet, 0% used, never "no meter".
+        shutil.copy(FIX / "grok-auth-valid.json", self.grok_home / "auth.json")
+        self.answer(200, (FIX / "grok-billing-unused.json").read_text())
+        proc = self.adapter("usage")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = json.loads(proc.stdout)
+        self.assertIsNone(data["error"])
+        reset = calendar.timegm((2026, 10, 6, 0, 0, 0))
+        self.assertEqual([(m["name"], m["used"], m["resets_at"], m["window_secs"])
+                          for m in data["meters"]],
+                         [("weekly", 0, reset, 604800)])
+        self.assertNotIn("none", data)
+
     def test_usage_names_every_failed_source_when_none_remains(self):
         # Every source tried and none a meter: the credits response is spend without a
         # percent, and the settings cache carries no subscription_usage entries.  The
