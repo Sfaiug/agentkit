@@ -8,9 +8,9 @@ the user with `ak notify needs`.  The orchestrator in that seat merges on yes.
 
 The other direction too: this account's open PRs on repos it does not own -- the ones a run
 without push rights opened from a fork and left `waiting for the maintainer`, and the ones the
-user opened by hand -- are followed here.  What the maintainer decided is typed into the seat
-that opened it while that seat is live, and otherwise left on the run, where `ak run status`
-and the menu show it.  Never Discord: the user's own PR moving is neither an orchestrator
+user opened by hand -- are followed here.  What the maintainer decided is left on the run,
+where `ak run status` and the menu show it, and typed into the seat that opened it while
+that seat is live.  Never Discord: the user's own PR moving is neither an orchestrator
 needing them nor a job finishing, and those two are all Discord ever hears.
 
 Every tick also looks at the seats themselves: a pane showing its harness's own words for a
@@ -4903,18 +4903,27 @@ def outgoing(state, me, dry_run, log):
 
 
 def say(dry_run, log, text, url, session, merged=False):
-    """Hand the maintainer's decision to the seat that opened the PR, else to its run.
+    """Hand the maintainer's decision to its run, and to the seat that opened it while live.
 
-    Never to Discord.  A live seat is typed the line, exactly as a review question is put to
-    the `inbox`; a seat that is gone leaves it on the run, which is where the menu and
-    `ak run status` were already showing `waiting for the maintainer`.  True means it has
-    landed somewhere, or that there is nowhere left for it to land and following this PR is
-    over; False means the same tick's work is still owed and the next one retries it.
+    Never to Discord.  The run learns it first, where the menu and `ak run status` were
+    already showing `waiting for the maintainer` -- a seat that cannot be typed into never
+    holds that back -- and a live seat is typed the line, exactly as a review question is
+    put to the `inbox`.  A decision already on the run is not recorded again, so a retry
+    after a failed typing tells the seat without recording twice or starting fix runs
+    twice.  True means it has landed everywhere it goes, or that there is nowhere left
+    for it to land and following this PR is over; False means the seat is still owed its
+    line and the next tick retries it.
     """
     from . import run   # here, not at the top: run imports this module
     if dry_run:
         log(f"would hand on: {text} ({url})")
         return False
+    run_dir, run_state = run.run_for_pr(url)
+    note = " ".join(text.split())
+    if run_dir and not (run_state.get("merge_note") == note
+                        and (not merged or run_state.get("merged"))):
+        run.record_decision(run_dir, run_state, text, merged=merged)
+        log(f"recorded on run {run_dir.name}: {text}")
     seat = orch.find(config.resolve_session(session)) if session else None
     if seat and not any(seat.get(key) for key in ("exited", "resumable", "restart")):
         line = (f"{text} -- {url}. Nothing was posted to Discord; this is the maintainer's "
@@ -4923,12 +4932,9 @@ def say(dry_run, log, text, url, session, merged=False):
             return False
         log(f"told the {seat['name']} seat: {text}")
         return True
-    run_dir, run_state = run.run_for_pr(url)
     if run_dir:
-        run.record_decision(run_dir, run_state, text, merged=merged)
-        log(f"recorded on run {run_dir.name}: {text}")
-    else:
-        log(f"no live seat and no run for {url}; not followed further: {text}")
+        return True
+    log(f"no live seat and no run for {url}; not followed further: {text}")
     return True
 
 
