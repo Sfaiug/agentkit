@@ -8,13 +8,50 @@ import sys
 import tempfile
 import time
 import unittest
+import uuid
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, worker
+from agentkit import config, run, watch, worker
 
 SUITE = "test -f AGENTS.md"
+
+
+def fresh_id():
+    """A marker no other run -- and no other test -- can be carrying."""
+    return f"test-suite-round-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+
+
+def wait_gone(pid, timeout=5):
+    """True once that pid is gone or a zombie; zombies are the parent's to reap."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except OSError:
+            return False
+        try:
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except (OSError, IndexError):
+            return True
+        if state in ("Z", "X"):
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def _reap(proc):
+    try:
+        proc.kill()
+    except OSError:
+        pass
+    try:
+        proc.wait(timeout=5)
+    except (subprocess.TimeoutExpired, OSError):
+        pass
 
 
 class SuiteInRound(unittest.TestCase):
@@ -408,14 +445,58 @@ class SuiteInRound(unittest.TestCase):
         self.assertEqual(seen.get("run"), "acme-probe-1/suite")
         self.assertEqual(seen.get("parent"), "acme-probe-1")
 
+    def spawn_marked(self, marker):
+        """A detached sleeper carrying that marker, with a SIGKILL safety net."""
+        proc = subprocess.Popen(
+            ["setsid", "sleep", "100"], start_new_session=True,
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env={**os.environ, "AGENTKIT_RUN": marker})
+        self.addCleanup(_reap, proc)
+        return proc
+
     def test_run_end_sweep_covers_the_suite_marker(self):
-        with patch.object(run.worker, "kill_marked") as kill, \
+        rid = fresh_id()
+        self.spawn_marked(rid)
+        self.spawn_marked(f"{rid}/suite")
+        time.sleep(0.5)
+        found = worker.marked_pids(rid)
+        self.assertEqual(len(found), 2)
+        suite_only = worker.marked_pids(f"{rid}/suite")
+        self.assertEqual(len(suite_only), 1)
+        self.assertIn(suite_only[0], found)
+        with patch.object(worker, "kill_marked",
+                          wraps=worker.kill_marked) as swept, \
                 patch.object(run.orch, "stop_scope"):
-            run.stop_run_tree({"run_id": "acme-probe-1", "scope": None},
+            run.stop_run_tree({"run_id": rid, "scope": None},
                               log=lambda m: None)
-        ids = [call.args[0] for call in kill.call_args_list]
-        self.assertIn("acme-probe-1", ids)
-        self.assertIn("acme-probe-1/suite", ids)
+        self.assertEqual(swept.call_count, 1)
+        self.assertEqual(swept.call_args.args[0], rid)
+        for pid in found:
+            self.assertTrue(wait_gone(pid), f"{pid} outlived the run-end sweep")
+
+    def test_stall_ladder_ends_the_suite_processes(self):
+        # A stalled reviewer killed mid-suite: the ladder's marker sweep ends the
+        # suite's detached processes too, not only the run's own marker, with one
+        # sweep -- the tree fallback never reaches what left the loop's tree.
+        rid = fresh_id()
+        self.spawn_marked(rid)
+        self.spawn_marked(f"{rid}/suite")
+        loop = subprocess.Popen(
+            ["sleep", "100"], stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(_reap, loop)
+        time.sleep(0.5)
+        found = worker.marked_pids(rid)
+        self.assertEqual(len(found), 2)
+        state = {"run_id": rid, "scope": None}
+        with patch.object(worker, "kill_marked",
+                          wraps=worker.kill_marked) as swept:
+            if not watch.stop_run_scope(state, log=lambda m: None):
+                watch.kill_tree(loop.pid, log=lambda m: None)
+        self.assertEqual(swept.call_count, 1)
+        for pid in found:
+            self.assertTrue(wait_gone(pid), f"{pid} outlived the stall kill")
 
 
 if __name__ == "__main__":

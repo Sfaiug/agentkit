@@ -270,20 +270,23 @@ def _lineage():
 
 
 def marked_pids(run_id):
-    """Every pid carrying AGENTKIT_RUN=<run_id>, except this process and its ancestors.
+    """Every pid carrying AGENTKIT_RUN=<run_id> or below it, except this process and its ancestors.
 
     Found by scanning /proc/*/environ, so a child that left its process group -- setsid,
     a double fork, a harness that starts each shell command as its own session leader --
     is still one of the run's.  The caller and its ancestors are never among them,
     whatever marker they carry and whatever id was asked for: a kill from inside a run
     must not take the run that asked for it.  Entries are matched whole, so one run id
-    is never a prefix of another's.  Unreadable rows -- a process that just exited,
+    is never a prefix of another's -- except below a slash: `<id>/suite` is the run's
+    own suite, so a sweep of the run ends it too, while a sweep of the suite ends only
+    the suite.  Unreadable rows -- a process that just exited,
     another user's -- are skipped, never fatal.
     """
     if not run_id:
         return []
     skip = _lineage()
     want = f"{RUN_MARKER}={run_id}".encode()
+    prefix = want + b"/"
     try:
         entries = [entry for entry in os.listdir("/proc") if entry.isdigit()]
     except OSError:
@@ -298,8 +301,10 @@ def marked_pids(run_id):
                 env = fh.read()
         except OSError:
             continue
-        if want in env.split(b"\0"):
-            found.append(pid)
+        for part in env.split(b"\0"):
+            if part == want or part.startswith(prefix):
+                found.append(pid)
+                break
     return found
 
 
@@ -310,8 +315,9 @@ def kill_marked(run_id, grace=MARK_KILL_GRACE, log=None):
     environment, not by its parent or its group, so nothing detached outlives the run.  The
     caller and its ancestors are not part of that, whatever id was given -- `marked_pids`
     leaves them out -- so the loop's own end-of-run sweep still ends every process the run
-    started.  Polls for the exits and returns early; True when nothing marked is left.
-    Never raises: a cleanup that fails leaves the next one to act.
+    started.  One sweep ends the run's sub-marked processes too (`<id>/suite`), so no sweep
+    of a run can miss its suite.  Polls for the exits and returns early; True when nothing
+    marked is left.  Never raises: a cleanup that fails leaves the next one to act.
     """
     if not run_id:
         return True

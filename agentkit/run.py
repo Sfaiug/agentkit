@@ -3353,9 +3353,10 @@ def start_suite(lp):
     fails when the suite does, and the fixer still gets both outputs.
 
     The thread marks its processes `<run_id>/suite`: the gate's end sweep then
-    takes only the suite's leftovers, never the live reviewer, and the reviewer's
-    own retry sweeps likewise leave the suite alone.  Their parent marker stays
-    the run's, so the run-end and stop sweeps still find both.
+    takes only the suite's leftovers, never the live reviewer.  A sweep of the
+    whole run ends both -- the marker match covers `<id>/...` -- so the run's end,
+    a stall kill and a reap leave no suite process behind.  Their parent marker
+    stays the run's, so the stop sweep finds both.
     """
     parent = dict(getattr(_RUN_CONTEXT, "state", {}) or {})
     if parent.get("run_id"):
@@ -8910,14 +8911,12 @@ def stop_run_tree(state, log=lambda _: None, wait=False):
     it is asked.  A caller that is already outside the scope, the reaper after a
     memory-cap death, passes `wait` so the stop finishes and the memory is back.
     Never only a process group: a child that left its group is still the run's.
+    One sweep ends the suite too: the marker match covers `<id>/...` (see `start_suite`).
     """
     scope = state.get("scope") if isinstance(state, dict) else None
     run_id = state.get("run_id") if isinstance(state, dict) else None
     if run_id:
         worker.kill_marked(run_id, log=log)
-        # the round's suite marks its processes apart (see `start_suite`), so a plain
-        # host with no scope sweeps them here; under a scope the stop below takes all
-        worker.kill_marked(f"{run_id}/suite", log=log)
     orch.stop_scope(scope, log, wait=wait)
 
 
