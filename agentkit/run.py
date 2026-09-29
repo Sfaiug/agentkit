@@ -24,13 +24,12 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import command_help, config, history, notify, orch, retention, usage, watch, worker
+from . import command_help, config, history, notify, orch, proc_snapshot, retention, usage, watch, worker
 from .harness import load as harness_plugin
 
 DIFF_CAP = 300 * 1024
 OUT_CAP = 20 * 1024
 LESSONS_CAP = 4 * 1024
-FOLLOWUPS_CAP = 24 * 1024   # the orchestrator reads the whole file before every task
 # A worker that dies like this died on the provider, not on the task: it is retried, never scored.
 # Only a fault, never the account: a usage or rate limit names the account and hands the
 # round to another provider instead, through the manifests' own quota words.
@@ -134,6 +133,10 @@ GC_INTERVAL = 86400             # background retention inspects old state at mos
 GC_LOG_LIMIT = 1024 * 1024      # retain two bounded automatic-collection logs
 GC_AGE = 7 * 86400              # failed/blocked/stopped checkouts, finished jobs, the status window
 RUN_DIR_AGE = 30 * 86400        # a run directory whose session is gone is removed whole after this
+TMP_BASE = Path("/tmp")         # seats and hand-run tools leave RAM-disk files nobody removes
+VAR_TMP_BASE = Path("/var/tmp")  # a repository's TMPDIR is swept only directly under here
+TMP_AGE = 2 * 86400             # a /tmp entry nothing changed for two days goes
+TMP_CLAUDE_AGE = 86400          # a gone Claude session's scratch folder goes after a day
 DISK_LIMIT = 85                 # pressure shortens retention, never below one day
 LIST_CAP = 500                  # files a scratch run's reviewer is shown before it is told the count
 PUSH_RIGHTS = ("ADMIN", "MAINTAIN", "WRITE")
@@ -154,7 +157,6 @@ FINDINGS = re.compile(r"^(#+)[ \t]*Findings\b[^\n]*$", re.M | re.I)
 FINDING_ITEM = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+\S", re.M)
 FOLLOWUPS = re.compile(r"^(#+)[ \t]*Follow-ups\b[^\n]*$", re.M | re.I)
 FOLLOWUP_ITEM = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(\S.*)$", re.M)
-FOLLOWUP_PLACE = re.compile(r"[`*]*([^\s`*]+:\d+)")   # the `path:line` an item leads with
 # The two headings a worker's turn ends with: `## Summary` is the work, `## Blocked` is the
 # task itself refusing to be done.  Only a heading on its own line counts, so a preamble
 # quoting either word mid-sentence never ends a run.
@@ -169,7 +171,7 @@ LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after )
 # Where a suite, unittest, pytest or TAP names what failed: at the start of the line it says so
 # on, long before the tally it ends with.  See `first_failure`.
 FAILURE_LINE = re.compile(r"^(?:FAIL(?:ED)?|ERROR|not ok)\b")
-ENDED = ("pass", "fail", "error", "blocked", "stopped")    # a run that is over, however it got there
+ENDED = ("pass", "fail", "error", "blocked", "stopped", "not_needed")
 NOTICE = 100                    # a finished-run notice is one line, this wide: what a phone shows
                                 # -- the menu's leading space included, so the line itself is 99
 QUEUED_GRACE = 30               # old launchers did not record the background child's identity
@@ -932,6 +934,10 @@ class Killed(Exception):
         self.session = session
 
 
+class NotNeeded(Exception):
+    """A follow-up's executor found no work left, before any checks or review."""
+
+
 class Blocked(Exception):
     """The task cannot be done as written, so the run ends here and says why.
 
@@ -1599,6 +1605,8 @@ def dirty_paths(wt):
 
 
 GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each rewrites its log line
+HEAVY_CPUS = 0.7      # one heavy suite's measured cost: ~0.7 core and ~0.4 GB, its own
+HEAVY_MEM_MB = 410    # Postgres, port and temp dir, so twice the headroom fits twice the suites
 
 
 def main_checkout(repo):
@@ -1615,9 +1623,14 @@ def main_checkout(repo):
 
 
 def gate_lock(repo, slot):
-    """The lock file of one of a repository's gate turns: its main checkout, whichever worktree."""
-    digest = hashlib.sha256(str(repo).encode()).hexdigest()
-    return config.RUNS / f".gate-{digest}-{slot}.lock"
+    """The lock file of one host-wide heavy-suite turn; `repo` is ignored.
+
+    Turns were per repository, one set of slot files per main checkout.  Only the
+    heavy suite takes one now, counted host-wide, so every suite meets on the same
+    files whichever repository it checks.  The argument stays so old callers still
+    pass it.
+    """
+    return config.RUNS / f".heavy-{slot}.lock"
 
 
 def take_slot(slots):
@@ -1629,6 +1642,27 @@ def take_slot(slots):
             continue
         return slot
     return None
+
+
+def _heavy_max_existing():
+    """Highest heavy-slot index with a lock file on disk, or -1 when none do.
+
+    Slot files persist once opened, so a limit that shrinks leaves its higher
+    files behind -- and the suites still holding them.  A waiter that only opens
+    its new prefix would never see those holders and would admit over them.
+    """
+    try:
+        best = -1
+        for path in config.RUNS.glob(".heavy-*.lock"):
+            try:
+                idx = int(path.name[len(".heavy-"):-len(".lock")])
+            except ValueError:
+                continue
+            if idx > best:
+                best = idx
+        return best
+    except OSError:
+        return -1
 
 
 def _first_landing_wait(run_dir):
@@ -1646,14 +1680,16 @@ def _first_landing_wait(run_dir):
 
 
 def mark_gate_wait(run_dir, of):
-    """Put `waiting for a gate turn of <repo>` on the record, or take it off (`of` None).
+    """Put `waiting for a heavy suite turn` on the record, or take it off (`of` None).
 
-    `of` is the repository's main checkout; the note shows its folder name.  With this
-    process's pid, as the merge turn's mark is, and the wait's start, so a freed turn
-    goes to the waiter that has waited longest.  A landing run's mark says so; the
-    start of its first landing wait lives beside the record, where whole-record saves
-    cannot wipe it (see `_first_landing_wait`): that start is what this returns for a
-    lander, the wait's own start otherwise, and None when it recorded none.
+    `of` is the repository the waiter checks, kept on the mark from the
+    per-repository turns; the note and the rank are host-wide and ignore it.  With
+    this process's pid, as the merge turn's mark is, and the wait's start, so a
+    freed turn goes to the waiter that has waited longest.  A landing run's mark
+    says so; the start of its first landing wait lives beside the record, where
+    whole-record saves cannot wipe it (see `_first_landing_wait`): that start is
+    what this returns for a lander, the wait's own start otherwise, and None when
+    it recorded none.
     """
     since = time.time()
     try:
@@ -1685,26 +1721,26 @@ def mark_gate_wait(run_dir, of):
 
 
 def gate_turn_note(state):
-    """`waiting for a gate turn of <repo>` while a run waits in `gate_turn`, else ""."""
+    """`waiting for a heavy suite turn` while a run waits in `gate_turn`, else ""."""
     turn = state.get("gate_turn")
     if (state.get("state") != "running" or not isinstance(turn, dict)
             or turn.get("pid") != state.get("pid")):
         return ""
-    return f"waiting for a gate turn of {Path(str(turn.get('of'))).name}"
+    return "waiting for a heavy suite turn"
 
 
 def _gate_waiter_before(repo, exclude, is_first, since, is_landing=False):
-    """Whether a live waiter for `repo` ranks before this gate.
+    """Whether a live heavy-suite waiter ranks before this gate; `repo` is ignored.
 
-    Rank is a landing run before any round check, then `--first` before the rest,
-    then the longest wait, then the run id, so a freed turn finishes a run ready to
-    land before starting another round's check.  A lander's wait counts from the
-    start of its first landing wait, not from the lap; a mark from before landers
-    ranked carries no landing and reads as a round check.  A mark whose process is
-    gone, or whose
-    pid no longer matches its record -- a kill or a resume left it behind -- holds
-    nobody back, and a waiter counts only when its mark names this main checkout,
-    never a folder name two checkouts share.
+    Turns were per repository and only a waiter of the same main checkout counted.
+    They are host-wide now, so every live waiter counts whichever repository it
+    checks.  Rank is a landing run before any round check, then `--first` before
+    the rest, then the longest wait, then the run id, so a freed turn finishes a
+    run ready to land before starting another round's check.  A lander's wait
+    counts from the start of its first landing wait, not from the lap; a mark from
+    before landers ranked carries no landing and reads as a round check.  A mark
+    whose process is gone, or whose pid no longer matches its record -- a kill or
+    a resume left it behind -- holds nobody back.
     """
     me = (not is_landing, not is_first, since, exclude or "")
     for directory in run_dirs():
@@ -1715,8 +1751,6 @@ def _gate_waiter_before(repo, exclude, is_first, since, is_landing=False):
             continue
         turn = other.get("gate_turn")
         if not isinstance(turn, dict) or turn.get("pid") != other.get("pid"):
-            continue
-        if turn.get("of") != str(repo):
             continue
         if not process_active(other):
             continue
@@ -1734,10 +1768,9 @@ def _gate_waiter_before(repo, exclude, is_first, since, is_landing=False):
 class _GateHold:
     """One held gate turn: the open slot files and the one this thread locked.
 
-    The hold owns its files rather than the frame that waited for them: a landing lap
-    holds one turn across its rebase and its checks, and lets it go before a fixer or
-    a reviewer starts, from inside the frame that took it.  Releasing unlocks the slot
-    and closes the files, as leaving the frame would have.
+    The hold owns its files rather than the frame that waited for them, so a fixer
+    or a reviewer lets it go from inside the frame that took it.  Releasing unlocks
+    the slot and closes the files, as leaving the frame would have.
     """
 
     def __init__(self, files, slot):
@@ -1770,17 +1803,49 @@ class _MergeHold:
         self.lock, self.lp, self.reserved = lock, lp, reserved
         self.releasable = reserved
         self._released = False
+        self.reservation = None
+        self.lent = False
+
+    def lend(self):
+        """Keep the rebased branch's files reserved while other files can land."""
+        if not self.reserved or not self.releasable or self.lent:
+            return
+        try:
+            files = merge_turn_files(self.lp.wt, self.lp.base_sha)
+        except Stopped:
+            return                 # a diff that stops says nothing; keep the exclusive turn
+        if files is None:
+            return                 # unknown files still need the exclusive turn
+        path = Path(self.lock.name)
+        if merge_turn_blocker(path, files):
+            # Integration can rename a branch's paths. If those now overlap another
+            # reservation, this lap checks unheld and takes a fresh turn afterwards.
+            self.release()
+            return
+        self.reservation = path.with_suffix(
+            f".{os.getpid()}.{threading.get_ident()}.hold").open("w+")
+        fcntl.flock(self.reservation, fcntl.LOCK_EX)
+        json.dump(sorted(files), self.reservation)
+        self.reservation.flush()
+        self.lent = True
+        fcntl.flock(self.lock, fcntl.LOCK_UN)
 
     def release(self):
         if self._released:
             return
         self._released = True
         try:
-            if self.lock is not None:
-                try:
-                    self.lock.close()
-                except (OSError, ValueError):
-                    pass
+            try:
+                if self.reservation is not None:
+                    path = Path(self.reservation.name)
+                    self.reservation.close()
+                    path.unlink(missing_ok=True)
+            finally:
+                if self.lock is not None:
+                    try:
+                        self.lock.close()
+                    except (OSError, ValueError):
+                        pass
         finally:
             self.lock = None
             held = getattr(_PICKUP_HELD, "count", 0)
@@ -1799,61 +1864,156 @@ class _MergeHold:
                 _MERGE_HELD.hold = None
 
 
+def derived_heavy_limit(readings=None):
+    """How many heavy suites the slice's live headroom fits; at least one.
+
+    The slice's idle cores over one suite's 0.7, and its free memory over 0.4 GB,
+    whichever fits fewer: twice the headroom fits twice the suites, and a
+    saturated slice fits one, so a new suite waits but nothing stalls.  Both come
+    off the slice's own cgroup -- its CPU quota and use, its `memory.high` less
+    cache -- which a shell beside the slice reads like a worker inside it; where
+    no slice answers, the host's idle cores and free memory stand in.  An
+    unreadable gate fails open to the other resource, and to one suite where
+    neither answers.
+    """
+    if readings is None:
+        readings = host_readings()
+    quota = _reading(readings, "slice_cpu_quota")
+    if quota is not None:
+        used = _reading(readings, "slice_cpu_used")
+        cpu_free = quota - used if used is not None else float(quota)
+    else:
+        cpus = _reading(readings, "cpus", "nproc")
+        load = _reading(readings, "load", "load1", "load_1m")
+        if cpus is not None and load is not None:
+            cpu_free = cpus - load
+        elif cpus is not None:
+            cpu_free = float(cpus)
+        else:
+            cpu_free = None
+    slice_used = _reading(readings, "slice_memory_used_mb")
+    slice_high = _reading(readings, "slice_memory_high_mb")
+    if slice_used is not None and slice_high is not None:
+        mem_free = slice_high - slice_used
+    else:
+        unit = _unit_memory(readings)
+        if unit is not None:
+            mem_free = unit[1] - unit[0]
+        else:
+            mem_free = _reading(readings, "free_mb", "mem_available_mb", "mem_available")
+    candidates = []
+    if cpu_free is not None:
+        candidates.append(int(cpu_free / HEAVY_CPUS))
+    if mem_free is not None:
+        candidates.append(int(mem_free / HEAVY_MEM_MB))
+    if not candidates:
+        return 1
+    return max(1, min(candidates))
+
+
+def heavy_suite_limit(readings=None):
+    """(limit, pinned): the heavy-suite turns in force; 0 means no cap.
+
+    An explicit `max_gates` pins the host-wide count; otherwise it is derived
+    from live readings, so twice the machine runs twice the suites.  A home
+    config this cannot read raises, and the caller falls back to derived.
+    """
+    pinned = config.max_gates()
+    if pinned is not None:
+        return pinned, True
+    return derived_heavy_limit(readings), False
+
+
 def _acquire_gate_turn(run_dir, log_path, log):
-    """Wait for and hold one of the repository's gate turns; None when no turn is taken."""
+    """Wait for and hold one host-wide heavy-suite turn; None when no turn is taken."""
     record = read_state(run_dir) or {} if run_dir else {}
     repo = record.get("repo")
     is_first = bool(record.get("first"))
     is_landing = bool(record.get("landing"))
     landing_since = _first_landing_wait(run_dir) if run_dir else None
     self_id = run_dir.name if run_dir else None
-    limit = 0
-    if repo and os.environ.get("AK_MAX_RUNS") != "0":
+    if not repo or os.environ.get("AK_MAX_RUNS") == "0":
+        return None
+    said_bad = []
+    def current_limit():
         try:
-            limit = config.max_gates()
+            return heavy_suite_limit()
         except config.Error as exc:
-            limit = config.RUN_DEFAULTS["max_gates"]
-            if log is not None:
-                log(f"done-when: {exc} · the gate takes one of the shipped default's {limit} turns")
+            if log is not None and not said_bad:
+                said_bad.append(True)
+                log(f"done-when: {exc} · the heavy suite takes a derived turn")
+            return derived_heavy_limit(), False
+    limit, _ = current_limit()
     if not limit:
         return None
-    repo = main_checkout(repo)
     config.RUNS.mkdir(parents=True, exist_ok=True)
-    name = Path(repo).name
     files = ExitStack()
     try:
-        slots = [files.enter_context(gate_lock(repo, i).open("a")) for i in range(limit)]
-        slot = take_slot(slots)
+        slots = []
+        def admit(new_limit):
+            total = max(new_limit, _heavy_max_existing() + 1, len(slots))
+            while len(slots) < total:
+                slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
+            temp, held, candidate = [], 0, None
+            for i, fh in enumerate(slots[:total]):
+                try:
+                    fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    held += 1
+                    continue
+                temp.append(fh)
+                if i < new_limit and candidate is None:
+                    candidate = fh
+            if held >= new_limit or candidate is None:
+                for fh in temp:
+                    fcntl.flock(fh, fcntl.LOCK_UN)
+                return None
+            for fh in temp:
+                if fh is not candidate:
+                    fcntl.flock(fh, fcntl.LOCK_UN)
+            return candidate
+        slot = admit(limit)
         me_since = landing_since if is_landing and landing_since is not None else time.time()
         if slot is None or _gate_waiter_before(repo, self_id, is_first, me_since, is_landing):
             if slot is not None:
                 fcntl.flock(slot, fcntl.LOCK_UN)
+                slot = None
             began = time.monotonic()
-            said = f"waiting for a gate turn · {limit} of {name} running"
+            said = f"waiting for a heavy suite turn · {limit} running"
             if log is not None:
                 log(f"done-when: {said}")
             waited_since = mark_gate_wait(run_dir, repo)
             if waited_since is None:
                 waited_since = me_since if is_landing else time.time()
             step = history.close_step(run_dir.name)     # the wait is no step's work
+            uncapped = False
             try:
                 while True:
                     log_path.write_text(said + "\n")
                     stop_check(run_dir)
                     time.sleep(GATE_POLL)
-                    slot = take_slot(slots)
+                    limit, _ = current_limit()
+                    if not limit:
+                        uncapped = True
+                        break
+                    said = f"waiting for a heavy suite turn · {limit} running"
+                    slot = admit(limit)
                     if slot is None:
                         continue
                     if _gate_waiter_before(repo, self_id, is_first, waited_since,
                                              is_landing):
                         fcntl.flock(slot, fcntl.LOCK_UN)
+                        slot = None
                         continue
                     break
             finally:
                 mark_gate_wait(run_dir, None)
             history.open_step(run_dir.name, step)
+            if uncapped:
+                files.close()
+                return None
             if log is not None:
-                log(f"done-when: took a gate turn of {name} after "
+                log(f"done-when: took a heavy suite turn after "
                     f"{orch.span(time.monotonic() - began)}")
     except BaseException:
         files.close()
@@ -1865,27 +2025,30 @@ def _acquire_gate_turn(run_dir, log_path, log):
 
 @contextmanager
 def gate_turn(run_dir, log_path, log):
-    """One of the repository's `max_gates` done-when turns, held for as long as the list runs.
+    """One host-wide heavy-suite turn, held for as long as the list runs.
 
-    The host is disk-bound and a gate writes tens of gigabytes: three gates of one repository
-    each take as long as one alone, five take four times as long, and nothing capped them.  So
-    the gates of one main checkout -- whichever worktree, seat or process -- take turns,
-    `max_gates` at once.  A turn is a flock on one of the repository's slot files, which the
-    kernel lets go of when its holder dies, so a killed gate never blocks the next.  A waiting
-    gate rewrites its own log every poll, so the stall ladder reads the wait as life, and says
-    so on its record for `ak run status`; the ceiling starts once the turn is its own, and a
-    stop lands while it waits as it does mid-list.  A run without a repository, a direct caller
-    with no record, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0` all take no turn.
-    A freed turn goes to the waiter that has waited longest among the highest rank,
-    a landing run before any round check and `--first` before the rest: a gate takes
-    a free turn only when no waiter ranks before it, and a lander's wait counts from
-    the start of its first landing wait.
-    A home config this cannot read -- it is read here, mid-run, so one hand-edit typo would
-    fail the next gate of every running run -- means the shipped default, and a log line
-    naming the problem.
-    A check running while this thread already holds a turn takes no second one: a landing
-    lap holds one turn across its rebase and its checks, and the checks under it wait for
-    none.
+    Only the heavy suite -- the `# once` line, the repository's `tests:` suite at
+    the final check -- takes one; every other done-when command runs without.  A
+    suite builds its own Postgres, port and temp dir at ~0.7 core and ~0.4 GB, so
+    the turns are counted host-wide from the slice's live headroom, twice the
+    machine twice the suites, at least one so nothing stalls; an explicit
+    `max_gates` pins the count instead.  A turn is a flock on one of the host's
+    slot files, which the kernel lets go of when its holder dies, so a killed
+    suite never blocks the next.  A waiting suite rewrites its own log every poll,
+    so the stall ladder reads the wait as life, and says so on its record for `ak
+    run status`; the ceiling starts once the turn is its own, and a stop lands
+    while it waits as it does mid-list.  A run without a repository, a direct
+    caller with no record, the test suites' `AK_MAX_RUNS=0` and `max_gates = 0`
+    all take no turn.  The limit is re-read on every poll, so a changed pin or a
+    changed headroom reaches runs already queued.  A freed turn goes to the waiter
+    that has waited longest among the highest rank, a landing run before any round
+    check and `--first` before the rest: a suite takes a free turn only when no
+    waiter ranks before it, and a lander's wait counts from the start of its first
+    landing wait.
+    A home config this cannot read -- it is read here, mid-run, so one hand-edit
+    typo would fail the next suite of every running run -- means a derived count,
+    and a log line naming the problem.
+    A check running while this thread already holds a turn takes no second one.
     """
     if getattr(_GATE_HELD, "hold", None) is not None:
         yield
@@ -1937,7 +2100,7 @@ def released_gate_turn():
 
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
-                  run_dir=None):
+                  run_dir=None, heavy=False):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -1958,12 +2121,13 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     A command that exits non-zero runs once more at once, within the same ceiling, and the
     re-run decides it: under load a timing test fails by chance far more often than a change
     breaks it.  A pass that took the re-run is said, not hidden -- a `flaky:` record after
-    the command's keeps the first failure's last lines, and the repository's follow-ups file
-    gets a dated line (`note_flake`).  A killed command is not re-run: it spent the silence
-    window or the ceiling, which a second go would only spend again.
+    the command's keeps the first failure's last lines for the run's follow-ups. A killed
+    command is not re-run: it spent the silence window or ceiling, which a second go would
+    only spend again.
 
-    The list runs on one of the repository's gate turns (`gate_turn`), taken before its first
-    command and let go however the list ends; the ceiling counts from the turn, not the wait.
+    When `heavy` the list runs on one host-wide heavy-suite turn (`gate_turn`),
+    taken before its first command and let go however the list ends; the ceiling
+    counts from the turn, not the wait.  Otherwise it runs without one.
     """
     limit = 3600 * CEILING_HOURS if limit is None else limit
     silence = 60 * SILENCE_MINUTES if silence is None else silence
@@ -1972,7 +2136,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     spent, killed, kept = None, False, ""   # the command the limit ran out on, whether it had
                                             # begun, and the output it had produced by then
     reason = []
-    with gate_turn(run_dir, log_path, log):
+    with gate_turn(run_dir, log_path, log) if heavy else nullcontext():
         deadline = time.monotonic() + limit
         log_path.write_text("")
         for cmd in cmds:
@@ -2011,7 +2175,6 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                                          *tail]))
                 if log is not None:
                     log(f"done-when: flaky: {cmd} failed, then passed on its re-run")
-                note_flake(run_dir, cmd, tail[-1] if tail else "(no output)")
             if killed:
                 spent, kept = cmd, out
                 break
@@ -2040,30 +2203,12 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     return ok, text
 
 
-def note_flake(run_dir, cmd, last):
-    """One dated line in the repository's follow-ups file: a done-when line passed on its re-run.
-
-    The gate let the flake through, so the orchestrator is the one told it happened: the run
-    id, the command and the last line its first failure printed.  Written under the lock
-    `append_followups` rewrites the file under, so neither loses the other's line.  A direct
-    caller with no record, or a run with no repository, has no file to write to.
-    """
-    repo = (read_state(run_dir) or {}).get("repo") if run_dir else None
-    if not repo:
-        return
-    if len(last) > 160:
-        last = last[:159] + "\u2026"
-    day = time.strftime("%Y-%m-%d", time.localtime())
-    directory = config.HOME / "followups"
-    try:
-        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        with (directory / ".lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            with (directory / f"{Path(repo).name}.md").open("a", errors="replace") as out:
-                out.write(f"- {day} run {Path(run_dir).name}: flaky: {cmd} failed, then passed "
-                          f"on its re-run; its first failure ended: {last}\n")
-    except OSError:
-        pass              # the gate output already says it; the file is the copy
+def leftover_junk(path):
+    """Match names, not targets: a dependency symlink is junk even when Git ignores only directories."""
+    parts = path.rstrip("/").split("/")
+    return (parts[0].startswith(SANDBOX_PREFIXES)
+            or any(part in ("recovery.lock", "delivery.lock", "node_modules", "venv", ".venv")
+                   for part in parts))
 
 
 def commit_leftovers(wt, log, artifacts):
@@ -2076,16 +2221,15 @@ def commit_leftovers(wt, log, artifacts):
     Everything the done-when commands generated is left alone.  Committing that instead earns
     a FAIL on junk the next round's commands recreate, so the fixer can never get out of it.
 
-    A test sandbox is left alone too: a path under a suite sandbox prefix, or one `git
-    check-ignore` would ignore, is never committed, whatever the repository's .gitignore
-    says -- a test killed mid-way must not ship its stub git and fake adapters.  Sandboxes
-    git already ignores are listed back for the count below, since `dirty_paths` never
-    sees them.
+    Test sandboxes, run locks and dependency trees are left alone too, including symlinks
+    and staged paths, whatever the repository's .gitignore says.  Anything `git check-ignore`
+    would ignore stays out as well.  Ignored junk is listed back for the count below, since
+    `dirty_paths` never sees it.
     """
     paths = [p for p in dirty_paths(wt) if p not in artifacts]
     real, sandbox = [], []
     for path in paths:
-        if path.split("/", 1)[0].startswith(SANDBOX_PREFIXES):
+        if leftover_junk(path):
             sandbox.append(path)
         elif git_out(wt, "check-ignore", "-q", "--", path)[0] == 0:
             sandbox.append(path)
@@ -2111,7 +2255,7 @@ def commit_leftovers(wt, log, artifacts):
 
 
 def ignored_sandbox_paths(wt, artifacts):
-    """Ignored sandbox files: invisible to `dirty_paths`, still uncommitted.
+    """Ignored sandbox files, run locks and dependencies: invisible to `dirty_paths`, still uncommitted.
 
     Once the repository's .gitignore names the suite's sandbox prefixes, a killed test's
     sandbox never reaches the leftover sweep's classifier -- and without this listing its
@@ -2124,7 +2268,7 @@ def ignored_sandbox_paths(wt, artifacts):
     for entry in out.split("\0"):
         if not entry or entry in artifacts:
             continue
-        if not entry.rstrip("/").split("/", 1)[0].startswith(SANDBOX_PREFIXES):
+        if not leftover_junk(entry):
             continue
         if not entry.endswith("/"):
             found.append(entry)
@@ -2729,6 +2873,14 @@ def blocked_reason(section):
     return first if len(first) <= 200 else first[:199] + "\u2026"
 
 
+def followup_not_needed(lp, summary):
+    if lp.state.get("followup") and not lp.state.get("round_summaries"):
+        answer = re.fullmatch(r"(?:## Summary\s+)?not needed:[ \t]*(\S[^\n]*)\s*",
+                              summary.strip(), re.I)
+        if answer:
+            raise NotNeeded(answer.group(1).strip())
+
+
 def execute(lp, role, text, name):
     """One executor/fixer turn of the current round.  Returns its summary.
 
@@ -2841,6 +2993,8 @@ def execute(lp, role, text, name):
             section = blocked_section(summary)
             if section:
                 raise Blocked(blocked_reason(section), section)
+            if code == 0:
+                followup_not_needed(lp, summary)
             return summary
         # quota the event layer missed still hands over, straight to the other provider:
         # the reset policy and the provider's other accounts already had their moment in
@@ -3064,120 +3218,127 @@ def followups_in(text):
     """The reviewer's `## Follow-ups` items, in order, markers stripped.
 
     Read like `finding_count` reads `## Findings`: the section ends at the next heading of
-    the same level or higher, never at a deeper one, and every list item in it is one.
+    the same level or higher, never at a deeper one. Indented evidence stays with its item.
     """
     heading = FOLLOWUPS.search(text or "")
     if not heading:
         return []
     section = text[heading.end():]
     end = re.search(rf"^#{{1,{len(heading.group(1))}}}[ \t]", section, re.M)
-    return [item.strip() for item in
-            FOLLOWUP_ITEM.findall(section[:end.start()] if end else section)]
+    items, indent = [], None
+    for line in (section[:end.start()] if end else section).splitlines():
+        if indent is not None and (not line.strip() or line[:indent].isspace()):
+            items[-1] += "\n" + line[indent:]
+            continue
+        item = FOLLOWUP_ITEM.match(line)
+        indent = item.start(1) if item else None
+        if item:
+            items.append(item.group(1))
+    return [item.strip() for item in items]
 
 
-def followup_key(item):
-    """What deduplicates a follow-up: `path:line - what`, without the why it matters."""
-    parts = [part.strip() for part in item.split(" - ")]
-    return " - ".join(parts[:2]) if len(parts) > 1 else parts[0]
+def record_flakes(state, text):
+    """Keep each gate's flaky evidence with the current review, including checks after PASS."""
+    for record in text.split("\n\n"):
+        if record.startswith("flaky: ") and record not in state.get("followups", []):
+            state.setdefault("followups", []).append(record)
 
 
-def followup_keys(item):
-    """What makes a follow-up repeat an open one: its `path:line - what`, or its `path:line`."""
-    place = FOLLOWUP_PLACE.match(item)
-    return {followup_key(item), *([place.group(1)] if place else [])}
+def followup_place(text):
+    """The review's site, independent of its wording or Markdown decoration."""
+    site = re.search(r"([^\s`*]+):(\d+)\b", text)
+    if site:
+        return f"{site[1].removeprefix('./')}:{int(site[2])}"
+    return text.splitlines()[0].strip()
 
 
-def record_followups(lp, text):
-    """Fold this review's `## Follow-ups` into the run's own, deduplicated by `path:line - what`.
+def open_followup(state, text):
+    for directory in run_dirs():
+        other = read_state(directory) or {}
+        if (other.get("run_id") != state.get("run_id") and other.get("followup")
+                and launched_session(other) == launched_session(state)
+                and other.get("repo") == state.get("repo")
+                and other["followup"]["place"] == followup_place(text)
+                and (other.get("state") not in ENDED or going(other)
+                     or (other.get("state") == "pass" and not other.get("merged")
+                         and not other.get("no_merge") and not other.get("on_target")))):
+            return directory.name
+    return None
 
-    A later round re-listing what an earlier one already said adds nothing: the PR description
-    and the repo's follow-ups file each carry every item once.
+
+def start_followups(state, run_dir, log, cfg=None):
+    """A merge starts ordinary runs, once, under the same lock that closes the seat.
+
+    The receipt is the duplicate guard even while admission waits. There is no collector
+    or backlog: this ending alone gets to launch its list.
     """
-    seen = {followup_key(item) for item in lp.state.get("followups") or []}
-    for item in followups_in(text):
-        if followup_key(item) not in seen:
-            seen.add(followup_key(item))
-            lp.state.setdefault("followups", []).append(item)
-
-
-def append_followups(state, pr_url):
-    """Append this run's follow-ups to the repo's file, one bullet each, never a repeat.
-
-    The file is `~/.agentkit/followups/<repo basename>.md`, and every bullet carries the
-    date, the run id and the PR number, so the orchestrator reading it before planning the
-    next task knows where each item came from.  An item that repeats an open one -- the same
-    `path:line`, or the same `path:line - what` -- from an earlier round or an earlier run is
-    not written again.  A repository has one file whatever the case of its name: another
-    one (`acme.md` beside `ACME.md`) is merged in by date and removed.  The orchestrator
-    reads the whole file before every task, so past FOLLOWUPS_CAP the oldest bullets move to
-    `<repo basename>.archive.md`, which keeps every one of them and which nobody is told to
-    read.  An entry is a bullet and the lines under it, and it is merged, kept or moved
-    whole.  A run with no repository has no file to write to.
-
-    The read and the rewrite hold one exclusive lock together, on the directory rather than
-    the file, since `repo` and `REPO` rewrite each other's: two runs appending at once
-    would otherwise both see the same item as new and write it twice, or each remove the
-    file the other merged into.
-    """
-    items = state.get("followups") or []
-    repo = state.get("repo")
-    if not items or not repo:
+    session = launched_session(state)
+    if (not state.get("merged") or not state.get("followups") or not session
+            or not state.get("repo") or state.get("scratch")
+            or (state.get("review_pr") and not state.get("own_pr"))):
         return
-    directory = config.HOME / "followups"
-    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    path = directory / f"{Path(repo).name}.md"
-    number = pr_url.rstrip("/").rsplit("/", 1)[-1]
-    day = time.strftime("%Y-%m-%d", time.localtime())
-    try:
-        with (directory / ".lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            others = [other for other in directory.iterdir() if other.name != path.name
-                      and other.name.casefold() == path.name.casefold()]
-            entries = []
-            for source in (path, *others):
-                block = []      # a line that is no bullet belongs to the entry above it
-                for line in (source.read_text(errors="replace")
-                             if source.exists() else "").splitlines():
-                    if line.startswith("- ") or not block:
-                        block.append(line)
-                    else:
-                        block[-1] += f"\n{line}"
-                entries += block
-            if others:
-                # stable: a file's own order stands, and an undated entry counts as oldest
-                entries.sort(key=lambda entry: entry[2:12]
-                             if re.match(r"- \d{4}-\d\d-\d\d", entry) else "")
-            # an entry's item is its first line past the bullet and any `<date> ...: ` stamp,
-            # which a hand-written bullet may not have
-            known = set().union(*(
-                followup_keys(re.sub(r"^- (?:\d{4}-\d\d-\d\d[^:\n]*: )?", "",
-                                     entry.split("\n", 1)[0]))
-                for entry in entries if entry.startswith("- ")))
-            added = []
-            for item in items:
-                if not followup_keys(item) & known:
-                    known |= followup_keys(item)
-                    added.append(f"- {day} run {state['run_id']} PR #{number}: {item}")
-            entries += added
-            size, cut = sum(len(entry.encode()) + 1 for entry in entries), 0
-            while size > FOLLOWUPS_CAP:
-                size -= len(entries[cut].encode()) + 1
-                cut += 1
-            if not (added or others or cut):
-                return
-            # the archive first, then the whole new file in one rename, then the merged-in
-            # ones: whatever fails, every entry is still in one file or another
-            if cut:
-                with (directory / f"{Path(repo).name}.archive.md").open(
-                        "a", errors="replace") as archive:
-                    archive.write("".join(f"{entry}\n" for entry in entries[:cut]))
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text("".join(f"{entry}\n" for entry in entries[cut:]), errors="replace")
-            tmp.replace(path)
-            for other in others:
-                other.unlink()
-    except OSError:
-        pass              # the PR description already carries them; the file is the copy
+    with watch.state_lock():
+        current = read_state(run_dir) or state
+        if "followup_runs" in current:
+            state["followup_runs"] = current["followup_runs"]
+            return
+        state["followup_runs"] = []
+        save_state(run_dir, state)
+        if watch.seat_closed(session):
+            return
+        cfg = report_config(cfg)
+        repo = main_checkout(Path(state["repo"]))
+        target = (state.get("target") or state["base"]).removeprefix("origin/")
+        for item in state["followups"]:
+            source = {**state, "repo": str(repo)}
+            if open_followup(source, item):
+                continue
+            title = "Fix " + item.splitlines()[0]
+            if len(title) > 256:  # GitHub rejects a longer PR title; the item stays whole below
+                title = title[:255] + "…"
+            name = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
+            directory = config.RUNS / name
+            number = 1
+            while directory.exists():
+                number += 1
+                directory = config.RUNS / f"{name}-{number}"
+            directory.mkdir(parents=True)
+            check = shlex.quote(str(directory / "regression.sh"))
+            task = (f"---\nrepo: {repo}\nbase: origin/{target}\ntarget: {target}\n---\n"
+                    f"# {title}\n\n{item}\n\n"
+                    "First fetch the target branch and check that this defect still exists there. "
+                    f"Inspect {config.RUNS}/*/run.json for another open run of session {session} "
+                    f"fixing this site in {repo}; exclude this run ({directory.name}). "
+                    "If the defect is gone or another open run is fixing it, end with only "
+                    "`not needed: <why>` (optionally under `## Summary`), with no edits or PR. "
+                    "Otherwise fix it with a regression test: show it failing before the fix "
+                    "and passing afterwards, and include both outputs in your summary. "
+                    f"You may write {directory / 'regression.sh'} outside the checkout "
+                    "to run that test from the checkout; "
+                    "the loop runs it as a check. If only the owner can decide, end `## Blocked` "
+                    "with the question.\n\n"
+                    f"## Done when\n```bash\nbash {check}\n```\n")
+            (directory / "task.md").write_text(task)
+            (directory / "log.txt").touch()
+            save_state(directory, {"followup": {"run": run_dir.name, "text": item,
+                                               "place": followup_place(item)},
+                                   "launched_session": session, "repo": str(repo),
+                                   "workers": run_workers(cfg, state),
+                                   **({"reviewers": list(state["reviewers"])}
+                                      if "reviewers" in state else {}),
+                                   **({"notify_sink": state["notify_sink"]}
+                                      if state.get("notify_sink") else {})})
+            opts = {"--rounds": None, "--exec": None, "--review": None,
+                    "--review-pr": None, "--no-worktree": False, "--no-merge": False,
+                    "--bg": True}
+            try:
+                prepare(directory, opts, logger(directory, True), cfg)
+                spawn_bg(directory, [str(directory / "task.md")])
+            except (config.Error, OSError) as exc:
+                log(f"follow-up {directory.name} could not start: {exc}")
+                continue
+            state["followup_runs"].append(directory.name)
+            save_state(run_dir, state)
 
 
 def done_when_counts(dw_log, cmds):
@@ -3568,7 +3729,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         overridden = "the checkout changed after verification"
         lp.log(f"WARN {overridden}; overriding to FAIL")
     record_findings(lp, out, text)
-    record_followups(lp, text)
+    lp.state["followups"] = followups_in(text) if verdict == "PASS" else []
+    if verdict == "PASS":
+        record_flakes(lp.state, dw_log)
     if record:
         lp.state["round_summaries"].append(
             {"round": lp.rnd, "verdict": verdict, "done_when": ok,
@@ -3627,6 +3790,7 @@ def rounds(lp, execv=None):
             # a review that was the open step is continued, not preceded by another
             # executor turn.
             summary = saved_worker_text(lp.round_dir)
+            followup_not_needed(lp, summary)
             settled = settled_gate(lp) if cut == "reviewer" else None
             if settled is None:
                 if cut == "done-when":
@@ -3775,6 +3939,9 @@ def set_base(lp, tip):
     """The branch now carries the pinned tip, so that is what its diff is against from here on."""
     lp.state["base_sha"] = git(lp.wt, "rev-parse", f"{tip}^{{commit}}")
     save_state(lp.run_dir, lp.state)
+    hold = getattr(_MERGE_HELD, "hold", None)
+    if hold is not None:
+        hold.lend()
 
 
 def on_pass(lp):
@@ -3997,9 +4164,12 @@ def integrate(lp, upstream):
     Under a landing the lap's gate turn is already held, so the fetch and the rebase run on
     the target's tip as it reads now, and the checks run on exactly that commit.  The tip is
     resolved once per lap and every check after it uses that pinned commit, never
-    the moving branch name again.  When origin moved while the lap landed, the lap goes round
-    again, at most three laps; a move still unlanded after the third parks the run `waiting`,
-    as a conflict does, and never ends it FAIL.  A re-check that fails on the target's own
+    the moving branch name again.  A lap re-checking under a lent reserved hold skips the
+    second fetch: borrowers may have landed disjoint moves during its check, and `land`
+    carries those over under the delivery turn without another re-check.  Otherwise, when
+    origin moved while the lap landed, the lap goes round again, at most three laps; a move
+    still unlanded after the third parks the run `waiting`, as a conflict does, and never
+    ends it FAIL.  A re-check that fails on the target's own
     tip too parks on it at once, spending no fixer round.  A branch left with no diff is
     False too, a PASS noted as already on the target, so no caller pushes it.
     A commit whose checks pass here is marked on the loop, so the final check runs only
@@ -4118,6 +4288,7 @@ def integrate(lp, upstream):
                                                       "rebased_from": old_head,
                                                       "patch_id": patch_id(lp.wt, tip)}
                                 lp.state["verdict"] = saved_verdict
+                                record_flakes(lp.state, dw_log)
                                 lp.state.pop("review_pending", None)
                                 lp.save()
                                 lp.rnd = old_rnd
@@ -4147,10 +4318,16 @@ def integrate(lp, upstream):
                         return note(lp, f"done-when or review after the {how} of {upstream} "
                                         "did not pass")
                     lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
-        rc, out = git_out(lp.wt, "fetch", "origin", "--prune")
-        if rc != 0:
-            return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
-        new_tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False)
+        hold = getattr(_MERGE_HELD, "hold", None)
+        if hold is not None and hold.lent:
+            # A borrower may have landed during the check. Let `land` fetch under
+            # the delivery turn and carry these checks over that disjoint move.
+            new_tip = tip
+        else:
+            rc, out = git_out(lp.wt, "fetch", "origin", "--prune")
+            if rc != 0:
+                return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
+            new_tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False)
         if not new_tip:
             return note(lp, f"{upstream} does not exist on origin; nothing to merge into",
                         failed=True)
@@ -4211,17 +4388,31 @@ def pr_body(state):
              f"- run: {state['run_id']}"]
     if state.get("followups"):
         lines += ["", "## Follow-ups", "",
-                  *(f"- {item}" for item in state["followups"])]
+                  *("- " + item.replace("\n", "\n  ") for item in state["followups"])]
     return "\n".join(lines + [""])
+
+
+def refresh_pr_body(lp):
+    """A later passing review replaces the list on the already-open PR too."""
+    path = lp.run_dir / "pr-body.md"
+    body = pr_body(lp.state)
+    if path.is_file() and path.read_text() == body:
+        return True
+    pending = lp.run_dir / "pr-body-update.md"
+    pending.write_text(body)
+    rc, out = gh(lp.wt, "pr", "edit", lp.state["pr"], "--body-file", str(pending))
+    if rc != 0:
+        if stopped(rc, out):
+            raise Stopped(out)
+        return note(lp, f"updating the PR description failed: {out[-400:]}", failed=True)
+    pending.replace(path)      # only a confirmed update may be skipped on a delivery retry
+    return True
 
 
 def open_pr(lp, target_branch):
     """The PR's URL, opening it first unless this branch already has one."""
     if lp.state.get("pr"):
-        # a re-review after the PR already existed may have collected more follow-ups
-        (lp.run_dir / "pr-body.md").write_text(pr_body(lp.state))
-        append_followups(lp.state, lp.state["pr"])
-        return lp.state["pr"]
+        return lp.state["pr"] if refresh_pr_body(lp) else None
     path = lp.run_dir / "pr-body.md"
     path.write_text(pr_body(lp.state))
     rc, out = gh(lp.wt, "pr", "create", "--base", target_branch, "--head", lp.state["branch"],
@@ -4240,7 +4431,6 @@ def open_pr(lp, target_branch):
         return None
     lp.state["pr"] = found.group(0)
     save_state(lp.run_dir, lp.state)
-    append_followups(lp.state, lp.state["pr"])
     lp.log(f"--- merge: PR {lp.state['pr']}" + (" (already open)" if rc != 0 else ""))
     return lp.state["pr"]
 
@@ -4445,12 +4635,9 @@ def fork_and_pr(lp, target_branch, upstream_repo, permission):
                 raise Stopped(out)
             return note(lp, f"gh pr create on {upstream_repo} failed: {out[-400:]}", failed=True)
         lp.state["pr"] = found.group(0)
-        append_followups(lp.state, lp.state["pr"])
         lp.log(f"--- merge: PR {lp.state['pr']}" + (" (already open)" if rc != 0 else ""))
-    else:
-        # a re-review after the PR already existed may have collected more follow-ups
-        (lp.run_dir / "pr-body.md").write_text(pr_body(lp.state))
-        append_followups(lp.state, lp.state["pr"])
+    elif not refresh_pr_body(lp):
+        return False
     lp.state["foreign"] = True
     return note(lp, "waiting for the maintainer")
 
@@ -4521,8 +4708,8 @@ def do_merge(lp, url, upstream):
             if git(lp.wt, "rev-parse", "HEAD") != head:
                 if not final_check(lp, upstream) or not push(lp) or not wait_checks(lp, url):
                     return False
-                (lp.run_dir / "pr-body.md").write_text(pr_body(lp.state))
-                append_followups(lp.state, url)
+                if not refresh_pr_body(lp):
+                    return False
                 ready = True
             else:
                 # GitHub may still be computing mergeability. An unconfirmed answer
@@ -4561,9 +4748,8 @@ def do_merge(lp, url, upstream):
         if (not integrate(lp, upstream) or not final_check(lp, upstream) or not push(lp)
                 or not wait_checks(lp, url)):
             return False
-        # the retry's re-review may have collected more follow-ups after the PR already existed
-        (lp.run_dir / "pr-body.md").write_text(pr_body(lp.state))
-        append_followups(lp.state, url)
+        if not refresh_pr_body(lp):
+            return False
     return note(lp, f"gh pr merge --{method} failed"
                     f"{f' with the PR {why}' if why else ''}; the PR is open at {url}: {out[-400:]}",
                 failed=True)
@@ -4656,7 +4842,8 @@ def target_fails(lp, upstream, dw_log):
     False when the check names no failing command, when the tree is dirty, and when the tip
     cannot be resolved or checked out: all of those leave the tree alone and run the fixer
     rounds as today.  A stop propagates, after the worktree is put back on the branch head,
-    clean.
+    clean.  A probe of a `# once` command takes a heavy-suite turn; any other probe runs
+    light, as the check it repeats did.
     """
     failed = failing_checks(dw_log)
     if not failed:
@@ -4691,13 +4878,15 @@ def target_fails(lp, upstream, dw_log):
         detached = True
         lp.log(f"--- merge: `{cmd}` failed; probing it once on {upstream} ({tip[:12]})")
         probe_log = lp.run_dir / "target-probe.log"
-        with probe_log.open("ab") as progress:
-            progress.write(f"$ {cmd} (on {upstream} {tip})\n".encode())
-            progress.flush()
-            code, _, killed = worker.limited(
-                ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
-                activity=probe_log, output=progress, stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=run_child_env())
+        heavy_probe = cmd in (getattr(lp, "once", None) or [])
+        with gate_turn(lp.run_dir, probe_log, lp.log) if heavy_probe else nullcontext():
+            with probe_log.open("ab") as progress:
+                progress.write(f"$ {cmd} (on {upstream} {tip})\n".encode())
+                progress.flush()
+                code, _, killed = worker.limited(
+                    ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
+                    activity=probe_log, output=progress, stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=run_child_env())
         # as after a gate: a command that exited may still have left processes behind
         worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
         return bool(killed or code != 0)
@@ -4738,8 +4927,9 @@ def final_check(lp, upstream):
     run, so this is its single execution; without one there is nothing to do and
     today's evidence reuse stands.  When the lap's integration already ran the
     every-commands on this commit and they passed, only the once-commands run here:
-    each command runs once per commit per lap, all under the lap's one gate turn.
-    The run is pinned the way `verify_work` pins
+    each command runs once per commit per lap.  The every-commands run light,
+    without a turn; only the once-commands take a heavy-suite turn.  The run is
+    pinned the way `verify_work` pins
     one: the commit and tree are recorded, and a checkout that changes during the
     check fails it.  The output goes to `<run dir>/final-check.log`.
 
@@ -4763,16 +4953,27 @@ def final_check(lp, upstream):
         if getattr(lp, "lap_every_sha", None) == sha:
             # the lap already ran the task checks on this commit and they passed;
             # running them again would check nothing new
-            cmds = list(lp.once)
+            cmds_every, cmds_once = [], list(lp.once)
         else:
-            cmds = [*lp.every, *lp.once]
-        lp.log(f"--- merge: final check: {len(cmds)} commands "
+            cmds_every, cmds_once = list(lp.every), list(lp.once)
+        lp.log(f"--- merge: final check: {len(cmds_every) + len(cmds_once)} commands "
                f"({len(lp.once)} once) on {sha[:12]}")
         identity = commit_identity(lp.wt)
         clean = git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
-        ok, text = run_done_when(cmds, lp.wt, lp.run_dir / "final-check.log", lp.artifacts,
-                                 lp.done_when_limit, lp.log, silence=lp.turn_limit,
-                                 run_dir=lp.run_dir)
+        log_path = lp.run_dir / "final-check.log"
+        began = time.monotonic()
+        if cmds_every:
+            ok_every, text_every = run_done_when(
+                cmds_every, lp.wt, log_path, lp.artifacts, lp.done_when_limit, lp.log,
+                silence=lp.turn_limit, run_dir=lp.run_dir, heavy=False)
+        else:
+            ok_every, text_every = True, ""
+        left = lp.done_when_limit - (time.monotonic() - began)
+        ok_once, text_once = run_done_when(
+            cmds_once, lp.wt, log_path, lp.artifacts, max(0, left), lp.log,
+            silence=lp.turn_limit, run_dir=lp.run_dir, heavy=True)
+        ok = ok_every and ok_once
+        text = "\n\n".join(part.strip() for part in (text_every, text_once) if part.strip())
         if (not clean or commit_identity(lp.wt) != identity
                 or git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
             ok = False
@@ -4794,6 +4995,7 @@ def final_check(lp, upstream):
         if ok:
             lp.log("final check: all passed")
             lp.state["final_check"] = {"outcome": "passed", "sha": sha}
+            record_flakes(lp.state, text)
             save_state(lp.run_dir, lp.state)
             return True
         failing = first_failure(text)
@@ -4846,28 +5048,27 @@ def final_check(lp, upstream):
 def land(lp, upstream, verify, deliver, execv=None):
     """Verify without the merge turn, then hold it only for the minutes landing takes.
 
-    Each lap first takes one gate turn as a lander, and only then fetches and brings the
-    branch onto the target's tip, so the lap checks exactly that commit and the only window
-    for the target to move is the check itself.  The turn spans the rebase and the checks;
-    a conflict, a failing check or a re-review lets it go before any fixer or reviewer
-    starts, and the lap goes again after the fix.  `verify` is the rebase, the done-when
-    and final check re-runs, and every conflict fixer, final-check fixer and re-review
-    they need.  On a loaded host that is an hour, and with fixer rounds a night, and a
-    merge turn held through it lands nothing for the runs queued behind.  So the first
-    lap's merge turn covers a fetch and `deliver` -- the push, the PR, its required
-    checks and the merge.  A target still on the commit the branch was verified on lands.
-    One moved only by commits that touch none of this branch's files is rebased onto
-    under the turn and lands on the verified checks.  Any other move gives the turn to
-    the next run while this one verifies again holding it, from before its rebase
-    through its merge, so the lap lands when its check passes; a third such lap parks
-    the run `waiting`, as a target moving under three integrations does.  A reserved
-    turn is let go before any fixer or reviewer starts, and when the run stops, and the
-    next lap takes it again.  A branch cut from a dependency's passed branch first waits
-    for that dependency to merge (`wait_for_dependency`).  A pickup mid-landing resumes
-    its lap count, so the three laps bound the run across the move.  While the run is
-    inside this landing its gate waits rank ahead of every round check's, every lap
-    counting from the start of the landing's first wait, so a run ready to land finishes
-    instead of queuing behind another round.
+    Each lap fetches and brings the branch onto the target's tip, then checks
+    exactly that commit; only the heavy suite takes a turn, light checks run free.
+    `verify` is the rebase, the done-when and final check re-runs, and every
+    conflict fixer, final-check fixer and re-review they need.  On a loaded host
+    that is an hour, and with fixer rounds a night, and a merge turn held through
+    it lands nothing for the runs queued behind.  So the first lap's merge turn
+    covers a fetch and `deliver` -- the push, the PR, its required checks and the
+    merge.  A target still on the commit the branch was verified on lands.  One
+    moved only by commits that touch none of this branch's files is rebased onto
+    under the turn and lands on the verified checks.  Any other move gives the turn
+    to the next run while this one verifies again holding it, from before its
+    rebase through its merge, lending the delivery turn only to branches changing
+    other files, so the lap lands when its check passes; a third such lap parks
+    the run `waiting`, as a target moving under three integrations does.  A
+    reserved turn is let go before any fixer or reviewer starts, and when the run
+    stops, and the next lap takes it again.  A branch cut from a dependency's passed
+    branch first waits for that dependency to merge (`wait_for_dependency`).  A
+    pickup mid-landing resumes its lap count, so the three laps bound the run across
+    the move.  While the run is inside this landing its heavy waits rank ahead of
+    every round check's, every lap counting from the start of the landing's first
+    wait, so a run ready to land finishes instead of queuing behind another round.
     """
     if not wait_for_dependency(lp):
         return False
@@ -4885,20 +5086,12 @@ def land(lp, upstream, verify, deliver, execv=None):
     try:
         for lap in range(first_lap, 4):
             pickup_new_code(lp, execv=execv, extra={"land_lap": lap})
-            turn_log = Path(lp.run_dir) / "landing-turn.log"
             reserved = lap > 1
-            # the merge turn first: `do_merge` can wait for a gate turn while holding it,
-            # so the reverse order could deadlock two landers against each other
+            # the merge turn first: the final check can wait for a heavy turn while
+            # holding it, so the reverse order could deadlock two landers
             with merge_turn(lp, upstream, reserve=True) if reserved else nullcontext():
-                with gate_turn(lp.run_dir, turn_log, lp.log):
-                    # the wait is over and the checks keep their own logs; the wait's own
-                    # line has said all it will ever say
-                    try:
-                        turn_log.unlink(missing_ok=True)
-                    except OSError:
-                        pass
-                    if not verify():
-                        return False
+                if not verify():
+                    return False
                 held = getattr(_MERGE_HELD, "hold", None)
                 if held is not None:
                     held.releasable = False   # the check passed; the merge keeps the turn
@@ -4982,34 +5175,90 @@ def merge_turn(lp, upstream, reserve=False):
     verified on a target the other's merge has just moved.  So the runs of one origin and
     target branch take turns, and `land` keeps everything long outside them, except a lap
     after a lost one, which reserves the turn from before its rebase through its merge.
-    The turn is a flock, which the kernel lets go of when its holder dies, so a run killed
-    mid-merge never blocks the next.  A run waiting for it says so on its record, and host
+    After its rebase a reserved lap lends the delivery flock, keeping a flock on its
+    file list instead. Disjoint branches can then deliver one at a time; overlapping
+    branches wait for the reservation without blocking delivery. The kernel releases
+    both flocks when their holder dies. A run waiting says so on its record, and host
     admission does not count it as a running worker meanwhile; a reserved lap marks its
-    own hold to land.  A lap already holding the turn takes no second one: a reserved
-    lap's fetch and merge run under the turn it already holds.
+    own hold to land. A reserved lap takes its lent delivery turn back before its fetch
+    and merge, keeping its reservation until it finishes. While it waits behind a
+    borrower it keeps that holding mark and its slot; a separate retake mark tells only
+    the silence watch the wait is no stall, and the wait counts as no step's work.
     """
-    if getattr(_MERGE_HELD, "hold", None) is not None:
+    current = getattr(_MERGE_HELD, "hold", None)
+    if current is not None and not current.lent:
         yield
         return
     url = git(lp.wt, "remote", "get-url", "origin", check=False) or str(lp.state.get("repo"))
     config.RUNS.mkdir(parents=True, exist_ok=True)
     what = f"{Path(lp.state.get('repo') or lp.wt).name} {upstream.removeprefix('origin/')}"
-    lock = merge_turn_lock(url, upstream).open("a")
+    path = merge_turn_lock(url, upstream)
+    lock = current.lock if current is not None else path.open("a")
+    waited = False
+    retaking = False
+
+    def waiting():
+        nonlocal waited, step, retaking, retake_step
+        if current is not None:
+            if retaking:
+                return
+            # a delivery holds the lock through required checks of up to an hour, with
+            # no child process of the holder's own running: without its own mark the
+            # silence watch would read the holder's wait as a stall and resume it.
+            retaking = True
+            lp.state["merge_retake"] = {"pid": os.getpid(), "of": what}
+            save_state(lp.run_dir, lp.state)
+            lp.log(f"--- merge: taking back the merge turn of {what}; "
+                   "a borrower is landing on it")
+            retake_step = history.close_step(lp.state.get("run_id"), log=lp.log)
+            return
+        if waited:
+            return
+        waited = True
+        lp.state["merge_turn"] = {"pid": os.getpid(), "of": what}
+        save_state(lp.run_dir, lp.state)
+        lp.log(f"--- merge: waiting for the merge turn of {what}; another run is landing on it")
+        step = history.close_step(lp.state.get("run_id"), log=lp.log)
+
+    step = None
+    retake_step = None
     try:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            lp.state["merge_turn"] = {"pid": os.getpid(), "of": what}
-            save_state(lp.run_dir, lp.state)
-            lp.log(f"--- merge: waiting for the merge turn of {what}; another run is landing on it")
-            step = history.close_step(lp.state.get("run_id"), log=lp.log)   # a wait, not work
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX)
-            finally:
+            while True:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    waiting()
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                blocker = merge_turn_blocker(
+                    path, merge_turn_files(lp.wt, upstream),
+                    current.reservation.name if current is not None else None)
+                if blocker is None:
+                    break
+                fcntl.flock(lock, fcntl.LOCK_UN)
+                waiting()
+                try:
+                    with blocker.open() as other:
+                        fcntl.flock(other, fcntl.LOCK_EX)
+                except FileNotFoundError:
+                    pass           # the holder finished between the probe and the wait
+        finally:
+            if waited:
                 lp.state.pop("merge_turn", None)
+            if retaking:
+                lp.state.pop("merge_retake", None)
+            if waited or retaking:
                 save_state(lp.run_dir, lp.state)
+        if waited:
             history.open_step(lp.state.get("run_id"), step, log=lp.log)
             lp.log(f"--- merge: took the merge turn of {what}")
+        if retaking:
+            history.open_step(lp.state.get("run_id"), retake_step, log=lp.log)
+            lp.log(f"--- merge: took back the merge turn of {what}")
+        if current is not None:
+            current.lent = False
+            yield
+            return
         held = getattr(_PICKUP_HELD, "count", 0)
         _PICKUP_HELD.count = held + 1
         try:
@@ -5029,11 +5278,50 @@ def merge_turn(lp, upstream, reserve=False):
             if getattr(_MERGE_HELD, "hold", None) is hold:
                 hold.release()
     finally:
-        if lock is not None:
+        if lock is not None and current is None:
             try:
                 lock.close()
             except (OSError, ValueError):
                 pass
+
+
+def merge_turn_files(wt, upstream):
+    """The branch's paths, including both sides of renames; None means unknown."""
+    base = git(wt, "merge-base", upstream, "HEAD", check=False)
+    if not base:
+        return None
+    # `git()` strips whitespace; NUL-delimited paths can start with it, or contain
+    # newlines. Read stdout intact so those are still the same files in every clone.
+    code, out, err = tool_run(["git", "-C", str(wt), "diff", "--no-renames",
+                               "--name-only", "-z", base, "HEAD"])
+    if stopped(code, err):
+        raise Stopped(f"git diff stopped in {wt}: {err.strip()}")
+    return set(out.split("\0")) - {""} if code == 0 else None
+
+
+def merge_turn_blocker(path, files, own=None):
+    """A live overlapping reservation, probed only while holding delivery's flock."""
+    for reserved in path.parent.glob(f"{path.stem}.*.hold"):
+        if str(reserved) == own:
+            continue
+        try:
+            with reserved.open() as probe:
+                try:
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    try:
+                        theirs = json.load(probe)
+                    except (ValueError, OSError):
+                        return reserved
+                    if (files is None or not isinstance(theirs, list)
+                            or not all(isinstance(name, str) for name in theirs)
+                            or files.intersection(theirs)):
+                        return reserved
+                else:
+                    reserved.unlink(missing_ok=True)   # a dead holder's record is no hold
+        except FileNotFoundError:
+            pass
+    return None
 
 
 def merge_turn_lock(url, upstream):
@@ -5078,6 +5366,19 @@ def merge_hold_note(state):
             or hold.get("pid") != state.get("pid")):
         return ""
     return f"holding the merge turn of {hold.get('of')} to land"
+
+
+def merge_retaking(state):
+    """Whether a reserved lap waits to take its lent turn back, for the silence watch only.
+
+    The run is silent while a borrower lands, so its stall clock restarts each tick like
+    any other wait.  The status line stays `holding ... to land` and the run keeps its
+    slot: only `watch.stall_clock` reads this mark.  Like every wait mark it names the
+    process that waits, so one a kill left behind says nothing.
+    """
+    retake = state.get("merge_retake")
+    return (state.get("state") == "running" and isinstance(retake, dict)
+            and retake.get("pid") == state.get("pid"))
 
 
 def merge(lp):
@@ -5180,6 +5481,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             wt = config.WORK / run_dir.name
             wt.mkdir(parents=True, exist_ok=True)
         else:
+            if receipt.get("followup"):
+                git(repo, "fetch", "origin", "--prune")
             base = meta.get("base") or default_base(repo, log)
             # where the PR goes: a run cut from `dev` can still be meant for `main`
             target = meta.get("target") or base
@@ -5382,6 +5685,13 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                     # unless integration had already invalidated the review: there is review
                     # work outstanding, which only a resume can finish, so say so
                     raise Exhausted(str(exc)) from None
+    except NotNeeded as exc:
+        state.update(state="not_needed", verdict=None, not_needed=str(exc),
+                     finished_at=time.time())
+        save_state(run_dir, state)
+        write_result(run_dir, state, cmds, log, cfg)
+        settle_run(state, run_dir, log)
+        return state
     except Dead as exc:
         log(f"ERROR {exc}")
         state.update({"state": "error", "verdict": "ERROR", "error": str(exc),
@@ -5750,6 +6060,8 @@ def delivery(state, cfg=None):
     `not merged` is a repository run's answer and only a repository run's: a run with no repo
     has no branch to merge, and its workspace is where the work went, so it is `delivered`.
     """
+    if state.get("state") == "not_needed":
+        return f"not needed: {state['not_needed']}"
     if state.get("state") == "waiting":
         return f"WAITING: {state.get('merge_note') or state.get('error') or 'delivery pending'}"
     cfg = report_config(cfg)
@@ -5878,6 +6190,8 @@ def record_decision(run_dir, state, reason, merged=False):
     if merged:
         state["merged"] = True
     save_state(run_dir, state)
+    if merged:
+        start_followups(state, run_dir, logger(run_dir, True))
     result = run_dir / "result.md"
     try:
         if state.get("worktree") and Path(state["worktree"]).is_dir():
@@ -6139,11 +6453,13 @@ def seat_tallies(records, now=None):
 
 
 def verdict_word(state, cfg=None):
-    """PASS, FAIL or ERROR: the three words a notice is allowed to carry.
+    """The outcome a notice carries, including DONE for a follow-up no longer needed.
 
     A run that stopped on an error says so; everything else is the delivery outcome, so an
     exhausted or interrupted run reads FAIL, exactly as `delivery` already calls it.
     """
+    if state.get("state") == "not_needed":
+        return "DONE"
     if state.get("state") == "error":
         return "ERROR"
     return "PASS" if delivery(state, report_config(cfg)).startswith("PASS") else "FAIL"
@@ -6157,6 +6473,8 @@ def whereabouts(state, short=False):
     this is what goes on the line when the whole URL will not fit on it.  A run with no
     repository is `delivered`: there was never a branch for `not merged` to be about.
     """
+    if state.get("state") == "not_needed":
+        return "not needed"
     if state.get("scratch"):
         return "delivered"
     if state.get("merged"):
@@ -6255,12 +6573,14 @@ def launcher_watched(session):
 
 
 def handback_verdict(state, cfg=None):
-    """The five words a hand-back line may carry about how a run ended.
+    """The words a hand-back line may carry about how a run ended.
 
-    `PASS merged`, `PASS not merged`, `FAIL`, `BLOCKED`, `ERROR` -- the delivery outcome, not
+    `PASS merged`, `PASS not merged`, `DONE`, `FAIL`, `BLOCKED`, `ERROR` -- the delivery outcome, not
     the review verdict, because what the orchestrator decides next turns on where the work
     went and not on what the reviewer thought of it.
     """
+    if state.get("state") == "not_needed":
+        return "DONE"
     if state.get("state") == "blocked":
         return "BLOCKED"
     if state.get("state") == "error":
@@ -6272,6 +6592,8 @@ def handback_verdict(state, cfg=None):
 
 def handback_reason(state, cfg=None):
     """The one line after the verdict: why it ended that way, in the run's own words."""
+    if state.get("state") == "not_needed":
+        return delivery(state, cfg)
     if state.get("state") in ("blocked", "error", "waiting"):
         return " ".join((state.get("error") or "no reason was recorded").split())[:300]
     # A memory-cap death is the whole news: rounds and findings say nothing about a
@@ -6365,7 +6687,8 @@ def handback_line(state, run_dir, cfg=None):
                if state.get("lessons_truncated") and repo else "")
     line = (f"run {run_dir.name} finished {handback_verdict(state, cfg)}: "
             f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace}{lessons} "
-            "Decide the next step.")
+            + (f"Started fix runs: {', '.join(state['followup_runs'])}. "
+               if state.get("followup_runs") else "") + "Decide the next step.")
     spent = len(state.get("round_summaries") or [])
     if (state.get("state") == "fail" and (state.get("rounds") or 0) > 0
             and spent >= (state.get("rounds") or 0) and review_failed(state)):
@@ -6674,7 +6997,8 @@ def announce(state, run_dir, log, cfg=None):
     # is what this run says now, and the tick must not come back here every pass for it
     mark_delivery(run_dir, state, handback_pending=None, handback_wait_reason=None)
     task = state.get("title") or state.get("run_id") or run_dir.name
-    verdict = "PASS" if delivery(state, report_config(cfg)).startswith("PASS") else "FAIL"
+    verdict = ("DONE" if state.get("state") == "not_needed" else
+               "PASS" if delivery(state, report_config(cfg)).startswith("PASS") else "FAIL")
     why = ""
     # A pre-existing ending with a stuck card keeps its retry below, but never wakes its seat.
     if (not watch.seat_closed(session) and watch.orphan_fresh(state, session)
@@ -6994,6 +7318,138 @@ def _unit_memory_limits(cgroup_file=None, cgroup_root=None):
     return []
 
 
+CPU_PRESSURE_LIMIT = 40   # the slice's `some avg10` above this waits: ak's own
+                            # processes are stalled on CPU nearly half the time
+
+
+def _pressure_avg10(text):
+    """The `some avg10` percentage in a cpu.pressure body, or None when it says none."""
+    for line in text.splitlines():
+        if line.startswith("some "):
+            for part in line.split():
+                if part.startswith("avg10="):
+                    try:
+                        return float(part.split("=", 1)[1])
+                    except ValueError:
+                        return None
+    return None
+
+
+def _slice_cpu_pressure(slice_dir=None):
+    """The slice's own CPU pressure, or None where nothing answers.
+
+    The load average counts every process on the machine and lags by a
+    minute; the slice's `some avg10` says whether ak's own processes are
+    waiting on CPU right now. Unreadable fails open like every other gate
+    input: no slice on macOS, or no cgroup file in a container, must not
+    queue every run forever.
+    """
+    if slice_dir is None:
+        slice_dir = orch.slice_cgroup()
+    try:
+        return _pressure_avg10((slice_dir / "cpu.pressure").read_text())
+    except OSError:
+        return None
+
+
+def _slice_cpu_stat(slice_dir=None):
+    """The slice's cpu.stat counters as {name: value}, or None where nothing answers.
+
+    Carried for diagnosis -- throttled_usec and nr_throttled say whether the
+    slice has ever hit its quota -- not for admission: the counters are
+    cumulative since the slice's first process, so one snapshot cannot say
+    whether the slice is saturated now. The pressure gate does not read them.
+    """
+    if slice_dir is None:
+        slice_dir = orch.slice_cgroup()
+    try:
+        text = (slice_dir / "cpu.stat").read_text()
+    except OSError:
+        return None
+    counters = {}
+    for line in text.splitlines():
+        key, _, rest = line.partition(" ")
+        if not key:
+            continue
+        try:
+            counters[key] = int(rest.split()[0])
+        except (ValueError, IndexError):
+            continue
+    return counters
+
+
+def _slice_cpu_quota(cgroup=None):
+    """The agentkit slice's CPU quota in cores, or None when it sets none.
+
+    Read off the slice's own directory, which `orch.slice_cgroup` finds from the
+    layout whether the caller runs inside the slice or beside it -- a status shell
+    outside reads the same quota a worker inside does.  `max` is no quota.
+    """
+    try:
+        parts = ((cgroup or orch.slice_cgroup()) / "cpu.max").read_text().split()
+        if len(parts) != 2 or parts[0] == "max":
+            return None
+        return int(parts[0]) / int(parts[1])
+    except (OSError, ValueError, ZeroDivisionError):
+        return None
+
+
+def _slice_cpu_used(cgroup=None, delay=0.1):
+    """The slice's current CPU use in cores, or None when it cannot be read.
+
+    Two samples of `cpu.stat`'s `usage_usec` around a tenth of a second of sleep:
+    the rate over the measured window.  A single sample is cumulative since the
+    slice was made, which says nothing live; dividing by the measured elapsed
+    rather than the requested sleep keeps a delayed wakeup from overestimating.
+    """
+    path = (cgroup or orch.slice_cgroup()) / "cpu.stat"
+    def _usage():
+        try:
+            for line in path.read_text().splitlines():
+                if line.startswith("usage_usec"):
+                    return float(line.split()[1])
+        except (OSError, ValueError, IndexError):
+            return None
+        return None
+    first = _usage()
+    if first is None:
+        return None
+    start = time.monotonic()
+    time.sleep(delay)
+    second = _usage()
+    if second is None:
+        return None
+    elapsed = time.monotonic() - start
+    if elapsed <= 0:
+        return None
+    return max(0.0, (second - first) / (elapsed * 1000000))
+
+
+def _slice_memory(cgroup=None):
+    """(used, high) of the agentkit slice in MB, used without reclaimable cache.
+
+    Read off the slice's own directory like the CPU quota, so a shell outside the
+    slice reads what a worker inside enforces.  `memory.high` first, `memory.max`
+    where high sets none; None where neither answers.
+    """
+    base = cgroup or orch.slice_cgroup()
+    try:
+        high = _read_number(base / "memory.high", bytes_to_mb=True)
+        if high is None:
+            high = _read_number(base / "memory.max", bytes_to_mb=True)
+        if high is None:
+            return None
+        raw = _read_number(base / "memory.current", bytes_to_mb=True)
+        if raw is None:
+            return None
+        cache = _reclaimable_mb(base / "memory.stat")
+        if cache is None:
+            return None
+        return (max(0.0, raw - cache), high)
+    except OSError:
+        return None
+
+
 def host_readings(source=None, cgroup_file=None, cgroup_root=None):
     """Read the host gates once; ``source`` is an offline-test injectable mapping/callable."""
     if source is not None:
@@ -7022,13 +7478,33 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None):
         load = None
     limits = _unit_memory_limits(cgroup_file, cgroup_root)
     readings = {"free_mb": meminfo.get("MemAvailable"), "mem_total_mb": meminfo.get("MemTotal"),
-                "load": load, "cpus": os.cpu_count() or 1, "unit_limits": limits}
+                "load": load, "cpus": os.cpu_count() or 1, "unit_limits": limits,
+                "slice_cpu_pressure": _slice_cpu_pressure(),
+                "slice_cpu_stat": _slice_cpu_stat()}
     if limits and isinstance(limits[0], (tuple, list)) and len(limits[0]) >= 4:
         used, high, raw, name = limits[0][:4]
         readings["unit_memory_current_mb"] = used
         readings["unit_memory_high_mb"] = high
         readings["unit_memory_raw_mb"] = raw
         readings["unit_memory_name"] = name
+    try:
+        quota = _slice_cpu_quota()
+    except Exception:
+        quota = None
+    try:
+        cpu_used = _slice_cpu_used() if quota is not None else None
+    except Exception:
+        cpu_used = None
+    try:
+        mem = _slice_memory()
+    except Exception:
+        mem = None
+    readings["slice_cpu_quota"] = quota
+    readings["slice_cpu_used"] = cpu_used
+    if mem is not None:
+        readings["slice_memory_used_mb"], readings["slice_memory_high_mb"] = mem
+    else:
+        readings["slice_memory_used_mb"] = readings["slice_memory_high_mb"] = None
     return readings
 
 
@@ -7058,11 +7534,18 @@ def _load(value):
     return "?" if value is None else f"{value:g}"
 
 
-def host_status_line():
-    """The one host-admission line at the top of human ``ak run status`` output.
+def _pct(value):
+    return "?" if value is None else f"{value:g}%"
 
-    A positive `max_runs` is a gate like the other two, so the line names it: `at most 4
-    runs at once`.
+
+def host_status_line():
+    """The host-admission header at the top of human ``ak run status`` output.
+
+    Two lines: the admission gates, then the heavy-suite turns in force and whether
+    an explicit `max_gates` pins them or the slice's headroom derives them.  A
+    positive `max_runs` is a gate like the other two, so the first line names it:
+    `at most 4 runs at once`.  A pinned `max_load` keeps the old load wording;
+    otherwise the CPU gate is the slice's own pressure.
     """
     readings = host_readings()
     minimum, maximum = resource_limits(readings)
@@ -7070,23 +7553,39 @@ def host_status_line():
     gates = []
     if minimum:
         gates.append(f"≥ {_g(minimum)} G free")
-    if maximum:
-        gates.append(f"load ≤ {_load(maximum)}")
-    admitted = ("a run is admitted while " + " and ".join(gates) if gates else
-                "a run is admitted (host memory and load gates off)")
+    if config.max_load_is_set():
+        if maximum:
+            gates.append(f"load ≤ {_load(maximum)}")
+        admitted = ("a run is admitted while " + " and ".join(gates) if gates else
+                    "a run is admitted (host memory and load gates off)")
+        signal = f"load {_load(_reading(readings, 'load', 'load1'))}"
+    else:
+        gates.append(f"ak cpu ≤ {CPU_PRESSURE_LIMIT}%")
+        admitted = "a run is admitted while " + " and ".join(gates)
+        signal = f"ak cpu {_pct(_reading(readings, 'slice_cpu_pressure'))}"
     try:
         limit = config.max_runs()
     except config.Error:
         limit = 0
     if limit:
         admitted += f" · at most {limit} run{'s' if limit != 1 else ''} at once"
+    try:
+        pinned = config.max_gates()
+    except config.Error:
+        pinned = None
+    if pinned is not None:
+        heavy = ("heavy suites: no cap (pinned)" if not pinned else
+                 f"heavy suites: {pinned} at once (pinned)")
+    else:
+        heavy = f"heavy suites: {derived_heavy_limit(readings)} at once (derived)"
     segment = ""
     unit = _unit_memory(readings)
     if unit and len(unit) > 3 and unit[3]:
         segment = f" · {unit[3]} {_g(unit[0])} of {_g(unit[1])} G in use"
-    return (f"host: {int(cpus)} cpus · load {_load(_reading(readings, 'load', 'load1'))} · "
-            f"{_g(_reading(readings, 'free_mb', 'mem_available_mb'))} G free{segment} · "
-            f"{admitted}")
+    first = (f"host: {int(cpus)} cpus · {signal} · "
+             f"{_g(_reading(readings, 'free_mb', 'mem_available_mb'))} G free{segment} · "
+             f"{admitted}")
+    return f"{first}\n{heavy}"
 
 
 def free_memory_mb():
@@ -7180,6 +7679,19 @@ def _unit_memory(readings):
     return None
 
 
+def _slice_cpu_reason(readings):
+    """(reason, kind) while ak's own slice is CPU-saturated, else (None, None).
+
+    Unreadable fails open with the rest: a host that cannot answer must not
+    queue every run forever.
+    """
+    pressure = _reading(readings, "slice_cpu_pressure")
+    if pressure is not None and pressure > CPU_PRESSURE_LIMIT:
+        return (f"waiting for ak's CPU · pressure {pressure:g}%, "
+                f"limit {CPU_PRESSURE_LIMIT}%", "cpu")
+    return None, None
+
+
 def _wait_reason(readings, minimum, maximum, frozen=0):
     # An unreadable gate fails open, as the memory check before it did: a host
     # that cannot answer (no /proc on macOS, no cgroup file in a container)
@@ -7227,14 +7739,21 @@ def claim_slot(state, limit, readings=None):
     minimum, maximum = resource_limits(readings)
     if is_first:
         maximum = 0
-    frozen = 0
-    load = _reading(readings, "load", "load1", "load_1m")
-    if maximum and load is not None and load <= maximum:
-        # A frozen run adds no load, so the gate reads low behind it; each one
-        # counts 1 against the limit. Counted only while the load alone passes:
-        # past the limit the wait says so already, and no cgroup is read.
-        frozen = frozen_runs(state)
-    reason, kind = _wait_reason(readings, minimum, maximum, frozen)
+    pinned = config.max_load_is_set()
+    if pinned:
+        frozen = 0
+        load = _reading(readings, "load", "load1", "load_1m")
+        if maximum and load is not None and load <= maximum:
+            # A frozen run adds no load, so the gate reads low behind it; each one
+            # counts 1 against the limit. Counted only while the load alone passes:
+            # past the limit the wait says so already, and no cgroup is read.
+            frozen = frozen_runs(state)
+        reason, kind = _wait_reason(readings, minimum, maximum, frozen)
+    else:
+        # The slice's own pressure gates now; the host load goes unread.
+        reason, kind = _wait_reason(readings, minimum, 0)
+        if reason is None and not is_first:
+            reason, kind = _slice_cpu_reason(readings)
     if reason:
         state["slot_waited"] = True
         state["slot_wait_reason"], state["slot_wait_kind"] = reason, kind
@@ -7247,9 +7766,15 @@ def claim_slot(state, limit, readings=None):
         # readings behind it, rather than the count sentence nothing waits on.
         # The kind stays whatever gate (if any) actually delayed this wait.
         free = _reading(readings, "free_mb", "mem_available_mb", "mem_available")
-        load = _reading(readings, "load", "load1", "load_1m")
-        state["slot_wait_reason"] = (
-            f"waiting for steady readings · {_g(free)} G free, load {_load(load)}")
+        if pinned:
+            load = _reading(readings, "load", "load1", "load_1m")
+            state["slot_wait_reason"] = (
+                f"waiting for steady readings · {_g(free)} G free, load {_load(load)}")
+        else:
+            pressure = _reading(readings, "slice_cpu_pressure")
+            state["slot_wait_reason"] = (
+                f"waiting for steady readings · {_g(free)} G free, "
+                f"ak cpu pressure {_pct(pressure)}")
         return False
     state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
                  **process_owner())
@@ -7332,7 +7857,7 @@ def needs_recovery(state):
     `blocked` would otherwise be offered for recovery it is refused -- see `cmd_resume`.
     A `stopped` run is a deliberate end, never an accident to offer back.
     """
-    return (state.get("state") not in ("queued", "running", "pass", "blocked", "stopped") and
+    return (state.get("state") not in ("queued", "running", "pass", "blocked", "stopped", "not_needed") and
             (state.get("state") in ("interrupted", "exhausted", "stalled", "waiting_login") or
              bool(state.get("recovery_pending"))))
 
@@ -7442,10 +7967,11 @@ def read_state(run_dir):
         return None
 
 
-# One run's memory, below the slice ceiling.  4 GB, or 40% of that ceiling when the
-# ceiling is the smaller of the two: a leak has to die inside its own scope, while
-# the seat slice -- accounted apart, and with the higher weight -- is never the thing
-# the kernel throttles.  Swap is capped at the same size so the excess cannot hide there.
+# One run's memory, below the slice ceiling.  40% of that ceiling: a leak has to die
+# inside its own scope, while the seat slice -- accounted apart, and with the higher
+# weight -- is never the thing the kernel throttles.  Swap is capped at the same size
+# so the excess cannot hide there.  4 GB is only the fallback where there is no
+# ceiling to read.
 RUN_MEMORY_DEFAULT_MB = 4096
 RUN_MEMORY_SHARE = 40
 
@@ -7459,23 +7985,21 @@ def scope_is_real(scope):
 def memory_cap_mb(ceiling_mb=None):
     """The cap for one run, in mebibytes.
 
-    `run_memory_max_mb` in the config, when it is set.  Otherwise the smaller of
-    4 GB and 40% of the slice's MemoryMax.  No ceiling at all -- a host with no
-    drop-in, a Mac -- keeps the 4 GB bound, which is still below an uncapped user
-    unit.  The share is integer arithmetic so 40% of an odd ceiling does not
-    drift.
+    `run_memory_max_mb` in the config, when it is set.  Otherwise 40% of the
+    slice's MemoryMax, with no top: a larger machine grows the slice, and the
+    run's share grows with it.  No ceiling at all -- a host with no drop-in, a
+    Mac -- falls back to 4 GB, which is still below an uncapped user unit.  The
+    share is integer arithmetic so 40% of an odd ceiling does not drift.
     """
     configured = config.run_memory_max_mb()
     if configured is not None:
         return configured
     if ceiling_mb is None:
         ceiling_mb = orch.slice_memory_max_mb()
-    cap = RUN_MEMORY_DEFAULT_MB
     if (isinstance(ceiling_mb, (int, float)) and not isinstance(ceiling_mb, bool)
             and ceiling_mb > 0):
-        share = max(1, (int(ceiling_mb) * RUN_MEMORY_SHARE) // 100)
-        cap = min(cap, share)
-    return cap
+        return max(1, (int(ceiling_mb) * RUN_MEMORY_SHARE) // 100)
+    return RUN_MEMORY_DEFAULT_MB
 
 
 def memory_cap_line(mb):
@@ -8007,6 +8531,303 @@ def stale_compact_stamps(now):
             if compact_stamp_stale(path, now)]
 
 
+def tmp_protected(name):
+    """Dot entries, tmux sockets and systemd-private directories: never the collector's."""
+    return (name.startswith(".") or name.startswith("tmux-")
+            or name.startswith("systemd-private-"))
+
+
+def tmp_hidden_processes(pids):
+    """Inspect hidden handles with existing noninteractive sudo; never delete as root."""
+    try:
+        probe = subprocess.run(["sudo", "-n", "/usr/bin/python3", "-I", "-S", "-B",
+                                proc_snapshot.__file__, *map(str, pids)],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, text=True, timeout=10)
+        if probe.returncode:
+            return None
+        inspected, hidden = json.loads(probe.stdout)
+        return None if hidden else {int(pid): row for pid, row in inspected.items()}
+    except (OSError, ValueError, TypeError, AttributeError, subprocess.TimeoutExpired):
+        return None
+
+
+def tmp_processes():
+    """Paths and identities from every user's processes, or no proof /tmp is idle.
+
+    Unlike exited pids and kernel threads, hidden foreign processes may hold our
+    files. Ask the read-only inspector rather than ignoring them or giving up at pid 1.
+    """
+    try:
+        table, hidden = proc_snapshot.collect(retention.process_dirs())
+        if hidden:
+            inspected = tmp_hidden_processes(hidden)
+            if inspected is None:
+                return None, None
+            table.update(inspected)
+        return {path for row in table.values() for path in row["paths"]}, table
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return None, None
+
+
+def tmp_listdir(path):
+    """Sorted names in that directory, its atime unchanged when possible.
+
+    /tmp itself is root's, so O_NOATIME refuses it; its own atime is evidence
+    for nobody, and the entries' modification/change times determine age. Raises
+    OSError when the directory cannot be listed at all.
+    """
+    try:
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        if hasattr(os, "O_NOATIME"):
+            flags |= os.O_NOATIME
+        fd = os.open(path, flags)
+    except OSError:
+        return sorted(os.listdir(path))
+    try:
+        return sorted(os.listdir(fd))
+    finally:
+        os.close(fd)
+
+
+def tmp_tree_newest(path):
+    """The newest modification/change time, or None when it is not ours alone to take.
+
+    Ours alone is every entry owned by this user, no link at the top, and no
+    socket, fifo or device inside: links inside are unlinked, never traversed,
+    and anything else is left for a person.  An unreadable entry is uncertainty,
+    never evidence of age.
+    """
+    if not retention.safe(path):
+        return None
+    try:
+        info = path.lstat()
+        newest = max(info.st_mtime, info.st_ctime)
+    except OSError:
+        return None
+    if not path.is_dir():
+        return newest
+    stack = [path]
+    while stack:
+        current = stack.pop()
+        try:
+            names = tmp_listdir(current)
+        except OSError:
+            return None
+        for name in names:
+            child = current / name
+            try:
+                info = child.lstat()
+            except OSError:
+                return None
+            if info.st_uid != os.getuid():
+                return None
+            if child.is_symlink():
+                newest = max(newest, info.st_mtime, info.st_ctime)
+                continue
+            if not retention.safe(child):
+                return None
+            newest = max(newest, info.st_mtime, info.st_ctime)
+            if child.is_dir():
+                stack.append(child)
+    return newest
+
+
+def tmp_entry_stale(path, now, paths):
+    """Why that top-level /tmp entry goes, or None when it stays.
+
+    Ours, untouched for two days, and held by nobody: anything a running
+    process holds stays where it is.
+    """
+    if tmp_protected(path.name) or retention.busy(path, paths):
+        return None
+    newest = tmp_tree_newest(path)
+    if newest is None or not retention.expired(newest, now, TMP_AGE):
+        return None
+    return f"untouched for {int((now - newest) // 86400)} days"
+
+
+def tmp_claude_sessions(table):
+    """Current conversations of live clients, or None for an unidentified client.
+
+    Claude updates its pid record after /clear. Match procStart too, so a reused
+    pid or a stale record in another account cannot stand in for the live client.
+    """
+    from .harness import claude
+    if table is None:
+        return None
+    try:
+        roots = [path for path in Path.home().glob(".claude*") if path.is_dir()]
+        if os.environ.get("CLAUDE_CONFIG_DIR"):
+            roots.append(Path(os.environ["CLAUDE_CONFIG_DIR"]))
+        live = set()
+        for pid, row in table.items():
+            if row["uid"] != os.getuid():
+                continue
+            if not row["args"]:
+                return None
+            if not claude.is_process(row["args"]):
+                continue
+            found = set()
+            for root in roots:
+                record = retention.read_json(root / "sessions" / f"{pid}.json") or {}
+                session = record.get("sessionId")
+                if (record.get("pid") == pid and str(record.get("procStart")) == row["start"]
+                        and isinstance(session, str) and re.fullmatch(r"[A-Za-z0-9_-]+", session)):
+                    found.add(session)
+            if not found:
+                return None
+            live.update(found)
+        return live
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def tmp_claude_session_stale(path, now, paths, live):
+    """Why that Claude session folder goes, or None when it stays.
+
+    Its session is gone, untouched for a day, and held by nobody.
+    """
+    if retention.busy(path, paths) or live is None or path.name in live:
+        return None
+    newest = tmp_tree_newest(path)
+    if newest is None or not retention.expired(newest, now, TMP_CLAUDE_AGE):
+        return None
+    days = int((now - newest) // 86400)
+    return f"session {path.name} is gone, untouched for {days} day{'s' if days != 1 else ''}"
+
+
+def tmp_top_stale(path, now, paths, live):
+    """Why that top-level /tmp entry goes whole, or None.
+
+    The same live-client protection covers both whole trees and session folders.
+    """
+    name = path.name
+    if name.startswith("claude-") and name[7:].isdigit():
+        if live is None:
+            return None
+        try:
+            if live and any((path / project / session).is_dir()
+                            for project in tmp_listdir(path) for session in live):
+                return None
+        except OSError:
+            return None
+    return tmp_entry_stale(path, now, paths)
+
+
+def stale_tmp_entries(now, base=None):
+    """Every stale top-level entry under that base and gone Claude session folder.
+
+    The base is /tmp unless a repository pass names its own TMPDIR; the rule is
+    the same either way.  Tests replace TMP_BASE and retention.process_dirs with
+    temporary directories.  A session folder under a top-level entry going whole
+    is not planned twice.
+    """
+    base = TMP_BASE if base is None else base
+    try:
+        names = tmp_listdir(base)
+    except OSError:
+        return []
+    if not names:
+        return []
+    paths, table = tmp_processes()
+    if paths is None:
+        return []
+    live = tmp_claude_sessions(table)
+    found, planned = [], set()
+    for name in names:
+        if tmp_protected(name):
+            continue
+        path = base / name
+        why = tmp_top_stale(path, now, paths, live)
+        if why:
+            found.append({"action": "remove", "kind": "tmp-entry", "path": str(path),
+                          "why": why})
+            planned.add(str(path))
+    for name in names:
+        if (name != f"claude-{os.getuid()}" or str(base / name) in planned
+                or live is None or not retention.safe(base / name)):
+            continue
+        try:
+            projects = tmp_listdir(base / name)
+        except OSError:
+            continue
+        for project in projects:
+            if tmp_protected(project):
+                continue
+            project_path = base / name / project
+            try:
+                if not project_path.is_dir() or project_path.is_symlink():
+                    continue
+                sessions = tmp_listdir(project_path)
+            except OSError:
+                continue
+            for session_id in sessions:
+                if tmp_protected(session_id):
+                    continue
+                session_path = project_path / session_id
+                try:
+                    if not session_path.is_dir() or session_path.is_symlink():
+                        continue
+                except OSError:
+                    continue
+                why = tmp_claude_session_stale(session_path, now, paths, live)
+                if why:
+                    found.append({"action": "remove", "kind": "claude-session",
+                                  "path": str(session_path), "why": why})
+    return found
+
+
+def repo_tmp_base(value):
+    """That TMPDIR as a sweepable base, or None when gc must leave it alone.
+
+    Only the plain case: a canonical path directly under /var/tmp.  Canonical
+    means realpath spells it exactly as configured, so no symlink however short
+    the chain and no `..`; directly under means its parent is the base itself,
+    so /tmp, the base itself and anything nested deeper are all skipped.  The
+    parent check runs first and reads nothing.
+    """
+    if Path(value).parent != VAR_TMP_BASE:
+        return None
+    try:
+        if os.path.realpath(value) != value:
+            return None
+    except (OSError, ValueError):
+        return None
+    return Path(value)
+
+
+def stale_repo_tmp_entries(now):
+    """The /tmp rule for every repository TMPDIR under /var/tmp; the rest is named once.
+
+    A repository's env file under ~/.agentkit/env/ may set TMPDIR, and every run
+    of that repository writes its temporary files there.  A canonical path
+    directly under /var/tmp is swept entry by entry through the same selection,
+    planned as tmp-entry items; the directory itself stays.  Any other value is
+    yielded once as a repo-tmp skip and never touched.
+    """
+    try:
+        # tmp_listdir, not glob: the listing leaves the directory's atime alone.
+        names = sorted(name for name in tmp_listdir(config.ENV) if name.endswith(".env"))
+    except OSError:
+        return
+    seen = set()
+    for name in names:
+        try:
+            value = config.repo_env(Path(name).stem).get("TMPDIR")
+        except (config.Error, OSError):
+            continue
+        if value is None or value in seen:
+            continue
+        seen.add(value)
+        base = repo_tmp_base(value)
+        if base is None:
+            yield {"action": "skip", "kind": "repo-tmp", "path": value,
+                   "why": f"not a canonical path directly under {VAR_TMP_BASE}"}
+            continue
+        yield from stale_tmp_entries(now, base)
+
+
 def leftovers():
     """{path: when reported} of checkouts gc could not take whole and will not try again."""
     return retention.read_json(config.STATE / "gc-leftovers.json") or {}
@@ -8272,6 +9093,8 @@ def gc_candidates(now=None):
     yield from stale_seat_files(now)
     yield from stale_compact_stamps(now)
     yield from retention.harness_plan()
+    yield from stale_tmp_entries(now)
+    yield from stale_repo_tmp_entries(now)
 
 
 def gc_plan(now=None):
@@ -8334,6 +9157,7 @@ def gc(report, automatic=False):
                     caller(message)
                 report("gc: automatic collection started")
                 config._write_json(stamp, {"started_at": time.time()})
+            tmp_inventory = None
             for item in gc_candidates():
                 path = Path(item["path"])
                 try:
@@ -8365,6 +9189,28 @@ def gc(report, automatic=False):
                             done = not left_behind(path, report)
                     elif item["kind"] == "harness-entries":
                         done = retention.prune_harness(path)
+                    elif item["kind"] in ("tmp-entry", "claude-session"):
+                        # One fresh inventory for the batch, then recheck each tree's age.
+                        if tmp_inventory is None:
+                            paths, table = tmp_processes()
+                            tmp_inventory = paths, tmp_claude_sessions(table)
+                        paths, live = tmp_inventory
+                        if item["kind"] == "tmp-entry":
+                            ok = tmp_top_stale(path, time.time(), paths, live) is not None
+                        else:
+                            ok = tmp_claude_session_stale(path, time.time(), paths,
+                                                          live) is not None
+                        if not ok or path.is_symlink():
+                            continue
+                        if path.is_dir():
+                            shutil.rmtree(path)
+                        else:
+                            path.unlink()
+                        done = not retention.present(path)
+                    elif item["kind"] == "repo-tmp":
+                        # A TMPDIR gc never sweeps: named once per pass, then left alone.
+                        report(f"gc: {item['action']} {item['kind']} {path}{gc_why(item)}")
+                        continue
                     elif item.get("throwaway") or item.get("whole"):
                         directory = Path(item["run"])
                         recovery = directory / "recovery.lock"
@@ -9849,8 +10695,6 @@ def cmd_status(argv):
             line = size_summary_line(repo)
             if line:
                 print(line)
-        for line in history.role_lines():
-            print(line)
     return 0
 
 
@@ -10062,8 +10906,8 @@ def _drop_told(state, log, run_dir=None):
     """
     if not isinstance(state, dict):
         return
-    if state.get("merged"):
-        drop_checkout(state, log)
+    if state.get("merged") or state.get("state") == "not_needed":
+        drop_checkout(state, log, keep_branch=False)
         return
     if state.get("state") in ("fail", "error", "blocked", "stopped"):
         if resume_holds_tree(state, run_dir):
@@ -10125,8 +10969,8 @@ def settle_run(state, run_dir, log=None):
         browser.close_owned(run=run_id)
     except (OSError, ValueError, TypeError):
         pass
-    if state.get("merged"):
-        drop_checkout(state, log)
+    if state.get("merged") or state.get("state") == "not_needed":
+        drop_checkout(state, log, keep_branch=False)
         return
     if (state.get("state") in ("fail", "error", "blocked", "stopped")
             and already_handed_back(state) and not resume_holds_tree(state, run_dir)):
@@ -10467,6 +11311,13 @@ def spawn_bg(run_dir, argv, expected=None):
     child = [sys.executable, str(config.REPO / "bin" / "ak"), "run"] + [a for a in argv if a != "--bg"]
     with slot_lock(), recovery_lock(run_dir):
         previous = read_state(run_dir) or {}
+        if previous.get("followup"):
+            # These are siblings owned by the seat, not descendants for the ending's
+            # process sweep to kill or tests sharing its admission slot.
+            for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_SCOPE",
+                        config.UNATTENDED_ENV, config.JOB_DIR_ENV, "AK_RUN_ROLE"):
+                env.pop(key, None)
+            env[config.SESSION_ENV] = launched_session(previous)
         if expected is not None and previous != expected:
             raise config.Error("the run changed while choosing recovery; select it again")
         if previous.get("state") == "stopped":
@@ -10588,18 +11439,27 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
     The task file it was launched from goes on too, because the run keeps only a copy:
     where the file lives is what files a scratch run's seat under a project (`run_project`).
     """
-    session_at_launch = config.current_session()
-    workers = config.workers(cfg) if cfg is not None and session_at_launch else None
-    selection = (config.active_session(cfg) or cfg["defaults"]) if cfg is not None else {}
-    groups = {"workers": workers} if workers else {}
-    if "reviewers" in selection:
-        groups = {role: list(selection[role]) for role in ("workers", "reviewers")}
+    receipt = read_state(run_dir) or {}
+    followup = receipt.get("followup")
+    session_at_launch = receipt["launched_session"] if followup else config.current_session()
+    workers = (receipt.get("workers") if followup else
+               config.workers(cfg) if cfg is not None and session_at_launch else None)
+    if followup:
+        # A fix run keeps its discovering run's lists, never the session's current ones.
+        groups = {role: list(receipt[role]) for role in ("workers", "reviewers")
+                  if isinstance(receipt.get(role), list) and receipt[role]}
+    else:
+        selection = (config.active_session(cfg) or cfg["defaults"]) if cfg is not None else {}
+        groups = {"workers": workers} if workers else {}
+        if "reviewers" in selection:
+            groups = {role: list(selection[role]) for role in ("workers", "reviewers")}
     limit = config.max_runs()
     with slot_lock():
-        state = stamp_origin({"run_id": run_dir.name, "state": "queued", "verdict": None,
+        state = stamp_origin({**receipt, "run_id": run_dir.name, "state": "queued", "verdict": None,
                          "launched_session": session_at_launch, "started_at": time.time(),
                          "queued_at": time.time(), "slot_waiting": True,
-                         "run_depth": run_depth(), "parent_run": os.environ.get("AK_PARENT_RUN"),
+                         "run_depth": 0 if followup else run_depth(),
+                         "parent_run": None if followup else os.environ.get("AK_PARENT_RUN"),
                          "reservation_pending": True,
                          "unattended": not session_at_launch and config.unattended(),
                          **process_owner(), "launch_opts": opts or {},
@@ -10847,6 +11707,7 @@ def update_scope_line(run_dir, state):
 
 
 def finish(state, run_dir, log, cfg=None):
+    start_followups(state, run_dir, log, cfg)
     try:
         refresh_seat_tally(launched_session(state))   # the ending lands on the bar too
     except config.Error:
@@ -10859,6 +11720,8 @@ def finish(state, run_dir, log, cfg=None):
         return 2
     cfg = report_config(cfg)
     log(f"{delivery(state, cfg)} -> {run_dir / 'result.md'}")
+    if state.get("state") == "not_needed":
+        return 0
     if state.get("state") == "waiting" or not review_pass(state, cfg):
         return 1
     return 1 if state.get("merge_failed") else 0
@@ -11107,6 +11970,8 @@ def resume_run(argv):
         # The task itself is what failed, so there is nothing here to carry on: another
         # round would spend a model turn to be told the same thing again.
         raise config.Error("blocked runs are not resumed; the orchestrator writes a new task")
+    if state.get("state") == "not_needed":
+        raise config.Error(f"not needed: {state['not_needed']}")
     if state.get("state") == "stopped":
         # A deliberate end, not an accident: there is nothing to carry on, and the
         # branch the stop printed is what a relaunch starts from.
@@ -11511,16 +12376,14 @@ def own_pr_orchestrator(cfg, session_name, author):
 
 
 def checkout_for(name_with_owner, log):
-    """The clone of that GitHub repo under ~/code, made with gh if there is none yet."""
+    """The checkout of that GitHub repo (`orch.checkouts`, so agentkit's own is ~/agentkit),
+    cloned under ~/code with gh if there is none yet."""
     want = name_with_owner.lower()
-    if config.CODE.is_dir():
-        for path in sorted(config.CODE.iterdir()):
-            if not (path / ".git").exists():
-                continue
-            remote = git(path, "remote", "get-url", "origin", check=False)
-            tail = "/".join(remote.rstrip("/").removesuffix(".git").replace(":", "/").split("/")[-2:])
-            if tail.lower() == want:
-                return path
+    for path in orch.checkouts():
+        remote = git(path, "remote", "get-url", "origin", check=False)
+        tail = "/".join(remote.rstrip("/").removesuffix(".git").replace(":", "/").split("/")[-2:])
+        if tail.lower() == want:
+            return path
     target = config.CODE / name_with_owner.split("/")[1]
     if target.exists():
         raise config.Error(f"{target} exists and is not a clone of {name_with_owner}")
@@ -12243,6 +13106,8 @@ def job_classify(run_state, cfg):
         return "stopped"
     if run_state.get("state") == "blocked":
         return "blocked"
+    if run_state.get("state") == "not_needed":
+        return "passed"
     if review_pass(run_state, cfg):
         if run_state.get("merged"):
             return "merged"

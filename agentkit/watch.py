@@ -8,9 +8,9 @@ the user with `ak notify needs`.  The orchestrator in that seat merges on yes.
 
 The other direction too: this account's open PRs on repos it does not own -- the ones a run
 without push rights opened from a fork and left `waiting for the maintainer`, and the ones the
-user opened by hand -- are followed here.  What the maintainer decided is typed into the seat
-that opened it while that seat is live, and otherwise left on the run, where `ak run status`
-and the menu show it.  Never Discord: the user's own PR moving is neither an orchestrator
+user opened by hand -- are followed here.  What the maintainer decided is left on the run,
+where `ak run status` and the menu show it, and typed into the seat that opened it while
+that seat is live.  Never Discord: the user's own PR moving is neither an orchestrator
 needing them nor a job finishing, and those two are all Discord ever hears.
 
 Every tick also looks at the seats themselves: a pane showing its harness's own words for a
@@ -1200,7 +1200,11 @@ def screen_state(harness, tail):
     where everything under it is chrome, so a transcript echoing a past turn above newer
     output can never read as one.
     """
-    raw_lines = [line.rstrip() for line in tail.splitlines() if strip_sgr(line).strip()]
+    # A queued inbound message is below the active UI, not part of its dialog or composer.
+    inbound = _pattern((config.manifest(harness).get("screen") or {}).get("inbound"),
+                       f"adapters/{harness}.toml")
+    raw_lines = [line.rstrip() for line in tail.splitlines() if strip_sgr(line).strip()
+                 and not (inbound and inbound.fullmatch(strip_sgr(line).strip()))]
     lines = [strip_sgr(line).strip() for line in raw_lines]
     if not lines:
         return None, "", ""
@@ -2225,6 +2229,11 @@ def sync_title(session, log=lambda _: None, *, force=False):
         session = dict(session, name=name)
         record = title_record(name)
         plugin = orch.seat_plugin(record)
+        synced = plugin.sync_title(name, record)
+        if synced is not None:
+            if synced:
+                config.update_session(name, session_title=name, title_sync=None)
+            return synced
         line = plugin.title_command(name)
         attempt = record.get("title_sync")
         tries = (attempt or {}).get("tries", 0) if (attempt or {}).get("name") == name else 0
@@ -2236,7 +2245,11 @@ def sync_title(session, log=lambda _: None, *, force=False):
         if composed:
             line = pending    # our line still needs Enter, even after its seat changes name
         title = plugin.session_title(record)
+        # A harness whose own naming can replace an acknowledged name restores it: an
+        # empty receipt means our name is absent again, so repair it with the same cap.
+        restores = getattr(plugin.module, "title_restores", None)
         if (record.get("session_title") == name and not force and not tries and not composed
+                and not (restores and restores(record, title))
                 and title not in record.get("title_superseded", [])):
             return False
         if title == name and not composed:
@@ -3243,12 +3256,13 @@ def stall_clock(run_dir, state):
     writing nothing -- so the clock starts where that wait ends (`run.transient_wait`).  Only
     the loop that recorded the wait is owed it: a resume after its death is a new loop, and
     its silence is its own.  A live loop waiting for its repository's merge turn
-    (`run.merge_turn`), or for its dependency to merge (`run.wait_for_dependency`), is
-    silent for as long as another run takes to land, so its clock starts now, every
-    tick, until the wait is over.
+    (`run.merge_turn`), to take back its lent turn, or for its dependency to merge
+    (`run.wait_for_dependency`), is silent for as long as another run takes to land,
+    so its clock starts now, every tick, until the wait is over.
     """
     from . import run as run_mod
-    if ((run_mod.merge_turn_note(state) or run_mod.dep_wait_note(state))
+    if ((run_mod.merge_turn_note(state) or run_mod.dep_wait_note(state)
+            or run_mod.merge_retaking(state))
             and run_mod.process_active(state)):
         return time.time()
     wait = state.get("transient_wait")
@@ -4889,18 +4903,27 @@ def outgoing(state, me, dry_run, log):
 
 
 def say(dry_run, log, text, url, session, merged=False):
-    """Hand the maintainer's decision to the seat that opened the PR, else to its run.
+    """Hand the maintainer's decision to its run, and to the seat that opened it while live.
 
-    Never to Discord.  A live seat is typed the line, exactly as a review question is put to
-    the `inbox`; a seat that is gone leaves it on the run, which is where the menu and
-    `ak run status` were already showing `waiting for the maintainer`.  True means it has
-    landed somewhere, or that there is nowhere left for it to land and following this PR is
-    over; False means the same tick's work is still owed and the next one retries it.
+    Never to Discord.  The run learns it first, where the menu and `ak run status` were
+    already showing `waiting for the maintainer` -- a seat that cannot be typed into never
+    holds that back -- and a live seat is typed the line, exactly as a review question is
+    put to the `inbox`.  A decision already on the run is not recorded again, so a retry
+    after a failed typing tells the seat without recording twice or starting fix runs
+    twice.  True means it has landed everywhere it goes, or that there is nowhere left
+    for it to land and following this PR is over; False means the seat is still owed its
+    line and the next tick retries it.
     """
     from . import run   # here, not at the top: run imports this module
     if dry_run:
         log(f"would hand on: {text} ({url})")
         return False
+    run_dir, run_state = run.run_for_pr(url)
+    note = " ".join(text.split())
+    if run_dir and not (run_state.get("merge_note") == note
+                        and (not merged or run_state.get("merged"))):
+        run.record_decision(run_dir, run_state, text, merged=merged)
+        log(f"recorded on run {run_dir.name}: {text}")
     seat = orch.find(config.resolve_session(session)) if session else None
     if seat and not any(seat.get(key) for key in ("exited", "resumable", "restart")):
         line = (f"{text} -- {url}. Nothing was posted to Discord; this is the maintainer's "
@@ -4909,12 +4932,9 @@ def say(dry_run, log, text, url, session, merged=False):
             return False
         log(f"told the {seat['name']} seat: {text}")
         return True
-    run_dir, run_state = run.run_for_pr(url)
     if run_dir:
-        run.record_decision(run_dir, run_state, text, merged=merged)
-        log(f"recorded on run {run_dir.name}: {text}")
-    else:
-        log(f"no live seat and no run for {url}; not followed further: {text}")
+        return True
+    log(f"no live seat and no run for {url}; not followed further: {text}")
     return True
 
 

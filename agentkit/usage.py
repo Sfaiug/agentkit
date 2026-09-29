@@ -7,8 +7,6 @@ meter for at all (`[usage] none`) is neutral at 1.0, ranked by the same rules an
 only a failed probe is unknown. A reset in hand is one whole weekly
 allowance, exactly as headroom counts it, so the provider holding a spare week is drained first
 and every subscription runs out at the same moment.
-When Fable's scoped allowance lags the shared week, prefer it as executor with a legal reviewer
-that has headroom. Opus still ranks on its real meters, so the gap never parks it.
 
 pace = used% - elapsed% of the meter's window.  Positive means burning faster than the window
 refills.  A provider's pace is the max over its meters.  It no longer ranks anything: pace_margin
@@ -41,17 +39,20 @@ CACHE_TTL = 300
 # than to the caller -- nobody asks a provider's adapter again inside PROBE_EVERY, whoever they
 # are and whatever for, a refused worker and a spent reset included, and a second caller past
 # that age waits on the first one's lock instead of making a second request.  A minute is
-# short enough that no row ever needs to say how old its reading is: an open menu asks that
-# often, and the tick asks whenever it comes round.  Muse's usage call spends a model request,
+# short enough that a row's reading is fresh whenever the endpoint answers: an open menu
+# asks that often, and the tick asks whenever it comes round.  Only a probe the endpoint
+# refused leaves a reading to age, and past half an hour the row says when it was taken.
+# Muse's usage call spends a model request,
 # so its adapter answers from its own ten-minute cache in between (`muse_usage.CACHE_TTL`).
 # A probe the endpoint refuses keeps the reading it could not replace, and that reading still
 # ranks for PROBE_TRUSTED_FOR: a meter nobody could read again is not a meter nobody ever read,
 # and calling one unknown is how a rate limit came to push every run onto the other providers.
 PROBE_EVERY = 60
 PROBE_TRUSTED_FOR = 6 * 3600
+AS_OF_AFTER = 1800   # a reading older than this says when it was taken, on its row and under
+                     # `ak usage`; a fresher one says nothing, whatever the last probe met
 PROVIDER_METERS = "provider meters"
 SESSION_SECS = 18000      # the 5h rolling window every harness reports as its session meter
-FABLE_GAP_MARGIN = 2      # percentage points of slack before preferring Fable as executor
 
 # --- the usage-limit reset --------------------------------------------------------------------
 # A ChatGPT subscription earns "usage limit resets" that put the weekly window back to 0% and
@@ -114,8 +115,9 @@ def probe_refused(error):
     `429` is the endpoint asking to be asked less often; a 5xx, or a probe that never came back,
     is it being briefly unreachable.  Neither says anything about the credentials the probe went
     out with, so neither may be read as a logout, and neither is a reason to throw away the
-    reading it could not replace.  The menu row and `ak usage` both say these words off this one
-    answer, so the two can never disagree about what happened.
+    reading it could not replace.  Nothing prints these words: a row says the reading's
+    age instead, and this answer only decides whether the probe asks `auth` and whether the
+    last reading stands.
     """
     text = str(error or "")
     if re.search(r"\b429\b|rate limit", text, re.I):
@@ -880,16 +882,17 @@ def _split_week(cfg, provider, prov):
 def _gating_meters(cfg, name, providers):
     """The meters that actually constrain this model.
 
-    A model naming a `meter` is gated by that one and the shared weekly_all.  Otherwise use
-    the provider's meters minus any meter another model claims: `weekly_scoped` is Fable's cap,
-    so it must not gate Opus -- otherwise the orchestrator fallback from Fable to Opus could
-    never fire.
+    A model naming a `meter` is gated by that one, the shared weekly_all and the 5h session
+    window, which every model of the subscription runs inside.  Otherwise use the provider's
+    meters minus any meter another model claims: `weekly_scoped` is Fable's cap, so it must not
+    gate Opus -- otherwise the orchestrator fallback from Fable to Opus could never fire.
     """
     entry = config.model(cfg, name)
     meters = providers.get(entry["provider"], {}).get("meters", [])
     want = entry.get("meter")
     if want:
-        return [m for m in meters if m["name"] in (want, "weekly_all")], want
+        return [m for m in meters if m["name"] in (want, "weekly_all")
+                or m.get("window_secs") == SESSION_SECS], want
     claimed = {e["meter"] for n, e in cfg["models"].items()
                if n != name and e.get("meter") and e["provider"] == entry["provider"]}
     return [m for m in meters if m["name"] not in claimed], PROVIDER_METERS
@@ -1123,21 +1126,9 @@ def model_spent(cfg, name, providers):
     return False, f"{worst['name']} {worst['used']}% used < 100"
 
 
-def _fable_pair_available(cfg, providers, order, reviewers=None):
-    """Fable can execute and a legal reviewer in this order has reported headroom."""
-    from . import run
-    if "fable" not in order or model_spent(cfg, "fable", providers)[0]:
-        return False
-    if (model_budget(cfg, "fable", providers)[1] is not None
-            and any(model_budget(cfg, n, providers)[1] is None for n in order)):
-        return False
-    return any((model_headroom(cfg, n, providers) or 0) > 0
-               for n in run.reviewer_order(cfg, "fable", order if reviewers is None else reviewers))
-
-
 def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=None, quiet=False,
                repo=None, skip=(), reviewers=None):
-    """The workers, highest budget first, with a Fable executor preference when it lags.
+    """The workers, highest budget first, for every role.
 
     Budget divides the fraction unspent, plus one whole allowance for each usage-limit reset in
     hand, by the fraction of its window still to go. Unknown readings have budget zero and sort
@@ -1148,9 +1139,7 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     whose meters report nothing counts as below it.  Where the harness's own config says what
     a model is paid from, that outranks the provider's `mode`.
 
-    A worker selection is absolute; lag can only prefer a model already in it.
-    Reviewers keep the normal ranking within their own selection. A launch banner supplies the new
-    orchestrator explicitly, since the caller may still be in another seat. JSON output uses
+    Each role stays within its selection. History never affects the order. JSON output uses
     `quiet` because the providers already carry their unknown reasons as structured fields.
     """
     if workers is None:
@@ -1159,20 +1148,6 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
             workers = reviewers
     tier_b = (list(workers) if workers is not None else
               config.reviewers(cfg) if role == "reviewer" else config.workers(cfg))
-    if orchestrator is None:
-        session = config.active_session(cfg)
-        orchestrator = session.get("orchestrator") if session else None
-    fable = cfg["models"].get("fable", {})
-    provider = fable.get("provider")
-    split = _split_week(cfg, provider, providers.get(provider, {}))
-    behind = (role == "executor" and split is not None
-              and split["scoped"]["name"] == fable.get("meter")
-              and split["gap"] > FABLE_GAP_MARGIN)
-    added = False
-    if behind and "fable" not in tier_b and "fable" in config.offered(cfg):
-        if workers is None and orchestrator is None:
-            tier_b = [*tier_b, "fable"]
-            added = True
     tier_b = [n for n in tier_b if n not in skip]
     limit = margin(cfg)
 
@@ -1201,37 +1176,7 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
             reason = reason.removeprefix("unknown: ")
             print(f"pick {role}: {name} ({provider}) budget {budget:g} unknown: {reason}; "
                   "ranked last", file=sys.stderr)
-    order = sorted(candidates, key=lambda n: (budgets[n][1] is not None, -budgets[n][0]))
-    # A close budget is deliberately the only place history can influence selection.  Keep
-    # models without five finished samples at their budget positions; the historical models
-    # occupying those positions are then ordered by success, with speed as the tie-break.
-    try:
-        from . import history
-        best = max((budgets[name][0] for name in order), default=None)
-        if best is not None:
-            close = [name for name in order if budgets[name][1] is None
-                     and best - budgets[name][0] <= .15]
-            stats = ({name: history.role_stats(repo, role, name) for name in close}
-                     if repo is not None else {name: None for name in close})
-            eligible = [name for name in close if stats[name] and stats[name][1] >= 5]
-            positions = [index for index, name in enumerate(order) if name in eligible]
-            ranked = sorted(eligible, key=lambda name: (
-                -stats[name][0], stats[name][2] if stats[name][2] is not None else float("inf"),
-                order.index(name)))
-            for index, name in zip(positions, ranked):
-                order[index] = name
-    except (AttributeError, OSError, TypeError, ValueError, KeyError):
-        pass
-    if behind and reviewers is not None:
-        reviewers = pick_order(cfg, providers, reviewers, role="reviewer", quiet=True,
-                               repo=repo, skip=skip)
-    if behind and _fable_pair_available(cfg, providers, order, reviewers):
-        return ["fable", *(n for n in order if n != "fable")]
-    if added:
-        # Adding a subscription worker can change payg eligibility; restore the normal pick too.
-        return pick_order(cfg, providers, [n for n in tier_b if n != "fable"], role="reviewer",
-                          quiet=quiet, repo=repo)
-    return order
+    return sorted(candidates, key=lambda n: (budgets[n][1] is not None, -budgets[n][0]))
 
 
 # `resets` is when the shared week opens again, the same answer the menu row gives after that
@@ -1293,6 +1238,45 @@ def reset_when(meter, now=None):
             return ""
     secs = _number(meter.get("resets_in"))
     return f"in {terminal.format_age(secs)}" if secs and secs > 0 else ""
+
+
+def as_of(prov, now=None):
+    """`as of HH:MM` when this reading is older than half an hour, else "".
+
+    The menu row and the notes under `ak usage` both say the reading's age off this one
+    answer, so the two can never disagree about when it was taken.  A probe the endpoint
+    refused says nothing about that at all: the reading it could not replace stands as it
+    was, and past half an hour its age says the rest.  The moment is the reading's own
+    `fetched_at`, and only where no reading ever wrote that down is the last ask's
+    `probed_at` any answer; a reading that wrote neither, or neither as a number, has no
+    age to say.  The weekday joins the hour when the reading is not from today, in the
+    reader's own time, as `resets` is.
+    """
+    now = time.time() if now is None else now
+    prov = prov if isinstance(prov, dict) else {}
+    taken = _number(prov["fetched_at"] if "fetched_at" in prov else prov.get("probed_at"))
+    if taken is None or now - taken <= AS_OF_AFTER:
+        return ""
+    try:
+        then, today = time.localtime(taken), time.localtime(now)
+        if (then.tm_year, then.tm_mon, then.tm_mday) == (today.tm_year, today.tm_mon,
+                                                         today.tm_mday):
+            return time.strftime("as of %H:%M", then)
+        return time.strftime("as of %a %H:%M", then)
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+
+def refusal_text(prov, text):
+    """Whether these words are the refusal talking, and so say nothing anywhere.
+
+    A lone error is displayable whatever its words -- `? muse usage timed out after 30s`
+    is the adapter's own line for a probe that failed.  But beside `probe_error` the same
+    words are the endpoint refusing: the first refused probe leaves them as the reading's
+    error with nothing kept, and a later one keeps them with the reading.  The row and
+    `ak usage` print no such words; the reading's age says the rest.
+    """
+    return prov.get("probe_error") is not None and probe_refused(text) is not None
 
 
 def _rate(meter):
@@ -1419,19 +1403,9 @@ def render(cfg, providers, order, *, repo=None):
             continue
         scoped, gap = split["scoped"], split["gap"]
         models = [(n, e) for n, e in cfg["models"].items() if e["provider"] == name]
-        owners = ", ".join(n for n, e in models if e.get("meter") == scoped["name"])
-        workers = ", ".join(n.capitalize() for n, e in models if not e.get("meter"))
-        preference = ("preferring Fable as executor" if order[:1] == ["fable"]
-                      and _fable_pair_available(cfg, providers, order) else "normal selection")
-        verdict = (f"{owners} behind by {gap:g}: {preference}"
-                   if gap > FABLE_GAP_MARGIN else f"{owners} ahead by {-gap:g}: {workers} preferred"
-                   if gap < -FABLE_GAP_MARGIN else "in step")
-        if gap > FABLE_GAP_MARGIN and split["all_used"] >= 100:
-            verdict = f"{owners} behind by {gap:g}: weekly_all exhausted"
         # the same polarity as the column; the gap stays in points of the week spent
         lines += [f"{name}: weekly_all {_pct(_left(split['all_used']))} left, "
-                  f"{scoped['name']} {_pct(_left(scoped['used']))} left, gap {gap:g}",
-                  f"  {verdict}"]
+                  f"{scoped['name']} {_pct(_left(scoped['used']))} left, gap {gap:g}"]
         budgets = [(n, model_budget(cfg, n, providers, now)) for n, _ in models]
         if len({value for _, value in budgets}) > 1:
             lines.append("  budget: " + "; ".join(f"{n} {_budget_label(*value)}"
@@ -1445,34 +1419,30 @@ def render(cfg, providers, order, *, repo=None):
             continue
         one = count == 1
         budget, reason = provider_budget(prov, now)
-        detail = (f"budget {_num(budget - budget_from_resets(prov, now), 1)} "
-                  f"without {'it' if one else 'them'}" if reason is None else
-                  "budget unknown: " + reason.removeprefix("unknown: "))
+        if reason is None:
+            detail = (f"budget {_num(budget - budget_from_resets(prov, now), 1)} "
+                      f"without {'it' if one else 'them'}")
+        elif refusal_text(prov, reason):
+            detail = "budget unknown"
+        else:
+            detail = "budget unknown: " + reason.removeprefix("unknown: ")
         lines.append(f"{name}: {count:g} reset{'' if one else 's'} in hand counted as "
                      f"{'one full week' if one else f'{count:g} full weeks'} ({detail})")
-    # the numbers say the provider is unknown; only the adapter can say why
+    # the numbers say the provider is unknown; only the adapter can say why -- and a
+    # refusal is not a why, so an error that only says the probe was refused says nothing
     lines += [f"note: {name} {prov['error']}" for name, _, prov in _accounts(providers)
-              if prov.get("error")]
-    # ... and a probe the endpoint would not answer says so in the menu's own two words, and
-    # what the endpoint said; the reading it could not replace stands in the row as it was
+              if prov.get("error") and not refusal_text(prov, prov["error"])]
+    # ... and a reading older than half an hour says when it was taken, in the menu row's
+    # own words -- while a meter of it remains; a probe the endpoint would not answer says
+    # nothing about that at all
     for name, _, prov in _accounts(providers):
-        note = probe_refused(prov.get("probe_error"))
-        if note is None:
-            continue
-        lines.append(f"note: {name} {note}: " + str(prov["probe_error"]).removeprefix("unknown: "))
+        note = as_of(prov, now)
+        meters = prov.get("meters") or []
+        if note and any(not _past(meter, now) for meter in meters):
+            lines.append(terminal.styled(f"note: {name} {note}", "dim"))
     # a reset the policy spent, for as long as the meters it went and re-read stay cached
     lines += [f"{name}: {note}" for name, prov in providers.items()
               for note in prov.get("notes") or []]
-    try:
-        from . import history
-        if repo is not None:
-            for model in order:
-                for role in ("executor", "reviewer"):
-                    line = history.usage_line(repo, model, role)
-                    if line:
-                        lines.append(terminal.styled(line, "dim"))
-    except (OSError, TypeError, ValueError):
-        pass
     lines.append("pick order: " + (", ".join(order) if order else "(none: every worker's provider is exhausted)"))
     pair = review_pair(cfg, providers)
     if pair:

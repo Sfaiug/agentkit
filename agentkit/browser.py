@@ -14,19 +14,24 @@ Nothing here restarts Chromium.  Its profile is the logins: a restart costs what
 had not yet flushed, and a re-login the owner has to sit through.  `login` restarts x11vnc and
 only x11vnc, and only when it had to mint a new password.
 
-The browser reaches the harnesses over CDP, not through the Chrome extensions: `@playwright/mcp
---cdp-endpoint` without `--isolated` attaches to the profile's own default context, which is
-where the cookies are.  The desktop reaches them through `tools/desktop-mcp.py`, whose xdotool
-calls land on the same `:99`.
+The browser reaches the harnesses through one shared `@playwright/mcp` process, not one per
+session: `browser-bridge-mcp.service` holds `--cdp-endpoint` without `--isolated`, which is the
+profile's own default context, where the cookies are, and `--shared-browser-context`, so every
+seat over HTTP stays in that same logged-in context.  URL-capable harnesses are registered to
+its `http://localhost:8931/mcp` endpoint; anything else keeps a per-session stdio command onto
+the same pinned install.  The desktop reaches them through `tools/desktop-mcp.py`, whose
+xdotool calls land on the same `:99`.
 """
 
 import ctypes
 import ctypes.util
 import json
 import os
+import pwd
 import re
 import secrets
 import shutil
+import socket
 import string
 import subprocess
 import sys
@@ -56,7 +61,18 @@ RFBAUTH = config.SECRETS / "browser-bridge-vnc.rfbauth"  # the same password, as
 PASSWORD_LENGTH = 16          # noVNC takes all of it; classic VNC auth uses the first eight
 CDP_TIMEOUT = 4
 APT_CAP = 15 * 60
-NPX_CAP = 5 * 60              # a cold `npx -y` fetches the package before it prints anything
+PLAYWRIGHT_MCP_VERSION = "0.0.82"   # pinned 28 Sep 2026; `ak browser install` puts this one
+                                    # into the bridge directory, once, and no session fetches another
+MCP_HOST = "localhost"               # loopback only, like the CDP it attaches to; the name,
+                                    # not the IP: the server's DNS-rebinding allowlist answers
+                                    # 403 to Host 127.0.0.1 and 200 to localhost
+MCP_PORT = 8931
+MCP_URL = f"http://{MCP_HOST}:{MCP_PORT}/mcp"
+MCP_UNIT = "browser-bridge-mcp.service"
+# Harnesses that can reach an MCP server by URL are registered to the shared server above.
+# Claude Code (`type = "http"`) and Codex (`url = ...`) both speak streamable HTTP, verified
+# against claude 2.1.280 and codex 0.153.4; anything else keeps a per-session stdio command.
+URL_CAPABLE = frozenset({"claude", "codex"})
 
 CLAUDE_CONFIG = Path.home() / ".claude.json"             # user scope lives at the top level
 CODEX_CONFIG = Path.home() / ".codex" / "config.toml"
@@ -71,14 +87,25 @@ def say(message):
     print(message, flush=True)
 
 
-def servers():
-    """The two MCP servers, as {name: (command, args, env)}.
+def mcp_dir():
+    """Where the pinned Playwright MCP package lives: beside the profile, not in npm-global."""
+    return BRIDGE / "mcp"
 
+
+def mcp_cli():
+    return mcp_dir() / "node_modules" / "@playwright" / "mcp" / "cli.js"
+
+
+def servers():
+    """The two MCP servers, as {name: (command, args)}.
+
+    The browser entry is the stdio fallback for a harness without URL support: the same
+    pinned install the shared service runs, so even it fetches nothing per session.
     `--isolated` is deliberately absent: with it Playwright opens a fresh context and the
     profile's cookies are not in it, which is the whole point of attaching to this browser.
     """
     return {
-        "browser": ("npx", ["-y", "@playwright/mcp@latest", "--cdp-endpoint", CDP]),
+        "browser": ("node", [str(mcp_cli()), "--cdp-endpoint", CDP]),
         "desktop": (sys.executable, [str(DESKTOP)]),
     }
 
@@ -391,6 +418,7 @@ def status(argv):
     healthy, states = True, unit_states()
     if states is None:
         say("units      no systemd on this machine; the stack lives on the server")
+        say("mcp        no systemd on this machine; the shared server lives on the server")
     else:
         for unit, state in states.items():
             say(f"  {unit:<32} {state}")
@@ -398,6 +426,12 @@ def status(argv):
             say("units      none installed here; `ak browser install` puts them in")
         elif any(not state.startswith("active") for state in states.values()):
             healthy = False
+        if mcp_active():
+            say(f"mcp        {MCP_URL} active ({MCP_UNIT})")
+        else:
+            say(f"mcp        {MCP_URL} not active; `ak browser install` sets it up")
+            if any(state != "absent" for state in states.values()):
+                healthy = False
     try:
         version = cdp("/json/version")
         open_tabs = tabs()
@@ -541,7 +575,11 @@ def write_atomic(path, text, mode=0o600):
 
 
 def register_claude():
-    """Put both servers into ~/.claude.json's top-level mcpServers, user scope, in place."""
+    """Put both servers into ~/.claude.json's top-level mcpServers, user scope, in place.
+
+    The browser is the shared service by URL: one process for every seat, and no per-session
+    `npx` fetch.  A stdio entry from before is replaced whole, leaving no stale command behind.
+    """
     data = {}
     if CLAUDE_CONFIG.exists():
         try:
@@ -555,8 +593,9 @@ def register_claude():
     existing = data.get("mcpServers")
     if existing is not None and not isinstance(existing, dict):
         raise config.Error(f"{CLAUDE_CONFIG}: mcpServers is not an object")
-    wanted = {name: {"type": "stdio", "command": command, "args": args, "env": mcp_env()}
-              for name, (command, args) in servers().items()}
+    command, args = servers()["desktop"]
+    wanted = {"browser": {"type": "http", "url": MCP_URL},
+              "desktop": {"type": "stdio", "command": command, "args": args, "env": mcp_env()}}
     merged = {**(existing or {}), **wanted}
     if existing == merged:
         return "already registered"
@@ -571,16 +610,19 @@ def toml_string(value):
 
 
 def codex_block():
-    lines = [BEGIN]
-    for name, (command, args) in servers().items():
-        env = ", ".join(f"{key} = {toml_string(value)}"
-                        for key, value in sorted(mcp_env().items()))
-        lines += [f"[mcp_servers.{name}]",
-                  f"command = {toml_string(command)}",
-                  "args = [" + ", ".join(toml_string(arg) for arg in args) + "]",
-                  "env = { " + env + " }",
-                  ""]
-    lines.append(END)
+    lines = [BEGIN,
+             "[mcp_servers.browser]",
+             f"url = {toml_string(MCP_URL)}",
+             ""]
+    command, args = servers()["desktop"]
+    env = ", ".join(f"{key} = {toml_string(value)}"
+                    for key, value in sorted(mcp_env().items()))
+    lines += ["[mcp_servers.desktop]",
+              f"command = {toml_string(command)}",
+              "args = [" + ", ".join(toml_string(arg) for arg in args) + "]",
+              "env = { " + env + " }",
+              "",
+              END]
     return "\n".join(lines) + "\n"
 
 
@@ -630,39 +672,20 @@ def register_codex():
     return "registered"
 
 
-def warm_npx():
-    """Fetch @playwright/mcp once, so the first MCP handshake is not a package download.
-
-    Codex and Claude Code both give a stdio server a bounded time to answer `initialize`; a
-    cold `npx -y` spends that time in the registry.  Best effort: a failure here costs a
-    slower first call, not a broken registration.  Skipped where there is no browser to talk
-    to, so registering on a client machine stays an offline, local edit.
-    """
-    try:
-        cdp("/json/version")
-    except (OSError, ValueError, urllib.error.URLError):
-        return f"not warmed: no browser at {CDP} on this machine"
-    if shutil.which("npx") is None:
-        return "npx is not installed here; the browser server needs it"
-    _, args = servers()["browser"]
-    try:
-        proc = subprocess.run(["npx", *args[:2], "--version"], capture_output=True,
-                              encoding="utf-8", errors="replace", timeout=NPX_CAP,
-                              env=config.child_env())
-    except (OSError, subprocess.TimeoutExpired):
-        return "could not warm the npx cache; the first browser call may be slow"
-    return ("@playwright/mcp cached" if proc.returncode == 0 else
-            "could not warm the npx cache; the first browser call may be slow")
-
-
 def mcp_register(argv):
+    """Write the registration, and only the registration: no download, no service setup.
+
+    The shared server is set up once by `ak browser install`; this only points the harnesses
+    at it, so registering stays an offline, local edit on any machine.
+    """
     if argv:
         raise config.Error(f"ak browser mcp-register takes no arguments; got {' '.join(argv)}")
     if not DESKTOP.exists():
         raise config.Error(f"{DESKTOP} is missing; this checkout is incomplete")
     say(f"claude    {register_claude()} in {CLAUDE_CONFIG} (user scope)")
     say(f"codex     {register_codex()} in {CODEX_CONFIG}")
-    say(f"npx       {warm_npx()}")
+    say(f"browser   one shared server at {MCP_URL} ({MCP_UNIT}); "
+        "`ak browser install` sets it up")
     say("muse      has no MCP client: use browser/bridge.py and tools/desktop-mcp.py --cli")
     return 0
 
@@ -677,8 +700,9 @@ def vendor():
     and a file already committed here is never overwritten from a box that may have drifted.
     """
     have = [name for name in PAYLOAD_FILES if (PAYLOAD / name).exists()]
-    units = list((PAYLOAD / "systemd").glob("*.service")) if (PAYLOAD / "systemd").is_dir() else []
-    if len(have) == len(PAYLOAD_FILES) and len(units) == len(UNITS):
+    units = {path.name for path in (PAYLOAD / "systemd").glob("*.service")} \
+        if (PAYLOAD / "systemd").is_dir() else set()
+    if len(have) == len(PAYLOAD_FILES) and set(UNITS) <= units:
         return f"already in {PAYLOAD.relative_to(config.REPO)}/"
     if not BRIDGE.is_dir():
         return f"incomplete in {PAYLOAD.relative_to(config.REPO)}/ and no stack here to copy from"
@@ -729,15 +753,221 @@ def apt_install(packages):
             raise config.Error(f"{' '.join(cmd[:5])} exited {proc.returncode}")
 
 
+def mcp_package_version():
+    """The installed Playwright MCP version, or None when it is not there."""
+    try:
+        text = (mcp_dir() / "node_modules" / "@playwright" / "mcp" / "package.json") \
+            .read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        version = json.loads(text).get("version")
+    except ValueError:
+        return None
+    return version if isinstance(version, str) else None
+
+
+def ensure_mcp_package():
+    """Put the pinned package into the bridge directory, once.  Returns what happened."""
+    if mcp_package_version() == PLAYWRIGHT_MCP_VERSION:
+        return "already installed"
+    if shutil.which("npm") is None:
+        raise config.Error("npm is not installed here, so the browser MCP server cannot be "
+                           "installed; install node first")
+    mcp_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
+    cmd = ["npm", "install", "--prefix", str(mcp_dir()), "--save-exact",
+           f"@playwright/mcp@{PLAYWRIGHT_MCP_VERSION}"]
+    try:
+        proc = subprocess.run(cmd, timeout=APT_CAP, env=config.child_env())
+    except subprocess.TimeoutExpired:
+        raise config.Error(f"npm install did not finish within {APT_CAP}s") from None
+    except OSError as exc:
+        raise config.Error(f"cannot run npm: {exc}") from None
+    if proc.returncode != 0:
+        raise config.Error(f"npm install exited {proc.returncode}")
+    if mcp_package_version() != PLAYWRIGHT_MCP_VERSION:
+        raise config.Error("npm reported success but the pinned Playwright MCP package "
+                           "is still missing")
+    return "installed"
+
+
+def render_mcp_unit():
+    """The shared server's unit, rendered from the payload template for this account.
+
+    The node executable is the one on PATH here, validated now: the unit would otherwise
+    name a /usr/bin/node a machine with its node elsewhere does not have, and the server
+    it just installed would never start.
+    """
+    try:
+        template = (PAYLOAD / "systemd" / MCP_UNIT).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise config.Error(f"cannot read the {MCP_UNIT} template: {exc}") from None
+    node = shutil.which("node")
+    if node is None:
+        raise config.Error("node is not installed here, so the browser MCP server cannot run; "
+                           "install node first")
+    account = pwd.getpwuid(os.getuid())
+    values = {"USER": account.pw_name, "HOME": account.pw_dir,
+              "TARGET": str(BRIDGE), "HOST": socket.gethostname(), "NODE": node}
+    for key, value in values.items():
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise config.Error(f"{key}: control characters cannot be used in a systemd unit")
+    lines = []
+    for line in template.splitlines(keepends=True):
+        def replace(match):
+            value = values[match[1]].replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
+            return value.replace("$", "$$") if line.startswith("Exec") else value
+        lines.append(re.sub(r"@([A-Z0-9_]+)@", replace, line))
+    return "".join(lines)
+
+
+def mcp_active():
+    """Whether the shared server's unit is active, or None where there is no systemd."""
+    code, out = systemctl(["is-active", MCP_UNIT])
+    if code is None:
+        return None
+    return code == 0 and out.strip() == "active"
+
+
+def sudo_run(cmd, what):
+    try:
+        proc = subprocess.run(cmd, timeout=APT_CAP, env=config.child_env())
+    except subprocess.TimeoutExpired:
+        raise config.Error(f"{' '.join(cmd[:4])} did not finish within {APT_CAP}s") from None
+    except OSError as exc:
+        raise config.Error(f"cannot run {' '.join(cmd[:3])}: {exc}") from None
+    if proc.returncode != 0:
+        raise config.Error(f"{what} exited {proc.returncode}")
+    return proc
+
+
+def installed_owner(unit):
+    """(present, user, host) for an installed unit, drop-ins included.
+
+    Read through `systemctl cat`, like the stack's own installer, so a drop-in override of
+    User is not missed; the plain file is the fallback.  Absent units report no owner, and
+    a unit systemd knows but neither read can show refuses loudly instead of reading as
+    absent: replacing a unit nobody inspected could take a foreign browser.
+    """
+    code, out = systemctl(["cat", "--no-pager", unit])
+    if code == 0 and out.strip():
+        text = out
+    else:
+        try:
+            text = (UNIT_DIR / unit).read_text(encoding="utf-8")
+        except OSError:
+            if code is None:
+                return False, None, None
+            _, state = systemctl(["show", "--property=LoadState", "--value", unit])
+            if state.strip() != "not-found":
+                raise config.Error(f"cannot inspect {unit}; existing browser stack "
+                                   "left untouched")
+            return False, None, None
+    user, host, section = None, None, ""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            section = stripped
+        if (section == "[Service]" and not stripped.startswith(("#", ";"))
+                and "=" in stripped):
+            key, _, value = stripped.partition("=")
+            if key.strip() == "User":
+                user = value.strip().strip('"')
+        if host is None:
+            match = re.match(r"# Browser bridge host: (.+)$", stripped)
+            if match:
+                host = match[1]
+    return True, user, host
+
+
+def setup_refusal():
+    """Why setup must not mutate this machine, or None when it may proceed.
+
+    Before every setup mutation: a sandbox HOME would render a machine-wide unit pointing
+    into a throwaway directory, and a stack owned by another account or host is left to
+    its owner, browser packages included.
+    """
+    account = pwd.getpwuid(os.getuid())
+    if Path.home().resolve() != Path(account.pw_dir).resolve():
+        return "sandbox HOME cannot install system units"
+    here = socket.gethostname()
+    for unit in (*UNITS, MCP_UNIT):
+        present, user, host = installed_owner(unit)
+        if not present:
+            continue
+        if user != account.pw_name:
+            return f"{unit} belongs to another account, left untouched"
+        if host is not None and host != here:
+            return f"{unit} belongs to another host, left untouched"
+    return None
+
+
+def ensure_mcp_service():
+    """Set the shared server up once: pinned package, unit, enabled and active.
+
+    Idempotent: when the pinned version is installed, the unit on disk matches the template
+    and the unit is active, nothing runs but the read-only checks.  Never restarts a running
+    server it did not change, so seats keep their tabs.  Under a sandbox HOME, or beside a
+    stack that belongs to another account or host, nothing is installed or restarted at all:
+    the machine-wide unit must not point into a throwaway HOME or onto a foreign browser.
+    """
+    if shutil.which("systemctl") is None:
+        return "no systemd on this machine; nothing to set up"
+    refused = setup_refusal()
+    if refused is not None:
+        return refused
+    package = ensure_mcp_package()
+    rendered = render_mcp_unit()
+    try:
+        installed = (UNIT_DIR / MCP_UNIT).read_text(encoding="utf-8")
+    except OSError:
+        installed = None
+    changed = installed != rendered
+    if changed:
+        staged = BRIDGE / "rendered-units" / MCP_UNIT
+        staged.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            staged.write_text(rendered, encoding="utf-8")
+            staged.chmod(0o600)
+        except OSError as exc:
+            raise config.Error(f"cannot stage {MCP_UNIT}: {exc}") from None
+        sudo_run(["sudo", "-n", "install", "-m", "644", str(staged),
+                  str(UNIT_DIR / MCP_UNIT)], f"install {MCP_UNIT}")
+        code, _ = systemctl(["daemon-reload"], sudo=True)
+        if code != 0:
+            raise config.Error(f"systemctl daemon-reload exited {code}")
+    code, out = systemctl(["is-enabled", MCP_UNIT])
+    if not (code == 0 and out.strip() == "enabled"):
+        code, _ = systemctl(["enable", MCP_UNIT], sudo=True)
+        if code != 0:
+            raise config.Error(f"systemctl enable {MCP_UNIT} exited {code}")
+    if mcp_active():
+        if changed or package == "installed":
+            code, _ = systemctl(["restart", MCP_UNIT], sudo=True)
+            if code != 0:
+                raise config.Error(f"systemctl restart {MCP_UNIT} exited {code}")
+            return "updated and restarted"
+        return "already active"
+    code, _ = systemctl(["start", MCP_UNIT], sudo=True)
+    if code != 0:
+        raise config.Error(f"systemctl start {MCP_UNIT} exited {code}")
+    return "installed and started" if changed or package == "installed" else "started"
+
+
 def install(argv):
-    """Stand the stack up where there is none; on the machine that has it, verify and stop.
+    """Stand the stack up where there is none; on the machine that has it, verify it.
 
     The stack's own installer restarts all five units at the end, which is exactly what must
     not happen to a Chromium holding live sessions.  So it is run only when the units are not
-    there at all, and the machine that already has them gets the package check and nothing more.
+    there at all, and the machine that already has them gets the package check, then the
+    shared browser tool: a pinned install and one unit, set up once and never per session.
     """
     if argv:
         raise config.Error(f"ak browser install takes no arguments; got {' '.join(argv)}")
+    refused = setup_refusal()
+    if refused is not None:
+        say(f"setup     {refused}")
+        return 0
     say(f"payload   {vendor()}")
     missing = missing_packages()
     if missing is None:
@@ -773,6 +1003,7 @@ def install(argv):
         say(f"units     not running: {', '.join(down)}; `ak browser status` has the detail")
         return 1
     say(f"units     all {len(UNITS)} active; the running browser was not touched")
+    say(f"mcp       {ensure_mcp_service()}: one server at {MCP_URL} for every seat")
     return 0
 
 

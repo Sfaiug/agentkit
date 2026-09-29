@@ -115,6 +115,28 @@ def conversation(record, cwd=None):
 
 
 def forget(record):
+    """Local cleanup always completes; a failed enrollment DELETE is retried later.
+
+    A seat whose pane already exited deletes its enrollment inline, but chatgpt.com
+    may be unreachable or still see the server as online (HTTP 409). Either way the
+    home stays behind with its .forgotten marker and deletion receipt, and every
+    forget retries all such homes, so `ak stop` never fails on a network error and
+    enrollments cannot pile up silently.
+    """
+    homes = []
+    remote = read(record).get("remote")
+    if isinstance(remote, str) and re.fullmatch(r"[0-9a-f]{32}", remote):
+        homes.append(config.STATE / f"codex-remote-{remote}")
+    for marker in sorted(config.STATE.glob("codex-remote-*.forgotten")):
+        if (home := marker.with_suffix("")) not in homes:
+            homes.append(home)
+    for home in homes:
+        try:
+            subprocess.run([sys.executable, str(config.REPO / "tools/codex-seat.py"),
+                            "--forget", str(home)], check=True)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            print(f"orch: Codex remote cleanup for {home.name} failed ({exc}); "
+                  "its enrollment stays until the next forget", file=sys.stderr)
     path = path_for(record)
     if path:
         path.unlink(missing_ok=True)
@@ -134,8 +156,17 @@ def title_ready(record, state):
                 and not attempt.get("pending", True))
 
 
+def title_restores(record, title):
+    """Whether an acknowledged name absent from the index needs retyping.
+
+    Codex's own naming replaces ak's /rename after the first prompt. An empty receipt
+    means the seat's name is gone from its thread; restore it with the same retry cap.
+    """
+    return title == ""
+
+
 def session_title(record):
-    """Only explicit names in the owned launch's index, never its generated database title."""
+    """Acknowledge ak's names only: Codex stores generated and /rename names alike."""
     sid = conversation(record)
     if not sid:
         return None
@@ -161,7 +192,8 @@ def session_title(record):
         return ""
     except (OSError, UnicodeError):
         return None
-    return title
+    return title if title in (record.get("session_title"),
+                              (record.get("title_sync") or {}).get("name")) else ""
 
 
 def prepare(name, cwd, owned):
@@ -180,6 +212,7 @@ def prepare(name, cwd, owned):
     # A resumed thread retains its original transcript cwd even if its checkout was removed.
     receipt = {"launch": token, "cwd": previous.get("cwd", str(Path(cwd).resolve()))
                if owned else str(Path(cwd).resolve()), "expected": owned}
+    receipt["remote"] = previous.get("remote") or uuid.uuid4().hex
     if owned:
         receipt["event"] = previous["event"]
         if previous.get("home"):
@@ -190,7 +223,9 @@ def prepare(name, cwd, owned):
     config.update_session(name, codex_launch=token, codex_history=history or None,
                           conversation=owned, id_source=SOURCE if owned else None,
                           resumable=bool(owned))
-    forget(record)
+    old_path = path_for(record)
+    if old_path:
+        old_path.unlink(missing_ok=True)
     return path
 
 
@@ -247,7 +282,7 @@ def capture(path, event):
         return
 
 
-def main(argv):
+def main(argv, launch=None):
     if argv == ["capture"]:
         try:
             path = os.environ.get(CAPTURE_ENV)
@@ -316,4 +351,6 @@ def main(argv):
         else:
             print("orch: Codex cannot capture seat ownership on this version; "
                   "an unbound seat starts fresh next time", file=sys.stderr)
+    if launch and receipt and os.environ.get(CAPTURE_ENV):
+        return launch(cmd, receipt)
     os.execvp(cmd[0], cmd)

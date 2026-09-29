@@ -1,0 +1,316 @@
+"""A merge starts its own seat's follow-ups through ordinary admission and landing.
+
+Temporary HOME, local git remote, fake gh and fake models; no detached run is started.
+"""
+
+from concurrent.futures import ThreadPoolExecutor
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import unittest
+from unittest.mock import patch
+
+import test_review_gate as gate
+from agentkit import browser, config, menu, orch, run, watch, worker
+
+
+DEFECT = "broken.py:1 - empty input crashes - base abc123: `first([])` raises IndexError"
+OTHER = "other.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"
+
+ADAPTER = r'''import json, os, pathlib, subprocess, sys
+root = pathlib.Path(os.environ["GATE_FIXTURE"])
+if sys.argv[1] == "usage":
+    print('{"meters": [{"name": "weekly", "used": 0}]}')
+    sys.exit(0)
+if sys.argv[1] == "reset-status":
+    print('{"available": 0}')
+    sys.exit(0)
+assert sys.argv[1] == "run", sys.argv
+wt, out = pathlib.Path(sys.argv[4]), pathlib.Path(sys.argv[6])
+prompt = pathlib.Path(sys.argv[5]).read_text()
+role = "reviewer" if prompt.startswith("You are the reviewer") else "executor"
+with (root / "calls.jsonl").open("a") as fh:
+    fh.write(json.dumps({"role": role, "prompt": prompt}) + "\n")
+if role == "reviewer":
+    answer = (root / "review.md").read_text()
+else:
+    mode = (root / "mode").read_text()
+    if mode == "gone":
+        answer = "not needed: target already fixes empty input"
+    elif mode == "duplicate":
+        answer = "## Summary\n\nnot needed: another open run fixes this site"
+    elif mode == "blocked":
+        answer = "## Blocked\nShould empty input return None or raise ValueError?"
+    else:
+        test = wt / "test_empty.py"
+        test.write_text("from broken import first\nassert first([]) is None\n")
+        before = subprocess.run([sys.executable, str(test)], cwd=wt, capture_output=True)
+        assert before.returncode != 0, before
+        (out / "before.log").write_bytes(before.stderr)
+        (wt / "broken.py").write_text("def first(items):\n    return items[0] if items else None\n")
+        subprocess.run([sys.executable, str(test)], cwd=wt, check=True)
+        (out.parents[1] / "regression.sh").write_text("python3 test_empty.py\n")
+        subprocess.run(["git", "add", "."], cwd=wt, check=True)
+        subprocess.run(["git", "commit", "-qm", "Handle empty input"], cwd=wt, check=True)
+        answer = "## Summary\nRegression test failed with IndexError before; passed after."
+(out / "final.md").write_text(answer)
+(out / "session_id").write_text("fixture-" + role)
+'''
+
+
+class FollowupRuns(unittest.TestCase):
+    script = gate.ReviewGate.script
+
+    def setUp(self):
+        gate.ReviewGate.setUp(self)
+        self.logs, self.spawns, self.gh_calls, self.endings = [], [], [], []
+        for harness in {entry["harness"] for entry in self.cfg["models"].values()}:
+            self.script(self.root / "adapters" / f"{harness}.sh", ADAPTER)
+        (self.root / "mode").write_text("fix")
+        (self.root / "review.md").write_text("VERDICT: PASS\n")
+        self.repo = self.root / "acme"
+        self.repo.mkdir()
+        self.remote = self.root / "origin.git"
+        self.git(self.repo, "init", "-qb", "main")
+        self.git(self.repo, "config", "user.name", "Fixture")
+        self.git(self.repo, "config", "user.email", "fixture@example.invalid")
+        self.git(self.root, "init", "--bare", "-q", str(self.remote))
+        self.git(self.repo, "remote", "add", "origin", str(self.remote))
+        (self.repo / "broken.py").write_text("def first(items):\n    return items[0]\n")
+        self.git(self.repo, "add", ".")
+        self.git(self.repo, "commit", "-qm", "Existing defect")
+        self.git(self.repo, "push", "-qu", "origin", "main")
+        self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
+        self.stack.enter_context(patch.object(orch, "start_in_slice", side_effect=self.spawn))
+        self.stack.enter_context(patch.object(orch, "set_runs"))
+        self.stack.enter_context(patch.object(orch, "stop_scope"))
+        self.stack.enter_context(patch.object(worker, "kill_marked"))
+        self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
+        self.stack.enter_context(patch.object(run, "marker_pids", return_value=[]))
+        self.stack.enter_context(patch.object(run, "pickup_new_code", return_value=False))
+        self.stack.enter_context(patch.object(run, "disk_pressure", return_value=False))
+        self.stack.enter_context(patch.object(browser, "close_owned"))
+        self.stack.enter_context(patch.object(run, "announce", side_effect=lambda s, d, *a:
+                                              self.endings.append(run.handback_line(s, d, self.cfg))))
+        config.save_session(self.cfg, "seat", self.executor,
+                            [self.executor, self.reviewer], {"cwd": str(self.repo)})
+
+    def git(self, cwd, *args):
+        result = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def spawn(self, argv, unit, env, log_path, **kwargs):
+        self.spawns.append((argv, env, Path(log_path).parent))
+        kwargs["placement"].update(scope="none", scope_reason="fixture")
+        return os.getpid()
+
+    def gh(self, cwd, *args, **kwargs):
+        self.gh_calls.append(args)
+        if args[:2] == ("repo", "view"):
+            return 0, json.dumps({"nameWithOwner": "acme/widget", "viewerPermission": "WRITE"})
+        if args[:2] == ("pr", "create"):
+            self.pr_branch = args[args.index("--head") + 1]
+            self.pr_base = args[args.index("--base") + 1]
+            return 0, "https://github.com/acme/widget/pull/1"
+        if args[:2] == ("pr", "merge"):
+            head = self.git(self.repo, "rev-parse", self.pr_branch)
+            self.git(self.repo, "push", "-q", "origin", f"{head}:refs/heads/{self.pr_base}")
+            return 0, "merged"
+        if args[:2] == ("pr", "view"):
+            return 0, json.dumps({"state": "OPEN", "mergeable": "MERGEABLE",
+                                  "headRefOid": self.git(self.repo, "rev-parse", self.pr_branch),
+                                  "baseRefName": self.pr_base})
+        if args[0] == "api":
+            if "graphql" in args:
+                return 0, json.dumps({"data": {"repository": {"ref": {"branchProtectionRule": None}}}})
+            return 0, "[]"
+        self.fail(f"unexpected gh {args}")
+
+    def source(self, name="source", **extra):
+        directory = config.RUNS / name
+        directory.mkdir()
+        state = {"run_id": name, "state": "pass", "verdict": "PASS", "merged": True,
+                 "launched_session": "seat", "workers": [self.executor, self.reviewer],
+                 "repo": str(self.repo), "target": "main", "base": "origin/main",
+                 "followups": [DEFECT], **extra}
+        run.save_state(directory, state)
+        return directory, state
+
+    def start(self, directory, state):
+        run.start_followups(state, directory, self.logs.append, self.cfg)
+        return [config.RUNS / name for name in state.get("followup_runs", [])]
+
+    def drive(self, directory, mode="fix"):
+        (self.root / "mode").write_text(mode)
+        opts = run.read_state(directory)["launch_opts"]
+        code = run.drive(self.cfg, directory, opts, self.logs.append)
+        return code, run.read_state(directory)
+
+    def test_merge_launches_each_item_with_evidence_and_original_workers(self):
+        directory, state = self.source(followups=[DEFECT + "\nreproduction details", OTHER])
+        config.save_session(self.cfg, "seat", self.executor, [self.reviewer])
+        with patch.dict(os.environ, {"AGENTKIT_SESSION": "", "AK_RUN_DEPTH": "1",
+                                    "AGENTKIT_RUN": "parent", "AK_PARENT_RUN": "parent",
+                                    "AGENTKIT_UNATTENDED": "1", "AK_RUN_ROLE": "worker"}):
+            children = self.start(directory, state)
+        self.assertEqual(len(children), 2)
+        for child, item, (_, env, _) in zip(children, state["followups"], self.spawns):
+            receipt = run.read_state(child)
+            self.assertEqual(receipt["launched_session"], "seat")
+            self.assertEqual(receipt["workers"], state["workers"])
+            self.assertEqual(receipt["run_depth"], 0)
+            self.assertIsNone(receipt["parent_run"])
+            self.assertEqual(env["AGENTKIT_SESSION"], "seat")
+            self.assertEqual(env["AK_RUN_DEPTH"], "0")
+            for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AGENTKIT_UNATTENDED", "AK_RUN_ROLE"):
+                self.assertNotIn(key, env)
+            self.assertIn(item, (child / "task.md").read_text())
+            self.assertIn("base: origin/main", (child / "task.md").read_text())
+            self.assertEqual(receipt["followup"]["run"], directory.name)
+            self.assertIn(child.name, run.handback_line(state, directory, self.cfg))
+        self.assertFalse((config.HOME / "followups").exists())
+        self.start(directory, run.read_state(directory))
+        self.assertEqual(len(self.spawns), 2)
+
+    def test_fix_run_keeps_discovering_run_lists_not_session_current_ones(self):
+        directory, state = self.source("lists", reviewers=[self.executor])
+        config.update_session("seat", workers=[self.reviewer], reviewers=[self.reviewer])
+        with patch.dict(os.environ, {"AGENTKIT_SESSION": "seat"}):
+            child = self.start(directory, state)[0]
+        receipt = run.read_state(child)
+        self.assertEqual(receipt["workers"], state["workers"])
+        self.assertEqual(receipt["reviewers"], [self.executor])
+
+    def test_long_first_line_still_fits_github_pr_title_limit(self):
+        long_item = "x" * 256 + "\nreproduction details"
+        directory, state = self.source("long-title", followups=[long_item])
+        child = self.start(directory, state)[0]
+        heading = run.parse_task(child / "task.md")[2]
+        self.assertTrue(heading.startswith("Fix "))
+        self.assertLessEqual(len(heading), 256)
+        self.assertIn(long_item, (child / "task.md").read_text())
+
+    def test_exclusions_and_closed_session_start_nothing(self):
+        for index, changes in enumerate(({"merged": False}, {"launched_session": None},
+                                         {"scratch": True}, {"followups": []},
+                                         {"review_pr": "url", "own_pr": False})):
+            directory, state = self.source(f"excluded-{index}", **changes)
+            self.assertEqual(self.start(directory, state), [])
+        directory, state = self.source("closed")
+        watch.seat_write("seat", stopped_at=1, closed_by_owner=True)
+        self.assertEqual(self.start(directory, state), [])
+        self.assertEqual(self.spawns, [])
+
+    def test_own_pr_and_fix_runs_start_their_followups(self):
+        directory, state = self.source(own_pr=True, review_pr="url")
+        child = self.start(directory, state)[0]
+        fixed = run.read_state(child)
+        fixed.update(state="pass", merged=True, followups=[OTHER], target="main")
+        run.save_state(child, fixed)
+        grandchild = self.start(child, fixed)[0]
+        self.assertEqual(run.read_state(grandchild)["followup"]["run"], child.name)
+        self.assertEqual(run.read_state(grandchild)["launched_session"], "seat")
+
+    def test_same_site_suppressed_only_for_an_open_fix_in_the_same_session(self):
+        directory, state = self.source()
+        child = self.start(directory, state)[0]
+        second, later = self.source("later", followups=["`./broken.py:01` - different words"])
+        self.assertEqual(self.start(second, later), [])
+        receipt = run.read_state(child)
+        receipt.update(state="not_needed", not_needed="already fixed")
+        run.save_state(child, receipt)
+        third, next_state = self.source("next")
+        self.assertEqual(len(self.start(third, next_state)), 1)
+        config.save_session(self.cfg, "other-seat", self.executor, state["workers"])
+        fourth, other = self.source("other-seat-source", launched_session="other-seat")
+        self.assertEqual(len(self.start(fourth, other)), 1)
+
+    def test_simultaneous_merges_do_not_launch_the_same_fix_twice(self):
+        first = self.source("first")
+        second = self.source("second")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda pair: self.start(*pair), (first, second)))
+        self.assertEqual(sum(map(len, results)), 1)
+        self.assertEqual(len(self.spawns), 1)
+
+    def test_ordinary_admission_keeps_the_seat_working_and_stop_owns_the_children(self):
+        directory, state = self.source(followups=[DEFECT, OTHER])
+        readings = {"free_mb": 0, "mem_total_mb": 16384, "load": 0, "cpus": 8}
+        with patch.dict(os.environ, {"AK_MAX_RUNS": "1"}), \
+                patch.object(run, "host_readings", return_value=readings), \
+                patch.object(config, "min_free_mb", return_value=1024):
+            children = self.start(directory, state)
+        receipts = [run.read_state(child) for child in children]
+        self.assertTrue(all(s["state"] == "queued" and s["slot_waiting"] for s in receipts))
+        self.assertEqual(run.seat_tallies(receipts)["seat"][0], 2)
+        with patch.object(run, "cmd_stop") as stop:
+            run.stop_owned_runs("seat")
+        self.assertEqual({call.args[0][0] for call in stop.call_args_list}, {c.name for c in children})
+
+    def test_target_is_fetched_after_admission_and_the_fix_is_checked_reviewed_and_landed(self):
+        directory, state = self.source()
+        child = self.start(directory, state)[0]
+        (self.repo / "merged.txt").write_text("the discovering task merged\n")
+        self.git(self.repo, "add", ".")
+        self.git(self.repo, "commit", "-qm", "Merge discovering task")
+        merged = self.git(self.repo, "rev-parse", "HEAD")
+        self.git(self.repo, "push", "-q", "origin", "main")
+        self.git(self.repo, "update-ref", "refs/remotes/origin/main", f"{merged}~1")
+        (self.root / "review.md").write_text(f"VERDICT: PASS\n\n## Follow-ups\n- {OTHER}\n")
+        code, fixed = self.drive(child)
+        self.assertEqual(code, 0, "\n".join(self.logs))
+        self.assertTrue(fixed["merged"])
+        self.assertTrue(run.review_pass(fixed, self.cfg))
+        self.assertEqual(fixed["base_sha"], merged)
+        self.assertEqual(self.git(self.repo, "show", "origin/main:merged.txt"),
+                         "the discovering task merged")
+        self.assertIn("if items else None", self.git(self.repo, "show", "origin/main:broken.py"))
+        self.assertIn("IndexError", next(child.glob("round-1/executor*/before.log")).read_text())
+        self.assertIn("[exit 0]", (child / "round-1/donewhen.log").read_text())
+        calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
+        self.assertEqual([c["role"] for c in calls], ["executor", "reviewer"])
+        self.assertIn("First fetch the target branch", calls[0]["prompt"])
+        self.assertIn("another open run of session seat", calls[0]["prompt"])
+        self.assertEqual(len(fixed["followup_runs"]), 1)
+        self.assertIn(fixed["followup_runs"][0], self.endings[-1])
+        grandchild = run.read_state(config.RUNS / fixed["followup_runs"][0])
+        self.assertEqual(grandchild["launched_session"], "seat")
+        self.assertEqual(grandchild["workers"], state["workers"])
+        self.assertEqual(grandchild["followup"]["text"], OTHER)
+
+    def test_not_needed_is_done_without_checks_review_or_pr(self):
+        for index, mode in enumerate(("gone", "duplicate")):
+            directory, state = self.source(f"source-{index}")
+            child = self.start(directory, state)[0]
+            with patch.object(run, "verify_work", side_effect=AssertionError("checked")), \
+                    patch.object(run, "review", side_effect=AssertionError("reviewed")):
+                code, ended = self.drive(child, mode)
+            self.assertEqual(code, 0, "\n".join(self.logs))
+            self.assertEqual(ended["state"], "not_needed")
+            self.assertEqual(menu.run_state_word(ended), "done")
+            self.assertFalse(menu.v5o_needs_look(ended))
+            self.assertFalse(run.needs_recovery({**ended, "recovery_pending": True}))
+            self.assertEqual(run.job_classify(ended, self.cfg), "passed")
+            self.assertFalse(run.review_pass(ended, self.cfg))
+            self.assertIn("DONE", run.summary_line(ended, self.cfg))
+            self.assertIsNone(ended["pr"])
+            self.assertIn("not needed: ", (child / "result.md").read_text())
+            self.assertIn("finished DONE: not needed:", self.endings[-1])
+        self.assertEqual(self.gh_calls, [])
+
+    def test_owner_question_ends_blocked_and_reaches_the_session(self):
+        directory, state = self.source()
+        child = self.start(directory, state)[0]
+        code, ended = self.drive(child, "blocked")
+        self.assertEqual(code, 1)
+        self.assertEqual(ended["state"], "blocked")
+        self.assertIn("Should empty input", self.endings[-1])
+        self.assertIn("finished BLOCKED", self.endings[-1])
+        self.assertEqual(self.gh_calls, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -19,7 +19,7 @@ workers` (`opus astra`) and `reviewers` (workers when omitted) not spent; an emp
 `--dry-run` starts no session. The seat opens in `~/code`; `ak orch <name>` keeps the shell's directory and reopens an
 existing seat. As soon as the project is known, `ak orch project [<seat>] <checkout>` files this seat (or the named one) by checkout name or path; only known checkouts are accepted. Each launched run refiles it under the project most of its runs belong to,
 counting a run from its launch, still queued for a slot or not, for the checkout under `~/code` or `~/agentkit`
-(agentkit's own) its task's `repo:` names, else for the one its task's `~/.agentkit/tasks/<project>/` is named for, never
+(agentkit's own; a second clone at `~/code/agentkit` counts as it) its task's `repo:` names, else for the one its task's `~/.agentkit/tasks/<project>/` is named for, never
 one it merely inherits, and a worktree, sandbox or scratch workspace for nothing; a tie keeps its project. A seat with no
 project is filed at the next menu draw or `ak watch` tick once one of its runs counts. `m` on its row opens that session's executors and reviewers with its current groups chosen: the arrow keys move, Enter, space or a click flips a mark and saves it to the session's record at once for the runs it launches next, Esc goes back; each group keeps one model and a choice leaving no allowed pair is refused in one line.
 
@@ -36,7 +36,7 @@ back, a bare *shall I continue?* as the last sentence is no question, and a stop
 with no blocking end-of-turn hook declares `[stop] enforce = "nudge"`, and the tick types `continue` instead.
 
 Inside a seat `Ctrl-b m` opens the same menu as a popup: a number switches to that session, `n`
-starts one, `r` renames this one (as does `ak orch rename`; Claude's Remote Control title, Codex's thread name and Grok Build's manual session title follow the seat's name. Codex uses only explicit renames of its launch's owned thread, never generated titles, and confirms from that login's name index; a mid-turn attempt without a receipt waits for the prompt before retrying. Grok waits for an empty prompt and confirms only the manual title in its own conversation; automatic titles never rename the seat. All three leave owner drafts alone. Claude waits past dialogs and drafts and counts only once it records the title (or the composer clears if its transcript is unreadable); it gives its held line Enter even when wrapped, after the third typing or a later rename, and types each name at most three times before giving up until the name changes. Superseded pending titles stay recorded as agentkit's within that conversation until the name is explicitly retaken, so a delayed title cannot rename the seat back; owner drafts are never touched. Each typed line, its brief pause and its first Enter share the seat's lock so senders cannot merge lines; confirmation waits release it. A manual rename in any of these harnesses renames the seat too, taking a free variant if the name is held (even its own former name); Claude's title readings resume after the last complete line, with one note that moves and is removed with its seat; title errors are logged for their seat without stopping health checks), `x` stops it -- or, done, closes it at once -- and `q` closes the popup. The seat's status bar reads
+starts one, `r` renames this one (as does `ak orch rename`; Claude's Remote Control title, Codex's thread name, Grok Build's manual session title and OpenCode's session title follow the seat's name. Muse sessions keep their own name: the installed Muse refuses `/rename` even after a turn and rejects `--name`, so ak never types a rename into Muse. Codex's index and database do not distinguish generated names from `/rename`, so Codex titles never rename the seat, even after an owner's `/rename`; use ak to rename it. ak confirms its name from the owned thread's login index and restores it if Codex replaces it after the first prompt, stopping after three unconfirmed tries until the seat's name changes; an acknowledged name is not retyped, and a mid-turn attempt without a receipt waits for the prompt before retrying. Grok waits for an empty prompt and confirms only the manual title in its own conversation; automatic titles never rename the seat. OpenCode's seat plugin sets and reads back its own session's title through the API, including new seats, ak renames and auto naming, without typing or touching drafts. OpenCode 2.0.14 gives owner and automatic titles the same field and event, so neither renames the seat; the plugin restores ak's name when either changes it. All four leave owner drafts alone. Claude waits past dialogs and drafts and counts only once it records the title (or the composer clears if its transcript is unreadable); it gives its held line Enter even when wrapped, after the third typing or a later rename, and types each name at most three times before giving up until the name changes. Superseded pending titles stay recorded as agentkit's within that conversation until the name is explicitly retaken, so a delayed title cannot rename the seat back; owner drafts are never touched. Each typed line, its brief pause and its first Enter share the seat's lock so senders cannot merge lines; confirmation waits release it. A manual rename in Claude or Grok Build renames the seat too, taking a free variant if the name is held (even its own former name); Claude's title readings resume after the last complete line, with one note that moves and is removed with its seat; title errors are logged for their seat without stopping health checks), `x` stops it -- or, done, closes it at once -- and `q` closes the popup. The seat's status bar reads
 `<name> · <orchestrator> → <workers> · <state> · <last column>`, the same values as its menu row, cut with one `…` at 120 columns or where it would reach the key on any client, a phone included, with `Ctrl-b m  menu` on the right (`Ctrl-b m  x close` once it is done), and the
 window title is `<name> · <state>`. Agentkit's tmux config is `~/.agentkit/state/tmux.conf`; `~/.tmux.conf` is never read or written.
 
@@ -55,8 +55,7 @@ tmux is swept, unless a run of the seat's is unfinished or a question in it is u
 Stopping a session (`x` on its highlighted row, after its one question under the row, `Keep` or `Stop`; `x` on a done session and `ak orch stop <name>` ask
 nothing, so a finished session closes with one `x`) stops every run it launched, removes each run's worktree and local branch, deletes every
 state file named for the seat or for a name it had before a rename, rulebook, idle-compact stamps and locks included, edits its open Discord card to `Answered`, and closes the tabs the seat or its
-runs opened; the collector takes the stop mark a day later. The remote branch stays for the PR,
-and the run directory for its result. `q` leaves a seat running and is not a stop.
+runs opened; the collector takes the stop mark a day later. The remote branch stays for the PR, and the run directory for its result. `q` leaves a seat running and is not a stop.
 
 ## The run
 
@@ -68,44 +67,46 @@ scratch workspace), `base` (the repo's default branch), `target` (the branch the
 dependency, repeatable). A check ending in `# once` runs only on the commit that ships; the reviewer sees it marked
 deferred. The full suite a repository names as `tests:` in its `AGENTS.md` front matter is such a check in every run
 there, from the target branch where the checkout predates it, and a done-when line with the same command runs once with it, so a task lists only the checks for its change.
-A command that fails runs once more at once, within the same ceiling, and passes if the re-run does: the output keeps
-the first failure's last lines under `flaky:`, and a dated line goes into `~/.agentkit/followups/<repo>.md`.
+A command that fails runs once more at once, within the same ceiling, and passes if the re-run does: the output keeps the first failure's last lines under `flaky:`, which joins the run's follow-ups as evidence.
 The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt, up to 4 KB; past
 that, the run's hand-back names the file and asks the orchestrator to tighten it.
 
 One behaviour per task. A launch is refused when the goal has more than three numbered points, the body more than 500
 words outside the checks block, the checks more than six commands or `rounds` more than three, whatever `--anyway` says;
 and when a run under way in the same repository names the same test or shares four title words, which `--anyway` starts
-regardless. Runs have no count cap and wait FIFO while free memory is under the larger of 3 GB and 20% of RAM, load is
-above the CPU count with each run the host has frozen counting 1 against that limit while held, or the nearest limited
-cgroup is past 75% of its `memory.high` outside reclaimable file cache; a
+regardless. Runs have no count cap and wait FIFO while free memory is under the larger of 3 GB and 20% of RAM, ak's own
+slice CPU pressure is above 40%, or the nearest limited cgroup is past 75% of its `memory.high` outside reclaimable
+file cache; a pinned `max_load` restores the host-load check instead, each run the host has frozen counting 1 while held; a
 worker's own test runs share the parent's slot, and a third level is refused. A run that hits its own memory cap, the
-smaller of 4 GB and 40% of the slice ceiling unless `run_memory_max_mb` sets it, ends `fail` with `killed: memory cap`.
-`ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the load gate but still waiting for the memory floor, and takes its repository's next gate turn first, marked `first` in `ak run status`.
-A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run
-scope and cap; one run from a terminal runs its tasks in its own process.
+40% of the slice ceiling, 4 GB where there is no ceiling, unless `run_memory_max_mb` sets it, ends `fail` with `killed: memory cap`.
+`ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the CPU gate but still waiting for the memory floor, and takes the next heavy suite turn first, marked `first` in `ak run status`.
+A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run scope and cap; one run from a terminal runs its tasks in its own process.
 
 The worktree is `~/.agentkit/wt/<id>` on branch `ak/<slug>`, the first name free locally and on `origin`. The executor
 writes and commits, its commands in the foreground. The loop runs the checks itself and hands the diff and their output
-to the reviewer, a different model; it never re-runs them and answers `VERDICT: PASS` or `VERDICT: FAIL`, and one with
-no verdict is asked once more, never failed. A round is FAIL only for a blocking finding: a correctness defect, a safety
-or data-loss risk, a weakened check, or work outside the task. Everything else goes under `## Follow-ups`; the loop
-writes those into the PR description and appends them to `~/.agentkit/followups/<repo>.md`, which the orchestrator reads
-before the next task. An item at the `path:line` of an open one, or in its words, is not appended again; a file of the
-same name in another case is merged in once; and past 24 KB the oldest items move to `<repo>.archive.md`, which keeps
-them all. A FAIL starts a fix round with the findings. Three rounds is the budget: at the third FAIL the run ends
+to the reviewer, a different model. Task reviewers may run whatever is needed to prove or dismiss a finding, except done-when commands, the repository's `tests:` suite, and checks marked deferred.
+They keep the work under review read-only; probes leave nothing behind outside a temporary directory. Reviewers of others' PRs stay read-only and may run tests and commands.
+A reviewer answers `VERDICT: PASS` or `VERDICT: FAIL`; one with no verdict is asked once more, never failed. A round is FAIL only for a blocking finding: a correctness defect, a safety
+or data-loss risk, a weakened check, or work outside the task, with evidence: a command that fails, a reproduction, or quoted diff lines showing the defect. A follow-up needs the same evidence and severity, plus proof it existed before
+the task: a named base commit or a quote from main before the task. Only these go under `## Follow-ups`, without a
+number limit; everything else is omitted everywhere. The run's `run.json` and PR description carry only the final
+passing review's list, plus checks that passed only on re-run with their `flaky:` evidence. Earlier reviews' items
+are discarded. Nothing reads or writes `~/.agentkit/followups/`; existing files and archives are left alone.
+On merge each follow-up starts an ordinary run of the same session, with the discovering run's worker lists and a fresh checkout of the merged target. Its task is the defect and evidence. An open fix at the same site in that session prevents a duplicate. There is no setting or backlog.
+The executor first checks the current target and other open runs. A defect already gone or being fixed ends `not needed: <why>` (optionally under `## Summary`): done, no PR, checks or review. Otherwise it adds a regression test, shows failure before and success after, and writes the run's `regression.sh` to invoke it; the loop runs that check. An owner-only decision ends `## Blocked` with the question.
+The merged run's ending names its fix runs. The session stays working until they end; stopping or closing it stops them. Their follow-ups start runs the same way. Runs without a session, scratch runs and reviews of other people's PRs start none.
+A FAIL starts a fix round: the fixer fixes every undisputed finding, or lists a finding and evidence that it is wrong under `## Disputed` in its summary.
+Re-review rules on each dispute first, upheld or dropped, and says why. Three rounds is the budget: at the third FAIL the run ends
 `fail`, hands back its open findings (their first 600 characters) with `three rounds spent: split or re-scope`; no `--rounds` above three starts or resumes, and a job gives it no more rounds and no rerun on another model.
 
 On PASS the run brings the branch up to date with `origin/<target>` (a rebase, or a merge where `merge: merge` is asked
 or the branch already carries merge commits), pushes, opens the PR, waits out the required checks and merges it, squash
-by default. Each landing lap takes its gate turn first, then rebases onto the target's tip and runs each check once on
-that commit, letting the turn go before any fixer or reviewer starts. A clean integration keeps its review if the
-done-when passes again; an empty one ends PASS. A conflict or a failing `# once`
+by default. Each landing lap rebases onto the target's tip and runs each check once on that commit, only the heavy suite taking a turn. A clean integration keeps its review if the done-when passes again; an empty one ends PASS. A conflict or a failing `# once`
 check gets up to three fixer rounds, never task rounds, then parks `waiting` on the target ref and SHA until the tick sees it move (a check
 names its first failing line); one failing on the target's own tip too parks at once with `<target> itself fails: <line>`, spending no round, unless the command names a file only the branch has (including root files, globs and paths after `cd`): the fixer runs without a probe and the log names the missing file. File-existence tests still probe. A host lands one run per repository and target branch at a time, and the first lap's merge turn covers only a fetch, the push, the PR, its required checks and the merge: the
 rebase, the done-when and final check re-runs, and every fixer and re-review they need run before it. A target still on
 the verified commit lands; one moved only by commits touching none of the branch's files is rebased onto and lands on
-the verified checks; any other move releases the turn to verify again holding it, from before the rebase through the merge, and a third such lap parks `waiting`. A lap holding it shows `holding the merge turn of <repo> <branch> to land`, letting go before any fixer, reviewer or stop. A run
+the verified checks; any other move releases the turn to verify again holding it, from before the rebase through the merge, and a third such lap parks `waiting`. During that re-check, branches changing none of the holder's files borrow the delivery turn one at a time; overlapping or unknown file sets wait. Renames count both paths. The holder takes the turn back and lands on its verified checks when only other files moved. It still shows `holding the merge turn of <repo> <branch> to land`, letting go before any fixer, reviewer or stop. A run
 queued for the turn shows `waiting for the merge turn of <repo> <branch>`, holding no slot and never read as silent; a
 dead holder's turn passes on. A failed integration, conflict or final-check review gets a fixer with the whole review
 (and a failing done-when's output) while rounds are left, and at the budget ends `fail` with its findings, or with why
@@ -113,15 +114,14 @@ the loop overrode a PASS. A base-branch merge race re-fetches, rechecks the PR h
 changes and retries three times with growing waits before parking. Without push rights it forks, opens the PR upstream
 and ends `PASS, not merged: waiting for the maintainer`, exiting 0; the tick follows the PR and hands the decision to the seat. `--no-merge` stops at the verdict. Other ended `merged: no` runs name their reason and exit 1.
 Before each round and each landing lap's verify, a run whose installed agentkit moved replaces itself in place with
-`ak run resume <id>` — same pid, slot and saved PASS — saying `picked up agentkit <old>..<new>; continuing on it`; it
-never moves holding a turn or a child, and a landing resumed mid-laps keeps its lap count.
+`ak run resume <id>` — same pid, slot and saved PASS — saying `picked up agentkit <old>..<new>; continuing on it`; it never moves holding a turn or a child, and a landing resumed mid-laps keeps its lap count.
 
 A run ends `blocked` when the task is wrong: an executor or fixer ends its turn with `## Blocked` instead of `##
 Summary`, or a fix round leaves the same checks failing the same way (or no harness can run it, see Resumption). No
 checks, no reviewer, no further round. `result.md` opens `# BLOCKED — <title>`, and the orchestrator writes a new task.
 
 Scheduled errors and merge waits send no ending. Every ending goes to the launching seat as one line typed at its next
-quiet prompt: `run <id> finished <PASS merged|PASS not merged|FAIL|BLOCKED|ERROR>: <why>. Result: <path>. Decide the
+quiet prompt: `run <id> finished <PASS merged|PASS not merged|DONE|FAIL|BLOCKED|ERROR>: <why>. Result: <path>. Decide the
 next step.` A seat mid-turn gets it from the tick; its line is typed once, and one still sitting in the seat's composer
 gets only its Enter. A seat that has died is reopened by the run and told `continue <task>`; only when that fails does a
 `Needs you` card go to you. A run you launch by hand has no seat: its result is on the terminal and in `ak run status`.
@@ -134,8 +134,7 @@ its own commits (`git rebase --onto <target> <tip>`), so a squash merge cannot c
 keeps it waiting; one ending unmerged skips it (`skipped: <dep> did not merge`), its branch kept. `repo: none` delivers
 files in `~/.agentkit/work/<id>`, which its hand-back names, not a PR. `ak run --review-pr URL` reviews a PR with
 no executor and posts the verdict as a GitHub review: a seat's own PR merges on PASS with green checks, anyone
-else's asks the inbox. `ak run status` lists every run of the last seven days but
-the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
+else's asks the inbox. `ak run status` lists every run of the last seven days but the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
 `workspace:` and `continue:` lines. An ending handed back, acknowledged or superseded (by a later merged run of its
 title, or a relaunch `from:` its branch) reads `done`, as does a parked run a later merged run replaced, and a job's tasks read their runs as they are now. `ak run` exits 0 on PASS, 1 on FAIL, `exhausted`, `blocked` or an unfinished merge, 2 on error.
 
@@ -143,7 +142,7 @@ A run never waits forever. A check with no output for 20 minutes is killed with 
 round; the whole checks list has a six-hour ceiling. A model turn with no harness event for 20 minutes is killed and
 retried on the same conversation. Every `git` and `gh` call runs under 120 seconds with prompts disabled; one that stops
 ends the run `exhausted` with the remedy, or `pass` with `merge_failed` while the review still stands. Before the first
-turn the run adds build junk (`__pycache__/`, `node_modules/`, …) to the repo's `.git/info/exclude`.
+turn the run adds build junk (`__pycache__/`, `node_modules/`, …) to the repo's `.git/info/exclude`. Before review it commits executor leftovers, leaving test sandboxes, run locks (`recovery.lock`, `delivery.lock`) and dependency trees (`node_modules`, `venv`, `.venv`, including nested paths and symlinks) uncommitted and counted in the sandbox log regardless of `.gitignore` or staging.
 `~/.agentkit/env/<repo>.env` is exported into every worker and check for that repo.
 
 ### New features in live projects
@@ -167,7 +166,7 @@ parked `stalled`, or `exhausted` on a window or a dead reviewer, which the tick 
 still needs attention (see below), or an `exhausted` run the tick cannot resume (rounds spent, a stopped `git`, no verdict), handed back or not, until `ak run resume <id>` or `ak run stop <id>`, unless a later merged run replaced it, is `needs you` (`run <id> parked: <reason>`);
 nobody in the seat any more is `needs you` with `session closed: press N to reopen`; the seat's own `ak notify done` is
 `done` with the summary's first line until a newer notice, however often the session is opened, read or scrolled (a question on its screen, or typed text nobody sent, reads `needs you` over it; a job's `all N tasks finished` is no declaration of the seat's, though its card is still `Done`); otherwise it is at its prompt, which is `needs you`
-with the question it asked or `waiting for you`. Your prompt after a question answers it, in the pane or over Remote Control, even after a rename: it stops blocking hand-backs and title sync and leaves the reason. Recording the answer runs in the background, so your prompt never waits for a notification lock. Only a prompt handled in the seat's own pane counts. Earlier prompts, slash commands (including `/compact` and `/rename`), `<cross-session-message>` prompts and `<task-notification>` prompts answer nothing; watcher alerts keep their own recovery rules. Opening through ak followed by fresh output still answers a question. These exclusions do not change the turn-ending rules. `ak orch why <seat>` says what decided it, on what evidence, since when.
+with the question it asked or `waiting for you`. Your prompt after a question answers it, in the pane or over Remote Control, even after a rename: it stops blocking hand-backs and title sync and leaves the reason. Recording the answer runs in the background, so your prompt never waits for a notification lock. Only a prompt handled in the seat's own pane counts. Earlier prompts, slash commands (including `/compact` and `/rename`), `<cross-session-message>` prompts and `<task-notification>` prompts answer nothing; watcher alerts keep their own recovery rules. Opening through ak followed by fresh output still answers a question. These exclusions do not change the turn-ending rules. `ak orch why <seat>` says what decided it, on what evidence, since when. Claude question dialogs stay `needs you` while a message from another session is queued below them. Queued messages are never unsent drafts; text you type in the composer still is.
 
 A row is number, name, orchestrator, state, and one last column: the reason for `needs you` and `done`, and for
 `working` the tasks bar (`tasks ██░░░ 2/5`, from `~/.agentkit/state/plan-<session>.md` under the seat's name or any name it was renamed from, the newest such plan winning, else from its unfinished jobs' tasks, and what history says the rest takes: `· ~45m left`, `· ~5h left`, `· ~36d left`) else empty, never `N running`. An
@@ -175,10 +174,10 @@ ended run is its orchestrator's business. `needs you` and `done` are messages, a
 Runs keep those row words in `ak run status`, with the parked state and its retry on the dim line; a wait that lifts
 itself has an open circle (`○ waiting for claude login`), which is not a fourth session state.
 
-Discord hears two things and nothing else. A `needs you` word held for 60 seconds with no client attached sends one
+Discord hears two things and nothing else. A `needs you` word held for 60 seconds with no attached client input since it began sends one
 amber `Needs you · <session>` card. A `done` word sends one green `Done · <session>` card, red when the summary starts
 with `FAIL`; an unfinished run delays it and a failed run drops the declaration with one log line. One card per episode
-and declaration: opening the session or answering its question edits open needs cards to `Answered`, a done edits them to `Done`, and edits never
+and declaration: input from an attached client since the episode began, or answering its question, edits open needs cards to `Answered`; an untouched attached terminal does not suppress or close a card. A done edits them to `Done`, and edits never
 ping; an edit Discord did not take stays on the card and is tried again at the next one. No card or retry goes out for
 a seat you closed (`x`, `ak orch stop`, a pause script), whose row keeps its number, or an episode begun before this
 install (`installed-at` or a fast-forward's newest module; a gone seat's when it went); `ak notify` counts from the
@@ -192,16 +191,16 @@ Session records and `[defaults]` may list `reviewers` beside `workers`; new seat
 With separate groups, executors use only workers; reviews (including `--review-pr`) and spares use only reviewers. A model can be in both.
 Runs save explicit groups in `run.json` at launch, show them in status and the preflight log, and keep them through handovers, refusals and resumes despite later edits; omitted reviewers keep the old shared-list behavior. Each group ranks by budget: the fraction of allowance left plus a week
 per reset held, divided by the fraction of window left, using the smallest provider non-session meter. The executor is
-highest budget, with Fable preferred when listed and its meter trails the shared Claude week (legacy picks outside a seat may add it); the reviewer is highest
-budget on another provider, else a different model on the same provider unless its `reviews_own_provider = false`. A
-meter at 100% used excludes a worker, and so does a harness not installed or not logged in (no adapter or program, or
+highest budget; equal budgets keep list order, and no model or run history gets a preference. The reviewer is highest
+budget on another provider, else a different model on the same provider unless its `reviews_own_provider = false`. A model's own
+`meter` still gates it. A meter at 100% used excludes a worker, as does a harness not installed or not logged in (no adapter or program, or
 its `auth` verb says no, asked at every pick), with one `skipped <model>: <harness> is not logged in` line in the run's
 log per pick; `--exec` or `--review` outside a bound group or naming an unavailable harness is refused, as is a resume whose saved executor no other model can take
 over. An unknown budget ranks last, a pay-as-you-go provider joins only while every subscription that can run is ahead
 of pace by more than `pace_margin`, and a run with no eligible pair parks `exhausted`, but a launch no refill can pair
 (skipped harnesses, or groups with no allowed pair) is refused naming the groups, by a `--bg` launch's parent too. The orchestrator choice ignores pace (see `n`; every model spent launches the default with a WARN); a run without a session uses the
 default groups; without `reviewers`, legacy unbound picks and orchestrator resumes still work, and explicit PR reviewers may be outside workers even in a seat. Meters are cached for five minutes and each provider is probed at most once a minute host-wide, a refused worker or a spent reset included (Muse's billed probe once in ten, whatever its meters do); a spent-window
-refusal parks the provider until it refills (spending a Codex reset first when held); `ak usage` shows the choices.
+refusal parks the provider until it refills (spending a Codex reset first when held); `ak usage` shows the choices, and a reading older than half an hour says `as of HH:MM` on its row and under `ak usage`.
 
 ## The tick
 
@@ -261,10 +260,11 @@ resume can take it; its local branch stays until the 30-day removal, because a r
 there. A pass whose delivery ended without a merge loses its checkout after seven days, its branch kept, and a checkout
 with no run record goes after a day. A run directory older than 30 days goes whole, with its checkout and branch, unless
 the session that launched it still exists; a scratch run's workspace goes only with it. `~/.agentkit/tmp` entries older
-than a day go, finished jobs after a week, and a state file named for a seat with no record, or an idle-compact stamp
+than a day go, owned `/tmp` entries untouched for two days go and a gone Claude session's scratch folder after a day, a repository `TMPDIR` directly under `/var/tmp` like `/tmp` itself,
+finished jobs after a week, and a state file named for a seat with no record, or an idle-compact stamp
 whose wrapper is gone, a day after its last write. Trust and MCP entries in `~/.claude.json` and `~/.codex/config.toml`
 that point into a gone `smoke-*` sandbox or `~/.agentkit/wt` checkout go in an atomic rewrite of just those entries, in
-any layout; a file that does not parse is left alone. The collector writes `~/.agentkit/state/gc.log` and never touches a checkout under `~/code` or a live loop. A checkout goes with its uncommitted work; a tree holding what this user
+any layout; a file that does not parse is left alone. The collector writes `~/.agentkit/state/gc.log` and never touches a checkout under `~/code`, a live loop, or in `/tmp` a dot entry, `tmux-*`, `systemd-private-*`, another user's file or anything held open or used as a working directory. Age uses the newer of modification and inode-change times. Claude's pid records, matched to process start times, protect current conversations across hand launches and `/clear`; a client without a matching record keeps all scratch. Hidden handles are inspected read-only with noninteractive `sudo`; failed inspection defers `/tmp` cleanup. Planning scans processes once per temp directory, deletion once per batch. A checkout goes with its uncommitted work; a tree holding what this user
 cannot remove is reported once, on any path, and never retried. `ak run gc --dry-run` gives each item's reason; `ak run
 gc` also sweeps every merged worktree, regardless of repository or git registration, and day-old `smoke-*` sandboxes,
 reporting count and space freed. The tick takes a leftover merged tree only if clean and registered. A passing smoke suite removes its sandbox; a failed one keeps the newest failed sandbox and removes older ones whose suites ended.
@@ -277,9 +277,9 @@ A model's own screen sets its `model` from the harness's catalog (the effort fol
 and `reviews_own_provider`; `Remove` asks first, keeps the last model and the model's `[providers.*]` table even when it
 was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-5`). The keys:
 
-- `max_runs` (0, no count cap; `ak run status` names the cap in force), `min_free_mb`, `max_load` (0 disables that
-  gate), `run_memory_max_mb` (one run's cap in MiB); `AK_MAX_RUNS`, `AK_MIN_FREE_MB` and `AK_MAX_LOAD` override them.
-- `max_gates` (3; 0 no cap): done-when gates of one main checkout at once, host-wide, whichever worktree or seat; the rest wait, shown `waiting for a gate turn of <repo>`, the wait charged to neither silence window nor ceiling; a `config.toml` a gate cannot read means the default, named in the run log.
+- `max_runs` (0, no count cap; `ak run status` names the cap in force), `min_free_mb`, `max_load` (unset: ak's CPU pressure
+  gates; pinned: the host load check, 0 disables it), `run_memory_max_mb` (one run's cap in MiB); `AK_MAX_RUNS`, `AK_MIN_FREE_MB` and `AK_MAX_LOAD` override them.
+- `max_gates` (unset; 0 no cap): heavy suites at once, host-wide, derived from the slice's live CPU and memory headroom unless pinned; the rest wait, shown `waiting for a heavy suite turn`, the wait charged to neither silence window nor ceiling; `ak run status` names the count in force and whether it is derived or pinned; a `config.toml` a suite cannot read means derived, named in the run log.
 - `pace_margin` (10): the picker's pay-as-you-go margin above. `[defaults]`: `orchestrator`, `workers`, optional `reviewers`; an older
   file's `[tiers]` reads as the first of `A` over `B` without it, and `c` writes `[defaults]` on its next save.
 - `[models.<name>]`: `harness`, `model`, `effort` (one that model takes, per `adapters/<h>.sh models`, or `none`), `provider`,
@@ -289,7 +289,7 @@ was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-
   part, a substitution, `OPENCODE_CONFIG`, a file not plain JSON -- is payg. OpenCode runs with project config off, so
   no workspace changes it. For Muse `usage_model` and `usage_effort`: the one cached request its meters come from.
   `accounts = ["default", "second"]` lists subscriptions, `default` the usual login; Claude keeps another's token in
-  `secrets/claude_oauth_token.second` or its login in `~/.claude-second`. Claude turns use the account with most room, then the next; Codex named logins (`~/.codex-second/auth.json`) apply only to seats, not worker turns or meters.
+  `secrets/claude_oauth_token.second` or its login in `~/.claude-second`. Claude turns use the account with most room, then the next; Codex named logins (`~/.codex-second/auth.json`) apply only to seats, not worker turns or meters. The menu shows one usage row per account in config order, the usual login as `Claude` and the others as `Claude second`, each with its week's bar and its 5-hour note (`5h 40% left`, or `5h spent until 14:00` once spent).
   A seat whose subscription runs out tries its provider's reset-credit policy, then resumes its conversation on the next account of the same provider with room and a working seat login (`auth seat`, or the named Codex account's own `auth.json`); new seats also check the login when choosing among configured accounts, and accounts with only a worker token serve workers. A manual new seat can open the configured usual login to sign in when none passes. If none is available during recovery, it reads `needs you` with `<provider> out of usage until <time>` once and recovers when usage returns; a refilled account keeps its login without another auth check (without a proven conversation id, the seat continues in place). Opening it to look keeps recovery active, drafts and questions defer it, closed seats stay closed, and idle prompts stay idle.
 
 Secrets are in `~/.agentkit/secrets/`: `discord_webhook`, `discord_user_id` and `claude_oauth_token` (the worker token
@@ -301,7 +301,7 @@ before removing it, and `users:` (above); task files go by convention in `~/.age
 
 Press `c` and pick `+ add a model`: harness, then model, then effort, in the three lists the README describes; Enter
 adds it, named from its label and offered as orchestrator and as worker at once. Or write the `[models.<name>]` block.
-On `Providers`, `+ add` offers a provider `config.default.toml` has and the config has not, installs a missing harness, logs it in on the terminal, then adds its shipped `[providers.*]` table and first catalog model; `− remove` asks first, `Keep` picked, and a removed provider (`config.remove_provider`) leaves no model, default or usage row; the last stays.
+On `Providers`, `+ add` offers a provider `config.default.toml` has and the config has not, installs a missing harness, logs it in on the terminal, then adds its shipped `[providers.*]` table and first catalog model; `− remove` asks first, `Keep` picked, and a removed provider (`config.remove_provider`) leaves no model, default or usage rows; the last stays.
 
 ### Adding a harness
 
@@ -332,8 +332,7 @@ bottom of the pane), `[stall]` (its own words for a fault, a refusal and a spent
 (title, remedy, signatures), `[compact]` (the keys, the signal, where context is read), `[effort]` (its vocabulary),
 `[catalog]` (models, efforts) and `[worker_token]` where it mints one. Then add `[providers.<name>]`.
 `$AGENTKIT_ADAPTER_DIR` points at another adapter directory, which is how the offline suites run the loop with no model
-behind it. Behaviour that needs Python goes in `agentkit/harness/<h>.py` behind one interface where every hook has a
-default (`tokens` reads `events.jsonl`; Muse's are in its session store).
+behind it. Behaviour that needs Python goes in `agentkit/harness/<h>.py` behind one interface where every hook has a default (`tokens` reads `events.jsonl`; Muse's are in its session store).
 
 ## The installer and updating
 
@@ -347,8 +346,9 @@ adding none unasked. `gh auth login`, the Claude worker token, and the Discord w
 once, only where missing and there is a terminal; the git credential helper and author are set from `gh` without asking.
 On a server it also writes: the bypass defaults and update pins into `~/.claude/settings.json` (backed up beside itself
 when it changes) and `~/.codex/config.toml`, each harness's lifecycle hooks through `adapters/<h>.sh hooks`, and the browser MCP registration. The server installs the tick's cron and, where a user systemd manager exists, writes
-`~/.config/systemd/user/agentkit.slice.d/limits.conf` once: seats in `agentkit-seats.slice`, runs in the lower-weight
-`agentkit-runs.slice`, both under `agentkit.slice`. Under a HOME not the account's own it touches nothing outside it.
+`~/.config/systemd/user/agentkit.slice.d/limits.conf` on every install, pinned by `slice_tasks_max`, `slice_memory_high`,
+`slice_memory_max`, `slice_cpu_quota`: seats in `agentkit-seats.slice`, runs in the lower-weight `agentkit-runs.slice`. Where `sudo` needs no password it first derives the user unit's own `agentkit-limits.conf` from the machine (80%/90% memory,
+4% of tasks, the slice's CPU quota, `OOMPolicy=continue`), taking over only its own or the hand-written file and leaving other drop-ins alone; without it, one line says to run `sudo -v` and re-run the install. Under a HOME not the account's own it touches nothing outside it.
 
 `ak update` upgrades the harnesses this host has (any other is a `skipped` line), and none while a session works (it
 names those sessions and exits 0); it verifies them with the gates that can run there and rolls back a harness the gates
@@ -368,11 +368,12 @@ sends only requested files, so Remote Login stays off; a reader under the termin
 that app read, and a new terminal tab or `ak` starts both. It logs to the Mac's `~/.agentkit/macbridge/macbridge.log`.
 
 The server runs one Chromium on a virtual display whose profile holds the real logins; it speaks CDP on `127.0.0.1:9222`
-and five system units keep it up over reboots. Agents reach it through the `browser` and `desktop` MCP servers `ak
-browser mcp-register` registers for Claude Code and Codex, and Muse through `browser/bridge.py`. `ak browser status`
-shows the units, tabs and noVNC URL; `ak browser login` prints the URL and password for signing a site in by hand; `ak
-browser install` stands it up where there is none. The tick closes a tab idle for an hour or past twelve open, and one a
-run or seat opened closes when it ends or stops; Chromium is never restarted. noVNC binds to the Tailscale address.
+and five system units keep it up over reboots, plus one more for the browser tool: a single shared Playwright MCP server
+on `localhost:8931` serves every seat over HTTP, from a package `ak browser install` pins once, never fetched per session.
+Agents reach it through the `browser` (by URL) and `desktop` MCP servers `ak browser mcp-register` registers for Claude
+Code and Codex, and Muse through `browser/bridge.py`. `ak browser status` shows the units, tabs and noVNC URL; `ak browser
+login` prints the URL and password for signing a site in by hand; `ak browser install` stands it up where there is none.
+The tick closes a tab idle for an hour or past twelve open, and one a run or seat opened closes when it ends or stops; Chromium is never restarted. noVNC binds to the Tailscale address.
 
 ## The history
 
@@ -382,10 +383,9 @@ are no step's), tokens where the harness reports them (else unknown), peak proce
 words, goal points, checks and files changed. Smoke and e2e runs are never recorded; an older agentkit's rows are read
 as written, never rewritten, and a median keeps a few that counted waits from pulling an estimate far. Statistics skip
 stopped runs and suite runs, by name or run record. History is best effort. The last twenty runs estimate a task's
-memory and active time; `ak usage` shows each model's success rate and median active time, the picker reads that only
-when budgets are within 0.15 of each other, and `ak run status --history` prints one line per repository (`last 20
-tasks: median N rounds · over 400 words: median M rounds …`) for the orchestrator to size tasks by, then each model's as
-orchestrator, executor and reviewer (`opus: orchestrator: 90% over 12 runs, ~45m`). A run's own directory is
+memory and active time. `ak run status --history` prints one line per repository (`last 20 tasks: median N rounds ·
+over 400 words: median M rounds …`) for the orchestrator to size tasks by. Neither it nor `ak usage` prints per-model
+success rates: a run's verdict describes the task, not the quality of its models. A run's own directory is
 `~/.agentkit/runs/<YYYYMMDD-HHMM>-<slug>/`: `task.md`, `run.json`, `log.txt` (the whole loop, with a `WARN` line per
 retry), `result.md` (linking a scratch run's files) and `round-<r>/<role>/{prompt.md,final.md,stderr.log,events.jsonl}`.
 
@@ -395,5 +395,5 @@ retry), `result.md` (linking a scratch run's files) and `round-<r>/<role>/{promp
 - A dropped Mac file the server cannot read: open a new Mac terminal tab or run `ak macbridge --reader` there, then fetch again.
 - Test one headless turn: `ak worker opus prompt.md --workspace ~/code/foo`.
 - A stale usage reading: open the menu; it reads each provider again within a minute.
-- The slice ceiling: edit `~/.config/systemd/user/agentkit.slice.d/limits.conf`, or `systemctl --user set-property agentkit.slice TasksMax=4096`.
+- The slice ceiling: pin `slice_tasks_max` and friends in `~/.agentkit/config.toml` (an install rewrites its own `limits.conf`), or `systemctl --user set-property agentkit.slice TasksMax=4096` for now; the user unit's ceiling above it follows the machine where `sudo` needs no password.
 - A failed `ak update` that could not restore Muse: its snapshot is under `~/.agentkit/tmp/muse-snapshot-*`, named in the log.

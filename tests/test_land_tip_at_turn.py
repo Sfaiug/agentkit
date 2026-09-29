@@ -122,7 +122,7 @@ class LandTipAtTurn(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline, f"timed out waiting for {what}")
             time.sleep(0.02)
 
-    def test_a_move_during_the_wait_is_taken_in_after_the_turn_is_held(self):
+    def test_light_every_runs_while_heavy_once_waits_then_disjoint_lands(self):
         remote, owner = make_origin(self.root)
         lp = make_run(self.root, remote, "acme",
                       [f"echo \"every $(git rev-parse HEAD) $(cat tip.txt)\" >> {self.counter}",
@@ -146,10 +146,13 @@ class LandTipAtTurn(unittest.TestCase):
         thread = threading.Thread(target=body, daemon=True)
         thread.start()
         try:
+            # the light check runs free while the heavy turn is held
+            self.until(lambda: "every " in self.counter.read_text(),
+                       "the light check to run without a turn")
             self.until(lambda: (run.read_state(lp.run_dir) or {}).get("gate_turn"),
-                       "the lander to mark its gate wait")
-            # the target moves while the lander waits: the tip it rebases onto
-            # cannot be older than this move
+                       "the heavy suite to mark its wait")
+            # the target moves while the heavy suite waits; it touches none of
+            # the branch's files, so the landing carries on over it
             commit(owner, "tip.txt", "tip-two")
             run.git(owner, "push", "origin", "main")
             tip_two = run.git(owner, "rev-parse", "main^{commit}")
@@ -158,17 +161,12 @@ class LandTipAtTurn(unittest.TestCase):
         thread.join(60)
         self.assertFalse(thread.is_alive(), "the landing never finished")
         self.assertEqual(results["landed"], True)
-        log = (lp.run_dir / "log.txt").read_text()
-        self.assertIn(f"rebasing ak/acme onto origin/main ({tip_two[:12]})", log)
         head = run.git(lp.wt, "rev-parse", "HEAD")
         rc, _ = run.git_out(lp.wt, "merge-base", "--is-ancestor", tip_two, "HEAD")
         self.assertEqual(rc, 0)
-        every = [line.split() for line in self.counter.read_text().splitlines()
-                 if line.startswith("every ")]
-        self.assertEqual(len(every), 1)
-        self.assertEqual(every[0][1], head)         # the check ran on the rebased commit
-        self.assertEqual(every[0][2], "tip-two")    # which carries the new tip
-        self.assertFalse((lp.run_dir / "landing-turn.log").exists())
+        rows = [line.split() for line in self.counter.read_text().splitlines()]
+        self.assertEqual([row[0] for row in rows], ["every", "once"])
+        self.assertEqual(rows[0][2], "tip-one")   # light ran before the move, on tip one
 
     def test_a_passing_lap_runs_each_command_once(self):
         remote, owner = make_origin(self.root)

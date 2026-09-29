@@ -85,6 +85,8 @@ class UnsentDraft(Sandbox):
     def tmux(self, *args, **kwargs):
         """The fake server; the one question asked of it is whether a client is on the seat."""
         if args[0] == "list-clients":
+            if "#{client_activity}" in args[-1]:
+                return 0, f"{SEAT}\t{NOW}\n" if self.attached else ""
             return 0, f"/dev/pts/3: {SEAT} [170x40 xterm-256color] (utf8)\n" if self.attached else ""
         return 0, ""
 
@@ -109,7 +111,7 @@ class UnsentDraft(Sandbox):
         """Two runs of its own going: one running, one parked on a window it resumes from."""
         self.receipt("20260101-0900-schema", title="Read both schemas", started_at=NOW - 900)
         self.receipt("20260101-1000-window", state="exhausted", title="Parked on a window",
-                     started_at=NOW - 600)
+                     started_at=NOW - 600, quota_dry=True)
 
     def decide(self):
         """Look at the seat the way a screen does, then decide from what was seen."""

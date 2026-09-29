@@ -1,0 +1,26 @@
+Rename dialog
+function r0(t){let n=Qe(),i=rH(),o=qt();return a(gA,{title:"Rename session",placeholder:"Session title",get value(){return t.currentTitle},onConfirm:(u)=>{let l=u.trim();if(!l)return;i.api.session.update({sessionID:t.sessionID,title:l}).then(()=>n.clear()).catch((p)=>o.show({message:`Failed to rename session: ${gH(p)}`,variant:"error",duration:5000}))},onCancel:()=>n.clear()})}
+
+Rename event schema
+qy=MH({type:"session.renamed",...s,schema:{...e,title:t}})
+
+Stored title projection
+yield*H.project(qy,(f)=>e.update(he).set({title:f.data.title,time_updated:f.created}).where(Y(he.id,f.data.sessionID)).run().pipe(O))
+
+Explicit rename writer
+g=u("Session.rename")(function*(xH,LH){yield*l(xH),yield*H.publish(qy,{sessionID:xH,title:LH.title})})
+
+Plugin update
+update:u(function*(w){if(yield*R.get(w.sessionID),w.title!==void 0)yield*R.rename({sessionID:w.sessionID,title:w.title});if(w.permissions!==void 0)yield*R.setPermissions({sessionID:w.sessionID,permissions:w.permissions})})
+
+Generated title writer
+let v=(yield*aB(l,c))+1,T=yield*s.get(c);if(!T||T.title!==f.title||T.title===nv(N))return;yield*e.publish(qy,{sessionID:f.id,title:nv(N)},{commit:(P)=>P===v?F:ge(iv)}).pipe(Vs((P)=>P===iv?F:ge(P)))})
+
+Automatic generation gate
+if(pe>0&&!Ge.session.parentID&&uv(Ge.session))yield*IT(h,U,f.generate(U),{onlyIfMissing:!0})
+
+Default-title predicate
+function S3(t){return t.title===void 0||t.title===e({time:t.time})}function e(t){return`${t.parentID?"Child":"New"} session - ${new Date(t.time.created).toISOString()}`}
+
+Automatic-title adapter
+uv=(e)=>S3({title:e.title,time:{created:hf(e.time.created)}})

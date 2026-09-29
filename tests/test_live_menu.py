@@ -316,12 +316,13 @@ class LiveMenu(Sandbox):
         self.assertEqual(self.rows()[3].split(), ["Muse", "—", "no", "login"])
         self.cache(self.providers(meta={"meters": [], "error": "unknown: not logged in"}))
         self.assertEqual(self.rows()[3].split(), ["Muse", "—", "not", "reached"])
-        # A probe the endpoint refused keeps the reading it could not replace, and says which of
-        # the two ways it was refused rather than blaming the login.
+        # A probe the endpoint refused keeps the reading it could not replace, and says nothing
+        # about the refusal rather than blaming the login.
         self.cache(self.providers(meta={"meters": [self.meter("weekly", 10)], "error": None,
                                         "probe_error": "unknown: HTTP 429 from api.example",
                                         "stale_since": NOW - 60}))
-        self.assertIn("90% left · resets Fri 14:00 · rate limited", self.rows()[3])
+        self.assertTrue(self.rows()[3].endswith("90% left · resets Fri 14:00"), self.rows()[3])
+        self.assertNotIn("rate limited", self.rows()[3])
         self.assertNotIn("no login", self.rows()[3])
 
     def test_no_reading_carries_an_age(self):

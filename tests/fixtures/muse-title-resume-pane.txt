@@ -1,0 +1,32 @@
+
+  [1mResume a previous session
+[0m  ⟩ Search Name / Description
+  Filter: [1m[Cwd][0m All Claude Codex  Sort: [1m[Updated][0m Created
+
+
+  No saved sessions found.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  0 / 0 · 0%  enter resume  esc exit  ctrl+c exit  tab focus sort/filter  ←/→ change option
+  ctrl+o comfortable view  ctrl+t transcript  ctrl+e expand  ↑/↓ browse  pgup/pgdn page

@@ -42,7 +42,7 @@ CODE = Path.home() / "code"                # where the checkouts live, and where
 RENAME_HOPS = 8                            # how many renames a session name is followed through
 DEFAULT_MODEL = "default"                  # config.toml: the harness runs its own model, no -m
 SESSION_STALE = 7 * 86400                  # a record whose session has been gone this long goes
-RUN_DEFAULTS = {"max_runs": 0, "max_gates": 3}
+RUN_DEFAULTS = {"max_runs": 0}
 CONFIG_NAME = "config.toml"                # the one config file, under HOME: never in the checkout
 DEFAULT_CONFIG_NAME = "config.default.toml"   # ... whose shipped default install.sh copies there
 EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")   # the effort words for a
@@ -65,8 +65,26 @@ def max_runs():
 
 
 def max_gates():
-    """How many done-when gates of one repository run at once, host-wide; zero means no cap."""
-    return _count_setting("max_gates")
+    """Pinned heavy-suite turns, or None when the config leaves the count derived.
+
+    An explicit `max_gates` in the home config file pins the host-wide count, 0
+    still meaning no cap; a missing file or a missing key means the count is
+    derived from the slice's live headroom, never a shipped number.
+    """
+    path = HOME / CONFIG_NAME
+    try:
+        with path.open("rb") as fh:
+            data = tomllib.load(fh)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        raise Error(f"{path}: {exc}") from exc
+    if "max_gates" not in data:
+        return None
+    value = data["max_gates"]
+    if type(value) is not int or value < 0:
+        raise Error(f"{path}: max_gates must be a non-negative integer")
+    return value
 
 
 def _count_setting(key):
@@ -130,11 +148,31 @@ def max_load(cpus=None):
     return _resource_setting("max_load", "AK_MAX_LOAD", default)
 
 
+def max_load_is_set():
+    """True when the owner pinned the host load gate, in the config or the environment.
+
+    Pinned, the old load check still decides admission, with its old meaning;
+    unset, the slice's own CPU pressure gates instead and the default above
+    goes unread. A corrupt config answers False here and raises where the
+    gate itself reads it, as before.
+    """
+    if os.environ.get("AK_MAX_LOAD") is not None:
+        return True
+    try:
+        with (HOME / CONFIG_NAME).open("rb") as fh:
+            return "max_load" in tomllib.load(fh)
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError):
+        return False
+
+
 def run_memory_max_mb():
     """The per-run memory cap in MiB, or None when the config leaves it unset.
 
-    Unset is not zero.  The caller then takes the smaller of 4 GB and 40% of
-    the slice ceiling.  A present value is that cap, whatever the ceiling is:
+    Unset is not zero.  The caller then takes 40% of the slice ceiling, or
+    4 GB where there is no ceiling to read.  A present value is that cap,
+    whatever the ceiling is:
     one leaking run has to be stoppable without waiting to see how large the
     host is.  A bool would pass an ``int`` check, so the type has to be ``int``
     exactly.

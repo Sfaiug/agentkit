@@ -573,7 +573,7 @@ class Installer(Slice):
                               env={**os.environ, "MEMINFO": str(self.meminfo), **env},
                               timeout=60)
 
-    def test_l_the_ceiling_is_written_once_from_this_hosts_own_numbers(self):
+    def test_l_the_ceiling_is_rewritten_from_this_hosts_own_numbers(self):
         home = self.root / "fresh-home"
         home.mkdir()
         limits = home / ".config/systemd/user/agentkit.slice.d/limits.conf"
@@ -581,20 +581,28 @@ class Installer(Slice):
         self.assertEqual(result.returncode, 0, result.stderr)
         written = limits.read_text()
         self.assertIn("[Slice]\nTasksMax=6144\n", written)       # three quarters of 8192
-        # 60% and 70% of MemTotal, in mebibytes: 16 GiB of memory, and nothing rounded up
-        self.assertIn("MemoryHigh=9830M\nMemoryMax=11468M\n", written)
+        # memory is shares, not mebibytes: 16 GiB of MemTotal on this host, and
+        # systemd follows it with no rewrite
+        self.assertIn("MemoryHigh=60%\nMemoryMax=70%\n", written)
         self.assertIn("CPUQuota=300%\n", written)                # four cores, one left over
         seats = (home / ".config/systemd/user/agentkit-seats.slice.d/weights.conf").read_text()
         runs = (home / ".config/systemd/user/agentkit-runs.slice.d/weights.conf").read_text()
         self.assertIn("CPUWeight=100\nIOWeight=100\n", seats)
         self.assertIn("CPUWeight=40\nIOWeight=40\n", runs)
         self.assertIn(["systemctl", "--user", "daemon-reload"], self.commands("systemctl"))
-        # a second install is not a second answer: the file is the owner's from now on
-        limits.write_text("[Slice]\nTasksMax=12\n")
-        again = self.install(home, AK_SLICE_USER_TASKS="8192", AK_SLICE_CPUS="4")
+        # a second install re-derives its own file from the new numbers, not the old bytes
+        again = self.install(home, AK_SLICE_USER_TASKS="4096", AK_SLICE_CPUS="8")
         self.assertEqual(again.returncode, 0, again.stderr)
+        rewritten = limits.read_text()
+        self.assertIn("TasksMax=3072\n", rewritten)
+        self.assertIn("CPUQuota=700%\n", rewritten)
+        # but a file without agentkit's first line is the owner's, left byte-identical
+        limits.write_text("[Slice]\nTasksMax=12\n")
+        owned = self.install(home, AK_SLICE_USER_TASKS="8192", AK_SLICE_CPUS="4")
+        self.assertEqual(owned.returncode, 0, owned.stderr)
         self.assertEqual(limits.read_text(), "[Slice]\nTasksMax=12\n")
-        self.assertIn("left as it is", again.stdout)
+        self.assertIn("left byte-identical", owned.stdout)
+        self.assertIn("slice_tasks_max", owned.stdout)
 
     def test_n_an_install_without_a_session_still_finds_the_manager(self):
         # a reinstall from cron or over ssh without a login shell inherits no session: the
@@ -614,13 +622,13 @@ class Installer(Slice):
         home = self.root / "infinite-home"
         home.mkdir()
         limits = home / ".config/systemd/user/agentkit.slice.d/limits.conf"
-        self.meminfo.write_text("MemFree: 12 kB\n")      # no MemTotal to take a share of
         result = self.install(home, AK_SLICE_USER_TASKS="infinity", AK_SLICE_CPUS="1")
         self.assertEqual(result.returncode, 0, result.stderr)
         written = limits.read_text()
         self.assertIn("TasksMax=3072\n", written)        # nothing to take a share of
         self.assertIn("CPUQuota=100%\n", written)        # never less than one core
-        self.assertIn("MemoryHigh=60%\nMemoryMax=70%\n", written)   # systemd reads the share
+        # shares, whatever meminfo says: the 16 GiB there is not even read
+        self.assertIn("MemoryHigh=60%\nMemoryMax=70%\n", written)
         mac = self.root / "mac-home"
         mac.mkdir()
         result = self.install(mac, AK_SLICE_MANAGER="0")
