@@ -385,6 +385,38 @@ class SuiteInRound(unittest.TestCase):
         self.assertIn("(once, in round 1)",
                       run.result_done_when(["test -d .  # once"], state)[0])
 
+    def test_suite_thread_marks_its_processes_apart(self):
+        from types import SimpleNamespace
+        seen = {}
+
+        def fake_verify(lp):
+            env = run.run_child_env()
+            seen["run"] = env.get("AGENTKIT_RUN")
+            seen["parent"] = env.get("AK_PARENT_RUN")
+            return True, ""
+
+        previous = getattr(run._RUN_CONTEXT, "state", {})
+        run._RUN_CONTEXT.state = {"run_id": "acme-probe-1", "run_depth": 0}
+        try:
+            with patch.object(run, "verify_once", side_effect=fake_verify):
+                thread, _ = run.start_suite(SimpleNamespace(rnd=1))
+                thread.join(timeout=30)
+                self.assertFalse(thread.is_alive())
+            self.assertEqual(run.run_child_env().get("AGENTKIT_RUN"), "acme-probe-1")
+        finally:
+            run._RUN_CONTEXT.state = previous
+        self.assertEqual(seen.get("run"), "acme-probe-1/suite")
+        self.assertEqual(seen.get("parent"), "acme-probe-1")
+
+    def test_run_end_sweep_covers_the_suite_marker(self):
+        with patch.object(run.worker, "kill_marked") as kill, \
+                patch.object(run.orch, "stop_scope"):
+            run.stop_run_tree({"run_id": "acme-probe-1", "scope": None},
+                              log=lambda m: None)
+        ids = [call.args[0] for call in kill.call_args_list]
+        self.assertIn("acme-probe-1", ids)
+        self.assertIn("acme-probe-1/suite", ids)
+
 
 if __name__ == "__main__":
     unittest.main()

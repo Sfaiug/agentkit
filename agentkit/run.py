@@ -3351,14 +3351,27 @@ def start_suite(lp):
     other's update; it is a daemon, so a review that raises never waits out the
     suite to report.  The reviewer joins it before judging, so the round still
     fails when the suite does, and the fixer still gets both outputs.
+
+    The thread marks its processes `<run_id>/suite`: the gate's end sweep then
+    takes only the suite's leftovers, never the live reviewer, and the reviewer's
+    own retry sweeps likewise leave the suite alone.  Their parent marker stays
+    the run's, so the run-end and stop sweeps still find both.
     """
+    parent = dict(getattr(_RUN_CONTEXT, "state", {}) or {})
+    if parent.get("run_id"):
+        parent["parent_run"] = parent["run_id"]
+        parent["run_id"] = f"{parent['run_id']}/suite"
     box = {}
 
     def run_suite():
+        previous = getattr(_RUN_CONTEXT, "state", {})
+        _RUN_CONTEXT.state = parent
         try:
             box["result"] = verify_once(lp)
         except BaseException as exc:
             box["error"] = exc
+        finally:
+            _RUN_CONTEXT.state = previous
 
     thread = threading.Thread(target=run_suite, name=f"suite-round-{lp.rnd}", daemon=True)
     thread.start()
@@ -8902,6 +8915,9 @@ def stop_run_tree(state, log=lambda _: None, wait=False):
     run_id = state.get("run_id") if isinstance(state, dict) else None
     if run_id:
         worker.kill_marked(run_id, log=log)
+        # the round's suite marks its processes apart (see `start_suite`), so a plain
+        # host with no scope sweeps them here; under a scope the stop below takes all
+        worker.kill_marked(f"{run_id}/suite", log=log)
     orch.stop_scope(scope, log, wait=wait)
 
 
