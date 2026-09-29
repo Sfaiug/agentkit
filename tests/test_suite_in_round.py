@@ -498,6 +498,84 @@ class SuiteInRound(unittest.TestCase):
         for pid in found:
             self.assertTrue(wait_gone(pid), f"{pid} outlived the stall kill")
 
+    def test_exact_sweep_leaves_the_suite_alone(self):
+        rid = fresh_id()
+        self.spawn_marked(rid)
+        self.spawn_marked(f"{rid}/suite")
+        time.sleep(0.5)
+        own = worker.marked_pids(rid, exact=True)
+        self.assertEqual(len(own), 1)
+        self.assertTrue(worker.kill_marked(rid, exact=True))
+        for pid in own:
+            self.assertTrue(wait_gone(pid), f"{pid} outlived the exact sweep")
+        left = worker.marked_pids(f"{rid}/suite")
+        self.assertEqual(len(left), 1)
+        self.assertTrue(worker.kill_marked(f"{rid}/suite"))
+        for pid in left:
+            self.assertTrue(wait_gone(pid), f"{pid} outlived its own sweep")
+
+    def test_kill_group_leaves_the_suite_alone(self):
+        rid = fresh_id()
+        victim = subprocess.Popen(
+            ["sleep", "100"], start_new_session=True,
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL)
+        self.addCleanup(_reap, victim)
+        self.spawn_marked(rid)
+        self.spawn_marked(f"{rid}/suite")
+        time.sleep(0.5)
+        own = worker.marked_pids(rid, exact=True)
+        self.assertEqual(len(own), 1)
+        worker.kill_group(victim, rid)
+        self.assertTrue(wait_gone(victim.pid), "victim outlived its group kill")
+        for pid in own:
+            self.assertTrue(wait_gone(pid), f"{pid} outlived the turn cleanup")
+        left = worker.marked_pids(f"{rid}/suite")
+        self.assertEqual(len(left), 1)
+        self.assertTrue(worker.kill_marked(f"{rid}/suite"))
+        for pid in left:
+            self.assertTrue(wait_gone(pid), f"{pid} outlived its own sweep")
+
+    def test_transient_reviewer_failure_leaves_the_suite_running(self):
+        # A reviewer hiccup mid-suite: the retry's turn-level sweep ends only the
+        # turn's own marker, so the suite runs once instead of dying into a bogus
+        # flaky re-run (one hiccup) or failing the round (two).
+        counter = self.root / "suite-counter"
+        counter.write_text("")
+        suite = f"echo run >> {counter}; sleep 4; test -f AGENTS.md"
+        self.commit(f"---\ntests: {suite}\n---\n# acme\n")
+        failed = []
+
+        def flaky(cfg, name, body, workspace, out_dir, role, session, **kwargs):
+            if role.startswith("reviewer") and not failed:
+                # fail only once the suite is provably in its sleep: an instant
+                # failure can sweep before the suite spawns anything, which would
+                # pass even with the wide match.
+                deadline = time.monotonic() + 30
+                while counter.read_text() == "" and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                failed.append(True)
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "final.md").write_text("")
+                return 1, "", "review-sid-1", False
+            return self.worker(cfg, name, body, workspace, out_dir, role, session,
+                               **kwargs)
+
+        # as run_slot sets it: without a run context the loop's children are
+        # unmarked and every sweep is a no-op on None, wide or exact alike.
+        previous = getattr(run._RUN_CONTEXT, "state", {})
+        run._RUN_CONTEXT.state = {"run_id": "reviewer-hiccup", "run_depth": 0}
+        try:
+            with patch.object(worker, "call", side_effect=flaky), \
+                    patch.object(run, "transient_wait"):
+                directory, state = self.launch("reviewer-hiccup", ["true"])
+        finally:
+            run._RUN_CONTEXT.state = previous
+        self.assertTrue(failed)
+        self.assertEqual(state["state"], "pass", self.logs)
+        self.assertEqual(counter.read_text().splitlines(), ["run"])
+        self.assertNotIn("flaky:", "\n".join(self.logs))
+
 
 if __name__ == "__main__":
     unittest.main()

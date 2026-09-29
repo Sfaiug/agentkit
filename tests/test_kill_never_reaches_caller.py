@@ -246,9 +246,9 @@ class KillNeverReachesCaller(unittest.TestCase):
                 return None
             return real_killpg(group, sig)
 
-        def spy_marked(rid, grace=worker.MARK_KILL_GRACE, log=None):
+        def spy_marked(rid, grace=worker.MARK_KILL_GRACE, log=None, exact=False):
             swept.append(rid)
-            return real_marked(rid, grace=grace, log=log)
+            return real_marked(rid, grace=grace, log=log, exact=exact)
 
         with patch.dict(os.environ, {worker.RUN_MARKER: run_id}), \
                 patch.object(subprocess, "Popen", popen), \
@@ -315,9 +315,9 @@ class KillNeverReachesCaller(unittest.TestCase):
                 return None
             return real_killpg(group, sig)
 
-        def spy_marked(rid, grace=worker.MARK_KILL_GRACE, log=None):
+        def spy_marked(rid, grace=worker.MARK_KILL_GRACE, log=None, exact=False):
             swept.append(rid)
-            return real_marked(rid, grace=grace, log=log)
+            return real_marked(rid, grace=grace, log=log, exact=exact)
 
         copied = marked_env(run_id)
         with patch.dict(os.environ, {worker.RUN_MARKER: run_id}), \
@@ -376,9 +376,9 @@ class KillNeverReachesCaller(unittest.TestCase):
                 return None
             return real_kill(pid, sig)
 
-        def spy_marked(rid, grace=worker.MARK_KILL_GRACE, log=None):
+        def spy_marked(rid, grace=worker.MARK_KILL_GRACE, log=None, exact=False):
             swept.append(rid)
-            return real_marked(rid, grace=grace, log=log)
+            return real_marked(rid, grace=grace, log=log, exact=exact)
 
         seen, stop = [], threading.Event()
 

@@ -1651,7 +1651,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         fault = None if killed else cannot_run(
             code, text, tail(target / "stderr.log"), target)
         if fault:
-            worker.kill_marked(env.get("AGENTKIT_RUN"), log=log)
+            worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
             log(f"WARN {role} {name} cannot run: {fault}")
             raise CannotRun(name, fault)
         # Some adapters exit zero after streaming turn.failed; that event still refused
@@ -1663,7 +1663,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             # The attempt is refused and its children are not the next one's: whatever
             # the dead turn left behind dies before the refill retry, the handover,
             # or the transient wait.
-            worker.kill_marked(env.get("AGENTKIT_RUN"), log=log)
+            worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
             quota = ran_dry(code, said, entry["harness"],
                             refusal=code == 0 and bool(said))
             lines = [line for line in said.splitlines() if mark.lower() in line.lower()]
@@ -1713,7 +1713,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             # resumes once, at once, on the session it left behind.  A second kill
             # inside the minute is somebody -- or something -- killing it on purpose,
             # and the run parks for a person instead of retrying into it.
-            worker.kill_marked(env.get("AGENTKIT_RUN"), log=log)
+            worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
             now = time.time()
             if last_kill is not None and now - last_kill < KILL_WINDOW:
                 raise Killed(f"{role} {name} {sig} twice within a minute; "
@@ -1729,12 +1729,12 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             # another model: an account with room of the same provider takes it first
             dry = worker_dry(cfg, name, text) if code != 0 and account is not None else None
             if dry and next_account(try_again_at(text), f"ran dry on {dry!r}"):
-                worker.kill_marked(env.get("AGENTKIT_RUN"), log=log)
+                worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
                 continue
             return code, text, session, False
         # The attempt failed and its children are not the next one's: whatever the dead
         # turn left behind dies before the retry, so a retry never inherits them.
-        worker.kill_marked(env.get("AGENTKIT_RUN"), log=log)
+        worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
         if handover is not None and attempt == 2 and not handover_tried:
             handover_tried = True
             detail = f"{why} (twice in a row)"
@@ -3353,10 +3353,12 @@ def start_suite(lp):
     fails when the suite does, and the fixer still gets both outputs.
 
     The thread marks its processes `<run_id>/suite`: the gate's end sweep then
-    takes only the suite's leftovers, never the live reviewer.  A sweep of the
-    whole run ends both -- the marker match covers `<id>/...` -- so the run's end,
-    a stall kill and a reap leave no suite process behind.  Their parent marker
-    stays the run's, so the stop sweep finds both.
+    takes only the suite's leftovers, never the live reviewer, and the reviewer's
+    own retry sweeps likewise leave the suite alone -- turn-level sweeps match
+    their marker exactly.  A sweep of the whole run ends both -- the marker match
+    covers `<id>/...` -- so the run's end, a stall kill and a reap leave no suite
+    process behind.  Their parent marker stays the run's, so the stop sweep finds
+    both.
     """
     parent = dict(getattr(_RUN_CONTEXT, "state", {}) or {})
     if parent.get("run_id"):
@@ -4068,7 +4070,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             lp.save()
             # The fallback must not inherit the twice-silent turn's children: whatever
             # the attempts without a verdict left behind dies before the spare starts.
-            worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
+            worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log,
+                               exact=True)
             name = fall_back("gave no verdict twice", out)
             continue
         lp.log(f"reviewer {lp.reviewer} gave no verdict; asking once more")
@@ -4112,7 +4115,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         lp.save()
         # The fallback must not inherit the silent turn's children: whatever the extra
         # ask left behind dies before the spare reviewer starts.
-        worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
+        worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log,
+                           exact=True)
         name = fall_back("gave no verdict twice", out2)
 
     # the suite ran alongside the reviewer above; its verdict lands here, before judging
