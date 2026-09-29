@@ -80,8 +80,7 @@ file cache; a pinned `max_load` restores the host-load check instead, each run t
 worker's own test runs share the parent's slot, and a third level is refused. A run that hits its own memory cap, the
 40% of the slice ceiling, 4 GB where there is no ceiling, unless `run_memory_max_mb` sets it, ends `fail` with `killed: memory cap`.
 `ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the CPU gate but still waiting for the memory floor, and takes the next heavy suite turn first, marked `first` in `ak run status`.
-A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run
-scope and cap; one run from a terminal runs its tasks in its own process.
+A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run scope and cap; one run from a terminal runs its tasks in its own process.
 
 The worktree is `~/.agentkit/wt/<id>` on branch `ak/<slug>`, the first name free locally and on `origin`. The executor
 writes and commits, its commands in the foreground. The loop runs the checks itself and hands the diff and their output
@@ -333,8 +332,7 @@ bottom of the pane), `[stall]` (its own words for a fault, a refusal and a spent
 (title, remedy, signatures), `[compact]` (the keys, the signal, where context is read), `[effort]` (its vocabulary),
 `[catalog]` (models, efforts) and `[worker_token]` where it mints one. Then add `[providers.<name>]`.
 `$AGENTKIT_ADAPTER_DIR` points at another adapter directory, which is how the offline suites run the loop with no model
-behind it. Behaviour that needs Python goes in `agentkit/harness/<h>.py` behind one interface where every hook has a
-default (`tokens` reads `events.jsonl`; Muse's are in its session store).
+behind it. Behaviour that needs Python goes in `agentkit/harness/<h>.py` behind one interface where every hook has a default (`tokens` reads `events.jsonl`; Muse's are in its session store).
 
 ## The installer and updating
 
@@ -375,8 +373,7 @@ on `localhost:8931` serves every seat over HTTP, from a package `ak browser inst
 Agents reach it through the `browser` (by URL) and `desktop` MCP servers `ak browser mcp-register` registers for Claude
 Code and Codex, and Muse through `browser/bridge.py`. `ak browser status` shows the units, tabs and noVNC URL; `ak browser
 login` prints the URL and password for signing a site in by hand; `ak browser install` stands it up where there is none.
-The tick closes a tab idle for an hour or past twelve open, and one a run or seat opened closes when it ends or stops;
-Chromium is never restarted. noVNC binds to the Tailscale address.
+The tick closes a tab idle for an hour or past twelve open, and one a run or seat opened closes when it ends or stops; Chromium is never restarted. noVNC binds to the Tailscale address.
 
 ## The history
 
