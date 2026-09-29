@@ -373,7 +373,7 @@ with tempfile.TemporaryDirectory(prefix=".usage-fresh-", dir=config.REPO) as tmp
     credits, accept_reset = [2], [True]
 
     def adapter(argv, **kwargs):
-        harness, verb = Path(argv[0]).stem, argv[1]
+        harness, verb = Path(argv[-2]).stem, argv[-1]
         calls.append((harness, verb))
         if harness == "grokbuild":
             assert verb == "usage", argv
@@ -405,7 +405,7 @@ with tempfile.TemporaryDirectory(prefix=".usage-fresh-", dir=config.REPO) as tmp
     # This is the real Muse probe cache, with only the paid request replaced. Reading the
     # adapter every tick must not change its timestamp or issue another model request.
     def muse_adapter(argv):
-        assert Path(argv[0]).stem == "muse" and argv[1] == "usage", argv
+        assert Path(argv[-2]).stem == "muse" and argv[-1] == "usage", argv
         return subprocess.CompletedProcess(argv, 0, json.dumps(muse_usage.cached()))
 
     stack.enter_context(patch.object(usage.usage_probe, "capture", side_effect=muse_adapter))
