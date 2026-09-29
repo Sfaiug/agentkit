@@ -49,7 +49,7 @@ RULES = [
                 r"(\{[^}]*\}|\$\{?[A-Za-z_]+\}?|\*)\.(json|md)"
                 r"|len\([\"'](session|notify|card|seat|hook|compact|stop|plan)-[\"']\)",
      "home": ("agentkit/config.py",),
-     "max": 20},
+     "max": 11},
 ]
 
 

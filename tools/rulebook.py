@@ -12,7 +12,6 @@ Writes ~/.agentkit/state/rulebook-<session>.md and prints its path; the adapter'
 command line hands that path to its harness by whatever means that harness has.
 """
 from pathlib import Path
-import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -36,9 +35,7 @@ def text():
 
 def write(session):
     """That text, under the name of the session it is for.  Its path."""
-    # a name is only ever a file name here; a seat called anything else still gets its rulebook
-    name = re.sub(r"[^A-Za-z0-9._-]+", "-", " ".join(str(session).split())).strip("-.") or "seat"
-    path = config.STATE / f"rulebook-{name}.md"
+    path = config.rulebook_path(session)
     path.parent.mkdir(parents=True, exist_ok=True)
     body = text()
     if config.session_records().get(session, {}).get("unnamed"):

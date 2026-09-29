@@ -685,6 +685,23 @@ def normalize_session(name):
     return " ".join(name.split()) if isinstance(name, str) else name
 
 
+# Every file a seat owns under STATE is `<kind>-<seat>.<ext>`, named here and nowhere else: a
+# rename moves them, a stop and the daily collector find them by this table.  Its locks and
+# temporaries share the stem.
+SEAT_FILES = {
+    "session": "json",   # the seat's record, or a pointer a rename left at an old name
+    "notify": "json",    # the last notification it sent, for the menu's state column
+    "card": "json",      # its notification transition latch
+    "seat": "json",      # its last classified live state and since when
+    "hook": "json",      # what its harness's own lifecycle hooks say it is doing
+    "compact": "json",   # tools/idle-compact.py compacted it
+    "plan": "md",        # its plan, which the menu row reads its bar from
+    "stop": "json",      # this turn's start, for the stop hook's rule
+    "title": "json",     # the title last read from its conversation
+    "rulebook": "md",    # the rulebook its orchestrator was started on
+}
+
+
 def session_path(name):
     """The state file for one tmux session, whose name must stay a single path component."""
     name = normalize_session(name)
@@ -693,16 +710,33 @@ def session_path(name):
     return STATE / f"session-{name}.json"
 
 
+def seat_file(kind, name):
+    """The seat's file of one SEAT_FILES kind; raises Error for a name session_path refuses."""
+    return session_path(name).with_name(f"{kind}-{normalize_session(name)}.{SEAT_FILES[kind]}")
+
+
+def seat_files(kind):
+    """(seat, path) for every file of one SEAT_FILES kind, in name order."""
+    ext = SEAT_FILES[kind]
+    return [(path.name[len(kind) + 1:-len(ext) - 1], path)
+            for path in sorted(STATE.glob(f"{kind}-*.{ext}"))]
+
+
+def seat_file_owner(path):
+    """(kind, seat) for a `<kind>-<seat>.<anything>` file of a SEAT_FILES kind, None otherwise."""
+    stem, dot, ext = Path(path).name.rpartition(".")
+    kind, sep, name = stem.partition("-")
+    return (kind, name) if dot and ext and sep and name and kind in SEAT_FILES else None
+
+
 def notify_path(name):
     """Where the last notification a session sent is kept, for the menu's state column."""
-    name = normalize_session(name)
-    return session_path(name).with_name(f"notify-{name}.json")
+    return seat_file("notify", name)
 
 
 def card_path(name):
     """Where the per-session notification transition latch is kept."""
-    name = normalize_session(name)
-    return session_path(name).with_name(f"card-{name}.json")
+    return seat_file("card", name)
 
 
 def _read_json(path):
@@ -834,13 +868,13 @@ def _session_files():
     """(name, contents) for every session file, records and rename pointers alike."""
     if not STATE.exists():
         return
-    for path in sorted(STATE.glob("session-*.json")):
+    for name, path in seat_files("session"):
         try:
             data = _read_json(path)
         except Error:
             continue
         if isinstance(data, dict):
-            yield path.name[len("session-"):-len(".json")], data
+            yield name, data
 
 
 def session_records():
@@ -896,15 +930,11 @@ def rename_session(old, new):
     tmp = session_path(old).with_suffix(".tmp")
     tmp.write_text(json.dumps({"renamed": new}) + "\n")
     tmp.replace(session_path(old))
-    for was, now in ((notify_path(old), notify_path(new)),
-                     (card_path(old), card_path(new)),
-                     (seat_state_path(old), seat_state_path(new)),
-                     (hook_facts_path(old), hook_facts_path(new)),
-                     (compact_path(old), compact_path(new)),
-                     (plan_path(old), plan_path(new)),
-                     (stop_path(old), stop_path(new))):
+    # The running orchestrator keeps reading the rulebook it was started on.
+    for kind in SEAT_FILES.keys() - {"session", "rulebook"}:
+        was = seat_file(kind, old)
         if was.exists():
-            was.replace(now)
+            was.replace(seat_file(kind, new))
 
 
 def active_session(cfg):
@@ -1019,27 +1049,38 @@ def seat_env_names():
 
 def seat_state_path(name):
     """Where the seat's last classified live state and its `since` are kept."""
-    return session_path(name).with_name(f"seat-{normalize_session(name)}.json")
+    return seat_file("seat", name)
 
 
 def hook_facts_path(name):
     """Where a harness's own lifecycle hooks write what that seat is doing."""
-    return session_path(name).with_name(f"hook-{normalize_session(name)}.json")
+    return seat_file("hook", name)
 
 
 def compact_path(name):
     """Where tools/idle-compact.py writes down that it compacted that seat."""
-    return session_path(name).with_name(f"compact-{normalize_session(name)}.json")
+    return seat_file("compact", name)
 
 
 def plan_path(name):
     """The session's plan, a markdown list the menu row reads its bar from."""
-    return session_path(name).with_name(f"plan-{normalize_session(name)}.md")
+    return seat_file("plan", name)
 
 
 def stop_path(name):
     """Where hooks/seat-state.sh leaves this turn's start for the stop hook's rule."""
-    return session_path(name).with_name(f"stop-{normalize_session(name)}.json")
+    return seat_file("stop", name)
+
+
+def title_path(name):
+    """Where the seat's conversation title and how far it was read are kept between ticks."""
+    return seat_file("title", name)
+
+
+def rulebook_path(name):
+    """The rulebook file for a seat of any name: whatever cannot be a file name becomes `-`."""
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", " ".join(str(name).split())).strip("-.") or "seat"
+    return seat_file("rulebook", name)
 
 
 def accounts(cfg, provider):

@@ -344,9 +344,10 @@ def record_compaction(harness, context_tokens, when):
     leaves its line in the log.
     """
     seat = os.environ.get(config.SESSION_ENV) or ""
-    if not seat or "/" in seat or seat in (".", ".."):
+    try:
+        path = config.compact_path(seat)
+    except config.Error:
         return
-    path = config.STATE / f"compact-{config.normalize_session(seat)}.json"
     tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
     try:
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
