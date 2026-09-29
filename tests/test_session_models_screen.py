@@ -31,7 +31,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from test_v4n import Sandbox
-from agentkit import config, menu, run, terminal
+from agentkit import config, menu, run, terminal, usage
 
 # The child: the real loop, draw, key reader and models screen; fakes for what a seat is,
 # what it is doing and what opening does. The session records are real, written before
@@ -39,9 +39,11 @@ from agentkit import config, menu, run, terminal
 CHILD = r"""
 import os, sys
 sys.path.insert(0, os.environ["MODELS_REPO"])
-from agentkit import config, menu, orch
+from agentkit import config, menu, orch, usage
 
 cfg = config.load()
+down = usage.Readings({})
+down.harnesses = {"claude": "claude is not logged in"}
 config.save_session(cfg, "fix-api", "opus", ["opus", "astra"],
                     {"reviewers": ["astra"], "cwd": "/", "created": 0})
 config.save_session(cfg, "other-seat", "astra", ["astra"], {"cwd": "/", "created": 0})
@@ -53,7 +55,7 @@ menu.seat_row_state = lambda cfg, session, **facts: {"word": "working", "reason"
                                                      "since": None}
 menu.usage_lines = lambda cfg, width: []
 menu.Live.probe = lambda self, now=None: False
-menu.usage.collect = lambda cfg, **kwargs: {}
+menu.usage.collect = lambda cfg, **kwargs: down
 orch.switch_orchestrator = lambda cfg, name, model, providers=None, log=print: (
     config.update_session(name, orchestrator=model), "")[1]
 menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>",
@@ -236,13 +238,22 @@ class SessionModels(Sandbox):
         config.save_session(self.cfg, "tight", "opus", ["opus"],
                             {"reviewers": ["opus", "astra"]})
         selected = self.selected("tight")
+        # Opus reviewing itself could start, so removing Astra saves.
+        self.assertEqual(menu.session_mark(self.cfg, "tight", selected, "astra", 2, {}),
+                         "")
+        self.assertEqual(selected["reviewers"], ["opus"])
+        self.assertEqual(config.load_session(self.cfg, "tight")["reviewers"], ["opus"])
+        # Nothing runnable refuses, without touching the saved groups.
+        down = usage.Readings({})
+        down.harnesses = {"claude": "claude is not logged in",
+                          "codex": "codex is not logged in"}
         with patch.object(config, "update_session") as saved:
-            self.assertEqual(menu.session_mark(self.cfg, "tight", selected, "astra", 2, {}),
+            self.assertEqual(menu.session_mark(self.cfg, "tight", selected, "fable", 2,
+                                               down),
                              "no allowed executor/reviewer pair")
             saved.assert_not_called()
-        self.assertEqual(selected["reviewers"], ["opus", "astra"])
-        self.assertEqual(config.load_session(self.cfg, "tight")["reviewers"],
-                         ["opus", "astra"])
+        self.assertEqual(selected["reviewers"], ["opus"])
+        self.assertEqual(config.load_session(self.cfg, "tight")["reviewers"], ["opus"])
         selected = self.selected("fix-api")
         before = dict(selected)
         with patch.object(config, "update_session", side_effect=OSError("read only")):
@@ -368,21 +379,16 @@ class SessionModelsScreen(unittest.TestCase):
         mark = screen.mark()
         screen.send(b"m")
         screen.models("fix-api", after=mark)
-        screen.send(DOWN + RIGHT + RIGHT + SPACE)   # Opus joins the reviewers
-        screen.models("fix-api", lambda lines: any(
-            "Opus 5.5" in line and marks(line) == "●■■" for line in lines), after=mark)
-        screen.send(DOWN + SPACE)                 # Astra leaves them: reviewers [opus]
-        screen.models("fix-api", lambda lines: any(
-            "Astra" in line and marks(line) == "○■□" for line in lines),
-            after=mark)
-        screen.send(LEFT + SPACE)                 # Astra leaves executes: no pair left
+        # Claude is down in this child, so Astra leaving executes leaves no
+        # runnable worker: refused in one line, and the record stays as it was.
+        screen.send(DOWN + DOWN + RIGHT + SPACE)
         shown = screen.models("fix-api", lambda lines: any(
             "no allowed executor/reviewer pair" in line for line in lines), after=mark)
         self.assertEqual([line.strip() for line in shown if "no allowed" in line],
                          ["no allowed executor/reviewer pair"])
         record = screen.record("fix-api")
         self.assertEqual(record["workers"], ["opus", "astra"])
-        self.assertEqual(record["reviewers"], ["opus"])
+        self.assertEqual(record["reviewers"], ["astra"])
         mark = screen.mark()
         screen.send(ESC)
         screen.frame(after=mark)
