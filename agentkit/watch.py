@@ -1197,8 +1197,9 @@ def screen_state(harness, tail):
     rules are read out of the manifest like every other rule: their `lines` bound the window,
     their `none` marks skip them (a turn in flight owns the composer), and `at_composer`
     keeps them at the composer -- only the bottom-most prompt-marked line counts, and only
-    where everything under it is chrome, so a transcript echoing a past turn above newer
-    output can never read as one.
+    where the line right under it and the pane's last line are chrome, so a transcript
+    echoing a past turn above newer output can never read as one, while whatever the
+    harness draws between its composer and its footer, a user's status line, never hides it.
     """
     # A queued inbound message is below the active UI, not part of its dialog or composer.
     inbound = _pattern((config.manifest(harness).get("screen") or {}).get("inbound"),
@@ -1221,8 +1222,11 @@ def screen_state(harness, tail):
             if at is None:
                 continue
             if rule["chrome"]:
+                # The composer's own rule sits right under it and the footer at the bottom;
+                # what the harness draws between them, a user's status line, is not the draft.
                 below = lines[len(lines) - len(region) + at + 1:]
-                if any(not chrome_line(chrome, line) for line in below):
+                if below and not (chrome_line(chrome, below[0])
+                                  and chrome_line(chrome, below[-1])):
                     continue
             if rule["id"] == "prompt.draft":
                 draft = _draft_text(raws[at], region[at], chrome["composer"])
