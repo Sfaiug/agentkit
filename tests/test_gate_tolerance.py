@@ -6,7 +6,9 @@ all, the check asks once more where the host's cadence and Retry-After allow
 skips with the provider's own reason, and the gate counts that skip as a pass. A
 gate run never sends a request the host would hold back; where it therefore cannot
 get a fresh answer it skips with that hold reason, as a 429 skips. A meter that
-answers wrong still fails, with no retry. Entirely offline: the `ak usage` under
+answers wrong still fails, with no retry. Check 3's skip stands on the same
+account's spent-knowledge twice over: its own read, and where the shared cadence
+holds that read empty, the host's own cache. Entirely offline: the `ak usage` under
 test runs against fake adapters in a throwaway HOME, and the check bodies are the
 suite's own, extracted from tests/smoke.sh.
 """
@@ -36,6 +38,11 @@ CHECK_6 = CHECK_1_PREAMBLE + SMOKE[SMOKE.index("# --- 6: orch"):SMOKE.index("# -
 # The suite's own sandbox setup for the shared cadence: smoke_share_probes is defined just
 # above smoke_home, so the slice between the two is the whole function.
 SHARE = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("smoke_home() {")]
+# Check 3's skip: the `ak usage` snapshot plus spent_until/skip_spent, up to the first
+# live call. The helpers live in check 1's section, so the skip runs with them
+# prepended, as check 6 does.
+CHECK_3_SKIP = SMOKE[SMOKE.index('ak usage --json >"$WORK/usage-real.json"'):
+                     SMOKE.index("printf 'Create a file hello.txt")]
 
 FAR_FUTURE = 1999999999
 
@@ -462,6 +469,97 @@ class GateTolerance(unittest.TestCase):
         self.assertNotIn("FAIL", result.stdout)
         self.assertEqual(self.probes("claude"), [])
         self.assertEqual(self.probes("codex"), ["usage"])
+
+    def skip_astra(self):
+        """Check 3's own skip for astra, deciding without making any live call."""
+        return (CHECK_1_PREAMBLE + CHECK_3_SKIP +
+                'if skip_spent 3a/3b astra; then echo "DECISION: skip"; '
+                'else echo "DECISION: attempt"; fi\n')
+
+    def test_held_sandbox_read_skips_off_the_host_spent_week(self):
+        # The host asked openai seconds ago, so the sandbox read is held and empty;
+        # the host's own cache parks the week until its reset. The skip stands on
+        # that spent-knowledge instead of spending real calls on the 429s the week
+        # would answer with.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        (caller / ".agentkit/state/openai-probe.lock").write_text(repr(time.time()))
+        reset = int(time.time()) + 4 * 86400
+        (caller / ".agentkit/state/usage.json").write_text(json.dumps({
+            "fetched_at": time.time(), "providers": {
+                "openai": {
+                    "provider": "openai", "exhausted": True,
+                    "exhausted_until": float(reset), "exhausted_at": time.time() - 3600,
+                    "exhausted_ends": {"primary_window": float(reset)},
+                    "meters": [{"name": "primary_window", "used": 100,
+                                "resets_at": float(reset), "window_secs": 604800,
+                                "exhausted": True}]}}}))
+        self.healthy()
+        result = self.shell(self.share(caller) + self.skip_astra())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        when = time.strftime("%Y-%m-%d %H:%M:%S %Z", time.localtime(reset))
+        self.assertIn(f"SKIP  3a: required model astra has a spent openai window "
+                      f"until {when}", result.stdout)
+        self.assertIn("DECISION: skip", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+        self.assertEqual(self.probes("codex"), [])
+
+    def test_held_sandbox_read_with_no_host_cache_still_attempts(self):
+        # Unknown usage cannot justify skipping a real call: with no host cache to
+        # stand on either, the skip stays quiet and the call goes out as before.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        (caller / ".agentkit/state/openai-probe.lock").write_text(repr(time.time()))
+        self.healthy()
+        result = self.shell(self.share(caller) + self.skip_astra())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("DECISION: attempt", result.stdout)
+        self.assertNotIn("SKIP  3a", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+        self.assertEqual(self.probes("codex"), [])
+
+    def stale_host_week(self, caller, reset):
+        """The host's cache with openai at 100% in a window that ended at `reset`."""
+        (caller / ".agentkit/state/usage.json").write_text(json.dumps({
+            "fetched_at": reset - 7200, "providers": {
+                "openai": {
+                    "provider": "openai", "exhausted": True,
+                    "meters": [{"name": "primary_window", "used": 100,
+                                "resets_at": float(reset), "window_secs": 604800,
+                                "exhausted": True}]}}}))
+
+    def test_live_sandbox_room_overrules_the_host_stale_week(self):
+        # The sandbox measured openai itself at 45%; the host cache still says 100%
+        # in a window that reset an hour ago. A stale week never parks a call the
+        # sandbox read live.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        (caller / ".agentkit/state/openai-probe.lock").write_text(
+            repr(time.time() - 3600))
+        self.stale_host_week(caller, int(time.time()) - 3600)
+        self.healthy()
+        result = self.shell(self.share(caller) + self.skip_astra())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("DECISION: attempt", result.stdout)
+        self.assertNotIn("SKIP  3a", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+        self.assertEqual(self.probes("codex"), ["usage"])
+
+    def test_held_sandbox_read_ignores_the_host_reset_week(self):
+        # Held and empty, and the host's 100% sits in a window that already reset:
+        # past meters are dropped as a live read drops them, leaving nothing spent,
+        # so the call goes out instead of skipping to a time already past.
+        caller = self.root / "caller"
+        (caller / ".agentkit/state").mkdir(parents=True)
+        (caller / ".agentkit/state/openai-probe.lock").write_text(repr(time.time()))
+        self.stale_host_week(caller, int(time.time()) - 3600)
+        self.healthy()
+        result = self.shell(self.share(caller) + self.skip_astra())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("DECISION: attempt", result.stdout)
+        self.assertNotIn("SKIP  3a", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+        self.assertEqual(self.probes("codex"), [])
 
 
 if __name__ == "__main__":
