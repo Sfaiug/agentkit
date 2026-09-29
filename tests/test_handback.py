@@ -1131,6 +1131,38 @@ class HandBack(Sandbox):
             self.assertNotIn("\n", line)
             self.assertIn("ROLE_HEADS", line)
 
+    def test_finish_treats_a_fix_run_stop_as_a_followup_failure_not_its_own(self):
+        # A stop landing on a fix run start_followups is launching is that fix's
+        # failure, not this run's: the ending still runs. Only this run's own
+        # `stopped` receipt aborts it, as the stop left it.
+        directory = self.ended("run-fixstop", owner=SEAT, merged=True,
+                               pr="https://github.com/o/r/pull/7")
+        self.rows = [self.live()]
+        histories, settles = [], []
+        with patch.object(run, "start_followups",
+                          side_effect=run.StopRequested("fix-child was stopped")), \
+                patch.object(run, "refresh_seat_tally"), \
+                patch.object(run, "history_finish",
+                             side_effect=lambda s, log=None: histories.append(s["run_id"])), \
+                patch.object(run, "settle_run",
+                             side_effect=lambda s, d, log=None: settles.append(s["run_id"])):
+            code = run.finish(run.read_state(directory), directory,
+                              self.logs.append, self.cfg)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.typed), 1)
+        self.assertEqual(histories, ["run-fixstop"])
+        self.assertEqual(settles, ["run-fixstop"])
+        failures = [line for line in self.logs if "WARN could not start follow-ups" in line]
+        self.assertEqual(len(failures), 1)
+        self.assertIn("fix-child was stopped", failures[0])
+        # ... and this run's own stop still aborts its ending, as the stop left it
+        run.save_state(directory, {**run.read_state(directory), "state": "stopped"})
+        with patch.object(run, "start_followups",
+                          side_effect=run.StopRequested("run-fixstop was stopped")):
+            with self.assertRaises(run.StopRequested):
+                run.finish(run.read_state(directory), directory,
+                           self.logs.append, self.cfg)
+
     def blocked_record(self, name):
         # `recovery_pending` is what a resume leaves behind, so this is the blocked ending of
         # a resumed run: final all the same, and never offered for recovery

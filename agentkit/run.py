@@ -11927,8 +11927,12 @@ def update_scope_line(run_dir, state):
 def finish(state, run_dir, log, cfg=None):
     try:
         start_followups(state, run_dir, log, cfg)
-    except StopRequested:
-        raise
+    except StopRequested as exc:
+        # A stop on a fix run being launched is that fix's failure, not this
+        # run's: only this run's own `stopped` receipt aborts its ending.
+        if (read_state(run_dir) or {}).get("state") == "stopped":
+            raise
+        log(f"WARN could not start follow-ups: {exc}")
     except Exception as exc:  # noqa: BLE001 - the ending matters, not the follow-ups
         log(f"WARN could not start follow-ups: {exc}")
     try:
