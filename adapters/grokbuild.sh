@@ -34,6 +34,8 @@
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                  `grok models`, with the efforts of the [catalog] table of
 #                                  adapters/grokbuild.toml
+#                     $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then
+#                                  uses that subscription's own login, and no other
 # Seat state rides the hooks, not the screen: UserPromptSubmit/Stop/Notification carry
 # Claude's own hook_event_name values on stdin (verified against 1.0.40 with a logging hook
 # that was removed again), and Stop honours the {"decision":"block"} gate.  The turn's tokens
@@ -44,12 +46,30 @@
 set -uo pipefail
 command -v grok >/dev/null || PATH="${GROK_BIN_DIR:-$HOME/.grok/bin}${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
 GROK_HOME="${GROK_HOME:-$HOME/.grok}"
-AUTH="$GROK_HOME/auth.json"
 # The key grok renewed that the billing endpoint still refused, written down by `usage` as
 # its SHA-256 digest -- never the key itself -- and read by `auth`: that key is a logout
 # until auth.json holds another or the endpoint answers it.  The digest is of the very key
 # that was sent, so a login saved while the request was out is never taken for it.
 REFUSED="$HOME/.agentkit/state/grok-refused"
+# An account other than the usual login keeps its login in a Grok home of its own,
+# ~/.grok-<name>, and its refusal beside the usual one's under its own name.  Nothing of the
+# usual login -- its home, its refusal, an XAI_API_KEY exported for it -- ever answers for an
+# account: that would spend the wrong subscription, or read its meters as this one's.
+ACCOUNT=${AGENTKIT_ACCOUNT:-}
+if [ -n "$ACCOUNT" ]; then
+  USUAL=$GROK_HOME
+  export GROK_HOME="$HOME/.grok-$ACCOUNT"
+  REFUSED="$REFUSED-$ACCOUNT"
+  unset XAI_API_KEY
+fi
+AUTH="$GROK_HOME/auth.json"
+# Grok keeps its conversations under its home's sessions/: an account's is the usual one's,
+# so a conversation begun on one subscription is resumed on the next
+share() {
+  [ -n "$ACCOUNT" ] || return 0
+  mkdir -p -- "$USUAL/sessions" "$GROK_HOME" || return 1
+  [ -e "$GROK_HOME/sessions" ] || ln -s -- "$USUAL/sessions" "$GROK_HOME/sessions"
+}
 keyof() { jq -r '[.[] | select(type == "object") | .key // empty
   | select(type == "string" and test("[^[:space:]]"))] | first // empty' \
   "$AUTH" 2>/dev/null || true; }
@@ -68,6 +88,7 @@ run)
   mkdir -p -- "$out" || exit 2
   [ -d "$ws" ] || { echo "grokbuild.sh: no such workspace: $ws" >&2; exit 2; }
   [ -r "$pf" ] || { echo "grokbuild.sh: no such prompt file: $pf" >&2; exit 2; }
+  share || exit 2
   # The id continues that conversation; a turn without one starts its own under a fresh
   # uuid, which is what --session-id demands: a valid UUID that does not already exist.
   if [ -n "$sid" ]; then set -- --resume "$sid"
@@ -95,6 +116,10 @@ interactive)
   # filling its context, on the `[compact]` table of adapters/grokbuild.toml.  Headless
   # `ak worker` runs are not wrapped: they are not seats.
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+  # An account's seat runs on its own home, so agentkit's hooks go there too: the TUI reads
+  # them from the home it runs on
+  share || exit 2
+  [ -z "$ACCOUNT" ] || "${BASH_SOURCE[0]}" hooks >/dev/null || exit 2
   # Resume that conversation, or open the next one under the caller's id: both are the
   # TUI's own flags (`grok --help` 1.0.40), so a grok seat owns its id the way a claude
   # seat does and nothing goes looking for the one it opened.
@@ -121,7 +146,9 @@ interactive)
   sq="'"; rules="--rules '${text//$sq/$sq\\$sq$sq}' "
   # --trust marks the session's directory trusted first, so the TUI opens on the prompt
   # instead of the "do you trust the contents of this directory?" dialog (whose default is
-  # "No, quit"); --always-approve is the seat's standing permission mode
+  # "No, quit"); --always-approve is the seat's standing permission mode.  The printed
+  # command runs later, outside this adapter's environment, so an account's home rides it.
+  [ -z "$ACCOUNT" ] || printf 'env -u XAI_API_KEY GROK_HOME=%q ' "$GROK_HOME"
   printf 'python3 %q --harness grokbuild -- grok %s%s--trust --always-approve --model %q --reasoning-effort %q\n' \
       "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" ;;
 usage)
@@ -271,6 +298,7 @@ login)
   command -v grok >/dev/null || { echo "grokbuild.sh login: grok is not installed" >&2; exit 2; }
   if grep -q '[^[:space:]]' "$AUTH" 2>/dev/null; then echo "grok: already logged in"; exit 0; fi
   [ -t 0 ] || { echo "grok: not logged in; run \`grok login\` in a terminal" >&2; exit 1; }
+  share || exit 2
   grok login ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line

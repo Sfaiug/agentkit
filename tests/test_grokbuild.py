@@ -60,6 +60,7 @@ class GrokSandbox(unittest.TestCase):
             "OPENCODE_CONFIG_DIR": str(self.home / ".config/opencode")}))
         os.environ.pop(config.ADAPTER_DIR_ENV, None)   # the checkout's adapters, never a copy
         os.environ.pop("XAI_API_KEY", None)
+        os.environ.pop("AGENTKIT_ACCOUNT", None)   # the usual login, not the caller's account
         os.environ.pop("AK_RUN_ROLE", None)   # a seat's hooks run in a seat's env, not a worker's
         self.env = {**os.environ}
 
