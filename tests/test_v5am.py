@@ -118,9 +118,16 @@ class Slots(unittest.TestCase):
                 proc.kill()
                 proc.wait(timeout=5)
 
-    def task(self, name, probe=""):
-        task = self.root / (name + ".md")
-        task.write_text(f"---\nrepo: none\nrounds: 1\n---\n# {name}\n\n## Done when\n"
+    def title(self, name, root=None):
+        # A run's end sweeps its id's marker host-wide, and the id is its minute and title:
+        # each copy of this file on the host names its runs by its own temporary directory.
+        return f"{(root or self.root).name} {name}"
+
+    def task(self, name, probe="", root=None):
+        root = root or self.root
+        task = root / (name + ".md")
+        task.write_text(f"---\nrepo: none\nrounds: 1\n---\n# {self.title(name, root)}\n\n"
+                        "## Done when\n"
                         "```bash\ntest -f deliverable\nprintf '%s' \"$AK_RUN_DEPTH\" > depth\n"
                         f"{probe}```\n")
         return str(task)
@@ -152,7 +159,7 @@ class Slots(unittest.TestCase):
 
     def receipt(self, name, state=None):
         return self.wait(lambda: next(((d, s) for d, s in self.states()
-                                      if s.get("title") == name and
+                                      if s.get("title") == self.title(name) and
                                       (state is None or s.get("state") == state)), None))
 
     def calls(self, role="executor"):
@@ -204,7 +211,7 @@ class Slots(unittest.TestCase):
     def test_v5am_launch_claim_survives_background_handoff(self):
         os.environ["AK_MAX_RUNS"] = "1"
         task = self.task("reserved")
-        directory = config.RUNS / "20260919-1200-reserved"
+        directory = config.RUNS / ("20260919-1200-" + run.slugify(self.title("reserved")))
         directory.mkdir()
         (directory / "task.md").write_text(Path(task).read_text())
         (directory / "log.txt").touch()
@@ -240,7 +247,7 @@ class Slots(unittest.TestCase):
 
     def test_v5am_failed_background_handoff_releases_launch_claim(self):
         os.environ["AK_MAX_RUNS"] = "1"
-        directory = config.RUNS / "20260919-1200-reserved"
+        directory = config.RUNS / ("20260919-1200-" + run.slugify(self.title("reserved")))
         directory.mkdir()
         task = self.task("reserved")
         (directory / "task.md").write_text(Path(task).read_text())
@@ -396,6 +403,21 @@ class Slots(unittest.TestCase):
         self.assertEqual(len(self.calls()), 1)
         self.release(first)
         self.started("two")
+        self.finish_all()
+
+    def test_v5am_a_copy_beside_this_one_ends_only_its_own_runs(self):
+        # Another copy of this file on the host, in its own home, ends a "one" of its own
+        # while this copy's still works: its end-of-run sweep must leave ours running.
+        self.launch("one")
+        first, _ = self.started("one")
+        beside = Path(tempfile.mkdtemp(prefix=".v5am-", dir=self.root))
+        (beside / "release-all").touch()
+        other = self.start(self.task("one", root=beside), "--exec", self.executor,
+                           "--review", self.reviewer,
+                           env={"HOME": str(beside), "V5AM_FIXTURE": str(beside)})
+        self.assertEqual(other.wait(timeout=20), 0, self.procs[-1][1].read_text())
+        self.release(first)
+        self.assertEqual(len(self.calls()), 1)
         self.finish_all()
 
     def test_v5am_zero_disables_cap(self):
