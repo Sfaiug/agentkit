@@ -284,6 +284,26 @@ class Seat(unittest.TestCase):
         self.assertNotIn("/compact", "".join(event["data"] for event in typed_before))
         self.assert_compacted(events, command)
 
+    def test_v5e_e_the_pointer_passing_is_not_owner_input(self):
+        # Claude Code asks for every pointer motion, so a window attached to the seat sends
+        # a report per cell the pointer crosses; focus and replies to the harness's own
+        # queries arrive the same way.  None of it holds the compaction back.
+        def passes(test, proc, master):
+            os.write(master, b"\x1b[<35;10;5M\x1b[<35;11;5M\x1b[MC!!\x1b[I\x1b[O"
+                             b"\x1b[12;40R\x1b[?62;22c\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\")
+
+        command = manifest_command("claude")
+        _, events = self.run_seat(script=[(0.5, passes)], FAKE_TOKENS=40000,
+                                  FAKE_STOP_ON="/compact", FAKE_LIFE=15)
+        self.assert_compacted(events, command)
+
+    def test_v5e_e_a_wheel_turn_is_owner_input(self):
+        def scrolls(test, proc, master):
+            os.write(master, b"\x1b[<65;10;5M")
+
+        _, events = self.run_seat(script=[(0.5, scrolls)], FAKE_TOKENS=40000, FAKE_LIFE=6)
+        self.assertNotIn("/compact", self.typed(events), events)
+
     # --- (f) the half of it that lives in the hook --------------------------
 
     def test_v5e_f_the_hook_stamps_time_tokens_and_pid_and_never_a_zero(self):

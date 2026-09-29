@@ -75,6 +75,28 @@ MUSE_CANDIDATES = 20        # the newest sessions a seat looks through for the o
 ANSI = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]"
                   r"|\x1b[@-Z\\-_]|\x1b[()][0-9A-Za-z]|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
+# What reaches the seat's stdin without the owner doing anything: the pointer crossing it (a
+# harness that asks for every motion, as Claude Code does, gets a report per cell the pointer
+# crosses, so an attached window compacted never), focus coming and going, and the terminal
+# answering the harness's own queries -- a cursor position, device attributes, a mode report,
+# an OSC colour, keyboard flags.  None of that is the owner's input; a click, the wheel, a drag
+# and every key are.
+PASSIVE = re.compile(rb"\x1b\[<(\d+);\d+;\d+[Mm]|\x1b\[M([\x20-\xff])[\x20-\xff]{2}"
+                     rb"|\x1b\[[IO]|\x1b\[\d+;\d+R|\x1b\[[?>][\d;]*c|\x1b\[\?[\d;]*\$y"
+                     rb"|\x1b\[\?\d*u|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+
+
+def owner_input(data):
+    """Whether bytes read off the seat's stdin hold anything the owner did."""
+    def passive(match):
+        if match.group(1) is None and match.group(2) is None:
+            return b""
+        button = int(match.group(1)) if match.group(1) else match.group(2)[0] - 32
+        # motion with no button held (bit 32, low bits 3) is the pointer passing; anything
+        # else a mouse reports -- a press, a release, the wheel, a drag -- is the owner's
+        return b"" if button & 32 and button & 3 == 3 else match.group(0)
+    return bool(PASSIVE.sub(passive, data))
+
 
 def positive_seconds(value):
     number = float(value)
@@ -464,7 +486,8 @@ def run(options, command):
                 except InterruptedError:
                     data = None
                 if data:
-                    last_input_wall = time.time()
+                    if owner_input(data):
+                        last_input_wall = time.time()
                     write_all(master_fd, data)
                 elif data == b"":
                     stdin_open = False
