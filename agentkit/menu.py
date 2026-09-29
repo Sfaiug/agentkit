@@ -2112,6 +2112,7 @@ COMPANIES = {"anthropic": "Anthropic / Claude Code", "openai": "OpenAI / Codex",
              "meta": "Meta / Muse", "xai": "xAI / Grok Build", "google": "Google / Antigravity",
              "mimo": "Xiaomi / MiMo through OpenCode"}
 REMOVE_PROVIDER_ASK = "Remove {} and its models?"   # what `− remove` asks, `Keep` picked first
+REMOVE_SUBSCRIPTION_ASK = "Remove {}?"               # ... about one subscription of a provider
 # Short headings leave room for both roles and the effort on a phone.
 CONFIG_HEADS = (*orch.ROLE_HEADS, "effort")
 # The key line for the cell the highlight is on, and the same without UTF-8.
@@ -2743,15 +2744,58 @@ def _by_label(names, label):
             for text, name in zip(labels, names)}
 
 
+def _adapter_verbs(keyboard, harness, verbs, picked, account=None):
+    """Each of `verbs` of `harness`'s adapter, run as install.sh runs them, for `account`'s
+    login when one is named, with the terminal given back for them and taken again after.  The
+    first that fails ends them, and waits until what it said has been read: what to say about
+    it under the matrix, or ""."""
+    keyboard.give()
+    failed = ""
+    for verb in verbs:
+        try:
+            code = subprocess.run([str(config.adapter(harness)), verb],
+                                  env={**config.child_env(), **config.account_env(account)}
+                                  ).returncode
+        except (config.Error, OSError) as exc:
+            print(f"{harness}: {exc}")
+            code = 1
+        if code:
+            failed = f"{harness} {verb} did not finish; {picked} is not added"
+            pause()
+            break
+    keyboard.take()
+    return failed
+
+
+def _add_subscription(cfg, keyboard, provider, listed, picked):
+    """Another subscription of `provider`, `picked` being the name it will get: its harness's
+    login, run on the terminal under the fresh account name last in `listed`, then `listed` as
+    the provider's `accounts` -- the ones it had, `default` when it had none, and that name.
+    A login that fails adds nothing.  What to say under the matrix, or ""."""
+    try:
+        harness, _ = config.provider_harness(cfg, provider)
+    except config.Error as exc:
+        return f"config: {exc}"
+    failed = _adapter_verbs(keyboard, harness, ("login",), picked, listed[-1])
+    if failed:
+        return failed
+    before = copy.deepcopy(cfg)
+    cfg["providers"][provider]["accounts"] = listed
+    return _saved(cfg, cfg, before)
+
+
 @terminal.clicks_its_own
 def config_add_provider(cfg, keyboard):
     """`+ add` on the Providers row: a provider the shipped default has and the config has not,
-    picked from a list, then put in the way it ships, so nothing is typed.
+    picked from a list, then put in the way it ships, so nothing is typed; or, listed after
+    them as the name it will get (`ChatGPT II`, config.account_label), another subscription
+    of a provider the config has, which is only logged in and listed (_add_subscription).
 
-    Its harness, the shipped default's for it, is installed when its program is nowhere to be
-    found, then logged in: each its adapter's own verb, run as install.sh runs them, with the
-    terminal given back for it and taken again after.  Then its shipped [providers.*] table
-    goes in, with the first model its harness's catalog lists efforts for, under the name and
+    A new provider's harness, the shipped default's for it, is installed when its program is
+    nowhere to be found, then logged in: each its adapter's own verb, run as install.sh runs
+    them, with the terminal given back for it and taken again after.  Then its shipped
+    [providers.*] table goes in, with the first model its harness's catalog lists efforts
+    for, under the name and
     at the effort the shipped default gives that provider's first model -- `spark`, and the
     effort or the nearest one it takes -- so a `usage_model` in that table names it.  It joins
     neither default until it is chosen there.  Where a model of that name is here already
@@ -2763,16 +2807,24 @@ def config_add_provider(cfg, keyboard):
     labels = _by_label([name for name in shipped.get("providers") or {}
                         if name not in cfg["providers"]],
                        lambda name: COMPANIES.get(name, NAMES.get(name, name.title())))
-    if not labels:
-        return "every provider agentkit ships is added"
+    more = {}
+    for text, name in _by_label(list(cfg["providers"]),
+                                lambda name: NAMES.get(name, name.title())).items():
+        # A random name, never the next free one: a removed subscription's login stays on
+        # disk, and a `login` under its old name would find it and call the new one logged in.
+        after = [*(config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]), os.urandom(3).hex()]
+        more[config.account_label({"providers": {name: {"accounts": after}}}, name, after[-1],
+                                  text)] = (name, after)
     keys = ADD_KEYS["add"][0 if terminal.utf8() else 1] + "   esc back"
 
     def around():     # the screen the list is drawn on, drawn again on a resize
-        terminal.frame("config · add a provider", [""] * len(labels), keys)
+        terminal.frame("config · add a provider", [""] * (len(labels) + len(more)), keys)
         return 3
-    picked = terminal.choose(list(labels), around=around)
+    picked = terminal.choose([*labels, *more], around=around)
     if picked is None:
         return ""
+    if picked in more:
+        return _add_subscription(cfg, keyboard, *more[picked], picked)
     name = labels[picked]
     try:
         harness, first = config.provider_harness(shipped, name)
@@ -2781,20 +2833,8 @@ def config_add_provider(cfg, keyboard):
     if first in cfg["models"]:
         return f"{picked} adds its model as {first}, and a model has that name; nothing added"
     program = (harness_plugin(harness).update["version"] or [harness])[0]
-    keyboard.give()
-    failed = ""
-    for verb in ("login",) if config.harness_binary(program) else ("install", "login"):
-        try:
-            code = subprocess.run([str(config.adapter(harness)), verb],
-                                  env=config.child_env()).returncode
-        except (config.Error, OSError) as exc:
-            print(f"{harness}: {exc}")
-            code = 1
-        if code:
-            failed = f"{harness} {verb} did not finish; {picked} is not added"
-            pause()
-            break
-    keyboard.take()
+    failed = _adapter_verbs(keyboard, harness, ("login",) if config.harness_binary(program)
+                            else ("install", "login"), picked)
     if failed:
         return failed
     models = [model for model in config.catalog(harness) if model["efforts"]]
@@ -2811,15 +2851,26 @@ def config_add_provider(cfg, keyboard):
 
 @terminal.clicks_its_own
 def config_remove_provider(cfg):
-    """`− remove` on the Providers row: a provider the config has, picked from a list, then
-    `Remove <provider> and its models?` asked under it, `Keep` picked and Esc keeping it.
-    config.remove_provider takes its table, its models and their places in [defaults], and
-    with its table goes its usage row.  The last provider is refused without asking.  What to
-    say under the matrix, or "".
+    """`− remove` on the Providers row: a provider the config has, each followed by its
+    subscriptions when it has several, picked from a list, then `Remove <provider> and its
+    models?` or `Remove <subscription>?` asked under it, `Keep` picked and Esc keeping it.
+    config.remove_provider takes a provider's table, its models and their places in
+    [defaults], and with its table goes its usage row.  A subscription, named as its usage row
+    is (config.account_label), leaves only the provider's `accounts`, and its login stays on disk;
+    the usual login is never offered.  The last provider is not offered either, and with
+    nothing to offer it is refused without asking.  What to say under the matrix, or "".
     """
-    if len(cfg["providers"]) == 1:
+    labels = {}
+    for text, name in _by_label(list(cfg["providers"]),
+                                lambda name: NAMES.get(name, name.title())).items():
+        if len(cfg["providers"]) > 1:
+            labels[text] = (name, None)
+        listed = config.accounts(cfg, name)
+        labels.update({config.account_label(cfg, name, account, text): (name, account)
+                       for account in listed
+                       if len(listed) > 1 and account != config.DEFAULT_ACCOUNT})
+    if not labels:
         return "the config needs one provider"
-    labels = _by_label(list(cfg["providers"]), lambda name: NAMES.get(name, name.title()))
     title, keys = "config · remove a provider", ADD_KEYS["choose"][0 if terminal.utf8() else 1]
 
     def listed():     # the screens the two lists are drawn on, drawn again on a resize
@@ -2828,17 +2879,22 @@ def config_remove_provider(cfg):
     picked = terminal.choose(list(labels), around=listed)
     if picked is None:
         return ""
+    name, account = labels[picked]
+    ask = REMOVE_PROVIDER_ASK if account is None else REMOVE_SUBSCRIPTION_ASK
 
     def asked():
-        lines = [f"  {line}" for line in terminal.wrap(REMOVE_PROVIDER_ASK.format(picked),
+        lines = [f"  {line}" for line in terminal.wrap(ask.format(picked),
                                                       terminal.layout_width() - 2)]
         terminal.frame(title, [*lines, "", ""], "esc keep")
         return 3 + len(lines)
     if terminal.choose(["Keep", "Remove"], "Keep", around=asked) != "Remove":
         return ""
     before = copy.deepcopy(cfg)
+    if account is not None:
+        cfg["providers"][name]["accounts"].remove(account)
+        return _saved(cfg, cfg, before)
     try:
-        config.remove_provider(cfg, labels[picked])
+        config.remove_provider(cfg, name)
     except config.Error as exc:
         return str(exc)
     return _saved(cfg, cfg, before)
