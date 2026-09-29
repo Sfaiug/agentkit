@@ -18,7 +18,21 @@
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                  `opencode models`, labelled and given efforts by the
 #                                  [catalog] table of adapters/opencode.toml, else that table
+#                     $AGENTKIT_ACCOUNT naming one of the provider's `accounts` is refused by
+#                     every verb, in one line
 set -uo pipefail
+# OpenCode 2.0.14 keeps its saved logins (the `credential` and `account` tables) in opencode.db,
+# the database its sessions live in, and the only ways to move that file -- OPENCODE_DB and
+# XDG_DATA_HOME -- move both: a login of an account's own would strand every conversation
+# begun on another.  OPENCODE_CONFIG_DIR moves the config's provider key and not that store,
+# so the usual login's saved credentials would still answer, and `opencode auth login` would
+# write into the usual one's.  A named account is refused rather than handed the usual login.
+if [ -n "${AGENTKIT_ACCOUNT:-}" ]; then
+  why="opencode: account $AGENTKIT_ACCOUNT refused; OpenCode keeps logins and sessions in one opencode.db, so a login of its own cannot resume a conversation"
+  # a usage probe fails in its own shape, which only an exit 0 keeps
+  [ "${1:-}" = usage ] && { printf '{"provider":"mimo","meters":[],"error":"unknown: %s"}\n' "$why"; exit 0; }
+  echo "$why" >&2; exit 1
+fi
 command -v opencode >/dev/null || PATH="$HOME/.opencode/bin${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
 export OPENCODE_DISABLE_AUTOUPDATE=1   # `ak update` owns that; nothing mid-run moves
 # No project's opencode.json reaches a turn: the global one is the only config, which is where
