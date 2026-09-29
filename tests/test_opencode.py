@@ -275,9 +275,12 @@ cat "$dir/bridge-eval"
         prompt.write_text("hi\n")
         events = self.root / "events.jsonl"
         events.write_text(EVENTS_OK)
-        for effort, model in (("none", "mimo/mimo-v2.6-pro"), ("high", "mimo/mimo-v2.6-pro#high")):
+        # MiMo's `none` is a variant of its own, thinking off (tests/test_effort_step.py)
+        for name, effort, model in (("acme/big", "none", "acme/big"),
+                                    ("acme/big", "high", "acme/big#high"),
+                                    ("mimo/mimo-v2.6-pro", "none", "mimo/mimo-v2.6-pro#none")):
             self.argv_log.unlink(missing_ok=True)
-            proc = self.adapter("run", "mimo/mimo-v2.6-pro", effort, str(self.root),
+            proc = self.adapter("run", name, effort, str(self.root),
                                 str(prompt), str(self.root / f"out-{effort}"),
                                 env={"STUB_EVENTS": str(events), "STUB_ARGV_LOG": str(self.argv_log),
                                      "STUB_EXPORT": str(self.root / "missing.json")})
@@ -285,7 +288,7 @@ cat "$dir/bridge-eval"
             words = self.argv_log.read_text().splitlines()[0].split()
             self.assertEqual(words[words.index("-m") + 1], model)
             # and the seat is pinned to the same model
-            proc = self.adapter("interactive", "mimo/mimo-v2.6-pro", effort)
+            proc = self.adapter("interactive", name, effort)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             content = next(word for word in shlex.split(proc.stdout)
                            if word.startswith("OPENCODE_CONFIG_CONTENT=")).split("=", 1)[1]
@@ -933,25 +936,25 @@ stop();
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return [line.split("\t") for line in proc.stdout.splitlines()]
 
-    def test_a_live_listing_gives_mimo_no_effort_and_leaves_an_unknown_id_unsaid(self):
+    def test_a_live_listing_gives_mimo_its_thinking_and_leaves_an_unknown_id_unsaid(self):
         listing = self.root / "models.txt"
         listing.write_text("mimo/mimo-v2.6-flash\nmimo/mimo-v2.6-pro\nopencode/big-pickle\n")
         self.assertEqual(self.models(STUB_MODELS=str(listing)), [
-            ["mimo/mimo-v2.6-flash", "MiMo V2.6 Flash", "none"],
-            ["mimo/mimo-v2.6-pro", "MiMo V2.6 Pro", "none"],
+            ["mimo/mimo-v2.6-flash", "MiMo V2.6 Flash", "none high"],
+            ["mimo/mimo-v2.6-pro", "MiMo V2.6 Pro", "none high"],
             ["opencode/big-pickle", "opencode/big-pickle", ""],
         ])
 
     def test_a_failed_listing_gives_the_table_the_same_answer(self):
         self.assertEqual(self.models(), [
-            ["mimo/mimo-v2.6-pro", "MiMo V2.6 Pro", "none"],
-            ["mimo/mimo-v2.6-flash", "MiMo V2.6 Flash", "none"],
+            ["mimo/mimo-v2.6-pro", "MiMo V2.6 Pro", "none high"],
+            ["mimo/mimo-v2.6-flash", "MiMo V2.6 Flash", "none high"],
         ])
 
-    def test_mimo_takes_the_effort_none_alone(self):
+    def test_mimo_takes_thinking_off_or_on(self):
         with patch.dict(os.environ, self.env), patch.dict(config._CATALOGS, clear=True):
             os.environ.pop(config.ADAPTER_DIR_ENV, None)
-            self.assertEqual(config.efforts("opencode", "mimo/mimo-v2.6-pro"), ["none"])
+            self.assertEqual(config.efforts("opencode", "mimo/mimo-v2.6-pro"), ["none", "high"])
 
     # --- config ------------------------------------------------------------------
     def test_config_offers_mimo_last(self):
@@ -960,7 +963,7 @@ stop();
         self.assertEqual(config.offered(cfg)[-1], "mimo")
         self.assertEqual(cfg["models"]["mimo"],
                          {"harness": "opencode", "model": "mimo/mimo-v2.6-pro",
-                          "effort": "none", "provider": "mimo"})
+                          "effort": "high", "provider": "mimo"})
         self.assertEqual(cfg["providers"]["mimo"], {})   # its mode is the endpoint's
 
 

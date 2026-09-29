@@ -71,7 +71,7 @@ provider = "google"
 [models.mimo]
 harness = "opencode"
 model = "mimo/mimo-v2.6-pro"
-effort = "none"
+effort = "high"           # thinking on, as MiMo's own default is; `none` turns it off
 provider = "mimo"
 
 # colour = "#RRGGBB" on a provider fills its bar in the menu's usage rows, which run red through

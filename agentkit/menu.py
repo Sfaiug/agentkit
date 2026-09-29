@@ -2293,11 +2293,12 @@ def config_mark(cfg, name, column):
 def config_effort(cfg, name, step, efforts=config.efforts, wrap=False):
     """`name`'s effort one step along that model's own efforts (config.efforts, or a model's
     own screen's _catalog_efforts), never past either end unless `wrap` takes it round to the
-    other, and saved; one set to an effort it does not take lands on its first.  What to say
-    under the matrix, or ""."""
+    other, and saved; one set to an effort it does not take lands on its first.  The efforts
+    are read `now`, off the catalog already in hand (config.catalog_now): a listing never
+    stands between the key and its frame.  What to say under the matrix, or ""."""
     entry = cfg["models"][name]
     try:
-        levels = efforts(entry.get("harness"), entry.get("model"))
+        levels = efforts(entry.get("harness"), entry.get("model"), now=True)
     except config.Error as exc:
         return f"config: {exc}"
     if not levels:
@@ -2323,11 +2324,12 @@ def _nearest(effort, levels):
                if word in EFFORT_RANK else len(EFFORT_RANK))
 
 
-def _catalog_efforts(harness, model):
+def _catalog_efforts(harness, model, now=False):
     """The efforts the catalog lists for that model id, and [] for one it names none for or
-    does not list: never config.efforts' vocabulary, which is no catalog's offer."""
-    return next((list(entry["efforts"]) for entry in config.catalog(harness)
-                 if entry["id"] == model), [])
+    does not list: never config.efforts' vocabulary, which is no catalog's offer.  `now`
+    reads it as config.efforts does."""
+    return next((list(entry["efforts"]) for entry in (
+        config.catalog_now if now else config.catalog)(harness) if entry["id"] == model), [])
 
 
 def config_model_id(cfg, name, step):

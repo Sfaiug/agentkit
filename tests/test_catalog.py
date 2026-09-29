@@ -161,7 +161,7 @@ class Catalog(unittest.TestCase):
         want = [table.get(model) or {"id": model, "label": model, "efforts": []}
                 for model in (FIXTURES / "opencode-models.txt").read_text().split()]
         self.assertEqual(want[0], {"id": "mimo/mimo-v2.6-flash", "label": "MiMo V2.6 Flash",
-                                   "efforts": ["none"]})
+                                   "efforts": ["none", "high"]})
         self.assertEqual(config.catalog("opencode"), want)
         self.assertEqual(self.log.read_text(), "models\n", "not --standalone: it lists nothing")
         # a second ask within the minute is the first answer; past it, the harness is asked again
@@ -232,7 +232,7 @@ class Catalog(unittest.TestCase):
         # a model that runs at no effort takes `none` alone; one whose efforts go unsaid, or
         # that is not listed at all, takes its harness's words
         self.assertEqual(config.efforts("claude", "claude-haiku-4-5"), ["none"])
-        self.assertEqual(config.efforts("opencode", "mimo/mimo-v2.6-pro"), ["none"])
+        self.assertEqual(config.efforts("opencode", "mimo/mimo-v2.6-pro"), ["none", "high"])
         levels = config.manifest("claude")["effort"]["levels"]
         self.assertEqual(config.efforts("claude", "claude-unknown"), levels)
         # and without a model nothing is asked: the `c` screen's cycle stays the harness's words

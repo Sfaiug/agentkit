@@ -167,9 +167,10 @@ context = "opencode-plugin"
 
 # The models this harness runs when `opencode models` cannot say: the MiMo models opencode
 # 2.0.14 listed for the shipped `mimo` provider.  That listing names no labels and no efforts,
-# so it takes both from here for the ids this table knows.  The MiMo provider defines no model
-# variants, and OpenCode runs any variant it is handed at the model's default: MiMo runs at no
-# effort, `none`, which the adapter hands as the bare model.
+# so it takes both from here for the ids this table knows.  MiMo's one reasoning control is
+# its API's `thinking` switch: `none` turns it off and `high` leaves it on, as MiMo's own
+# default does, each a variant the adapter defines for the turn (mimo_variants in
+# adapters/opencode.sh).
 [catalog]
-"mimo/mimo-v2.6-pro" = { label = "MiMo V2.6 Pro", efforts = ["none"] }
-"mimo/mimo-v2.6-flash" = { label = "MiMo V2.6 Flash", efforts = ["none"] }
+"mimo/mimo-v2.6-pro" = { label = "MiMo V2.6 Pro", efforts = ["none", "high"] }
+"mimo/mimo-v2.6-flash" = { label = "MiMo V2.6 Flash", efforts = ["none", "high"] }
