@@ -608,6 +608,25 @@ class Phone(Sandbox):
                                       for line in Terminal.inside(screen)), "Stop highlighted")
         phone.keys("Enter")
 
+    @staticmethod
+    def row_marks(line):
+        """A new-session row's three marks in their columns' order: orch, exec, review."""
+        return "".join(char for char in line if char in "●○■□")
+
+    def picked(self, phone, title, want):
+        """The new-session screen once the `title` row's marks read `want`.
+
+        The marks sit beside the name, so waiting for a mark anywhere on the screen
+        returns before the press takes effect; the row's own three say it did.
+        """
+        def ready(screen):
+            joined = "\n".join(screen)
+            last = next((line for line in reversed(screen) if line.strip()), "")
+            row = next((line for line in screen if title in line and self.row_marks(line)), "")
+            return (self.row_marks(row) == want and "agentkit · new session" in joined
+                    and last.endswith("esc back"))
+        return phone.wait(ready, f"{title} marked {want}")
+
     def walk(self, width, height):
         narrow = width < 60
         phone = Terminal(self, width, height)
@@ -617,13 +636,17 @@ class Phone(Sandbox):
         phone.press("n")
         phone.until("Name (Enter: auto):", prompt="Name (Enter: auto):")
         phone.keys("Enter")
-        screen = phone.until("agentkit · new session", "Orchestrator", prompt="esc back")
+        screen = phone.until("agentkit · new session", "orch", "exec", "review",
+                             prompt="esc back")
         self.fits(screen, width, height)
-        phone.keys("Down", "Space")
-        phone.until("● Astra", prompt="esc back")
-        for steps in (5, 3, 1, 1, 1):        # fable, then spark, grok, gemini and mimo
-            phone.keys(*["Down"] * steps, "Space")
-        screen = phone.until("■ Mimo", prompt="esc back")
+        phone.keys("Down", "Space")          # astra orchestrates, from the row below opus
+        screen = self.picked(phone, "Astra", "●■■")
+        phone.keys("Right")                  # the executor column, then every worker added
+        for title, steps in (("Fable 5.1", ("Up", "Up")), ("Spark 1.3", ("Down",) * 3),
+                             ("Grok 4.7", ("Down",)), ("Gemini 3.8", ("Down",)),
+                             ("Mimo 2.6", ("Down",))):
+            phone.keys(*steps, "Space")
+            screen = self.picked(phone, title, "○■□")   # executing, not reviewing
         self.fits(screen, width, height)
         phone.keys("Enter")
         # the unnamed seat opens in this terminal, and its bar keeps the key
