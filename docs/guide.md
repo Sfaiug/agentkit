@@ -39,9 +39,11 @@ starts one, `r` renames this one (as does `ak orch rename`; Claude's Remote Cont
 `<name> · <orchestrator> → <workers> · <state> · <last column>`, the same values as its menu row, cut with one `…` at 120 columns or where it would reach the key on any client, a phone included, with `Ctrl-b m  menu` on the right (`Ctrl-b m  x close` once it is done), and the
 window title is `<name> · <state>`. Agentkit's tmux config is `~/.agentkit/state/tmux.conf`; `~/.tmux.conf` is never read or written.
 
-Every seat compacts alike, whatever its harness: forty minutes after the last turn, with no input since and the context
-at or above 40,000 tokens, the harness's own compact command is typed once at a quiet prompt. Workers never compact, nor
-does a harness with no compact command or no reported context size; `ak orch list --why` says why.
+Every seat compacts alike, whatever its harness: 55 minutes after the last turn on Claude Code (its prompt cache lasts an
+hour), 30 on the others, with the context at or above 40,000 tokens, the harness's own compact command is typed once at a
+quiet prompt. Only a new turn resets that clock, never a key, click, pointer motion, focus, attach or resize. Claude's draft
+is stashed (Ctrl+S) first and comes back after; with no stash key, a seat whose record reads a draft is not typed into.
+Workers never compact, nor does a harness with no compact command or no reported context size; `ak orch list --why` says why.
 
 Any harness can hold the seat: `--model astra` opens Codex, `--model spark` opens Muse. A Claude seat owns its
 conversation from launch by a uuid; its launched pane's `/clear` hook keeps reopening and titles on the new conversation,
@@ -327,7 +329,7 @@ The manifest is everything else, as data: `[update]` (version, upgrade, revert c
 `[conversation]` (what a seat owns), `[hooks] installed`, `[stop] enforce`, `[authority]` and `[[hooks.event]]` (which
 of hooks and screen decides each live fact), `[screen]` and `[[rule]]` (the composer and dialog patterns read off the
 bottom of the pane), `[stall]` (its own words for a fault, a refusal and a spent quota), `[resume]`, `[quota]`, `[auth]`
-(title, remedy, signatures), `[compact]` (the keys, the signal, where context is read), `[effort]` (its vocabulary),
+(title, remedy, signatures), `[compact]` (the keys, the signal, where context is read, the idle minutes, the stash key), `[effort]` (its vocabulary),
 `[catalog]` (models, efforts) and `[worker_token]` where it mints one. Then add `[providers.<name>]`.
 `$AGENTKIT_ADAPTER_DIR` points at another adapter directory, which is how the offline suites run the loop with no model
 behind it. Behaviour that needs Python goes in `agentkit/harness/<h>.py` behind one interface where every hook has a default (`tokens` reads `events.jsonl`; Muse's are in its session store).

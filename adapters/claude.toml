@@ -181,10 +181,16 @@ signatures = [
 # The text and the return are separate keys, as they are for every harness: 2.1.263 does send
 # the command when both arrive in one read, but Codex and Muse do not -- their slash-command
 # chooser absorbs that return -- so the one shape that works everywhere is the one used here.
+# `idle` is 55 minutes: Claude Code's prompt cache expires after an hour, and summarizing a
+# conversation is much cheaper while it is still cached.  `stash` is its `chat:stash` key,
+# Ctrl+S: verified on 2.1.280, a draft empties out of the composer as `stashed` and comes back
+# as `Draft restored` once `/compact` is sent; an empty composer with nothing stashed ignores it.
 [compact]
 command = ["/compact", "\r"]
 signal = "hook"
 context = "claude-transcript"
+idle = 55
+stash = "\u0013"
 
 # The effort words this harness takes, in the order the menu's `c` screen cycles them.
 [effort]

@@ -164,6 +164,8 @@ signatures = [
 command = ["/compact", "\r"]
 signal = "hook"
 context = "opencode-plugin"
+idle = 30
+stash = "none"
 
 # The models this harness runs when `opencode models` cannot say: the MiMo models opencode
 # 2.0.14 listed for the shipped `mimo` provider.  That listing names no labels and no efforts,

@@ -3,9 +3,11 @@
 
 Auto-compaction belongs to the seat and to no worker: a headless `ak worker` runs the same
 harness with the same hooks, and nothing on that path is wrapped by this.  The rule is one rule
-for every harness -- forty minutes after the last turn ended, with no owner input since and the
-context at or above the floor, the harness's own compact command is typed once, at a quiet
-prompt.  What differs between harnesses is data, in the `[compact]` table of
+for every harness -- the table's minutes after the last turn ended, with the context at or above
+the floor, the harness's own compact command is typed once, at a quiet prompt.  Nothing but a
+new turn resets that clock: keys, clicks, pointer motion, focus and terminal replies all reach
+the seat's stdin alike, and a seat open in the owner's window went hours uncompacted while they
+held it back.  What differs between harnesses is data, in the `[compact]` table of
 adapters/<harness>.toml:
 
   command  the keystrokes that compact that TUI, or "none" where it has no such command; a
@@ -16,6 +18,11 @@ adapters/<harness>.toml:
            "screen" -- the harness has no hooks, so the manifest's at-the-prompt rule says when
                        a turn ended, read off the stream this wrapper is already copying
   context  where the context size is read, or "none" where the harness reports none
+  idle     the minutes after a turn's end it compacts at: while the prompt cache still holds
+           the conversation, summarizing it is much cheaper
+  stash    the key that sets a draft in the composer aside and brings it back once the compact
+           command is sent, pressed first; "none" where the harness has none, and then a seat
+           whose record reads a draft is not typed into
 
 A harness that cannot compact, or cannot say how big its context is, is never guessed at: the
 reason is printed once and nothing is ever typed into that seat.
@@ -31,10 +38,10 @@ spawns the native binary, so the harness is never the hook's own parent.
 
 Repaints.  Measured with Claude Code 2.1.258: after a Stop hook state update the TUI wrote 1,145
 bytes during 60 idle seconds, 1,082 of them a prompt redraw in the first 0.38 s.  A reattach, a
-resize or a status redraw writes far more than that, so output silence cannot be what the forty
+resize or a status redraw writes far more than that, so output silence cannot be what the idle
 minutes are measured on -- it would defer compaction indefinitely.  The decision rests on the
-turn-end timestamp and on owner input; output only has to be quiet for the few seconds right
-before anything is typed, and output that follows a SIGWINCH is a repaint, not activity.
+turn-end timestamp alone; output only has to be quiet for the few seconds right before anything
+is typed, and output that follows a SIGWINCH is a repaint, not activity.
 """
 
 import argparse
@@ -62,7 +69,7 @@ RESIZE_GRACE = 3.0          # ... and output this soon after a SIGWINCH is a rep
 # Between the keys of a compact command.  Measured against Muse Code 1.2.1 and Codex 0.153.4:
 # a return arriving in the same read as the text it is meant to send is absorbed by the
 # slash-command chooser that the text opened, and the command sits unsent in the composer.  A
-# gap of 0.10 s still lost it and 0.15 s did not, so a seat idle for forty minutes waits half a
+# gap of 0.10 s still lost it and 0.15 s did not, so a seat idle for half an hour waits half a
 # second between them.
 KEY_GAP = 0.5
 SCREEN_TAIL = 8192          # how much of the stream the `screen` signal reads back
@@ -96,7 +103,7 @@ def parse_args(argv):
               "-- command [args...]"
     )
     parser.add_argument("--harness", default=DEFAULT_HARNESS)
-    parser.add_argument("--idle", type=positive_seconds, default=2400.0)
+    parser.add_argument("--idle", type=positive_seconds)   # the manifest's minutes otherwise
     parser.add_argument("--min-context", type=nonnegative_tokens, default=40000)
     parser.add_argument("--poll", type=positive_seconds, default=5.0)
     if "--" not in argv:
@@ -133,8 +140,14 @@ def plan(harness):
         return None, f"{harness} does not report context size"
     if signal_name not in ("hook", "screen"):
         return None, f"{harness} declares no way to know a turn ended"
+    idle = table.get("idle")
+    if isinstance(idle, bool) or not isinstance(idle, (int, float)) or idle <= 0:
+        return None, f"{harness} declares no idle minutes"
+    stash = str(table.get("stash") or "none")
     built = {"command": [key.encode() for key in command], "signal": signal_name,
-             "context": context, "composer": None, "blocked": (), "lines": SCREEN_LINES}
+             "context": context, "idle": idle * 60.0,
+             "stash": None if stash == "none" else stash.encode(),
+             "composer": None, "blocked": (), "lines": SCREEN_LINES}
     if signal_name == "screen":
         screen = manifest.get("screen")
         composer = (screen or {}).get("composer") if isinstance(screen, dict) else None
@@ -327,6 +340,15 @@ def at_prompt(lines, built):
     return bool(lines) and bool(built["composer"].search(lines[-1])) and not busy(lines, built)
 
 
+def drafted(seat):
+    """Does that seat's record, the one every screen reads it by, say its composer holds a draft?"""
+    try:
+        record = json.loads(config.seat_state_path(seat).read_text(encoding="utf-8"))
+    except (OSError, ValueError, config.Error):
+        return False
+    return isinstance(record, dict) and record.get("state") == "draft"
+
+
 def append_log(path, wrapper_pid, message):
     stamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
     line = f"{stamp} pid={wrapper_pid} {message}\n".encode()
@@ -429,7 +451,6 @@ def run(options, command):
             old_handlers[signum] = signal.getsignal(signum)
             signal.signal(signum, forward_signal)
 
-        last_input_wall = 0.0
         last_output_mono = time.monotonic()
         last_injected_ts = float("-inf")
         next_poll_mono = time.monotonic()
@@ -445,7 +466,8 @@ def run(options, command):
         # a turn end has to stand still for this long before anything is typed, but never for
         # longer than the idle window itself: the quiet is a guard on the injection, not a
         # second waiting period on top of it
-        quiet = min(QUIET_BEFORE_INJECT, options.idle)
+        idle = options.idle or (built or {}).get("idle") or 0.0
+        quiet = min(QUIET_BEFORE_INJECT, idle)
 
         while master_open:
             now_mono = time.monotonic()
@@ -465,7 +487,6 @@ def run(options, command):
                 except InterruptedError:
                     data = None
                 if data:
-                    last_input_wall = time.time()
                     write_all(master_fd, data)
                 elif data == b"":
                     stdin_open = False
@@ -533,9 +554,9 @@ def run(options, command):
                     ts, context_tokens = turn
                     if (
                         ts > last_injected_ts
-                        and now_wall - ts >= options.idle
-                        and last_input_wall <= ts
+                        and now_wall - ts >= idle
                         and now_mono - last_output_mono >= quiet
+                        and (built["stash"] or not drafted(os.environ.get(config.SESSION_ENV)))
                     ):
                         if context_tokens is None:
                             reader = CONTEXT_READERS.get(built["context"])
@@ -545,7 +566,9 @@ def run(options, command):
                                 # a size nobody could read is not a size: the seat carries on
                                 context_tokens = None
                         if context_tokens is not None and context_tokens >= options.min_context:
-                            for index, keys in enumerate(built["command"]):
+                            # a draft set aside first comes back once the command is sent
+                            stash = [built["stash"]] if built["stash"] else []
+                            for index, keys in enumerate(stash + built["command"]):
                                 if index:
                                     time.sleep(KEY_GAP)
                                 write_all(master_fd, keys)

@@ -166,6 +166,8 @@ signatures = [
 command = ["/compact", "\r"]
 signal = "hook"
 context = "codex-rollout"
+idle = 30
+stash = "none"
 
 # The effort words this harness takes, in the order the menu's `c` screen cycles them.
 # The same words its status line shows beside the model name; see [screen] composer above.
