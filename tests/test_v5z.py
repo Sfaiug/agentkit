@@ -178,7 +178,8 @@ class Listings(Sandbox):
         lines = out.splitlines()
         self.assertEqual(lines[0], "host: 8 cpus · ak cpu 12% · 4 G free · "
                                   "a run is admitted while ≥ 3.2 G free and ak cpu ≤ 40%")
-        self.assertEqual(lines[1], "20260101-0900-plain-check" + " " * 16 +
+        self.assertEqual(lines[1], "heavy suites: 2 at once (derived)")
+        self.assertEqual(lines[2], "20260101-0900-plain-check" + " " * 16 +
                                     "pass" + " " * 8 + "PASS " + " opus/astra  main  merged")
 
     def test_v5z_f_json_is_unchanged(self):
@@ -276,7 +277,7 @@ class Listings(Sandbox):
                                    "started_at": NOW - 420, "finished_at": None,
                                    **run.process_owner()})
         table = self.status([])
-        header = table.splitlines()[1]
+        header = table.splitlines()[2]
         for column in ("id", "title", "state", "worker", "round", "age"):
             self.assertIn(column, header)
         row = next(line for line in table.splitlines() if "Long" in line.split())
@@ -490,19 +491,24 @@ class Listings(Sandbox):
         self.assertIn("✓ done", self.status([continued.name]))
 
     def test_v5z_s_the_host_line_names_a_count_cap(self):
-        gates = ("host: 8 cpus · ak cpu 12% · 4 G free · "
-                 "a run is admitted while ≥ 3.2 G free and ak cpu ≤ 40%")
+        base = ("host: 8 cpus · ak cpu 12% · 4 G free · "
+                "a run is admitted while ≥ 3.2 G free and ak cpu ≤ 40%")
+        heavy = "heavy suites: 2 at once (derived)"
         for limit, tail in (("4", " · at most 4 runs at once"),
                             ("1", " · at most 1 run at once"), ("0", "")):
             with self.subTest(limit=limit), patch.dict(os.environ, {"AK_MAX_RUNS": limit}):
-                self.assertEqual(self.status([]).splitlines()[0], gates + tail)
+                first, second = self.status([]).splitlines()[:2]
+                self.assertEqual(first, base + tail)
+                self.assertEqual(second, heavy)
         # the config's own key, with no override
         shipped = (REPO / config.DEFAULT_CONFIG_NAME).read_text()
         (config.HOME / config.CONFIG_NAME).write_text(
             re.sub(r"(?m)^max_runs = 0\b", "max_runs = 2", shipped))
         with patch.dict(os.environ):
             os.environ.pop("AK_MAX_RUNS", None)
-            self.assertEqual(self.status([]).splitlines()[0], gates + " · at most 2 runs at once")
+            first, second = self.status([]).splitlines()[:2]
+            self.assertEqual(first, base + " · at most 2 runs at once")
+            self.assertEqual(second, heavy)
 
     def test_v5z_i_state_words_come_from_terminal_states(self):
         # A run is working, needs you or done, like every session and every project.

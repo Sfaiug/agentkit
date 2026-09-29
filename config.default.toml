@@ -3,7 +3,8 @@
 # then on.  Edit the copy in the home directory, not this file.
 
 max_runs = 0              # no count cap; host memory and ak's CPU pressure are the gates
-max_gates = 3             # done-when gates of one repository at once, host-wide; 0 = no cap
+# max_gates, when set, pins the host-wide heavy-suite turns; unset, the count is
+# derived from the slice's live CPU and memory headroom. 0 = no cap.
 # min_free_mb defaults from this host's RAM. A pinned max_load restores the host load check instead.
 # Set either to 0 to disable that one resource check.
 # run_memory_max_mb, when set, is one run's memory cap in MiB. Unset, the cap is

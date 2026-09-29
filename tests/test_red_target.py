@@ -7,10 +7,13 @@ reviewer always passes.
 """
 
 from contextlib import ExitStack
+import fcntl
 import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -353,6 +356,56 @@ class RedTarget(unittest.TestCase):
         self.assertTrue(run.integrated(wt, tip))
         self.assertEqual(run.git(wt, "symbolic-ref", "--short", "HEAD"), "ak/fix-api")
         self.assertEqual(run.git(wt, "status", "--porcelain"), "")
+
+    def test_heavy_probe_waits_for_a_turn_while_light_runs_free(self):
+        # max_gates = 1 with slot 0 held: a probe of a `# once` command waits
+        # for the turn, any other probe runs at once
+        (config.HOME / config.CONFIG_NAME).write_text("max_gates = 1\n")
+        os.environ.pop("AK_MAX_RUNS", None)
+        dw_log = "$ false\n[exit 1]\nFAIL the gate"
+        with patch.object(run, "GATE_POLL", 0.05):
+            (self.root / "heavy").mkdir()
+            _, _, wt = make_repos(self.root / "heavy")
+            lp, run_dir, _ = make_loop(self.root / "heavy", wt, ["true", "false  # once"])
+            holder = run.gate_lock(str(wt), 0).open("a")
+            self.addCleanup(holder.close)
+            fcntl.flock(holder, fcntl.LOCK_EX)
+            results = {}
+            def body():
+                try:
+                    results["probed"] = run.target_fails(lp, "origin/main", dw_log)
+                except BaseException as exc:      # noqa: BLE001 -- the test reads it
+                    results["probed"] = exc
+            thread = threading.Thread(target=body, daemon=True)
+            thread.start()
+            try:
+                deadline = time.monotonic() + 20
+                while not (run.read_state(run_dir) or {}).get("gate_turn"):
+                    self.assertLess(time.monotonic(), deadline, "the heavy probe never waited")
+                    time.sleep(0.02)
+                self.assertTrue(thread.is_alive())
+                probe_log = run_dir / "target-probe.log"
+                self.assertFalse(probe_log.is_file() and "$ false (on" in probe_log.read_text())
+            finally:
+                fcntl.flock(holder, fcntl.LOCK_UN)
+            thread.join(20)
+            self.assertFalse(thread.is_alive(), "the heavy probe never finished")
+            self.assertEqual(results["probed"], True)
+            self.assertIn("$ false (on", (run_dir / "target-probe.log").read_text())
+            # light, while the turn is still held elsewhere
+            (self.root / "light").mkdir()
+            _, _, wt2 = make_repos(self.root / "light")
+            lp2, run_dir2, _ = make_loop(self.root / "light", wt2, ["false"])
+            with run.gate_lock(str(wt2), 0).open("a") as held:
+                fcntl.flock(held, fcntl.LOCK_EX)
+                light = {}
+                probe = threading.Thread(target=lambda: light.update(
+                    probed=run.target_fails(lp2, "origin/main", dw_log)), daemon=True)
+                probe.start()
+                probe.join(20)
+                self.assertFalse(probe.is_alive(), "the light probe waited for a turn")
+            self.assertEqual(light["probed"], True)
+            self.assertIn("$ false (on", (run_dir2 / "target-probe.log").read_text())
 
 
 if __name__ == "__main__":

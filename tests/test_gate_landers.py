@@ -1,4 +1,4 @@
-"""A run verifying to land takes its repository's next gate turn ahead of round checks.
+"""A run verifying to land takes the next heavy turn ahead of round checks.
 
 Offline: a temporary HOME, fake run records and fake repositories; live waiters
 are this process's own records. Nothing here signals a real process.
@@ -27,12 +27,13 @@ ACME = "/home/fixture/code/acme"        # a main checkout as the records name it
 class Gate(threading.Thread):
     """One `run_done_when` in a thread of its own, its result or its exception kept."""
 
-    def __init__(self, case, name, repo, cmds, first=False, landing=False, **kw):
+    def __init__(self, case, name, repo, cmds, first=False, landing=False, heavy=True, **kw):
         super().__init__(daemon=True)
         self.run_dir = case.record(name, repo, first, landing)
         self.logs, self.result, self.error = [], None, None
         self.args = (cmds, case.root, self.run_dir / "donewhen.log", set())
-        self.kw = {"log": self.logs.append, "run_dir": self.run_dir, **kw}
+        self.kw = {"log": self.logs.append, "run_dir": self.run_dir,
+                   "heavy": heavy, **kw}
 
     def run(self):
         try:

@@ -29,7 +29,7 @@ COMMANDS = {
 a task bigger than one behaviour or over 3 rounds is refused regardless.
 --no-worktree uses the repo's current branch; --no-merge keeps work local.
 --bg detaches and prints a launch receipt, run ID and result path.
---first admits the run ahead of every queued run without it, skipping the count cap and the CPU gate, and takes its repository's next gate turn first.
+--first admits the run ahead of every queued run without it, skipping the count cap and the CPU gate, and takes the next heavy suite turn first.
 Several task files run as one job; after: names a dependency, --parallel caps it.
 max_runs caps the count when positive; 0 leaves host memory and ak's CPU pressure as the gates
 (config.toml or AK_MAX_RUNS).

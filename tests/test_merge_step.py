@@ -371,9 +371,9 @@ class MergeStep(unittest.TestCase):
                 suites.append(1)
                 if len(suites) == 1:
                     return False, "$ bash tests/smoke.sh\n[exit 1]\nFAIL  2 the gate"
-                return True, "$ true\n[exit 0]\n\n$ bash tests/smoke.sh\n[exit 0]\n"
+                return True, "$ bash tests/smoke.sh\n[exit 0]\n"
             gates.append(1)
-            if len(gates) == 1:
+            if len(gates) == 2:
                 return False, "$ true\n[exit 1]\nlint: fix1.txt:1 trailing space"
             return True, "$ true\n[exit 0]\n"
 
