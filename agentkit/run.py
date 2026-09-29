@@ -570,7 +570,8 @@ def done_when_groups(body, path):
 
     `done_when` itself is unchanged -- the flat list, markers intact, for callers that
     want every command plus the once ones.  The every-commands run per round; the
-    once-commands run a single time, on the commit about to ship.
+    once-commands run alongside the review on the commit under review, and again at
+    landing only when the target moved in the branch's files.
     """
     return group_commands(done_when(body, path))
 
@@ -616,8 +617,9 @@ def with_suite(cmds, wt, target=None):
     """The done-when commands plus the declared `tests:` suite as a `# once` line.
 
     A repository names its full suite once, in AGENTS.md, rather than every task writing it
-    into every round: it runs in the final check on the commit about to ship and nowhere
-    else.  A task line that is the same command is that line, so it runs once, not twice;
+    into every round: it runs alongside the review on the commit under review, and again
+    at landing only when the target moved in the branch's files.  A task line that is
+    the same command is that line, so it runs once, not twice;
     so is a line that is the suite's bare first command, without its output plumbing,
     whitespace aside.  A line already marked `# once` keeps today's meaning: only one
     identical to the suite is that line.  The checkout's own declaration wins; a checkout
@@ -2182,8 +2184,9 @@ def _acquire_gate_turn(run_dir, log_path, log):
 def gate_turn(run_dir, log_path, log):
     """One host-wide heavy-suite turn, held for as long as the list runs.
 
-    Only the heavy suite -- the `# once` line, the repository's `tests:` suite at
-    the final check -- takes one; every other done-when command runs without.  A
+    Only the heavy suite -- the `# once` line, the repository's `tests:` suite --
+    takes one, in the round and at landing alike; every other done-when command
+    runs without.  A
     suite builds its own Postgres, port and temp dir at ~0.7 core and ~0.4 GB, so
     the turns are counted host-wide from the slice's live headroom, twice the
     machine twice the suites, at least one so nothing stalls; an explicit
@@ -2653,8 +2656,8 @@ class Loop:
     def __init__(self, cfg, run_dir, state, opts, log, wt, body, cmds, context, spares):
         self.cfg, self.run_dir, self.state, self.opts, self.log = cfg, run_dir, state, opts, log
         self.wt, self.body, self.cmds, self.context = wt, body, cmds, context
-        # the per-round commands and the ones that run a single time, on the commit
-        # about to ship; without a `# once` line the two are the list and the empty one
+        # the per-round commands and the ones that run alongside the review; without a
+        # `# once` line the two are the list and the empty one
         self.every, self.once = group_commands(cmds)
         self.base, self.rounds = state["base"], state["rounds"]
         # where the PR goes, which is not always where the branch came from
@@ -3274,8 +3277,9 @@ def current_review(lp):
 def verify_work(lp, cmds=None):
     """Pin done-when to a commit before running commands, including leftover executor edits.
 
-    Runs `cmds`, or the run's per-round commands when none are given: a `# once` line
-    never runs here, only in the final check on the commit about to ship.
+    Runs `cmds`, or the run's per-round commands when none are given.  A `# once` line
+    never runs here; it runs alongside the review through `verify_once`, on the same
+    pinned commit.
     """
     if cmds is None:
         cmds = lp.every
@@ -3296,6 +3300,46 @@ def verify_work(lp, cmds=None):
         text = (f"Commit: {lp.validation['head_sha']}\nTree: {lp.validation['tree_sha']}\n\n"
                 + text)
         (lp.round_dir / "donewhen.log").write_text(text)
+    return ok, text
+
+
+def verify_once(lp):
+    """Run the `# once` commands on the commit under review, alongside the review.
+
+    Only rounds that passed their per-round commands reach here, on the commit
+    `verify_work` just pinned in `lp.validation`.  The suite takes a heavy-suite
+    turn, re-runs a failing command once, and records where it ran: `final_check`
+    says `round` with this round's number, so the landing re-runs it only when the
+    target moved in the branch's files.  Without a `# once` line there is nothing
+    to run.  The output goes to `<round dir>/once.log`, never to the reviewer.
+    """
+    if not getattr(lp, "once", ()):
+        return True, ""
+    pinned = getattr(lp, "validation", None)
+    if pinned is None:
+        pinned = {} if lp.scratch else commit_identity(lp.wt)
+        lp.validation = pinned
+    clean = lp.scratch or lp.state.get("review_pr") or git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
+    ok, text = run_done_when(list(lp.once), lp.wt, lp.round_dir / "once.log", lp.artifacts,
+                             lp.done_when_limit, lp.log, silence=lp.turn_limit,
+                             run_dir=lp.run_dir, heavy=True)
+    if not lp.scratch and not lp.state.get("review_pr") and (
+            not clean or commit_identity(lp.wt) != pinned or
+            git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
+        ok = False
+        text += "\n\nCheckout changed during the suite; these commands do not verify the pinned commit."
+    if pinned:
+        text = (f"Commit: {pinned['head_sha']}\nTree: {pinned['tree_sha']}\n\n" + text)
+        (lp.round_dir / "once.log").write_text(text)
+    sha = pinned.get("head_sha", "") if pinned else ""
+    if ok:
+        lp.state["final_check"] = {"outcome": "passed", "sha": sha,
+                                   "where": "round", "round": lp.rnd}
+    else:
+        lp.state["final_check"] = {"outcome": "failed", "sha": sha,
+                                   "where": "round", "round": lp.rnd,
+                                   "line": first_failure(text)}
+    lp.save()
     return ok, text
 
 
@@ -3338,6 +3382,11 @@ def resume_review(lp, verified=None):
     # fixer turn came before it is not known here -- but the next round has to be able to
     # compare against it
     same_failure(lp, ok, dw_log, compare=False)
+    lp.once_ok, lp.once_log = True, ""
+    if ok and getattr(lp, "once", ()) and not lp.state.get("landing"):
+        lp.once_ok, lp.once_log = verify_once(lp)
+        lp.log(f"suite: {'all passed' if lp.once_ok else 'FAILED'}")
+        same_failure(lp, lp.once_ok, lp.once_log, gate="once", compare=False)
     return review(lp, pending["summary"], ok, dw_log,
                   pending.get("reason", "Resume the unfinished review."),
                   **({"record": False} if pending.get("record") is False else {}))
@@ -3733,11 +3782,11 @@ def same_failure(lp, ok, dw_log, gate="every", compare=True):
     also forbids.  A third attempt would buy the same answer for another model turn, so the run
     stops there and the orchestrator is told which commands stood still.
 
-    `gate` keeps each set of commands to its own history: the per-round commands and the
-    `# once` ones run at different moments on different trees, so an ordinary round passing
-    must not wipe what the final check keeps saying, and the two can never be compared with
-    each other anyway.  `compare=False` records without judging, for a round resumed from
-    another process, where nothing here knows whether a fixer preceded it.
+    `gate` keeps each set of commands to its own history: the per-round commands and
+    the `# once` ones are different gates, so one passing must not wipe what the other
+    keeps saying, and the two can never be compared with each other anyway.
+    `compare=False` records without judging, for a round resumed from another process,
+    where nothing here knows whether a fixer preceded it.
 
     The first sight of a gate is only recorded, never compared: one failure is not the same
     failure twice.  A gate that passed records no failure, so a later one is new again.
@@ -3765,7 +3814,10 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
 
     The reviewer judges that work against the done-when output the loop already ran on the
     commit under review; it is told so, with the commit and the exit counts, and not to run
-    the commands again.
+    the commands again.  The `# once` suite runs alongside on the same commit through
+    `verify_once`, whose outcome `lp.once_ok` carries: the round is PASS only when the
+    reviewer says PASS and that suite passed, and the reviewer is told its absence from
+    the input is by design.
 
     `record` is off for a merge pipeline's conflict rounds only: they are not task rounds
     and must not spend one, so no summary of them enters the rounds' own history -- see
@@ -3821,9 +3873,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                    f"{identity.get('head_sha', '')[:12]}; {passed} of {total} commands exited 0)")
     deferred = ""
     if getattr(lp, "once", ()):
-        deferred = ("\n".join(f"deferred to the final check on the shipping commit: {cmd}"
+        deferred = ("\n".join(f"runs alongside this review on the commit under review: {cmd}"
                                for cmd in lp.once)
-                    + "\nThese run after this review passes; their absence here is by design "
+                    + "\nThese run alongside this review; their absence here is by design "
                       "and is never a finding.")
     flaky = ""
     if re.search(r"^flaky: ", dw_log or "", re.M):
@@ -4016,6 +4068,10 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         verdict = "FAIL"
         overridden = "the reviewer said PASS while done-when is failing"
         lp.log(f"WARN {overridden}; overriding to FAIL")
+    if not getattr(lp, "once_ok", True) and verdict == "PASS":
+        verdict = "FAIL"
+        overridden = "the reviewer said PASS while the suite is failing"
+        lp.log(f"WARN {overridden}; overriding to FAIL")
     if not lp.scratch and (identity != validation or commit_identity(lp.wt) != identity
                            or (not lp.state.get("review_pr") and
                                git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0)):
@@ -4026,6 +4082,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     lp.state["followups"] = followups_in(text) if verdict == "PASS" else []
     if verdict == "PASS":
         record_flakes(lp.state, dw_log)
+        if getattr(lp, "once_log", ""):
+            record_flakes(lp.state, lp.once_log)
     if record:
         lp.state["round_summaries"].append(
             {"round": lp.rnd, "verdict": verdict, "done_when": ok,
@@ -4054,6 +4112,26 @@ def round_findings(lp, entry):
     files = review_files(lp.run_dir, entry.get("round"))
     whole = read_answer(files[-1]) if files else None
     return finding_count(whole) if whole is not None else None
+
+
+def prev_suite_failure(lp):
+    """The previous round's suite output, when that round's suite failed, else "".
+
+    The reviewer never sees the suite, so its findings cannot carry a suite failure
+    the way they carry a done-when one: the fixer is given both, the findings and
+    this output.  Read off the record and the round directory it names, so a resume
+    hands over what the round it continues would have been handed.
+    """
+    record = lp.state.get("final_check") or {}
+    if record.get("outcome") != "failed" or record.get("where") != "round":
+        return ""
+    if record.get("round") != lp.rnd - 1:
+        return ""
+    try:
+        return (lp.run_dir / f"round-{lp.rnd - 1}" / "once.log").read_text(
+            errors="replace")[-OUT_CAP:]
+    except OSError:
+        return ""
 
 
 def rounds(lp, execv=None):
@@ -4117,10 +4195,13 @@ def rounds(lp, execv=None):
                 if lp.rnd == 1:
                     summary = execute(lp, "executor", lp.context, "executor")
                 else:
-                    summary = execute(lp, "fixer",
-                                      f"{lp.context}\n\n## Reviewer findings to fix\n"
-                                      f"{without_followups(lp.findings)}",
-                                      "executor")
+                    fixer_body = (f"{lp.context}\n\n## Reviewer findings to fix\n"
+                                  f"{without_followups(lp.findings)}")
+                    suite_log = prev_suite_failure(lp)
+                    if suite_log:
+                        fixer_body += ("\n\n## The suite checks failed. Fix the root cause.\n"
+                                       f"```\n{suite_log}\n```")
+                    summary = execute(lp, "fixer", fixer_body, "executor")
             ok, dw_log = verify_work(lp)
             lp.log(f"done-when: {'all passed' if ok else 'FAILED'}")
             if not ok:
@@ -4131,6 +4212,20 @@ def rounds(lp, execv=None):
                 ok, dw_log = verify_work(lp)
                 lp.log(f"done-when after fix: {'all passed' if ok else 'still FAILING'}")
         same_failure(lp, ok, dw_log)
+        lp.once_ok, lp.once_log = True, ""
+        if ok and getattr(lp, "once", ()):
+            once_path = lp.round_dir / "once.log"
+            if cut == "reviewer" and once_path.is_file():
+                try:
+                    lp.once_log = once_path.read_text(errors="replace")
+                except OSError:
+                    lp.once_log = ""
+                lp.once_ok = not failing_checks(lp.once_log) if lp.once_log else True
+                same_failure(lp, lp.once_ok, lp.once_log, gate="once", compare=False)
+            else:
+                lp.once_ok, lp.once_log = verify_once(lp)
+                lp.log(f"suite: {'all passed' if lp.once_ok else 'FAILED'}")
+                same_failure(lp, lp.once_ok, lp.once_log, gate="once")
 
         if review(lp, summary, ok, dw_log, "Re-review after fixes." if lp.rnd > 1 else "") == "PASS":
             return
@@ -5250,15 +5345,17 @@ def target_fails(lp, upstream, dw_log):
 def final_check(lp, upstream):
     """Run every-commands plus once-commands on the commit about to be pushed.
 
-    True when the commit may be pushed.  A `# once` line runs nowhere else in the
-    run, so this is its single execution; without one there is nothing to do and
-    today's evidence reuse stands.  When the lap's integration already ran the
-    every-commands on this commit and they passed, only the once-commands run here:
-    each command runs once per commit per lap.  The every-commands run light,
-    without a turn; only the once-commands take a heavy-suite turn.  The run is
-    pinned the way `verify_work` pins
-    one: the commit and tree are recorded, and a checkout that changes during the
-    check fails it.  The output goes to `<run dir>/final-check.log`.
+    True when the commit may be pushed.  The suite already passed alongside the
+    review on the reviewed commit, so when the branch still stands on it this
+    lands on those checks and runs nothing; only a target move in the branch's
+    files, which is exactly when the done-when re-runs, runs them again here.
+    Without a `# once` line there is nothing to do.  When the lap's integration
+    already ran the every-commands on this commit and they passed, only the
+    once-commands run here: each command runs once per commit per lap.  The
+    every-commands run light, without a turn; only the once-commands take a
+    heavy-suite turn.  The run is pinned the way `verify_work` pins one: the
+    commit and tree are recorded, and a checkout that changes during the check
+    fails it.  The output goes to `<run dir>/final-check.log`.
 
     A failed check is handled like a rebase conflict.  The work already passed review,
     and what fails this late is as often the world -- a login, a scope, a service -- as
@@ -5274,6 +5371,21 @@ def final_check(lp, upstream):
     """
     if not lp.once:
         return True
+    try:
+        now = git(lp.wt, "rev-parse", "HEAD")
+    except (Stopped, config.Error):
+        now = None
+    record = lp.state.get("final_check") or {}
+    if (now and record.get("outcome") == "passed" and record.get("where") == "round"
+            and record.get("sha") == now):
+        try:
+            reviewed = current_review(lp)
+        except (Stopped, config.Error):
+            reviewed = False
+        if reviewed:
+            lp.log(f"final check: already passed in round {record.get('round')} "
+                   f"on {now[:12]}; landing on it")
+            return True
     fixed = 0       # the fixer rounds this run has spent on these commands here
     while True:
         sha = git(lp.wt, "rev-parse", "HEAD")
@@ -5308,11 +5420,11 @@ def final_check(lp, upstream):
                      "these commands do not verify the pinned commit.")
         text = (f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n" + text)
         (lp.run_dir / "final-check.log").write_text(text)
-        # the once-commands keep a history of their own: an ordinary round passing says
-        # nothing about them, and a fixer round that leaves them failing exactly as they
-        # were is the same task defect any other gate's would be.  Judged only once a fixer
-        # has actually had a turn at them here: a resume walks back in on the signature its
-        # last attempt left, and nothing has been asked to fix anything since.
+        # the once-commands keep a history of their own across the rounds and this
+        # re-run: a fixer round that leaves them failing exactly as they were is the
+        # same task defect any other gate's would be.  Judged only once a fixer has
+        # actually had a turn at them here: a resume walks back in on the signature
+        # its last attempt left, and nothing has been asked to fix anything since.
         try:
             same_failure(lp, ok, text, gate="once", compare=fixed > 0)
         except Blocked as exc:
@@ -5321,13 +5433,14 @@ def final_check(lp, upstream):
                           exc.section) from None
         if ok:
             lp.log("final check: all passed")
-            lp.state["final_check"] = {"outcome": "passed", "sha": sha}
+            lp.state["final_check"] = {"outcome": "passed", "sha": sha, "where": "landing"}
             record_flakes(lp.state, text)
             save_state(lp.run_dir, lp.state)
             return True
         failing = first_failure(text)
         lp.log("final check: FAILED")
-        lp.state["final_check"] = {"outcome": "failed", "sha": sha, "line": failing}
+        lp.state["final_check"] = {"outcome": "failed", "sha": sha, "where": "landing",
+                                   "line": failing}
         save_state(lp.run_dir, lp.state)
         drop_reserved_turn()    # the lap failed; the probe runs unheld
         said = target_fails(lp, upstream, text)
@@ -6104,8 +6217,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                f"Done-when commands, all must exit 0 (run them in {wt}):\n"
                + "\n".join(f"  $ {c}" for c in every))
     if once:
-        context += ("\nThe loop runs these once, in the final check on the commit about to "
-                    "ship; do not run them yourself:\n"
+        context += ("\nThe loop runs these alongside the review, and again at landing "
+                    "only if the target touched your files; do not run them yourself:\n"
                     + "\n".join(f"  $ {c}" for c in once))
     if handed:
         # a handover on resume is the same handover as one mid-round, and the model taking over
@@ -6575,22 +6688,38 @@ def retry_command(state):
 
 
 def final_check_line(state, cmds):
-    """The run's `final check:` result.md line: what the once-commands came to, if any."""
+    """The run's `final check:` result.md line: what the once-commands came to, and where."""
     record = state.get("final_check") or {}
     if record.get("outcome") in ("passed", "failed") and record.get("sha"):
+        where = record.get("where")
+        if where == "round":
+            rnd = record.get("round")
+            loc = f"in round {rnd}" if rnd else "in round"
+            return f"final check: {record['outcome']} {loc} on {record['sha']}"
+        if where == "landing":
+            return f"final check: {record['outcome']} at landing on {record['sha']}"
         return f"final check: {record['outcome']} on {record['sha']}"
     if not group_commands(cmds)[1]:
         return "final check: none (no once-commands)"
     return "final check: not run"
 
 
-def result_done_when(cmds):
-    """Commands as result.md shows them, including when a command runs only at final check."""
+def result_done_when(cmds, state=None):
+    """Commands as result.md shows them, including where each once-command ran."""
+    record = (state.get("final_check") or {}) if isinstance(state, dict) else {}
+    where = record.get("where") or ("landing" if record.get("outcome") else None)
+    rnd = record.get("round")
+    if where == "round":
+        suffix = f"(once, in round {rnd})" if rnd else "(once, in round)"
+    elif where == "landing":
+        suffix = "(once, at landing)"
+    else:
+        suffix = "(once)"
     marked = []
     for cmd in cmds:
         bare, once = split_once(cmd)
-        if once:
-            cmd = bare if bare.endswith("(once, final check)") else f"{bare} (once, final check)"
+        if once and "(once" not in bare:
+            cmd = f"{bare} {suffix}"
         marked.append(cmd)
     return marked
 
@@ -6638,7 +6767,7 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
                   "", "## Diff stat", "```", stat, "```"]
     if state.get("blocked"):
         parts += ["", state["blocked"], ""]
-    parts += ["", "## Done-when", "```", "\n".join(result_done_when(cmds)), "```", ""]
+    parts += ["", "## Done-when", "```", "\n".join(result_done_when(cmds, state)), "```", ""]
     parts += [final_check_line(state, cmds), ""]
     for entry in state["round_summaries"]:
         parts += [f"## Round {entry['round']} ({entry['verdict']}, done-when "
@@ -7146,6 +7275,16 @@ def failed_check(state):
 
     record = state.get("final_check") if isinstance(state.get("final_check"), dict) else {}
     if record.get("outcome") == "failed":
+        where = record.get("where")
+        if where == "round":
+            rnd = record.get("round")
+            loc = f"in round {rnd}" if rnd else "in round"
+            log = f"see round-{rnd}/once.log" if rnd else "see once.log"
+            return (f"the final check failed {loc}: "
+                    + (record.get("line") or first("once") or log))
+        if where == "landing":
+            return ("the final check failed at landing: "
+                    + (record.get("line") or first("once") or "see final-check.log"))
         return ("the final check failed: "
                 + (record.get("line") or first("once") or "see final-check.log"))
     if first("every"):
@@ -10864,6 +11003,16 @@ def status_rows(found, width, index=None, cfg=None):
     return header, groups
 
 
+def status_final_check(directory, state):
+    """The run's `final check:` line for `ak run status`, or None when unreadable."""
+    try:
+        _, body, _ = parse_task(directory / "task.md")
+        cmds = done_when(body, directory / "task.md")
+    except (OSError, config.Error):
+        return None
+    return final_check_line(state, cmds)
+
+
 def status_details(directory, state, providers=None, cfg=None, index=None):
     """The lines indented under one status row: result, record, workspace,
     and -- where the run waits -- why it stopped and what reopens it.
@@ -10882,6 +11031,9 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
     if paths["workspace"]:
         location = workspace_location(state, paths["workspace_present"])
         lines.append(f"  workspace: {paths['workspace']} ({location})")
+    checked = status_final_check(directory, state)
+    if checked:
+        lines.append(f"  {checked}")
     if state.get("first"):
         lines.append("  first")
     stalled = stall_summary(state)
@@ -11125,6 +11277,9 @@ def cmd_status(argv):
             if paths["workspace"]:
                 location = workspace_location(state, paths["workspace_present"])
                 print(f"  workspace: {paths['workspace']} ({location})")
+            checked = status_final_check(d, state)
+            if checked:
+                print(f"  {checked}")
             for death in death_lines(state):
                 print(death)
             onward = continue_line(state, d)

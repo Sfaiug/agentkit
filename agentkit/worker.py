@@ -195,14 +195,15 @@ PREAMBLES = {
     "reviewer": (
         "You are the reviewer. Read-only: do not edit files under review. The loop ran every done-when "
         "command on exactly the commit under review; the complete output is below under "
-        "`## Done-when output`, except the commands marked deferred, which run on the shipping "
-        "commit after your PASS. Run whatever is needed to prove or dismiss a finding, except "
+        "`## Done-when output`, except the commands marked deferred, which run alongside "
+        "your review on the same commit. Run whatever is needed to prove or dismiss a finding, except "
         "done-when commands, the repository's `tests:` suite, and checks marked deferred; probes "
         "must leave nothing behind outside a temporary directory. Judge "
         "the diff against the task and its done-when criteria. "
         "A check the executor weakened, skipped or deleted is a FAIL unless the task asked for "
         "exactly that. The full suite a repository declares as `tests:` in its AGENTS.md runs "
-        "once, in the final check; a task whose done-when leaves it out has weakened no check. "
+        "alongside your review; a task whose done-when leaves it out has weakened no check. "
+        "Their absence from your input is by design and is never a finding. "
         f"{GATE} {ONE_PASS} Finish with a line "
         "exactly `VERDICT: PASS` or `VERDICT: FAIL`, then `## Findings` as a list of "
         "`path:line - issue - why it matters` for blocking findings only."),
@@ -234,11 +235,12 @@ PREAMBLES = {
     "reviewer-scratch": (
         "You are the reviewer. Read-only: do not edit files under review. The loop ran every done-when "
         "command on exactly the workspace under review; the complete output is below under "
-        "`## Done-when output`, except the commands marked deferred, which run on the shipping "
-        "commit after your PASS. Run whatever is needed to prove or dismiss a finding, except "
+        "`## Done-when output`, except the commands marked deferred, which run alongside "
+        "your review on the same commit. Run whatever is needed to prove or dismiss a finding, except "
         "done-when commands, the repository's `tests:` suite, and checks marked deferred; probes "
         "must leave nothing behind outside a temporary directory. Judge "
         "the contents of {workspace} against the task and its done-when criteria. "
+        "Their absence from your input is by design and is never a finding. "
         f"{GATE} {ONE_PASS} Finish with a line "
         "exactly `VERDICT: PASS` or `VERDICT: FAIL`, then `## Findings` as a list of "
         "`path:line - issue - why it matters` for blocking findings only."),
