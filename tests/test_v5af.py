@@ -226,8 +226,8 @@ class V5af(unittest.TestCase):
         self.assertIn(f"final check: passed on {state['delivery_sha']}", result)
 
     def test_v5af_failing_once_command_gets_a_fixer_turn_then_merges(self):
-        # the branch carries a regression the target never had, so the failing gate
-        # passes on the target's tip and the fixer runs exactly as before
+        # the branch carries a regression the target never had: the failing gate names
+        # its file, so the target's tip is never probed and the fixer runs as before
         (self.wt / "regent").write_text("branch regression\n")
         run.git(self.wt, "add", "regent")
         run.git(self.wt, "commit", "-m", "branch regression")
@@ -241,7 +241,7 @@ class V5af(unittest.TestCase):
                             for prompt in self.prompts()),
                         "no fixer turn ran on the final check output")
         self.assertEqual(self.counts("once-fail"), 2)     # the failing run and its re-run
-        self.assertEqual(self.counts("once-pass"), 2)     # the target probe and the recheck
+        self.assertEqual(self.counts("once-pass"), 1)     # the recheck
         self.assertIn("final check: FAILED", self.log_text())
         self.assertIn("final check: all passed", self.log_text())
         result = (self.directory / "result.md").read_text()
