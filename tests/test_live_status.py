@@ -374,6 +374,9 @@ class LiveStatus(unittest.TestCase):
             return None
 
         def leave(wake):
+            until = time.monotonic() + 10
+            while self.pane.call_count == captures[0] and time.monotonic() < until:
+                time.sleep(0.05)                        # the clock's look, off the draw
             captures.append(self.pane.call_count)
             return "q"
 
@@ -481,13 +484,15 @@ class LiveStatus(unittest.TestCase):
                                            (34560, 3, 8, "~2d left"),     # two days
                                            (775800, 4, 8, "~36d left")):  # was ~51720m left
             with self.subTest(text=text), \
-                    patch.object(menu.history, "estimate_seconds", return_value=seconds):
+                    patch.object(menu.history, "estimate_seconds", return_value=seconds), \
+                    patch.dict(menu._ESTIMATES, clear=True):    # each figure its own history's
                 self.assertEqual(menu.seat_estimate("herdr", session=session,
                                                     job=(done, total, "")), text)
         # in the row and on the bar alike
         self.plan(3, 8)
         self.hook("UserPromptSubmit")
-        with patch.object(menu.history, "estimate_seconds", return_value=3600):
+        with patch.object(menu.history, "estimate_seconds", return_value=3600), \
+                patch.dict(menu._ESTIMATES, clear=True):
             _, row = self.row()
         self.assertIn(f"tasks {terminal.progress_bar(3, 8)} · ~5h left", row)
         self.assertIn(f"tasks {terminal.progress_bar(3, 8)} · ~5h left", self.options["status-left"])

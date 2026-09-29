@@ -157,7 +157,8 @@ NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Gro
 GREY = 0.15              # saturation under which a colour is a grey, sorted after every hue
 TICK = 10.0              # the longest the main screen waits for a key before drawing itself again
 STIR = 1.0               # ... and how often it looks for a seat's word or the meters having moved
-LOOK_WAIT = 0.5          # ... and the longest a draw waits for the looks the clock or a key began
+LOOK_WAIT = 0.5          # ... and the longest a read waits for the looks the clock or a key began
+ESTIMATE_EVERY = 60      # how long a repo's estimate is kept before its history is asked again
 # What the `—` says, from the error the last probe left; the first match wins.  No pattern here
 # guesses at a login: `token`, `401` and `login` turn up in lines a logged-in seat produces too,
 # and the one party that can say is the harness's `auth` verb, which the probe asks and records.
@@ -182,7 +183,8 @@ def read(prompt, default=None):
 
 
 class Live:
-    """The main screen's usage probe, off the thread that draws, and its way of asking for one.
+    """The main screen's usage probe and its reads, off the thread that draws, and their way of
+    asking for a draw.
 
     The menu never waits for an adapter: it draws from state/usage.json, and this starts
     `usage.collect(refresh=True)` in a thread that writes that same file, so the *next* draw
@@ -191,7 +193,7 @@ class Live:
     the following tick.  Every open menu on the box shares one cadence with the tick and with
     `ak usage` -- `usage.PROBE_EVERY` -- so a second seat's screen costs no adapter request at
     all; Muse's adapter keeps its own ten-minute cache besides.  The same pipe is how a seat's
-    word moving anywhere asks for a draw: see `watch`.
+    word moving anywhere asks for a draw, and how a read landing does: see `watch`.
     """
 
     def __init__(self, cfg, every=None):
@@ -204,8 +206,10 @@ class Live:
         os.set_blocking(self.reader, False)
         os.set_blocking(self.writer, False)
         self.watcher, self.done = None, threading.Event()
-        self.seen = None                 # the records the screen was drawn from, as they stood
+        self.seen = None                 # the records the last read was read from, as they stood
         self.looker = None               # the pass looking at every seat, while one is going
+        self.asked, self.looking = threading.Event(), False   # a read asked for, and a look
+        self.last = None                 # where each read leaves the seats and their groups
 
     def close(self):
         """Give the pipe back, once nothing can still be writing to it.
@@ -215,6 +219,9 @@ class Live:
         draw nobody asked for.
         """
         self.done.set()
+        self.asked.set()                 # the watcher out of its wait, to see it is done
+        if self.watcher is not None:
+            self.watcher.join(TICK)      # first: a read still going may start a look
         if self.looker is not None:
             self.looker.join(TICK)       # nothing a pass still going reads is taken away under it
         with self.lock:
@@ -253,12 +260,12 @@ class Live:
         self._wake()
 
     def look(self, found):
-        """Look at every seat again, off the draw, and wait LOOK_WAIT for that at most.
+        """Look at every seat again, off the read, and wait LOOK_WAIT for that at most.
 
         The looks are `v5o_groups`' own -- each seat captured, decided, and written to its record
-        and its bar -- in a thread of their own, so a seat whose capture hangs holds up no draw:
-        the draw is the records as they stand, and a look that lands after it is news `watch`
-        wakes the read for.  One pass at a time; one still going is waited on, not doubled.
+        and its bar -- in a thread of their own, so a seat whose capture hangs holds up no read:
+        the read is the records as they stand, and a look that lands after it is news `watch`
+        reads again for.  One pass at a time; one still going is waited on, not doubled.
         """
         if self.looker is None or not self.looker.is_alive():
             self.looker = threading.Thread(target=self._look, args=(found,), daemon=True)
@@ -271,21 +278,43 @@ class Live:
         except (config.Error, OSError, ValueError, TypeError, KeyError):
             pass    # a seat that cannot be looked at keeps what its record says
 
-    def watch(self):
-        """Have the read woken within STIR of any seat's record, or the meters, changing.
+    def read(self, look=False):
+        """The seats, their runs and their rows, read now into `last`, the words as recorded.
+
+        The one place the main screen reads them, and never between a key and its frame: a draw
+        is whatever the last read left, so a key that moves the highlight costs a draw and
+        nothing more, and one back from another screen shows the list at once.  With `look`
+        every seat is looked at first, so the rows it leaves are the looks' words.
+        """
+        found = orch.listing()
+        records = run_records()       # one pass over run.json a read, filing and drawing
+        orch.file_projectless(found, [state for _, state in records])
+        if look:
+            self.look(found)
+        self.last[:] = found, v5o_groups(self.cfg, found, records, look=False)
+
+    def ask(self, look=False):
+        """Have everything read again, and with `look` every seat looked at, off the draw."""
+        self.looking = self.looking or look
+        self.asked.set()
+
+    def watch(self, last):
+        """Read into `last` once, now, then again in a thread within STIR of any record
+        changing, or when asked (`ask`): the seats and their groups, for each draw to draw.
 
         Whatever decides a seat -- its own hook, the tick, `ak orch`, another menu -- writes the
-        word to that seat's record and to its bar in one go, so a screen that draws again when a
+        word to that seat's record and to its bar in one go, so a screen that reads again when a
         record changes, as recorded, never shows a row its bar contradicts for longer than this.
-        Called before every draw, so a record written while the screen is being drawn is still
-        news.  Looking is a `stat` per file -- its inode as well as its mtime, since every write
-        replaces the file -- and nothing here captures a pane or reads a record.  The draw a wake
-        asks for writes nothing either, so no menu's draw ever wakes another, or itself.
+        The records are noted before every read, so one written while it reads is still news.
+        Looking is a `stat` per file -- its inode as well as its mtime, since every write
+        replaces the file -- and nothing here captures a pane.  A read on news looks at no seat
+        and writes nothing, so no menu's read ever wakes another, or itself; each one landing
+        asks for one draw.
         """
-        self.seen = self.recorded()
-        if self.watcher is None:
-            self.watcher = threading.Thread(target=self._watch, daemon=True)
-            self.watcher.start()
+        self.last, self.seen = last, self.recorded()
+        self.read(look=True)
+        self.watcher = threading.Thread(target=self._watch, daemon=True)
+        self.watcher.start()
 
     def recorded(self):
         """usage.json and every seat record: each one's name, inode and mtime; and each
@@ -302,11 +331,23 @@ class Live:
         return found
 
     def _watch(self):
-        while not self.done.wait(STIR):
+        while True:
+            self.asked.wait(STIR)
+            if self.done.is_set():
+                return
             now = self.recorded()
-            if now != self.seen:
-                self.seen = now
-                self._wake()
+            if now == self.seen and not self.asked.is_set():
+                continue
+            self.asked.clear()
+            look = self.looking
+            if look:
+                self.looking = False     # a look asked for since is this one: it starts after
+            self.seen = now
+            try:
+                self.read(look)
+            except (config.Error, OSError, ValueError, TypeError, KeyError):
+                pass    # what cannot be read now stays drawn as it was last read
+            self._wake()
 
     def _wake(self):
         """Ask for one draw: a byte on the pipe the read is selecting on."""
@@ -641,11 +682,16 @@ def seat_progress(name):
     return (job[0], job[1]) if job else (0, 0)
 
 
+_ESTIMATES = {}          # repo -> (when its history was asked, what it answered)
+_ESTIMATES_LOCK = threading.Lock()
+
+
 def seat_estimate(seat_name, session=None, job=None):
     """Return the remaining-plan estimate used by both the row and the tmux bar.
 
     In the unit it reads in at a glance: minutes under an hour, hours under two days, else
-    days -- `~45m left`, `~5h left`, `~36d left`.
+    days -- `~45m left`, `~5h left`, `~36d left`.  A repo's history is asked once every
+    ESTIMATE_EVERY seconds at most, whoever is drawing: the query reads records per row.
     """
     if session is None:
         try:
@@ -658,7 +704,11 @@ def seat_estimate(seat_name, session=None, job=None):
     done, total = job[0] or 0, job[1]
     if done >= total or not session.get("repo"):
         return None
-    seconds = history.estimate_seconds(session["repo"])
+    with _ESTIMATES_LOCK:
+        asked, seconds = _ESTIMATES.get(session["repo"], (None, None))
+        if asked is None or time.monotonic() - asked >= ESTIMATE_EVERY:
+            asked, seconds = time.monotonic(), history.estimate_seconds(session["repo"])
+            _ESTIMATES[session["repo"]] = asked, seconds
     if seconds is None:
         return None
     minutes = max(0, round(seconds * (total - done) / 300) * 5)
@@ -1071,7 +1121,7 @@ def v5o_format_seats(infos, term_width, widths=None):
 
 
 def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=None, look=True,
-         records=None):
+         records=None, groups=None):
     """The menu at rest, and (page, pages) as drawn.
 
     The frame is the header (`agentkit` at the left, the clock at the right),
@@ -1098,7 +1148,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     lines under that, and `drawn["ask"]` is the screen row of the first.
 
     `look` is whether the seats are looked at for this draw or drawn as recorded, and
-    `records` the run records it is drawn from, read here when they are not handed in.
+    `records` the run records it is drawn from, read here when they are not handed in;
+    `groups`, `v5o_groups`' answer already in hand, is drawn as it is, and nothing is read.
     """
     owned = drawn is not None
     if (not owned and sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
@@ -1106,7 +1157,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         print("\033[2J\033[H", end="")
     width, height = terminal.width(), terminal.height()
     layout = terminal.layout_width(width)
-    ordered, infos, total_needing, _silent = v5o_groups(cfg, found, records, look=look)
+    ordered, infos, total_needing, _silent = (v5o_groups(cfg, found, records, look=look)
+                                              if groups is None else groups)
     words = {info["name"]: info["word"] for info in infos}
     # The heading of a project naming its feature switches is a row as well, its checkout the name.
     order = [name for project in ordered for name in
@@ -3337,11 +3389,13 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     nothing typed draws again, so the clock, the seat rows, the counts on the top line and the
     usage stay true in front of whoever left it open -- and it ends within STIR of any seat's
     record or the usage cache changing, so a row never says for longer what its bar no longer
-    does.  The first draw, one on the clock and one after a key have every seat looked at again
-    in a thread (`Live.look`) and wait LOOK_WAIT for it at most; every draw is the records as
-    they stand and captures nothing, so no seat's capture holds up a draw.  The first draw's
-    meters are the cache's, and the probe that follows it runs in a thread and asks for one
-    more draw when it lands.
+    does.  Nothing is read between a key and its frame: the seats, their runs and their rows
+    are read once before the first draw, then in `Live`'s thread -- on the clock, after a key
+    that did more than move the highlight, and within STIR of a record changing -- and every
+    draw is what the last read left, drawn again when the next one lands.  The clock and those
+    keys have every seat looked at again as well, in a thread of its own (`Live.look`), so no
+    seat's capture holds up a read or a draw.  The first draw's meters are the cache's, and
+    the probe that follows it runs in a thread and asks for one more draw when it lands.
     Nothing here waits on an adapter, and a key typed during a draw is read by the next wait.
 
     On a terminal the menu has the keyboard (`terminal.Keyboard`) and there are no lines: a
@@ -3358,27 +3412,26 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     """
     keys = OVERLAY_KEYS if overlay else KEYS
     actions = ("n", "x", "r") if overlay else ("n", "x", "c", "m", "i")
-    page, cursor, ahead, look = 0, None, None, True
+    page, cursor, ahead, look = 0, None, None, False
+    last = [[], None]                     # what the last read left: the seats and their groups
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
         if keyboard.take():
             terminal.sense()              # true colour and the background, once, before a draw
+        live.watch(last)                  # read and looked at once, before the first draw
         while True:
-            found = orch.listing()
-            records = run_records()       # one pass over run.json a draw, filing and drawing
-            orch.file_projectless(found, [state for _, state in records])
+            if look:
+                live.ask(look=True)       # read and looked at again, off the draw
+            found, groups = last          # no key waits for a read: it draws the last one
             messages = orch.job_notices()
             if messages:
                 keyboard.give()           # a notice waits for its Enter, like any sub-screen
                 show_notices(messages)
             drawn = {} if keyboard.take() else None
             own = config.current_session() if overlay else None
-            if look:
-                live.look(found)          # the clock's or a key's looks, LOOK_WAIT at most
-            live.watch()                  # before the draw: a word that moves during it is news
             listed = keys if drawn is None else \
                 f"{move_keys()}   {TERMINAL_KEYS if not overlay else keys}"
             page, pages = draw(cfg, found, listed, page, cursor, drawn, own, look=False,
-                               records=records)
+                               groups=groups)
             cursor = drawn["cursor"] if drawn else cursor   # the seat he sees highlighted
             live.probe()                  # after the draw, never before it: the cache is enough
             if ahead is not None:
@@ -3396,6 +3449,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                     if order:
                         at = order.index(cursor) + terminal.step(key)
                         cursor = order[min(max(at, 0), len(order) - 1)]
+                    look = False          # the highlight moves over what is in hand
                     continue
                 typed, key = key, pressed(key, shown, found)
                 if isinstance(key, Path):
@@ -3434,7 +3488,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
 
                     def around():     # the menu around the question, drawn again on a resize
                         draw(cfg, found, "esc keep", page, cursor, drawn, own, ask=seat,
-                             look=False)
+                             look=False, groups=groups)
                         return drawn["ask"]
                     if terminal.choose(["Keep", "Stop"], "Keep", around=around) != "Stop":
                         continue
