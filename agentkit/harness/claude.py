@@ -6,6 +6,7 @@ An alternate login also needs the seat's trust and hooks in its own config direc
 from pathlib import Path
 import codecs
 import json
+import math
 import os
 import re
 import sys
@@ -259,6 +260,57 @@ def account_config(check=False):
         if source.exists() and not target.exists() and not target.is_symlink():
             target.symlink_to(source, target_is_directory=source.is_dir())
     os.environ["CLAUDE_CONFIG_DIR"] = str(directory)
+
+
+def turn_meters(out):
+    """The account's limits this turn printed in its own stream, as endpoint meters, or [].
+
+    Every `claude -p` turn prints `rate_limit_event`s carrying the account's five-hour
+    and seven-day utilizations (0 to 1) with their resets. The last one is the reading:
+    `five_hour` is the session meter and `seven_day` the weekly_all one, so the turn's
+    own account is measured with no request. A turn without the event, or with no valid
+    window in it, says nothing.
+    """
+    path = Path(out)
+    path = path if path.is_file() else path / "events.jsonl"
+    found = None
+    try:
+        with path.open(encoding="utf-8", errors="replace") as stream:
+            for line in stream:
+                if "rate_limit_event" not in line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict) or event.get("type") != "rate_limit_event":
+                    continue
+                info = event.get("rate_limit_info")
+                windows = info.get("unifiedWindows") if isinstance(info, dict) else None
+                if not isinstance(windows, dict):
+                    continue
+                meters = []
+                # The session window is usage.SESSION_SECS; the week is seven days, as
+                # adapters/claude.sh names them off the endpoint's groups.
+                for key, name, window in (("five_hour", "session", 18000),
+                                          ("seven_day", "weekly_all", 604800)):
+                    reading = windows.get(key)
+                    if not isinstance(reading, dict):
+                        continue
+                    share, resets = reading.get("utilization"), reading.get("resetsAt")
+                    if (isinstance(share, bool) or not isinstance(share, (int, float))
+                            or not math.isfinite(share) or not 0 <= share <= 1):
+                        continue
+                    if (isinstance(resets, bool) or not isinstance(resets, (int, float))
+                            or not math.isfinite(resets) or resets <= 0):
+                        continue
+                    meters.append({"name": name, "used": float(share) * 100.0,
+                                   "resets_at": resets, "window_secs": window})
+                if meters:
+                    found = meters
+    except OSError:
+        return []
+    return found or []
 
 
 if __name__ == "__main__":

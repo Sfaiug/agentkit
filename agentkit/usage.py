@@ -920,6 +920,80 @@ def mark_exhausted(cfg, provider, until=None, account=None):
     return float(until)
 
 
+def record_turn_meters(cfg, provider, meters, account=None, now=None):
+    """The meters a worker turn reported about the account it ran on become that reading.
+
+    A file and no request, so neither the snapshot's five minutes nor any probe stands
+    between it and the menu, `ak usage` and the next pick. The endpoint's own cadence
+    is untouched -- no ask went out, so none is written down, and a meter the turn
+    does not carry keeps refreshing on it. Only the meters the turn carries are
+    replaced, and only on that account: a turn never moves another login's meters. A
+    turn that said nothing changes nothing, and an older reading never replaces a
+    newer one: the write shares the probe's own lock, so a probe in flight cannot
+    write back the reading from before the turn. Returns whether anything was written.
+    """
+    if not isinstance(meters, list) or not meters:
+        return False
+    fresh = [m for m in meters if isinstance(m, dict) and isinstance(m.get("name"), str)
+             and _number(m.get("used")) is not None]
+    if not fresh:
+        return False
+    measured = _number(now) if now is not None else time.time()
+    if measured is None:
+        measured = time.time()
+    # `_probe_gently` reads its `cached` under this same lock, so sharing it puts the
+    # two writes in one order: its refusal can only keep a reading this turn wrote,
+    # never write back the one from before it. Nothing is written to the lock file
+    # itself: no ask went out, so the endpoint's own cadence must not move.
+    try:
+        config.ensure_dirs()
+        handle = _lock(provider, account).open("a")
+    except OSError:
+        handle = None
+    if handle is None:
+        return _record_turn_meters(cfg, provider, fresh, account, measured)
+    with handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        return _record_turn_meters(cfg, provider, fresh, account, measured)
+
+
+def _record_turn_meters(cfg, provider, fresh, account, measured):
+    """The read-modify-write itself, with the account's probe lock held."""
+    cached = _cached_provider(provider, account)
+    cached = cached if isinstance(cached, dict) else {}
+    # The measurement, not the ask: a refused probe's `probed_at` is fresh and its
+    # reading is not, so `fetched_at` is the age where there is one.
+    stood = _number(cached.get("fetched_at"))
+    if stood is None:
+        stood = _number(cached.get("probed_at"))
+    if stood is not None and measured <= stood:
+        return False
+    old = cached.get("meters") if isinstance(cached.get("meters"), list) else []
+    # Normalized as a probed meter is, because every reader of the snapshot reads one.
+    new = {m["name"]: _normalized(m, measured) for m in fresh}
+    merged = [new[m["name"]] if isinstance(m, dict) and m.get("name") in new else m
+              for m in old if isinstance(m, dict) and isinstance(m.get("name"), str)]
+    merged += [meter for name, meter in new.items()
+               if name not in {m.get("name") for m in merged if isinstance(m, dict)}]
+    prov = dict(cached)
+    prov.setdefault("provider", provider)
+    if "harness" not in prov or "via" not in prov:
+        try:
+            harness, via = config.provider_harness(cfg, provider)
+            prov.setdefault("harness", harness)
+            prov.setdefault("via", via)
+        except config.Error:
+            pass
+    prov.update(meters=merged, probed_at=measured, error=None,
+                pace=max((m["pace"] for m in merged
+                            if isinstance(m, dict) and m.get("pace") is not None),
+                           default=None))
+    for key in ("fetched_at", "probe_error", "probe_failed_at", "stale_since"):
+        prov.pop(key, None)
+    _patch(provider, prov, measured, account)
+    return True
+
+
 def account(cfg, provider):
     """(the account a worker turn on this provider runs on, whether it has room left).
 
