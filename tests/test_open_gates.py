@@ -39,7 +39,7 @@ class OpenGates(unittest.TestCase):
         overrides = patch.dict(os.environ, {name: '' for name in
                                ('CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'XDG_CONFIG_HOME',
                                 'XDG_DATA_HOME', 'GROK_HOME', 'GH_CONFIG_DIR',
-                                'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG')})
+                                'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG', 'AGENTKIT_ACCOUNT')})
         overrides.start()
         self.addCleanup(overrides.stop)
         # Every harness binary a gate asks about is a fake, ahead of any this host installed:
@@ -54,7 +54,7 @@ class OpenGates(unittest.TestCase):
         self.addCleanup(path.stop)
 
     def test_smoke_links_only_credentials_never_caller_directories(self):
-        setup = SMOKE[SMOKE.index('smoke_home()'):SMOKE.index('# A bounded way')]
+        setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
         credentials = ('.claude/.credentials.json', '.codex/auth.json',
                        '.config/muse/auth.json', '.grok/auth.json',
                        '.local/share/opencode/auth.json', '.config/gh/hosts.yml',
@@ -84,6 +84,14 @@ class OpenGates(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             links = {str(path.relative_to(home)): path for path in home.rglob('*')
                      if path.is_symlink()}
+            # The host's probe cadence is shared live: each probe file links the host's own file,
+            # one the host may have yet to write, in a state directory that is there for it.
+            probes = {name for name in links if name.startswith('.agentkit/state/')}
+            self.assertTrue(probes)
+            for name in probes:
+                self.assertRegex(name, r'-probe\.(lock|retry)$')
+                self.assertEqual(links.pop(name).resolve(), caller / name)
+                self.assertFalse((caller / name).is_dir(), f'{name} links a directory')
             self.assertEqual(set(links), set(credentials))
             for name, path in links.items():
                 self.assertTrue(path.is_file(), f'{name} links a directory')
@@ -132,7 +140,7 @@ class OpenGates(unittest.TestCase):
             self.assertFalse(os.path.lexists(home / '.codex/auth.json'))
 
     def test_smoke_counts_only_logins_its_adapters_confirm(self):
-        setup = SMOKE[SMOKE.index('smoke_home()'):SMOKE.index('# A bounded way')]
+        setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
         # A lapsed Grok key its refresh token renews: the real adapter's yes on the linked login.
         login = {'id': {'key': 'k', 'expires_at': '2000-01-01T00:00:00Z', 'refresh_token': 'r'}}
         with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
@@ -173,7 +181,7 @@ class OpenGates(unittest.TestCase):
             self.assertEqual((home / '.grok/auth.json').resolve(), caller / '.grok/auth.json')
 
     def test_gates_merge_back_only_valid_renamed_logins_whole(self):
-        setup = SMOKE[SMOKE.index('smoke_home()'):SMOKE.index('# A bounded way')]
+        setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
         sync_back = FRESH[FRESH.index('sync_back() {'):FRESH.index('\ncleanup_logs()')]
         old = {'claudeAiOauth': {'accessToken': 'old', 'refreshToken': 'old-pair',
                                 'expiresAt': 4_000_000_000_000}}
@@ -252,7 +260,7 @@ PY
         self.assertLess(cleanup.index('sync_back'), cleanup.index('cleanup_logs'))
 
     def test_smoke_borrows_overridden_logins_before_clearing_overrides(self):
-        setup = SMOKE[SMOKE.index('smoke_home()'):SMOKE.index('# A bounded way')]
+        setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
         with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             caller, home = root / 'caller', root / 'work/home'
@@ -330,7 +338,7 @@ if false; then :; else
             self.assertEqual(caller.read_text(), 'seat login')
 
     def test_smoke_install_and_hooks_leave_caller_contents_and_mtimes_untouched(self):
-        setup = SMOKE[SMOKE.index('smoke_home()'):SMOKE.index('# A bounded way')]
+        setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
         with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             caller, home, binaries = root / 'caller', root / 'work/home', root / 'bin'
@@ -357,6 +365,8 @@ if false; then :; else
                 path.write_text(content)
                 os.utime(path, ns=(1_000_000_000, 1_000_000_000))
             (caller / '.local/bin/ak').symlink_to('old-ak')
+            # A host that ran agentkit has its state directory, where the shared probe files live.
+            (caller / '.agentkit/state').mkdir()
             binaries.mkdir()
             # Real installers and hooks, but no real harness, tmux server or npx download.
             for name in ('claude', 'codex', 'muse', 'grok', 'opencode', 'tmux', 'npx'):
@@ -400,7 +410,7 @@ git config --global user.name sandbox
                 self.assertEqual(authority.resolve(), caller / '.local/share/browser-bridge/Xauthority')
 
     def test_smoke_never_reads_callers_config(self):
-        setup = SMOKE[SMOKE.index('smoke_home()'):SMOKE.index('# A bounded way')]
+        setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
         flags = SMOKE[SMOKE.index('codex_model_flag_check()'):SMOKE.index('# Fake-adapter loops:')]
         shipped = (REPO / 'config.default.toml').read_text()
         with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
@@ -417,10 +427,13 @@ git config --global user.name sandbox
             for name in ('agentkit', 'adapters', 'tools', 'hooks'):
                 (fixture / name).symlink_to(REPO / name)
             (fixture / 'config.default.toml').write_text(shipped)
-            # Every Python in the extracted checks refuses even an attempted caller read.
+            # Every Python in the extracted checks refuses even an attempted caller read, but
+            # smoke_share_probes' own (the one given SMOKE_CALLER_HOME): it looks up only which
+            # login each host probe file tracks, never what the sandbox runs with.
             (fixture / 'sitecustomize.py').write_text('''import os, sys
 def guard(event, args):
-    if event == 'open' and args[0] == os.environ['FORBIDDEN_CONFIG']:
+    if (event == 'open' and args[0] == os.environ['FORBIDDEN_CONFIG']
+            and 'SMOKE_CALLER_HOME' not in os.environ):
         raise AssertionError('smoke read the caller config')
 sys.addaudithook(guard)
 ''')
@@ -699,7 +712,7 @@ ak() { printf '%s\\n' "$ROW"; }
                 self.assertIn(why, out)
 
     def test_smoke_finds_installer_binaries_without_login_shell_path(self):
-        setup = SMOKE[SMOKE.index('smoke_home()'):SMOKE.index('# A bounded way')]
+        setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
         start = SMOKE.index('model_unavailable()')
         helpers = SMOKE[start:SMOKE.index('U="$WORK/usage.json"', start)]
         with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
@@ -731,7 +744,7 @@ for model in opus spark astra grok mimo; do model_unavailable "$model"; done
             self.assertEqual(result.stdout, '')
 
     def test_smoke_keeps_webhook_get_check_without_posting(self):
-        setup = SMOKE[SMOKE.index('smoke_home()'):SMOKE.index('# A bounded way')]
+        setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
         check = SMOKE[SMOKE.index('# --- 5: notify'):SMOKE.index('# --- 5b:')]
         methods = []
         status = [200]
@@ -779,7 +792,7 @@ smoke_home
                 thread.join()
 
     def test_claude_stream_leaves_no_credential_links_in_output(self):
-        start = SMOKE.index('smoke_home()')
+        start = SMOKE.index('smoke_share_probes()')
         stream = SMOKE[start:SMOKE.index('usage_fresh_check()', start)]
         with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
