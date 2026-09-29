@@ -16,7 +16,6 @@ import re
 import shlex
 import subprocess
 import sys
-import time
 import uuid
 
 from .. import config
@@ -32,31 +31,6 @@ SEAT_EVENTS = ("UserPromptSubmit", "Stop", "Interrupt", "PermissionRequest")
 # the one script on both harnesses.
 STOP_RULE = "hooks/orchestrator-stop.sh"
 FRESH = "Codex ownership unverified; starts fresh"
-
-
-def seat_auth(account):
-    """Named seats use file-only logins; the worker adapter still uses the usual login."""
-    if account in (None, config.DEFAULT_ACCOUNT):
-        from .. import worker
-        return worker.auth_ok("codex", seat=True, account=account)
-    path = Path.home() / f".codex-{account}" / "auth.json"
-    why = f"codex: no valid seat login in {path}"
-    try:
-        data = json.loads(path.read_text())
-        tokens = data.get("tokens") or {}
-        token = tokens.get("access_token") or data.get("access_token")
-        expires = tokens.get("expires_at", data.get("expires_at"))
-        if not isinstance(token, str) or not token:
-            return False, why
-        if expires is not None:
-            if not str(expires).isdigit():
-                return False, why
-            until = int(expires) // (1000 if len(str(expires)) > 11 else 1)
-            if until <= time.time():
-                return False, why
-    except (OSError, ValueError, AttributeError):
-        return False, why
-    return True, f"codex: seat login in {path}"
 
 
 def path_for(record):

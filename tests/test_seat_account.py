@@ -469,7 +469,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
                 if blob is not None:
                     second.parent.mkdir(exist_ok=True)
                     second.write_text(blob)
-                self.assertFalse(codex.seat_auth("second")[0])
+                self.assertFalse(orch.harness_plugin("codex").seat_auth("second")[0])
                 self.tick()
                 self.assertEqual(self.commands, [])
                 with self.assertRaisesRegex(config.Error, "cannot open a seat"):
