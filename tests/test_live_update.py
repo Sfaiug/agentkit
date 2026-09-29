@@ -106,7 +106,8 @@ class LiveUpdate(unittest.TestCase):
                                 (watch, "sweep_preexisting"), (watch, "revive_seats"),
                                 (run, "deliver_job_handbacks"), (run, "schedule_gc"),
                                 (orch, "stamp"), (orch, "sweep"), (usage, "collect"),
-                                (browser, "tidy"), (watch, "incoming"), (watch, "outgoing")):
+                                (browser, "tidy"), (watch, "incoming"), (watch, "outgoing"),
+                                (update, "keep_current")):
                 stack.enter_context(patch.object(where, name))
             stack.enter_context(patch.object(run, "run_dirs", return_value=[]))
             stack.enter_context(patch.object(config, "load", return_value=self.cfg))

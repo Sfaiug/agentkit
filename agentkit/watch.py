@@ -16,7 +16,8 @@ needing them nor a job finishing, and those two are all Discord ever hears.
 Every tick also looks at the seats themselves: a pane showing its harness's own words for a
 stall is typed back into motion, which is what makes a night's work survive an API error nobody
 was there to answer.  See the babysitter's own block below.  And merged agentkit goes live here,
-working sessions or not: see `update.go_live`.
+working sessions or not: see `update.go_live`; so does a harness's newer release, upgraded in
+the background through `ak update`'s gates: see `update.keep_current`.
 
 What was reviewed, what was said and which seat is stuck is kept in ~/.agentkit/state/watch.json,
 so a tick never launches the same review twice and never says the same thing twice.  A launched
@@ -5559,6 +5560,12 @@ def main(argv):
                 update.go_live(log)
             except (config.Error, OSError, ValueError) as exc:
                 log(f"WARN agentkit did not go live: {exc}")
+            # ... and then every harness: a newer release is upgraded by a child started on that
+            # new code, gated and put back where a gate fails, and no tick waits on it.
+            try:
+                update.keep_current(log)
+            except (config.Error, OSError, ValueError, TypeError) as exc:
+                log(f"WARN the harness upgrade pass did not run: {exc}")
         user, why = gh_json(config.RUNS, "api", "user")
         me = user.get("login") if isinstance(user, dict) else None
         if not isinstance(me, str) or not me:
