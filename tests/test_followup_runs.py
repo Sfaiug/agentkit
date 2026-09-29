@@ -4,6 +4,7 @@ Temporary HOME, local git remote, fake gh and fake models; no detached run is st
 """
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 import test_review_gate as gate
-from agentkit import browser, config, menu, orch, run, watch, worker
+from agentkit import browser, config, menu, notify, orch, run, watch, worker
 
 
 DEFECT = "broken.py:1 - empty input crashes - base abc123: `first([])` raises IndexError"
@@ -43,6 +44,15 @@ else:
         answer = "## Summary\n\nnot needed: another open run fixes this site"
     elif mode == "blocked":
         answer = "## Blocked\nShould empty input return None or raise ValueError?"
+    elif mode == "bullets":
+        answer = ("## Summary\n\nnot needed: target already fixes empty input\n"
+                  "- checked origin/main, first([]) returns None\n- no open run at this site")
+    elif mode == "evidence":
+        answer = ("not needed: another open run fixes this site\n"
+                  "verified in run.json: a queued run fixes broken.py:1")
+    elif mode == "preamble":
+        answer = ("I fetched origin/main and ran first([]); it returns None there.\n\n"
+                  "## Summary\n\nnot needed: target already fixes empty input")
     else:
         test = wt / "test_empty.py"
         test.write_text("from broken import first\nassert first([]) is None\n")
@@ -65,6 +75,7 @@ class FollowupRuns(unittest.TestCase):
 
     def setUp(self):
         gate.ReviewGate.setUp(self)
+        self.real_announce = run.announce
         self.logs, self.spawns, self.gh_calls, self.endings = [], [], [], []
         for harness in {entry["harness"] for entry in self.cfg["models"].values()}:
             self.script(self.root / "adapters" / f"{harness}.sh", ADAPTER)
@@ -310,6 +321,200 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn("Should empty input", self.endings[-1])
         self.assertIn("finished BLOCKED", self.endings[-1])
         self.assertEqual(self.gh_calls, [])
+
+    def test_not_needed_with_bullets_or_evidence_ends_quietly(self):
+        for index, mode in enumerate(("bullets", "evidence")):
+            directory, state = self.source(f"summary-{index}")
+            child = self.start(directory, state)[0]
+            with patch.object(run, "verify_work", side_effect=AssertionError("checked")), \
+                    patch.object(run, "review", side_effect=AssertionError("reviewed")):
+                code, ended = self.drive(child, mode)
+            self.assertEqual(code, 0, "\n".join(self.logs))
+            self.assertEqual(ended["state"], "not_needed")
+            self.assertIsNone(ended["pr"])
+            self.assertIn("finished DONE: not needed:", self.endings[-1])
+        self.assertEqual(self.gh_calls, [])
+
+    def test_not_needed_with_preamble_before_summary_ends_quietly(self):
+        directory, state = self.source("summary-preamble")
+        child = self.start(directory, state)[0]
+        with patch.object(run, "verify_work", side_effect=AssertionError("checked")), \
+                patch.object(run, "review", side_effect=AssertionError("reviewed")):
+            code, ended = self.drive(child, "preamble")
+        self.assertEqual(code, 0, "\n".join(self.logs))
+        self.assertEqual(ended["state"], "not_needed")
+        self.assertIsNone(ended["pr"])
+        self.assertIn("finished DONE: not needed:", self.endings[-1])
+        self.assertEqual(self.gh_calls, [])
+
+    def test_not_needed_matcher_accepts_usual_summary_forms(self):
+        class Stub:
+            pass
+        lp = Stub()
+        lp.state = {"followup": {"place": "broken.py:1"}}
+        positives = [
+            ("not needed: target already fixes empty input",
+             "target already fixes empty input"),
+            ("I fetched origin/main and ran first([]); it returns None there.\n\n"
+             "## Summary\n\nnot needed: target already fixes empty input",
+             "target already fixes empty input"),
+            ("## Summary\n\n- not needed: another open run fixes this site",
+             "another open run fixes this site"),
+            ("## Summary\n\n**not needed:** target already fixes empty input",
+             "target already fixes empty input"),
+            ("### Summary\nnot needed: gone",
+             "gone"),
+            ("## Summary\nFetched origin/main; first([]) returns None there.\n"
+             "not needed: target already fixes empty input",
+             "target already fixes empty input"),
+        ]
+        for text, why in positives:
+            with self.subTest(text=text), self.assertRaises(run.NotNeeded) as raised:
+                run.followup_not_needed(lp, text)
+            self.assertEqual(str(raised.exception), why)
+        for text in ("## Summary\nRegression test failed with IndexError before; passed after.",
+                     "## Blocked\nShould empty input return None or raise ValueError?",
+                     "## Summary\nThe extra logging is not needed: removed it.",
+                     "## Summary\nnot needed:"):
+            with self.subTest(text=text):
+                run.followup_not_needed(lp, text)
+
+    def test_not_needed_under_gone_seat_neither_revives_nor_cards(self):
+        directory = config.RUNS / "quiet"
+        directory.mkdir()
+        state = {"run_id": "quiet", "state": "not_needed", "not_needed": "already fixed",
+                 "launched_session": "seat", "started_at": 1, "finished_at": 2,
+                 "title": "Fix broken.py:1"}
+        run.save_state(directory, state)
+        with patch.object(run, "launcher_world", return_value=nullcontext(False)), \
+                patch.object(watch, "revive", side_effect=AssertionError("revived")), \
+                patch.object(notify, "shaped", side_effect=AssertionError("card")):
+            self.real_announce(dict(state), directory, self.logs.append, self.cfg)
+        ended = run.read_state(directory)
+        self.assertTrue(ended["reported"])
+        self.assertNotIn("handback_pending", ended)
+        self.assertNotIn("notification_pending", ended)
+
+    def test_open_followup_only_while_running_queued_live_or_self_resuming(self):
+        directory, state = self.source("parent")
+        child_dir = config.RUNS / "fix"
+        child_dir.mkdir()
+        wt = self.root / "wt-fix"
+        wt.mkdir()
+        base = {"run_id": "fix", "followup": {"run": "parent", "text": DEFECT,
+                                              "place": run.followup_place(DEFECT)},
+                "launched_session": "seat", "repo": str(self.repo)}
+        blocking = [
+            {"state": "running", "pid": "dead"},
+            {"state": "queued", "pid": "live"},
+            {"state": "queued", "pid": "dead", "slot_waiting": True},
+            {"state": "exhausted", "quota_dry": True},
+            {"state": "waiting_login", "waiting_for": "claude"},
+            {"state": "interrupted", "worktree": str(wt),
+             "deaths": [{"at": 1, "pid": 1, "reason": "loop gone"}]},
+        ]
+        quiet = [
+            {"state": "queued", "pid": "dead"},
+            {"state": "queued", "pid": "dead", "slot_waiting": False},
+            {"state": "interrupted"},
+            {"state": "interrupted", "worktree": str(wt),
+             "deaths": [{"at": 1, "pid": 1, "reason": "loop gone", "parked": True}]},
+            {"state": "interrupted",
+             "deaths": [{"at": 1, "pid": 1, "reason": "loop gone"}]},
+            {"state": "exhausted", "error": "tool stopped"},
+            {"state": "stalled"},
+            {"state": "not_needed", "not_needed": "gone"},
+            {"state": "pass"},
+            {"state": "pass", "merged": True},
+            {"state": "pass", "merge_failed": True},
+            {"state": "fail"},
+            {"state": "blocked"},
+            {"state": "stopped"},
+        ]
+        with patch.object(run, "process_active", side_effect=lambda s: s.get("pid") == "live"):
+            for extra in blocking:
+                run.save_state(child_dir, {**base, **extra})
+                self.assertEqual(run.open_followup(state, DEFECT), "fix", extra)
+            for extra in quiet:
+                run.save_state(child_dir, {**base, **extra})
+                self.assertIsNone(run.open_followup(state, DEFECT), extra)
+
+    def test_finish_still_ends_when_followups_fail_to_start(self):
+        for index, exc in enumerate((config.Error("boom"), OSError("disk gone"),
+                                     run.StopRequested("stopped"))):
+            self.logs.clear()
+            self.endings.clear()
+            directory, state = self.source(f"broken-{index}")
+            with patch.object(run, "start_followups", side_effect=exc):
+                run.finish(dict(state), directory, self.logs.append, self.cfg)
+            self.assertTrue(any("could not start" in line for line in self.logs), exc)
+            self.assertTrue(self.endings, exc)
+        self.logs.clear()
+        directory, state = self.source("merge-fail")
+        child = self.start(directory, state)[0]
+        with patch.object(run, "start_followups", side_effect=config.Error("boom")) as started, \
+                patch.object(run, "stop_run_tree", wraps=run.stop_run_tree) as stopped:
+            code, fixed = self.drive(child)
+        self.assertEqual(code, 0, "\n".join(self.logs))
+        self.assertTrue(fixed["merged"])
+        self.assertTrue(started.called)
+        self.assertTrue(stopped.called)
+        self.assertTrue(any("could not start" in line for line in self.logs))
+        self.assertIn("finished PASS", self.endings[-1])
+        self.assertFalse(Path(fixed["worktree"]).exists())
+
+    def test_start_followups_logs_item_failure_and_continues_or_stops(self):
+        directory, state = self.source("items", followups=[DEFECT, OTHER])
+        calls = []
+        real_prepare = run.prepare
+
+        def flaky_prepare(d, o, log, cfg, *args, **kwargs):
+            calls.append(d.name)
+            if len(calls) == 1:
+                raise OSError("disk gone")
+            return real_prepare(d, o, log, cfg, *args, **kwargs)
+
+        with patch.object(run, "prepare", side_effect=flaky_prepare):
+            children = self.start(directory, state)
+        self.assertEqual(len(children), 1)
+        self.assertTrue(any("could not start" in line for line in self.logs))
+        self.logs.clear()
+        mkdir_calls = []
+        real_mkdir = Path.mkdir
+
+        def flaky_mkdir(self, *args, **kwargs):
+            if self.parent == config.RUNS and len(mkdir_calls) == 0:
+                mkdir_calls.append(str(self))
+                raise OSError("disk gone")
+            return real_mkdir(self, *args, **kwargs)
+
+        second = [DEFECT.replace("broken.py:1", "second.py:1"),
+                  OTHER.replace("other.py:2", "second.py:2")]
+        directory, state = self.source("mkdir", followups=second)
+        with patch.object(Path, "mkdir", flaky_mkdir):
+            children = self.start(directory, state)
+        self.assertEqual(len(children), 1)
+        self.assertTrue(any("could not start" in line for line in self.logs))
+        self.logs.clear()
+        third = [DEFECT.replace("broken.py:1", "third.py:1"),
+                 OTHER.replace("other.py:2", "third.py:2")]
+        directory, state = self.source("stopped", followups=third)
+        with patch.object(run, "prepare", side_effect=run.StopRequested("stopped")):
+            children = self.start(directory, state)
+        self.assertEqual(children, [])
+        self.assertTrue(any("could not start" in line for line in self.logs))
+
+    def test_menu_shows_not_needed_as_done(self):
+        state = {"state": "not_needed", "not_needed": "already fixed", "started_at": 1,
+                 "finished_at": 2, "round_summaries": [], "executor": "e", "reviewer": "r",
+                 "run_id": "quiet"}
+        _, _, word, _ = menu.run_progress(state)
+        self.assertEqual(word, "done")
+        row = menu.run_row(1, Path("quiet"), state)
+        text = " ".join(str(cell) for cell in row)
+        self.assertNotIn("not_needed", text)
+        self.assertIn("not needed", text)
+        self.assertEqual(menu.runs_word(state), "done")
 
 
 if __name__ == "__main__":

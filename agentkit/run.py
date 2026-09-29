@@ -2875,8 +2875,10 @@ def blocked_reason(section):
 
 def followup_not_needed(lp, summary):
     if lp.state.get("followup") and not lp.state.get("round_summaries"):
-        answer = re.fullmatch(r"(?:## Summary\s+)?not needed:[ \t]*(\S[^\n]*)\s*",
-                              summary.strip(), re.I)
+        # Any line that starts with the verdict, wherever the summary puts it: workers
+        # preamble before the heading and verify before they conclude, and decorate.
+        answer = re.search(r"^[ \t>]*?(?:[-*+][ \t]+|\d+[.)][ \t]+)?[*_`]*not needed"
+                           r"[*_`]*:[*_`]*[ \t]*(\S.*)", summary or "", re.M | re.I)
         if answer:
             raise NotNeeded(answer.group(1).strip())
 
@@ -3259,9 +3261,13 @@ def open_followup(state, text):
                 and launched_session(other) == launched_session(state)
                 and other.get("repo") == state.get("repo")
                 and other["followup"]["place"] == followup_place(text)
-                and (other.get("state") not in ENDED or going(other)
-                     or (other.get("state") == "pass" and not other.get("merged")
-                         and not other.get("no_merge") and not other.get("on_target")))):
+                and (other.get("state") == "running"
+                     or (other.get("state") == "queued"
+                         and (process_active(other) or other.get("slot_waiting")))
+                     or (other.get("state") in ("waiting", "waiting_login", "exhausted",
+                                                "error") and going(other))
+                     or (other.get("state") == "interrupted" and other.get("deaths")
+                         and tick_resumes(other)))):
             return directory.name
     return None
 
@@ -3302,43 +3308,53 @@ def start_followups(state, run_dir, log, cfg=None):
             while directory.exists():
                 number += 1
                 directory = config.RUNS / f"{name}-{number}"
-            directory.mkdir(parents=True)
-            check = shlex.quote(str(directory / "regression.sh"))
-            task = (f"---\nrepo: {repo}\nbase: origin/{target}\ntarget: {target}\n---\n"
-                    f"# {title}\n\n{item}\n\n"
-                    "First fetch the target branch and check that this defect still exists there. "
-                    f"Inspect {config.RUNS}/*/run.json for another open run of session {session} "
-                    f"fixing this site in {repo}; exclude this run ({directory.name}). "
-                    "If the defect is gone or another open run is fixing it, end with only "
-                    "`not needed: <why>` (optionally under `## Summary`), with no edits or PR. "
-                    "Otherwise fix it with a regression test: show it failing before the fix "
-                    "and passing afterwards, and include both outputs in your summary. "
-                    f"You may write {directory / 'regression.sh'} outside the checkout "
-                    "to run that test from the checkout; "
-                    "the loop runs it as a check. If only the owner can decide, end `## Blocked` "
-                    "with the question.\n\n"
-                    f"## Done when\n```bash\nbash {check}\n```\n")
-            (directory / "task.md").write_text(task)
-            (directory / "log.txt").touch()
-            save_state(directory, {"followup": {"run": run_dir.name, "text": item,
-                                               "place": followup_place(item)},
-                                   "launched_session": session, "repo": str(repo),
-                                   "workers": run_workers(cfg, state),
-                                   **({"reviewers": list(state["reviewers"])}
-                                      if "reviewers" in state else {}),
-                                   **({"notify_sink": state["notify_sink"]}
-                                      if state.get("notify_sink") else {})})
-            opts = {"--rounds": None, "--exec": None, "--review": None,
-                    "--review-pr": None, "--no-worktree": False, "--no-merge": False,
-                    "--bg": True}
             try:
+                directory.mkdir(parents=True)
+                check = shlex.quote(str(directory / "regression.sh"))
+                task = (f"---\nrepo: {repo}\nbase: origin/{target}\ntarget: {target}\n---\n"
+                        f"# {title}\n\n{item}\n\n"
+                        "First fetch the target branch and check that this defect still exists there. "
+                        f"Inspect {config.RUNS}/*/run.json for another open run of session {session} "
+                        f"fixing this site in {repo}; exclude this run ({directory.name}). "
+                        "If the defect is gone or another open run is fixing it, end with only "
+                        "`not needed: <why>` (optionally under `## Summary`), with no edits or PR. "
+                        "Otherwise fix it with a regression test: show it failing before the fix "
+                        "and passing afterwards, and include both outputs in your summary. "
+                        f"You may write {directory / 'regression.sh'} outside the checkout "
+                        "to run that test from the checkout; "
+                        "the loop runs it as a check. If only the owner can decide, end `## Blocked` "
+                        "with the question.\n\n"
+                        f"## Done when\n```bash\nbash {check}\n```\n")
+                (directory / "task.md").write_text(task)
+                (directory / "log.txt").touch()
+                save_state(directory, {"followup": {"run": run_dir.name, "text": item,
+                                                   "place": followup_place(item)},
+                                       "launched_session": session, "repo": str(repo),
+                                       "workers": run_workers(cfg, state),
+                                       **({"reviewers": list(state["reviewers"])}
+                                          if "reviewers" in state else {}),
+                                       **({"notify_sink": state["notify_sink"]}
+                                          if state.get("notify_sink") else {})})
+                opts = {"--rounds": None, "--exec": None, "--review": None,
+                        "--review-pr": None, "--no-worktree": False, "--no-merge": False,
+                        "--bg": True}
                 prepare(directory, opts, logger(directory, True), cfg)
                 spawn_bg(directory, [str(directory / "task.md")])
+            except StopRequested as exc:
+                log(f"follow-up {directory.name} could not start: {exc}")
+                return
             except (config.Error, OSError) as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
                 continue
-            state["followup_runs"].append(directory.name)
-            save_state(run_dir, state)
+            try:
+                state["followup_runs"].append(directory.name)
+                save_state(run_dir, state)
+            except StopRequested as exc:
+                log(f"follow-up {directory.name} could not start: {exc}")
+                return
+            except (config.Error, OSError) as exc:
+                log(f"follow-up {directory.name} could not start: {exc}")
+                continue
 
 
 def done_when_counts(dw_log, cmds):
@@ -6947,6 +6963,10 @@ def announce(state, run_dir, log, cfg=None):
         if live:
             hand_back(state, run_dir, log, cfg)
             return
+    if state.get("state") == "not_needed":
+        mark_delivery(run_dir, state, reported=True, handback_pending=None,
+                      handback_wait_reason=None, notification_pending=None)
+        return
     if getattr(_JOB_MUTE, "depth", 0) or job_started(state):
         # a job task's orphan is on the job's own card, never a per-task one -- and the
         # record has to say the ending went somewhere, or the tick, which runs in another
@@ -11707,7 +11727,10 @@ def update_scope_line(run_dir, state):
 
 
 def finish(state, run_dir, log, cfg=None):
-    start_followups(state, run_dir, log, cfg)
+    try:
+        start_followups(state, run_dir, log, cfg)
+    except (config.Error, OSError, StopRequested) as exc:
+        log(f"follow-ups could not start: {exc}")
     try:
         refresh_seat_tally(launched_session(state))   # the ending lands on the bar too
     except config.Error:
