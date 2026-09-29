@@ -155,12 +155,12 @@ drawn at once, the orchestrator only moves, and the last worker stays, saying
 so under the rows. Under the models `+ add a model`, `Providers` (the config's
 providers in their colours, then `+ add` and `− remove`, ←/→ choosing between
 the two, each a list opening in the frame), `Discord` (connected or not)
-and `Update` (the build, `up to date` or the newer commit, the harnesses). Enter
+and `Version` (the commit and its date; read, with no action). Enter
 or a click on `+ add a model` opens `config · add a model`: `harness`, then
 `model`, then `effort`, each a list opening under the one chosen above it, a
 chosen one kept as one line; Enter on the effort adds the model and highlights
-its row, Esc steps back one list. On the other two Enter or a click gives the
-terminal back for that row's step and its lines. The key
+its row, Esc steps back one list. On `Discord` Enter or a click gives the
+terminal back for its step and its lines. The key
 line names what the keys do on the cell at hand (`⏎ mark`, `⏎ effort`,
 `⏎ open`) and ends `esc back`; Esc, `q` or a click on it returns. A
 screen too short shows the part the highlight is on. From a pipe, and in a dry

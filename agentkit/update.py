@@ -42,6 +42,7 @@ STEP_CAP = 30 * 60          # an upgrade that is not done in half an hour is not
 SMOKE_CAP = 2 * 60 * 60     # the gate makes real model calls and waits out two retry backoffs
 E2E_CAP = 90 * 60           # a fresh account, three harness installs and one real merged run
 FETCH_CAP = 60              # the tick's look at origin; one not back by then is offline
+START_WAIT = 2              # `ak`'s look at origin; one not back by then opens it as it is
 
 VERSION_KEY = "{version}"   # `[update] revert`: where the version to reinstall goes
 
@@ -546,23 +547,37 @@ def agentkit_dir():
 
 
 def agentkit_version():
-    """That checkout's short commit, or "" when it is no checkout at all."""
+    """That checkout's short commit and its date, `abc1234 · 2026-09-29`, or "" when it is no
+    checkout at all."""
+    code, said = _git("log", "-1", "--format=%h · %cs")
+    return "" if code else said
+
+
+def behind(timeout=START_WAIT):
+    """Whether origin's main has a commit that checkout lacks, as origin itself says.
+
+    `ls-remote` fetches nothing, and an answer not back within `timeout` seconds -- offline,
+    or slow -- is not behind, so `ak` opens as it is.  Its process group is killed whole: the
+    ssh git starts would otherwise go on waiting on the network after it.
+    """
     try:
-        proc = subprocess.run(["git", "-C", str(agentkit_dir()), "rev-parse", "--short", "HEAD"],
-                              capture_output=True, encoding="utf-8", errors="replace", timeout=60,
-                              env={**config.child_env(), **PINS})
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    return proc.stdout.strip() if proc.returncode == 0 else ""
-
-
-def agentkit_newer():
-    """origin/main's short commit when that checkout lacks it, else "": as the tick last fetched
-    it, so asking costs no network."""
-    code, newer = _git("rev-parse", "--short", "origin/main")
-    if code or not newer or not _git("merge-base", "--is-ancestor", "origin/main", "HEAD")[0]:
-        return ""
-    return newer
+        with subprocess.Popen(["git", "-C", str(agentkit_dir()), "ls-remote", "origin",
+                               "refs/heads/main"], stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              encoding="utf-8", errors="replace", start_new_session=True,
+                              env={**config.child_env(), **PINS}) as proc:
+            try:
+                head = proc.communicate(timeout=timeout)[0].split()[:1]
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                return False
+    except OSError:
+        return False
+    return bool(not proc.returncode and head
+                and _git("merge-base", "--is-ancestor", head[0], "HEAD")[0])
 
 
 def _git(*args, timeout=60):
@@ -576,25 +591,38 @@ def _git(*args, timeout=60):
     return proc.returncode, proc.stdout.strip()
 
 
-def update_agentkit():
+def left_as_is():
+    """Why ~/agentkit is somebody's work -- `dirty`, or on another branch -- or "" when it is
+    main as origin left it, which a fast-forward may move."""
+    _, branch = _git("symbolic-ref", "--quiet", "--short", "HEAD")
+    code, changes = _git("status", "--porcelain", "--untracked-files=normal")
+    return (f"on {branch or 'a detached HEAD'}, not main" if branch != "main"
+            else "dirty" if code or changes else "")
+
+
+def update_agentkit(progress=None):
     """Fast-forward ~/agentkit and reinstall from it; the exit code.
 
     A fast-forward of main only, never a merge: a checkout with its own commits, changes of
     its own or another branch out is somebody's work, and is left as it is, saying so.
     Everything both commands print is said out loud, because the menu shows the last lines
     of it; stdout is a pipe, so install.sh sees no tty and asks no questions.
+    `progress(done, total, step)` hears of each step as it begins: `ak`'s start draws its bar
+    from it, and fetches as a step of its own first, so the bar moves through the network wait.
     """
     directory = agentkit_dir()
-    _, branch = _git("symbolic-ref", "--quiet", "--short", "HEAD")
-    code, changes = _git("status", "--porcelain", "--untracked-files=normal")
-    why = (f"on {branch or 'a detached HEAD'}, not main" if branch != "main"
-           else "dirty" if code or changes else "")
+    why = left_as_is()
     if why:
         say(f"update: agentkit: left as it is: {directory} is {why}")
         return 1
-    commands = ([["git", "-C", str(directory), "pull", "--ff-only"],
-                 [str(directory / "install.sh")]])
-    for cmd in commands:
+    steps = [("pull", ["git", "-C", str(directory), "pull", "--ff-only"]),
+             ("install", [str(directory / "install.sh")])]
+    if progress:
+        steps.insert(0, ("fetch", ["git", "-C", str(directory), "fetch", "--quiet", "origin",
+                                   "main"]))
+    for done, (name, cmd) in enumerate(steps):
+        if progress:
+            progress(done, len(steps), name)
         say(f"update: $ {shlex.join(cmd)}")
         try:
             proc = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace",

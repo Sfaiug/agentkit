@@ -40,7 +40,8 @@ nobody has acknowledged) whenever there are any, otherwise `<n> merged` over the
 days; a seat that has launched nothing says `no runs yet`.
 
 The title is `agentkit` and the clock, and says nothing about the machine or the build;
-opening the menu, like drawing it, calls git for nothing at all.  A usage row is one
+drawing the menu calls git for nothing at all, and opening it only to ask origin whether
+~/agentkit is behind, which updates it first (start_update).  A usage row is one
 account's *shared* weekly meter -- the one every model of it draws on: a provider that lists
 `accounts` has one row per account in config order, numbered in roman numerals (`Claude I`,
 `Claude II`), each from its own reading, and a provider without them keeps its
@@ -68,7 +69,7 @@ during a draw is read by the next wait.  The sub-screens are not live: they
 are read once, like any other question -- but a project's feature switches, which draw again
 within a second of their `list` landing.
 
-Seven keys: the numbers, `n`, `x`, `c` (models, providers, effort, discord, update),
+Seven keys: the numbers, `n`, `x`, `c` (models, providers, effort, discord, version),
 `m` (the highlighted seat's models), `i`, `q`.
 On a terminal one seat row is highlighted as well: ↑/↓, k/j and the wheel move it, Enter or a
 click opens a seat, and a click on the key line does what its key does (`loop`,
@@ -113,7 +114,7 @@ import subprocess
 import sys
 import threading
 import time
-from contextlib import closing, redirect_stderr, redirect_stdout
+from contextlib import closing, redirect_stdout
 from pathlib import Path
 
 from . import command_help, config, history, notify, orch, terminal, update, usage
@@ -2103,8 +2104,9 @@ def show_notices(messages):
 
 
 # The rows under the models, each running its own step; Providers two, `+ add` and `− remove`.
-CONFIG_ROWS = ("+ add a model", "Providers", "Discord", "Update")
+CONFIG_ROWS = ("+ add a model", "Providers", "Discord", "Version")
 PROVIDERS = ("row", "Providers")
+VERSION = ("row", "Version")    # agentkit's build, read and nothing more
 PROVIDER_ACTS = (("+ add", "+ add"), ("− remove", "- remove"))   # and each without UTF-8
 # What `+ add` offers each provider the shipped default has as: its company, and the harness it
 # runs on; any other is its name on the Providers row.
@@ -2119,8 +2121,8 @@ CONFIG_HEADS = (*orch.ROLE_HEADS, "effort")
 CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mark"),
                "effort": ("↑↓←→ move   ⏎ effort", "arrows move   enter effort"),
                "row": ("↑↓ move   ⏎ open", "arrows move   enter open"),
+               "still": ("↑↓ move", "arrows move"),
                "label": ("↑↓←→ move   ⏎ open", "arrows move   enter open")}
-CONFIG_TAIL = 10   # how many of an update's last lines the `c` screen shows
 # A model's own screen: the two values ←/→ step, then the one that asks first.
 MODEL_ROWS = ("model id", "effort", "Remove")
 MODEL_KEYS = {"step": ("↑↓ move   ←→ choose", "arrows move   left/right choose"),
@@ -2148,28 +2150,6 @@ def _secret_set(name):
         return False
 
 
-def _harness_versions(cfg):
-    """`claude 2.1.0 codex 0.153`: one short version per updatable harness, in config order."""
-    bits = []
-    for harness in update.harnesses(cfg):
-        match = update.VERSION.search(update.version(harness) or "")
-        bits.append(harness["name"] + (f" {match.group(0)}" if match else " ?"))
-    return " ".join(bits) or "none"
-
-
-def _update_value(cfg):
-    """The Update row's value: agentkit's build, `up to date` or the newer commit origin has,
-    and one short version per harness.
-
-    A subprocess per harness plus three for git, so show_config reads it once per visit rather
-    than on every draw; Update reads it again afterwards, because that is what moves them.
-    """
-    build = update.agentkit_version()
-    newer = update.agentkit_newer() if build else ""
-    said = f" · {newer} available" if newer else " · up to date" if build else ""
-    return f"{build or '?'}{said} · harnesses {_harness_versions(cfg)}"
-
-
 def config_models(cfg):
     """The offered models in the order the `c` screen lists them: under their providers, each
     provider where its first model is in the file."""
@@ -2179,14 +2159,14 @@ def config_models(cfg):
             if cfg["models"][name]["provider"] == provider]
 
 
-def config_body(cfg, update_row, at=None, column=0):
+def config_body(cfg, version, at=None, column=0):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its provider's name: label, harness (dim), three role marks,
     and its effort between the arrows that step it. Under them `+ add a model`, `Providers`
-    (providers_lines), `Discord` and `Update` with their values. A row is
+    (providers_lines), `Discord` and `Version` with their values. A row is
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
-    `Update` is still a model; `at` is the highlighted one and `column` the cell on it the keys
+    `Discord` is still a model; `at` is the highlighted one and `column` the cell on it the keys
     act on, -1 its label, and on Providers 0 or less `+ add` and 1 or more `− remove`.  `cells`
     are a model row's (first, last, column), or Providers' acts, for a click, counted from 1 as
     the terminal counts. On a phone the harness gives way, then the label.
@@ -2241,7 +2221,7 @@ def config_body(cfg, update_row, at=None, column=0):
     lines.append("")
     wide = max(terminal.cells(row) for row in CONFIG_ROWS)
     values = ("", "", "connected" if _secret_set("discord_webhook") else "not connected",
-              update_row)
+              version or "?")
     for row, value in zip(CONFIG_ROWS, values):
         if ("row", row) == PROVIDERS:
             chosen = min(max(column, 0), 1) if at == PROVIDERS else None
@@ -2509,7 +2489,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
 
 
 @terminal.clicks_its_own
-def config_matrix(cfg, keyboard, update_row):
+def config_matrix(cfg, keyboard, version):
     """The `c` screen read with the keys until Esc or `q`; the config as it left it.
 
     ↑/↓, k/j and the wheel move between rows and ←/→ between columns, the effort's too.  Enter,
@@ -2520,9 +2500,9 @@ def config_matrix(cfg, keyboard, update_row):
     (config_model), and Esc there comes back to its row.  Enter or a click
     on `+ add a model` opens its screen (config_add), and a model added there is the row
     highlighted after it.  On `Providers` ←/→ move between `+ add` and `− remove`, and Enter or
-    a click on one runs it (config_add_provider, config_remove_provider); on `Discord` or
-    `Update` it gives the terminal back for that row's step, which reads its lines as it always
-    has, then takes it again.  On a screen too short
+    a click on one runs it (config_add_provider, config_remove_provider); on `Discord` it gives
+    the terminal back for that row's step, which reads its lines as it always has, then takes it
+    again.  `Version` is read, and does nothing.  On a screen too short
     for every row the part the highlight is on is shown, and what the last key could not do --
     the last worker, a save or a catalog that failed -- has lines of its own under it, whatever
     the height, until the next key.
@@ -2532,10 +2512,11 @@ def config_matrix(cfg, keyboard, update_row):
         rows = [*(("model", name) for name in config_models(cfg)),
                 *(("row", row) for row in CONFIG_ROWS)]
         here = here if here in rows else rows[0]      # the highlight is the row itself
-        where = ("label" if here == PROVIDERS else "row" if here[0] == "row" else "effort"
-                 if column == 3 else "label" if column < 0 else "mark")
+        where = ("label" if here == PROVIDERS else "still" if here == VERSION else "row"
+                 if here[0] == "row" else "effort" if column == 3 else "label" if column < 0
+                 else "mark")
         keys = CONFIG_KEYS[where][0 if terminal.utf8() else 1] + "   esc back"
-        body, places = config_body(cfg, update_row, here, column)
+        body, places = config_body(cfg, version, here, column)
         act, here, clicked, top = matrix_key("config", body, places, rows, here, top, note, keys,
                                             marks=3)
         if act is None:
@@ -2554,19 +2535,14 @@ def config_matrix(cfg, keyboard, update_row):
                 note = (config_remove_provider(cfg) if column >= 1
                         else config_add_provider(cfg, keyboard))
         elif here[0] == "row":
-            if act in ("enter", "space"):
+            if here != VERSION and act in ("enter", "space"):
                 keyboard.give()       # the step reads lines, on the terminal as it was
-                if here[1] == "Discord":
-                    config_discord()
-                else:
-                    config_update(cfg)
+                config_discord()
                 try:
                     cfg = config.load()
                 except config.Error as exc:
                     pause(f"config: {exc}")
                     return cfg
-                if here[1] == "Update":
-                    update_row = _update_value(cfg)
                 keyboard.take()
         elif act in ("left", "right"):
             column = min(max(column + (1 if act == "right" else -1), -1), 3)
@@ -2927,39 +2903,9 @@ def config_discord():
         pause(f"discord: {exc}")
 
 
-def _working_sessions(cfg):
-    """The sessions whose word is `working` now: an update runs only when there are none."""
-    return update.working_sessions(cfg)
-
-
-def _show_tail(func, *args):
-    """Run one update step, showing the last lines of what it said."""
-    buf = io.StringIO()
-    with redirect_stdout(buf), redirect_stderr(buf):
-        try:
-            code = func(*args)
-        except config.Error as exc:
-            print(f"update: {exc}")
-            code = 1
-    for line in buf.getvalue().splitlines()[-CONFIG_TAIL:]:
-        print(line)
-    return code
-
-
-def config_update(cfg):
-    """`Update`: the same `ak update` the shell runs, while nothing is working."""
-    terminal.frame("config · update", [], "q back")
-    working = _working_sessions(cfg)
-    if working:
-        pause(f"{len(working)} sessions are working; try when they are done")
-        return
-    _show_tail(update.main, [])
-    pause()
-
-
 def show_config(dry_run=False, keyboard=None):
     """`c`: every model in one matrix of the defaults and the efforts, then `+ add a model`,
-    `Providers`, `Discord` and `Update`, read with the menu's keyboard (config_matrix), so
+    `Providers`, `Discord` and `Version`, read with the menu's keyboard (config_matrix), so
     nothing is typed.
 
     Providers, models, the defaults a new seat takes, efforts and the two Discord secrets live
@@ -2975,11 +2921,12 @@ def show_config(dry_run=False, keyboard=None):
             keyboard.give()
         pause(f"config: {exc}")
         return None
-    update_row = _update_value(cfg)
+    # one git call a visit, not a draw; nothing about a harness and nothing over the network
+    version = update.agentkit_version()
     if dry_run or keyboard is None or not keyboard.take():
-        terminal.frame("config", config_body(cfg, update_row)[0], "esc back")
+        terminal.frame("config", config_body(cfg, version)[0], "esc back")
         return cfg
-    return config_matrix(cfg, keyboard, update_row)
+    return config_matrix(cfg, keyboard, version)
 
 
 def session_models_body(cfg, selected, notes, at=None, column=0):
@@ -3534,13 +3481,46 @@ def client(alias, dry_run):
         raise config.Error(f"cannot run ssh: {exc}")
 
 
+UPDATE_TAIL = 10   # how many of a failed start-up update's last lines `ak` shows
+
+
+def start_update():
+    """`ak` opens on the latest agentkit: when origin's main has moved past ~/agentkit, one screen
+    says `Updating agentkit` over the session rows' bar through fetch, pull and install, then
+    the menu starts again on the new code.
+
+    Only the checkout this runs from moves, as with the tick (update.go_live), so a worktree's
+    `bin/ak` -- a test's above all -- never pulls the live one under it.  One somebody works in,
+    dirty or off main, is left as it is, and so is one whose origin does not answer within
+    update.START_WAIT: the menu opens as it is.  A step that fails says why before it opens.
+    """
+    if (update.agentkit_dir().resolve() != config.REPO or update.left_as_is()
+            or not update.behind()):
+        return
+    before, screen, said = update.agentkit_version(), sys.stdout, io.StringIO()
+
+    def draw(done, total, step):
+        with redirect_stdout(screen):
+            terminal.frame("", ["", "  Updating agentkit",
+                                f"  {terminal.progress_bar(done, total)} · {step}"], "")
+
+    with redirect_stdout(said):
+        failed = update.update_agentkit(draw)
+    if failed:
+        pause(*said.getvalue().splitlines()[-UPDATE_TAIL:])
+    if update.agentkit_version() != before:     # pulled, even where install.sh then failed
+        sys.stdout.flush()
+        os.execv(sys.executable, [sys.executable, *sys.argv])
+
+
 def main(argv):
     """The menu.  `--overlay` is the popup inside a seat, and never leaves this machine.
 
     A popup is opened over tmux sessions that are here, so it neither hops to the server the
     way a client's menu does nor runs the maintenance that a menu opening a seat runs: reaping
     runs and retiring seats over a session the user is sitting in is not what `Ctrl-b m` was
-    pressed for.
+    pressed for.  Nor does it wait on origin to update agentkit first: a client's `ak` and the
+    server's `ak --client` behind it each do (start_update).
     """
     if command_help.show("attach", argv):
         return 0
@@ -3549,6 +3529,8 @@ def main(argv):
         if arg not in flags:
             raise config.Error(f"{USAGE}  (got {arg!r})")
         flags[arg] = True
+    if not (flags["--dry-run"] or flags["--overlay"]):
+        start_update()
     if not flags["--dry-run"]:
         from . import macbridge
         macbridge.start_background()
