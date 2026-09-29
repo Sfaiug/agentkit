@@ -272,7 +272,7 @@ class UsageCalls(Fixture):
         self.asked = []
         self.captured = []
 
-        def adapter_json(name, verb, timeout):
+        def adapter_json(name, verb, timeout, account=None):
             self.asked.append((name, verb))
             return {"available": 2} if verb == "reset-status" else {}
 

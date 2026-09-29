@@ -504,7 +504,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
                     "resets_at": self.now + 604800}) as adapter:
             self.refusal_tick()
             self.replenish.assert_called_once_with(self.cfg, "openai", depleted=False)
-            adapter.assert_called_once_with("codex", "reset", 60)
+            adapter.assert_called_once_with("codex", "reset", 60, None)
             self.assertEqual(config.session_records()[NAME]["account"], "default")
             self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
             watch.continue_turns(self.cfg, self.logs.append, accounts=True)
@@ -516,7 +516,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
             # A fresh, nearly spent reading still cannot buy a second reset today.
             self.now += usage.PROBE_EVERY + 1
             self.assertFalse(replenish(self.cfg, "openai", depleted=False)[0])
-            adapter.assert_called_once_with("codex", "reset", 60)
+            adapter.assert_called_once_with("codex", "reset", 60, None)
 
     def test_codex_reset_during_meter_read_is_not_parked_on_the_old_refusal(self):
         self.codex_seat()

@@ -1055,7 +1055,7 @@ class QuotaDry(unittest.TestCase):
                     "harness": config.provider_harness(cfg, provider)[0],
                     "meters": [self.meter(used[0] if provider == "openai" else 10)]}
 
-        def adapter_json(harness, verb, timeout):
+        def adapter_json(harness, verb, timeout, account=None):
             used[0], resets[0] = 0, 0.0
             return {"code": "reset", "available": 0, "weekly_used": 0}
 
@@ -1087,7 +1087,7 @@ class QuotaDry(unittest.TestCase):
     def test_v5i_replenish_bypasses_the_threshold_but_never_the_once_a_day_cap(self):
         asked = []
 
-        def adapter_json(harness, verb, timeout):
+        def adapter_json(harness, verb, timeout, account=None):
             asked.append(verb)
             return {"code": "reset", "available": 0, "weekly_used": 5}
 

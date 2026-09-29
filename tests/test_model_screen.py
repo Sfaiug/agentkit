@@ -57,7 +57,7 @@ config.remove_model(cfg, "spark")
 config.remove_model(cfg, "gemini")
 config.save(config.remove_model(cfg, "astra"))
 asked = []
-usage._adapter_json = lambda harness, verb, timeout: asked.append(f"{harness} {verb}") or {}
+usage._adapter_json = lambda harness, verb, *_: asked.append(f"{harness} {verb}") or {}
 now = time.time()
 week = {"window_secs": 7 * 86400, "used": 95, "resets_at": now + 86400}
 (config.STATE / "usage.json").write_text(json.dumps({
