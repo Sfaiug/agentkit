@@ -57,6 +57,8 @@ mkhdr() {
 }
 # One GET, as "<body>\n<http code>"; the caller decides what a non-200 means for its own output
 get() { curl -s -m 10 -w $'\n%{http_code}' "$1" -H @"$HF" 2>/dev/null; }
+# The login hint for a refused /usage: only a 401 or 403 is the token's fault, never a 429 or 5xx
+expired() { case $1 in 401|403) printf "; token may be expired, run 'codex login' to refresh" ;; esac; }
 
 case "$cmd" in
 run)
@@ -147,7 +149,7 @@ usage)
   body=$(get "$API/usage")
   rm -f -- "$HF"
   code=${body##*$'\n'}; body=${body%$'\n'*}
-  [ "$code" = 200 ] || err "HTTP ${code:-000} from chatgpt.com/backend-api/wham/usage; token may be expired, run 'codex login' to refresh"
+  [ "$code" = 200 ] || err "HTTP ${code:-000} from chatgpt.com/backend-api/wham/usage$(expired "$code")"
   jq -c '{provider:"openai", error:null, meters:[
       {name:"primary_window",   w:.rate_limit.primary_window},
       {name:"secondary_window", w:.rate_limit.secondary_window} ]
@@ -173,7 +175,7 @@ reset-status)
   body=$(get "$API/usage")
   rm -f -- "$HF"
   code=${body##*$'\n'}; body=${body%$'\n'*}
-  [ "$code" = 200 ] || jerr "HTTP ${code:-000} from chatgpt.com/backend-api/wham/usage; token may be expired, run 'codex login' to refresh"
+  [ "$code" = 200 ] || jerr "HTTP ${code:-000} from chatgpt.com/backend-api/wham/usage$(expired "$code")"
   jq -c --argjson a "${avail:-0}" \
         "{available: \$a, applicable: (.rate_limit_reset_credits.applicable_available_count // null)}
          + ($WEEKLY | {weekly_used: .used_percent, resets_at: .reset_at})

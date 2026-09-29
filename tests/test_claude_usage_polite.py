@@ -265,11 +265,12 @@ class PoliteClaude(unittest.TestCase):
     def test_an_ask_with_no_meters_keeps_the_last_reading(self):
         usage.collect(self.cfg)
         first = NOW + FIFTEEN
-        cases = (("429", 429, '{"error":"slow down"}', "429"),
-                 ("401", 401, '{"error":"expired"}', "401"),
-                 ("5xx", 500, '{"error":"overloaded"}', "500"),
-                 ("403", 403, '{"error":"forbidden"}', "403"))
-        for index, (label, code, body, marker) in enumerate(cases):
+        # Only a refused login blames the token: a 429 or a 5xx never says it may be expired.
+        cases = (("429", 429, '{"error":"slow down"}', "429", False),
+                 ("401", 401, '{"error":"expired"}', "401", True),
+                 ("5xx", 500, '{"error":"overloaded"}', "500", False),
+                 ("403", 403, '{"error":"forbidden"}', "403", True))
+        for index, (label, code, body, marker, expired) in enumerate(cases):
             with self.subTest(label=label):
                 self.now[0] = first + index * (FIFTEEN + 1)
                 self.answer(WORKER_DEFAULT, code, body)
@@ -278,6 +279,7 @@ class PoliteClaude(unittest.TestCase):
                                   if m["name"] == "weekly_all"], [40])
                 self.assertEqual(default["fetched_at"], NOW)
                 self.assertIn(marker, default["probe_error"])
+                self.assertEqual("token may be expired" in default["probe_error"], expired)
                 self.assertEqual(default["stale_since"], first)   # since the first failure
         # A dropped answer is a failed ask too: no file for the token is no meters either.
         self.now[0] = first + len(cases) * (FIFTEEN + 1)

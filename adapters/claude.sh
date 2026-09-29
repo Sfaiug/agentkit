@@ -156,7 +156,9 @@ usage)
   esac
   rm -f -- "$hf" "$df"
   if [ "$code" != 200 ]; then
-    msg="HTTP ${code:-000} from api.anthropic.com/api/oauth/usage; token may be expired, run 'claude' once to refresh"
+    msg="HTTP ${code:-000} from api.anthropic.com/api/oauth/usage"
+    # Only a refused login is the token's fault; a 429 or a 5xx says nothing about it.
+    case "$code" in 401|403) msg="$msg; token may be expired, run 'claude' once to refresh" ;; esac
     case "$retry" in ''|0|*[!0-9]*) err "$msg" ;; esac
     m=${msg//\\/}; m=${m//\"/\'}
     printf '{"provider":"anthropic","meters":[],"error":"unknown: %s","retry_after":%d}\n' "$m" "$retry"
