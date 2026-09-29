@@ -65,12 +65,13 @@ The orchestrator writes the task from `templates/task.md`: a title, `## Goal`, `
 under `## Done when` whose every command must exit 0. Optional front matter: `repo` (the launching checkout; `none` is a
 scratch workspace), `base` (the repo's default branch), `target` (the branch the PR merges into, default `base`), `from`
 (a local branch to cut from), `merge` (`squash`, `merge` or `rebase`), `rounds` (3, the most), `after` (a job
-dependency, repeatable). A check ending in `# once` runs only on the commit that ships; the reviewer sees it marked
-deferred. The full suite a repository names as `tests:` in its `AGENTS.md` front matter is such a check in every run
+dependency, repeatable). A check ending in `# once` runs only on the commit that ships, in the final check; the executor is told not to run it,
+the reviewer sees it marked deferred. The full suite a repository names as `tests:` in its `AGENTS.md` front matter is such a check in every run
 there, from the target branch where the checkout predates it, and a done-when line with the same command runs once with it, so a task lists only the checks for its change.
 A command that fails runs once more at once, within the same ceiling, and passes if the re-run does: the output keeps the lines the failed run printed that its passing re-run did not, at most 20 (its last lines when the re-run repeated them all), under `flaky:`, which joins the run's follow-ups as evidence.
 The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt, up to 4 KB; past
-that, the run's hand-back names the file and asks the orchestrator to tighten it.
+that, the run's hand-back names the file and asks the orchestrator to tighten it. So does the body of the repository's
+`AGENTS.md` as on the base commit, front matter removed, up to 8 KB, whatever the worker's harness loads on its own.
 
 One behaviour per task. A launch is refused when the goal has more than three numbered points, the body more than 500
 words outside the checks block, the checks more than six commands or `rounds` more than three, whatever `--anyway` says;
@@ -90,7 +91,7 @@ They keep the work under review read-only; probes leave nothing behind outside a
 A reviewer answers `VERDICT: PASS` or `VERDICT: FAIL`; one with no verdict is asked once more, never failed. A round is FAIL only for a blocking finding: a correctness defect, a safety
 or data-loss risk, a weakened check, or work outside the task, with evidence: a command that fails, a reproduction, or quoted diff lines showing the defect. A follow-up needs the same evidence and severity, plus proof it existed before
 the task: a named base commit or a quote from main before the task. Only these go under `## Follow-ups`, without a
-number limit; everything else is omitted everywhere. The run's `run.json` and PR description carry only the final
+number limit; everything else is omitted everywhere. A fixer is handed the review without its follow-ups. The run's `run.json` and PR description carry only the final
 passing review's list, plus checks that passed only on re-run with their `flaky:` evidence. Earlier reviews' items
 are discarded. Nothing reads or writes `~/.agentkit/followups/`; existing files and archives are left alone.
 On merge each follow-up starts an ordinary run of the same session, with the discovering run's worker lists and a fresh checkout of the merged target. Its task is the defect and evidence. An open fix at the same site in that session prevents a duplicate. There is no setting or backlog.

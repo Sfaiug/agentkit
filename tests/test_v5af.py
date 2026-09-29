@@ -278,8 +278,8 @@ class V5af(unittest.TestCase):
         self.assertEqual(code, 0, self.log_text())
         prompt = (self.directory / "round-1" / "executor" / "prompt.md").read_text()
         self.assertIn("Done-when commands, all must exit 0", prompt)
-        heading = ("Once, on your final commit before you hand over "
-                   "(the loop runs these once more before the merge):")
+        heading = ("The loop runs these once, in the final check on the commit about to "
+                   "ship; do not run them yourself:")
         self.assertIn(heading, prompt)
         self.assertLess(prompt.index("Done-when commands, all must exit 0"),
                         prompt.index(heading))
