@@ -112,6 +112,10 @@ def auth_ok(harness, seat=False, run_id=None, account=None):
     env = config.child_env()
     if run_id:
         env[RUN_MARKER] = run_id
+    else:
+        # no run to name means unmarked, even inside a run whose marker the child
+        # would otherwise inherit -- a login probe is nobody's to sweep.
+        env.pop(RUN_MARKER, None)
     if account is not None:
         env.update(config.account_env(account))
     try:
