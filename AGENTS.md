@@ -11,3 +11,17 @@ tests: bash tests/smoke.sh
 - Docs ride the change: `README.md` and `docs/guide.md` say what the code now does.
 - `orchestrator.md` is the rulebook an agentkit session is launched with, not a file for here.
 - Tests driving `menu.loop` mock `menu.wait_key` beside `menu.read`: the real wait selects on stdin, and a stdin that never delivers EOF redraws forever instead of finishing. They leave `menu.Live`'s probe unstarted: its thread calls `usage.collect` after the test's mock is gone.
+
+## Owner rules
+
+- Models and harnesses are plugins, picked for what is best at the time: adding one is an adapter, its toml and a `models.toml` entry, never a name hard-coded in code; `n` keeps the orchestrator question so the owner can switch freely. [18 Sep]
+- ak picks models only on live facts (quota, host, errors); past-run numbers may be shown but never pick, and ak never labels a model good or bad at a role: the owner marks who executes and who reviews. [28 Sep, 29 Sep]
+- No fixed capacity numbers: every limit (runs at once, gate turns, memory) is derived from the machine ak runs on, for any user; correctness locks (one merge per repository) are not capacity and stay. [23 Sep, 28 Sep]
+- Everything is umbrella: it works for any ak user, machine, provider and project type, never only for this owner's setup. [23 Sep]
+- The rules explain, ak enforces: the process every model follows is checked by the loop (commands, not words). [29 Sep]
+- Nothing may ever get stuck: every state recovers by itself, a dead seat or run resumes where it stopped, and the owner hears only when recovery failed. [16 Sep, 19 Sep]
+- The owner sees only what needs them (a seat's question, their own unsent draft, a final failure nobody handles) or a finished job. Of every line on a screen ask "what would the owner do with it?"; if nothing, it goes. The system cleans up after itself. [15 Sep, 18 Sep]
+- Every screen follows `docs/cli-design.md`: plain words that explain themselves, every glyph followed by its word, nothing cut mid-sentence, the same back, forward and exit keys everywhere. [15 Sep, 16 Sep]
+- No test-selection engine and no automatic affected-test selection: a repository declares its own suite, and ak runs it once. [16 Sep, 25 Sep]
+- No `ak trial`, leaderboard or in-house skill test of models: public benchmarks judge general strength. [28 Sep, 29 Sep]
+- The features screen has only `you` and `everyone`; grants for specific users live on the project's own owner page, never in ak. [23 Sep]
