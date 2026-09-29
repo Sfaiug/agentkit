@@ -295,7 +295,7 @@ class UsageCalls(Fixture):
                 self.assertEqual(out["meters"][0]["used"], 50 if harness_name != "echo" else 42)
         # `[usage] capture` is Muse's alone, and `[usage] reset` Codex's: one captured probe
         # for the four providers, and one `reset-status`, asked of the one adapter that has any
-        self.assertEqual([argv[-1] for argv in self.captured], ["usage"])
+        self.assertEqual([argv[1] for argv in self.captured], ["usage"])
         self.assertEqual(self.asked, [("codex", "reset-status")])
         self.assertEqual(usage._probe(self.cfg, "openai", 10000)["resets"], 2.0)
         self.assertEqual(usage._probe(self.cfg, "test", 10000)["resets"], 0.0)
