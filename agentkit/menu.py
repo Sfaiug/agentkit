@@ -52,8 +52,9 @@ probe errored though the meter it read still stands, and `as of HH:MM` beside it
 that reading is older than half an hour, with the weekday when it is not from today.
 A probe the endpoint would not answer says nothing at all: its reading stands as it was,
 and past half an hour its age says the rest.
-The bar's filled cells are the company's own colour (`COLOURS`, or the provider's `colour` key),
-and the rows run red through violet by that colour's hue, the near-greys last.  `—` is drawn
+The bar's filled cells say what is left: the accent, amber from 20% left, red from 5% (`fill`);
+the rows run red through violet by the hue of the company's own colour (`COLOURS`, or the
+provider's `colour` key), the near-greys last.  `—` is drawn
 only when there is no shared week to draw -- no reading at all, or nothing but one model's
 private cap -- and the words after it say why.  Everything else `ak usage` knows -- week
 elapsed, the resets in hand, headroom, budget, outlook -- stays in `ak usage`.
@@ -145,8 +146,8 @@ LEAST = 3                # rows a page keeps; the usage block gives way before i
 # `watch.session_state` is what decides which of the three a seat is.
 STATE_ORDER = ("needs you", "working", "done")
 RUNS_RECENT = 6 * 3600   # how long a finished run stays recent for `ak run status`
-# Each company's own colour, for the filled cells of its usage bar: a provider's `colour` key in
-# config.toml wins, and a provider named in neither is drawn in the accent.
+# Each company's own colour, for its name on the `c` screen and its usage row's place: a
+# provider's `colour` key in config.toml wins, and a provider named in neither is the accent.
 COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#FCFCFC",
            "google": "#203B9B", "mimo": "#FB8046"}
 # Each company's own name, on its usage row and over its models on the `c` screen; any other
@@ -1717,12 +1718,18 @@ def _note_styled(part):
 
 
 def colour(cfg, name):
-    """This provider's bar colour: its own `colour` key, else the shipped one, else the accent."""
+    """This provider's colour: its own `colour` key, else the shipped one, else the accent."""
     entry = cfg["providers"].get(name)
     own = entry.get("colour") if isinstance(entry, dict) else None
     if isinstance(own, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", own):
         return own
     return COLOURS.get(name, "accent")
+
+
+def fill(left):
+    """A usage bar's filled cells, from the whole percent it shows left: the calm accent, amber
+    from 20% down and red from 5% down, whoever's meter it is -- what is left is the news."""
+    return "FAIL" if left <= 5 else "amber" if left <= 20 else "accent"
 
 
 def hue(kind):
@@ -1751,9 +1758,9 @@ def usage_lines(cfg, width):
     still stands, and `as of HH:MM` beside it when the reading is older than half an hour,
     with the weekday when it is not from today.  A probe the endpoint refused to answer
     says nothing at all: the reading it could not replace stands as it was, and its age
-    says the rest.  The filled cells are the provider's `colour`, the empty ones dim, and
-    the rows run by that colour's `hue`.  `ak usage` keeps the rest -- week elapsed, the
-    resets in hand,
+    says the rest.  The filled cells are `fill`'s colour for what is left, the empty ones dim,
+    and the rows run by the `hue` of the provider's `colour`.  `ak usage` keeps the rest --
+    week elapsed, the resets in hand,
     headroom, budget, outlook -- and the picker keeps ranking on the tightest meter: only
     this display changed.  The bars are one column, sized once per draw from the row with the
     least room, down to four cells; the bar gives way to the notes first, and only then does
@@ -1824,7 +1831,7 @@ def usage_lines(cfg, width):
         parts = fitting(notes, width - base - floor - 3)   # what the bar gives way to
         taken = terminal.cells(" · ".join(parts)) + 3 if parts else 0
         affordable = min(bar_width, max(1, width - base - taken))
-        pending.append({"kind": "bar", "prefix": prefix, "colour": colour(cfg, name),
+        pending.append({"kind": "bar", "prefix": prefix, "colour": fill(shown_pct),
                         "left": left, "spent": spent,
                         "percent": percent, "base": base, "notes": notes,
                         "affordable": affordable})
@@ -1843,7 +1850,9 @@ def usage_lines(cfg, width):
                          terminal.styled(entry["why"], "dim"))
             continue
         parts = fitting(entry["notes"], width - entry["base"] - shared - 3)
-        filled = max(0, min(shared, round(shared * entry["left"] / 100)))
+        # anything left keeps a cell, so the red of a week all but spent is there to be seen
+        filled = max(0 if entry["spent"] else 1,
+                     min(shared, round(shared * entry["left"] / 100)))
         bar = (terminal.styled("█" * filled, entry["colour"]) +
                terminal.styled("░" * (shared - filled), "dim"))
         line = (entry["prefix"] + bar + "  " +
@@ -3351,6 +3360,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     actions = ("n", "x", "r") if overlay else ("n", "x", "c", "m", "i")
     page, cursor, ahead, look = 0, None, None, True
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
+        if keyboard.take():
+            terminal.sense()              # true colour and the background, once, before a draw
         while True:
             found = orch.listing()
             records = run_records()       # one pass over run.json a draw, filing and drawing

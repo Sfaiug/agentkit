@@ -263,12 +263,14 @@ how old a reading is: an open menu probes each provider at most once a minute,
 host-wide, the tick does when no menu is open, and Muse's billed probe spends at
 most one model call in ten minutes. A row with no
 shared week at all -- no reading, or nothing but one model's private cap --
-is `—` and the words that say why, never `—` alone. The bar's filled cells are
-the company's own colour -- Claude `#D97757`, ChatGPT `#FFFFFF`, Muse
-`#3E9EFB`, Grok `#FCFCFC`, Gemini `#203B9B`, MiMo `#FB8046`, or the provider's
-`colour = "#RRGGBB"` in config.toml, else the accent -- and its empty cells are
-dim; a terminal without truecolor gets the nearest of its 256 or 8 colours. The
-rows run red through violet by that colour's hue, the near-greys last and
+is `—` and the words that say why, never `—` alone. The bar's filled cells say
+what is left, whoever's week it is (`menu.fill`, on the whole percent the row
+prints): the accent above 20% left, amber from 20% down, red from 5% down; a
+week with anything left keeps at least one filled cell, so its red is seen, and
+the empty cells are dim. The rows run red through violet by the hue of the
+company's own colour -- Claude `#D97757`, ChatGPT `#FFFFFF`, Muse `#3E9EFB`,
+Grok `#FCFCFC`, Gemini `#203B9B`, MiMo `#FB8046`, or the provider's
+`colour = "#RRGGBB"` in config.toml, else the accent -- the near-greys last and
 lightest first: Claude, MiMo, Muse, Gemini, ChatGPT, Grok. The bar gives way to the
 notes first, down to four cells; only then does each note that still will not
 fit give way on its own, so a phone keeps every short note it has room for
@@ -279,6 +281,36 @@ shared week off the same meter, so the two views can never disagree; the
 usage-limit credits that used to hold that heading are `resets held`.
 
 Example: `  Claude    ██████░░░░░░  52% left · resets Fri 14:00 · Fable 41%`.
+
+## Colour
+
+Screens ask for a colour by its role, never by RGB: the accent (section titles,
+project headings, the highlight's `›`), `working`, `needs you` (`attention`,
+`amber`), `done` (`good`), `FAIL` (red) and `dim` (`waiting`). The one RGB a
+screen names is a company's own, on the `c` screen's Providers row. There is one
+palette per background, and `terminal.styled` draws from it:
+
+- dark, `terminal.STATE_STYLES` (Catppuccin Mocha): accent and `working`
+  `#89b4fa`, `needs you` `#f9e2af` bold, `done` `#a6e3a1`, `FAIL` `#f38ba8`,
+  `dim` `#6c7086` faint.
+- light, `terminal.LIGHT` (Catppuccin Latte, its yellow and green darkened so
+  every colour reads at 4.9:1 or better on white): accent and `working`
+  `#1e66f5`, `needs you` `#9c6314` bold, `done` `#338022`, `FAIL` `#d20f39`,
+  `dim` `#6c6f85` faint.
+
+Once per menu start, on a terminal the menu has taken, `terminal.sense` asks what
+the terminal is. True colour is drawn when `COLORTERM` says `truecolor` or
+`24bit`, or inside tmux -- which drops `COLORTERM`, as ssh does -- when
+`tmux display -p '#{client_termfeatures}'` lists `RGB` or `Tc`; otherwise the
+nearest of 256 colours, else the eight basic tones, and none under `NO_COLOR`,
+`TERM=dumb` or off a terminal. The background is the terminal's answer to OSC 11
+within 100 ms: lighter than half way draws the light palette, anything else or
+no answer in time the dark one. The answer is read by `sense` and never as a
+key: keys typed while it waits are kept for `terminal.read_key`, and an answer
+that comes later is swallowed there whole. Every other command draws the dark
+palette, in true colour by `COLORTERM` alone.
+
+Helpers: `terminal.sense`, `terminal.styled`, `terminal.colour_depth`.
 
 ## Live
 
