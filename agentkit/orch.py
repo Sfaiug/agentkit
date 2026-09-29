@@ -2883,6 +2883,161 @@ def role_mark(cfg, selected, name, column, providers):
     return changed, ""
 
 
+def handover_text(name, old_model, transcript):
+    """The new orchestrator's first prompt: it took over, and where to continue from.
+
+    From which model, where the seat's plan file is, to read `ak run status`, and where
+    the old conversation's transcript is so it can read the last exchange -- or that the
+    old conversation keeps no file to read, where its harness stores its sessions.
+    """
+    plan = config.plan_path(name)
+    if transcript:
+        old = (f"The previous conversation's transcript is at {transcript}; "
+               "read the last exchange to continue.")
+    else:
+        old = ("The previous conversation has no transcript file to read; "
+               "continue from the plan and the runs.")
+    return (f"You took over this seat from {old_model}. The seat's plan is at {plan}. "
+            f"Run `ak run status` to see its runs. {old}")
+
+
+def _switch_plan(cfg, name, model, providers):
+    """(note, account): why the seat cannot move to `model`, or "" and the login to use.
+
+    One computation for the refusal and the launch, so the menu's key path asks each
+    login once: installed is read off the filesystem, the seat login off the kept or
+    picked account, the meter off the cache. The same provider keeps its login; another
+    one takes the first of its accounts whose seat login passes, in the seat's order,
+    else the default login to be judged below. No answer withholds nothing, the way a
+    turn goes ahead on an `auth` verb that said nothing.
+    """
+    try:
+        record = config.load_session(cfg, name, required=False)
+    except config.Error as exc:
+        return str(exc), None
+    if record is None:
+        return f"session: {name} has no saved models", None
+    if record["orchestrator"] == model:
+        return "", record.get("account")
+    try:
+        harness = config.model(cfg, model)["harness"]
+    except config.Error as exc:
+        return str(exc), None
+    try:
+        config.adapter(harness)
+    except config.Error:
+        return f"{model}: {harness} is not installed", None
+    version = harness_plugin(harness).update["version"]
+    named = isinstance(version, list) and version and isinstance(version[0], str) and version[0]
+    if not config.harness_binary(version[0] if named else harness):
+        return f"{model}: {harness} is not installed", None
+    try:
+        old_provider = config.model(cfg, record["orchestrator"])["provider"]
+    except config.Error:
+        old_provider = None
+    new_provider = config.model(cfg, model)["provider"]
+    known, account = None, record.get("account")
+    if new_provider != old_provider:
+        accounts = config.accounts(cfg, new_provider)
+        if accounts:
+            order = account_order(cfg, model,
+                                  providers.get(new_provider, {}).get("accounts") or {})
+            for cand in [*order, *(a for a in accounts if a not in order)]:
+                ok, why = harness_plugin(harness).seat_auth(cand)
+                if ok is True:
+                    account, known = cand, (ok, why)
+                    break
+            else:
+                account = config.DEFAULT_ACCOUNT
+        else:
+            account = None
+    ok, why = known if known is not None else harness_plugin(harness).seat_auth(account)
+    if ok is False:
+        return f"{model}: {why}", None
+    note = spent_note(cfg, model, providers)
+    if note:
+        return f"{model} is {note}", None
+    return "", account
+
+
+def switch_refusal(cfg, name, model, providers):
+    """Why the seat cannot move to `model`, or "" where it can.
+
+    The same model is already there. A harness that is not installed or whose seat login
+    says no, and a model whose meter reads spent, are refused in one line, and the seat
+    stays as it was.
+    """
+    return _switch_plan(cfg, name, model, providers)[0]
+
+
+def _one_line(exc):
+    """The failure as the one line under the rows: no adapter stderr ever spans two."""
+    return " ".join(str(exc).split())
+
+
+# What a launch writes about the conversation it owns: the launcher's own id, each
+# harness's receipt, and the title that launch takes. A restart that fails puts these
+# back from the record as it was, so the seat keeps its own conversation.
+LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch",
+               "codex_history", "opencode_launch", "session_title", "title_sync")
+
+
+def switch_orchestrator(cfg, name, model, providers=None):
+    """Move the open seat to another orchestrator at once, under the same name.
+
+    The old harness process ends and the new one starts in the seat's directory: a live or
+    exited pane is respawned, a seat tmux has lost is started again. The runs it launched
+    are never stopped or re-parented -- the name is the same, so endings report to the new
+    seat -- and its plan file stays. The record stays with the new orchestrator in it, on
+    the conversation the new launch owns, and the old harness's per-seat evidence goes
+    with it. This is a new conversation under a saved name, so the watch state is reset
+    the way a created seat's is. The handover -- from which model, the plan file, `ak run
+    status`, and the old transcript -- is marked for the tick, which types it after the
+    new TUI is listening through the confirmed send, the way a reopened seat's line goes.
+    A refusal, and a restart that fails, leave the seat as they found it and say so in
+    one line. What to say under the rows, or "".
+    """
+    from . import watch   # here, not at the top: watch imports this module
+    providers = usage.collect(cfg) if providers is None else providers
+    note, account = _switch_plan(cfg, name, model, providers)
+    if note:
+        return note
+    record = dict(config.session_records().get(name) or {})
+    old_model = record["orchestrator"]
+    if old_model == model:
+        return ""
+    old_harness = config.model(cfg, old_model)["harness"]
+    old_conversation = seat_conversation(record, old_harness)
+    transcript = harness_plugin(old_harness).transcript(
+        record, record.get("cwd"), old_conversation)
+    try:
+        session = find(name)
+        ran_in = Path(record.get("cwd") or (session or {}).get("path") or "")
+        cwd = ran_in if ran_in.is_dir() else seat_cwd()
+        cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
+    except (config.Error, OSError) as exc:
+        return _one_line(exc)
+    try:
+        launch(name, model, cwd, cmd, conversation, session)
+    except (config.Error, OSError) as exc:
+        new_harness = config.model(cfg, model)["harness"]
+        harness_plugin(new_harness).forget(config.session_records().get(name) or {})
+        try:
+            config.update_session(name, **{key: record.get(key) for key in LAUNCH_KEYS})
+        except OSError:
+            pass    # the note below already says the restart failed
+        return _one_line(exc)
+    try:
+        config.update_session(name, orchestrator=model, account=account)
+    except OSError as exc:
+        return f"session: {_one_line(exc)}"
+    harness_plugin(old_harness).forget(record)
+    watch.forget(name)    # a new conversation: no latch of the old one's survives it
+    watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(), "name": name,
+                                    "line": handover_text(name, old_model, transcript)})
+    return ""
+
+
 def picker_lines(cfg, notes, selected, at, column, room):
     """Every model once with three marks; detail and spent notes wrap below on a phone."""
     names = list(notes)

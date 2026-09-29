@@ -88,6 +88,15 @@ def conversation(record, cwd=None):
     return None
 
 
+def transcript(record, cwd, conversation):
+    """The rollout file the new orchestrator reads the last exchange from."""
+    if not conversation:
+        return None
+    event = read(record).get("event") or {}
+    path = event.get("transcript_path")
+    return path if isinstance(path, str) and path else None
+
+
 def forget(record):
     """Local cleanup always completes; a failed enrollment DELETE is retried later.
 

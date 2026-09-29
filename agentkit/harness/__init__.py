@@ -204,6 +204,15 @@ class Harness:
         hook = self._hook("opened")
         return bool(hook(cwd, conversation)) if hook else True
 
+    def transcript(self, record, cwd, conversation):
+        """Where that conversation's transcript is, for a model taking the seat over.
+
+        A path the new orchestrator can read the last exchange from, or None where this
+        harness keeps no file to read -- its session lives in a store, or it starts fresh.
+        """
+        hook = self._hook("transcript")
+        return hook(record, cwd, conversation) if hook else None
+
     # --- what its own installation and usage call know --------------------
 
     def identity(self, text, argv):

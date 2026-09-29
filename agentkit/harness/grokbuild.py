@@ -13,6 +13,19 @@ def session_dir(cwd, conversation):
     return home / "sessions" / quote(str(cwd), safe="") / str(conversation)
 
 
+def transcript(record, cwd, conversation):
+    """The chat history the new orchestrator reads the last exchange from.
+
+    Only where the harness has written one: a conversation nobody typed into has no
+    file, and the handover says so instead of pointing at it.
+    """
+    where = cwd or record.get("cwd")
+    if not conversation or not where:
+        return None
+    path = session_dir(where, conversation) / "chat_history.jsonl"
+    return str(path) if path.exists() else None
+
+
 def opened(cwd, conversation):
     """Has Grok written that conversation down yet, where it keeps them?
 

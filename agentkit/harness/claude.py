@@ -23,6 +23,18 @@ def transcript_path(record, conversation):
     return directory / "projects" / slug / f"{conversation}.jsonl"
 
 
+def transcript(record, cwd, conversation):
+    """The transcript the new orchestrator reads the last exchange from.
+
+    Only where the harness has written one: a conversation nobody typed into has no
+    file, and the handover says so instead of pointing at it.
+    """
+    if not conversation or not record.get("cwd"):
+        return None
+    path = transcript_path(record, conversation)
+    return str(path) if path.exists() else None
+
+
 def resumable(record, cwd, conversation):
     from . import LAUNCHER
     return bool(conversation) and record.get("id_source") in (LAUNCHER, SOURCE)
