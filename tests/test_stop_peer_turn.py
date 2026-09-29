@@ -26,7 +26,7 @@ SEAT = "peer-seat"
 REASON = ("You stopped without asking the user a question, declaring done with ak notify done, "
           "or waiting on a run. Continue: decide the next step and do it.")
 ACK = "Noted -- nothing new on my side."      # the seat acknowledges the message and stops
-PEER_PROMPT = ('<cross-session-message from="atlas-fix-api" to="peer-seat">'
+PEER_PROMPT = ('<cross-session-message from="acme-fix-api" to="peer-seat">'
                "Finished the parser; over to you.</cross-session-message>")
 SPENT = "three rounds spent: split or re-scope the task"
 
