@@ -487,7 +487,7 @@ def _own_stdin():
         return None
 
 
-def readline(prompt="", placeholder=""):
+def readline(prompt=""):
     """One line from stdin, or None at its end; the prompt goes up first either way.
 
     The one place a line is taken off stdin, so the menu's bounded wait and every question
@@ -501,11 +501,11 @@ def readline(prompt="", placeholder=""):
     the terminal over in the middle of a click (`Keyboard.give`), however late it comes.
 
     While a `Keyboard` has the terminal there are no lines: the answer is typed into `field`,
-    a key at a time, with `placeholder` in it.
+    a key at a time.
     """
     global _HALF_TYPED
     if taken():
-        return field(prompt, placeholder)
+        return field(prompt)
     keyboard = _own_stdin()
     if keyboard is None:
         half, _HALF_TYPED = _HALF_TYPED.decode("utf-8", "replace"), b""

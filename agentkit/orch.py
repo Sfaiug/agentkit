@@ -2731,11 +2731,9 @@ def ask_name(taken, default=None, auto=False):
         taken = taken - {old for old, target in config.session_aliases().items()
                          if target == default}
     prompt = "Name (Enter: auto): " if auto else f"Name{f' [{default}]' if default else ''}: "
-    placeholder = ""
-    if terminal.taken():
-        prompt, placeholder = "Name: ", "auto" if auto else default or ""
     while True:
-        line = terminal.readline(prompt, placeholder)
+        line = (terminal.field("Name: ", "auto" if auto else default or "") if terminal.taken()
+                else terminal.readline(prompt))
         if line is None:
             if not sys.stdout.isatty():
                 print()
