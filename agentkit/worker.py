@@ -112,6 +112,10 @@ def auth_ok(harness, seat=False, run_id=None, account=None):
     env = config.child_env()
     if run_id:
         env[RUN_MARKER] = run_id
+    else:
+        # no run to name means unmarked, even inside a run whose marker the child
+        # would otherwise inherit -- a login probe is nobody's to sweep.
+        env.pop(RUN_MARKER, None)
     if account is not None:
         env.update(config.account_env(account))
     try:
@@ -195,14 +199,15 @@ PREAMBLES = {
     "reviewer": (
         "You are the reviewer. Read-only: do not edit files under review. The loop ran every done-when "
         "command on exactly the commit under review; the complete output is below under "
-        "`## Done-when output`, except the commands marked deferred, which run on the shipping "
-        "commit after your PASS. Run whatever is needed to prove or dismiss a finding, except "
+        "`## Done-when output`, except the commands marked deferred, which run alongside "
+        "your review on the same commit. Run whatever is needed to prove or dismiss a finding, except "
         "done-when commands, the repository's `tests:` suite, and checks marked deferred; probes "
         "must leave nothing behind outside a temporary directory. Judge "
         "the diff against the task and its done-when criteria. "
         "A check the executor weakened, skipped or deleted is a FAIL unless the task asked for "
         "exactly that. The full suite a repository declares as `tests:` in its AGENTS.md runs "
-        "once, in the final check; a task whose done-when leaves it out has weakened no check. "
+        "alongside your review; a task whose done-when leaves it out has weakened no check. "
+        "Their absence from your input is by design and is never a finding. "
         f"{GATE} {ONE_PASS} Finish with a line "
         "exactly `VERDICT: PASS` or `VERDICT: FAIL`, then `## Findings` as a list of "
         "`path:line - issue - why it matters` for blocking findings only."),
@@ -234,11 +239,12 @@ PREAMBLES = {
     "reviewer-scratch": (
         "You are the reviewer. Read-only: do not edit files under review. The loop ran every done-when "
         "command on exactly the workspace under review; the complete output is below under "
-        "`## Done-when output`, except the commands marked deferred, which run on the shipping "
-        "commit after your PASS. Run whatever is needed to prove or dismiss a finding, except "
+        "`## Done-when output`, except the commands marked deferred, which run alongside "
+        "your review on the same commit. Run whatever is needed to prove or dismiss a finding, except "
         "done-when commands, the repository's `tests:` suite, and checks marked deferred; probes "
         "must leave nothing behind outside a temporary directory. Judge "
         "the contents of {workspace} against the task and its done-when criteria. "
+        "Their absence from your input is by design and is never a finding. "
         f"{GATE} {ONE_PASS} Finish with a line "
         "exactly `VERDICT: PASS` or `VERDICT: FAIL`, then `## Findings` as a list of "
         "`path:line - issue - why it matters` for blocking findings only."),
@@ -267,21 +273,26 @@ def _lineage():
     return lineage
 
 
-def marked_pids(run_id):
-    """Every pid carrying AGENTKIT_RUN=<run_id>, except this process and its ancestors.
+def marked_pids(run_id, exact=False):
+    """Every pid carrying AGENTKIT_RUN=<run_id> or below it, except this process and its ancestors.
 
     Found by scanning /proc/*/environ, so a child that left its process group -- setsid,
     a double fork, a harness that starts each shell command as its own session leader --
     is still one of the run's.  The caller and its ancestors are never among them,
     whatever marker they carry and whatever id was asked for: a kill from inside a run
     must not take the run that asked for it.  Entries are matched whole, so one run id
-    is never a prefix of another's.  Unreadable rows -- a process that just exited,
+    is never a prefix of another's -- except below a slash: `<id>/suite` is the run's
+    own suite, so a sweep of the run ends it too, while a sweep of the suite ends only
+    the suite.  `exact` matches only the marker itself: a failed turn's cleanup ends
+    the turn's own leftovers while the suite running beside it keeps going.
+    Unreadable rows -- a process that just exited,
     another user's -- are skipped, never fatal.
     """
     if not run_id:
         return []
     skip = _lineage()
     want = f"{RUN_MARKER}={run_id}".encode()
+    prefix = want + b"/"
     try:
         entries = [entry for entry in os.listdir("/proc") if entry.isdigit()]
     except OSError:
@@ -296,24 +307,29 @@ def marked_pids(run_id):
                 env = fh.read()
         except OSError:
             continue
-        if want in env.split(b"\0"):
-            found.append(pid)
+        for part in env.split(b"\0"):
+            if part == want or (not exact and part.startswith(prefix)):
+                found.append(pid)
+                break
     return found
 
 
-def kill_marked(run_id, grace=MARK_KILL_GRACE, log=None):
+def kill_marked(run_id, grace=MARK_KILL_GRACE, log=None, exact=False):
     """End every process carrying the run's marker: TERM to all of it, then KILL after `grace`.
 
     The scope's backstop, and the plain host's only net: what a run started is found by its
     environment, not by its parent or its group, so nothing detached outlives the run.  The
     caller and its ancestors are not part of that, whatever id was given -- `marked_pids`
     leaves them out -- so the loop's own end-of-run sweep still ends every process the run
-    started.  Polls for the exits and returns early; True when nothing marked is left.
-    Never raises: a cleanup that fails leaves the next one to act.
+    started.  One sweep ends the run's sub-marked processes too (`<id>/suite`), so no sweep
+    of a run can miss its suite; `exact` sweeps only the marker itself, for a failed turn's
+    cleanup while the suite beside it keeps running.  Polls for the exits and returns
+    early; True when nothing marked is left.  Never raises: a cleanup that fails leaves
+    the next one to act.
     """
     if not run_id:
         return True
-    marked = marked_pids(run_id)
+    marked = marked_pids(run_id, exact=exact)
     if not marked:
         return True
     for pid in marked:
@@ -323,7 +339,7 @@ def kill_marked(run_id, grace=MARK_KILL_GRACE, log=None):
             pass
     deadline = time.monotonic() + grace
     while time.monotonic() < deadline:
-        marked = marked_pids(run_id)
+        marked = marked_pids(run_id, exact=exact)
         if not marked:
             return True
         time.sleep(0.2)
@@ -334,7 +350,7 @@ def kill_marked(run_id, grace=MARK_KILL_GRACE, log=None):
             pass
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:
-        marked = marked_pids(run_id)
+        marked = marked_pids(run_id, exact=exact)
         if not marked:
             return True
         time.sleep(0.2)
@@ -344,14 +360,14 @@ def kill_marked(run_id, grace=MARK_KILL_GRACE, log=None):
 
 
 def kill_group(proc, run_id=None):
-    """Take down the whole process group -- and, where the run is named, the whole run.
+    """Take down the whole process group -- and, where the run is named, its marker.
 
     SIGTERM first, so a harness can still close its session file, then SIGKILL for whatever
     ignored it -- the test runner, the compiler, the git it left behind.  The group is named
     before any wait: reaping the leader takes its pid, and the group's name with it.  The
     group is never the whole of it: a child that left the group is still the run's, so where
-    the child's marker names the run, every process carrying it is ended too, except this
-    process and its ancestors.
+    the child's marker names the run, every process carrying exactly it is ended too, except
+    this process and its ancestors -- a killed turn's cleanup, never the suite beside it.
     """
     try:
         group = os.getpgid(proc.pid)
@@ -374,7 +390,7 @@ def kill_group(proc, run_id=None):
     except OSError:
         pass
     if run_id:
-        kill_marked(run_id)
+        kill_marked(run_id, exact=True)
 
 
 def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=None,
@@ -399,8 +415,9 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
     this is here to stop.  It must be cheap and must not raise.
 
     Where the child was given an environment that carries AGENTKIT_RUN, a kill ends every
-    process carrying it, however detached -- never only the child's own process group, and
-    never this process or its ancestors.  A plain inherited environment names no run, and
+    process carrying exactly it, however detached -- never only the child's own process
+    group, never the suite beside it, and never this process or its ancestors.
+    A plain inherited environment names no run, and
     neither does a copy of this process's own marker: both are the run this process is
     inside, and the kill stays with the child's session.
     """

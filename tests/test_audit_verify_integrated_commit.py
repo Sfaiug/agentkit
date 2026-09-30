@@ -452,6 +452,17 @@ sys.exit(0 if ok else 1)
         self.assert_kept(state, 3)
         self.assertEqual(len(self.events("push")), 3)
 
+    def carried_branch_files(self, once_head, push_head):
+        # whether the push is the once run's head rebased onto disjoint target moves:
+        # every file the branch changed since their fork reads the same blob in both
+        base = run.git(self.wt, "merge-base", once_head, push_head)
+        files = run.git(self.wt, "diff", "--no-renames", "--name-only",
+                        base, once_head).splitlines()
+        return bool(files) and all(
+            run.git(self.wt, "rev-parse", f"{once_head}:{name}", check=False)
+            == run.git(self.wt, "rev-parse", f"{push_head}:{name}", check=False)
+            for name in files)
+
     def test_merge_retries_run_the_final_check_before_pushing(self):
         # the saved-PR retry pushes a new head, then the BEHIND retry inside it another
         self.merge_mode = "blocked"
@@ -461,10 +472,15 @@ sys.exit(0 if ok else 1)
         self.assertEqual(self.retry()[0], 0)
         self.assertEqual(len(self.events("push")), 3)
         for index, event in enumerate(self.events()):
-            if event["kind"] == "push":
-                self.assertTrue(any(e["kind"] == "once" and e["ok"] and
-                                    e["head_sha"] == event["head_sha"]
-                                    for e in self.events()[:index]))
+            if event["kind"] != "push":
+                continue
+            earlier = [e for e in self.events()[:index]
+                       if e["kind"] == "once" and e["ok"]]
+            self.assertTrue(
+                any(e["head_sha"] == event["head_sha"] for e in earlier)
+                or any(self.carried_branch_files(e["head_sha"], event["head_sha"])
+                       for e in earlier),
+                f"push {event['head_sha']} has no once evidence, run or carried")
 
     def test_saved_retry_budget_exhaustion_is_resumable(self):
         # v5ac: a failing done-when after the clean rebase binds the budget.

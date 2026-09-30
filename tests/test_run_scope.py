@@ -85,7 +85,7 @@ class RunScope(unittest.TestCase):
                     self.stopped.append((scope, wait)) or True),
                 (run, "process_active", lambda state: state.get("pid") in self.live),
                 (run, "_scope_oom_probe", lambda state: ("success", 0)),
-                (run.worker, "kill_marked", lambda run_id, log=None: True),
+                (run.worker, "kill_marked", lambda run_id, log=None, exact=False: True),
                 (run.time, "sleep", finish)):
             self.stack.enter_context(patch.object(where, name, side_effect=fake))
 
