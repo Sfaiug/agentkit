@@ -40,7 +40,7 @@ LONG_REASON = ("reviewer astra died on API/transport errors 3 times and no eligi
                "left on another provider; waiting for review. See {}/round-1-reviewer*/stderr.log "
                "and the round summaries in result.md before deciding whether to resume")
 NUMBERED = re.compile(r"^[›>]?\s*(\d+)  \S")              # a seat or run row: its number, the name
-MARKED = re.compile(r"^[›>] +(\d+)  \S")                   # the highlighted seat row, and its number
+MARKED = re.compile(r"^\s*[›>] +(\d+)  \S")    # the highlighted seat row, and its number (in a box, padded)
 
 
 class Sandbox(unittest.TestCase):
