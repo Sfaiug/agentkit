@@ -32,7 +32,7 @@ BINARIES = {"claude": "claude", "codex": "codex", "muse": "muse", "grokbuild": "
 # the smallest turns check 3 makes: (model, harness, model id, effort)
 SMALLEST = re.findall(r'"(\w+) (\w+) (\S+) (\w+)"', between("# --- 3:", "# --- 4:"))
 ADAPTER = '''#!/bin/bash
-S="$FIXTURE/$(basename "$0" .sh)"
+S=$FIXTURE/${0##*/}; S=${S%.sh}
 case $1 in
   auth) read -r rc line <"$S.auth"; echo "$line"; exit "$rc" ;;
   run) printf '%s\\n' "${*:2:2}" >>"$S.runs"; cat "$5" >>"$S.prompts"; mkdir -p "$6"
