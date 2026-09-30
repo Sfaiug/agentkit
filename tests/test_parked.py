@@ -314,7 +314,8 @@ class Parked(unittest.TestCase):
                                                          "done_when": True, **identity}
                                                         for n in (1, 2, 3)])
                 lp = SimpleNamespace(state=run.read_state(run_dir), run_dir=run_dir,
-                                     log=run.note_in(run_dir / "log.txt"))
+                                     log=run.note_in(run_dir / "log.txt"),
+                                     write=lambda: run.save_state(run_dir, lp.state))
                 run.park_waiting(lp, reason, "origin/main", old)
                 # the retry is scheduled, and status says when
                 with redirect_stdout(io.StringIO()) as out:

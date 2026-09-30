@@ -147,7 +147,7 @@ class DepWaitNotStall(unittest.TestCase):
         run.save_state(directory, state)
         logs = []
         lp = SimpleNamespace(state=state, run_dir=directory, base_sha="abc",
-                             log=logs.append)
+                             log=logs.append, write=lambda: run.save_state(directory, state))
         with patch.object(run, "JOB_TICK", 0.05):
             result = {}
             thread = threading.Thread(target=lambda: result.update(

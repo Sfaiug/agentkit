@@ -316,8 +316,10 @@ class PickupNewCode(unittest.TestCase):
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.resume_run(["pickup-four"]), 0)
         self.assertEqual(seen["prior"]["land_lap"], 2)
-        # the new code verifies laps 2 and 3, then parks, instead of three fresh laps
-        lp.state = run.read_state(lp.run_dir)
+        # the new code verifies laps 2 and 3, then parks, instead of three fresh laps, in the
+        # loop the resumed process builds from the record
+        lp = run.Loop(lp.cfg, lp.run_dir, run.read_state(lp.run_dir), {}, lp.log, lp.wt,
+                      "body", ["true"], "context", [])
         run._PICKUP_START = NEW
         verifies = []
 

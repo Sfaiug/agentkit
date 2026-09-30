@@ -96,6 +96,51 @@ class LiveRun(Fixture):
         self.assertEqual(run.read_state(self.run_dir)["state"], "stopped")
 
 
+class MergePipeline(Fixture):
+    """The merge pipeline's saves merge what the loop changed, as `Loop.save` does."""
+
+    def survives(self, save):
+        self.lp.save()
+        with run.record(self.run_dir) as current:
+            current["frozen_since"] = 5000
+        save()
+        state = run.read_state(self.run_dir)
+        self.assertEqual(state["frozen_since"], 5000)
+        return state
+
+    def test_a_note(self):
+        state = self.survives(lambda: run.note(self.lp, "the PR is closed", failed=True))
+        self.assertEqual(state["merge_note"], "the PR is closed")
+
+    def test_parking_waiting(self):
+        state = self.survives(lambda: run.park_waiting(self.lp, "red", "origin/main", "abc"))
+        self.assertEqual((state["state"], state["waiting_on"]),
+                         ("waiting", {"ref": "origin/main", "sha": "abc"}))
+
+    def test_the_merge_turns_release(self):
+        self.lp.state["merge_hold"] = {"pid": 1, "of": "acme main"}
+        self.assertNotIn("merge_hold", self.survives(run._MergeHold(None, self.lp, True).release))
+
+    def test_a_final_check(self):
+        self.lp.once, self.lp.every = ["true"], []
+        with patch.object(run, "git", return_value="a" * 40), \
+                patch.object(run, "git_out", return_value=(0, "")), \
+                patch.object(run, "commit_identity", return_value={"head_sha": "a" * 40,
+                                                                   "tree_sha": "b" * 40}), \
+                patch.object(run, "run_done_when", return_value=(True, "$ true\n[exit 0]")):
+            state = self.survives(lambda: self.assertTrue(run.final_check(self.lp, "origin/main")))
+        self.assertEqual(state["final_check"]["outcome"], "passed")
+
+    def test_a_stop_still_ends_a_pipeline_save_and_a_release_still_lets_go(self):
+        run.save_state(self.run_dir, {**run.read_state(self.run_dir), "state": "stopped"})
+        with self.assertRaises(run.StopRequested):
+            run.note(self.lp, "the PR is closed")
+        self.lp.state["merge_hold"] = {"pid": 1, "of": "acme main"}
+        run._MergeHold(None, self.lp, True).release()     # its fallback, not a raise
+        self.assertNotIn("merge_hold", self.lp.state)
+        self.assertEqual(run.read_state(self.run_dir)["state"], "stopped")
+
+
 class Contract(Fixture):
     def writes(self):
         return patch.object(run, "_write_state", wraps=run._write_state)

@@ -285,13 +285,16 @@ class RejectedPush(unittest.TestCase):
         def log(self, line):
             self.lines.append(line)
 
+        def write(self):
+            pass
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix="v5j-push-")
         self.addCleanup(tmp.cleanup)
         self.lp = self.Fake(Path(tmp.name))
 
     def note(self):
-        with patch.object(run, "require_review_pass"), patch.object(run, "save_state"):
+        with patch.object(run, "require_review_pass"):
             self.assertFalse(run.push(self.lp))
         return self.lp.state["merge_note"]
 

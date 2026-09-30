@@ -2011,7 +2011,7 @@ class _MergeHold:
             if self.reserved:
                 try:
                     self.lp.state.pop("merge_hold", None)
-                    save_state(self.lp.run_dir, self.lp.state)
+                    self.lp.write()
                 except (OSError, StopRequested):
                     try:
                         self.lp.state.pop("merge_hold", None)
@@ -2697,15 +2697,24 @@ class Loop:
         return self.round_dir / name
 
     def save(self):
+        """`write`, with this loop's seats and sessions on the record and in the history."""
+        self.state.update(executor=self.executor, reviewer=self.reviewer,
+                          exec_session=self.exec_sid, review_session=self.review_sid)
+        self.write()
+        history.update_run(self.state.get("run_id"), repo=self.state.get("repo"),
+                           executor=self.executor, reviewer=self.reviewer,
+                           rounds_used=len(self.state.get("round_summaries") or []),
+                           session=launched_session(self.state), log=self.log)
+
+    def write(self):
         """Write what this loop changed since it was handed the record or last wrote it, no more.
 
         The watcher and a rename write a live run's record too -- a freeze, a stall entry, a
         seat's new name -- and a whole save from this loop's memory would put the old record
         back over them.  `state` is written every time, so a stop that landed in between is
-        refused by `record`'s guard as a whole save refused it.
+        refused by `record`'s guard as a whole save refused it.  Every save a live loop makes
+        ends here; the merge pipeline's and a PR review's change neither seats nor history.
         """
-        self.state.update(executor=self.executor, reviewer=self.reviewer,
-                          exec_session=self.exec_sid, review_session=self.review_sid)
         if not (self.run_dir / "run.json").exists():
             save_state(self.run_dir, self.state)
         else:
@@ -2717,10 +2726,6 @@ class Loop:
                           or self.written[key] != self.state[key]):
                         current[key] = self.state[key]
         self.written = copy.deepcopy(self.state)
-        history.update_run(self.state.get("run_id"), repo=self.state.get("repo"),
-                           executor=self.executor, reviewer=self.reviewer,
-                           rounds_used=len(self.state.get("round_summaries") or []),
-                           session=launched_session(self.state), log=self.log)
 
     def step(self, name):
         """Record which step this run is in, and since when, for `ak run status` to read."""
@@ -4301,7 +4306,7 @@ def note(lp, reason, failed=False):
     lp.state["merge_note"] = reason
     lp.state["merge_failed"] = failed
     lp.log(("ERROR " if failed else "WARN ") + f"not merged: {reason}")
-    save_state(lp.run_dir, lp.state)
+    lp.write()
     return False
 
 
@@ -4320,7 +4325,7 @@ def park_waiting(lp, reason, ref, sha=None):
         waiting_on["sha"] = sha
     lp.state.update(state="waiting", error=reason, waiting_on=waiting_on)
     lp.state.pop("recovery_pending", None)  # the wait is the tick's now
-    save_state(lp.run_dir, lp.state)
+    lp.write()
     lp.log(f"--- merge: parked waiting; retried after the next merge to {ref}")
     return False
 
@@ -4389,7 +4394,7 @@ def how_to_integrate(lp):
 def set_base(lp, tip):
     """The branch now carries the pinned tip, so that is what its diff is against from here on."""
     lp.state["base_sha"] = git(lp.wt, "rev-parse", f"{tip}^{{commit}}")
-    save_state(lp.run_dir, lp.state)
+    lp.write()
     hold = getattr(_MERGE_HELD, "hold", None)
     if hold is not None:
         hold.lend()
@@ -4442,14 +4447,14 @@ def wait_for_dependency(lp):
             return note(lp, f"{dep} did not merge; this branch stands on its work and is kept")
         if not waited:
             lp.state["dep_wait"] = {"pid": os.getpid(), "of": dep}
-            save_state(lp.run_dir, lp.state)
+            lp.write()
             lp.log(f"--- merge: waiting for {dep} to merge before landing on it")
             step = history.close_step(lp.state.get("run_id"), log=lp.log)   # a wait, not work
             waited = True
         time.sleep(JOB_TICK)
     if waited:
         lp.state.pop("dep_wait", None)
-        save_state(lp.run_dir, lp.state)
+        lp.write()
         history.open_step(lp.state.get("run_id"), step, log=lp.log)
         lp.log(f"--- merge: {dep} merged; landing")
     return True
@@ -4466,7 +4471,7 @@ def abort_integration(lp, how):
     """
     git_out(lp.wt, how, "--abort")
     lp.state.pop("review_pending", None)
-    save_state(lp.run_dir, lp.state)
+    lp.write()
 
 
 CONFLICT_ROUNDS = 3      # the merge pipeline's own fixer rounds per conflicted rebase or merge,
@@ -4854,7 +4859,7 @@ def push(lp):
         return note(lp, f"origin already has {branch} at {seen[:12]} and this run did not push "
                         "it; the branch was taken by another run", failed=True)
     ours.append(head)
-    save_state(lp.run_dir, lp.state)
+    lp.write()
     # --force-with-lease from the start: a rebased branch is a rewrite, and a resumed or
     # retried run finds its own earlier push already on origin.  Pinned to what was seen, so
     # a fetch in another worktree since cannot move the lease onto another run's commit
@@ -4868,7 +4873,7 @@ def push(lp):
         return note(lp, f"pushing {branch} to origin failed: {out[-400:]}", failed=True)
     lp.log(f"--- merge: pushed {branch} to origin")
     lp.state["delivery_sha"] = head
-    save_state(lp.run_dir, lp.state)
+    lp.write()
     return True
 
 
@@ -4923,7 +4928,7 @@ def open_pr(lp, target_branch):
         note(lp, f"gh pr create failed: {out[-400:]}", failed=True)
         return None
     lp.state["pr"] = found.group(0)
-    save_state(lp.run_dir, lp.state)
+    lp.write()
     lp.log(f"--- merge: PR {lp.state['pr']}" + (" (already open)" if rc != 0 else ""))
     return lp.state["pr"]
 
@@ -5195,7 +5200,7 @@ def do_merge(lp, url, upstream):
             seen, mergeable = info.get("state"), info.get("mergeable")
             if seen == "MERGED":
                 lp.state["merged"] = True
-                save_state(lp.run_dir, lp.state)
+                lp.write()
                 lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
                 return True
             if seen != "OPEN":
@@ -5217,7 +5222,7 @@ def do_merge(lp, url, upstream):
                 ready = mergeable == "MERGEABLE"
         if rc == 0:
             lp.state["merged"] = True
-            save_state(lp.run_dir, lp.state)
+            lp.write()
             lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
             return True
         if lost:
@@ -5228,7 +5233,7 @@ def do_merge(lp, url, upstream):
                 raise Stopped(current)
             if src == 0 and current.strip() == "MERGED":
                 lp.state["merged"] = True
-                save_state(lp.run_dir, lp.state)
+                lp.write()
                 lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
                 return True
             return park_waiting(
@@ -5245,7 +5250,7 @@ def do_merge(lp, url, upstream):
                               "-q", ".state")
             if src == 0 and current.strip() == "MERGED":
                 lp.state["merged"] = True
-                save_state(lp.run_dir, lp.state)
+                lp.write()
                 lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
                 return True
             raise Stopped(out if stopped(rc, out) else why)
@@ -5538,13 +5543,13 @@ def final_check(lp, upstream):
             lp.log("final check: all passed")
             lp.state["final_check"] = {"outcome": "passed", "sha": sha, "where": "landing"}
             record_flakes(lp.state, text)
-            save_state(lp.run_dir, lp.state)
+            lp.write()
             return True
         failing = first_failure(text)
         lp.log("final check: FAILED")
         lp.state["final_check"] = {"outcome": "failed", "sha": sha, "where": "landing",
                                    "line": failing}
-        save_state(lp.run_dir, lp.state)
+        lp.write()
         drop_reserved_turn()    # the lap failed; the probe runs unheld
         said = target_fails(lp, upstream, text)
         if said:
@@ -5626,7 +5631,7 @@ def land(lp, upstream, verify, deliver, execv=None):
             (Path(lp.run_dir) / "landing_since").unlink(missing_ok=True)
         except OSError:
             pass
-    save_state(lp.run_dir, lp.state)
+    lp.write()
     try:
         for lap in range(first_lap, 4):
             pickup_new_code(lp, execv=execv, extra={"land_lap": lap})
@@ -5665,7 +5670,7 @@ def land(lp, upstream, verify, deliver, execv=None):
         except OSError:
             pass            # the next landing counts from its own first wait
         try:
-            save_state(lp.run_dir, lp.state)
+            lp.write()
         except (OSError, StopRequested):
             pass            # the landing is over however the record ends
 
@@ -5779,7 +5784,7 @@ def merge_turn(lp, upstream, reserve=False):
             # silence watch would read the holder's wait as a stall and resume it.
             retaking = True
             lp.state["merge_retake"] = {"pid": os.getpid(), "of": what}
-            save_state(lp.run_dir, lp.state)
+            lp.write()
             lp.log(f"--- merge: taking back the merge turn of {what}; "
                    "a borrower is landing on it")
             retake_step = history.close_step(lp.state.get("run_id"), at, log=lp.log)
@@ -5788,7 +5793,7 @@ def merge_turn(lp, upstream, reserve=False):
             return
         waited = True
         lp.state["merge_turn"] = {"pid": os.getpid(), "of": what}
-        save_state(lp.run_dir, lp.state)
+        lp.write()
         lp.log(f"--- merge: waiting for the merge turn of {what}; another run is landing on it")
         step = history.close_step(lp.state.get("run_id"), at, log=lp.log)
 
@@ -5831,7 +5836,7 @@ def merge_turn(lp, upstream, reserve=False):
             if retaking:
                 lp.state.pop("merge_retake", None)
             if waited or retaking:
-                save_state(lp.run_dir, lp.state)
+                lp.write()
         if waited:
             history.open_step(lp.state.get("run_id"), step, log=lp.log)
             lp.log(f"--- merge: took the merge turn of {what}")
@@ -5847,7 +5852,7 @@ def merge_turn(lp, upstream, reserve=False):
         try:
             if reserve:
                 lp.state["merge_hold"] = {"pid": os.getpid(), "of": what}
-                save_state(lp.run_dir, lp.state)
+                lp.write()
                 lp.log(f"--- merge: holding the merge turn of {what} to land")
         except BaseException:
             _PICKUP_HELD.count = held
@@ -7900,7 +7905,7 @@ def pickup_new_code(lp, execv=None, current=None, extra=None):
         return False
     try:
         lp.state["pickup"] = {"pid": os.getpid(), "from": start, "to": now, **(extra or {})}
-        save_state(lp.run_dir, lp.state)
+        lp.write()
     except StopRequested:
         raise
     except Exception:
@@ -13266,13 +13271,13 @@ def post_review(lp, url, verdict):
     lp.state.pop("review_error", None)
     if not isinstance(current, dict) or not current.get("headRefOid"):
         lp.state["review_error"] = f"cannot verify the PR head: {why}"
-        save_state(lp.run_dir, lp.state)
+        lp.write()
         return False
     if current["headRefOid"] != head or current.get("state") != "OPEN":
         lp.state["review_stale"] = True
         lp.state["review_error"] = "PR head changed or closed; discarded review; watcher will re-queue"
         lp.log(f"WARN {lp.state['review_error']}")
-        save_state(lp.run_dir, lp.state)
+        lp.write()
         return False
     path = lp.run_dir / "review.md"
     path.write_text(f"agentkit review of {head[:12]} by {lp.reviewer} (run {lp.run_dir.name})\n\n"
@@ -13288,7 +13293,7 @@ def post_review(lp, url, verdict):
     else:
         lp.state["review_error"] = f"gh api review {how} exited {rc}: {out[-300:]}"
         lp.log(f"WARN could not post the review to {url}: {out[-300:]}")
-    save_state(lp.run_dir, lp.state)
+    lp.write()
     return rc == 0
 
 
@@ -13309,14 +13314,14 @@ def merge_own_pr(lp, url, head):
     upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
     method = lp.state.get("merge_method") or "squash"
     lp.state["delivery_sha"] = head
-    save_state(lp.run_dir, lp.state)
+    lp.write()
     with merge_turn(lp, upstream):
         for attempt in range(1, MERGE_RETRIES + 2):
             rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method],
                          "--delete-branch", "--match-head-commit", head)
             if rc == 0:
                 lp.state["merged"] = True
-                save_state(lp.run_dir, lp.state)
+                lp.write()
                 lp.log(f"--- merge: merged own {url} with --{method} at {head[:12]}, "
                        "remote branch deleted")
                 return True
@@ -13324,7 +13329,7 @@ def merge_own_pr(lp, url, head):
                               "-q", ".state")
             if not stopped(src, current) and src == 0 and current.strip() == "MERGED":
                 lp.state["merged"] = True
-                save_state(lp.run_dir, lp.state)
+                lp.write()
                 lp.log(f"--- merge: own {url} already merged at {head[:12]}")
                 return True
             if (stopped(rc, out) or stopped(src, current) or attempt > MERGE_RETRIES
