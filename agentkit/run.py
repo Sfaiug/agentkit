@@ -6352,9 +6352,11 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             if code != 0:
                 log(f"WARN git fetch origin failed; basing this run on the local {base}: "
                     f"{out[-400:]}")
-            elif git(repo, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{base}",
-                     check=False):
-                ref = f"origin/{base}"
+            elif git_out(repo, "show-ref", "--verify", "--quiet", f"refs/heads/{base}",
+                         f"refs/remotes/origin/{base}")[0] == 0:
+                # only a local branch gives way to origin's, named in full: `origin/main` could
+                # be a tag, and a base already on origin could be a branch called `origin/main`
+                ref = f"refs/remotes/origin/{base}"
             # a branch name moves with the executor's commits, so pin the diff to the commit it names
             base_sha = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
             from_branch = (meta.get("from") or "").strip()

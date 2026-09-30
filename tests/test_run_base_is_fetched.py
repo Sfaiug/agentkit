@@ -61,7 +61,7 @@ class RunBaseIsFetched(unittest.TestCase):
 
     def cut(self, base=None):
         """The commit a fresh run's worktree is made from."""
-        directory = config.RUNS / "fix-api"
+        directory = config.RUNS / f"fix-api-{base or 'default'}".replace("/", "-")
         directory.mkdir()
         task = directory / "task.md"
         task.write_text(f"---\nrepo: {self.repo}\n" + (f"base: {base}\n" if base else "")
@@ -84,6 +84,15 @@ class RunBaseIsFetched(unittest.TestCase):
 
     def test_the_default_base_is_fetched_before_it_is_read(self):
         self.assertEqual(self.cut(), self.fresh)
+
+    def test_a_base_on_origin_is_not_taken_for_a_branch_named_like_it(self):
+        self.git(self.repo, "push", "-q", "origin", f"{self.stale}:refs/heads/origin/main")
+        self.assertEqual(self.cut(), self.fresh)
+        self.assertEqual(self.cut("origin/main"), self.fresh)
+
+    def test_origin_s_branch_wins_over_a_tag_named_like_it(self):
+        self.git(self.repo, "tag", "origin/main", self.stale)
+        self.assertEqual(self.cut("main"), self.fresh)
 
     def test_offline_it_falls_back_to_the_local_ref_and_says_so(self):
         self.git(self.repo, "remote", "set-url", "origin", str(self.root / "gone.git"))
