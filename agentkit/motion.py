@@ -2,10 +2,11 @@
 
 At rest one thing moves, a working session's `●` breathing; news moves once and is then still --
 a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright, a bar
-that changed value glides to it -- and a popup's content fades in once, as it opens -- and every
-motion runs on this same clock (docs/cli-design.md, Motion).  A screen says which cells animate and how when it draws (`Clock.start`), asking first
-which of its values are news (`Clock.look`); the wait loop asks how long until the next frame
-(`Clock.wait`) and what to write then (`Clock.frame`).  No screen keeps a timer: time, easing
+that changed value glides to it; a popup's content fades in once, as it opens -- and every
+motion runs on this same clock (docs/cli-design.md, Motion).  A screen says which cells animate
+and how when it draws (`Clock.start`), asking first which of its values are news (`Clock.look`);
+the wait loop asks how long until the next frame (`Clock.wait`) and what to write then
+(`Clock.frame`).  No screen keeps a timer: time, easing
 and the running animations live here, and cells animated alike are in one phase because each
 reads one clock.
 """

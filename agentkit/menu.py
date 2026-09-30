@@ -1184,7 +1184,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     menu has the keyboard, and the news since the draw before: a `!` that turned `needs you`
     pulses, a `✓` that turned `done` settles and a usage or tasks bar that moved glides.  Their
     first frame goes out in the draw's own write, at the clock's phase, so nothing jumps when
-    the screen is drawn over.  The popup's first draw is handed to it whole, to fade in.
+    the screen is drawn over.  While a popup's content fades in, the whole screen is handed to
+    it, to come up out of the background (`motion.Clock.rise`).
     """
     owned = drawn is not None
     if (not owned and sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
@@ -3480,8 +3481,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     once, a frame whenever the clock says one is due and no key is waiting (`moving`), so a key
     is read within a frame of being pressed.  A key that opens another screen, a notice and a
     resize have the clock forget what it saw, so the menu after them replays nothing.  The
-    popup's first draw fades in on that clock, and a key pressed while it does is answered as
-    at any other time, its draw as it is; the popup closes the moment its menu ends.
+    popup's content fades in on that clock, and a key pressed while it does is answered as at
+    any other time, its draw coming up with the rest; the popup closes the moment its menu ends.
 
     On a terminal the menu has the keyboard (`terminal.Keyboard`) and there are no lines: a
     key acts the moment it is pressed.  One seat row is highlighted; ↑/↓, k/j and the wheel
