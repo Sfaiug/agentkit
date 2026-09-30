@@ -14,7 +14,7 @@ On a terminal, and only for what is missing, it asks: which harness to install w
 
 ## Use
 
-Type `ak`. When `~/agentkit` is behind origin it updates itself first, under a progress bar, and opens on the new code; offline, it opens as it is within two seconds. One screen: your sessions, what each is doing, and one line at the top: `nothing needs you` or `2 need you`. Seven keys:
+Type `ak`. When `~/agentkit` is behind origin it updates itself first, the rule under the header filling as it goes, and opens on the new code; offline, it opens as it is within two seconds. One screen: your sessions, what each is doing, and one line at the top: `nothing needs you` or `2 need you`. Seven keys:
 
 ```
 1 2 3   open that session

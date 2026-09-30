@@ -357,7 +357,7 @@ does after a merge to main. A checkout that is dirty, off main or cannot fast-fo
 failed pull or `install.sh`, is said once per origin commit, in the tick's log and by `ak update`. It runs in the
 foreground and says per harness whether it was upgraded, reverted, kept or left unchanged; `--dry-run` prints the plan.
 `ak` itself asks origin, for two seconds at most, whether `~/agentkit` is behind, and if so fetches, pulls and reruns
-`install.sh` under a progress bar, then starts again on the new code. A tick upgrades a harness behind its
+`install.sh`, filling the rule under its header, then starts again on the new code. A tick upgrades a harness behind its
 `[update] latest` release, asked hourly at most, in the background through the same gates and rollback, sessions working
 or not, one at a time; a failed gate is said once in its log and that release is not retried. Claude and Codex name one.
 
