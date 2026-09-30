@@ -3,7 +3,8 @@
 The tick asks each harness's `[update] latest` at most hourly; one this host has that is behind
 it is upgraded through `ak update`'s own gated path -- the upgrade, both gates, the revert --
 while sessions work, one upgrade at a time host-wide.  A failed gate puts it back and is said
-once in the tick's log, and that release is not tried again until a newer one comes out.
+once in the tick's log, and that release is tried again a day after its last start, a newer
+one at once.
 
 Offline throughout: `acme` is a fake harness whose manifest, binary and release source live
 under a temporary HOME, the checkout the tick runs from is a throwaway directory holding two
@@ -116,7 +117,7 @@ class HarnessAutoUpdate(unittest.TestCase):
         self.assertIsNone(seat.poll())                      # the seat worked through it
         self.working.assert_not_called()
 
-    def test_a_failed_gate_reverts_once_and_that_release_is_not_retried(self):
+    def test_a_failed_gate_reverts_once_and_that_release_is_retried_only_after_a_day(self):
         self.write(smoke="1")
         self.assertEqual(self.tick(T),
                          ["acme 1.0.0 is behind 2.0.0: upgrading it in the background"])
@@ -126,13 +127,22 @@ class HarnessAutoUpdate(unittest.TestCase):
         self.assertEqual(said[0], "WARN the background upgrade of acme failed:")
         self.assertTrue(any("smoke FAILED after acme 1.0.0->2.0.0" in line for line in said), said)
         self.assertIn("  update: acme: reverted, back on 1.0.0", said)
-        for later in (T + 360, T + update.ASK_EVERY, T + 2 * update.ASK_EVERY):
+        # not within the day of its start
+        for later in (T + 360, T + update.ASK_EVERY, T + update.RETRY_AFTER - update.ASK_EVERY):
             self.assertEqual(self.tick(later), [])
         self.assertEqual(self.read("asks"), ["asked"] * 3)
         self.assertEqual(self.read("calls"), ["upgrade", "install 1.0.0"])
-        # a newer release is tried, and passes
+        # after it, the same release is started again; it fails again, and the day counts anew
+        day = T + update.RETRY_AFTER
+        self.assertEqual(self.tick(day),
+                         ["acme 1.0.0 is behind 2.0.0: upgrading it in the background"])
+        self.assertEqual(self.read("calls"), ["upgrade", "install 1.0.0"] * 2)
+        self.assertEqual(self.tick(day + 180)[0], "WARN the background upgrade of acme failed:")
+        self.assertEqual(self.tick(day + update.ASK_EVERY), [])
+        self.assertEqual(self.read("calls"), ["upgrade", "install 1.0.0"] * 2)
+        # a newer release is tried at once, and passes
         self.write(released="2.1.0", smoke="0")
-        self.assertEqual(self.tick(T + 3 * update.ASK_EVERY),
+        self.assertEqual(self.tick(day + 2 * update.ASK_EVERY),
                          ["acme 1.0.0 is behind 2.1.0: upgrading it in the background"])
         self.assertEqual(self.read("installed"), ["2.1.0"])
 

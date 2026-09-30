@@ -47,6 +47,7 @@ E2E_CAP = 90 * 60           # a fresh account, three harness installs and one re
 FETCH_CAP = 60              # the tick's look at origin; one not back by then is offline
 START_WAIT = 2              # `ak`'s look at origin; one not back by then opens it as it is
 ASK_EVERY = 60 * 60         # how often the tick asks a harness's latest release, at most
+RETRY_AFTER = 24 * 60 * 60  # a gate can fail for what the release did not cause: try it daily
 
 VERSION_KEY = "{version}"   # `[update] revert`: where the version to reinstall goes
 
@@ -798,8 +799,9 @@ def keep_current(log, now=None):
     Only the checkout this tick runs from does it, as with `go_live`, so a tick from a
     worktree -- a test's above all -- never upgrades this host's harnesses.  A harness this
     host has is asked its `[update] latest` at most once an hour; one behind it is upgraded by
-    `background`, one at a time.  A release is started once: a failed gate has put the harness
-    back and said so, and only a newer release is tried.
+    `background`, one at a time.  A failed gate has put the harness back and said so; that
+    release is started again once `RETRY_AFTER` has passed since its last start, and a newer
+    one at once.  One that passed is current, so it is never started again.
     """
     if agentkit_dir().resolve() != config.REPO:
         return
@@ -834,8 +836,9 @@ def keep_current(log, now=None):
             continue
         installed, newest = version(harness), latest(harness)
         # behind: both name a release, and the installed one is the lower
-        go = bool(installed) and _downgrade(newest, installed) and entry.get("tried") != newest
-        asked[name] = {**entry, "asked": now, **({"tried": newest} if go else {})}
+        go = bool(installed) and _downgrade(newest, installed) and (
+            entry.get("tried") != newest or now - entry.get("started", 0) >= RETRY_AFTER)
+        asked[name] = {**entry, "asked": now, **({"tried": newest, "started": now} if go else {})}
         record.write_text(json.dumps(asked))
         if go:
             log(f"{name} {_release(installed)} is behind {newest}: upgrading it in the background")
