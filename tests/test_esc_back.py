@@ -43,7 +43,8 @@ cfg = config.load()
 config.save_session(cfg, "alpha", "opus", ["opus", "astra"], {"cwd": "/", "created": 0})
 orch.listing = lambda reconcile=True: [
     {"name": name, "repo": None, "path": "/", "created": 0} for name in ("alpha", "omega")]
-orch.job_notices = lambda: []
+notices = [os.environ["ESC_NOTICE"]] if os.environ.get("ESC_NOTICE") else []
+orch.job_notices = lambda: [notices.pop()] if notices else []
 orch.taken_names = lambda: {"alpha", "omega"}
 orch.rename = lambda old, new: print(f"<renamed {new}>", flush=True) or new
 orch.cmd_stop = lambda argv: print(f"<stopped {argv[0]}>", flush=True)
@@ -69,7 +70,7 @@ for module, name in ((menu, "config_matrix"), (menu, "config_model"), (menu, "co
                      (menu, "config_add_provider"), (menu, "config_remove_provider"),
                      (menu, "config_discord"), (menu, "show_session_models"),
                      (menu, "show_info"), (menu, "show_features"), (menu, "new_session"),
-                     (menu, "rename_this_session"), (terminal, "choose")):
+                     (menu, "rename_this_session"), (menu, "pause"), (terminal, "choose")):
     timed(module, name)
 code = menu.loop(cfg, overlay=os.environ.get("ESC_OVERLAY") == "1")
 print(f"<back loop {time.monotonic():.4f}>", flush=True)
@@ -97,7 +98,7 @@ def title(name):
 class Menu:
     """One child menu on a pty over a HOME with ~/code/ACME: what it wrote, keys sent to it."""
 
-    def __init__(self, case, own=None):
+    def __init__(self, case, own=None, notice=""):
         self.case = case
         home = tempfile.TemporaryDirectory(prefix="esc-back-")
         case.addCleanup(home.cleanup)
@@ -115,6 +116,8 @@ class Menu:
                     "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "ESC_REPO": str(REPO)})
         if own:
             env.update({"ESC_OVERLAY": "1", "AGENTKIT_SESSION": own})
+        if notice:
+            env["ESC_NOTICE"] = notice
         self.keys = "esc close" if own else "esc leave"
         self.proc = subprocess.Popen([sys.executable, "-c", CHILD], stdin=self.slave,
                                      stdout=self.slave, stderr=self.slave, env=env,
@@ -198,8 +201,9 @@ class Menu:
     def back(self, name, where):
         """`q` leaves the screen `where` accepts up, and Esc takes it down within ESC_WAIT; the
         key line under it names `esc` either way."""
-        lines = self.screen(where)
-        self.case.assertIn("esc", lines[-1], lines)
+        if where is not None:
+            lines = self.screen(where)
+            self.case.assertIn("esc", lines[-1], lines)
         mark = len(self.text())
         self.send(b"q")
         time.sleep(0.3)
@@ -285,6 +289,13 @@ class EscBack(unittest.TestCase):
         menu_.back("rename_this_session", title("rename"))
         self.assertRegex(menu_.text()[mark:], r"Name: \x1b\[[\d;]*malpha\x1b\[0m")
         self.assertNotIn("<renamed", menu_.text())
+        menu_.leave()
+
+    def test_a_notice_waits_for_esc_with_the_terminal_given_back(self):
+        menu_ = Menu(self, notice="update: agentkit moved on")
+        menu_.until(lambda text: "update: agentkit moved on" in text and "esc back " in text,
+                    "the notice")
+        menu_.back("pause", None)
         menu_.leave()
 
     def test_a_field_edits_and_answers_on_the_keys(self):
