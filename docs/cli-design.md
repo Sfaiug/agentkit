@@ -349,7 +349,18 @@ the cells that changed, so a key is still answered within 100 ms. A resize
 draws the whole screen again before another frame. Nothing moves off a
 terminal, under `NO_COLOR` or at eight colours: there the dot stands still.
 
-Helpers: `motion.Clock`, `motion.breathing`, `menu.moving`, `terminal.faded`.
+News moves once and is then still, on the same clock. A row that turns
+`needs you` gives its `!` two soft pulses toward the light, 600 ms in all; one
+that turns `done` has its `✓` appear bright and settle to `done`'s colour over
+400 ms. A usage or tasks bar whose value changes glides to it over 300 ms, an
+eighth of a cell at a time, and its last frame is the bar as drawn; a task
+bar's newly filled block lights briefly, and a bar that reaches full sends one
+light across it, left to right. Only a change seen while the menu is up moves:
+the first draw after opening, one after a resize and one back from another
+screen draw every value as it is (`motion.Clock.look`, `forget`).
+
+Helpers: `motion.Clock`, `motion.breathing`, `motion.pulsing`, `motion.settling`,
+`motion.gliding`, `menu.moving`, `terminal.faded`.
 
 ## Ages
 
