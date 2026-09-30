@@ -112,10 +112,10 @@ The popup `Ctrl-b m` opens inside a session floats over it: a rounded border in
 the dim colour with ` agentkit ` set into its top edge, and a column and a row
 of padding inside it -- on a phone it keeps the whole screen, border and all,
 with no padding. While it is up the session behind it draws its own text dim
-(text a harness colours itself keeps its colour), and has its style back the
-moment the popup is down, however it comes down: its menu ending, a crash, a
-kill, its client going. A tmux older than 3.3 draws the plain popup and says
-nothing (`orch.tmux_conf`, `terminal.inset`).
+(text a harness colours itself keeps its colour), and has exactly its own
+style back once the last popup over it is down, however each came down: its
+menu ending, a crash, a kill, its client going. A tmux older than 3.3 draws the
+plain popup and says nothing (`orch.tmux_conf`, `terminal.inset`).
 
 `x` is the highlighted seat's, or in the popup the popup's own seat's. A done
 seat it closes at once, with no question: `orch.cmd_stop` takes its runs,
