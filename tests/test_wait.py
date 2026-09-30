@@ -240,7 +240,11 @@ class Wait(Sandbox):
                 patch.object(watch, "pane_text", return_value=pane):
             watch.stop_nudge(self.seats[SEAT], "muse", pane, None, records, False, logs.append)
             typed.assert_not_called()
-            # ... and once the other's run is over, it is told to get on with it
+            # ... nor once the other's run is over: the wait pass tells it that, and why, first
+            watch.stop_nudge(self.seats[SEAT], "muse", pane, None, [], False, logs.append)
+            typed.assert_not_called()
+            # ... and once it has been told, it is told to get on with it
+            watch.wait_mark(SEAT, watch.seat_read(SEAT)["wait"], told=now)
             watch.stop_nudge(self.seats[SEAT], "muse", pane, None, [], False, logs.append)
             self.assertEqual(typed.call_count, 1, logs)
 

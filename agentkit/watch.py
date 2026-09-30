@@ -2641,6 +2641,11 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     blank line above it makes one and pane_tail keeps none: "Which one?" with a decision under
     it is not a question the user was left with.
 
+    A run of its own parked and undecided holds the stop past a run going, an `ak wait` and a
+    `done`, as it holds the hook's.  A wait whose session has stopped is tell_waits' to end, with
+    the line saying what that session is now and why: a bare keystroke typed first would take
+    the prompt that line waits for, and leave the seat deciding without it.
+
     The episode is `turn_began` and the output that turn stopped on, both of them stop_marks'
     to say, so a footer that repainted is the same episode and the same words after another
     turn are a new one.  What answers a `done` is done_holds.  A seat with no turn marked at
@@ -2676,16 +2681,27 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     said = progress_output(harness, pane_tail(pane))
     if not said or live.get("stop_nudged") == [began, said]:
         return
+    wait = live.get("wait")
+    if isinstance(wait, dict) and not wait.get("told"):
+        found = wait_peer(name, wait, records)[1]
+        if found is not None and found["word"] != "working":
+            return      # that session has stopped: tell_waits says so, and why, instead
+    mine = []
     for _, record in records:
         try:
-            if run_mod.launched_session(record) == name and run_mod.going(record):
-                return
+            if run_mod.launched_session(record) == name:
+                mine.append((record, run_mod.going(record)))
         except config.Error:
             continue    # a record whose seat cannot be resolved is nobody's run to wait on
-    if waiting_on(name, records):
+    # the hook's `parked`: `unfinished`, and not going -- or `stalled`, which nothing resumes
+    parked = any((not going or record.get("state") == "stalled") and run_mod.unfinished(record)
+                 for record, going in mine)
+    if not parked and any(going for _, going in mine):
+        return
+    if not parked and waiting_on(name, records):
         return          # it ended its turn on `ak wait`, and that session is working
-    if notice and notice["kind"] == "done" and done_holds(name, live, notice, began, said,
-                                                          dry_run):
+    if not parked and notice and notice["kind"] == "done" and done_holds(
+            name, live, notice, began, said, dry_run):
         return          # it said the job was finished, in the turn that has just ended
     tail = pane_tail(pane)
     keys = keystroke(harness, tail)
