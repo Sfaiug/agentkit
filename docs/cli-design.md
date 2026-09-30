@@ -114,9 +114,10 @@ writing over the last draw line by line in one write, so it never flickers.
 It gives the terminal back exactly -- the very termios attributes it found,
 the main screen, the cursor, clicks off -- on Esc, on any exit or signal (a
 kill, a hang-up, `^\`, and `^Z`, which takes it again on `fg`), and before
-anything else takes it: a session, `ak update`, and every sub-screen that
-reads a line. A question typed inside the menu -- the name `n` and `r` ask,
-the Discord secrets -- is no line: it is typed on the menu's keys
+anything else takes it: a session, `ak update`, a harness's login, and a
+notice, whose `esc back` is still read a key at a time (`pause`), so Esc
+goes back from it at once. A question typed inside the menu -- the name `n`
+and `r` ask, the Discord secrets -- is no line: it is typed on the menu's keys
 (`terminal.field`), Enter answering, Backspace editing and Esc going back at
 once with nothing saved; an answer Enter takes with nothing typed (`auto`,
 the current name) is in the field, dim, until a key replaces it. A resize
