@@ -297,7 +297,8 @@ class ProviderScreen(unittest.TestCase):
         saved = screen.saved()
         self.assertNotIn("anthropic", saved["providers"])
         self.assertFalse({"fable", "opus", "haiku"} & set(saved["models"]))
-        self.assertEqual(saved["defaults"], {"orchestrator": "astra", "workers": ["astra"]})
+        # [defaults] is the last creation's, and only a creation writes it
+        self.assertEqual(saved["defaults"], {"orchestrator": "opus", "workers": ["opus", "astra"]})
         screen.leave()
         # the menu's usage rows are the providers the config has, read from this HOME's file
         home = screen.path.parent.parent / ".agentkit"
