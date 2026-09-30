@@ -418,23 +418,28 @@ def moving(clock, wake=None, timeout=TICK):
     """`wait_key` on the main screen, its digit wait and its stop question: `timeout` seconds at
     most, and each of `clock`'s frames drawn while something moves and no key is waiting.
 
-    Only a wait that ran to its frame draws one.  One that ended before it -- on news or a
-    resize -- or on a resize just as its frame fell due returns None, its cells forgotten, since
-    a resize moves them all and the screen is the caller's to draw again.
+    Only a wait that ran to its frame draws one.  One that ended before it, on news, or on a
+    resize at any time returns None, its cells forgotten, for the caller to draw the screen
+    again; a resize moves every cell, so the clock forgets what it had seen as well, and that
+    draw is of the values as they are (`motion.Clock.forget`).
     """
-    until = time.monotonic() + timeout
+    left, until = timeout, time.monotonic() + timeout
     terminal.asked_again()          # a draw asked for before the one just made is answered
     while True:
         due = clock.wait()
-        key = wait_key("> ", timeout if due is None else
-                       max(0, min(due, until - time.monotonic())), wake)
+        key = wait_key("> ", left if due is None else max(0, min(due, left)), wake)
+        if key is None and terminal.asked_again():
+            clock.clear()
+            clock.forget()
+            return None
         if key is not None or due is None or time.monotonic() >= until:
             return key
-        if clock.wait() > 0 or terminal.asked_again():
+        if clock.wait() > 0:
             clock.clear()
             return None
         sys.stdout.write(clock.frame())
         sys.stdout.flush()
+        left = until - time.monotonic()
 
 
 def pause(*lines):
@@ -1176,8 +1181,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     `groups`, `v5o_groups`' answer already in hand, is drawn as it is, and nothing is read.
 
     `clock`, the menu's `motion.Clock`, is handed each working seat's `●` to breathe while the
-    menu has the keyboard, and the dots go out in the draw's own write at the clock's phase, so
-    no dot jumps when the screen is drawn over.
+    menu has the keyboard, and the news since the draw before: a `!` that turned `needs you`
+    pulses, a `✓` that turned `done` settles and a usage or tasks bar that moved glides.  Their
+    first frame goes out in the draw's own write, at the clock's phase, so nothing jumps when
+    the screen is drawn over.
     """
     owned = drawn is not None
     if (not owned and sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
@@ -1299,13 +1306,21 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                      if any(name == cursor for _, name in lines)), page)
     # The layout is min(terminal width, 120); beyond that the margin grows, never the text.
     out = []
+    moves = []    # what may move: (key, what it shows, its first cell, highlighted, bar colour)
     if not compact:
         out += [terminal.header_line("", time.strftime("%H:%M"), width),
                 terminal.rule_line(width)]
     if meters:
         if not compact:
             out.append("")
-        out += meters
+        for line in meters:
+            out.append(line)
+            text = terminal.ANSI.sub("", line)
+            bar = re.search("[█░]+", text)
+            if bar:
+                moves.append((("usage", text[:bar.start()].strip()), bar.group(),
+                              (len(out), terminal.cells(text[:bar.start()]) + 1), False,
+                              fill(int(re.search(r"(\d+)% left", text).group(1)))))
     body = [("  no sessions; n starts one", None)]
     if ordered:
         # One blank line between projects; seat rows two under their project.
@@ -1338,7 +1353,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         body = body[:at] + [(line, None) for line in asked] + body[at:]
     else:
         at = 0
-    dot, dots = terminal.state_text("working"), []    # each working seat's `●`, and its light
     for line, name in body:
         # while a question is up its first answer carries the mark, and the seat only its light;
         # a heading is flush left, so its mark goes in front of it
@@ -1346,9 +1360,14 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         out.append(terminal.highlight(("  " if isinstance(name, Path) else "") + line,
                                       mark=name != above and not at) if lit else line)
         above = name
-        text = terminal.ANSI.sub("", line)
-        if words.get(name) == "working" and dot in text:
-            dots.append(((len(out), terminal.cells(text[:text.index(dot)]) + 1), lit))
+        text, word = terminal.ANSI.sub("", line), words.get(name)
+        if word and terminal.state_text(word) in text:
+            moves.append((("word", name), word, (len(out), terminal.cells(
+                text[:text.index(terminal.state_text(word))]) + 1), lit, None))
+        tasks = re.search(r"tasks ([█░]+|[#-]+) \d", text)
+        if tasks and word == "working":
+            moves.append((("tasks", name), tasks.group(1),
+                          (len(out), terminal.cells(text[:tasks.start(1)]) + 1), lit, None))
     if not compact:
         out.append("")
     keys_top = len(out)
@@ -1359,8 +1378,18 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     moved = ""
     if clock is not None:
         clock.clear()
-        for cell, lit in dots:
-            clock.start([cell], motion.breathing(terminal.state_glyph("working"), "working", lit))
+        news = clock.look({key: shown for key, shown, _, _, _ in moves})
+        for key, shown, cell, lit, colour in moves:
+            since, before = news.get(key, (None, None))
+            if shown == "working":
+                clock.start([cell], motion.breathing(terminal.state_glyph(shown), shown, lit))
+            elif since is None:
+                continue
+            elif shown in ("needs you", "done"):
+                clock.start([cell], *(motion.pulsing if shown == "needs you" else motion.settling)(
+                    terminal.state_glyph(shown), shown, since, lit))
+            elif key[0] != "word" and len(before) == len(shown):
+                clock.start([cell], *motion.gliding(before, shown, since, colour, lit))
         moved = clock.frame()
     # Home and write over, each line cleared past its end and the screen below the last: one
     # write, so no draw ever shows a blank screen or a half-drawn one.
@@ -3454,7 +3483,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     actions = ("n", "x", "r") if overlay else ("n", "x", "c", "m", "i")
     page, cursor, ahead, look = 0, None, None, False
     last = [[], None]                     # what the last read left: the seats and their groups
-    clock = motion.Clock()                # what moves between draws: the working seats' dots
+    clock = motion.Clock()                # what moves between draws: the dots, and news
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
         if keyboard.take():
             terminal.sense()              # true colour and the background, once, before a draw
@@ -3467,6 +3496,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
             if messages:
                 keyboard.give()           # a notice waits for its Enter, like any sub-screen
                 show_notices(messages)
+                clock.forget()            # and the menu it comes back to replays nothing
             drawn = {} if keyboard.take() else None
             own = config.current_session() if overlay else None
             listed = keys if drawn is None else \
@@ -3492,6 +3522,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                         cursor = order[min(max(at, 0), len(order) - 1)]
                     look = False          # the highlight moves over what is in hand
                     continue
+                clock.forget()            # whatever the key opens, the menu after it is as it is
                 typed, key = key, pressed(key, shown, found)
                 if isinstance(key, Path):
                     cursor = key              # the heading, highlighted when he is back

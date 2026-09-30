@@ -34,6 +34,9 @@ STATE_STYLES = {
 # darkened until every one reads on white; the accent and the highlight's `›` are `working`'s.
 LIGHT = {"needs you": "9c6314", "working": "1e66f5", "done": "338022", "FAIL": "d20f39",
          "dim": "6c6f85", "waiting": "6c6f85"}
+# The kinds a screen asks `styled` for by what they mean, and the word whose colour each is.
+KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "needs you",
+         "good": "done"}
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
 _LIGHT = False     # its background is light (`sense`)
 _ANSWER = re.compile(rb"\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\)")   # its answer to OSC 11
@@ -105,10 +108,13 @@ def basic_colour(rgb):
 
 
 def faded(word, amount):
-    """`word`'s colour `amount` (0 to 1) of the way to the background, as `#RRGGBB` for `styled`."""
+    """`word`'s colour -- or a kind's, as `styled` reads it -- `amount` (0 to 1) of the way to the
+    background, or with a negative one that far toward the foreground, where it is lit; as
+    `#RRGGBB` for `styled`."""
+    word = KINDS.get(word, word)
     rgb = LIGHT.get(word, STATE_STYLES[word][2]) if _LIGHT else STATE_STYLES[word][2]
-    back = 255 if _LIGHT else 0
-    return "#" + "".join(f"{round(int(rgb[i:i + 2], 16) * (1 - amount) + back * amount):02x}"
+    to, amount = (255 if _LIGHT else 0) if amount >= 0 else (0 if _LIGHT else 255), abs(amount)
+    return "#" + "".join(f"{round(int(rgb[i:i + 2], 16) * (1 - amount) + to * amount):02x}"
                          for i in (0, 2, 4))
 
 
@@ -250,8 +256,7 @@ def styled(text, kind):
     depth = colour_depth()
     if not depth or not text:
         return text
-    word = {"accent": "working", "ok": "done", "amber": "needs you",
-            "attention": "needs you", "good": "done"}.get(kind, kind)
+    word = KINDS.get(kind, kind)
     if kind in ("bold", "reverse"):
         code = "1" if kind == "bold" else "7"
     else:
