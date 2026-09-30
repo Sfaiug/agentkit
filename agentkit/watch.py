@@ -533,7 +533,8 @@ def continue_turns(cfg, log, accounts=False):
 # adapters/<harness>.sh: the words it uses for a stall, a quota and an expired login, what its
 # composer and footer look like, and the rules that say whether it is working, asking or back
 # at its prompt.  Nothing here names a harness, so a new one plugs in with those two files.
-FOOTER = re.compile(r"(?:[─━═\-╭╮╰╯┌┐└┘]+|[>›❯])$", re.I)
+RULE = r"[─━═\-╭╮╰╯┌┐└┘]+"
+FOOTER = re.compile(rf"(?:{RULE}|[>›❯])$", re.I)
 _SCREEN = {}
 
 
@@ -1197,7 +1198,7 @@ def screen_state(harness, tail):
     rules are read out of the manifest like every other rule: their `lines` bound the window,
     their `none` marks skip them (a turn in flight owns the composer), and `at_composer`
     keeps them at the composer -- only the bottom-most prompt-marked line counts where the
-    line right under it and the pane's last line are chrome, one with more than the footer
+    line right under it and the pane's last line are chrome, one with its own rule right
     under it first, so a transcript echoing a past turn above newer output can never read as
     one, while whatever the harness draws between its composer and its footer, a user's
     status line, never hides it or reads as it, even where it starts with a prompt mark.
@@ -1224,13 +1225,14 @@ def screen_state(harness, tail):
             if rule["chrome"]:
                 # The composer's own rule sits right under it and the footer at the bottom;
                 # what the harness draws between them, a user's status line, is not the draft
-                # even where it starts with a prompt mark: a line right on the footer, where
-                # a harness may draw its composer, counts only under no composer with its own rule.
+                # even where it starts with a prompt mark, over a line that reads like chrome:
+                # a line without a rule under it, a composer drawn right on the footer, counts
+                # only under no composer with its own rule.
                 marked = [index for index in marked if index + 1 == len(region)
                           or (chrome_line(chrome, region[index + 1])
                               and chrome_line(chrome, region[-1]))]
-                marked = [index for index in marked if index + 2 < len(region)
-                          and not re.match(prompt, region[index + 1])] or marked
+                marked = [index for index in marked if index + 1 < len(region)
+                          and re.fullmatch(RULE, region[index + 1])] or marked
             at = next(iter(marked), None)
             if at is None:
                 continue
