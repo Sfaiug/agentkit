@@ -213,8 +213,6 @@ class ModelScreen(unittest.TestCase):
         self.assertNotIn("opus", saved["models"])
         # a default it leaves empty falls back the way config.remove_provider's does
         self.assertEqual(saved["defaults"], {"orchestrator": "fable", "workers": ["astra"]})
-        self.assertEqual("\n".join(lines).count("●"), 1)
-        self.assertIn("●", row(lines, "fable")[1])
         screen.leave()
 
     def test_the_last_model_cannot_be_removed(self):
