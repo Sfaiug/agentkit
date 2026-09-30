@@ -8,11 +8,13 @@ version = 1
 # How `ak update` moves this harness: `opencode upgrade [version]` installs the latest release
 # or the named one, so a failed upgrade goes back by command and needs no snapshot.  The
 # binary's own upgrade keeps it on the channel it came from: a 2.x install is never moved
-# by the v1 install script, and never below its installed version either way.
+# by the v1 install script, and never below its installed version either way.  `latest` is
+# that 2.x channel's release, where `opencode upgrade` itself asks.
 [update]
 version = ["opencode", "--version"]
 upgrade = ["opencode", "upgrade"]
 revert = ["opencode", "upgrade", "{version}"]
+latest = ["curl", "-fsSL", "https://opencode.ai/update/api/latest/cli/npm"]
 
 # What a seat launch tells this harness and no child of that seat may be told.  OpenCode takes
 # its rulebook and its seat plugin as a layered config document in the environment (see

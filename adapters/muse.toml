@@ -9,13 +9,16 @@ version = 1
 # muse ever moves.  It offers no versioned reinstall, so there is no `revert` and `cannot` says
 # why; `snapshot_dir = "launcher"` is the rollback instead -- the directory of the resolved
 # `version` command, with its build, its metadata and its launch links, saved before anything
-# moves and put back when an upgrade or a gate fails.
+# moves and put back when an upgrade or a gate fails.  `latest` is the build the launcher's
+# channel names, asked the way the launcher asks it.
 [update]
 version = ["muse", "--version"]
 upgrade = ["muse"]
 env = { MUSE_LAUNCHER_INSTALL = "1" }
 cannot = "its channel installer offers no versioned reinstall"
 snapshot_dir = "launcher"
+latest = ["sh", "-c", '''
+exec curl -fsSL -A muse-code/launcher-3 "https://api.meta.ai/muse-code/channels/${MUSE_CHANNEL:-muse-stable}"''']
 
 # What a seat launch tells this harness and no child of that seat may be told.  Muse takes its
 # rulebook from the environment (see `interactive` in adapters/muse.sh), and everything a seat

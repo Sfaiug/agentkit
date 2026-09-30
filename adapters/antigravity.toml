@@ -6,11 +6,17 @@
 version = 1
 
 # How `ak update` moves this harness: `agy update` takes the latest release and no version,
-# so nothing puts an older build back.
+# so nothing puts an older build back.  `latest` is the manifest `agy update` and Google's
+# installer read, for this platform named the way that installer names it.
 [update]
 version = ["agy", "--version"]
 upgrade = ["agy", "update"]
 cannot = "agy update installs the latest release only"
+latest = ["sh", "-c", '''
+case $(uname -m) in arm64|aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
+platform=$(uname -s | tr A-Z a-z)_$arch
+{ [ -e /lib/libc.musl-$(uname -m).so.1 ] || ldd /bin/ls 2>&1 | grep -q musl; } && platform=${platform}_musl
+exec curl -fsSL https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/$platform.json''']
 
 # An Antigravity seat owns only the conversation its own TUI opened: `--conversation` resumes
 # one that exists and nothing names one that does not, so `interactive` refuses a
