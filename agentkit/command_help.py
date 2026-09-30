@@ -75,7 +75,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                     "ak orch rename parser-fix parser-review"),
     "orch project": ("usage: ak orch project [SEAT] CHECKOUT",
                      "File a seat under a checkout by name or path; omit SEAT for this session.\n"
-                     "Only known checkouts are accepted; launched runs still decide its project.",
+                     "Only known checkouts are accepted; it stays there until it is filed again.",
                      "ak orch project acme"),
     "notify": (NOTIFY_USAGE,
                "Record a needs-you question or a job summary.\n"

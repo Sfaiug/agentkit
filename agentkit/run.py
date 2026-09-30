@@ -7040,10 +7040,11 @@ def task_project(repo, task_file):
 def join_session_project(session, runs=None):
     """File a session under the project most of its runs belong to, again at each launch.
 
-    The orchestrator can file a session before its runs vote.  Its launched runs then vote,
-    each for its `run_project` from the moment it is queued; a run belonging to no checkout
-    has no vote (`session_vote`).  A tie or no votes keeps the filing.  Returns the project
-    the session has after the count.
+    A session filed by hand (`ak orch project`) keeps that project: its job can be one project
+    while most of its runs land in another.  Any other session's launched runs vote, each for
+    its `run_project` from the moment it is queued; a run belonging to no checkout has no vote
+    (`session_vote`).  A tie or no votes keeps the filing.  Returns the project the session
+    has after the count.
 
     `runs` are run records a draw or a tick has already read, and from them only a session
     that still has no project when its turn at the lock comes is filed: a launch's own count,
@@ -7062,7 +7063,7 @@ def join_session_project(session, runs=None):
         if record is None:
             return None
         repo = record.get("repo")
-        if runs is None or not repo:
+        if not record.get("filed") and (runs is None or not repo):
             repo = session_vote(session, (read_state(directory) or {} for directory in run_dirs())
                                 if runs is None else runs, repo)
             if repo != record.get("repo"):

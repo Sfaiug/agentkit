@@ -2693,7 +2693,7 @@ def cmd_rename(argv):
 
 
 def cmd_project(argv):
-    """File a seat before its runs have a project to vote for."""
+    """File a seat under a project; its runs' votes no longer move it until it is filed again."""
     if len(argv) == 1:
         name = config.current_session()
         if not name:
@@ -2717,7 +2717,7 @@ def cmd_project(argv):
         raise config.Error(f"not a checkout: {checkout!r} (checkouts: {known})")
     from . import notify
     with notify.session_lock(name) as name:
-        if config.update_session(name, repo=str(repo)) is None:
+        if config.update_session(name, repo=str(repo), filed=True) is None:
             raise config.Error(f"no orchestrator session {name!r}")
     print(f"filed {name} under {repo.name}")
     return 0
