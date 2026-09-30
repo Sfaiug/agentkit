@@ -6,7 +6,7 @@ tests: bash tests/smoke.sh
 
 - Python 3.11 standard library and bash. No dependency is added, ever.
 - One test file per behaviour: `python3 tests/test_<name>.py`, run straight, no runner.
-- The acceptance gate is `bash tests/smoke.sh`; it has to pass before a change is done.
+- The acceptance gate is `bash tests/smoke.sh`; the loop runs it once, in the final check on the commit about to ship.
 - Match the style of the file you are in. Read `ARCHITECTURE.md` first; a change that adds, removes, renames or moves a module updates the map. Any task may lower a `max` in `tests/test_boundaries.py` in the area it touches, and no task raises one.
 - Docs ride the change: `README.md` and `docs/guide.md` say what the code now does.
 - `orchestrator.md` is the rulebook an agentkit session is launched with, not a file for here.

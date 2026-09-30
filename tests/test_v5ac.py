@@ -282,9 +282,13 @@ sys.exit(0 if ok else 1)
         self.assertEqual((self.wt / "shared").read_text(), "both intents\n")
 
     def test_v5ac_identical_patch_failed_donewhen_reviews_once(self):
-        # two rounds: the failed re-review lands on the budget rather than a fixer round
+        # two rounds: the failed re-review lands on the budget rather than a fixer round.
+        # verify.py reads work.txt, which the target never has, so a probe of the target
+        # always fails: the gate counts as the branch's own here, and the red-target park
+        # is tests/test_red_target.py's
         self.plan = {"target": {"base.txt": "broken"}}
-        code, state = self.launch(rounds=2)
+        with patch.object(run, "target_fails", return_value=""):
+            code, state = self.launch(rounds=2)
         self.assertEqual(code, 1)
         self.assertEqual(state["verdict"], "FAIL")
         tests, reviews = self.events("tests"), self.events("review")

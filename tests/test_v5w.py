@@ -16,9 +16,8 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, notify, run, worker
 
 # The words the task pins, quoted here so the tests fail if the loop rewords them.
-HEADER = ("Run long commands, the test suite "
-          "included, in the foreground and wait for them; a turn that ends with a command "
-          "still running in the background is not finished.")
+HEADER = ("Run long commands, tests included, in the foreground and wait for them; "
+          "a turn that ends with a command still running in the background is not finished.")
 FINISH = ("The command you left in the background was stopped when your turn ended. Run it in "
           "the foreground now, wait for it, and report.")
 BACKGROUND = "Background tasks still running after 600s; terminating"
