@@ -488,7 +488,7 @@ def repo_rules(wt, ref, log):
     """The body of the repository's AGENTS.md at `ref`, for every worker prompt.
 
     ak reads only its front matter itself, and a harness loads the body on its own terms
-    (OpenCode never, Claude Code only without a CLAUDE.md), so without this each brand
+    (some never, some only beside no file of their own), so without this each brand
     worked to different rules.  Read at the base commit, never the checkout: the work
     under review cannot rewrite the rules it is judged by.  A read that fails is no file.
     """
