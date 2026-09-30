@@ -2742,6 +2742,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         return True
     accounts = config.accounts(cfg, provider)
     current = record.get("account") or config.DEFAULT_ACCOUNT
+    home = record.get("home_account") or config.DEFAULT_ACCOUNT
     model = record["orchestrator"]
     waiting = live.get("usage_wait")
     # Reading the meters can itself spend a reset. Keep that receipt so the old
@@ -2778,7 +2779,6 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     elif not refusal and observed and not observed.get("handled") and not dry_run:
         seat_write(name, usage_refusal=None)
     if not waiting and not refusal and not spent(current):
-        home = record.get("home_account") or config.DEFAULT_ACCOUNT
         if (accounts and current != home and home in readings and not spent(home)
                 and live.get("state") == "at_prompt"
                 and not _turn_in_flight(harness, live)[0]
@@ -2825,7 +2825,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     # Keep the existing login when it has refilled. Probe only possible moves, in order,
     # before the owner-action check: a slow adapter must not undo a stop or typing.
     order = ([current] if current in eligible else []) + [
-        a for a in orch.account_order(cfg, model, eligible) if a != current]
+        a for a in orch.account_order(cfg, model, eligible, home) if a != current]
     target = next((a for a in order if a == current
                    or orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
     with state_lock():

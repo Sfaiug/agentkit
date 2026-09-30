@@ -144,12 +144,12 @@ def for_seat(name):
             os.environ[config.SESSION_ENV] = before
 
 
-def account_order(cfg, model, readings):
+def account_order(cfg, model, readings, first=None):
     """Rank the configured subscriptions by this seat's model, never another model's cap.
 
-    The provider's `seat_account` (else the usual login) first while it has room for this
-    model, the rest by room: a seat opens where its owner follows it, and only spills over
-    when that one is spent.
+    `first` -- a seat's home; for a new seat the provider's `seat_account`, else the usual
+    login -- first while it has room for this model, the rest by room: a seat lives where
+    its owner follows it, and only spills over when that one is spent.
     """
     provider = config.model(cfg, model)["provider"]
 
@@ -159,7 +159,8 @@ def account_order(cfg, model, readings):
         return usage.model_exhausted(cfg, model, providers)[0], unknown is not None, -amount
     accounts = config.accounts(cfg, provider) or list(readings)
     ordered = sorted((a for a in accounts if a in readings), key=rank)
-    first = (cfg["providers"].get(provider) or {}).get("seat_account", config.DEFAULT_ACCOUNT)
+    if first is None:
+        first = (cfg["providers"].get(provider) or {}).get("seat_account", config.DEFAULT_ACCOUNT)
     if first in ordered and not usage.model_exhausted(
             cfg, model, {provider: readings[first]})[0]:
         ordered = [first, *(a for a in ordered if a != first)]
@@ -3223,6 +3224,24 @@ def select(cfg, providers, forced=None, forced_workers=None, prompting=True):
     return model, reason, workers
 
 
+def opening_account(cfg, model, providers, prompting):
+    """The account a new seat of `model` opens on: the first in `account_order` whose seat
+    login passes, and None for a provider that lists no accounts."""
+    provider = config.model(cfg, model)["provider"]
+    accounts = config.accounts(cfg, provider)
+    if not accounts:
+        return None
+    order = account_order(cfg, model, providers.get(provider, {}).get("accounts") or {})
+    harness = harness_plugin(config.model(cfg, model)["harness"])
+    account = next((a for a in [*order, *(a for a in accounts if a not in order)]
+                    if harness.seat_auth(a)[0] is True), None)
+    if account is None and prompting and config.DEFAULT_ACCOUNT in accounts:
+        account = config.DEFAULT_ACCOUNT   # an owner can open the usual login to sign in
+    if account is None:
+        raise config.Error(f"{provider}: no account has a working seat login")
+    return account
+
+
 def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry_run=False,
            selection=None, repo=None, unnamed=False):
     """Select the models, record them, start the seat detached.  The TUI command it runs."""
@@ -3242,18 +3261,7 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
         selection = providers, selected
     providers, selected = selection
     model, reason, workers = selected[:3]
-    provider = config.model(cfg, model)["provider"]
-    accounts = config.accounts(cfg, provider)
-    order = account_order(cfg, model, providers.get(provider, {}).get("accounts") or {})
-    account = None
-    if accounts:
-        harness = harness_plugin(config.model(cfg, model)["harness"])
-        account = next((a for a in [*order, *(a for a in accounts if a not in order)]
-                        if harness.seat_auth(a)[0] is True), None)
-        if account is None and prompting and config.DEFAULT_ACCOUNT in accounts:
-            account = config.DEFAULT_ACCOUNT   # an owner can open the usual login to sign in
-        if account is None:
-            raise config.Error(f"{provider}: no account has a working seat login")
+    account = opening_account(cfg, model, providers, prompting)
     # where and when, because that is what opens the seat again once tmux has lost it -- and the
     # conversation it owns, written down before it starts wherever its harness can be told one.
     # Not for a dry run: a conversation nothing ever opened is nobody's to be resumed into.
@@ -3336,8 +3344,11 @@ def ensure(cfg, name, log=print, saved=False):
     refuse_held(name)
     providers = usage.collect(cfg)
     model, reason, workers = select(cfg, providers, prompting=False)
-    cmd, conversation = fresh_command(cfg, model, seat=name)
-    extra = {"cwd": str(seat_cwd()), "repo": None, "created": time.time()}
+    # The usual login when none answers, as this seat always opened: it has a question to take.
+    account = opening_account(cfg, model, providers, True)
+    cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
+    extra = {"cwd": str(seat_cwd()), "repo": None, "created": time.time(),
+             "account": account, "home_account": account}
     if conversation:
         extra["conversation"] = conversation
         extra["id_source"] = LAUNCHER
