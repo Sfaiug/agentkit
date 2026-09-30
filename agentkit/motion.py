@@ -118,8 +118,9 @@ class Clock:
         self.last = None    # when the last frame was made
         self.seen = None    # key -> what the last draw showed, and since when and in place of
                             # what when that was news; None when no draw is to be compared with
-        self.fade = fade    # the next draw fades in (`rise`): a popup's first
-        self.rising = None  # ... its lines, top down, and when they began to, while they do
+        self.fade = fade    # what is drawn fades in over the first FADE seconds (`rise`): a popup
+        self.opened = None  # ... from its first draw
+        self.rising = None  # ... the lines drawn, top down, and that time, while they come up
 
     def look(self, values):
         """Which of `values` -- key -> what a draw shows for it -- are news, each key -> (since
@@ -149,13 +150,15 @@ class Clock:
 
     def rise(self, lines):
         """Whether `lines`, a draw's screen top down, come up out of the background, the frames
-        writing them over the next FADE seconds and nothing else until they are up: only the
-        first draw of a clock made to `fade`, and only where colour can move.  A draw before
-        they are up -- a key's, at once -- is written as it is (`clear`).
+        writing them and nothing else until they are up: on a clock made to `fade`, where
+        colour can move, whatever is drawn in the FADE seconds from its first draw -- a key's
+        draw at once, and news -- each from where the fade has got to.
         """
+        now = time.monotonic()
         if self.fade and terminal.colour_depth() > 8:
-            self.rising = (lines, time.monotonic())
-        self.fade = False
+            self.opened = now if self.opened is None else self.opened
+            if now < self.opened + FADE:
+                self.rising = (lines, self.opened)
         return self.rising is not None
 
     def clear(self):
