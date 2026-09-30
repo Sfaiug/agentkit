@@ -16,13 +16,35 @@ from agentkit import run
 
 # the ways a test names the top of the checkout it runs in
 CHECKOUT = {"REPO", "str(REPO)", "config.REPO"}
+# a suite that points TMPDIR at the checkout itself puts every temporary file there unnamed
+CHECKOUT_TMPDIR = re.compile(r"""(?<!\w)TMPDIR['"]?\s*[:=]\s*(?:"?\$REPO"?|"?/proc/\$\$/cwd"?"""
+                             r"""|str\((?:config\.)?REPO\))\s*(?:$|[,})])""", re.M)
+
+
+def suites():
+    return sorted((REPO / "tests").glob("*.py")) + sorted((REPO / "tests").glob("*.sh"))
+
+
+def python_sources():
+    """(file, line offset, source) of every test's Python, the shell suites' heredocs included."""
+    for path in suites():
+        text = path.read_text()
+        if path.suffix == ".py":
+            yield path.name, 0, text
+            continue
+        for match in re.finditer(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n(.*?)\n\s*\1\n", text, re.S):
+            try:
+                ast.parse(match.group(2))
+            except SyntaxError:
+                continue
+            yield path.name, text.count("\n", 0, match.start(2)), match.group(2)
 
 
 def checkout_sandboxes():
     """(site, dir, prefix) of every temporary file or directory a test makes inside the checkout."""
     found = []
-    for path in sorted((REPO / "tests").glob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text())):
+    for name, offset, source in python_sources():
+        for node in ast.walk(ast.parse(source)):
             if not isinstance(node, ast.Call):
                 continue
             keywords = {k.arg: k.value for k in node.keywords}
@@ -30,9 +52,9 @@ def checkout_sandboxes():
             if "REPO" not in where:
                 continue
             prefix = keywords.get("prefix")
-            found.append((f"{path.name}:{node.lineno}", where,
+            found.append((f"{name}:{offset + node.lineno}", where,
                           prefix.value if isinstance(prefix, ast.Constant) else None))
-    for path in sorted((REPO / "tests").glob("*.sh")):
+    for path in suites():
         for number, line in enumerate(path.read_text().splitlines(), 1):
             for prefix in re.findall(r'mktemp[^"]*"\$REPO/([^"/]*?)X+"', line):
                 found.append((f"{path.name}:{number}", "REPO", prefix))
@@ -102,10 +124,30 @@ class LeftoverStagedAndSandboxes(unittest.TestCase):
         self.assertTrue(any(line.startswith("WARN committed") and "venv" in line
                             for line in self.logs), self.logs)
 
+    def test_other_staged_work_stays_staged(self):
+        repo = self.repo()
+        (repo / "venv").symlink_to(self.root)
+        run.git(repo, "add", "venv")
+        run.git(repo, "commit", "-m", "existing environment link")
+        run.git(repo, "rm", "--cached", "venv")
+        (repo / "app.py").write_text("value = 2\n")
+        run.git(repo, "add", "app.py")
+        (repo / "app.py").write_text("value = 1\n")
+        (repo / "feature.py").write_text("new = True\n")
+        ok, text = self.done_when(repo)
+        self.assertTrue(ok, text)
+        self.assertEqual(self.committed(repo), ["feature.py", "venv"])
+        self.assertEqual(run.git(repo, "show", ":app.py"), "value = 2")
+
     def test_every_checkout_sandbox_is_a_named_top_level_one(self):
         sites = checkout_sandboxes()
         self.assertGreater(len(sites), 100)
         self.assertEqual([site for site in sites if site[1] not in CHECKOUT or not site[2]], [])
+
+    def test_no_suite_points_tmpdir_at_the_checkout(self):
+        sites = [f"{path.name}:{path.read_text().count(chr(10), 0, match.start()) + 1}"
+                 for path in suites() for match in CHECKOUT_TMPDIR.finditer(path.read_text())]
+        self.assertEqual(sites, [])
 
     def test_every_checkout_sandbox_is_swept_and_never_committed(self):
         repo = self.repo()

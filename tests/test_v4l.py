@@ -685,7 +685,7 @@ esac
         # is capped near 108 bytes, and `<repo>/.ak-test-v4l-XXXXXXXX/tmux-<uid>/agentkit-test`
         # is past it from a worktree, where every run of this suite happens.
         with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory, \
-                tempfile.TemporaryDirectory(prefix=".ak-test-v4l-tmux-") as sockets:
+                tempfile.TemporaryDirectory(prefix="v4l-tmux-") as sockets:
             root = Path(directory)
             pane_file = root / "pane.txt"
             env = {**os.environ, "TMUX_TMPDIR": sockets, "AGENTKIT_TMUX_SOCKET": "agentkit-test"}

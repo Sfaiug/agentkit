@@ -440,7 +440,7 @@ from unittest.mock import patch
 
 from agentkit import config, menu, muse_usage, notify, orch, run, terminal, usage, watch
 
-with tempfile.TemporaryDirectory(prefix=".usage-fresh-", dir=config.REPO) as tmp, ExitStack() as stack:
+with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO) as tmp, ExitStack() as stack:
     root = Path(tmp)
     for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
         stack.enter_context(patch.object(config, name, root / name.lower()))
@@ -746,7 +746,7 @@ class SessionState(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         root = Path(self.stack.enter_context(tempfile.TemporaryDirectory(
-            prefix=".session-state-", dir=config.REPO)))
+            prefix=".ak-test-session-state-", dir=config.REPO)))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
@@ -1390,7 +1390,7 @@ PY
 # lines the adapter builds, while the effort still goes through; a real id still gets its -m.
 codex_model_flag_check() {
   local d rc=0 model argv line
-  d=$(mktemp -d "${TMPDIR:-/tmp}/.ak-test-codex-mflag-XXXXXX") || return 1
+  d=$(mktemp -d "${TMPDIR:-/tmp}/codex-mflag-XXXXXX") || return 1
   mkdir -p -- "$d/bin" "$d/ws"
   cat >"$d/bin/codex" <<'SH'
 #!/usr/bin/env bash
@@ -1449,13 +1449,16 @@ slot_queue_check() {
 # Run the offline regressions without entering the live acceptance gates below.
 if [ "${AGENTKIT_SMOKE_OFFLINE:-0}" = 1 ]; then
   cd -- "$REPO" || exit 1
-  export TMPDIR="$REPO"
-  # Keep even the older suites' temporary files in the checkout. tmux canonicalizes
+  # Keep even the older suites' temporary files in the checkout, inside one test sandbox
+  # the loop never commits and sweeps if this suite is killed. tmux canonicalizes
   # TMUX_TMPDIR, so use an explicit short socket path for its isolated pane fixtures.
+  SMOKE_TMP=$(mktemp -d "$REPO/.ak-test-smoke.XXXXXX") || exit 1
+  trap 'rm -rf -- "$SMOKE_TMP"' EXIT
+  export TMPDIR="$SMOKE_TMP"
   if [ -d "/proc/$$/cwd" ]; then
-    export TMPDIR="/proc/$$/cwd"
-    SMOKE_TOOLS=$(mktemp -d "$REPO/.ak-test-smoke-tools.XXXXXX") || exit 1
-    trap 'rm -rf -- "$SMOKE_TOOLS"' EXIT
+    export TMPDIR="/proc/$$/cwd/${SMOKE_TMP##*/}"
+    SMOKE_TOOLS="$SMOKE_TMP/tools"
+    mkdir -- "$SMOKE_TOOLS" || exit 1
     AGENTKIT_SMOKE_TMUX=$(command -v tmux) || exit 1
     export AGENTKIT_SMOKE_TMUX
     cat >"$SMOKE_TOOLS/tmux" <<'SH'

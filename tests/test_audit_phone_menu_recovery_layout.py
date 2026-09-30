@@ -53,7 +53,7 @@ class Sandbox(unittest.TestCase):
         self.home = self.root / "home"
         # the socket directories are the system temp's: a unix socket path is capped near 108
         # bytes, which a worktree's path plus `tmux-<uid>/agentkit-test` is already past
-        sockets = tempfile.TemporaryDirectory(prefix=".ak-test-phone-tmux-")
+        sockets = tempfile.TemporaryDirectory(prefix="phone-tmux-")
         self.addCleanup(sockets.cleanup)
         self.seats_dir = Path(sockets.name) / "seats"
         self.phone_dir = Path(sockets.name) / "phone"
