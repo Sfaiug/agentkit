@@ -81,6 +81,31 @@ class HarnessSwap(unittest.TestCase):
         self.assertEqual([args[6] for args in self.calls], ["sess-1", "sess-1"])
         self.assertTrue(any("being swapped" in line for line in self.logs), self.logs)
 
+    def test_a_fresh_turn_failing_during_a_swap_waits_before_finishing_in_the_foreground(self):
+        swap = update.swapping("claude")
+        self.addCleanup(swap.__exit__, None, None, None)
+        begun = []
+
+        def begin(*_a):
+            # the resume failed with no swap, and the install starts under the fresh turn
+            if not begun:
+                begun.append(swap.__enter__())
+
+        def sleep(delay):
+            self.sleeps.append(delay)
+            swap.__exit__(None, None, None)
+
+        with patch.object(run, "note_turn_meters", side_effect=begin), \
+                patch.object(run.time, "sleep", side_effect=sleep):
+            code, _, _, _ = self.call([(1, "", ""),
+                                       (127, "", MISSING + "Background tasks still running\n"),
+                                       (0, "## Summary\nDone.\n", "")], "sess-0")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.sleeps), 1)
+        # no call to finish in the foreground went out while the swap ran
+        self.assertEqual([Path(args[4]).name for args in self.calls],
+                         ["executor", "executor-retry1", "executor-retry2"])
+
     def test_a_turn_failing_again_after_the_swap_cannot_run(self):
         swap = update.swapping("claude")
         swap.__enter__()

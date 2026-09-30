@@ -1660,6 +1660,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             code, text, sid, killed = turn(body, target, None)
             session = sid or None
             calls += 1
+            if swapped(code, killed, session):
+                continue
         else:
             session, calls = sid or session, calls + 1
         if not killed and turn_unfinished(target):
@@ -1673,12 +1675,12 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                            if role.startswith("reviewer") else FINISH_IN_FOREGROUND)
             code, text, sid, killed = turn(finish_body, finish, session)
             session = sid or session
+            if swapped(code, killed, session):
+                continue
             if not killed and turn_unfinished(finish):
                 log(f"WARN {role} {name} ended its turn with a command still in the background "
                     "again; carrying on with what it reported")
             target = finish
-        if swapped(code, killed, session):      # the fresh or the foreground turn
-            continue
         # A harness that never ran the turn says so on stderr, and that outranks the refusal
         # words below: a 404 for a model it does not have reads `API Error` like a 500, and
         # Codex's missing model suggests `try a different model` like its capacity refusal.
