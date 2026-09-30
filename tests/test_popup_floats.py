@@ -1,18 +1,19 @@
 """The menu inside a session floats over it.
 
 `Ctrl-b m`'s popup has a rounded border in the dim colour with ` agentkit ` set into its top edge
-and, but on a phone, a column and a row of padding inside it; the pane behind it draws its text
-dim while it is up and has its own style back however the popup comes down -- its menu ending, a
-crash, a kill, its client going; and its content fades in on the motion clock, a key pressed
+and, but on a phone, a column and a row of padding inside it, a line typed into it included; the
+pane behind it draws its text dim while it is up and has exactly its own style back once the last
+popup over it is down, however it comes down -- its menu ending, a crash, a kill, which is what
+its client going does to it too; and its content fades in on the motion clock, a key pressed
 meanwhile answered at once.
 
-tmux is a fake answering as tmux 3.5a: its version, and the one pane's options, kept in a file.
-The binding is run the way tmux 3.5a runs it (as seen on a real one): its commands in order,
-`display-popup` holding the rest until its popup is down, and a client lost with the popup up
-dropping the rest for the `client-detached` hook.  The popup is a stand-in saying what it saw,
-and the menu's fade and padding are `menu.loop` on a pty of its own with the seats faked.
-Nothing here starts a tmux server, a seat or a probe; the only processes signalled are the
-test's own children.
+tmux is a fake answering as tmux 3.5a: its version, the one pane's options, kept in a file, and
+`display-popup`, which runs the popup's command and returns once it is down, as tmux 3.5a's
+does however the popup went (as seen on a real one).  The binding is run the way tmux runs it:
+the job its `run-shell -b` starts, with the pane and the client expanded into it.  The popup is
+a stand-in saying what it saw, and the menu's fade and padding are `menu.loop` on a pty of its
+own with the seats faked.  Nothing here starts a tmux server, a seat or a probe; the only
+processes signalled are the test's own children.
 """
 
 import fcntl
@@ -37,11 +38,13 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, motion, orch, terminal
 
 DIM = f"fg=#{terminal.STATE_STYLES['dim'][2]}"
+OWN = "fg=red,bg=blue,bold"         # a style a pane may have of its own
 
-# tmux as far as this test asks it: `-V`, and `set`/`show` on the one pane's options; to
-# anything else it answers what tmux answers with no server up.
+# tmux as far as this test asks it: `-V`; `set`/`show` on the one pane's options; and
+# `display-popup`, logged, its command run and waited for.  With no pane it answers what tmux
+# answers with no server up.
 FAKE_TMUX = r"""#!/usr/bin/env python3
-import json, os, sys
+import json, os, subprocess, sys
 from pathlib import Path
 
 args = sys.argv[1:]
@@ -51,43 +54,57 @@ if args == ["-V"]:
 while args[:1] in (["-L"], ["-S"], ["-f"]):
     args = args[2:]
 pane = Path(os.environ.get("FAKE_TMUX_PANE") or "/nonexistent/pane.json")
-command, flags, words, rest = (args or [""])[0], "", [], iter(args[1:])
-for arg in rest:
-    if arg.startswith("-") and not words:
-        flags += arg[1:]
-        if "t" in arg:
-            next(rest, None)           # the pane: there is only the one
-    else:
-        words.append(arg)
-if (command in ("set-option", "set", "show-options", "show") and "p" in flags
-        and pane.parent.is_dir()):
+if not pane.parent.is_dir():
+    print(f"no server running on /tmp/tmux-{os.getuid()}/default", file=sys.stderr)
+    sys.exit(1)
+listed = [[]]
+for arg in args:
+    listed.append([]) if arg == ";" else listed[-1].append(arg)
+for command, *given in listed:
+    flags, words, values, rest = "", [], {}, iter(given)
+    for arg in rest:
+        if arg.startswith("-") and not words:
+            flags += arg[1:]
+            if arg[-1] in ("bcdehSsTtwxy" if command == "display-popup" else "t"):
+                values.setdefault(arg[-1], []).append(next(rest))
+        else:
+            words.append(arg)
     options = json.loads(pane.read_text()) if pane.exists() else {}
-    if command.startswith("show"):
+    if command in ("show-options", "show") and "p" in flags:
         for name in words or sorted(options):
             if name in options:
                 print(options[name] if "v" in flags else f"{name} {options[name]}")
-    elif "u" in flags:
-        options.pop(words[0], None)
+    elif command in ("set-option", "set") and "p" in flags:
+        if "u" in flags:
+            options.pop(words[0], None)
+        else:
+            options[words[0]] = words[1]
+        pane.write_text(json.dumps(options))
+    elif command == "display-popup":
+        with open(os.environ["FAKE_TMUX_POPUPS"], "a") as log:
+            log.write(json.dumps(given) + "\n")
+        env = dict(os.environ, **dict(value.split("=", 1) for value in values.get("e", [])))
+        subprocess.run(words[-1], shell=True, env=env)
     else:
-        options[words[0]] = words[1]
-    pane.write_text(json.dumps(options))
-    sys.exit(0)
-print(f"no server running on /tmp/tmux-{os.getuid()}/default", file=sys.stderr)
-sys.exit(1)
+        print(f"unknown command {command}", file=sys.stderr)
+        sys.exit(1)
 """
 
-# The popup's command: says what style the pane under it has and what it was handed, then ends
-# the way STANDIN_END says -- or waits to be killed.
+# The popup's command: says what style the pane under it has, what it was handed and who it is,
+# then ends the way STANDIN_END says -- or waits to be killed.
 STANDIN = r"""
 import json, os, subprocess, sys, time
 style = subprocess.run(["tmux", "show-options", "-pv", "window-style"],
                        capture_output=True, text=True).stdout.strip()
-padding = os.environ.get("AGENTKIT_PADDING")
-open(os.environ["STANDIN_SAW"], "w").write(json.dumps({"style": style, "padding": padding}))
+saw = os.environ["STANDIN_SAW"]
+with open(saw + ".part", "w") as out:
+    json.dump({"style": style, "padding": os.environ.get("AGENTKIT_PADDING"), "pid": os.getpid()},
+              out)
+os.replace(saw + ".part", saw)
 end = os.environ["STANDIN_END"]
 if end == "crash":
     raise SystemExit(70)
-if end in ("kill", "lost"):
+if end == "kill":
     time.sleep(60)
 """
 
@@ -108,7 +125,17 @@ menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name
 terminal.inset()                  # what `ak attach --overlay` does first
 sys.exit(menu.loop(config.load(), dry_run=True, overlay=True))
 """
+# A line read inside the popup, the way `r` and `n` read one, and what is written after it.
+LINE_CHILD = r"""
+import os, sys
+sys.path.insert(0, os.environ["FLOATS_REPO"])
+from agentkit import terminal
+
+terminal.inset()
+print(f"<answered {terminal.readline('Name: ')!r}>", flush=True)
+"""
 TAKEN, DOWN = "\x1b[?1049h", b"\x1b[B"
+PANE, CLIENT = "%1", "/dev/pts/7"   # what the binding's formats come to in this test's tmux
 
 
 def tmux_words(text):
@@ -118,20 +145,9 @@ def tmux_words(text):
             else m[3] for m in re.finditer(r"'([^']*)'|\"((?:\\.|[^\"\\])*)\"|(\S+)", text)]
 
 
-def commands(text):
-    """A command list's commands, each its words: tmux splits a list at a `;` word."""
-    listed = [[]]
-    for word in tmux_words(text):
-        if word == ";":
-            listed.append([])
-        else:
-            listed[-1].append(word)
-    return listed
-
-
-def popup_flags(command):
+def popup_flags(popup):
     """A `display-popup`'s flags, each to its value (True for one that takes none)."""
-    flags, words = {}, iter(command[1:-1])
+    flags, words = {}, iter(popup[:-1])
     for word in words:
         flags[word] = True if word in ("-B", "-C", "-E") else next(words)
     return flags
@@ -143,17 +159,17 @@ class FakeTmux:
     def __init__(self, case, version="tmux 3.5a"):
         home = tempfile.TemporaryDirectory(prefix="popup-floats-")
         case.addCleanup(home.cleanup)
-        self.case, self.root = case, Path(home.name)
+        self.case, self.root, self.opened = case, Path(home.name), 0
         (self.root / "bin").mkdir()
         tmux = self.root / "bin" / "tmux"
         tmux.write_text(FAKE_TMUX)
         tmux.chmod(0o755)
         standin = self.root / "standin.py"
         standin.write_text(STANDIN)
-        self.pane, self.saw = self.root / "pane.json", self.root / "saw.json"
+        self.pane, self.log = self.root / "pane.json", self.root / "popups.jsonl"
         self.env = {**os.environ, "HOME": str(self.root), "FAKE_TMUX_VERSION": version,
                     "PATH": f"{self.root / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
-                    "FAKE_TMUX_PANE": str(self.pane), "STANDIN_SAW": str(self.saw)}
+                    "FAKE_TMUX_PANE": str(self.pane), "FAKE_TMUX_POPUPS": str(self.log)}
         with patch.dict(os.environ, self.env), \
                 patch.object(config, "HOME", self.root / ".agentkit"), \
                 patch.object(config, "STATE", self.root / ".agentkit" / "state"), \
@@ -163,97 +179,117 @@ class FakeTmux:
                 self.case.enterContext(patch.object(config, name, self.root / name.lower()))
             self.lines = orch.tmux_conf().read_text().splitlines()
 
-    def line(self, start):
-        return next(line for line in self.lines if line.startswith(start))
+    def branches(self):
+        """(phone's, larger screen's) commands the binding runs."""
+        bind = tmux_words(next(line for line in self.lines if line.startswith("bind-key m ")))
+        self.case.assertEqual(bind[:4], ["bind-key", "m", "if-shell", "-F"])
+        return bind[5], bind[6]
 
     def popups(self):
-        """(phone's, larger screen's) `display-popup`, each its words."""
-        bind = tmux_words(self.line("bind-key m "))
-        self.case.assertEqual(bind[:4], ["bind-key", "m", "if-shell", "-F"])
-        return tuple(next(command for command in commands(branch) if command[0] == "display-popup")
-                     for branch in bind[5:7])
+        """What each `display-popup` so far asked for."""
+        return [json.loads(line) for line in self.log.read_text().splitlines()]
 
-    def tmux(self, *args):
-        return subprocess.run(["tmux", *args], env=self.env, capture_output=True, text=True,
-                              check=True).stdout.strip()
+    def options(self):
+        return json.loads(self.pane.read_text()) if self.pane.exists() else {}
 
-    def style(self):
-        return self.tmux("show-options", "-pv", "window-style")
+    def open(self, small=False, end="exit"):
+        """`Ctrl-b m` on a client that is a phone (`small`) or not, as tmux 3.5a runs it: the job
+        its `run-shell -b` starts, the pane and the client expanded into it, until the popup
+        says what it saw.  `end` is how the popup comes down: its menu ending (`exit`), a crash
+        (`crash`), or a kill (`kill`, at `down`) -- what `display-popup -C` and a client going do
+        to it as well."""
+        self.opened += 1
+        saw = self.root / f"saw-{self.opened}.json"
+        run = tmux_words(self.branches()[0 if small else 1])
+        self.case.assertEqual(run[:2], ["run-shell", "-b"])
+        script = re.sub(r"##|#\{(pane_id|client_name)\}",
+                        lambda m: {"pane_id": PANE, "client_name": CLIENT}.get(m[1], "#"), run[2])
+        job = subprocess.Popen(["sh", "-c", script], start_new_session=True,
+                               stderr=subprocess.DEVNULL,       # as `run-shell` has it
+                               env={**self.env, "STANDIN_SAW": str(saw), "STANDIN_END": end})
+        self.case.addCleanup(lambda: job.poll() is None and os.killpg(job.pid, signal.SIGKILL))
+        deadline = time.monotonic() + 15
+        while not saw.exists():
+            self.case.assertLess(time.monotonic(), deadline, "the popup never said what it saw")
+            time.sleep(0.02)
+        seen = json.loads(saw.read_text())
+        self.case.addCleanup(self._gone, seen["pid"])
+        return job, seen
+
+    @staticmethod
+    def _gone(pid):
+        try:
+            os.kill(pid, signal.SIGKILL)      # a stand-in of this test's, left waiting
+        except ProcessLookupError:
+            pass
+
+    def down(self, job, seen, end="exit"):
+        """The popup `open` began comes down, and its job ends."""
+        if end == "kill":
+            os.kill(seen["pid"], signal.SIGKILL)
+        self.case.assertEqual(job.wait(15), 0)   # nothing for tmux to show over the pane
 
     def press(self, small=False, end="exit"):
-        """`Ctrl-b m` on a client that is a phone (`small`) or not, as tmux 3.5a runs it, and what
-        the popup saw.  `end` is how the popup comes down: its menu ending (`exit`), a crash
-        (`crash`), a kill (`kill`), or its client going with the popup up (`lost`), which drops
-        whatever the binding had left and runs the `client-detached` hook instead."""
-        self.saw.unlink(missing_ok=True)
-        bind = tmux_words(self.line("bind-key m "))
-        for command in commands(bind[5 if small else 6]):
-            if command[0] != "display-popup":
-                self.tmux(*command)
-                continue
-            flags = popup_flags(command)
-            env = {**self.env, "STANDIN_END": end}
-            env.update([flags["-e"].split("=", 1)] if "-e" in flags else [])
-            popup = subprocess.Popen(command[-1], shell=True, env=env, start_new_session=True)
-            self.case.addCleanup(
-                lambda: popup.poll() is None and os.killpg(popup.pid, signal.SIGKILL))
-            deadline = time.monotonic() + 15
-            while not self.saw.exists() or not self.saw.read_text():
-                self.case.assertLess(time.monotonic(), deadline, "the popup never said what it saw")
-                time.sleep(0.02)
-            if end in ("kill", "lost"):
-                os.killpg(popup.pid, signal.SIGKILL)   # its own group: what tmux takes down
-            popup.wait(15)
-            if end == "lost":
-                for hook in commands(tmux_words(self.line("set-hook -g client-detached "))[-1]):
-                    self.tmux(*hook)
-                break
-        return json.loads(self.saw.read_text())
+        job, seen = self.open(small, end)
+        self.down(job, seen, end)
+        return seen
 
 
 class TheBinding(unittest.TestCase):
     def test_it_asks_for_a_rounded_dim_border_the_title_and_padding_but_on_a_phone(self):
-        phone, larger = FakeTmux(self).popups()
-        for popup in (phone, larger):
-            flags = popup_flags(popup)
+        tmux = FakeTmux(self)
+        tmux.press(small=True)
+        tmux.press()
+        phone, larger = (popup_flags(popup) for popup in tmux.popups())
+        for flags in (phone, larger):
             self.assertEqual(flags["-b"], "rounded")
             self.assertEqual(flags["-S"], DIM)
             self.assertEqual(flags["-T"], " agentkit ")
             self.assertIs(flags["-E"], True)
-        self.assertEqual((popup_flags(phone)["-w"], popup_flags(phone)["-h"]), ("100%", "100%"))
-        self.assertNotIn("-e", popup_flags(phone))           # a phone spares no cell
-        self.assertEqual(popup_flags(larger)["-e"], f"{terminal.PAD_ENV}=1")
+            self.assertEqual((flags["-c"], flags["-t"]), (CLIENT, PANE))
+        self.assertEqual((phone["-w"], phone["-h"]), ("100%", "100%"))
+        self.assertNotIn("-e", phone)                        # a phone spares no cell
+        self.assertEqual(larger["-e"], f"{terminal.PAD_ENV}=1")
+        self.assertNotIn("set-hook", "\n".join(tmux.lines))   # no other session is touched
 
     def test_a_tmux_without_them_gets_the_plain_popup_and_no_word_about_it(self):
         tmux = FakeTmux(self, version="tmux 3.2a")
-        for popup in tmux.popups():
-            self.assertFalse({"-b", "-S", "-T", "-e"} & set(popup_flags(popup)), popup)
+        for branch in tmux.branches():
+            words = tmux_words(branch)
+            self.assertEqual(words[0], "display-popup")
+            self.assertFalse({"-b", "-S", "-T", "-e"} & set(words), words)
         self.assertNotIn("window-style", "\n".join(tmux.lines))
-        self.assertNotIn("set-hook", "\n".join(tmux.lines))
 
 
 class ThePaneBehind(unittest.TestCase):
-    def test_opening_dims_it_and_closing_restores_it_however_the_popup_comes_down(self):
+    def test_opening_dims_it_and_closing_puts_its_own_style_back_however_the_popup_goes(self):
         tmux = FakeTmux(self)
-        for small in (False, True):
-            for end in ("exit", "crash", "kill", "lost"):
-                with self.subTest(small=small, end=end):
-                    self.assertEqual(tmux.style(), "")
-                    saw = tmux.press(small, end)
-                    self.assertEqual(saw["style"], DIM)
-                    self.assertEqual(saw["padding"], None if small else "1")
-                    self.assertEqual(tmux.style(), "", "the pane keeps the popup's dim")
+        for own in ({}, {"window-style": OWN}):
+            tmux.pane.write_text(json.dumps(own))
+            for small in (False, True):
+                for end in ("exit", "crash", "kill"):
+                    with self.subTest(own=own, small=small, end=end):
+                        seen = tmux.press(small, end)
+                        self.assertEqual(seen["style"], DIM)
+                        self.assertEqual(seen["padding"], None if small else "1")
+                        self.assertEqual(tmux.options(), own)   # exactly: nothing more, nothing less
 
-    def test_a_style_the_pane_never_had_is_not_left_behind(self):
+    def test_it_stays_dim_until_the_last_popup_over_it_is_down(self):
         tmux = FakeTmux(self)
-        tmux.press()
-        self.assertEqual(json.loads(tmux.pane.read_text()), {})
+        tmux.pane.write_text(json.dumps({"window-style": OWN}))
+        first = tmux.open(end="kill")
+        second = tmux.open(small=True, end="kill")
+        self.assertEqual(second[1]["style"], DIM)
+        tmux.down(*first, end="kill")
+        self.assertEqual(tmux.options()["window-style"], DIM)    # the second is still up
+        tmux.down(*second, end="kill")
+        self.assertEqual(tmux.options(), {"window-style": OWN})
 
 
 class Popup:
     """One overlay menu on a pty of its own, and when each byte of what it wrote arrived."""
 
-    def __init__(self, case, padding=0, rows=30, cols=90):
+    def __init__(self, case, padding=0, rows=30, cols=90, child=CHILD):
         self.case = case
         fake = FakeTmux(case)
         self.master, self.slave = os.openpty()
@@ -266,7 +302,7 @@ class Popup:
                     "FLOATS_REPO": str(REPO)})
         if padding:
             env[terminal.PAD_ENV] = str(padding)
-        self.proc = subprocess.Popen([sys.executable, "-c", CHILD], stdin=self.slave,
+        self.proc = subprocess.Popen([sys.executable, "-c", child], stdin=self.slave,
                                      stdout=self.slave, stderr=self.slave, env=env,
                                      start_new_session=True)
         self.output, self.arrived, self.lock = b"", [], threading.Lock()
@@ -358,6 +394,14 @@ class TheContent(unittest.TestCase):
         row = int(seat[1])
         os.write(popup.master, f"\x1b[<0;6;{row}M\x1b[<0;6;{row}m".encode())
         popup.until(r"<opened seat-b>", "seat-b opened by its click")
+        self.assertEqual(popup.proc.wait(15), 0, popup.text()[-2000:])
+
+    def test_padded_what_follows_a_typed_line_starts_a_column_in(self):
+        popup = Popup(self, padding=1, child=LINE_CHILD)
+        popup.until(r"\x1b\[2;2HName: ", "the question, a cell in")
+        os.write(popup.master, b"taken\r")
+        # the terminal echoes the Enter back to column 1; what is written next is in again
+        popup.until(r"taken\r\n\r\x1b\[2G<answered 'taken'>", "the answer, a column in")
         self.assertEqual(popup.proc.wait(15), 0, popup.text()[-2000:])
 
 
