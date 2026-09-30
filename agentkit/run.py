@@ -704,6 +704,22 @@ def slugify(title):
     return slug or "task"
 
 
+def repo_line(meta, task_path):
+    """The path a task's `repo:` names, `~` expanded, or None when it names none.
+
+    `~name` for a user this host has no home for cannot be expanded, and pathlib says so with a
+    RuntimeError nothing up the stack expects: it is the task's own error, named here.
+    """
+    named = meta.get("repo") or ""
+    if named.lower() in ("", "none"):
+        return None
+    try:
+        return Path(named).expanduser()
+    except RuntimeError:
+        raise config.Error(f"{task_path}: repo {named} names a home directory this host "
+                           "does not have") from None
+
+
 def task_repo(meta, task_path):
     """`repo:` if the task names one, else the git repository the `ak run` was invoked from.
 
@@ -715,7 +731,7 @@ def task_repo(meta, task_path):
     if meta.get("repo"):
         if meta["repo"].lower() == "none":
             return None
-        repo = Path(meta["repo"]).expanduser().resolve()
+        repo = repo_line(meta, task_path).resolve()
         if not (repo / ".git").exists():
             raise config.Error(f"{task_path}: repo {repo} is not a git repository")
         return repo
@@ -6577,11 +6593,16 @@ def run_project(state):
     if "project" in state:
         return orch.checkout_of(state["project"])
     try:
-        meta = parse_task(config.RUNS / state["run_id"] / "task.md")[0]
+        path = config.RUNS / state["run_id"] / "task.md"
+        meta = parse_task(path)[0]
     except (KeyError, TypeError, OSError, ValueError, config.Error):
         return task_project(state.get("repo"), state.get("task_file"))
-    named = meta.get("repo") or ""
-    named = Path(named).expanduser() if named.lower() not in ("", "none") else None
+    try:
+        named = repo_line(meta, path)
+    except config.Error:
+        # a launch refuses such a line, so only a receipt from before that has one, and it
+        # never got as far as a project: it has none rather than breaking everyone who reads it
+        return None
     if named and not named.is_absolute():
         return orch.checkout_of(state.get("repo"))
     return task_project(named, state.get("task_file"))
@@ -13357,9 +13378,9 @@ def job_create(cfg, task_paths, opts, parallel):
             raise config.Error(f"no such task file: {path}")
         meta, body, title = parse_task(path)
         # reject malformed commands before allocating anything, as well as a task bigger
-        # than one behaviour or over the round budget, which nothing waives, and one that
-        # looks already under way in the same repository -- unless --anyway says to start
-        # beside it regardless, the way a single run does
+        # than one behaviour or over the round budget, or whose `repo:` names no home here,
+        # which nothing waives, and one that looks already under way in the same repository
+        # -- unless --anyway says to start beside it regardless, the way a single run does
         cmds = done_when(body, path)
         infos.append({"path": path, "meta": meta, "title": title, "stem": path.stem,
                       "name": path.name, "cmds": cmds, "after_raw": config.task_afters(path),
@@ -13378,6 +13399,7 @@ def job_create(cfg, task_paths, opts, parallel):
         refusal = rounds_refusal(info["meta"].get("rounds"), "task rounds")
         if refusal:
             raise config.Error(f"{info['path']}: {refusal}")
+        repo_line(info["meta"], info["path"])
     if not opts.get("--anyway"):
         for info in infos:
             rivals = already_under_way(info["path"], info["meta"], info["title"], info["cmds"])
@@ -14737,10 +14759,10 @@ def main(argv):
             raise config.Error(f"no such task file: {task_path}")
         meta, body, title = parse_task(task_path)
         # reject malformed commands before allocating a run directory, as well as a task
-        # bigger than one behaviour or over the round budget, which nothing waives, and a
-        # job that looks already under way in the same repository -- unless --anyway says
-        # to start regardless.  A run's own child launch never runs the already-under-way
-        # check.
+        # bigger than one behaviour or over the round budget, or whose `repo:` names no home
+        # here, which nothing waives, and a job that looks already under way in the same
+        # repository -- unless --anyway says to start regardless.  A run's own child launch
+        # never runs the already-under-way check.
         cmds = done_when(body, task_path)
         refusal = task_size_refusal(body, cmds)
         if refusal:
@@ -14750,6 +14772,7 @@ def main(argv):
         if refusal:
             print(f"ak run: {refusal}", file=sys.stderr)
             return 2
+        repo_line(meta, task_path)
         if not os.environ.get(config.RUN_DIR_ENV):
             rivals = already_under_way(task_path, meta, title, cmds)
             if rivals and not opts["--anyway"]:
