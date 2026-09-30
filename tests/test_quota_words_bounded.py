@@ -284,6 +284,7 @@ class SeatWordsBounded(unittest.TestCase):
                 state = watch.load_state()
                 self.tick(state)
                 self.tick(state, watch.STALL_WAIT)
+                self.assertEqual(self.reset.call_count, int(harness == "codex"))
                 self.window.assert_called_once()
                 self.assertEqual(self.typed, [])
                 self.assertTrue(state["stalls"]["fix-api"]["status"].startswith("waiting until "))
