@@ -325,14 +325,22 @@ class DesktopAndBoot(Sandbox):
 
     def test_menu_reports_each_recovered_seat_once_before_maintenance(self):
         self.boot_fixture()
+        said = []
+
+        def loop(cfg, *flags, start):
+            # the start-up work as the menu runs it, behind its first draw
+            live = menu.Live(cfg, start=start)
+            live.begin()
+            live.starting.join(30)
+            said.append(live.heard())
+            live.close()
+            return 0
         with patch.object(config, "server_alias", return_value=None), \
-                patch("agentkit.macbridge.start_background"), patch.object(menu, "loop", return_value=0), \
-                patch.object(menu, "show_notices") as notices:
+                patch("agentkit.macbridge.start_background"), \
+                patch.object(menu, "loop", side_effect=loop):
             menu.main(["--overlay"])
-            self.assertEqual(notices.call_args.args[0],
-                             ["resumed claude after reboot", "resumed codex after reboot"])
             menu.main(["--overlay"])
-            self.assertEqual(notices.call_args.args[0], [])
+        self.assertEqual(said, [["resumed claude after reboot", "resumed codex after reboot"], []])
         self.assertEqual(self.started.call_count, 2)
 
     def test_missing_boot_id_baseline_and_missing_directory_never_start_fresh(self):

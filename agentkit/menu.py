@@ -267,10 +267,9 @@ class Live:
         """Start `start`'s steps, once, in order, in a thread of their own, so no step holds a
         draw or a key.
 
-        Each is handed this Live: what it logs (`log`) is a notice the menu shows as it lands,
-        and the start update fills the rule as it goes (`updating`).  A step that answers True
-        has moved agentkit, and the steps after it are the new code's to run: the menu opens
-        again on it (`reopen`).
+        Each is handed this Live, and what it logs (`log`) is a notice the menu shows as it
+        lands.  Once the start update among them has moved agentkit (`update`), the steps after
+        it are the new code's to run: the menu opens again on it (`reopen`).
         """
         if self.start and self.starting is None:
             self.starting = threading.Thread(target=self._begin, daemon=True)
@@ -279,13 +278,12 @@ class Live:
     def _begin(self):
         for step in self.start:
             try:
-                moved = bool(step(self))
+                step(self)
             except Exception as exc:     # behind the screen, a notice is the only way it is heard
                 self.log(f"WARN {exc}")
-                moved = False
-            self.moved, self.filled = moved, None
+            self.filled = None
             self._wake()
-            if moved:
+            if self.moved:
                 return
 
     def log(self, message):
@@ -297,8 +295,13 @@ class Live:
         """What the start-up steps said since last asked, once."""
         return [self.said.pop(0) for _ in range(len(self.said))]
 
+    def update(self):
+        """The start update, a start-up step: the rule filled as it goes, and `moved` once it has
+        moved agentkit."""
+        self.moved = update_first(self.log, self.updating)
+
     def updating(self, done, total):
-        """The start update's `progress` (update_first): the rule filled to it, drawn now."""
+        """The start update's `progress`: the rule filled to it, drawn now."""
         self.filled = done / total
         self._wake()
 
@@ -3934,7 +3937,7 @@ def main(argv):
         return client(alias, dry_run)
     steps = []
     if not (dry_run or overlay):
-        steps.append(lambda live: update_first(live.log, live.updating))
+        steps.append(Live.update)         # first: once it moves agentkit, the rest is the new code's
     if not dry_run:
         steps.append(lambda live: macbridge.start_background())
     steps.append(lambda live: watch.resume_after_boot(config.load(), dry_run=dry_run,
