@@ -264,6 +264,17 @@ class RunScope(unittest.TestCase):
                 patch.object(orch.subprocess, "run", side_effect=OSError("bus vanished")):
             self.assertEqual(orch.next_scope_unit("agentkit-run-r3"), "agentkit-run-r3")
 
+    def test_scope_name_skips_a_name_a_service_still_holds(self):
+        # a caller outside the user manager placed the earlier attempt as a service; reusing
+        # its name makes the manager refuse the launch, and the work then starts plainly
+        def show(command, **_kw):
+            loaded = command[3] == "agentkit-run-acme.service"
+            return subprocess.CompletedProcess(command, 0, "loaded\n" if loaded else "not-found\n")
+
+        with patch.object(orch, "user_manager", return_value=True), \
+                patch.object(orch.subprocess, "run", side_effect=show):
+            self.assertEqual(orch.next_scope_unit("agentkit-run-acme"), "agentkit-run-acme-2")
+
     def test_watch_stops_a_recorded_scope(self):
         with patch.object(orch, "stop_scope", return_value=True) as stop:
             self.assertTrue(watch.stop_run_scope({"scope": "agentkit-run-r4"}))

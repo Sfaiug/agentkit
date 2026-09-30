@@ -489,17 +489,24 @@ def unit_loaded(unit, uncertain=True):
 
 
 def next_scope_unit(unit):
-    """Choose a free transient name when a previous attempt still owns the base name."""
+    """Choose a free transient name when a previous attempt still owns the base name.
+
+    `start_in_slice` places work as a scope or, for a caller outside the user manager, a
+    service, so a name is free only while neither is loaded.
+    """
     if not user_manager():
         return unit
     for suffix in range(1, 100):
         candidate = unit if suffix == 1 else f"{unit}-{suffix}"
-        state = unit_loaded(f"{candidate}.scope", uncertain=None)
-        if state is None:
-            # Let the wrapper attempt the original name and make its usual plain fallback
-            # if the bus is still unavailable.
-            return unit
-        if not state:
+        for kind in ("scope", "service"):
+            state = unit_loaded(f"{candidate}.{kind}", uncertain=None)
+            if state is None:
+                # Let the wrapper attempt the original name and make its usual plain fallback
+                # if the bus is still unavailable.
+                return unit
+            if state:
+                break
+        else:
             return candidate
     raise OSError(f"no free systemd scope name for {unit}")
 
