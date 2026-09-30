@@ -132,7 +132,7 @@ class UsageLeft(Sandbox):
                 self.providers["openai"]["resets"] = 0
                 self.providers["openai"]["meters"][0]["used"] = 40
                 self.cache()
-                return ""
+                return "\x1b[A"          # an arrow: no key, only a draw
             return "\x1b"
         # The wait is mocked beside the read: the real one selects on stdin, and a
         # stdin that never delivers EOF -- a backgrounded run's open pipe -- would redraw
