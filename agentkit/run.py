@@ -3705,12 +3705,18 @@ def start_followups(state, run_dir, log, cfg=None):
                         f"## Done when\n```bash\nbash {check}\n```\n")
                 (directory / "task.md").write_text(task)
                 (directory / "log.txt").touch()
+                # A fix run is a new launch: the session's lists now, the discovering
+                # run's only for a seat with no record of its own.  The record is checked
+                # against the config now: the discovering run's may predate a model it names.
+                try:
+                    lists = config.load_session(config.load(), session, required=False) or state
+                except config.Error:
+                    lists = state
                 save_state(directory, {"followup": {"run": run_dir.name, "text": item,
                                                    "place": followup_place(item)},
                                        "launched_session": session, "repo": str(repo),
-                                       "workers": run_workers(cfg, state),
-                                       **({"reviewers": list(state["reviewers"])}
-                                          if "reviewers" in state else {}),
+                                       **{role: list(lists[role]) for role in ("workers", "reviewers")
+                                          if isinstance(lists.get(role), list) and lists[role]},
                                        **({"notify_sink": state["notify_sink"]}
                                           if state.get("notify_sink") else {})})
                 opts = {"--rounds": None, "--exec": None, "--review": None,
@@ -12248,7 +12254,7 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
     workers = (receipt.get("workers") if followup else
                config.workers(cfg) if cfg is not None and session_at_launch else None)
     if followup:
-        # A fix run keeps its discovering run's lists, never the session's current ones.
+        # A fix run keeps the lists start_followups bound when it wrote the receipt.
         groups = {role: list(receipt[role]) for role in ("workers", "reviewers")
                   if isinstance(receipt.get(role), list) and receipt[role]}
     else:
