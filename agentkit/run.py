@@ -3721,28 +3721,19 @@ def followup_open(state):
 
 
 def repair_open(state, tip):
-    """Whether this repair run still holds its command on the target at `tip`.
+    """Whether this repair run holds its command on the target at `tip`.
 
-    On its way it does; so does one that ended `blocked` on a question about that same tip
-    (`question_tip`), which is the owner's to answer and nobody's to ask again.  A target
-    that moved since is a new question.
+    The one answer to both "does this red get a repair" and "do its waiters retry": one
+    repair per command per tip.  On its way it does, on any tip.  Ended, it holds the tip
+    its launch recorded from the probe that found it failing (`repair_tip`) -- never one
+    read off its branch later, which a rebase or an aborted integration moves -- unless it
+    merged, which moved the target, or found the command passing there (`not needed`).
+    Failed, passed unmerged or blocked, another run of it on that tip would only repeat it;
+    a target that moved past it is a new red.
     """
-    return followup_open(state) or (state.get("state") == "blocked"
-                                    and state.get("question_tip") == tip)
-
-
-def question_tip(lp):
-    """What a repair ending `blocked` records as the tip its question is about.
-
-    The target as its checkout last fetched it: its start, its executor and its integration
-    each fetch, and any of them can read a newer tip than the one it was queued at or based
-    on, so the newest it saw is the one its question can be about.
-    """
-    if not lp.state.get("repair"):
-        return {}
-    upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
-    return {"question_tip": git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False)
-            or None}
+    return followup_open(state) or (
+        state.get("state") in ENDED and state.get("state") != "not_needed"
+        and not state.get("merged") and state.get("repair_tip") == tip)
 
 
 def open_followup(state, text, repair=None, tip=None):
@@ -3854,7 +3845,8 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                     lists = state
                 save_state(directory, {"followup": {"run": run_dir.name, "text": item,
                                                    "place": followup_place(item)},
-                                       **({"repair": key} if repair else {}),
+                                       **({"repair": key, "repair_tip": repair["sha"]}
+                                          if repair else {}),
                                        "launched_session": session, "repo": str(repo),
                                        **{role: list(lists[role]) for role in ("workers", "reviewers")
                                           if isinstance(lists.get(role), list) and lists[role]},
@@ -4479,7 +4471,8 @@ def park_waiting(lp, reason, ref, sha=None):
     reason on `merge_note` and on `error`, the ref to watch and the sha a fetch reads now
     -- so the tick picks the run up after the next merge to `ref` and retries it there
     rather than anybody losing the passed work behind a note.  A run parked on a red target
-    also names the run repairing it, and retries when that one ends, merged or not.
+    also names the run repairing it, and retries when that one lets go of the tip
+    (`repair_open`).
     """
     note(lp, reason, failed=False)
     waiting_on = {"ref": ref}
@@ -6601,7 +6594,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         # the task hears why and writes a new one.
         log(f"BLOCKED {exc}")
         state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
-                      "blocked": exc.section, "finished_at": time.time(), **question_tip(lp)})
+                      "blocked": exc.section, "finished_at": time.time()})
         state.pop("quota_dry", None)
         save_state(run_dir, state)
         write_result(run_dir, state, cmds, log, cfg)
@@ -12904,8 +12897,7 @@ def cmd_merge(argv):
     except Blocked as exc:
         # a fixer here can say the task is wrong as readily as one in a round: the delivery
         # retry ends `blocked` with the section, and no later command picks it up
-        state.update(state="blocked", verdict="BLOCKED", error=str(exc), blocked=exc.section,
-                     **question_tip(lp))
+        state.update(state="blocked", verdict="BLOCKED", error=str(exc), blocked=exc.section)
         note(lp, str(exc), failed=True)
     except config.Error as exc:
         # a git or gh that stopped -- including the one that reads the PR -- must leave this
