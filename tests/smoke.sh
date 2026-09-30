@@ -37,28 +37,39 @@ export AK_MAX_RUNS=0
 # every `ak` this suite runs and everything those runs start in turn; the three checks that
 # need a delivered POST point it at a local recorder of their own instead.  Check 5d proves it.
 
-# --- one suite at a time on the shared remote, and nowhere else ---------------
+# --- one suite per smoke target, and nowhere else ------------------------------
 # Suites run side by side: every check runs on the suite's own HOME, tmux socket and fakes, and
 # the real model calls go through the same logins the host's seats use all day.  Check 4 alone
-# touches something two suites share, `<login>/agentkit-smoke`, a fixed repository whose `main`
-# it resets and whose ak/* branches it deletes, out from under another suite's run.  So check 4
-# alone takes this host-wide lock, from just before it seeds the remote until its delivery is
-# read, and every other check runs while another suite holds it.
-# The lock file is created world-readable and locked through a read-only descriptor, so suites
+# touches something two suites could share: a smoke target, a repository under the caller's
+# account whose `main` it resets and whose ak/* branches it deletes, out from under another
+# suite's run.  So the targets are a pool, `agentkit-smoke`, `agentkit-smoke-2`,
+# `agentkit-smoke-3` ..., each with a host-wide lock of its own, and check 4 alone takes one,
+# from just before it seeds it until its delivery is read.  It takes the first free target; when
+# every one is busy and the pool is smaller than the heavy suites the host admits at once, it
+# takes the next, which its seed creates.  It waits only at that bound with every target in use.
+# The bound is the loop's own count, never a number of ours: its limit now, 0 for no cap, or the
+# turns it has opened when a busier hour opened more, since the live headroom shrinks under the
+# very suites that fill it.  The n-th target's lock is the first one's with `-n` before `.lock`.
+# A lock file is created world-readable and locked through a read-only descriptor, so suites
 # running as different accounts all take it.  $AK_SMOKE_LOCK and $AK_SMOKE_LOCK_WAIT override
-# the file and the hour-long wait, for tests, which never queue behind the host's suites.
+# the first file and the hour-long wait, for tests, which never queue behind the host's suites.
 SMOKE_LOCK=${AK_SMOKE_LOCK:-/tmp/agentkit-smoke-remote.lock}
 SMOKE_LOCK_WAIT=${AK_SMOKE_LOCK_WAIT:-3600}
 SMOKE_LOCK_WAITING="check 4: waiting for another suite's turn"
 SMOKE_LOCK_PID=""
 SMOKE_LOCK_HELD=0
-# Reports `waiting` at contention and every minute, then exactly one of `held` or `busy`.
-# In hold mode it keeps the descriptor -- and so the lock -- until the suite that started it is
-# gone, which is what a killed or crashed suite rests on: no pipe another process can inherit.
+SMOKE_TARGET=agentkit-smoke
+# Takes the first free target of the pool, up to the bound it is given.  Reports `waiting` when
+# every one is held and every minute after, then exactly one of `held` (`held-2`, `held-3` ...
+# past the first target) or `busy`.  In hold mode it keeps the descriptor -- and so the target --
+# until the suite that started it is gone, which is what a killed or crashed suite rests on: no
+# pipe another process can inherit.
 SMOKE_LOCK_PY='
-import fcntl, os, signal, sys, threading, time
+import fcntl, glob, os, sys, threading, time
 path, wait, hold, parent = sys.argv[1], float(sys.argv[2]), sys.argv[3] == "hold", int(sys.argv[4])
-def open_lock():
+bound = int(sys.argv[5])
+stem = path[:-len(".lock")] if path.endswith(".lock") else path
+def open_lock(path):
     # Opening it and creating it are two different asks.  /tmp is sticky and world-writable, and
     # with fs.protected_regular=2 the kernel refuses any O_CREAT open of a file a third account
     # already owns there -- read-only or not.  Suites running as different accounts meet on
@@ -78,85 +89,103 @@ def open_lock():
         os.close(made)
     return os.open(path, os.O_RDONLY)
 
-try:
-    fd = open_lock()
-except OSError as exc:
-    sys.stderr.write("smoke lock %s: %s\n" % (path, exc))
-    print("busy", flush=True)
-    sys.exit(75)
-def expired(signum, frame):
-    raise TimeoutError()
+def take():
+    # The pool is every target this host has a lock file for, and the bound; lowest first, so
+    # a new target is made only when every one before it is held.  A bound of 0 is no cap.
+    known = [bound]
+    for name in glob.glob(glob.escape(stem) + "-*.lock"):
+        n = name[len(stem) + 1:-len(".lock")]
+        if n.isdigit():
+            known.append(int(n))
+    n = 0
+    while not bound or n < max(known):
+        n += 1
+        fd = open_lock(path if n == 1 else "%s-%d.lock" % (stem, n))
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return n
+        except OSError:
+            os.close(fd)
+    return None
 
-# Waiting for the shared turn is bounded work, not a hung suite. Report that wait
-# without leaving the kernel queue, so the silence watchdog need not guess.
+# Waiting for a target is bounded work, not a hung suite. Report that wait every
+# minute, so the silence watchdog need not guess.
 def report_wait(done):
     while not done.wait(60):
         print("waiting", flush=True)
 
 try:
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except OSError:
-    # Queue in the kernel rather than poll.  A waiter that sleeps between tries can miss a lock
-    # that is only briefly free -- two suites handing the turn over do exactly that -- and then
-    # reports busy while nobody holds it.  The alarm is what keeps the wait bounded.
-    print("waiting", flush=True)
-    if wait <= 0:
-        print("busy", flush=True)
-        sys.exit(75)
-    done = threading.Event()
-    reporter = threading.Thread(target=report_wait, args=(done,))
-    signal.signal(signal.SIGALRM, expired)
-    busy = False
-    try:
-        signal.setitimer(signal.ITIMER_REAL, wait)
+    taken = take()
+    if taken is None:
+        # No one file to queue on in the kernel, so try the pool every second until the wait
+        # runs out.  A target freed between two tries stays free for the next one, unless
+        # another waiter takes it first -- which is what it was freed for.
+        print("waiting", flush=True)
+        deadline = time.monotonic() + wait
+        done = threading.Event()
+        reporter = threading.Thread(target=report_wait, args=(done,))
         reporter.start()
-        fcntl.flock(fd, fcntl.LOCK_EX)
-    except (TimeoutError, OSError):
-        busy = True
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        done.set()
-        if reporter.is_alive():
+        try:
+            while taken is None and time.monotonic() < deadline:
+                time.sleep(max(0, min(1, deadline - time.monotonic())))
+                taken = take()
+        finally:
+            done.set()
             reporter.join()
-    if busy:
-        print("busy", flush=True)
-        sys.exit(75)
-print("held", flush=True)
+except OSError as exc:
+    sys.stderr.write("smoke lock %s: %s\n" % (path, exc))
+    taken = None
+if taken is None:
+    print("busy", flush=True)
+    sys.exit(75)
+print("held" if taken == 1 else "held-%d" % taken, flush=True)
 if hold:
     sys.stdout.close()
     while os.getppid() == parent:
         time.sleep(2)
 '
-smoke_lock_probe() {   # smoke_lock_probe <wait seconds>: prints held (0) or busy (75)
+smoke_pool_bound() {   # the heavy suites the host admits at once: 0 is no cap, 1 when unreadable
+  HOME="${SMOKE_CALLER_HOME:-$HOME}" PYTHONPATH="$REPO" python3 - 2>/dev/null <<'PY' || echo 1
+from agentkit import config, run
+try:
+    limit = run.heavy_suite_limit()[0]
+except config.Error:
+    limit = run.derived_heavy_limit()     # the loop's own fallback for a config it cannot read
+print(limit and max(limit, run._heavy_max_existing() + 1))
+PY
+}
+smoke_lock_probe() {   # smoke_lock_probe <wait seconds>: prints held... (0) or busy (75)
   local line status=busy
   while IFS= read -r line; do
     case "$line" in
       waiting) printf '%s\n' "$SMOKE_LOCK_WAITING" >&2 ;;
-      held|busy) status=$line; break ;;
+      held*|busy) status=$line; break ;;
     esac
-  done < <(python3 -c "$SMOKE_LOCK_PY" "$SMOKE_LOCK" "$1" probe $$)
+  done < <(python3 -c "$SMOKE_LOCK_PY" "$SMOKE_LOCK" "$1" probe $$ "$(smoke_pool_bound)")
   printf '%s\n' "$status"
-  [ "$status" = held ] || return 75
+  [ "$status" != busy ] || return 75
 }
-smoke_lock_hold() {   # smoke_lock_hold <wait seconds>: 0 and the lock is this suite's, or 75
-  local dir line status=busy
+smoke_lock_hold() {   # smoke_lock_hold <wait seconds>: 0 and $SMOKE_TARGET is this suite's, or 75
+  local dir line status=busy bound
+  bound=$(smoke_pool_bound)
   dir=$(mktemp -d "${TMPDIR:-/tmp}/ak-smoke-lock-XXXXXX") || return 75
   if ! mkfifo "$dir/status"; then rm -rf -- "$dir"; return 75; fi
-  python3 -c "$SMOKE_LOCK_PY" "$SMOKE_LOCK" "$1" hold $$ >"$dir/status" &
+  python3 -c "$SMOKE_LOCK_PY" "$SMOKE_LOCK" "$1" hold $$ "$bound" >"$dir/status" &
   SMOKE_LOCK_PID=$!
   while IFS= read -r line; do
     case "$line" in
       waiting) printf '%s\n' "$SMOKE_LOCK_WAITING" ;;
-      held|busy) status=$line; break ;;
+      held*|busy) status=$line; break ;;
     esac
   done <"$dir/status"
   rm -rf -- "$dir"
-  if [ "$status" = held ]; then
+  if [ "$status" != busy ]; then
+    SMOKE_TARGET=agentkit-smoke${status#held}
     # The holder must not stay a job this shell can wait on.  A bare `wait` waits for *every*
     # child -- check 9 collects its two background runs that way, and so does the name-pair
     # block below -- and this child only exits when the suite does: the suite would sit there
     # for as long as anyone let it.  Disowned it is still the EXIT trap's to kill by pid, and
-    # it still watches its parent, so a crashed suite gives the remote back too.  (The pid form
+    # it still watches its parent, so a crashed suite gives its target back too.  (The pid form
     # of `disown` is newer than bash 3.2, hence the jobspec fallback: right here the holder is
     # the current job.)
     disown "$SMOKE_LOCK_PID" 2>/dev/null || disown %% 2>/dev/null || :
@@ -167,7 +196,7 @@ smoke_lock_hold() {   # smoke_lock_hold <wait seconds>: 0 and the lock is this s
   SMOKE_LOCK_PID=""
   return 75
 }
-smoke_lock_drop() {   # give the remote back: the holder goes, and its descriptor with it
+smoke_lock_drop() {   # give the target back: the holder goes, and its descriptor with it
   [ -z "$SMOKE_LOCK_PID" ] || kill "$SMOKE_LOCK_PID" 2>/dev/null
   SMOKE_LOCK_PID=""; SMOKE_LOCK_HELD=0
 }
@@ -177,7 +206,7 @@ smoke_lock_drop() {   # give the remote back: the holder goes, and its descripto
 # that name is refused.  So the suite's pid, `$$`, which no other suite alive has, ends the title
 # of every run it launches and the fixed name of a seat that starts a server.  (6d's and 21's
 # seats keep their names: tests of their own pin them, and nothing but 6f reads a seat's scope.)
-# The test hook: take the lock with that wait and report, cloning nothing at all.
+# The test hook: take a target with that wait and say which, cloning nothing at all.
 if [ "${1:-}" = --lock-probe ]; then
   [ $# = 2 ] || { echo "usage: tests/smoke.sh --lock-probe <seconds>" >&2; exit 2; }
   case "$2" in ''|*[!0-9.]*|*.*.*) echo "tests/smoke.sh: --lock-probe needs seconds" >&2; exit 2 ;; esac
@@ -1417,7 +1446,7 @@ mkdir -p -- "$HOME/.agentkit/tmp"
 # second of them is here to run beside the first, not to die on the first one's directory.
 mkdir -- "$WORK" 2>/dev/null || WORK=$(mktemp -d -- "$WORK-XXXXXX") || exit 1
 PYTHONPATH="$REPO" python3 -m agentkit.retention begin "$WORK" smoke "$$" || :
-# A suite that dies inside check 4 gives the remote back here.  The lock's holder is started
+# A suite that dies inside check 4 gives its target back here.  The lock's holder is started
 # well below this line, so the trap has to read a name that may still be unset.  The sandbox is
 # settled on the suite's exit status, read before anything else can overwrite it: a passed
 # suite takes its own sandbox with it, a failed one keeps its own and takes the older ones,
@@ -1909,17 +1938,17 @@ done
 # run from inside a clone, has to find both, pass review, rebase, push, open a PR and merge it.
 # The private target stays under the caller's own account. Reset it to its seed and remove
 # leftover ak/* branches before every run, so `main` is always exactly the same failing state.
-# That remote is every suite's on this host, so this is the one check that waits for the lock:
-# taken before the seed, given back once the delivery on it is read.  A suite that cannot take
-# it fails this check alone and runs the rest.
+# The target is the first free one of the pool above, so this is the one check that may wait:
+# taken before the seed, given back once the delivery on it is read.  A suite that finds none
+# free before its wait runs out fails this check alone and runs the rest.
 if skip_spent 4/4b/4c/4d opus astra; then
   :   # skip before cloning or resetting the remote baseline, not after a worker's 429
 elif ! smoke_lock_hold "$SMOKE_LOCK_WAIT"; then
-  no "4 ak run: another suite still holds the remote after ${SMOKE_LOCK_WAIT}s; it was never this suite's to reset"
-  skip_checks 4b/4c/4d "prerequisite run did not happen: another suite holds the remote"
+  no "4 ak run: every smoke target is still another suite's after ${SMOKE_LOCK_WAIT}s; none was this suite's to reset"
+  skip_checks 4b/4c/4d "prerequisite run did not happen: every smoke target is another suite's"
 else
 SMOKE_LOGIN=$(gh api user --jq .login 2>"$WORK/smoke-login.err" || true)
-SMOKE_REPO="$SMOKE_LOGIN/agentkit-smoke"
+SMOKE_REPO="$SMOKE_LOGIN/$SMOKE_TARGET"
 CLONE="$WORK/agentkit-smoke"
 (
   set -e
