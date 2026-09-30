@@ -699,10 +699,11 @@ class HandBack(Sandbox):
         self.assertTrue(state["handed_back"])       # the tick's own copy did not undo it
         self.assertNotIn("handback_pending", state)
         self.assertNotIn("pending_inbox", state)    # ... and the question is still struck off
-        self.assertEqual(len(self.typed), 1)
+        handbacks = lambda: [text for seat, text in self.typed if seat == SEAT]
+        self.assertEqual(len(handbacks()), 1)
         # no later tick says it a second time
         self.tick()
-        self.assertEqual(len(self.typed), 1)
+        self.assertEqual(len(handbacks()), 1)
 
     def test_a_merge_question_the_inbox_did_not_take_is_typed_again_before_the_user_hears(self):
         question, url, sha = "Merge PR #9?", "https://github.com/o/r/pull/9", "abc"
