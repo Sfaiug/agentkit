@@ -969,8 +969,9 @@ def needs_transition(session, card, answer, now, seat=None):
     in it is asking him anything.
     """
     declared = last(session, include_seen=True)
-    answered_at = max(card.get("answered_at") or 0, (declared.get("answered_at") or 0)
-                      if declared and resolved(declared) else 0)
+    # Not whether the notice is answered: a newer one carries the answer it replaced (`shaped`).
+    answered_at = max(card.get("answered_at") or 0,
+                      (declared.get("answered_at") or 0) if declared else 0)
     answered_here = answered_at > card["since"]
     if _attached(session, card["since"], seat) or answered_here:
         if not card.get("closed") or card.get("open_needs") or answered_here:
@@ -1206,6 +1207,10 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                 extra = {"source": event_id, "pr": pr,
                          "watcher": str(event_id or "").startswith(("auth:", "stuck:", "stall:")),
                          "open_needs": previous.get("open_needs", []) if previous else []}
+                if previous and "answered_at" in previous:
+                    # The answer ends its card's episode at the next tick; a newer notice
+                    # carries it there, and being newer is not answered by it.
+                    extra["answered_at"] = previous["answered_at"]
                 if kind == "done":
                     extra["runs"] = [directory.name for directory, state in menu.run_records()
                                      if run.launched_session(state) == name and

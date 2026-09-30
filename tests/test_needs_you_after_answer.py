@@ -99,6 +99,22 @@ class NeedsYouAfterAnswer(unittest.TestCase):
         notify.close_needs.side_effect = close
         self.back_in_needs_you("waiting for you")
 
+    def test_a_new_question_before_the_tick_keeps_the_answer(self):
+        notify.record(SEAT, "needs", QUESTION, time=100)
+        self.tick(100, QUESTION)
+        self.tick(160, QUESTION)
+        notify.answered(SEAT, 200)
+        # The seat asks again with `ak notify` before any tick has read the answer.
+        with patch.object(notify.time, "time", return_value=220), \
+                patch.object(watch, "_session_state", return_value={
+                    "word": "needs you", "reason": "Which port?", "since": 100}):
+            self.assertEqual(notify.shaped("needs", "Which port?", session=SEAT), 0)
+        for now in (300, 400, 500, 600):
+            self.tick(now, "Which port?")
+        self.assertEqual(self.edits, [("1", "Answered")])
+        self.assertEqual(self.cards, [f"Needs you · {SEAT}: {QUESTION}",
+                                      f"Needs you · {SEAT}: Which port?"])
+
     def test_a_needs_you_standing_before_an_upgrade_is_history(self):
         notify.record(SEAT, "needs", QUESTION, time=100)
         self.tick(100, QUESTION)
