@@ -3632,52 +3632,104 @@ def followup_place(text):
     return text.splitlines()[0].strip()
 
 
-def open_followup(state, text):
+def followup_open(state):
+    """Whether this fix run is still on its way: running, about to, or resuming itself."""
+    return (state.get("state") == "running"
+            or (state.get("state") == "queued"
+                and (process_active(state) or state.get("slot_waiting")))
+            or (state.get("state") in ("waiting", "waiting_login", "exhausted", "error")
+                and going(state))
+            or (state.get("state") == "interrupted" and state.get("deaths")
+                and tick_resumes(state)))
+
+
+def repair_open(state, tip):
+    """Whether this repair run still holds its command on the target at `tip`.
+
+    On its way it does; so does one that ended `blocked` on a question about that same tip
+    (`question_tip`), which is the owner's to answer and nobody's to ask again.  A target
+    that moved since is a new question.
+    """
+    return followup_open(state) or (state.get("state") == "blocked"
+                                    and state.get("question_tip") == tip)
+
+
+def question_tip(lp):
+    """What a repair ending `blocked` records as the tip its question is about.
+
+    The target as its checkout last fetched it: its start, its executor and its integration
+    each fetch, and any of them can read a newer tip than the one it was queued at or based
+    on, so the newest it saw is the one its question can be about.
+    """
+    if not lp.state.get("repair"):
+        return {}
+    upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
+    return {"question_tip": git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False)
+            or None}
+
+
+def open_followup(state, text, repair=None, tip=None):
+    """The open run already fixing `text`, or None.
+
+    A follow-up is the same site in the same repository from the same seat.  A `repair` is
+    the same repository, target and command from any seat, open at the target's `tip`: the
+    target is everybody's.
+    """
     for directory in run_dirs():
         other = read_state(directory) or {}
         if (other.get("run_id") != state.get("run_id") and other.get("followup")
-                and launched_session(other) == launched_session(state)
                 and other.get("repo") == state.get("repo")
-                and other["followup"]["place"] == followup_place(text)
-                and (other.get("state") == "running"
-                     or (other.get("state") == "queued"
-                         and (process_active(other) or other.get("slot_waiting")))
-                     or (other.get("state") in ("waiting", "waiting_login", "exhausted",
-                                                "error") and going(other))
-                     or (other.get("state") == "interrupted" and other.get("deaths")
-                         and tick_resumes(other)))):
+                and other.get("repair") == repair
+                and (repair_open(other, tip) if repair else
+                     launched_session(other) == launched_session(state)
+                     and other["followup"]["place"] == followup_place(text)
+                     and followup_open(other))):
             return directory.name
     return None
 
 
-def start_followups(state, run_dir, log, cfg=None):
+def start_followups(state, run_dir, log, cfg=None, repair=None):
     """A merge starts ordinary runs, once, under the same lock that closes the seat.
 
     The receipt is the duplicate guard even while admission waits. There is no collector
     or backlog: this ending alone gets to launch its list.
+
+    A target failing a check on its own tip starts one the same way, before any merge:
+    `repair` is what `target_fails` saw -- the `command`, its done-when `check` line, the
+    tip's `sha`, and `text` naming the tip and what the command printed there -- and its
+    run, launched ahead of the queue, makes the target pass that command again.  Its guard
+    is an open repair of the same repository, target and command instead of a receipt.
+    Returns the repair's run, started, already open, or left queued by a launch that
+    raised, or None when none is.
     """
     session = launched_session(state)
-    if (not state.get("merged") or not state.get("followups") or not session
+    if (not (repair or state.get("merged") and state.get("followups")) or not session
             or not state.get("repo") or state.get("scratch")
             or (state.get("review_pr") and not state.get("own_pr"))):
-        return
+        return None
     with watch.state_lock():
-        current = read_state(run_dir) or state
-        if "followup_runs" in current:
-            state["followup_runs"] = current["followup_runs"]
-            return
-        state["followup_runs"] = []
-        save_state(run_dir, state)
+        if not repair:
+            current = read_state(run_dir) or state
+            if "followup_runs" in current:
+                state["followup_runs"] = current["followup_runs"]
+                return None
+            state["followup_runs"] = []
+            save_state(run_dir, state)
         if watch.seat_closed(session):
-            return
+            return None
         cfg = report_config(cfg)
         repo = main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
-        for item in state["followups"]:
+        key = repair and {"target": target, "command": repair["command"]}
+        for item in [repair["text"]] if repair else state["followups"]:
             source = {**state, "repo": str(repo)}
-            if open_followup(source, item):
+            opened = open_followup(source, item, key, repair and repair["sha"])
+            if opened and repair:
+                return opened
+            if opened:
                 continue
-            title = "Fix " + item.splitlines()[0]
+            title = (f"Make {target} pass `{repair['command']}` again" if repair
+                     else "Fix " + item.splitlines()[0])
             if len(title) > 256:  # GitHub rejects a longer PR title; the item stays whole below
                 title = title[:255] + "…"
             name = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
@@ -3690,7 +3742,18 @@ def start_followups(state, run_dir, log, cfg=None):
                 directory.mkdir(parents=True)
                 check = shlex.quote(str(directory / "regression.sh"))
                 task = (f"---\nrepo: {repo}\nbase: origin/{target}\ntarget: {target}\n---\n"
-                        f"# {title}\n\n{item}\n\n"
+                        f"# {title}\n\n{item}\n\n")
+                if repair:
+                    task += (
+                        "First fetch the target branch and run the command on its tip. If it "
+                        "passes there now, end with only `not needed: <why>` (optionally under "
+                        "`## Summary`), with no edits or PR. Otherwise make the target pass it "
+                        "again: fix the root cause, and show the command failing before the fix "
+                        "and passing afterwards in your summary. If only the owner can decide, "
+                        "end `## Blocked` with the question.\n\n"
+                        f"## Done when\n```bash\n{repair['check']}\n```\n")
+                else:
+                    task += (
                         "First fetch the target branch and check that this defect still exists there. "
                         f"Inspect {config.RUNS}/*/run.json for another open run of session {session} "
                         f"fixing this site in {repo}; exclude this run ({directory.name}). "
@@ -3714,6 +3777,7 @@ def start_followups(state, run_dir, log, cfg=None):
                     lists = state
                 save_state(directory, {"followup": {"run": run_dir.name, "text": item,
                                                    "place": followup_place(item)},
+                                       **({"repair": key} if repair else {}),
                                        "launched_session": session, "repo": str(repo),
                                        **{role: list(lists[role]) for role in ("workers", "reviewers")
                                           if isinstance(lists.get(role), list) and lists[role]},
@@ -3721,21 +3785,28 @@ def start_followups(state, run_dir, log, cfg=None):
                                           if state.get("notify_sink") else {})})
                 opts = {"--rounds": None, "--exec": None, "--review": None,
                         "--review-pr": None, "--no-worktree": False, "--no-merge": False,
-                        "--bg": True}
+                        "--bg": True, **({"--first": True} if repair else {})}
                 prepare(directory, opts, logger(directory, True), cfg)
                 spawn_bg(directory, [str(directory / "task.md")])
             except StopRequested as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
-                return
+                return None
             except (config.Error, OSError) as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
+                if repair:
+                    # a launch that raised can leave its receipt queued for a slot, and the
+                    # tick starts that: it is the repair all the same
+                    return directory.name if repair_open(read_state(directory) or {},
+                                                         repair["sha"]) else None
                 continue
+            if repair:
+                return directory.name
             try:
                 state["followup_runs"].append(directory.name)
                 save_state(run_dir, state)
             except StopRequested as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
-                return
+                return None
             except (config.Error, OSError) as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
                 continue
@@ -4330,16 +4401,21 @@ def park_waiting(lp, reason, ref, sha=None):
     its way, and the world keeps moving.  The record carries the whole of the wait -- the
     reason on `merge_note` and on `error`, the ref to watch and the sha a fetch reads now
     -- so the tick picks the run up after the next merge to `ref` and retries it there
-    rather than anybody losing the passed work behind a note.
+    rather than anybody losing the passed work behind a note.  A run parked on a red target
+    also names the run repairing it, and retries when that one ends, merged or not.
     """
     note(lp, reason, failed=False)
     waiting_on = {"ref": ref}
     if sha:
         waiting_on["sha"] = sha
+    repair = getattr(lp, "repair", None)
+    if repair:
+        waiting_on["repair"] = repair
     lp.state.update(state="waiting", error=reason, waiting_on=waiting_on)
     lp.state.pop("recovery_pending", None)  # the wait is the tick's now
     lp.write()
-    lp.log(f"--- merge: parked waiting; retried after the next merge to {ref}")
+    lp.log(f"--- merge: parked waiting; retried after the next merge to {ref}"
+           + (f" or when {repair} ends" if repair else ""))
     return False
 
 
@@ -5365,6 +5441,12 @@ def target_fails(lp, upstream, dw_log):
     the fixer rounds run as today.  The failure is the probe's own, in `first_failure`'s
     words: a suite can fail on the target at another check than it did on the branch.
 
+    Nobody else repairs a red target: the first run to find it starts one repair run on it,
+    ahead of the queue, and every run parked on the same red waits for that run to let go of
+    it (`repair_open`) as well as for the next merge (`lp.repair`, which `park_waiting`
+    records).  The repair run itself is never probed on the command it repairs: its fixer
+    rounds are the repair.
+
     A command naming a path the branch head has and the tip lacks is never probed: on the
     target the missing file alone would fail it, so the fixer rounds run as today and the
     log names the file the target lacks.
@@ -5379,6 +5461,8 @@ def target_fails(lp, upstream, dw_log):
     if not failed:
         return ""
     cmd = failed[0][0]
+    if cmd == (lp.state.get("repair") or {}).get("command"):
+        return ""
     try:
         tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
         head = git(lp.wt, "rev-parse", "HEAD")
@@ -5432,7 +5516,6 @@ def target_fails(lp, upstream, dw_log):
         with probe_log.open("rb") as said:
             said.seek(start)
             output = said.read().decode(errors="replace")
-        return first_failure(f"$ {cmd}\n[exit {code}]\n{output}")
     finally:
         if detached:
             # the tree was clean when it was put aside, so every tracked edit and every
@@ -5461,6 +5544,18 @@ def target_fails(lp, upstream, dw_log):
                 stopped = stopped or exc
             if stopped is not None:
                 raise stopped
+    # indented, so nothing the command printed reads as a heading or a fence of the task
+    printed = "\n".join("    " + line for line in output[-OUT_CAP:].splitlines())
+    try:
+        lp.repair = start_followups(lp.state, lp.run_dir, lp.log, lp.cfg, repair={
+            "command": cmd, "check": f"{cmd}  # once" if heavy_probe else cmd, "sha": tip,
+            "text": f"`{cmd}` fails on {upstream} at {tip}, the target's own tip, whichever "
+                    f"branch runs it. What it printed there:\n\n{printed}"})
+    except StopRequested:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the park matters, not its repair
+        lp.log(f"WARN no repair of {upstream} could start: {exc}")
+    return first_failure(f"$ {cmd}\n[exit {code}]\n{output}")
 
 
 def final_check(lp, upstream):
@@ -6390,7 +6485,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         # the task hears why and writes a new one.
         log(f"BLOCKED {exc}")
         state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
-                      "blocked": exc.section, "finished_at": time.time()})
+                      "blocked": exc.section, "finished_at": time.time(), **question_tip(lp)})
         state.pop("quota_dry", None)
         save_state(run_dir, state)
         write_result(run_dir, state, cmds, log, cfg)
@@ -7669,10 +7764,13 @@ def announce(state, run_dir, log, cfg=None):
     run ended and that the next step is its own -- because the ending is the orchestrator's and
     never the owner's.  A run launched from no seat at all -- by hand, over ssh, from cron,
     from a test -- has nobody to hand back to and nobody to ping: its result is on the terminal
-    it was started from and in `ak run status`.  Only an orphan speaks to the owner, and first
-    to its own seat: the seat is reopened on its saved conversation and told to continue, and
-    the owner hears only when that fails -- or when there is no seat to reopen, one `ak orch
-    stop` ended or one nothing is left of, which is asked of them as before.
+    it was started from and in `ak run status`.  The repair a red target started belongs to
+    the seat whose run found it red, and tells it only what needs somebody: a merge or a
+    `not needed` is routine, and the runs parked on it retry by themselves.  Only an orphan
+    speaks to the owner, and first to its own seat: the seat is reopened on its saved
+    conversation and told to continue, and the owner hears only when that fails -- or when
+    there is no seat to reopen, one `ak orch stop` ended or one nothing is left of, which is
+    asked of them as before.
 
     A run that reached a final state is an ending whatever else its record carries: a resume
     leaves `recovery_pending` behind it, and that is not unfinished work -- there is nothing
@@ -7700,7 +7798,8 @@ def announce(state, run_dir, log, cfg=None):
         return
     if state.get("state") not in ENDED:
         return
-    if not session:
+    if not session or state.get("repair") and (state.get("merged")
+                                               or state.get("state") == "not_needed"):
         return
     with launcher_world(session) as live:
         if live:
@@ -12668,7 +12767,8 @@ def cmd_merge(argv):
     except Blocked as exc:
         # a fixer here can say the task is wrong as readily as one in a round: the delivery
         # retry ends `blocked` with the section, and no later command picks it up
-        state.update(state="blocked", verdict="BLOCKED", error=str(exc), blocked=exc.section)
+        state.update(state="blocked", verdict="BLOCKED", error=str(exc), blocked=exc.section,
+                     **question_tip(lp))
         note(lp, str(exc), failed=True)
     except config.Error as exc:
         # a git or gh that stopped -- including the one that reads the PR -- must leave this
