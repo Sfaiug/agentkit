@@ -29,7 +29,8 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import command_help, config, history, notify, orch, proc_snapshot, retention, usage, watch, worker
+from . import (command_help, config, history, notify, orch, proc_snapshot, retention, update,
+               usage, watch, worker)
 from .harness import load as harness_plugin
 
 DIFF_CAP = 300 * 1024
@@ -65,6 +66,7 @@ TRANSIENT_BACKOFF = (60, 300, 900, 1800, 3600)
 TRANSIENT_HOURLY = 3600
 MAX_REFILLS = 3               # usage-limit resets one turn may spend before handing over
 KILL_WINDOW = 60              # a second signal kill inside this many seconds parks the run
+SWAP_POLL = 10                # seconds between looks at a harness swap a failed turn waits out
 KILLED = {-15: "SIGTERM", -9: "SIGKILL"}   # worker exits by signal, as `subprocess` reports them
 # When a refusal says to come back: Codex prints `Try again at Oct 12th, 2026 11:39 PM` in this
 # machine's own timezone, and a 429 body carries the same moment as an ISO timestamp.  A clock
@@ -1551,7 +1553,10 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     own session and with no backoff.  Nothing to spend leaves `RanDry` for the caller, whose
     job is another provider, not another try here.
     An empty exit whose stderr says the harness never ran the turn leaves `CannotRun` the
-    same way, at once: another provider, or a run blocked on that line.
+    same way, at once: another provider, or a run blocked on that line.  Before either, a
+    failed exit, not a kill, that an install or revert of its harness overlapped
+    (`update.swap_end`) waits for that swap to end and starts again on its session: once per
+    swap, since the retry begins after it ended.
 
     A worker exit by signal is neither: it reads as the signal, resumes once at once, and on
     a second kill inside a minute raises `Killed` for the run to park on.
@@ -1575,7 +1580,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     # Every role (and retry) lives under <run>/round-N/<role> and inherits this audit log.
     env = {**run_child_env(), "AK_RUN_ROLE": "worker",
            "AK_RUN_LOG": str(out_dir.parent.parent / "log.txt")}
-    attempt, calls, refills, last_kill, account = 1, 0, 0, None, None
+    attempt, calls, refills, last_kill, account, span = 1, 0, 0, None, None, None
     handover_tried = False
 
     def turn(text, target, session):
@@ -1585,9 +1590,10 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         it, so a retry that outlived the sweep would otherwise run a whole turn no
         record wants anymore.
         """
-        nonlocal account
+        nonlocal account, span
         stop_check(out_dir.parent.parent)
         account = usage.account(cfg, entry["provider"])[0]
+        began = time.time()
         named = env if account is None else {**env, **config.account_env(account)}
         try:
             result = worker.call(cfg, name, text, workspace, target, role, session, env=named,
@@ -1597,8 +1603,27 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 "login rather than retrying into it")
             expired.session = expired.session or session
             raise
+        span = (began, time.time())
         note_turn_meters(cfg, name, target, account)
         return result
+
+    def swapped(code, killed, session):
+        """Whether an install or revert of this harness overlapped the turn that just failed.
+
+        Its command was missing then, which reads as a harness that cannot run, so the swap is
+        waited out like a provider fault and the turn starts again on its session: once per
+        swap, since that start comes after the swap ended.
+        """
+        if killed or not code or killed_word(code) or update.swap_end(
+                entry["harness"], *span) is None:
+            return False
+        worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
+        log(f"WARN {role} {name} exited {code} while {entry['harness']} was being swapped; "
+            "starting again once that swap has ended"
+            + (f", resuming session {session}" if session else ""))
+        while (end := update.swap_end(entry["harness"], *span) or 0) > (now := time.time()):
+            transient_wait(out_dir, min(SWAP_POLL, end - now))
+        return True
 
     def next_account(until, message):
         """Park the account this turn ran on alone, and whether another of its provider has
@@ -1617,6 +1642,9 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         # transport failure the three attempts are for, not a session that cannot be opened.
         asked = session if not calls else None
         code, text, sid, killed = turn(body, target, session)
+        if swapped(code, killed, sid or session):
+            session, calls = sid or session, calls + 1
+            continue
         if asked and resume_failed(target, killed, text):
             # One empty exit abandons the id. The role continues in a new conversation,
             # and the dead id is not retried and does not spend the transport attempts.
@@ -1632,6 +1660,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             code, text, sid, killed = turn(body, target, None)
             session = sid or None
             calls += 1
+            if swapped(code, killed, session):
+                continue
         else:
             session, calls = sid or session, calls + 1
         if not killed and turn_unfinished(target):
@@ -1645,6 +1675,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                            if role.startswith("reviewer") else FINISH_IN_FOREGROUND)
             code, text, sid, killed = turn(finish_body, finish, session)
             session = sid or session
+            if swapped(code, killed, session):
+                continue
             if not killed and turn_unfinished(finish):
                 log(f"WARN {role} {name} ended its turn with a command still in the background "
                     "again; carrying on with what it reported")
