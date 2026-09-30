@@ -1327,15 +1327,17 @@ SH
       case $line in *" -m "*) echo "      interactive ${model:-<empty>}: -m is still there in $line"; rc=1 ;; esac
     fi
   done
-  # The shipped OpenAI worker uses that sentinel; the caller may pin an API model instead.
+  # The shipped OpenAI worker names its model: the sentinel would follow whatever the login's
+  # own Codex app last picked, which this Codex may not run.
   mkdir -p -- "$d/home/.agentkit"
   cp "$REPO/config.default.toml" "$d/home/.agentkit/config.toml" || rc=1
   HOME="$d/home" PYTHONPATH="$REPO" python3 - <<'PY' || rc=1
 from agentkit import config
 cfg = config.load()
 astra = config.model(cfg, "astra")
-assert astra["model"] == config.DEFAULT_MODEL, f"config.default.toml: [models.astra] model={astra['model']!r}"
-assert config.model_label(astra) == "(default)", config.model_label(astra)
+assert astra["model"] not in ("", config.DEFAULT_MODEL), f"config.default.toml: [models.astra] model={astra['model']!r}"
+assert config.model_label(astra) == astra["model"], config.model_label(astra)
+assert config.model_label({"model": config.DEFAULT_MODEL}) == "(default)"
 assert config.model_label({"model": ""}) == "(default)"
 assert config.model_label({"model": "gpt-6-astra"}) == "gpt-6-astra"
 PY
