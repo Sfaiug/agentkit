@@ -70,8 +70,7 @@ the reviewer sees it marked deferred. The full suite a repository names as `test
 there, from the target branch where the checkout predates it, and a done-when line with the same command runs once with it, so a task lists only the checks for its change.
 A command that fails runs once more at once, within the same ceiling, and passes if the re-run does: the output keeps the lines the failed run printed that its passing re-run did not, at most 20 (its last lines when the re-run repeated them all), under `flaky:`, which joins the run's follow-ups as evidence.
 The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt, up to 4 KB; past
-that, the run's hand-back names the file and asks the orchestrator to tighten it. So does the body of the repository's
-`AGENTS.md` as on the base commit, front matter removed, up to 8 KB, whatever the worker's harness loads on its own.
+that, the run's hand-back names the file and asks the orchestrator to tighten it. Every prompt also carries the body of the repository's `AGENTS.md` as on the base commit, front matter removed, up to 8 KB, whatever the worker's harness loads on its own.
 
 One behaviour per task. A launch is refused when the goal has more than three numbered points, the body more than 500
 words outside the checks block, the checks more than six commands or `rounds` more than three, whatever `--anyway` says;
