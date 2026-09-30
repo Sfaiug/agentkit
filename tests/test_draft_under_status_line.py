@@ -63,10 +63,11 @@ class DraftUnderStatusLine(Sandbox):
         self.assertEqual((found["word"], found["reason"]), ("needs you", f"unsent: {TEXT}"))
 
     def test_a_picker_cursor_over_a_status_line_is_no_draft(self):
-        # Under a cursor sits another option or the status line: never the composer's rule.
+        # Under a cursor sits another option or the status line: never the composer's rule,
+        # and a status line right on the footer is no composer even with a prompt mark.
         footer = "  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n"
         for picker in ("❯ 1. Yes\n  2. No\n", "  1. Yes\n❯ 2. No\n"):
-            for status in STATUS:
+            for status in STATUS + MARKED:
                 with self.subTest(picker=picker, status=status):
                     pane = under_status("Do you want to proceed?\n" + picker + footer, status)
                     self.assertNotEqual(self.read(pane)[0], "draft")
