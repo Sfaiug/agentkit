@@ -7,10 +7,12 @@ version = 1
 # How `ak update` moves this harness, and what `ak usage` needs beyond `<adapter> usage`:
 # `claude install <version>` is a versioned reinstall, so a failed upgrade goes back by command
 # and needs no snapshot, and the usage call is one plain adapter call with no reset to spend.
+# `latest` is the release the tick upgrades it to in the background: npm's, the same builds.
 [update]
 version = ["claude", "--version"]
 upgrade = ["claude", "install", "latest"]
 revert = ["claude", "install", "{version}"]
+latest = ["npm", "view", "@anthropic-ai/claude-code", "version"]
 
 # The usage endpoint answers every token with 429 and a Retry-After when asked too often,
 # so this harness is asked at most once every fifteen minutes, whoever asks, and never

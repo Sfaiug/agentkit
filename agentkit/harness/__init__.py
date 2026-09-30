@@ -23,9 +23,10 @@ LAUNCHER = "launcher"      # `id_source`: the id in the record is one the launch
 FRESH_WORDS = "no conversation recorded; it starts fresh"   # `[conversation] fresh_words`
 
 # `[update]`: how `ak update` moves this harness, and what it cannot do.  A harness that names
-# no `version` and `upgrade` is not one `ak update` touches.
-UPDATE = {"version": None, "upgrade": None, "revert": None, "env": {}, "cannot": "",
-          "snapshot_dir": ""}
+# no `version` and `upgrade` is not one `ak update` touches.  `latest` names its newest release,
+# which the tick keeps it on in the background.
+UPDATE = {"version": None, "upgrade": None, "revert": None, "latest": None, "env": {},
+          "cannot": "", "snapshot_dir": ""}
 # `[usage]`: what its usage call needs beyond `<adapter> usage`.  `none` is the harness
 # without a meter at all: no reading is a neutral provider, never a failed probe.
 # `probe_every` is how often the harness may be asked at all, in seconds: its own fact,

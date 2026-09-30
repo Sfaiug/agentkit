@@ -12,11 +12,13 @@ explicitly, with its snapshot retained. Ordinary launches and version checks rem
 
 A gate that cannot run on this host is a skipped line, never a refusal: the upgrade runs
 against the gates that are available, and the report says which ran.  Only the harnesses
-this host has are upgraded, and none while a session is working.  Agentkit itself moves
-after the harnesses either way, and the three-minute tick moves it on its own.
+this host has are upgraded, and by `ak update` none while a session is working; the tick
+upgrades one that is behind its latest release in the background, sessions or not (see
+`keep_current`), and no two upgrades ever run at once.  Agentkit itself moves after the
+harnesses either way, and the three-minute tick moves it on its own.
 """
 
-from contextlib import ExitStack, redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 import fcntl
 import hashlib
 import io
@@ -31,6 +33,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime
 
 from . import command_help, config, retention
@@ -43,6 +46,7 @@ SMOKE_CAP = 2 * 60 * 60     # the gate makes real model calls and waits out two 
 E2E_CAP = 90 * 60           # a fresh account, three harness installs and one real merged run
 FETCH_CAP = 60              # the tick's look at origin; one not back by then is offline
 START_WAIT = 2              # `ak`'s look at origin; one not back by then opens it as it is
+ASK_EVERY = 60 * 60         # how often the tick asks a harness's latest release, at most
 
 VERSION_KEY = "{version}"   # `[update] revert`: where the version to reinstall goes
 
@@ -78,6 +82,7 @@ def harnesses(cfg=None):
         env = facts.get("env") if isinstance(facts.get("env"), dict) else {}
         found[name] = {"name": name, "version": version, "upgrade": upgrade,
                        "revert": _argv(name, facts, "revert") or None,
+                       "latest": _argv(name, facts, "latest"),
                        "env": {str(key): str(value) for key, value in env.items()},
                        "cannot": str(facts.get("cannot") or ""),
                        "snapshot_dir": str(facts.get("snapshot_dir") or "")}
@@ -713,6 +718,131 @@ def go_live(log):
             log(f"  {line}")
 
 
+def latest(harness):
+    """The release its `[update] latest` command names, or "" where it names none or says none.
+
+    Asked of the network, so bounded like the tick's look at origin: one not back by then,
+    or one that names no release, is no newer release.
+    """
+    if not harness["latest"]:
+        return ""
+    argv = [config.harness_binary(harness["latest"][0]) or harness["latest"][0],
+            *harness["latest"][1:]]
+    try:
+        proc = subprocess.run(argv, capture_output=True, encoding="utf-8", errors="replace",
+                              stdin=subprocess.DEVNULL, timeout=FETCH_CAP,
+                              env={**config.child_env(), **PINS})
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return "" if proc.returncode else _release(proc.stdout)
+
+
+def one_at_a_time():
+    """The host-wide upgrade lock, held, or None while another upgrade holds it.
+
+    `ak update` and the tick's background upgrade both take it, so no gate ever verifies a
+    box another upgrade is changing under it.
+    """
+    lock = (config.TMP / "harness-update.lock").open("a")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock.close()
+        return None
+    return lock
+
+
+def said_path():
+    """What the last background upgrade said: its writer is `background`, its reader the tick."""
+    return config.STATE / "harness-update-said.json"
+
+
+def background(name):
+    """`python3 -m agentkit.update <harness>`: the tick's upgrade of one harness; the exit code.
+
+    `upgrade` for that harness alone, whether sessions are working or not: it replaces files,
+    never a process, so a seat or run already going keeps working through it.  What it said is
+    left for the next tick to write to its log, once.
+    """
+    config.ensure_dirs()
+    held = one_at_a_time()
+    if held is None:
+        return 0
+    out = io.StringIO()
+    with held, redirect_stdout(out), redirect_stderr(out):
+        try:
+            plan = [h for h in harnesses() if h["name"] == name]
+            if not plan:
+                return 0    # no longer configured, or no longer says how it moves
+            code = upgrade(plan, {name: version(plan[0])})
+        except Exception as exc:    # detached, this child is heard only through what it said
+            say(f"update: {exc!r}")
+            code = 1
+        said = said_path()
+        said.with_suffix(".tmp").write_text(json.dumps(
+            {"harness": name, "code": code, "lines": out.getvalue().splitlines()}))
+        os.replace(said.with_suffix(".tmp"), said)
+    return code
+
+
+def start(name):
+    """`background(name)`, detached: it outlives the tick that starts it, gates and all."""
+    subprocess.Popen([sys.executable, "-m", "agentkit.update", name], cwd=config.REPO,
+                     env=config.child_env(), stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def keep_current(log, now=None):
+    """The tick's half of keeping every harness on its latest release, in the background.
+
+    Only the checkout this tick runs from does it, as with `go_live`, so a tick from a
+    worktree -- a test's above all -- never upgrades this host's harnesses.  A harness this
+    host has is asked its `[update] latest` at most once an hour; one behind it is upgraded by
+    `background`, one at a time.  A release is started once: a failed gate has put the harness
+    back and said so, and only a newer release is tried.
+    """
+    if agentkit_dir().resolve() != config.REPO:
+        return
+    said = said_path()
+    try:
+        result = json.loads(said.read_text())
+        said.unlink()
+    except (OSError, ValueError):
+        result = None
+    if isinstance(result, dict):
+        name, lines = result.get("harness"), result.get("lines") or []
+        log(f"WARN the background upgrade of {name} failed:" if result.get("code")
+            else f"the background upgrade of {name}:")
+        for line in lines:
+            log(f"  {line}")
+    held = one_at_a_time()
+    if held is None:
+        return
+    held.close()
+    now = time.time() if now is None else now
+    record = config.STATE / "harness-latest.json"
+    try:
+        asked = json.loads(record.read_text())
+    except (OSError, ValueError):
+        asked = {}
+    asked = asked if isinstance(asked, dict) else {}
+    for harness in harnesses():
+        name = harness["name"]
+        entry = asked.get(name) if isinstance(asked.get(name), dict) else {}
+        if (not harness["latest"] or not config.harness_binary(harness["version"][0])
+                or now - entry.get("asked", 0) < ASK_EVERY):
+            continue
+        installed, newest = version(harness), latest(harness)
+        # behind: both name a release, and the installed one is the lower
+        go = bool(installed) and _downgrade(newest, installed) and entry.get("tried") != newest
+        asked[name] = {**entry, "asked": now, **({"tried": newest} if go else {})}
+        record.write_text(json.dumps(asked))
+        if go:
+            log(f"{name} {_release(installed)} is behind {newest}: upgrading it in the background")
+            start(name)
+            return
+
+
 def main(argv):
     if command_help.show("update", argv):
         return 0
@@ -789,7 +919,23 @@ def main(argv):
             f"({', '.join(working)}); try when they are done")
         update_self()
         return 0
+    held = one_at_a_time()
+    if held is None:
+        say("update: harnesses: skipped: another upgrade is running; try when it is done")
+        update_self()
+        return 0
+    with held:
+        code = upgrade(plan, before)
+    return code or update_self()
 
+
+def upgrade(plan, before):
+    """Upgrade `plan` from `before`, and put it back where a gate fails; the exit code.
+
+    The one path `ak update` and the tick's background upgrade both take, so the snapshot,
+    the gates and the revert are as strong whichever of them starts it.
+    """
+    smoke = config.REPO / "tests" / "smoke.sh"
     output = tempfile.NamedTemporaryFile(mode="w", prefix=f"update-{datetime.now():%Y%m%d-%H%M%S}-",
                                          suffix=".log", dir=config.TMP, delete=False)
     log_path = Path(output.name)
@@ -881,10 +1027,14 @@ def main(argv):
                 report(landed, sys.stdout)
                 if snapshot:
                     snapshot.discard()
-                return update_self()
+                return 0
             gate = f"the fresh-install gate ({fresh_why})"
         landed = revert(plan, before, after, fh, say, snapshot, attempted)
     print(f"update: {gate} FAILED after {', '.join(changed) if changed else 'no change'} "
           f"-- see {log_path}", file=sys.stderr)
     report(landed, sys.stderr)
     return 1
+
+
+if __name__ == "__main__":
+    sys.exit(background(sys.argv[1]))
