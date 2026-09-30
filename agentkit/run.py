@@ -1761,6 +1761,7 @@ def dirty_paths(wt):
 GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each rewrites its log line
 HEAVY_CPUS = 0.7      # one heavy suite's measured cost: ~0.7 core and ~0.4 GB, its own
 HEAVY_MEM_MB = 410    # Postgres, port and temp dir, so twice the headroom fits twice the suites
+SUITE_BUSY = 75       # sysexits' EX_TEMPFAIL: a heavy suite's own host-wide lock is another copy's
 
 
 def main_checkout(repo):
@@ -2220,6 +2221,44 @@ def gate_turn(run_dir, log_path, log):
             current.release()
 
 
+def suite_env():
+    """A done-when command's environment, `AK_HEAVY_TURN=1` only while this thread holds a turn.
+
+    A suite that queues behind a host-wide lock of its own would hold the turn for as long as
+    another copy holds that lock; told it holds one, it says busy at once instead, exit
+    `SUITE_BUSY`, and `busy_turn` gives the turn back.  Never inherited: a loop started below
+    a suite holds none of that suite's turn.
+    """
+    env = run_child_env()
+    env.pop("AK_HEAVY_TURN", None)
+    if getattr(_GATE_HELD, "hold", None) is not None:
+        env["AK_HEAVY_TURN"] = "1"
+    return env
+
+
+def busy_turn(run_dir, log_path, log):
+    """A heavy suite said busy: give its turn back for a poll, then queue for one again.
+
+    Its own lock is another copy's, and every other suite on the host can use the turn
+    meanwhile.  The poll holds no turn and no waiting mark, so no waiter ranks behind it;
+    after it the suite queues as a new waiter, and its log reads as it did once it has a
+    turn.  Returns the seconds that queueing took, which no ceiling is charged with; the
+    poll is, so a suite that only ever says busy still ends.
+    """
+    hold, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
+    if hold is not None:
+        hold.release()
+    stop_check(run_dir)
+    time.sleep(GATE_POLL)
+    if hold is None:
+        return 0.0
+    kept = log_path.read_bytes()
+    began = time.monotonic()
+    _GATE_HELD.hold = _acquire_gate_turn(run_dir, log_path, log)
+    log_path.write_bytes(kept)
+    return time.monotonic() - began
+
+
 def drop_reserved_turn():
     """Let a reserved lap's verify turn go before slow work that cannot land.
 
@@ -2283,7 +2322,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
 
     When `heavy` the list runs on one host-wide heavy-suite turn (`gate_turn`),
     taken before its first command and let go however the list ends; the ceiling
-    counts from the turn, not the wait.  Otherwise it runs without one.
+    counts from the turn, not the wait.  Otherwise it runs without one.  A heavy
+    command that exits `SUITE_BUSY` never ran: it is no failure and no re-run, it gives
+    its turn back for a poll (`busy_turn`) and runs again.
     """
     limit = 3600 * CEILING_HOURS if limit is None else limit
     silence = 60 * SILENCE_MINUTES if silence is None else silence
@@ -2298,6 +2339,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
         for cmd in cmds:
             first = None        # the output of a first run that failed, while its re-run decides
             first_span = None   # its byte span in the gate log: the flaky diff reads whole runs
+            busy = False
             while True:
                 stop_check(run_dir)
                 left = deadline - time.monotonic()
@@ -2310,11 +2352,18 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     code, _, killed = worker.limited(
                         ["bash", "-c", cmd], left, silence=silence, activity=log_path,
                         on_timeout=reason.append, cwd=str(cwd), output=progress,
-                        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=run_child_env())
+                        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=suite_env())
                     end = progress.tell()
                 with log_path.open("rb") as progress:
                     progress.seek(max(offset, log_path.stat().st_size - OUT_CAP))
                     out = progress.read().decode("utf-8", errors="replace")
+                if heavy and code == SUITE_BUSY and not killed:
+                    if log is not None and not busy:
+                        log(f"done-when: busy: {cmd} exited {SUITE_BUSY}; it runs again "
+                            "each poll, its heavy suite turn given back meanwhile")
+                    busy = True
+                    deadline += busy_turn(run_dir, log_path, log)
+                    continue
                 if code == 0 or killed or first is not None:
                     break
                 first = out
@@ -5144,15 +5193,22 @@ def target_fails(lp, upstream, dw_log):
         lp.log(f"--- merge: `{cmd}` failed; probing it once on {upstream} ({tip[:12]})")
         probe_log = lp.run_dir / "target-probe.log"
         heavy_probe = cmd in (getattr(lp, "once", None) or [])
+        began = time.monotonic()
         with gate_turn(lp.run_dir, probe_log, lp.log) if heavy_probe else nullcontext():
-            with probe_log.open("ab") as progress:
-                progress.write(f"$ {cmd} (on {upstream} {tip})\n".encode())
-                progress.flush()
-                start = progress.tell()
-                code, _, killed = worker.limited(
-                    ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
-                    activity=probe_log, output=progress, stderr=subprocess.STDOUT,
-                    stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=run_child_env())
+            while True:
+                with probe_log.open("ab") as progress:
+                    progress.write(f"$ {cmd} (on {upstream} {tip})\n".encode())
+                    progress.flush()
+                    start = progress.tell()
+                    code, _, killed = worker.limited(
+                        ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
+                        activity=probe_log, output=progress, stderr=subprocess.STDOUT,
+                        stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=suite_env())
+                # busy is no answer: as in `run_done_when`, the turn goes back until it runs
+                if (not heavy_probe or code != SUITE_BUSY or killed
+                        or time.monotonic() - began > lp.done_when_limit):
+                    break
+                began += busy_turn(lp.run_dir, probe_log, lp.log)
         # as after a gate: a command that exited may still have left processes behind
         worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
         if not (killed or code != 0):
