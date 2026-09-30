@@ -826,29 +826,34 @@ python3() {
                 self.assertIn("gh api user", script)
                 login = re.search(r"(\w*LOGIN)=\$\(gh api user --jq \.login", script)
                 self.assertIsNotNone(login, f"{name} never reads its login off gh api user")
-                remote = "agentkit-smoke" if name == "smoke.sh" else "agentkit-e2e"
+                remote = "$SMOKE_TARGET" if name == "smoke.sh" else "agentkit-e2e"
                 self.assertIn('SMOKE_REPO="$%s/%s"' % (login.group(1), remote), script)
 
     def test_remote_name_is_stable(self):
-        for name, script, remote in (("smoke.sh", SMOKE, "agentkit-smoke"),
+        # The smoke suite's remote is the pool target it holds, agentkit-smoke first
+        # (tests/test_smoke_target_pool.py); the e2e gate's is one fixed repository.
+        for name, script, remote in (("smoke.sh", SMOKE, r"\$SMOKE_TARGET"),
                                      ("e2e-fresh.sh", FRESH, "agentkit-e2e")):
             with self.subTest(gate=name):
                 lines = [line for line in script.splitlines()
-                         if line.strip().startswith("SMOKE_REPO=") and "agentkit-" in line]
+                         if line.strip().startswith("SMOKE_REPO=") and "/" in line]
                 self.assertEqual(len(lines), 1, f"{name} has no single fixed remote: {lines}")
                 self.assertRegex(lines[0], r'SMOKE_REPO="\$\w+/' + remote + r'"$')
+        self.assertIn("\nSMOKE_TARGET=agentkit-smoke\n", SMOKE)
 
     def test_remote_created_only_when_missing(self):
-        for name, script in (("smoke.sh", SMOKE), ("e2e-fresh.sh", FRESH)):
-            with self.subTest(gate=name):
-                self.assertEqual(script.count('gh repo create "$SMOKE_REPO"'), 1)
-                self.assertRegex(script, r'gh repo view "\$SMOKE_REPO" >/dev/null 2>&1 \|\|\s*'
-                                         r'gh repo create "\$SMOKE_REPO" --private')
+        self.assertEqual(FRESH.count('gh repo create "$SMOKE_REPO"'), 1)
+        self.assertRegex(FRESH, r'gh repo view "\$SMOKE_REPO" >/dev/null 2>&1 \|\|\s*'
+                                r'gh repo create "\$SMOKE_REPO" --private')
+        # the smoke suite creates a target only where it chose it, on a listing that lacks it
+        # (tests/test_smoke_target_pool.py), and check 4's seed never creates one
+        hold = SMOKE[SMOKE.index("smoke_lock_hold() {"):SMOKE.index("smoke_lock_drop() {")]
+        self.assertEqual([SMOKE.count("gh repo create"), hold.count("gh repo create")], [1, 1])
 
     def test_remote_reset_to_seed_before_run(self):
         for name, script in (("smoke.sh", SMOKE), ("e2e-fresh.sh", FRESH)):
             with self.subTest(gate=name):
-                start = script.index('_LOGIN=$(gh api user')
+                start = script.index('SMOKE_REPO="$')   # the remote named, its target taken
                 setup = script[start:script.index('cat >"$WORK/task.md"', start)]
                 git = r'git(?: -C "\$CLONE")? '
                 self.assertRegex(setup, git + r'reset --hard "\$\(' + git
@@ -879,13 +884,12 @@ python3() {
             run("git", "-C", "legacy", "add", "README.md")
             run("git", "-C", "legacy", "commit", "-qm", "seed")
             run("git", "-C", "legacy", "push", "-q", "origin", "main", "HEAD:ak/leftover")
-            start = SMOKE.index('SMOKE_LOGIN=$(gh api user')
+            start = SMOKE.index('SMOKE_REPO="$')
             setup = SMOKE[start:SMOKE.index('cat >"$WORK/task.md"', start)]
             fake = '''set -uo pipefail
+SMOKE_LOGIN=caller SMOKE_TARGET=agentkit-smoke
 gh() {
   case "$*" in
-    'api user --jq .login') echo caller ;;
-    'repo view caller/agentkit-smoke') test -d "$WORK/origin.git" ;;
     "repo clone caller/agentkit-smoke "*) git clone -q "$WORK/origin.git" "$4" ;;
     *) echo "unexpected gh command: $*" >&2; return 97 ;;
   esac

@@ -1,9 +1,11 @@
-"""Suites run side by side: only check 4, which resets the shared remote, waits its turn.
+"""Suites run side by side: only check 4, which resets a smoke target, may wait for one.
 
 Offline and on fakes only.  Check 4's own block is lifted out of tests/smoke.sh together with
 the lock code above it and run between a stand-in check before it and one after, on a lock
 file of this test's own: a `gh` that serves a bare repository, an `ak` that writes a passing
-run and a delivery check that reads it.  Nothing reaches GitHub, a model or the host's lock.
+run and a delivery check that reads it.  The caller's config pins one heavy suite, so the pool
+is that one target (tests/test_smoke_target_pool.py grows it).  Nothing reaches GitHub, a
+model or the host's lock.
 The last class renders the names two suites give their runs and seats, and compares them.
 """
 
@@ -50,12 +52,12 @@ PY
 }
 skip_spent() { return 1; }
 gh() {
-  [ -e "$WORK/lock-at-seed" ] || lockstate >"$WORK/lock-at-seed"
   printf '%s\n' "$*" >>"$WORK/gh.log"
   case "$*" in
     'api user --jq .login') echo caller ;;
-    'repo view caller/agentkit-smoke') test -d "$ORIGIN" ;;
-    "repo clone caller/agentkit-smoke "*) git clone -q "$ORIGIN" "$4" ;;
+    'api --paginate user/repos?affiliation=owner&per_page=100 --jq .[].name') echo agentkit-smoke ;;
+    "repo clone caller/agentkit-smoke "*)
+      lockstate >"$WORK/lock-at-seed"; git clone -q "$ORIGIN" "$4" ;;
     *) echo "unexpected gh command: $*" >&2; return 97 ;;
   esac
 }
@@ -91,8 +93,10 @@ class CheckFourAlone(unittest.TestCase):
         self.work = self.root / "work"
         self.lock = self.root / "remote.lock"
         repo = self.root / "repo"
-        for path in (self.work, self.root / "home", repo / "tests"):
+        for path in (self.work, self.root / "home/.agentkit", repo / "tests"):
             path.mkdir(parents=True)
+        (self.root / "home/.agentkit/config.toml").write_text("max_gates = 1\n")
+        (repo / "agentkit").symlink_to(REPO / "agentkit")   # the bound is the loop's own count
         (repo / "tests/verify_delivery.py").write_text(DELIVERY)
         self.lock.touch(0o644)
         origin = self.root / "origin.git"
@@ -159,6 +163,9 @@ class CheckFourAlone(unittest.TestCase):
         proc.stdout.close()
         return "\n".join(seen)
 
+    def gh_calls(self):
+        return (self.work / "gh.log").read_text().splitlines()
+
     def noted(self, name):
         path = self.work / name
         return path.read_text().strip() if path.exists() else None
@@ -170,9 +177,11 @@ class CheckFourAlone(unittest.TestCase):
         self.read_until(lines, "PASS  3 a check before check 4", seen)
         self.read_until(lines, WAITING, seen)
         time.sleep(1.5)
-        # waiting, and it has not touched the remote: no login asked, nothing cloned or pushed
+        # waiting, and it has not touched the remote: it only asked what exists
         self.assertIsNone(proc.poll(), "\n".join(seen))
-        self.assertFalse((self.work / "gh.log").exists(), "\n".join(seen))
+        self.assertEqual(self.gh_calls(), ["api user --jq .login",
+                                           "api --paginate user/repos?affiliation=owner&per_page=100 --jq .[].name"],
+                         "\n".join(seen))
         fcntl.flock(fd, fcntl.LOCK_UN)
         out = self.rest(proc, lines, seen)
         self.assertEqual(proc.returncode, 0, out)
@@ -183,7 +192,6 @@ class CheckFourAlone(unittest.TestCase):
         self.assertEqual([self.noted(name) for name in
                           ("lock-at-seed", "lock-at-run", "lock-at-delivery", "lock-after")],
                          ["held", "held", "held", "free"], out)
-        self.assertIn("api user --jq .login", (self.work / "gh.log").read_text())
 
     def test_a_suite_whose_wait_expires_fails_4_skips_4b_to_4d_and_runs_the_rest(self):
         self.hold()
@@ -191,12 +199,13 @@ class CheckFourAlone(unittest.TestCase):
         out = self.rest(proc, lines, [])
         self.assertNotEqual(proc.returncode, 0, out)
         self.assertIn("PASS  3 a check before check 4", out)
-        self.assertRegex(out, r"FAIL  4 ak run: another suite still holds the remote after 1s")
+        self.assertIn("FAIL  4 ak run: every smoke target is still another suite's after 1s", out)
         for check in ("4b", "4c", "4d"):
             self.assertIn(f"SKIP  {check}: prerequisite run did not happen", out)
         self.assertIn("PASS  5 a check after check 4", out)
         self.assertIn("1 failed", out)
-        self.assertFalse((self.work / "gh.log").exists(), out)   # the remote was never touched
+        # the remote was never touched: it only asked what exists
+        self.assertFalse([c for c in self.gh_calls() if not c.startswith("api ")], out)
         self.assertIsNone(self.noted("lock-at-run"), out)
 
     def test_no_other_check_takes_the_lock(self):
