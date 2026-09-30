@@ -52,9 +52,9 @@ probe errored though the meter it read still stands, and `as of HH:MM` beside it
 that reading is older than half an hour, with the weekday when it is not from today.
 A probe the endpoint would not answer says nothing at all: its reading stands as it was,
 and past half an hour its age says the rest.
-The bar's filled cells say what is left: the accent, amber from 20% left, red from 5% (`fill`);
-the rows run red through violet by the hue of the company's own colour (`COLOURS`, or the
-provider's `colour` key), the near-greys last.  `—` is drawn
+The bar's filled cells are the company's own colour (`COLOURS`, or the provider's `colour`
+key) until little is left: amber from 20% left, red from 5% (`fill`); the rows run red
+through violet by the hue of that colour, the near-greys last.  `—` is drawn
 only when there is no shared week to draw -- no reading at all, or nothing but one model's
 private cap -- and the words after it say why.  Everything else `ak usage` knows -- week
 elapsed, the resets in hand, headroom, budget, outlook -- stays in `ak usage`.
@@ -147,15 +147,14 @@ LEAST = 3                # rows a page keeps; the usage block gives way before i
 # `watch.session_state` is what decides which of the three a seat is.
 STATE_ORDER = ("needs you", "working", "done")
 RUNS_RECENT = 6 * 3600   # how long a finished run stays recent for `ak run status`
-# Each company's own colour, for its name on the `c` screen and its usage row's place: a
+# Each company's own colour, for its name on the `c` screen and its usage bar and row's place: a
 # provider's `colour` key in config.toml wins, and a provider named in neither is the accent.
-COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#FCFCFC",
+COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3",
            "google": "#203B9B", "mimo": "#FB8046"}
 # Each company's own name, on its usage row and over its models on the `c` screen; any other
 # provider is its own name, capitalised.
 NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok",
          "google": "Gemini", "mimo": "MiMo"}
-GREY = 0.15              # saturation under which a colour is a grey, sorted after every hue
 TICK = 10.0              # the longest the main screen waits for a key before drawing itself again
 STIR = 1.0               # ... and how often it looks for a seat's word or the meters having moved
 LOOK_WAIT = 0.5          # ... and the longest a read waits for the looks the clock or a key began
@@ -1816,10 +1815,10 @@ def colour(cfg, name):
     return COLOURS.get(name, "accent")
 
 
-def fill(left):
-    """A usage bar's filled cells, from the whole percent it shows left: the calm accent, amber
-    from 20% down and red from 5% down, whoever's meter it is -- what is left is the news."""
-    return "FAIL" if left <= 5 else "amber" if left <= 20 else "accent"
+def fill(left, own):
+    """A usage bar's filled cells, from the whole percent it shows left: the company's `own`
+    colour, then amber from 20% down and red from 5% down, whoever's meter it is."""
+    return "FAIL" if left <= 5 else "amber" if left <= 20 else own
 
 
 def hue(kind):
@@ -1830,7 +1829,7 @@ def hue(kind):
     rgb = kind[1:] if kind.startswith("#") else terminal.STATE_STYLES["working"][2]
     shade, saturation, value = colorsys.rgb_to_hsv(*(int(rgb[i:i + 2], 16) / 255
                                                      for i in (0, 2, 4)))
-    return (True, -value) if saturation < GREY else (False, shade)
+    return (True, -value) if saturation < terminal.GREY else (False, shade)
 
 
 def usage_lines(cfg, width):
@@ -1921,7 +1920,8 @@ def usage_lines(cfg, width):
         parts = fitting(notes, width - base - floor - 3)   # what the bar gives way to
         taken = terminal.cells(" · ".join(parts)) + 3 if parts else 0
         affordable = min(bar_width, max(1, width - base - taken))
-        pending.append({"kind": "bar", "prefix": prefix, "colour": fill(shown_pct),
+        pending.append({"kind": "bar", "prefix": prefix,
+                        "colour": fill(shown_pct, colour(cfg, name)),
                         "left": left, "spent": spent,
                         "percent": percent, "base": base, "notes": notes,
                         "affordable": affordable})

@@ -73,8 +73,8 @@ model = "mimo/mimo-v2.6-pro"
 effort = "high"           # thinking on, as MiMo's own default is; `none` turns it off
 provider = "mimo"
 
-# colour = "#RRGGBB" on a provider fills its bar in the menu's usage rows, which run red through
-# violet by it.  anthropic, openai, meta, xai, google and mimo ship their companies' own; any
+# colour = "#RRGGBB" on a provider fills its bar in the menu's usage rows until 20% is left,
+# and the rows run red through violet by it.  anthropic, openai, meta, xai, google and mimo ship their companies' own; any
 # other provider without one is drawn in the accent.
 [providers.anthropic]
 mode = "subscription"

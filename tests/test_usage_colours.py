@@ -2,8 +2,8 @@
 
 No row, heading or note says how old a reading is, however old it is.  Each provider has its
 colour -- a `colour` key on the provider, else the shipped one, else the accent -- and the rows
-run red through violet by its hue, the near-greys last; a bar's filled cells say what is left
-(tests/test_palette.py), its empty cells stay dim, and a terminal without truecolor gets the
+run red through violet by its hue, the near-greys last; a bar's filled cells are that colour
+until little is left (tests/test_palette.py), its empty cells stay dim, and a terminal without truecolor gets the
 nearest colour it has.
 """
 
@@ -16,7 +16,7 @@ from test_v4n import Sandbox
 from agentkit import config, menu, terminal, usage
 
 WEEK = 604800
-SIX = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#FCFCFC",
+SIX = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3",
        "google": "#203B9B", "mimo": "#FB8046"}
 
 
@@ -65,30 +65,32 @@ class UsageColours(Sandbox):
         self.assertRegex(rendered, r"note: anthropic as of (\w+ )?\d\d:\d\d")
         self.assertNotRegex(rendered, r"\bold\b|last reading")
 
-    def test_the_six_companies_keep_their_colours_and_their_bars_say_what_is_left(self):
+    def test_the_six_companies_fill_their_bars_in_their_own_colours(self):
         for name, rgb in SIX.items():
             self.assertEqual(menu.colour(self.cfg, name), rgb)
         rows = self.rows(depth=24)
         dim = "\033[2;38;2;108;112;134m░░░░░░\033[0m"
-        for label in ("Claude", "MiMo", "Muse", "Gemini", "ChatGPT", "Grok"):
-            row = next(row for row in rows if terminal.plain(row).split()[0] == label)
-            # half a week left: six filled cells in the accent, whoever's, six empty ones dim
-            self.assertIn(f"\033[38;2;137;180;250m██████\033[0m{dim}", row)
+        for name, rgb in SIX.items():
+            row = next(row for row in rows if terminal.plain(row).split()[0] == menu.NAMES[name])
+            # half a week left: six filled cells in the company's own colour, six empty ones dim
+            own = ";".join(str(int(rgb[i:i + 2], 16)) for i in (1, 3, 5))
+            self.assertIn(f"\033[38;2;{own}m██████\033[0m{dim}", row)
+        grok = next(row for row in rows if terminal.plain(row).startswith("Grok"))
+        self.assertIn("\033[38;2;115;108;211m██████", grok)                # #736CD3
 
     def test_rows_run_red_through_violet_and_the_greys_come_last(self):
         labels = [terminal.plain(row).split()[0] for row in self.rows()]
-        self.assertEqual(labels, ["Claude", "MiMo", "Muse", "Gemini", "ChatGPT", "Grok"])
+        self.assertEqual(labels, ["Claude", "MiMo", "Muse", "Gemini", "Grok", "ChatGPT"])
         # the order is the colour's, not the config's: a provider's own `colour` moves it
-        self.cfg["providers"]["openai"]["colour"] = "#8000FF"          # violet, after blue
         self.cfg["providers"]["anthropic"]["colour"] = "#C8C8C0"       # a darker near-grey
         labels = [terminal.plain(row).split()[0] for row in self.rows()]
-        # the greys lightest first: #FFFFFF, #FCFCFC, then #C8C8C0
-        self.assertEqual(labels, ["MiMo", "Muse", "Gemini", "ChatGPT", "Grok", "Claude"])
+        # the greys lightest first: #FFFFFF, then #C8C8C0
+        self.assertEqual(labels, ["MiMo", "Muse", "Gemini", "Grok", "ChatGPT", "Claude"])
         # and a row with nothing to draw keeps its place all the same
         self.cache({"meta": {"meters": [self.meter(50)]}})
         rows = self.rows()
         self.assertEqual([terminal.plain(row).split()[0] for row in rows],
-                         ["MiMo", "Muse", "Gemini", "ChatGPT", "Grok", "Claude"])
+                         ["MiMo", "Muse", "Gemini", "Grok", "ChatGPT", "Claude"])
         self.assertEqual(terminal.plain(rows[0]).split(), ["MiMo", "—", "no", "reading", "yet"])
 
     def test_an_unknown_provider_is_drawn_in_the_accent(self):
@@ -111,17 +113,17 @@ class UsageColours(Sandbox):
     def test_a_terminal_without_truecolor_gets_the_nearest_it_has(self):
         rows = self.rows(depth=256)
         claude = next(row for row in rows if "Claude" in row)
-        self.assertIn("\033[38;5;111m██████\033[0m", claude)       # the accent -> 135,175,255
+        self.assertIn("\033[38;5;173m██████\033[0m", claude)       # #D97757 -> 215,135,95
         self.assertIn("\033[2;38;5;243m░░░░░░\033[0m", claude)     # the empty cells stay dim
         self.assertEqual(terminal.xterm_colour("D97757"), 173)      # a company's, on `c`
         self.assertEqual(terminal.xterm_colour("3E9EFB"), 75)
-        # eight colours: the accent's own tone; a company's, each channel on where it is nearer
-        # full than off
-        for row in self.rows(depth=8):
-            self.assertIn("\033[36m██████\033[0m\033[2m░░░░░░\033[0m", row)
+        # eight colours: a company's, each channel on where it is nearer full than off
+        rows = {terminal.plain(row).split()[0]: row for row in self.rows(depth=8)}
         for name, tone in (("anthropic", 31), ("mimo", 33), ("meta", 36), ("google", 34),
-                           ("openai", 37), ("xai", 37)):
+                           ("openai", 37), ("xai", 34)):
             self.assertEqual(terminal.basic_colour(SIX[name][1:]), str(tone))
+            self.assertIn(f"\033[{tone}m██████\033[0m\033[2m░░░░░░\033[0m",
+                          rows[menu.NAMES[name]])
         # and none at all is the plain bar
         self.assertNotIn("\033", "".join(self.rows(depth=0)))
         self.assertTrue(re.search(r"Claude\s+█{6}░{6}\s+50% left", self.rows()[0]))

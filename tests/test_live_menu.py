@@ -262,12 +262,12 @@ class LiveMenu(Sandbox):
         # weekly_all is what every Claude model draws on; weekly_scoped is Fable's own cap,
         # and its 41% is never the provider's number.
         self.assertRegex(self.rows()[1], r"Claude\s+[█░]+\s+52% left · resets Fri 14:00")
-        self.assertRegex(self.rows()[5], r"ChatGPT\s+[█░]+\s+69% left · resets Fri 14:00")
+        self.assertRegex(self.rows()[6], r"ChatGPT\s+[█░]+\s+69% left · resets Fri 14:00")
         # A meter that names no moment but says how long it has to run says that instead.
         self.cache(self.providers(openai={"meters": [{"name": "weekly", "used": 31,
                                                       "window_secs": WEEK,
                                                       "resets_in": 3 * 86400}]}))
-        self.assertIn("69% left · resets in 3d", self.rows()[5])
+        self.assertIn("69% left · resets in 3d", self.rows()[6])
         # `ak usage` keeps the columns that left the menu, and its `resets` is the row's:
         # the shared week's, even when the tightest meter it ranks on resets at another hour.
         meters = [self.meter("weekly_all", 48),

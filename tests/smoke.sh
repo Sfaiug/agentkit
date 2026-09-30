@@ -493,7 +493,7 @@ with tempfile.TemporaryDirectory(prefix=".usage-fresh-", dir=config.REPO) as tmp
     assert calls.count(("claude", "usage")) == 1, calls
     assert calls.count(("codex", "usage")) == 2, calls
     assert json.loads(cache.read_text())["fetched_at"] == now[0]
-    assert re.search(r"ChatGPT\s+[█░]+\s+56%", lines()[5]), lines()
+    assert re.search(r"ChatGPT\s+[█░]+\s+56%", "\n".join(lines())), lines()
     assert paid.call_count == 0 and probe_cache.read_bytes() == probe_before
     # Inside every cadence the tick asks no adapter anything: one cadence, host-wide, so
     # it re-assembles the snapshot off the reading already in it.
@@ -503,7 +503,7 @@ with tempfile.TemporaryDirectory(prefix=".usage-fresh-", dir=config.REPO) as tmp
     assert calls.count(("claude", "usage")) == 1, calls
     assert calls.count(("codex", "usage")) == 2, calls
     assert json.loads(cache.read_text())["fetched_at"] == now[0]
-    assert re.search(r"ChatGPT\s+[█░]+\s+56%", lines()[5]), lines()
+    assert re.search(r"ChatGPT\s+[█░]+\s+56%", "\n".join(lines())), lines()
     # Rendering never updates the snapshot, and never says how old it is.
     now[0] += 300
     assert lines()[0] == "  usage left", lines()
@@ -543,7 +543,7 @@ with tempfile.TemporaryDirectory(prefix=".usage-fresh-", dir=config.REPO) as tmp
     # A failed free read keeps the previous allowance, with the failure recorded beside it.
     meters["claude"] = []
     tick()
-    assert lines()[1].endswith("—  no shared week") and "57% left" in lines()[5], lines()
+    assert lines()[1].endswith("—  no shared week") and "57% left" in lines()[6], lines()
     assert "returned no meters" in json.loads(cache.read_text())["providers"]["anthropic"]["probe_error"]
     assert paid.call_count == 1
 
@@ -823,7 +823,8 @@ class SessionState(unittest.TestCase):
         def row(prov):
             (config.STATE / "usage.json").write_text(json.dumps(
                 {"fetched_at": self.now, "providers": {"openai": prov}}))
-            line = terminal.plain(menu.usage_lines(self.cfg, 100)[5])
+            line = next(line for line in map(terminal.plain, menu.usage_lines(self.cfg, 100))
+                        if line.split()[:1] == ["ChatGPT"])
             # the reset time is this machine's clock; the row's own words are what this reads
             return re.sub(r" · resets \w+ \d\d:\d\d", "", line).split()
         def dash(why):   # no reading is `—` and the words that say why (v5c)
