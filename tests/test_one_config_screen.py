@@ -54,6 +54,8 @@ usage.collect = lambda cfg, **kwargs: usage.Readings({})
 orch.switch_orchestrator = lambda cfg, name, model, providers=None: (
     config.update_session(name, orchestrator=model), "")[1]
 orch.fresh_command = lambda cfg, name, seat=None, account=None: (["harness"], None)
+config.catalog_now = lambda harness: [{"id": "claude-fable-5-1", "label": "Fable 5.1",
+                                       "efforts": ["high", "xhigh", "max"]}]
 orch.launch = lambda name, model, *args, **kwargs: print(f"<launched {name} {model}>", flush=True)
 menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>",
                                                         flush=True)
@@ -274,6 +276,33 @@ class OneConfigScreen(unittest.TestCase):
         self.assertNotIn("agentkit · ", shown)            # no screen opened, no word said
         self.assertNotIn("not a key", shown)
         self.assertEqual(menu.record(), before)
+        menu.leave()
+
+    def test_an_open_menu_keeps_and_offers_a_creation_made_elsewhere(self):
+        menu = Menu(self)
+        menu.screen()
+        menu.press(b"k", lambda lines: any("esc leave" in line for line in lines)
+                   and "ACME" in highlighted(lines))
+        menu.press(b"c", title("config"))
+        # another process creates a seat while `c` is open, and writes what it was given
+        menu.config.write_text(menu.config.read_text().replace(
+            'orchestrator = "opus"\nworkers = ["opus", "astra"]',
+            'orchestrator = "astra"\nworkers = ["fable"]\nreviewers = ["opus"]'))
+        elsewhere = {"orchestrator": "astra", "workers": ["fable"], "reviewers": ["opus"]}
+        self.assertEqual(menu.defaults(), elsewhere)
+        menu.press(ENTER, lambda lines: "‹ max ›" in model(lines, "fable"))   # an effort saved
+        self.assertEqual(tomllib.loads(menu.config.read_text())["models"]["fable"]["effort"],
+                         "max")
+        self.assertEqual(menu.defaults(), elsewhere)      # kept, whatever `c` read before
+        menu.press(ESC)
+        mark = len(menu.text())
+        os.write(menu.master, b"n")
+        menu.saw("Name: ", after=mark)
+        os.write(menu.master, ENTER)
+        lines = menu.picker(after=mark)
+        rows = {line.lstrip("› ").split()[0]: marks(line) for line in lines if marks(line)}
+        self.assertEqual((rows["Astra"], rows["Fable"], rows["Opus"]), ("●□□", "○■□", "○□■"))
+        menu.press(ESC)
         menu.leave()
 
     def test_n_starts_from_what_the_last_session_was_created_with(self):
