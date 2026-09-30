@@ -3671,23 +3671,27 @@ def followups_in(text):
     """The reviewer's `## Follow-ups` items, in order, markers stripped.
 
     Read like `finding_count` reads `## Findings`: the section ends at the next heading of
-    the same level or higher, never at a deeper one. Indented evidence stays with its item.
+    the same level or higher, never at a deeper one. Evidence indented past its item's
+    marker stays with it, however wide the marker. An item saying there are none is no
+    follow-up: it would start a fix run for nothing.
     """
     heading = FOLLOWUPS.search(text or "")
     if not heading:
         return []
     section = text[heading.end():]
     end = re.search(rf"^#{{1,{len(heading.group(1))}}}[ \t]", section, re.M)
-    items, indent = [], None
+    items, marker, indent = [], None, None
     for line in (section[:end.start()] if end else section).splitlines():
-        if indent is not None and (not line.strip() or line[:indent].isspace()):
-            items[-1] += "\n" + line[indent:]
+        depth = len(line) - len(line.lstrip())
+        if marker is not None and (not line.strip() or depth > marker):
+            items[-1] += "\n" + line[min(depth, indent):]
             continue
         item = FOLLOWUP_ITEM.match(line)
-        indent = item.start(1) if item else None
+        marker, indent = (depth, item.start(1)) if item else (None, None)
         if item:
             items.append(item.group(1))
-    return [item.strip() for item in items]
+    return [item for item in map(str.strip, items)
+            if not re.fullmatch(r"(?:none|n/a)\.?", item, re.I)]
 
 
 def record_flakes(state, text):
