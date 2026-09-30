@@ -16,7 +16,7 @@ from agentkit import config, run  # noqa: E402
 
 class HandoverToNobody(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".handover-to-nobody-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-handover-to-nobody-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         stack = ExitStack()
