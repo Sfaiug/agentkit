@@ -56,7 +56,7 @@ def main(root):
     skip = smoke_runs((tests / "smoke.sh").read_text())
     todo = sorted(path for path in tests.glob("test_*.py") if path.stem not in skip)
     env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
-    jobs = run.derived_heavy_limit(cpus=FILE_CPUS, mem_mb=FILE_MEM_MB)
+    jobs = run.derived_heavy_limit(job_cpus=FILE_CPUS, job_mem_mb=FILE_MEM_MB)
     began, failed = time.monotonic(), 0
     with ThreadPoolExecutor(jobs) as pool:
         running = {pool.submit(run_file, root, path, env): path for path in todo}
