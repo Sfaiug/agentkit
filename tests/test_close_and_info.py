@@ -399,7 +399,8 @@ class CloseAndInfo(unittest.TestCase):
         asked = menu.frame(lambda lines: len(lines[0]) == 40, keys="esc back", after=mark)
         top, answers = menu.choices(after=mark)
         self.assertGreater(top, before)
-        self.assertEqual(asked[top - 6:top - 1], ["  Stop", f"  {long}", "  and everything it runs?",
+        self.assertEqual(asked[top - 6:top - 1], ["  Stop", f"  {long}",
+                                                  "  and everything it runs?",
                                                   "  No runs stop with it, and its",
                                                   "  conversation cannot be reopened."])
         self.assertEqual(answers, ["› ✓ Keep", "  ✗ Stop"])

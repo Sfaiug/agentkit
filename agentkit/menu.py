@@ -2363,7 +2363,8 @@ COMPANIES = {"anthropic": "Anthropic / Claude Code", "openai": "OpenAI / Codex",
 # What `− remove` asks, and what it means; then the same about one subscription of a provider.
 REMOVE_PROVIDER_ASK = ("Remove {} and its models?",
                        "Its models leave the config with it; its login stays on this machine.")
-REMOVE_SUBSCRIPTION_ASK = ("Remove {}?", "Nothing new starts on it; its login stays on this machine.")
+REMOVE_SUBSCRIPTION_ASK = ("Remove {}?",
+                           "Nothing new starts on it; its login stays on this machine.")
 # Short headings leave room for both roles and the effort on a phone.
 CONFIG_HEADS = (*orch.ROLE_HEADS, "effort")
 # The key line for the cell the highlight is on, and the same without UTF-8.
