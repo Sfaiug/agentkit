@@ -145,6 +145,8 @@ signatures = ["Session expired. Run `grok login` to re-authenticate.",
 command = ["/compact", "\r"]
 signal = "hook"
 context = "grok-updates"
+idle = 30
+stash = "none"
 
 # The models this harness runs, for `adapters/grokbuild.sh models`: `grok models` names them and
 # no effort, so their efforts come from here -- the list grok 1.0.40 keeps in

@@ -30,7 +30,7 @@ from agentkit import config, orch
 
 WRAPPER = REPO / "tools/idle-compact.py"
 HOOK = REPO / "hooks/seat-state.sh"
-IDLE = 2.0            # the flags every seat here runs under: the real 2400 s / 40000 tokens
+IDLE = 2.0            # the flags every seat here runs under: the real 55 or 30 min / 40000 tokens
 POLL = 0.5            # rule, scaled down to something a test can wait out
 FLOOR = 1
 DEADLINE = 5.0        # how long after a turn's end a seat has to have compacted itself
@@ -39,7 +39,12 @@ DEADLINE = 5.0        # how long after a turn's end a seat has to have compacted
 # -- a state-file stamp naming the pid the wrapper expects, or just the prompt its manifest's
 # at-the-prompt rule matches -- and records every byte that reaches it, with the time.
 FAKE = '''#!/usr/bin/env python3
-import json, os, select, signal, sys, time
+import json, os, select, signal, sys, termios, time
+
+# Ctrl+S is a key to a real TUI, which runs its terminal raw, and not flow control
+attrs = termios.tcgetattr(0)
+attrs[0] &= ~termios.IXON
+termios.tcsetattr(0, termios.TCSANOW, attrs)
 
 record = open(os.environ["FAKE_RECORD"], "a", buffering=1)
 prompt = os.environ.get("FAKE_PROMPT", "> ")
@@ -266,23 +271,53 @@ class Seat(unittest.TestCase):
 
     # --- (e) the owner is in the seat ---------------------------------------
 
-    def test_v5e_e_owner_input_blocks_the_compaction_until_the_next_turn_ends(self):
-        def types(test, proc, master):
-            os.write(master, b"x")
+    def draft(self, seat):
+        """That seat's record reads a draft, as the tick writes it on a composer holding one."""
+        state = self.root / ".agentkit/state"
+        state.mkdir(parents=True, exist_ok=True)
+        (state / f"seat-{seat}.json").write_text(json.dumps(
+            {"session": seat, "state": "draft", "evidence": "half a thought"}))
 
-        def ends_a_turn(test, proc, master):
-            os.write(master, b"TURN\r")
+    def test_v5e_e_keys_a_click_a_wheel_turn_and_pointer_motion_never_hold_it_back(self):
+        command = manifest_command("claude")
+        for what, data in (("keys", b"abc"), ("click", b"\x1b[<0;10;5M\x1b[<0;10;5m"),
+                           ("wheel", b"\x1b[<64;10;5M"), ("pointer motion", b"\x1b[<35;12;6M")):
+            with self.subTest(what):
+                sent = []
+
+                def owner(test, proc, master, data=data):
+                    os.write(master, data)
+                    sent.append(time.time())
+
+                _, events = self.run_seat(script=[(0.75, owner)], FAKE_TOKENS=40000,
+                                          FAKE_STOP_ON="/compact", FAKE_LIFE=15)
+                turns = [event for event in events if event["event"] == "turn_end"]
+                # one turn, ended before the owner's input reached the harness, and compacted
+                self.assertEqual(len(turns), 1, events)
+                self.assertGreater(sent[0], turns[0]["at"], events)
+                self.assertTrue(self.typed(events).startswith(data.decode()), events)
+                self.assert_compacted(events, command)
+
+    def test_v5e_e_a_claude_like_seat_sets_its_draft_aside_before_it_compacts(self):
+        def drafts(test, proc, master):
+            os.write(master, b"half a thought")
 
         command = manifest_command("claude")
-        _, events = self.run_seat(script=[(0.5, types), (5.0, ends_a_turn)],
-                                  FAKE_TOKENS=40000, FAKE_STOP_ON="/compact", FAKE_LIFE=15)
-        turns = [event for event in events if event["event"] == "turn_end"]
-        self.assertEqual(len(turns), 2, events)
-        # nothing was typed against the first turn, which the owner's `x` came after
-        typed_before = [event for event in events
-                        if event["event"] == "typed" and event["at"] < turns[1]["at"]]
-        self.assertNotIn("/compact", "".join(event["data"] for event in typed_before))
+        stash = config.manifest("claude")["compact"]["stash"]
+        self.draft("seat")
+        _, events = self.run_seat(script=[(0.75, drafts)], FAKE_TOKENS=40000,
+                                  FAKE_STOP_ON="/compact", FAKE_LIFE=15, AGENTKIT_SESSION="seat")
         self.assert_compacted(events, command)
+        typed = self.typed(events)
+        self.assertEqual(typed.index(stash), len("half a thought"), events)
+        self.assertLess(typed.index(stash), typed.index("/compact"), events)
+
+    def test_v5e_e_a_harness_with_no_stash_key_never_types_over_a_draft(self):
+        self.assertEqual(config.manifest("codex")["compact"]["stash"], "none")
+        self.draft("seat")
+        _, events = self.run_seat("--harness", "codex", FAKE_TOKENS=40000, FAKE_LIFE=6,
+                                  AGENTKIT_SESSION="seat")
+        self.assertEqual(self.typed(events), "", events)
 
     # --- (f) the half of it that lives in the hook --------------------------
 
@@ -350,10 +385,13 @@ class Seat(unittest.TestCase):
 
         prompt = "muse-fake-1.0 · high · /tmp/seat · YOLO"
         # the seat's tty echoes the character, so the composer is no longer the last thing
-        # painted; a second later the harness redraws it around what is being typed
+        # painted; a second later the harness redraws it around what is being typed, and the
+        # seat's record reads the draft Muse has no key to set aside
+        self.draft("seat")
         _, events = self.run_seat("--harness", "muse", script=[(1.5, types)],
                                   FAKE_SIGNAL="screen", FAKE_PROMPT=prompt, FAKE_REDRAW=2.5,
-                                  FAKE_MUSE_SESSION=1, FAKE_TOKENS=40000, FAKE_LIFE=9)
+                                  FAKE_MUSE_SESSION=1, FAKE_TOKENS=40000, FAKE_LIFE=9,
+                                  AGENTKIT_SESSION="seat")
         self.assertEqual(len([e for e in events if e["event"] == "turn_end"]), 1, events)
         self.assertTrue(any(e["event"] == "redraw" for e in events), events)
         self.assertNotIn("/compact", self.typed(events))
@@ -387,6 +425,16 @@ class Seat(unittest.TestCase):
         # ... and nothing a run spawns carries the seat's state file to write over
         with patch.dict(os.environ, {"IDLE_COMPACT_STATE": "/tmp/seat.json"}):
             self.assertNotIn("IDLE_COMPACT_STATE", config.child_env())
+
+    # --- (l) the minutes are each harness's own ------------------------------
+
+    def test_v5e_l_claude_compacts_inside_its_cache_hour_and_the_others_at_half_an_hour(self):
+        for path in sorted((REPO / "adapters").glob("*.toml")):
+            table = config.manifest(path.stem).get("compact") or {}
+            if table.get("command", "none") == "none":
+                continue
+            with self.subTest(harness=path.stem):
+                self.assertEqual(table.get("idle"), 55 if path.stem == "claude" else 30)
 
 
 class Listing(unittest.TestCase):
