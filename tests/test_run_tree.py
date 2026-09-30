@@ -86,9 +86,10 @@ class RunTree(unittest.TestCase):
         except (subprocess.TimeoutExpired, OSError):
             pass
 
-    @staticmethod
-    def sleepers():
-        """Every `sleep 100` on the host: the argv every sleeper here is started with."""
+    def sleepers(self):
+        """This case's own `sleep 100`s, found by the name its gate gives them, so a
+        `sleep 100` another suite, a seat or a user runs on the host is never counted."""
+        want = f"{self.run_id}\x00100\x00".encode()
         found = []
         for entry in os.listdir("/proc"):
             if not entry.isdigit():
@@ -97,7 +98,7 @@ class RunTree(unittest.TestCase):
                 raw = Path(f"/proc/{entry}/cmdline").read_bytes()
             except OSError:
                 continue
-            if raw == b"sleep\x00100\x00":
+            if raw == want:
                 found.append(int(entry))
         return found
 
@@ -208,11 +209,11 @@ class RunTree(unittest.TestCase):
     def test_done_when_command_children_die_with_the_round(self):
         # A gate command that backgrounds a detached sleeper and exits 0: the
         # sleeper proves it started by writing kid.ready, and dies with the gate.
-        # The `sleep 100` scan on both sides proves nothing leaked unmarked either.
-        self.assertEqual(self.sleepers(), [])
+        # The sleeper is named after the case, so the scan for that name proves
+        # nothing leaked unmarked either.
         self.enter_run_context()
         ok, text = run.run_done_when(
-            ["setsid bash -c 'echo started >kid.ready; exec sleep 100' "
+            [f"setsid bash -c 'echo started >kid.ready; exec -a {self.run_id} sleep 100' "
              "</dev/null >/dev/null 2>&1 &",
              "for i in $(seq 1 100); do test -f kid.ready && break; sleep 0.1; done; "
              "test -f kid.ready"],
