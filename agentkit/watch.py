@@ -2100,7 +2100,9 @@ def _pane_sent(session, harness, pane, text):
     if state == "asking":
         # A dialog owns the screen: the line landed, and no Enter goes into it blind.
         return True
-    return not _holds_text(pane, text)
+    # ... and read whole as well: a long line wraps up past the bottom rows `_holds_text` reads
+    return not (_holds_text(pane, text)
+                or re.sub(r"\s+", "", text) in (composer_draft(harness, pane) or ""))
 
 
 def _wait_sent(session, harness, text):
@@ -2143,10 +2145,11 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     """Type one line with a gap before Enter, and confirm it left the composer's line.
 
     Text, a KEY_GAP pause, then Enter; within SENT_WAIT the typed text has to be gone
-    from the bottom region. A working seat can still hold unsent text. A dialog counts as
-    landed, never as a reason for another Enter.  Still held: one more Enter and one
-    more wait.  Still held after that, log and return False, leaving the composer
-    alone.  Where the seat paints no composer at all, a delivered send counts as sent.
+    from the bottom region and the whole composer. A working seat can still hold unsent
+    text. A dialog counts as landed, never as a reason for another Enter.  Still held:
+    one more Enter and one more wait.  Still held after that, log and return False,
+    leaving the composer alone.  Where the seat paints no composer at all, a delivered
+    send counts as sent.
     `guard` covers text, gap and first Enter, with `veto` read once before typing, so
     another sender cannot join the line and a later veto cannot strand it. Confirmation
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
@@ -2162,8 +2165,9 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             harness, _ = seat_model(config.load(), name)
         except (config.Error, OSError):
             harness = None
-    confirm = False
-    if harness is not None:
+    # a line left pending was read in its composer, whatever chrome is drawn around it
+    confirm = pending
+    if harness is not None and not confirm:
         try:
             pattern = screen(harness).get("composer")
         except config.Error:
