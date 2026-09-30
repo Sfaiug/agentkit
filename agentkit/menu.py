@@ -3039,8 +3039,8 @@ def config_add_provider(cfg, keyboard):
     `auth` still passes, put back with no login: into its provider's `accounts` under its old
     name, or, its provider gone too, with that provider as it ships, a subscription as its one
     login.  <who> is who that `auth` says it is `; logged in as`, else the name the login's
-    usage row had; one several share is followed by that row, then by a number (`Use Muse II
-    (2)`), so every such login is listed, each as itself.
+    usage row had; one several share is followed by that row, then by a number (` (2)`), so
+    every such login is listed, each as itself.
 
     A new provider's harness, the shipped default's for it, is installed when its program is
     nowhere to be found, then logged in: each its adapter's own verb, run as install.sh runs
