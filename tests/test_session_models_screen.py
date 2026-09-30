@@ -110,6 +110,15 @@ class SessionModels(Sandbox):
                                                {}), "session: read only")
         self.assertEqual(selected, before)
 
+    def test_a_flip_after_its_model_was_removed_is_one_line_and_no_save(self):
+        selected = self.selected("fix-api")
+        config.remove_model(self.cfg, "astra")
+        with patch.object(config, "update_session") as saved:
+            self.assertIn("unknown model 'astra'",
+                          menu.session_mark(self.cfg, "fix-api", selected, "fable", 1, {}))
+            saved.assert_not_called()
+        self.assertEqual(selected["workers"], ["opus", "astra"])
+
     def test_runs_launched_next_read_the_new_groups_and_going_runs_keep_theirs(self):
         selected = self.selected("fix-api")
         menu.session_mark(self.cfg, "fix-api", selected, "fable", 1, {})
