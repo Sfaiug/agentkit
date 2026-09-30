@@ -427,7 +427,10 @@ if not review:
 
     def test_real_smoke_layout_collects_stale_sockets_but_preserves_live_ones(self):
         smoke = self.ephemeral("smoke-with-sockets")
-        def bind(directory, name="agentkit-test"):
+        # A relative bind name protects every same-named socket on the host, so another
+        # process running this test must not share ours.
+        own = f"-{os.getpid()}"
+        def bind(directory, name="agentkit-test" + own):
             directory.mkdir(parents=True, exist_ok=True)
             sock = socket.socket(socket.AF_UNIX)
             previous = Path.cwd()
@@ -442,7 +445,7 @@ if not review:
             bind(smoke / directory / f"tmux-{os.getuid()}").close()
         self.old(smoke)
         active = self.ephemeral("smoke-live-socket")
-        live = bind(active / "tmux", "live-viewer")
+        live = bind(active / "tmux", "live-viewer" + own)
         self.addCleanup(live.close)
         self.old(active)
         before = self.snapshot(config.HOME)
