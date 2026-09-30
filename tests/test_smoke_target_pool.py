@@ -41,7 +41,8 @@ gh() {
 ak() {
   if [ "$1 $2" = "run clean" ]; then rm -rf -- "$WORK/wt"; return 0; fi
   # renamed into place, so the test never reads a target half written
-  basename "$(git remote get-url origin)" .git >"$WORK/target.part" && mv "$WORK/target.part" "$WORK/target"
+  basename "$(git remote get-url origin)" .git >"$WORK/target.part"
+  mv "$WORK/target.part" "$WORK/target"
   until [ -e "$WORK/release" ]; do sleep .1; done
   local d="$HOME/.agentkit/runs/fake-run"
   mkdir -p -- "$d" "$WORK/wt"
