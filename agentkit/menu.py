@@ -92,7 +92,7 @@ to reopen`; an ended run is its orchestrator's business, so no row ever says `pr
 
 The screen is budgeted by height as well as width: a list of seats longer than the
 screen is drawn a page at a time -- on a terminal the page the highlight is on, from a pipe the
-one `m` and `k` turn to -- and a row keeps the number it has in the whole list on whichever page
+one `j` and `k` turn to -- and a row keeps the number it has in the whole list on whichever page
 it is drawn, so what a number opens never depends on the page that is up.
 
 `ak attach --overlay` is the same menu inside a seat, where `ak orch` binds it to `Ctrl-b m` as
@@ -142,7 +142,7 @@ INFO_STATES = (("needs you", "it asked you something, or it cannot go on without
                ("done", "it said so, and the row carries its summary"))
 OVERLAY_KEYS = "n start a session   r rename this session   x stop this session   esc leave"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done
-PAGE_KEYS = "m more   k previous"   # added to the key line when the list runs to more pages
+PAGE_KEYS = "j more   k previous"   # added to the key line when the list runs to more pages
 LEAST = 3                # rows a page keeps; the usage block gives way before it holds fewer
 # The whole vocabulary, worst first: a rollup of seats says the one that wants him.
 # `watch.session_state` is what decides which of the three a seat is.
@@ -1298,7 +1298,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # every number stays reachable. Sized from the rows on screen, leaving one
     # line for the prompt and one to spare, exactly as the tests check.
     key_text = keys
-    # With the keyboard the highlight turns the pages, so `m` and `k` are not offered then.
+    # With the keyboard the highlight turns the pages, so `j` and `k` are not offered then.
     page_keys = "" if owned else "   " + PAGE_KEYS
     # A question under a row is budgeted with the key line, so it never pushes a row off.
     k_single = len(terminal.key_line(key_text, width)) + len(asked)
@@ -1669,6 +1669,7 @@ def new_session(cfg, dry_run, keyboard=None):
     terminal.frame("new session")
     if not cfg:
         return None               # no configuration means no models to offer
+    cfg = config.load()           # the last creation's [defaults], whichever process made it
     name = orch.ask_name(orch.taken_names(), auto=True)
     if name is orch.BACK:
         return None
@@ -2407,13 +2408,14 @@ def config_models(cfg):
     return config.offered(cfg)
 
 
-def config_body(cfg, version, at=None, column=0, selected=None):
+def config_body(cfg, version, at=None, column=0, selected=None, providers=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its provider's name: label, harness (dim), the three role
     marks of `selected` -- a session's record, whose missing reviewers are its workers -- and
     its effort between the arrows that step it; with no session, only the effort, still
-    column 3.  Under them `+ add a model`, `Providers`
+    column 3.  A model `providers` read as spent is dim, its reset note beside it or, on a
+    phone, under it.  Under them `+ add a model`, `Providers`
     (providers_lines), `Discord` and `Version` with their values. A row is
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
     `Discord` is still a model; `at` is the highlighted one and `column` the cell on it the keys
@@ -2445,9 +2447,11 @@ def config_body(cfg, version, at=None, column=0, selected=None):
                       marks[2] if name in selected["workers"] else marks[3],
                       marks[2] if name in selected.get("reviewers", selected["workers"])
                       else marks[3]) if selected else ()) + (efforts[name],)
+            note = orch.spent_note(cfg, name, providers) if providers else ""
             shown = terminal.cut(name, label)
-            line = "  " + (terminal.styled(shown, "reverse") if at == ("model", name)
-                           and column < 0 else shown) + " " * (label - terminal.cells(shown))
+            kind = "reverse" if at == ("model", name) and column < 0 else "dim" if note else None
+            line = "  " + (terminal.styled(shown, kind) if kind else shown) + " " * (
+                label - terminal.cells(shown))
             cells, first = [(3, 2 + terminal.cells(shown), -1)], left + 1
             if harness:
                 line += "  " + terminal.styled(terminal.pad(str(models[name].get("harness", "")),
@@ -2455,7 +2459,7 @@ def config_body(cfg, version, at=None, column=0, selected=None):
             for number, text, width in zip(range(4 - len(texts), 4), texts, widths):
                 shown, lead = (f" {text} ", (width - 3) // 2) if number < 3 else (text, 0)
                 kind = ("reverse" if at == ("model", name) and number == column else
-                        "dim" if text in (marks[1], marks[3]) else None)
+                        "dim" if note or text in (marks[1], marks[3]) else None)
                 if kind == "reverse" and number < 3 and not colour:
                     shown = f"[{text}]"        # with no colour to reverse, brackets say where
                 line += ("  " + " " * lead + (terminal.styled(shown, kind) if kind else shown)
@@ -2464,9 +2468,16 @@ def config_body(cfg, version, at=None, column=0, selected=None):
                 cells.append((first + 2, first + 1 + (width if number < 3
                                                       else terminal.cells(text)), number))
                 first += 2 + width
-            places[len(lines)] = (("model", name), cells)
-            line = line.rstrip()
-            lines.append(terminal.highlight(line) if at == ("model", name) else line)
+            parts = [line.rstrip()]
+            if note and terminal.cells(parts[0]) + 2 + terminal.cells(note) <= room:
+                parts[0] += "  " + terminal.styled(note, "dim")
+            elif note:
+                parts += [terminal.styled("    " + part, "dim")
+                          for part in terminal.wrap(note, room - 4)]
+            for number, part in enumerate(parts):
+                places[len(lines)] = (("model", name), cells if number == 0 else [])
+                lines.append(terminal.highlight(part, number == 0) if at == ("model", name)
+                             else part)
     lines.append("")
     wide = max(terminal.cells(row) for row in CONFIG_ROWS)
     values = ("", "", discord_value(), version or "?")
@@ -2740,7 +2751,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
 
 
 @terminal.clicks_its_own
-def config_matrix(cfg, keyboard, version, session=None, selected=None):
+def config_matrix(cfg, keyboard, version, session=None, selected=None, providers=None):
     """The `c` screen read with the keys until Esc; the config as it left it.
 
     `selected` is `session`'s record, and its role marks are that seat's models: Enter, space or
@@ -2761,10 +2772,6 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None):
     """
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
     title = f"config · {session}" if selected else "config"
-    try:
-        providers = waited(lambda: usage.collect(cfg), title) if selected else {}
-    except Back:              # what a flip is refused on, and Esc while it was read
-        return cfg
     here, column, top, note = None, columns[1], 0, ""
     while True:
         rows = [*(("model", name) for name in config_models(cfg)),
@@ -2778,7 +2785,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None):
                  if here[0] == "row" else "effort" if column == 3 else "label" if column < 0
                  else "mark")
         keys = CONFIG_KEYS[where][0 if terminal.utf8() else 1] + "   esc back"
-        body, places = config_body(cfg, version, here, column, selected)
+        body, places = config_body(cfg, version, here, column, selected, providers)
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top, note, keys,
                                             marks=3)
         if act is None:
@@ -3191,13 +3198,19 @@ def show_config(dry_run=False, keyboard=None, session=None):
             keyboard.give()
         pause(f"config: {exc}")
         return None
+    try:                      # what a flip is refused on, and spent; Esc while it is read
+        providers = waited(lambda: usage.collect(cfg), f"config · {session}",
+                           keyboard=keyboard) if selected else {}
+    except Back:
+        return cfg
     # one git call a visit, not a draw; nothing about a harness and nothing over the network
     version = update.agentkit_version()
     if dry_run or keyboard is None or not keyboard.take():
         terminal.frame(f"config · {session}" if selected else "config",
-                       config_body(cfg, version, selected=selected)[0], "esc back")
+                       config_body(cfg, version, selected=selected, providers=providers)[0],
+                       "esc back")
         return cfg
-    return config_matrix(cfg, keyboard, version, session, selected)
+    return config_matrix(cfg, keyboard, version, session, selected, providers)
 
 
 def session_mark(cfg, name, selected, model, column, providers):
@@ -3507,7 +3520,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     the numbers.  A number and `n` both hand this client to a session, and the popup has
     to come down for it to be seen, so those two return; `r` and `x` rename and stop this
     session and leave it up, `x` acting on this session wherever the highlight is.  `c` and
-    `i` are not offered here.  Read a line at a time, `m` and `k` turn the pages of a list
+    `i` are not offered here.  Read a line at a time, `j` and `k` turn the pages of a list
     longer than the screen, and a number is answered from whichever page is up.
 
     The main screen is live: the read waits at most TICK seconds, and a wait that ends with
@@ -3664,8 +3677,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                                              seat if isinstance(seat, str) else None) or cfg
             elif key == "i" and not overlay:
                 show_info(dry_run)        # read with the keys, on the screen the menu has
-            elif key in ("m", "k") and pages > 1:
-                page = (page + (1 if key == "m" else -1)) % pages
+            elif key in ("j", "k") and pages > 1:
+                page = (page + (1 if key == "j" else -1)) % pages
             elif key:
                 pause(f"not a key: {key!r}", keys)
 
