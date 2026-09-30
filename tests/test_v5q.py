@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, orch, run
+from agentkit import config, notify, orch, retention, run, worker
 
 ADAPTER = '''import json, os, pathlib, sys, time
 root = pathlib.Path(os.environ["V5Q_FIXTURE"])
@@ -73,6 +73,9 @@ class JobFixture(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "PATH": f"{self.bin}:{os.environ['PATH']}",
             "AGENTKIT_SESSION": "seat-v5q", "AGENTKIT_RUN_DIR": "", "AK_RUN_ROLE": "",
+            # a caller that is itself a run would make every launch here a refused worker's worker
+            "AK_RUN_DEPTH": "0", "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            config.ACCOUNT_ENV: "",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "TMUX": "", "NO_COLOR": "1",
             "PYTHONDONTWRITEBYTECODE": "1", config.ADAPTER_DIR_ENV: str(adapters),
@@ -97,6 +100,12 @@ sys.exit(1)
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
+        # the host's disk, processes and sockets are not the fixture's: every run asks
+        # about the disk and sweeps for its marker, and gc reads the process inventory
+        self.stack.enter_context(patch.object(run, "disk_pressure", return_value=None))
+        self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
+        self.stack.enter_context(patch.object(retention, "process_dirs", return_value=[]))
+        self.stack.enter_context(patch.object(retention, "unix_sockets", return_value=set()))
         config.ensure_dirs()
         system_tmp = self.root / "system-tmp"
         system_tmp.mkdir(exist_ok=True)
@@ -263,9 +272,10 @@ sys.exit(1)
         thread = threading.Thread(target=launch, daemon=True)
         thread.start()
         try:
-            self.wait_for(lambda: self.job_dirs())
-            # the picker keeps failing, but nothing fails for it: both tasks wait queued
-            time.sleep(0.4)
+            # the picker has failed for both, and nothing fails for it: both tasks wait queued
+            self.wait_for(lambda: self.job_dirs() and
+                          all(t.get("budget_wait") for t in
+                              self.read_job(self.job_dirs()[0])["tasks"]))
             job = self.read_job(self.job_dirs()[0])
             self.assertEqual([t["state"] for t in job["tasks"]], ["queued", "queued"])
             self.assertEqual(run.run_dirs(), [])
