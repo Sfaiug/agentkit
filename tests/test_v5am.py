@@ -463,6 +463,11 @@ usage._store, pathlib.Path.replace = publish, rename
         self.assertEqual(len(list(self.root.glob("cache-raced-*"))), 0)
         self.assertEqual(sum(s["state"] == "running" for _, s in self.states()), 4)
         self.finish_all()
+        # With every writer gone, each one's change landed whole: the snapshot reads, holds
+        # every provider, and no writer's temporary file is left beside it.
+        cache = json.loads((config.STATE / "usage.json").read_text())
+        self.assertEqual(set(cache["providers"]), set(self.cfg["providers"]))
+        self.assertEqual(list(config.STATE.glob("usage.tmp*")), [])
 
     def test_v5am_usage_retry_is_specific_and_bounded(self):
         cache = config.STATE / "usage.json"
