@@ -32,6 +32,7 @@ gh() {
   printf '%s\n' "$*" >>"$WORK/gh.log"
   case "$*" in
     'api user --jq .login') echo caller ;;
+    'api --paginate user/repos?affiliation=owner&per_page=100 --jq .[].name') ls "$ACCOUNT" | sed 's/\.git$//' ;;
     'repo view caller/'*) test -d "$ACCOUNT/${3#caller/}.git" ;;
     'repo create caller/'*' --private') git init -q --bare -b main "$ACCOUNT/${3#caller/}.git" ;;
     'repo clone caller/'*) git clone -q "$ACCOUNT/${3#caller/}.git" "$4" ;;
@@ -68,8 +69,11 @@ class TargetPool(unittest.TestCase):
             path.mkdir(parents=True)
         (repo / "tests/verify_delivery.py").write_text("")
         (repo / "agentkit").symlink_to(REPO / "agentkit")
+        # a waiting suite lists the pool every second here, not every minute
+        lock_code = LOCK_CODE.replace("\nSMOKE_LOCK_LIST=60 ", "\nSMOKE_LOCK_LIST=1 ")
+        self.assertNotEqual(lock_code, LOCK_CODE)
         self.script = self.root / "suite.sh"
-        self.script.write_text("\n".join(["set -uo pipefail", LOCK_CODE,
+        self.script.write_text("\n".join(["set -uo pipefail", lock_code,
                                           f". {REPO}/tests/acceptance.sh", FAKES, CHECK4,
                                           "finish"]))
         self.env = {**os.environ, "REPO": str(repo), "ACCOUNT": str(self.account),
@@ -144,7 +148,7 @@ class TargetPool(unittest.TestCase):
     def changed(self, work):
         """The gh calls that did more than ask what exists."""
         calls = (work / "gh.log").read_text().splitlines()
-        return [c for c in calls if not c.startswith(("api user", "repo view"))]
+        return [c for c in calls if not c.startswith(("api ", "repo view"))]
 
     def seeded(self, name):
         return subprocess.run(["git", "--git-dir", str(self.account / f"{name}.git"), "show",
@@ -192,14 +196,31 @@ class TargetPool(unittest.TestCase):
         self.finish(proc, work)
         self.assertNotIn("agentkit-smoke-3", "\n".join(self.changed(work)))
 
-    def test_an_existing_target_is_taken_above_the_bound_without_its_lock_file(self):
-        # /tmp forgot the second target's lock file, and the bound fell to one since it was made
-        self.bound(1)
-        self.existing("agentkit-smoke", "agentkit-smoke-2")
+    def test_every_existing_target_is_taken_before_one_is_made(self):
+        # a gap in the numbers, /tmp forgot the third target's lock file, and the bound fell
+        # since it was made: the pool is what the account lists, and it never grows past two
+        self.existing("agentkit-smoke", "agentkit-smoke-3")
         self.hold(1)
-        proc, work = self.suite("second")
+        for count in (1, 2):
+            with self.subTest(bound=count):
+                self.bound(count)
+                proc, work = self.suite(f"bound-{count}")
+                self.assertEqual(self.target(work), "agentkit-smoke-3")
+                self.assertNotIn(WAITING, self.finish(proc, work))
+                self.assertFalse([c for c in self.changed(work) if c.startswith("repo create")])
+
+    def test_a_waiting_suite_takes_a_target_another_suite_added(self):
+        # another suite, admitted at a larger bound, makes the second target while this one waits
+        self.bound(1)
+        self.existing("agentkit-smoke")
+        self.hold(1)
+        maker = self.hold(2)
+        proc, work = self.suite("waiting")
+        self.until(lambda: WAITING in self.out(work), "waited", work)
+        self.existing("agentkit-smoke-2")
+        fcntl.flock(maker, fcntl.LOCK_UN)
         self.assertEqual(self.target(work), "agentkit-smoke-2")
-        self.assertNotIn(WAITING, self.finish(proc, work))
+        self.finish(proc, work)
         self.assertFalse([c for c in self.changed(work) if c.startswith("repo create")])
 
     def test_a_killed_holder_frees_its_target(self):
