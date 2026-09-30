@@ -67,9 +67,10 @@ minute -- the cadence is the host's and not this screen's -- and never blocks a 
 draw; Muse's adapter keeps its own ten-minute cache, because its probe is a billed request.
 Those ten seconds hold whatever stdin is, a script's half-written line included, and a key typed
 during a draw is read by the next wait.  At rest one thing moves: on a terminal of 256 colours or
-more each working seat's `●` breathes, all in one phase, on `motion`'s clock (`moving`).  The
-sub-screens are not live: they are read once, like any other question -- but a project's feature
-switches, which draw again within a second of their `list` landing.
+more each working seat's `●` breathes, all in one phase, on `motion`'s clock (`moving`); and
+news seen while the menu is up moves once on it -- a `!` pulses, a `✓` settles, a bar glides --
+then is still.  The sub-screens are not live: they are read once, like any other question --
+but a project's feature switches, which draw again within a second of their `list` landing.
 
 Seven keys: the numbers, `n`, `x`, `c` (models, providers, effort, discord, version),
 `m` (the highlighted seat's models), `i`, `q`.
@@ -3464,8 +3465,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     seat's capture holds up a read or a draw.  The first draw's meters are the cache's, and
     the probe that follows it runs in a thread and asks for one more draw when it lands.
     Nothing here waits on an adapter, and a key typed during a draw is read by the next wait.
-    Between draws the working seats' dots breathe, a frame whenever the clock says one is due
-    and no key is waiting (`moving`), so a key is read within a frame of being pressed.
+    Between draws the working seats' dots breathe, and what changed since the draw before moves
+    once, a frame whenever the clock says one is due and no key is waiting (`moving`), so a key
+    is read within a frame of being pressed.  A key that opens another screen, a notice and a
+    resize have the clock forget what it saw, so the menu after them replays nothing.
 
     On a terminal the menu has the keyboard (`terminal.Keyboard`) and there are no lines: a
     key acts the moment it is pressed.  One seat row is highlighted; ↑/↓, k/j and the wheel
