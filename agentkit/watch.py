@@ -4501,8 +4501,8 @@ def resume_waiting(dry_run=False, log=print, now=None):
                     waiting_on = state.get("waiting_on") or {}
                     if not waiting_on.get("sha"):
                         # no baseline to move from: this pass takes one, and the next
-                        # merge after it is what resumes the run.
-                        waiting_on = {"ref": ref, "sha": sha}
+                        # merge after it, or the end of the repair it names, resumes the run.
+                        waiting_on = {**waiting_on, "ref": ref, "sha": sha}
                         state["waiting_on"] = waiting_on
                         run_mod.save_state(run_dir, state)
                         log(f"{run_dir.name} waits on {ref} at {sha[:12]}")
