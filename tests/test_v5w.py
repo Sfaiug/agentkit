@@ -108,9 +108,12 @@ class LongCommandsRunInTheForeground(unittest.TestCase):
         # The loop itself may run inside a Claude worker shell that exports the Bash timeout
         # variables this change sets.  Keep them out of the fixture, so what the fake harness
         # records is only what worker.call put there for that harness.  AK_MAX_RUNS=0 goes the
-        # same way: it opens the slot gate whose one poll these cases count.
+        # same way: it opens the slot gate whose one poll these cases count.  So do a caller's
+        # AK_MIN_FREE_MB and AK_MAX_LOAD: judged against the fixed readings below, they can
+        # keep that gate shut for good.
         self.stack.enter_context(patch.dict(os.environ))
-        for var in ("BASH_DEFAULT_TIMEOUT_MS", "BASH_MAX_TIMEOUT_MS", "AK_MAX_RUNS"):
+        for var in ("BASH_DEFAULT_TIMEOUT_MS", "BASH_MAX_TIMEOUT_MS", "AK_MAX_RUNS",
+                    "AK_MIN_FREE_MB", "AK_MAX_LOAD"):
             os.environ.pop(var, None)
         # Nothing outside the fixture is reachable: no tmux server, harness, GitHub or Discord.
         self.script(self.bin / "tmux", '''import sys
