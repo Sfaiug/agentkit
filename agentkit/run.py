@@ -31,7 +31,7 @@ from urllib.parse import quote, urlsplit
 
 from . import (command_help, config, history, notify, orch, proc_snapshot, retention, update,
                usage, watch, worker)
-from .harness import FAULT, SPENT, load as harness_plugin, says
+from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 DIFF_CAP = 300 * 1024
 OUT_CAP = 20 * 1024
@@ -1468,7 +1468,8 @@ def ran_dry(code, said, harness, refusal=False):
     """The harness's own word for a spent provider window in this exit, or None.
 
     Its words and not ours: they come from `[stall] quotas` in adapters/<harness>.toml, the
-    same list the babysitter reads off a seat's screen, each a whole word (`Harness.failure`).
+    same list the babysitter reads off a seat's screen, each a whole word (`Harness.failure`);
+    a rate limit among them parks a worker's account like any other.
     A non-zero exit is as required here as it is for `transient`, because a worker that exited
     0 said what it meant to say.  The scoped terminal refusal path may pass ``refusal`` for an
     exit-zero turn that never answered.
@@ -1476,7 +1477,7 @@ def ran_dry(code, said, harness, refusal=False):
     if code == 0 and not refusal:
         return None
     outcome, word = harness_plugin(harness).failure(said)
-    return word if outcome == SPENT else None
+    return word if outcome in (SPENT, LIMITED) else None
 
 
 def try_again_at(said):
@@ -1716,7 +1717,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         said = harness_said(target, text, entry["harness"], failures_only=code == 0)
         outcome, mark = harness_plugin(entry["harness"]).failure(said)
         sig = killed_word(code) if not killed else None
-        if outcome == SPENT or (outcome and not sig):
+        if outcome in (SPENT, LIMITED) or (outcome and not sig):
             # The attempt is refused and its children are not the next one's: whatever
             # the dead turn left behind dies before the refill retry, the handover,
             # or the transient wait.

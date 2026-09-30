@@ -41,6 +41,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import browser, command_help, config, notify, orch, update, usage, worker
+from .harness import LIMITED, SPENT, says
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
 # what a seat reopened after its process died mid-turn is told, in a run's mid-turn words
@@ -1151,19 +1152,31 @@ def auth_expired_on(harness, tail):
     return None
 
 
+def failed_on(harness, lines):
+    """What a seat's error line says, read as a worker turn's failure is: (outcome, word).
+
+    The last line is the error line.  One that names no failure of its own -- `Goal stalled`,
+    `Error ID: ...` -- is a trailer, read with the line it closes; nothing above is read, so a
+    quota word in the model's answer is never the provider's.
+    """
+    plugin = orch.harness_plugin(harness)
+    found = plugin.failure(lines[-1]) if lines else (None, None)
+    return plugin.failure("\n".join(lines[-2:])) if found[0] is None and len(lines) > 1 else found
+
+
 def stalled_on(harness, tail, session, log):
     """The stall signature that pane is showing, or None: it is working, or it is not ours."""
     lines = content_lines(harness, tail)
-    if not lines or not any(mark.lower() in lines[-1].lower() for mark in stalls(harness)):
+    if not lines or not any(says(lines[-1], mark) for mark in stalls(harness)):
         mark = next((mark for line in reversed(lines) for mark in stalls(harness)
-                     if mark.lower() in line.lower()), None)
+                     if says(line, mark)), None)
         if mark:
             log(f"{session}: ignored {mark!r}; newer line {lines[-1]!r} is not known chrome")
         return None
-    low = "\n".join(lines).lower()
     # Quota and goal text can coexist. The quota policy must run before goal resume.
-    quota = next((mark for mark in quotas(harness) if mark.lower() in low), None)
-    return quota or next(mark for mark in stalls(harness) if mark.lower() in lines[-1].lower())
+    outcome, quota = failed_on(harness, lines)
+    return (quota if outcome in (SPENT, LIMITED)
+            else next(mark for mark in stalls(harness) if says(lines[-1], mark)))
 
 
 def stuck_on(harness, tail):
@@ -2049,7 +2062,7 @@ def observe(entry, tail, harness, now):
     if entry.get("pane") != tail:
         entry.update(pane=tail, changed_at=now, since=now)
     line = next((line for line in reversed(tail.splitlines())
-                 if any(mark.lower() in line.lower() for mark in stalls(harness))), "")
+                 if any(says(line, mark) for mark in stalls(harness))), "")
     if entry.get("stall_line") != line:
         entry.update(stall_line=line, stall_at=now, since=now)
         entry.pop("reset_nudged_at", None)
@@ -2831,7 +2844,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
 
     line = output_line(content_lines(harness, pane_tail(pane)))
     mark = stalled_on(harness, line, name, log) if line else None
-    refusal = mark in quotas(harness) if mark else False
+    outcome = failed_on(harness, [line])[0] if mark else None
+    refusal = outcome in (SPENT, LIMITED)
     now = time.time()
     observed = live.get("usage_refusal") or {}
     until = run.try_again_at(line) if refusal else None
@@ -2913,8 +2927,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                     seat_write(name, usage_refusal={"line": line, "at": now, "handled": True})
                 return True
             # A bare 429/rate limit is not proof a subscription is empty. Retry the
-            # stable error locally; only a quota refusal or deadline parks an account.
-            if until is None and not re.search(r"usage|quota|exhaust|payment", mark, re.I):
+            # stable error locally; only a spent window or deadline parks an account.
+            if until is None and outcome == LIMITED:
                 if observed.get("told"):
                     return True
                 if now - observed["at"] >= GIVE_UP:
@@ -3216,7 +3230,7 @@ def health(cfg, state, dry_run, log):
             entry["signature"] = mark
             stood = now - entry["since"]
             quiet = now - max(entry["stall_at"], entry["changed_at"])
-            quota = mark in quotas(harness)
+            quota = failed_on(harness, content_lines(harness, tail))[0] in (SPENT, LIMITED)
             if not quota:
                 for key in ("resets_at", "status", "reset_nudged_at"):
                     entry.pop(key, None)

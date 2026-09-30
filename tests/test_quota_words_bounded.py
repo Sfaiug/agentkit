@@ -241,6 +241,11 @@ class SeatWordsBounded(unittest.TestCase):
         self.assertEqual(self.typed, ["continue"])
         self.reset.assert_not_called()
         self.window.assert_not_called()
+        # nor is a usage probe's 401 read as a rate limit by one, while HTTP's own 429 still is
+        self.assertIsNone(usage.probe_refused(
+            "unknown: HTTP 401 from api.example/usage after 1.429 s; run acme login"))
+        self.assertEqual(usage.probe_refused("unknown: HTTP 429 from api.example/usage"),
+                         "rate limited")
 
     def test_a_quota_word_in_the_answer_above_an_unrelated_error_parks_nothing(self):
         answer = ("Taught the retry to read usage limit reached and 429 Too Many Requests "

@@ -31,7 +31,7 @@ import time
 from pathlib import Path
 
 from . import command_help, config, terminal, usage_probe, worker
-from .harness import load as harness_plugin
+from .harness import limited, load as harness_plugin
 
 CACHE_TTL = 300
 # A usage endpoint has a rate limit of its own, and everything here wants the same answer: the
@@ -121,10 +121,11 @@ def probe_refused(error):
     out with, so neither may be read as a logout, and neither is a reason to throw away the
     reading it could not replace.  Nothing prints these words: a row says the reading's
     age instead, and this answer only decides whether the probe asks `auth` and whether the
-    last reading stands.
+    last reading stands.  A rate limit is read in the harness package's words, whole
+    (`harness.limited`): a `429` inside a longer number is none.
     """
     text = str(error or "")
-    if re.search(r"\b429\b|rate limit", text, re.I):
+    if limited(text):
         return "rate limited"
     if re.search(r"\bHTTP 5[0-9][0-9]\b|timed out", text, re.I):
         return "unavailable"
