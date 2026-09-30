@@ -84,13 +84,15 @@ class OpenGates(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             links = {str(path.relative_to(home)): path for path in home.rglob('*')
                      if path.is_symlink()}
+            # The host's record of harness swaps is shared live: the sandbox runs its installs.
+            swaps = '.agentkit/state/harness-swaps.json'
+            self.assertEqual(links.pop(swaps).resolve(), caller / swaps)
             # The host's probe cadence is shared live: each probe file links the host's own file,
             # one the host may have yet to write, in a state directory that is there for it.
-            # So is its record of harness swaps: the sandbox runs the host's harness installs.
             probes = {name for name in links if name.startswith('.agentkit/state/')}
-            self.assertIn('.agentkit/state/harness-swaps.json', probes)
+            self.assertTrue(probes)
             for name in probes:
-                self.assertRegex(name, r'-probe\.(lock|retry)$|/harness-swaps\.json$')
+                self.assertRegex(name, r'-probe\.(lock|retry)$')
                 self.assertEqual(links.pop(name).resolve(), caller / name)
                 self.assertFalse((caller / name).is_dir(), f'{name} links a directory')
             self.assertEqual(set(links), set(credentials))
