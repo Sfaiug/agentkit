@@ -111,16 +111,16 @@ def gliding(before, after, began, colour=None, bright=False, sweep=False):
             began + GLIDE + (SWEEP if sweep else LIT if new else 0))
 
 
-def fetching(size, began):
-    """The rule under a screen's header, `size` cells, while its content is fetched from
-    `began`: an animation for each of its cells, left to right.
+def fetching(clock, began):
+    """The rule under a screen's header, its second row, animated on `clock` while the screen's
+    content is fetched from `began`, a cell each; `clock`.
 
     For WAIT seconds it is the rule as drawn -- a wait shorter than that shows nothing -- then a
     bright segment SEGMENT cells long glides along it, in from the left and out at the right in
     LAP seconds, and again; the screen draws the rule still once what it waits on has landed.
     """
     lit = terminal.styled("━", terminal.faded("working", -BRIGHTER))
-    still = terminal.rule_line(1)
+    still, size = terminal.rule_line(1), terminal.layout_width()
 
     def cell(n):
         def at(now):
@@ -128,7 +128,9 @@ def fetching(size, began):
             head = eased(t % LAP / LAP) * (size + SEGMENT)
             return lit if t >= 0 and head - SEGMENT <= n < head else still
         return at
-    return [cell(n) for n in range(size)]
+    for n in range(size):
+        clock.start([(2, 1 + n)], cell(n))
+    return clock
 
 
 class Clock:

@@ -1,12 +1,13 @@
 """The rule under the header is ak's one progress indicator: a start update fills it under
 `agentkit · updating`, one step at a time, with no bar of its own; a screen whose content is
 still being fetched after 150 ms has a bright segment glide along it until it lands, and one
-fetched sooner shows nothing; Esc during a glide goes back within 100 ms.
+fetched sooner shows nothing -- a list asked again under rows already drawn, and a `set`, as
+much as a first list; Esc during a glide goes back within 100 ms.
 
 The update runs in-process against a temporary HOME, every command it would run answered by a
 fake `subprocess.run`, so no checkout moves.  The glide runs a project's feature switches screen
-in a child process on a pty of its own, the project's `list` a fake that sleeps as long as the
-test says; nothing reaches a real project, seat or the owner's ~/.agentkit, and the only process
+in a child process on a pty of its own, the project's `list` and `set` a fake that sleeps as
+long as the test says; nothing reaches a real project, seat or the owner's ~/.agentkit, and the only process
 signalled is the test's own child.
 """
 
@@ -31,7 +32,8 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, menu, update  # noqa: E402
 
 # The child: the real feature switches screen and key reader over a `list` that takes RULE_LIST
-# seconds; it says when the screen has gone back.
+# seconds, asked again every RULE_TICK, and a `set` that takes RULE_SET; it says when the screen
+# has gone back.
 CHILD = r"""
 import os, sys, time
 from pathlib import Path
@@ -39,10 +41,11 @@ sys.path.insert(0, os.environ["RULE_REPO"])
 from agentkit import menu, terminal
 
 def features_run(checkout, *words):
-    time.sleep(float(os.environ["RULE_LIST"]))
-    return [{"id": "dark", "name": "Dark mode", "you": False, "everyone": False}], ""
+    time.sleep(float(os.environ["RULE_" + words[0].upper()]))
+    row = {"id": "dark", "name": "Dark mode", "you": words[0] == "set", "everyone": False}
+    return ([row] if words[0] == "list" else row), ""
 
-menu.features_run = features_run
+menu.features_run, menu.TICK = features_run, float(os.environ["RULE_TICK"])
 keyboard = terminal.Keyboard()
 keyboard.take()
 menu.show_features(Path.home() / "code" / "ACME")
@@ -58,7 +61,7 @@ GLIDE = re.compile(r"\x1b\[2;\d+H\x1b\[[0-9;]*m━")   # a lit cell written on t
 class Screen:
     """The child on an 80x24 pty: what it wrote, and when each part of it arrived."""
 
-    def __init__(self, case, seconds):
+    def __init__(self, case, seconds, tick=10, flip=0):
         home = tempfile.TemporaryDirectory(prefix="rule-progress-")
         case.addCleanup(home.cleanup)
         self.master, self.slave = os.openpty()
@@ -66,7 +69,8 @@ class Screen:
         env = {key: value for key, value in os.environ.items() if key not in INHERITED}
         env.update({"HOME": home.name, "TERM": "xterm-256color", "COLORTERM": "truecolor",
                     "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "AK_RUN_DEPTH": "0",
-                    "AK_MAX_RUNS": "0", "RULE_REPO": str(REPO), "RULE_LIST": str(seconds)})
+                    "AK_MAX_RUNS": "0", "RULE_REPO": str(REPO), "RULE_LIST": str(seconds),
+                    "RULE_TICK": str(tick), "RULE_SET": str(flip)})
         self.case, self.output, self.arrived = case, b"", []
         self.lock = threading.Lock()
         self.proc = subprocess.Popen([sys.executable, "-c", CHILD], stdin=self.slave,
@@ -103,12 +107,13 @@ class Screen:
         with self.lock:
             return self.output.decode("utf-8", "replace")
 
-    def when(self, pattern, timeout=15):
-        """When what `pattern` matches first reached the pty, waiting for it."""
+    def when(self, pattern, after=0, timeout=15):
+        """When what `pattern` matches first reached the pty past `after` characters, waiting
+        for it."""
         deadline = time.monotonic() + timeout
         while True:
             with self.lock:
-                found = re.search(pattern, self.output.decode("utf-8", "replace"))
+                found = re.compile(pattern).search(self.output.decode("utf-8", "replace"), after)
                 if found:
                     end = len(self.output.decode("utf-8", "replace")[:found.end()].encode())
                     return next(at for at, size in self.arrived if size >= end)
@@ -176,6 +181,25 @@ class RuleProgress(unittest.TestCase):
         self.assertLess(screen.when("<back>") - pressed, 0.1)
         self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
         self.assertNotIn("Dark mode", screen.text())         # the list had not landed
+
+    def test_a_list_asked_again_under_its_rows_glides_too(self):
+        screen = Screen(self, 0.5, tick=1)
+        screen.when("Dark mode")
+        drawn = screen.text().index("Dark mode")
+        screen.when(GLIDE.pattern, after=drawn)              # the next list, a second on
+        os.write(screen.master, b"\x1b")
+        screen.when("<back>")
+
+    def test_a_slow_set_glides_and_esc_goes_back_from_it(self):
+        screen = Screen(self, 0, flip=2)
+        screen.when("Dark mode")
+        after, entered = len(screen.text()), time.monotonic()
+        os.write(screen.master, b"\r")
+        self.assertGreater(screen.when(GLIDE.pattern, after) - entered, 0.1)
+        pressed = time.monotonic()
+        os.write(screen.master, b"\x1b")
+        self.assertLess(screen.when("<back>") - pressed, 0.1)
+        self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
 
 
 if __name__ == "__main__":
