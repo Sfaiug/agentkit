@@ -261,8 +261,8 @@ class ProviderScreen(unittest.TestCase):
         made = []
 
         class Kept(menu.Live):      # the probe it would start, never started: stdin is no tty
-            def __init__(self, cfg, every=None):
-                super().__init__(cfg, every)
+            def __init__(self, cfg, every=None, **kw):
+                super().__init__(cfg, every, **kw)
                 made.append(self)
         # its looks and its watch go on in threads, and read this HOME's runs and state
         with tempfile.TemporaryDirectory(prefix="provider-home-") as home, \
