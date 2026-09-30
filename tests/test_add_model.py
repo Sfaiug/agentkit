@@ -1,6 +1,7 @@
 """`add a model` in `c` is three lists in one frame -- harness, then a model that harness's catalog
 offers, then an effort that model takes -- so nothing typed, and nothing the catalog does not
-offer, is ever saved.
+offer, is ever saved.  A model whose efforts the catalog does not say is offered at its harness's
+own (config.efforts).
 
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of
 its own, through tests/test_config_matrix.py's Screen, in a temporary HOME whose config.toml is
@@ -15,7 +16,7 @@ import re
 import unittest
 
 from test_config_matrix import DOWN, ENTER, ESC, UP, Screen, highlighted
-from agentkit import terminal
+from agentkit import config, terminal
 
 CATALOG = {"claude": [("claude-opus-5-5", "Opus 5.5", ["low", "medium", "high", "xhigh", "max"]),
                       ("claude-opus-5", "Opus 5", ["low", "medium", "high", "xhigh", "max"]),
@@ -114,10 +115,11 @@ class AddModel(unittest.TestCase):
         self.assertEqual(lines[-1], KEYS["choose"])
         lines = step(screen, ENTER, "model")
         self.assertEqual(lines[2:4], ["  harness  claude · Claude", "  model"])
-        # the model whose efforts the catalog does not say is no choice; the one run is marked
+        # every model the catalog lists is a choice; the one run is marked
         self.assertEqual(listed(lines), [["Opus 5.5", "claude-opus-5-5", "✓ opus"],
                                          ["Opus 5", "claude-opus-5"],
-                                         ["Sonnet 5", "claude-sonnet-5"]])
+                                         ["Sonnet 5", "claude-sonnet-5"],
+                                         ["Mystery", "claude-mystery"]])
         lines = step(screen, DOWN + DOWN + ENTER, "effort")
         self.assertEqual(lines[2:5], ["  harness  claude · Claude",
                                       "  model    Sonnet 5 · claude-sonnet-5", "  effort"])
@@ -131,6 +133,21 @@ class AddModel(unittest.TestCase):
                           "provider": "anthropic"})
         # offered both ways at once, and in neither default until it is chosen there
         self.assertEqual(saved["defaults"], {"orchestrator": "opus", "workers": ["opus", "astra"]})
+        screen.leave()
+
+    def test_a_model_without_catalog_efforts_takes_its_harness_s_levels(self):
+        screen = Screen(self, child=CHILD)
+        open_add(screen)
+        step(screen, ENTER, "model")
+        lines = step(screen, DOWN * 3 + ENTER, "effort")
+        self.assertIn("  model    Mystery · claude-mystery", lines)
+        levels = config.efforts("claude")          # the manifest's `[effort] levels`, no listing
+        self.assertEqual(listed(lines), [[level] for level in levels])
+        lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == "agentkit · config")
+        self.assertEqual(highlighted(lines).split()[:3], ["›", "mystery", "claude"])
+        self.assertEqual(screen.saved()["models"]["mystery"],
+                         {"harness": "claude", "model": "claude-mystery", "effort": levels[1],
+                          "provider": "anthropic"})
         screen.leave()
 
     def test_esc_steps_back_one_level(self):
@@ -201,8 +218,8 @@ class AddModel(unittest.TestCase):
         self.assertEqual(listed(lines), [["claude", "Claude"], ["antigravity", "Gemini"],
                                          ["opencode", "Acme"]])
         # a catalog with nothing to offer says so, and Esc goes back
-        lines = screen.press(DOWN * 2 + ENTER, lambda lines: "the opencode catalog names no "
-                                                             "model with its efforts" in lines[-3])
+        lines = screen.press(DOWN * 2 + ENTER,
+                             lambda lines: "the opencode catalog names no model" in lines[-3])
         self.assertEqual(lines[2:4], ["  harness  opencode · Acme", "  model"])
         self.assertEqual(listed(lines), [])
         lines = step(screen, ESC, "harness")

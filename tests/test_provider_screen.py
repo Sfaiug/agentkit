@@ -28,7 +28,7 @@ from agentkit import config, menu, terminal
 
 PROGRAMS = {"claude": "claude", "codex": "codex", "muse": "muse", "grokbuild": "grok",
             "opencode": "opencode", "antigravity": "agy"}
-# Grok's first entry says no efforts, so the model added is the one after it.
+# Grok's first entry says no efforts, so it is added at Grok's own (config.efforts).
 CATALOG = {"grokbuild": [("grok-mystery", "Mystery", []),
                          ("grok-5", "Grok 5", ["low", "medium", "high"])],
            "codex": [("gpt-7", "GPT-7", ["low", "high", "xhigh"])],
@@ -151,9 +151,9 @@ class ProviderScreen(unittest.TestCase):
         self.assertLess(login, said.index(TAKE, login))
         saved = screen.saved()
         self.assertEqual(saved["providers"]["xai"], SHIPPED["providers"]["xai"])
-        # the first model its catalog lists efforts for, at the shipped `xhigh`'s nearest
-        self.assertEqual(saved["models"]["grok"], {"harness": "grokbuild", "model": "grok-5",
-                                                   "effort": "high", "provider": "xai"})
+        # the first model its catalog lists, at the shipped `xhigh`, which Grok's own take
+        self.assertEqual(saved["models"]["grok"], {"harness": "grokbuild", "model": "grok-mystery",
+                                                   "effort": "xhigh", "provider": "xai"})
         self.assertEqual(saved["defaults"], {"orchestrator": "opus", "workers": ["opus"]})
         self.assertIn("Grok", lines)
         self.assertEqual(providers(lines), ["Providers      Claude  Grok  + add  − remove"])
