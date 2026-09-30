@@ -127,6 +127,7 @@ INTERPRETERS = (
 REPORTABLE = ("pass", "fail", "error", "blocked", "exhausted", "interrupted")
 _VERSIONS = {}             # installed harness builds, asked for once and only to name a refusal
 _MANAGER = {}              # whether this host has a user systemd manager, asked once
+_OOM_POLICY = {}           # whether its scopes take OOMPolicy=continue, asked once too
 _SLICE = {}                # ... and what its slice says about itself, for the same reason
 _PROCESSES = {}            # the last reading of the process table, when, and whether it is held
 
@@ -335,6 +336,31 @@ def user_manager():
             except (OSError, ValueError):
                 pass
     return _MANAGER["answer"]
+
+
+def scope_oom_policy():
+    """Does a scope here take `OOMPolicy=continue`?  A user manager of systemd 253 or later.
+
+    An older `systemd-run` refuses the whole scope over it, and the run would start plainly,
+    outside the slice and its cap; there a scope keeps the default, which stops it whole.  The
+    version is the running manager's own answer (`257.13-1~deb13u1` is 257): no file names it
+    reliably, since a build tags its library as it likes.  Asked once per process, and only of
+    a manager `user_manager` found.  No answer counts as older.
+    """
+    if "answer" not in _OOM_POLICY:
+        version = 0
+        if user_manager():
+            try:
+                said = subprocess.run(
+                    ["systemctl", "--user", "show", "-p", "Version", "--value"],
+                    capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                    env=bus_env(), timeout=SLICE_WAIT).stdout
+            except (OSError, subprocess.SubprocessError):
+                said = ""
+            found = re.match(r"\s*(\d+)", said)
+            version = int(found.group(1)) if found else 0
+        _OOM_POLICY["answer"] = version >= 253
+    return _OOM_POLICY["answer"]
 
 
 def can_scope():
