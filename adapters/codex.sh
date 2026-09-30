@@ -10,7 +10,8 @@
 #                     install      -> npm i -g @openai/codex, unless codex is already here
 #                     login        -> the device-code login, unless already logged in
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
-#                                  `seat` is the same login here, and is accepted and ignored
+#                                  `seat` is the same login here, and is accepted and ignored;
+#                                  a yes ends `; logged in as <email>` where the login says
 #                     hooks        -> says where this harness's hooks come from; writes nothing
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                  `codex debug models`, else the [catalog] table of
@@ -52,6 +53,15 @@ WEEKLY='[.rate_limit.primary_window, .rate_limit.secondary_window]
                      and (.limit_window_seconds // 604800) != 18000))
         | (max_by(.used_percent) // null)'
 cmd=${1:-}; shift 2>/dev/null || true
+
+# Who this login is, the email in the id token Codex keeps beside its access token: what
+# `+ add` shows a login `− remove` left on disk by.  Silent where it says nobody.
+who() {
+  local email
+  email=$(jq -r '.tokens.id_token // empty | split(".")[1] // empty | gsub("-"; "+")
+                 | gsub("_"; "/") | @base64d | fromjson | .email // empty' "$AUTH" 2>/dev/null) \
+    && [ -n "$email" ] && printf '; logged in as %s' "$email"
+}
 
 # jq is the tool most likely to be missing, so build the error object with printf
 err() { local m=${1//\\/}; m=${m//\"/\'}
@@ -273,7 +283,7 @@ auth)
   # stderr.  One it records but nobody can read is not the same thing, and is a `no`.
   exp=$(jq -r '(.tokens.expires_at // .expires_at // empty) | tostring' "$AUTH" 2>/dev/null)
   case "$exp" in '')
-    echo "codex: $AUTH is present and records no expiry"; exit 0 ;;
+    echo "codex: $AUTH is present and records no expiry$(who)"; exit 0 ;;
   esac
   case "$exp" in null|*[!0-9]*)
     echo "codex: the expiry in $AUTH cannot be read; run \`codex login\`" >&2; exit 1 ;;
@@ -281,7 +291,7 @@ auth)
   [ "${#exp}" -gt 11 ] && exp=$(( exp / 1000 ))    # milliseconds where it records them
   [ "$exp" -gt "$(date +%s)" ] || {
     echo "codex: the token in $AUTH expired; run \`codex login\`" >&2; exit 1; }
-  echo "codex: the token in $AUTH is still valid" ;;
+  echo "codex: the token in $AUTH is still valid$(who)" ;;
 hooks)
   # Codex takes its hooks on the command line, and the seat wrapper already builds that line:
   # tools/codex-seat.py installs them per launch, beside the SessionStart receipt that says

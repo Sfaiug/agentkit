@@ -38,6 +38,7 @@ ADAPTER_DIR_ENV = "AGENTKIT_ADAPTER_DIR"   # adapters/ elsewhere: the offline sm
 SESSION_ENV = "AGENTKIT_SESSION"
 ACCOUNT_ENV = "AGENTKIT_ACCOUNT"           # which of a provider's `accounts` an adapter call is for
 DEFAULT_ACCOUNT = "default"                # ... the login it has when it lists none: the empty name
+KEPT_LOGINS = "kept-logins.json"           # under STATE: the logins `− remove` left on disk
 UNATTENDED_ENV = "AGENTKIT_UNATTENDED"   # set below a run loop: what it starts is machinery
 CODE = Path.home() / "code"                # where the checkouts live, and where a new seat opens
 RENAME_HOPS = 8                            # how many renames a session name is followed through
@@ -1153,6 +1154,25 @@ def account_env(account):
     """What an adapter call for that account is told: its name in AGENTKIT_ACCOUNT, and for
     `default` the empty name -- the login the adapter uses when no account is named at all."""
     return {ACCOUNT_ENV: "" if account in (None, DEFAULT_ACCOUNT) else account}
+
+
+def kept_logins():
+    """Each login `− remove` took out of ak and left on disk, oldest first, as (provider,
+    account, label): a subscription it took out of `accounts`, or the usual login of a provider
+    it removed whole, with the name its usage row had.  `+ add` offers them back.  [] where
+    there is no record, or none that can be read."""
+    try:
+        kept = _read_json(STATE / KEPT_LOGINS)
+    except Error:
+        return []
+    return [tuple(entry) for entry in kept if isinstance(entry, list) and len(entry) == 3] \
+        if isinstance(kept, list) else []
+
+
+def keep_login(provider, account, label):
+    """Record one login `− remove` takes out, in place of an older record of the same one."""
+    kept = [entry for entry in kept_logins() if entry[:2] != (provider, account)]
+    _write_json(STATE / KEPT_LOGINS, [*kept, (provider, account, label)])
 
 
 def provider_harness(cfg, provider):
