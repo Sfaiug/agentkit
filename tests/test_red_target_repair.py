@@ -102,7 +102,8 @@ class RedTargetRepair(unittest.TestCase):
             "run_id": run_dir.name, "state": "waiting", "verdict": "PASS",
             "launched_session": "seat", "worktree": str(wt), "finished_at": time.time(),
             "merge_note": "origin/main itself fails: `false`",
-            "waiting_on": {"ref": "origin/main", "sha": sha, "repair": repair}})
+            "waiting_on": {"ref": "origin/main", **({"sha": sha} if sha else {}),
+                           "repair": repair}})
         return run_dir
 
     def test_parked_runs_retry_when_their_repair_ends_merged_or_not(self):
@@ -127,6 +128,16 @@ class RedTargetRepair(unittest.TestCase):
                     self.assertEqual(self.spawned, [(run_dir.name, ["resume", run_dir.name])])
                     self.assertIn(f"resumed {run_dir.name}: its repair {repair.name} ended",
                                   self.logs)
+            # parked with no sha to wait from: the pass that takes one keeps the repair
+            self.spawned.clear()
+            run.save_state(repair, {**base, "state": "running"})
+            run_dir = self.parked(None, repair.name)
+            watch.resume_waiting(log=self.logs.append)
+            self.assertEqual(run.read_state(run_dir)["waiting_on"],
+                             {"ref": "origin/main", "sha": sha, "repair": repair.name})
+            run.save_state(repair, {**base, "state": "fail"})
+            watch.resume_waiting(log=self.logs.append)
+            self.assertEqual(self.spawned, [(run_dir.name, ["resume", run_dir.name])])
 
     def test_the_repair_notifies_nobody(self):
         run_dir = config.RUNS / "20260930-0202-repair"
