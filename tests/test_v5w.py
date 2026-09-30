@@ -100,16 +100,17 @@ class LongCommandsRunInTheForeground(unittest.TestCase):
             "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "", "AK_RUN_ROLE": "",
             # a worker running this file carries its own run's marker, and a failed turn
             # below ends every process marked with the run it inherits
-            "AGENTKIT_RUN": "", "AK_RUN_DEPTH": "0",
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "TMUX": "", "NO_COLOR": "1",
             "PYTHONDONTWRITEBYTECODE": "1", config.ADAPTER_DIR_ENV: str(adapters),
             "V5W_FIXTURE": str(self.root)}))
         # The loop itself may run inside a Claude worker shell that exports the Bash timeout
         # variables this change sets.  Keep them out of the fixture, so what the fake harness
-        # records is only what worker.call put there for that harness.
+        # records is only what worker.call put there for that harness.  AK_MAX_RUNS=0 goes the
+        # same way: it opens the slot gate whose one poll these cases count.
         self.stack.enter_context(patch.dict(os.environ))
-        for var in ("BASH_DEFAULT_TIMEOUT_MS", "BASH_MAX_TIMEOUT_MS"):
+        for var in ("BASH_DEFAULT_TIMEOUT_MS", "BASH_MAX_TIMEOUT_MS", "AK_MAX_RUNS"):
             os.environ.pop(var, None)
         # Nothing outside the fixture is reachable: no tmux server, harness, GitHub or Discord.
         self.script(self.bin / "tmux", '''import sys

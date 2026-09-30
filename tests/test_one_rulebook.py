@@ -100,7 +100,8 @@ class OneRulebook(unittest.TestCase):
         self.addCleanup(stack.close)
         stack.enter_context(patch.object(config, "HOME", self.home / ".agentkit"))
         stack.enter_context(patch.object(config, "STATE", self.state))
-        stack.enter_context(patch.dict(os.environ, {"HOME": str(self.home)}))
+        # and the usual login, named the way `ak orch` names it: a worker's own account is not it
+        stack.enter_context(patch.dict(os.environ, {"HOME": str(self.home), config.ACCOUNT_ENV: ""}))
         os.environ.pop(config.ADAPTER_DIR_ENV, None)   # the checkout's adapters, never a copy
         os.environ.pop("AGENTKIT_TMUX_SOCKET", None)
         os.environ.pop("XDG_CONFIG_HOME", None)
