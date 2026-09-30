@@ -3688,7 +3688,7 @@ def main(argv):
             raise config.Error(f"{USAGE}  (got {arg!r})")
         flags[arg] = True
     if flags["--overlay"]:
-        terminal.pad()                    # inside the border, what the popup asks to be left
+        terminal.inset()                  # inside the border, what the popup asks to be left
     if not (flags["--dry-run"] or flags["--overlay"]):
         update_first()
     if not flags["--dry-run"]:

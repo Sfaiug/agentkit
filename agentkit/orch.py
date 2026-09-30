@@ -1454,7 +1454,7 @@ def tmux_conf():
     The popup floats, on a tmux that has what it takes (FLOATS; an older one draws the plain
     popup, and says nothing): a rounded border in the dim colour with ` agentkit ` set into
     its top edge, a column and a row of padding inside it -- the menu's to leave, since tmux
-    pads nothing (`terminal.pad`) -- and none on a phone, which spares no cell.  While it is up
+    pads nothing (`terminal.inset`) -- and none on a phone, which spares no cell.  While it is up
     the pane it opened over draws its default text dim: tmux runs the binding's commands in
     order and the one after `display-popup` only once the popup is down, whatever took it down
     -- its menu ending, a crash, a kill, `display-popup -C` -- and a client that goes with the
