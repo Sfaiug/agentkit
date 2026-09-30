@@ -27,7 +27,6 @@ from agentkit import config, menu, motion, orch, terminal
 Key = terminal.Key
 NEEDS = (0xf9, 0xe2, 0xaf)          # `needs you` on a dark background
 DONE = (0xa6, 0xe3, 0xa1)           # `done`
-LIT = tuple(int(terminal.faded("working", -motion.BRIGHTER)[i:i + 2], 16) for i in (1, 3, 5))
 CELL = re.compile(r"\x1b\[(\d+);(\d+)H((?:(?!\x1b\[\d+;\d+H).)*)", re.S)
 WEEK = 604800
 
@@ -49,15 +48,24 @@ def painted(text):
     return found
 
 
+def brightened(kind):
+    """`kind`'s colour as news lights it: (r, g, b)."""
+    light = terminal.faded(kind, -motion.BRIGHTER)
+    return tuple(int(light[i:i + 2], 16) for i in (1, 3, 5))
+
+
+LIT = brightened("working")         # a plain bar's light
+
+
 def filled(bar):
     """How full a bar is, in cells, its partial block counted in eighths."""
     return sum(1 if char == "█" else (motion.PARTS.index(char) + 1) / 8
                for char, _ in bar if char == "█" or char in motion.PARTS)
 
 
-def lit(bar):
-    """The cells of a bar lit by news."""
-    return {n for n, (_, colour) in enumerate(bar) if colour == LIT}
+def lit(bar, light=LIT):
+    """The cells of a bar lit by news, `light` a coloured bar's own."""
+    return {n for n, (_, colour) in enumerate(bar) if colour == light}
 
 
 class Keyboard:
@@ -263,11 +271,11 @@ class NewsMotion(Sandbox):
         self.assertTrue(0.25 <= frames[-1][0] - frames[0][0] <= 0.6, frames[-1][0] - frames[0][0])
         self.assert_still(waits)
 
-    def assert_swept(self, frames, size):
+    def assert_swept(self, frames, size, light=LIT):
         """One light crosses the bar left to right, once, after anything else lit on it: from the
         last frame lit in more than one cell on, each frame lights one cell at most, never one
         left of the one before; and the bar ends unlit."""
-        lights = [lit(bar) for _, bar in frames]
+        lights = [lit(bar, light) for _, bar in frames]
         after = max((n for n, cells in enumerate(lights) if len(cells) > 1), default=-1) + 1
         sweep = [min(cells) for cells in lights[after:] if cells]
         self.assertTrue(all(len(cells) <= 1 for cells in lights[after:]), lights)
@@ -306,11 +314,13 @@ class NewsMotion(Sandbox):
             self.cache(used=0)
         waits, at = self.run_menu([None, self.news(full)])
         screen, cells = self.written(waits, at)
-        for name, text, size in (("fix-api", "████████ 20/20", 8), ("Claude", "█", 12)):
+        claude = brightened(menu.colour(self.cfg, "anthropic"))      # its company's, lit
+        for name, text, size, light in (("fix-api", "████████ 20/20", 8, LIT),
+                                         ("Claude", "█", 12, claude)):
             with self.subTest(name):
                 frames = self.bar(cells, self.cell(screen, name, text), size)
                 self.assertEqual({filled(bar) for _, bar in frames}, {size})   # nothing glides
-                self.assert_swept(frames, size)
+                self.assert_swept(frames, size, light)
 
     def test_nothing_is_replayed_on_opening_after_another_screen_a_notice_or_a_resize(self):
         self.words = {"fix-api": "done", "web-portal": "needs you"}

@@ -126,7 +126,8 @@ def faded(word, amount):
     background, or with a negative one that far toward the foreground, where it is lit; as
     `#RRGGBB` for `styled`."""
     word = KINDS.get(word, word)
-    rgb = LIGHT.get(word, STATE_STYLES[word][2]) if _LIGHT else STATE_STYLES[word][2]
+    rgb = (on_background(word[1:]) if word.startswith("#") else
+           LIGHT.get(word, STATE_STYLES[word][2]) if _LIGHT else STATE_STYLES[word][2])
     to, amount = (255 if _LIGHT else 0) if amount >= 0 else (0 if _LIGHT else 255), abs(amount)
     return "#" + "".join(f"{round(int(rgb[i:i + 2], 16) * (1 - amount) + to * amount):02x}"
                          for i in (0, 2, 4))

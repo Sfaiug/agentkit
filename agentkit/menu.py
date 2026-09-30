@@ -1321,10 +1321,15 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             text = terminal.ANSI.sub("", line)
             bar, left = re.search("[█░]+", text), re.search(r"(\d+)% left", text)
             if bar and left:
+                # its filled cells' colour, its company's as `usage_lines` drew it; one spent
+                # has none drawn, and is red whoever's it is
+                shade = next((kind for kind in (fill(int(left.group(1)), colour(cfg, name))
+                                                for name in cfg["providers"])
+                              if terminal.styled("█", kind).removesuffix("\033[0m") in line),
+                             fill(int(left.group(1)), "accent"))
                 moves.append((("usage", text[:bar.start()].strip()),
                               (int(left.group(1)) / 100, bar.group()),
-                              (len(out), terminal.cells(text[:bar.start()]) + 1), False,
-                              fill(int(left.group(1)))))
+                              (len(out), terminal.cells(text[:bar.start()]) + 1), False, shade))
     body = [("  no sessions; n starts one", None)]
     if ordered:
         # One blank line between projects; seat rows two under their project.
@@ -1385,7 +1390,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         clock.clear()
         rising = clock.rise(out)
         news = clock.look({key: shown for key, shown, _, _, _ in moves})
-        for key, shown, cell, lit, colour in moves:
+        for key, shown, cell, lit, shade in moves:
             since, before = news.get(key, (None, None))
             if shown == "working":
                 clock.start([cell], motion.breathing(terminal.state_glyph(shown), shown, lit))
@@ -1396,7 +1401,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                     terminal.state_glyph(shown), shown, since, lit))
             elif key[0] != "word" and len(before[1]) == len(shown[1]):
                 # a cell each, so a frame rewrites only the cells that moved
-                cells, until = motion.gliding(before[1], shown[1], since, colour, lit,
+                cells, until = motion.gliding(before[1], shown[1], since, shade, lit,
                                               sweep=shown[0] == 1 > before[0])
                 for n, animation in enumerate(cells):
                     clock.start([(cell[0], cell[1] + n)], animation, until)
