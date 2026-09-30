@@ -201,6 +201,7 @@ class Live:
         self.cfg = cfg
         self.every = usage.PROBE_EVERY if every is None else every
         self.started = None          # when the probe now running was started, or None
+        self.began = None            # ... and when, on the clock motion reads (`asking`)
         self.thread = None
         self.lock = threading.Lock()   # so the pipe is never given back under a probe's write
         self.reader, self.writer = os.pipe()
@@ -248,10 +249,14 @@ class Live:
         if (self.thread is not None and self.thread.is_alive()) or (
                 self.started is not None and now - self.started < self.every):
             return False
-        self.started = now
+        self.started, self.began = now, time.monotonic()
         self.thread = threading.Thread(target=self._work, daemon=True)
         self.thread.start()
         return True
+
+    def asking(self):
+        """When the probe now going began, on motion's clock, or None while none is."""
+        return self.began if self.thread is not None and self.thread.is_alive() else None
 
     def _work(self):
         try:
@@ -444,6 +449,41 @@ def moving(clock, wake=None, timeout=TICK, going=None):
         if going is not None and not going():
             return None
         left = until - time.monotonic()
+
+
+class Back(Exception):
+    """Esc, `q` or the end of input, read while a screen waited on what it fetches (`waited`)."""
+
+
+def waited(work):
+    """What `work()` answers, asked off the drawing thread while the screen drawn waits on it.
+
+    A fetch that lands within a frame is simply had.  Over one that takes longer the keys are
+    read, and the rule under the header glides once it is past motion.WAIT (motion.fetching):
+    Esc, `q` or the end of input raises Back, `work` left to finish on its own and its answer
+    unused, and any other key is let go.  What `work` raises is raised here.
+    """
+    got, began = {}, time.monotonic()
+
+    def run():
+        try:
+            got["answer"] = work()
+        except Exception as exc:        # raised again on the drawing thread, as if asked there
+            got["error"] = exc
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(motion.FRAME)
+    clock = motion.fetching(motion.Clock(), began)
+    while thread.is_alive():
+        key = terminal.read_key(motion.FRAME)
+        if key is not None and (key.name in ("esc", "eof") or key.char in ("q", "Q")):
+            raise Back
+        sys.stdout.write(clock.frame())
+        sys.stdout.flush()
+    if "error" in got:
+        raise got["error"]
+    return got["answer"]
 
 
 def pause(*lines):
@@ -1416,7 +1456,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     sys.stdout.write("\033[H" + ("" if rising else "".join(f"\033[K{line}\n" for line in out))
                      + "\033[J" + moved)
     sys.stdout.flush()
-    drawn.update(order=order, cursor=cursor, words=words,
+    drawn.update(order=order, cursor=cursor, words=words, rule=not compact,
                  ask=top + at + len(asked) - 1 if at else None,
                  rows={top + number: name for number, (_, name) in enumerate(body, 1) if name},
                  spans=[(keys_top + number, first, last, key)
@@ -2499,7 +2539,8 @@ def config_model_id(cfg, name, step):
     -- has none to follow with, and is not offered.  What to say under the screen, or ""."""
     entry = cfg["models"][name]
     try:
-        models = [model for model in config.catalog(entry.get("harness")) if model["efforts"]]
+        models = [model for model in waited(lambda: config.catalog(entry.get("harness")))
+                  if model["efforts"]]
     except config.Error as exc:
         return f"config: {exc}"
     if not models:
@@ -2599,8 +2640,11 @@ def config_model(cfg, name):
                 note = _saved(cfg, cfg, before)
         elif here in MODEL_ROWS[:2] and act in ("left", "right"):
             step = 1 if act == "right" else -1
-            note = (config_model_id(cfg, name, step) if here == "model id"
-                    else config_effort(cfg, name, step, _catalog_efforts))
+            try:
+                note = (config_model_id(cfg, name, step) if here == "model id"
+                        else config_effort(cfg, name, step, _catalog_efforts))
+            except Back:
+                return                # Esc while the catalog was asked
 
 
 def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
@@ -2630,10 +2674,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     if began is None:
         key = terminal.read_key(timeout)
     else:
-        clock = motion.Clock()
-        for n, animation in enumerate(motion.fetching(terminal.layout_width(), began)):
-            clock.start([(2, 1 + n)], animation)
-        key = moving(clock, timeout=timeout, going=lambda: fetched() == began)
+        key = moving(motion.fetching(motion.Clock(), began), timeout=timeout,
+                     going=lambda: fetched() == began)
     if key is None:
         return None, here, None, top
     act, column = key.name, None
@@ -2757,7 +2799,7 @@ def _add_choices(cfg, picked):
     if len(picked) == 1:
         return [(model, [model["label"], "" if model["id"] == model["label"] else model["id"],
                          mark(_runs(cfg, harness, model["id"]))])
-                for model in config.catalog(harness) if model["efforts"]]
+                for model in waited(lambda: config.catalog(harness)) if model["efforts"]]
     model = picked[1]["id"]
     return [(effort, [effort, mark(_runs(cfg, harness, model, effort))])
             for effort in picked[1]["efforts"]]
@@ -2828,6 +2870,10 @@ def config_add(cfg):
             choices = _add_choices(cfg, [value for value, _ in picked])
         except config.Error as exc:
             choices, note = [], f"config: {exc}"
+        except Back:                  # Esc while the harness's catalog was asked: back one list
+            picked.pop()
+            ats.pop()
+            continue
         if not choices and not note:
             note = (f"the {picked[0][0][0]} catalog names no model with its efforts" if picked
                     else "no provider the config has names a harness")
@@ -2985,7 +3031,10 @@ def config_add_provider(cfg, keyboard):
                             else ("install", "login"), picked)
     if failed:
         return failed
-    models = [model for model in config.catalog(harness) if model["efforts"]]
+    try:
+        models = [model for model in waited(lambda: config.catalog(harness)) if model["efforts"]]
+    except Back:
+        return ""                     # Esc while its catalog was asked: nothing added
     if not models:
         return f"the {harness} catalog names no model with its efforts; {picked} is not added"
     model, before = models[0], copy.deepcopy(cfg)
@@ -3383,8 +3432,8 @@ def show_features(checkout, dry_run=False):
 
     The rows are the project's `list` as last answered (`switches`), asked again every TICK
     while the screen is open and drawn within STIR of landing, so the screen never waits on
-    it; while there are no rows yet the rule glides, where colour moves, and they are drawn
-    within a frame of landing.
+    it; while it is asked the rule glides, where colour moves, and it is drawn within a frame
+    of landing.
     ↑/↓ move between features and ←/→ between `you` and `everyone`; Enter, space or a
     click flips a mark by calling the project's `set` at once, and draws the row it answers
     with.  What a `set` could not do is one dim line under the rows, the mark as it was, until
@@ -3394,9 +3443,9 @@ def show_features(checkout, dry_run=False):
     here, column, top, note = None, 0, 0, ""
     keys = FEATURES_KEYS[0 if terminal.utf8() else 1] + "   esc back"
 
-    def fetched():      # when the list a screen with no rows waits on was asked, till it lands
+    def fetched():      # when the list now going was asked, till it lands
         entry = _SWITCHES[str(checkout)]
-        return entry["asked"] if entry["going"] and entry["rows"] is None else None
+        return entry["asked"] if entry["going"] else None
 
     while True:
         features = switches(checkout, TICK)
@@ -3423,7 +3472,10 @@ def show_features(checkout, dry_run=False):
         if act in ("left", "right"):
             column = 1 if act == "right" else 0
         elif act in ("enter", "space") and here:
-            note = features_flip(checkout, here[1], column)
+            try:
+                note = waited(lambda: features_flip(checkout, here[1], column))
+            except Back:
+                return                # Esc while the `set` was asked: it lands on its own
 
 
 def info_states():
@@ -3560,6 +3612,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                                groups=groups, clock=clock)
             cursor = drawn["cursor"] if drawn else cursor   # the seat he sees highlighted
             live.probe()                  # after the draw, never before it: the cache is enough
+            if live.asking() is not None and drawn and drawn["rule"]:
+                motion.fetching(clock, live.asking())    # the rule glides while it is asked
             if ahead is not None:
                 (key, shown), ahead = ahead, None
             else:
