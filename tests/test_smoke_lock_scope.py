@@ -1,9 +1,11 @@
-"""Suites run side by side: only check 4, which resets the shared remote, waits its turn.
+"""Suites run side by side: only check 4, which resets a smoke target, may wait for one.
 
 Offline and on fakes only.  Check 4's own block is lifted out of tests/smoke.sh together with
 the lock code above it and run between a stand-in check before it and one after, on a lock
 file of this test's own: a `gh` that serves a bare repository, an `ak` that writes a passing
-run and a delivery check that reads it.  Nothing reaches GitHub, a model or the host's lock.
+run and a delivery check that reads it.  The caller's config pins one heavy suite, so the pool
+is that one target (tests/test_smoke_target_pool.py grows it).  Nothing reaches GitHub, a
+model or the host's lock.
 The last class renders the names two suites give their runs and seats, and compares them.
 """
 
@@ -91,8 +93,10 @@ class CheckFourAlone(unittest.TestCase):
         self.work = self.root / "work"
         self.lock = self.root / "remote.lock"
         repo = self.root / "repo"
-        for path in (self.work, self.root / "home", repo / "tests"):
+        for path in (self.work, self.root / "home/.agentkit", repo / "tests"):
             path.mkdir(parents=True)
+        (self.root / "home/.agentkit/config.toml").write_text("max_gates = 1\n")
+        (repo / "agentkit").symlink_to(REPO / "agentkit")   # the bound is the loop's own count
         (repo / "tests/verify_delivery.py").write_text(DELIVERY)
         self.lock.touch(0o644)
         origin = self.root / "origin.git"
@@ -191,7 +195,7 @@ class CheckFourAlone(unittest.TestCase):
         out = self.rest(proc, lines, [])
         self.assertNotEqual(proc.returncode, 0, out)
         self.assertIn("PASS  3 a check before check 4", out)
-        self.assertRegex(out, r"FAIL  4 ak run: another suite still holds the remote after 1s")
+        self.assertRegex(out, r"FAIL  4 ak run: every smoke target is still another suite's after 1s")
         for check in ("4b", "4c", "4d"):
             self.assertIn(f"SKIP  {check}: prerequisite run did not happen", out)
         self.assertIn("PASS  5 a check after check 4", out)
