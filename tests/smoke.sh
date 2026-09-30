@@ -2205,13 +2205,12 @@ fi
 # codex or muse command and nothing above the adapter knows what a bypass flag is called.
 ORCH2=0
 printf '\n' | HOME="$ORCHHOME" ak orch --dry-run --model astra smoke-orch-astra >"$WORK/orch-astra.log" 2>&1 || ORCH2=1
-# no -m: astra's model `default` lets Codex choose its own (check 6e)
-grep -q "codex --yolo -c 'model_reasoning_effort" "$WORK/orch-astra.log" || ORCH2=1
-grep -q ' -m ' "$WORK/orch-astra.log" && ORCH2=1
+# astra names its model, so Codex gets it as -m (check 6e)
+grep -qE "codex --yolo -m [^ ]+ -c 'model_reasoning_effort" "$WORK/orch-astra.log" || ORCH2=1
 printf '\n' | HOME="$ORCHHOME" ak orch --dry-run --model spark smoke-orch-spark >"$WORK/orch-spark.log" 2>&1 || ORCH2=1
 grep -q 'muse --yolo --provider meta --model muse-spark' "$WORK/orch-spark.log" || ORCH2=1
 grep -q 'idle-compact.py -- claude ' "$WORK/orch-fable.log" || ORCH2=1
-[ "$ORCH2" = 0 ] && ok "6b ak orch: astra prints a codex command with no model of ours in it, spark a muse one, fable a claude one" \
+[ "$ORCH2" = 0 ] && ok "6b ak orch: astra prints a codex command with its model, spark a muse one, fable a claude one" \
                  || no "6b ak orch per-harness command: $(tail -1 "$WORK/orch-astra.log")"
 
 # --- 6c: each new seat records and applies its own models (offline) ---------
@@ -2358,7 +2357,7 @@ fi
 
 # --- 6e: a subscription Codex is given no model of ours (offline) ----------
 if codex_model_flag_check >"$WORK/codex-mflag.log" 2>&1; then
-  ok "6e codex adapter: the model 'default' (and an empty one) builds a run and a seat command with no -m and the effort intact, a real id still gets its -m, and astra is configured with the sentinel"
+  ok "6e codex adapter: the model 'default' (and an empty one) builds a run and a seat command with no -m and the effort intact, a real id still gets its -m, and astra names a real model"
 else
   no "6e codex adapter -m rule"; sed 's/^/      /' "$WORK/codex-mflag.log"
 fi
