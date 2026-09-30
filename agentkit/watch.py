@@ -3612,15 +3612,14 @@ def launch_resume(run_id, log=lambda _: None, verb="resume"):
         except OSError as exc:
             log(f"WARN could not {verb} {run_id}: {exc}")
             return False
-        state = run_mod.read_state(run_dir) or {}
-        if state:
-            state["scope"] = placement.get("scope")
-            if placement.get("scope_reason"):
-                state["scope_reason"] = placement["scope_reason"]
-            else:
-                state.pop("scope_reason", None)
-            run_mod.remember_memory_cap(state, placement, cap)
-            run_mod.save_state(run_dir, state)
+        if receipt:
+            with run_mod.record(run_dir) as state:
+                state["scope"] = placement.get("scope")
+                if placement.get("scope_reason"):
+                    state["scope_reason"] = placement["scope_reason"]
+                else:
+                    state.pop("scope_reason", None)
+                run_mod.remember_memory_cap(state, placement, cap)
     return pid
 
 
@@ -3833,11 +3832,9 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
                 if dry_run:
                     log(f"would leave {run_dir.name} alone: worktree {wt} is gone")
                     continue
-                with run_mod.recovery_lock(run_dir):
-                    state = run_mod.read_state(run_dir) or state
+                with run_mod.record(run_dir) as state:
                     if not state.get("dead_worktree_warned"):
                         state["dead_worktree_warned"] = now
-                        run_mod.save_state(run_dir, state)
                 log(f"WARN {run_dir.name}: worktree {wt} is gone; "
                     "leaving it for an explicit resume")
                 continue
@@ -3857,8 +3854,7 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
             launch = False
             notice = False
             line = ""
-            with run_mod.recovery_lock(run_dir):
-                state = run_mod.read_state(run_dir) or state
+            with run_mod.record(run_dir) as state:
                 if (state.get("state") == "stopped" or _dead_parked(state)
                         or _launch_grace(state, now) or run_mod.process_active(state)):
                     continue
@@ -3872,21 +3868,18 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
                     # ten quiet minutes are quiet whoever looks during them.
                     _hold_live(state, deaths)
                     state["resume_after"] = _backoff_until(deaths)
-                    run_mod.save_state(run_dir, state)
                     line = (f"waiting to resume {run_dir.name}: loop died ({reason}); "
                             "next try after 10 min")
                 elif action == "park":
                     run_mod.interrupt(state, reason)
                     state["deaths"] = deaths
                     state.pop("resume_after", None)
-                    run_mod.save_state(run_dir, state)
                     notice = True
                     line = (f"parked {run_dir.name}: loop died ({reason}); "
                             "third death within an hour")
                 elif action in ("resume", "resume-open"):
                     deaths[-1]["resumed_at"] = now
                     _arm_resume(state, deaths, now, role)
-                    run_mod.save_state(run_dir, state)
                     launch = True
                     line = (f"resumed {run_dir.name}: loop died ({reason}); "
                             f"continuing {role} of round {rnd}")
@@ -3975,8 +3968,7 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
                 if dry_run:
                     log(f"would notify the parking of {run_dir.name} again")
                     continue
-                with run_mod.recovery_lock(run_dir):
-                    state = run_mod.read_state(run_dir) or state
+                with run_mod.record(run_dir) as state:
                     if state.get("state") != "stalled" or state.get("stalled_notified"):
                         continue
                     last = (state.get("stalls") or [{}])[-1]
@@ -3987,7 +3979,6 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
                     if tell_parked(run_dir.name, last.get("step") or "the run",
                                    seat, log):
                         state["stalled_notified"] = True
-                        run_mod.save_state(run_dir, state)
                 continue
             if state.get("state") != "running":
                 continue
@@ -4132,18 +4123,13 @@ def resume_waiting_login(dry_run=False, log=print, now=None):
                 # timed against the last one.  Written only where there is something to take
                 # off, so an ordinary outage costs the same nothing it always did.
                 if state.get("login_back_at") or state.get("login_resume_at"):
-                    with run_mod.recovery_lock(run_dir):
-                        state = run_mod.read_state(run_dir) or state
+                    with run_mod.record(run_dir) as state:
                         if state.get("state") == "waiting_login":
-                            back = state.pop("login_back_at", None) is not None
-                            paced = state.pop("login_resume_at", None) is not None
-                            if back or paced:
-                                run_mod.save_state(run_dir, state)
-                            if back:
+                            state.pop("login_resume_at", None)
+                            if state.pop("login_back_at", None) is not None:
                                 log(f"{run_dir.name}: the {harness} login went out again")
                 continue
-            with run_mod.recovery_lock(run_dir):
-                state = run_mod.read_state(run_dir) or state
+            with run_mod.record(run_dir) as state:
                 if state.get("state") != "waiting_login":
                     continue
                 # The login is back, and that goes on the record before anything below can
@@ -4152,7 +4138,6 @@ def resume_waiting_login(dry_run=False, log=print, now=None):
                 # is no longer expired.
                 if not state.get("login_back_at") and not dry_run:
                     state["login_back_at"] = now
-                    run_mod.save_state(run_dir, state)
                 last = state.get("login_resume_at")
                 if (isinstance(last, (int, float)) and not isinstance(last, bool)
                         and 0 <= now - last < RESUME_EVERY):
@@ -4172,7 +4157,7 @@ def resume_waiting_login(dry_run=False, log=print, now=None):
                               "stopped.")
                     for key in ("waiting_for", "login_resume_at", "login_back_at"):
                         state.pop(key, None)   # it waits on no login, so it marks none
-                    run_mod.save_state(run_dir, run_mod.interrupt(state, reason))
+                    run_mod.interrupt(state, reason)
                     log(f"WARN {run_dir.name}: {reason}")
                     continue
                 if dry_run:
@@ -4185,8 +4170,7 @@ def resume_waiting_login(dry_run=False, log=print, now=None):
                 # this pass, so nothing goes on telling the owner to log in to something he
                 # already has, whatever happens to the launch now.
                 state["login_resume_at"] = now
-                run_mod.save_state(run_dir, state)
-                decided = dict(state)
+            decided = dict(state)
             try:
                 with redirect_stdout(io.StringIO()):
                     run_mod.spawn_bg(run_dir, ["resume", run_dir.name], expected=decided,
@@ -4274,8 +4258,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
             skipped = []
             available = run_mod.executable_models(cfg, providers, bound, now, skipped.append,
                                                  reviewers=review_bound)
-            with run_mod.recovery_lock(run_dir):
-                state = run_mod.read_state(run_dir) or state
+            with run_mod.record(run_dir) as state:
                 if state.get("state") != "exhausted":
                     continue
                 waits = run_mod.exhausted_wait(state)
@@ -4286,7 +4269,6 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                     # `replaced`, so `going` stops reading a wait nothing will lift
                     if not dry_run and not state.get("replaced"):
                         state["replaced"] = True
-                        run_mod.save_state(run_dir, state)
                     continue
                 transport = waits == "reviewer"
                 last = state.get("exhausted_resume_at")
@@ -4309,7 +4291,6 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                         # one WARN for the life of the missing worktree, not one per
                         # pass: the stamp below stays put so later ticks stay silent.
                         state["exhausted_resume_at"] = now
-                        run_mod.save_state(run_dir, state)
                         log(f"WARN {run_dir.name} is exhausted but its worktree "
                             f"{wt or '(none)'} is gone; leaving it for an explicit resume")
                     continue
@@ -4368,8 +4349,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                 # stamp still travels into the queued receipt, so nothing is written after launch.
                 state.pop("refusal_retry", None)
                 state["exhausted_resume_at"] = now
-                run_mod.save_state(run_dir, state)
-                decided = dict(state)
+            decided = dict(state)
             try:
                 with redirect_stdout(io.StringIO()):
                     run_mod.spawn_bg(run_dir, ["resume", run_dir.name], expected=decided,
@@ -4416,8 +4396,7 @@ def resume_errored(dry_run=False, log=print, now=None):
         try:
             if not state or state.get("state") != "error":
                 continue
-            with run_mod.recovery_lock(run_dir):
-                state = run_mod.read_state(run_dir) or state
+            with run_mod.record(run_dir) as state:
                 if state.get("state") != "error":
                     continue
                 if run_mod.is_superseded(state, None, index, merged_only=True):
@@ -4427,7 +4406,6 @@ def resume_errored(dry_run=False, log=print, now=None):
                                         or "error_retries" in state):
                         state.pop("error_retry_at", None)
                         state.pop("error_retries", None)
-                        run_mod.save_state(run_dir, state)
                     continue
                 reason = ("cannot be resumed where it stopped"
                           if not run_mod.error_resumable(state, run_dir) else
@@ -4440,7 +4418,6 @@ def resume_errored(dry_run=False, log=print, now=None):
                         else:
                             state.pop("error_retry_at", None)
                             state.pop("error_retries", None)
-                            run_mod.save_state(run_dir, state)
                             log(f"WARN {run_dir.name}: {reason}; leaving it parked for a person")
                     continue
                 at = state.get("error_retry_at")
@@ -4454,7 +4431,6 @@ def resume_errored(dry_run=False, log=print, now=None):
                     # an old record, from before errors were scheduled: no rung
                     # survives without its hour, so the ladder starts at the bottom.
                     run_mod.schedule_error_retry(state, now=now)
-                    run_mod.save_state(run_dir, state)
                     at = state["error_retry_at"]
                 if now < at:
                     continue  # the ladder has not run out yet; a later tick fires it
@@ -4463,8 +4439,7 @@ def resume_errored(dry_run=False, log=print, now=None):
                     retries, bool) and retries >= 0 else 0
                 state["error_retries"] = retries + 1
                 run_mod.schedule_error_retry(state, now=now)
-                run_mod.save_state(run_dir, state)
-                decided = dict(state)
+            decided = dict(state)
             try:
                 with redirect_stdout(io.StringIO()):
                     run_mod.spawn_bg(run_dir, ["resume", run_dir.name], expected=decided,
@@ -4521,8 +4496,7 @@ def resume_waiting(dry_run=False, log=print, now=None):
                         log(f"would interrupt {run_dir.name}: waiting on a merge, but its "
                             f"worktree {wt or '(none)'} is gone")
                         continue
-                    with run_mod.recovery_lock(run_dir):
-                        state = run_mod.read_state(run_dir) or state
+                    with run_mod.record(run_dir) as state:
                         if (state.get("state") != "waiting"
                                 or not run_mod.tick_admission(state, now=now)):
                             continue
@@ -4532,7 +4506,7 @@ def resume_waiting(dry_run=False, log=print, now=None):
                         reason = ("this run's worktree "
                                   f"{wt or '(none)'} is gone; it cannot be resumed where it "
                                   "stopped.")
-                        run_mod.save_state(run_dir, run_mod.interrupt(state, reason))
+                        run_mod.interrupt(state, reason)
                     log(f"WARN {run_dir.name}: {reason}")
                     continue
                 last = state.get("waiting_resume_at")
@@ -4547,8 +4521,7 @@ def resume_waiting(dry_run=False, log=print, now=None):
                 sha = run_mod.upstream_sha(wt, ref)
                 if sha is None:
                     continue  # origin did not answer; the waiter keeps waiting, silently
-                with run_mod.recovery_lock(run_dir):
-                    state = run_mod.read_state(run_dir) or state
+                with run_mod.record(run_dir) as state:
                     if (state.get("state") != "waiting"
                             or not run_mod.tick_admission(state, now=now)):
                         continue
@@ -4558,7 +4531,6 @@ def resume_waiting(dry_run=False, log=print, now=None):
                         # merge after it, or the end of the repair it names, resumes the run.
                         waiting_on = {**waiting_on, "ref": ref, "sha": sha}
                         state["waiting_on"] = waiting_on
-                        run_mod.save_state(run_dir, state)
                         log(f"{run_dir.name} waits on {ref} at {sha[:12]}")
                         continue
                     repair = waiting_on.get("repair")
@@ -4570,8 +4542,7 @@ def resume_waiting(dry_run=False, log=print, now=None):
                     else:
                         continue  # main has not moved; the waiter keeps waiting, silently
                     state["waiting_resume_at"] = now
-                    run_mod.save_state(run_dir, state)
-                    decided = dict(state)
+                decided = dict(state)
             else:
                 ref = run_mod.conflict_upstream(state)
                 if dry_run:
@@ -4581,8 +4552,7 @@ def resume_waiting(dry_run=False, log=print, now=None):
                 sha = run_mod.upstream_sha(wt, ref)
                 if sha is None:
                     continue  # origin did not answer; the FAIL keeps for the next pass
-                with run_mod.recovery_lock(run_dir):
-                    state = run_mod.read_state(run_dir) or state
+                with run_mod.record(run_dir) as state:
                     if state.get("state") != "fail" or not run_mod.parkable_conflict(
                             state, run_dir, now=now):
                         continue
@@ -4595,7 +4565,6 @@ def resume_waiting(dry_run=False, log=print, now=None):
                     state.pop("handback_pending", None)
                     state.pop("handback_wait_reason", None)
                     state.pop("waiting_resume_at", None)  # a new wait paces its own launch
-                    run_mod.save_state(run_dir, state)
                 log(f"parked {run_dir.name} waiting on {ref} at {sha[:12]}")
                 continue
             try:

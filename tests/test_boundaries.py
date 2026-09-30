@@ -41,7 +41,7 @@ RULES = [
      "flags": (),
      "pattern": r"\.save_state\(",
      "home": ("agentkit/run.py",),
-     "max": 21},
+     "max": 0},
     # A live loop writes its record through `Loop.write`, which keeps what the watcher or a
     # rename put there since; a whole save of its memory would put the old record back.
     {"name": "a live loop's whole saves",
