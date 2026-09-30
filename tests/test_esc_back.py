@@ -320,6 +320,11 @@ class EscBack(unittest.TestCase):
                              "界" * 30)
         drawn = [terminal.cells(line) for line in out.getvalue().split("\r") if line]
         self.assertLess(max(drawn), 40, drawn)
+        # a paste is drawn once a key and still lets Esc through at once
+        with patch.object(terminal, "width", return_value=40):
+            began = time.monotonic()
+            self.assertEqual(typed(*[Key("char", "a")] * 800, Key("esc")), terminal.ESC)
+        self.assertLess(time.monotonic() - began, ESC_WAIT)
 
 
 

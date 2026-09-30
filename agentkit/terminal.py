@@ -902,11 +902,14 @@ def field(prompt, placeholder=""):
     try:
         while True:
             room = max(1, width() - cells(prompt) - 1)
-            end = text           # clipped by cells: a wide character that wraps is drawn over wrong
-            while cells(end) > room:
-                end = end[1:]
+            # clipped by cells, as a wide character that wraps is drawn over wrong, and found from
+            # the end through what fits alone, as a paste is long and every key draws it again
+            end, used = len(text), 0
+            while end and used + cells(text[end - 1]) <= room:
+                end -= 1
+                used += cells(text[end])
             shown = "" if text else cut(placeholder, room)
-            sys.stdout.write(f"\r{prompt}{end}{styled(shown, 'dim')}\033[K"
+            sys.stdout.write(f"\r{prompt}{text[end:]}{styled(shown, 'dim')}\033[K"
                              + (f"\033[{cells(shown)}D" if shown else ""))
             sys.stdout.flush()
             key = read_key()
