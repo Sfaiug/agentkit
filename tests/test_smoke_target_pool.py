@@ -25,18 +25,22 @@ LOCK_CODE = SMOKE[SMOKE.index("\nSMOKE_LOCK=") + 1:SMOKE.index("# The test hook"
 WAITING = "check 4: waiting for another suite's turn"
 
 # $ACCOUNT holds the caller's repositories.  The run notes the target it was cloned from, then
-# holds it -- and so its lock -- until the test writes `release` into the suite's WORK.
+# holds it -- and so its lock -- until the test writes `release` into the suite's WORK.  The
+# listing or the create named in $PAUSE waits until the test writes `go` there.
 FAKES = r'''
 skip_spent() { return 1; }
+paused() { [ "${PAUSE:-}" != "$1" ] || until [ -e "$WORK/go" ]; do sleep .1; done; }
 gh() {
   printf '%s\n' "$*" >>"$WORK/gh.log"
   case "$*" in
     'api user --jq .login') echo caller ;;
     'api --paginate user/repos?affiliation=owner&per_page=100 --jq .[].name')
       [ -z "${LISTING_FAILS:-}" ] || return 1
+      paused listing
       ls "$ACCOUNT" | sed 's/\.git$//' ;;
-    'repo view caller/'*) test -d "$ACCOUNT/${3#caller/}.git" ;;
-    'repo create caller/'*' --private') git init -q --bare -b main "$ACCOUNT/${3#caller/}.git" ;;
+    'repo create caller/'*' --private')
+      paused create
+      git init -q --bare -b main "$ACCOUNT/${3#caller/}.git" ;;
     'repo clone caller/'*) git clone -q "$ACCOUNT/${3#caller/}.git" "$4" ;;
     *) echo "unexpected gh command: $*" >&2; return 97 ;;
   esac
@@ -152,7 +156,13 @@ class TargetPool(unittest.TestCase):
     def changed(self, work):
         """The gh calls that did more than ask what exists."""
         calls = (work / "gh.log").read_text().splitlines()
-        return [c for c in calls if not c.startswith(("api ", "repo view"))]
+        return [c for c in calls if not c.startswith("api ")]
+
+    def called(self, work, call):
+        return (work / "gh.log").exists() and call in (work / "gh.log").read_text()
+
+    def pool(self):
+        return sorted(p.name for p in self.account.iterdir())
 
     def seeded(self, name):
         return subprocess.run(["git", "--git-dir", str(self.account / f"{name}.git"), "show",
@@ -294,9 +304,57 @@ class TargetPool(unittest.TestCase):
         fcntl.flock(second, fcntl.LOCK_UN)
         self.assertEqual(self.target(work), "agentkit-smoke-3")
         self.finish(proc, work)
-        self.assertEqual(sorted(p.name for p in self.account.iterdir()),
-                         ["agentkit-smoke-3.git", "agentkit-smoke.git"])
+        self.assertEqual(self.pool(), ["agentkit-smoke-3.git", "agentkit-smoke.git"])
         self.assertFalse([c for c in self.changed(work) if c.startswith("repo create")])
+
+    def test_a_listing_that_failed_makes_not_even_the_first_target(self):
+        # the reviewer's case: bound 2, only the second and third targets exist, and the
+        # account cannot be listed: check 4 fails rather than make agentkit-smoke beside them
+        self.bound(2)
+        self.existing("agentkit-smoke-2", "agentkit-smoke-3")
+        proc, work = self.suite("blind", LISTING_FAILS="1")
+        proc.wait(timeout=120)
+        self.assertIn("FAIL  4 ak run", self.out(work))
+        self.assertFalse([c for c in self.changed(work) if c.startswith("repo create")])
+        self.assertEqual(self.pool(), ["agentkit-smoke-2.git", "agentkit-smoke-3.git"])
+
+    def test_the_bound_is_read_after_the_listing(self):
+        # the reviewer's case: the bound falls from 2 to 1 while the listing is on its way
+        self.bound(2)
+        self.existing("agentkit-smoke")
+        first = self.hold(1)
+        proc, work = self.suite("slow", PAUSE="listing")
+        self.until(lambda: self.called(work, "user/repos"), "listed", work)
+        self.bound(1)
+        (work / "go").touch()
+        self.until(lambda: WAITING in self.out(work), "waited", work)
+        self.assertEqual(self.changed(work), [], self.out(work))
+        fcntl.flock(first, fcntl.LOCK_UN)
+        self.assertEqual(self.target(work), "agentkit-smoke")
+        self.finish(proc, work)
+        self.assertEqual(self.pool(), ["agentkit-smoke.git"])
+
+    def test_no_suite_chooses_while_another_makes_a_target(self):
+        # the reviewer's case: one suite makes the second target, slowly, and another admitted
+        # at bound 3 meanwhile does not choose on a listing that lacks it.  With the bound back
+        # at 2 it finds the second made and busy, and waits instead of making the third.
+        self.bound(2)
+        self.existing("agentkit-smoke")
+        self.hold(1)
+        maker, maker_work = self.suite("maker", PAUSE="create")
+        self.until(lambda: self.called(maker_work, "repo create"), "began making", maker_work)
+        self.bound(3)
+        proc, work = self.suite("waiting")
+        time.sleep(1.5)
+        self.bound(2)
+        (maker_work / "go").touch()
+        self.assertEqual(self.target(maker_work), "agentkit-smoke-2")
+        self.until(lambda: WAITING in self.out(work), "waited", work)
+        self.assertEqual(self.changed(work), [], self.out(work))
+        self.finish(maker, maker_work)
+        self.assertEqual(self.target(work), "agentkit-smoke-2")
+        self.finish(proc, work)
+        self.assertEqual(self.pool(), ["agentkit-smoke-2.git", "agentkit-smoke.git"])
 
     def test_a_killed_holder_frees_its_target(self):
         self.bound(1)

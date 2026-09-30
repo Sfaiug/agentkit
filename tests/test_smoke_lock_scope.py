@@ -56,7 +56,6 @@ gh() {
   case "$*" in
     'api user --jq .login') echo caller ;;
     'api --paginate user/repos?affiliation=owner&per_page=100 --jq .[].name') echo agentkit-smoke ;;
-    'repo view caller/agentkit-smoke') test -d "$ORIGIN" ;;
     "repo clone caller/agentkit-smoke "*)
       lockstate >"$WORK/lock-at-seed"; git clone -q "$ORIGIN" "$4" ;;
     *) echo "unexpected gh command: $*" >&2; return 97 ;;

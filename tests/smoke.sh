@@ -46,17 +46,19 @@ export AK_MAX_RUNS=0
 # `agentkit-smoke-3` ..., each with a host-wide lock of its own, and check 4 alone takes one,
 # from just before it seeds it until its delivery is read.  It takes the first free target; when
 # every one is busy and the pool is smaller than the heavy suites the host admits at once, it
-# takes the next, which its seed creates.  It waits only at that bound with every target in use.
+# takes the next and creates it.  It waits only at that bound with every target in use.
 # The bound is the loop's own count, `heavy_suite_limit`, never a number of ours; 0 is no cap.
 # The pool is the repositories the account lists, never the lock files: /tmp forgets those, and
 # a leftover one names no repository.  A waiting suite lists it again every minute, and before it
 # takes a lock that came free, since another suite may have added or freed a target meanwhile.
-# The n-th target's lock is the first one's with `-n` before `.lock`.
+# The n-th target's lock is the first one's with `-n` before `.lock`.  Suites list, choose and
+# create one at a time, under the first lock's name with `-make` before `.lock`.
 # A lock file is created world-readable and locked through a read-only descriptor, so suites
 # running as different accounts all take it.  $AK_SMOKE_LOCK and $AK_SMOKE_LOCK_WAIT override
 # the first file and the hour-long wait, for tests, which never queue behind the host's suites.
 SMOKE_LOCK=${AK_SMOKE_LOCK:-/tmp/agentkit-smoke-remote.lock}
 SMOKE_LOCK_WAIT=${AK_SMOKE_LOCK_WAIT:-3600}
+SMOKE_LOCK_MAKE=${SMOKE_LOCK%.lock}-make.lock
 SMOKE_LOCK_LIST=60   # seconds a try waits before the pool is listed again
 SMOKE_LOCK_WAITING="check 4: waiting for another suite's turn"
 SMOKE_LOCK_PID=""
@@ -188,27 +190,40 @@ smoke_targets() {   # the numbers of the targets the account has, agentkit-smoke
     sed -nE 's/^agentkit-smoke$/1/p; s/^agentkit-smoke-([2-9]|[1-9][0-9]+)$/\1/p' | tr '\n' ,
 }
 smoke_lock_hold() {   # smoke_lock_hold <wait seconds>: 0 and $SMOKE_TARGET is this suite's, or 75
-  local dir line status=busy bound pool have try end=$((SECONDS + $1))
+  local dir line make n status=busy pool have try end=$((SECONDS + $1))
   SMOKE_LOGIN=$(gh api user --jq .login 2>"$WORK/smoke-login.err" || true)
   dir=$(mktemp -d "${TMPDIR:-/tmp}/ak-smoke-lock-XXXXXX") || return 75
-  if ! mkfifo "$dir/status"; then rm -rf -- "$dir"; return 75; fi
-  # Every try reads the bound and lists the pool anew -- the loop's capacity moves, and another
-  # suite may have added a target; both only read.  A try ends after a minute or as soon as a
-  # lock comes free, so a target is only ever chosen on this listing.  A listing that failed says nothing about
-  # the pool, so that try takes only agentkit-smoke, found or made as it always was, and makes
-  # no other target.
+  if ! mkfifo "$dir/make" "$dir/status"; then rm -rf -- "$dir"; return 75; fi
+  # Every try lists the pool anew and then reads the bound -- another suite may have added a
+  # target, and the loop's capacity moves; both only read.  It does so under the make lock,
+  # kept until the target it chose is made: no other suite makes one between a listing and the
+  # target made on it, however slow GitHub is.  Held for seconds, that lock is no turn to
+  # report.  A try ends after a minute or as soon as a lock comes free, so every choice rests
+  # on a listing of its own.  A listing that failed says nothing about the pool, so that try
+  # takes only agentkit-smoke, and makes nothing: check 4 fails if it is not there.
   while :; do
-    bound=$(smoke_pool_bound)
-    if have=$(smoke_targets); then pool=$bound; else have=1, pool=1; fi
     try=$((end - SECONDS)); [ "$try" -le "$SMOKE_LOCK_LIST" ] || try=$SMOKE_LOCK_LIST
-    python3 -c "$SMOKE_LOCK_PY" "$SMOKE_LOCK" "$try" hold $$ "$pool" "$have" >"$dir/status" &
-    SMOKE_LOCK_PID=$!
-    while IFS= read -r line; do
-      case "$line" in
-        waiting) printf '%s\n' "$SMOKE_LOCK_WAITING" ;;
-        held*|busy) status=$line; break ;;
+    python3 -c "$SMOKE_LOCK_PY" "$SMOKE_LOCK_MAKE" "$try" hold $$ 1 1 >"$dir/make" &
+    make=$!
+    while IFS= read -r line && [ "$line" = waiting ]; do :; done <"$dir/make"
+    if [ "$line" = held ]; then
+      if have=$(smoke_targets); then pool=$(smoke_pool_bound); else have=1, pool=1; fi
+      python3 -c "$SMOKE_LOCK_PY" "$SMOKE_LOCK" "$try" hold $$ "$pool" "$have" >"$dir/status" &
+      SMOKE_LOCK_PID=$!
+      while IFS= read -r line; do
+        case "$line" in
+          waiting) kill "$make"; printf '%s\n' "$SMOKE_LOCK_WAITING" ;;
+          held*|busy) status=$line; break ;;
+        esac
+      done <"$dir/status"
+      n=${status#held}; n=${n#-}   # held is the first target, held-3 the third
+      case "$status,$have" in
+        busy,*|*",${n:-1},"*) ;;   # none, or one the listing has
+        *) gh repo create "$SMOKE_LOGIN/agentkit-smoke${status#held}" --private \
+             >"$WORK/seed.log" 2>&1 ;;
       esac
-    done <"$dir/status"
+    fi
+    kill "$make" 2>/dev/null; wait "$make" 2>/dev/null
     [ "$status" = busy ] && [ "$SECONDS" -lt "$end" ] || break
     wait "$SMOKE_LOCK_PID" 2>/dev/null   # it printed busy and exited; this only reaps it
   done
@@ -1986,7 +2001,6 @@ CLONE="$WORK/agentkit-smoke"
 (
   set -e
   [ -n "$SMOKE_LOGIN" ]
-  gh repo view "$SMOKE_REPO" >/dev/null 2>&1 || gh repo create "$SMOKE_REPO" --private
   gh repo clone "$SMOKE_REPO" "$CLONE" -- -q
   git -C "$CLONE" config user.email smoke@localhost; git -C "$CLONE" config user.name smoke
   if git -C "$CLONE" rev-parse --verify -q HEAD >/dev/null 2>&1; then
@@ -2013,7 +2027,7 @@ PY
   for branch in $(git -C "$CLONE" for-each-ref --format='%(refname:strip=3)' refs/remotes/origin/ak/); do
     git -C "$CLONE" push -q origin --delete "$branch"
   done
-) >"$WORK/seed.log" 2>&1
+) >>"$WORK/seed.log" 2>&1   # after smoke_lock_hold's create, if it made the target
 SRC=$?
 cat >"$WORK/task.md" <<MD
 ---
