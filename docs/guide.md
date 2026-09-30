@@ -80,7 +80,7 @@ slice CPU pressure is above 40%, or the nearest limited cgroup is past 75% of it
 file cache; a pinned `max_load` restores the host-load check instead, each run the host has frozen counting 1 while held; a
 worker's own test runs share the parent's slot, and a third level is refused. A run that hits its own memory cap, the
 40% of the slice ceiling, 4 GB where there is no ceiling, unless `run_memory_max_mb` sets it, ends `fail` with `killed: memory cap`.
-`ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the CPU gate but still waiting for the memory floor, and takes the next heavy suite turn first, marked `first` in `ak run status`.
+`ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the CPU gate but still waiting for the memory floor, and takes the next heavy suite turn and merge turn first, marked `first` in `ak run status`.
 A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run scope and cap; one run from a terminal runs its tasks in its own process.
 
 The worktree is `~/.agentkit/wt/<id>` on branch `ak/<slug>`, the first name free locally and on `origin`. The executor
@@ -108,7 +108,7 @@ names its first failing line); one failing on the target's own tip too parks at 
 rebase, the done-when and final check re-runs, and every fixer and re-review they need run before it. A target still on
 the verified commit lands; one moved only by commits touching none of the branch's files is rebased onto and lands on
 the verified checks; any other move releases the turn to verify again holding it, from before the rebase through the merge, and a third such lap parks `waiting`. During that re-check, branches changing none of the holder's files borrow the delivery turn one at a time; overlapping or unknown file sets wait. Renames count both paths. The holder takes the turn back and lands on its verified checks when only other files moved. It still shows `holding the merge turn of <repo> <branch> to land`, letting go before any fixer, reviewer or stop. A run
-queued for the turn shows `waiting for the merge turn of <repo> <branch>`, holding no slot and never read as silent; a
+queued for the turn, which goes to `--first` runs first and then in the order they began waiting, shows `waiting for the merge turn of <repo> <branch>`, holding no slot and never read as silent; a
 dead holder's turn passes on. A failed integration, conflict or final-check review gets a fixer with the whole review
 (and a failing done-when's output) while rounds are left, and at the budget ends `fail` with its findings, or with why
 the loop overrode a PASS. A base-branch merge race re-fetches, rechecks the PR head and target, verifies and pushes

@@ -41,6 +41,21 @@ with run.merge_turn(lp, "origin/main"):
     os._exit(1)
 """
 
+# A run of another process that queues for the merge turn, to be killed while it waits.
+WAITER = """
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from agentkit import config, run
+config.RUNS = Path(sys.argv[2])
+directory = Path(sys.argv[3])
+state = run.read_state(directory)
+lp = run.Loop({}, directory, state, {}, lambda msg: print(msg, flush=True),
+              Path(state["worktree"]), "", [], "", [])
+with run.merge_turn(lp, "origin/main"):
+    print("took", flush=True)
+"""
+
 
 def commit(cwd, name, message):
     (cwd / name).write_text(f"{message}\n")
@@ -422,6 +437,44 @@ class MergeTurn(unittest.TestCase):
         run.git(owner, "push", "origin", "main")
         self.assertTrue(run.merge(again))
         self.assertNotIn("waiting for the merge turn", (again.run_dir / "log.txt").read_text())
+
+    def test_a_freed_turn_goes_to_first_then_to_the_longest_wait(self):
+        remote, owner = make_origin(self.root)
+        runs = {name: make_run(self.root, remote, name)
+                for name in ("killed", "early", "late", "urgent")}
+        for name in ("killed", "urgent"):
+            runs[name].state["first"] = True
+            run.save_state(runs[name].run_dir, runs[name].state)
+        holder = subprocess.Popen(
+            [sys.executable, "-c", HOLDER, str(REPO), str(config.RUNS), str(runs["early"].wt)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        self.addCleanup(holder.communicate, timeout=20)
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        # a `--first` run killed while it waits holds nobody back: the kernel let its place go
+        killed = subprocess.Popen(
+            [sys.executable, "-c", WAITER, str(REPO), str(config.RUNS),
+             str(runs["killed"].run_dir)],
+            stdout=subprocess.PIPE, text=True, env={**os.environ, "HOME": str(self.root)})
+        self.addCleanup(killed.communicate, timeout=20)
+        self.assertIn("waiting for the merge turn", killed.stdout.readline())
+        order, threads = [], []
+        for name in ("early", "late", "urgent"):
+            def take(lp=runs[name]):
+                with run.merge_turn(lp, "origin/main"):
+                    order.append(lp.state["title"])
+            threads.append(threading.Thread(target=take, daemon=True))
+            threads[-1].start()
+            self.waiting(runs[name])
+        killed.kill()
+        killed.wait(20)
+        holder.stdin.write("die\n")
+        holder.stdin.flush()
+        self.assertEqual(holder.wait(20), 1)
+        for thread in threads:
+            thread.join(20)
+            self.assertFalse(thread.is_alive(), "a waiter never took the turn")
+        self.assertEqual(order, ["urgent", "early", "late"])
+        self.assertFalse(list(config.RUNS.glob("*.wait")))
 
     def test_runs_of_two_repos_integrate_at_the_same_time(self):
         runs = []
