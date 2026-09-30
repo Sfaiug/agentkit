@@ -70,6 +70,10 @@ CANNOT_PIN = 3             # the adapter's answer when its TUI cannot be told a 
 POPUP_KEY = "m"            # Ctrl-b m inside a seat: the menu, over whatever is running
 POPUP_SIZE = "-w 80% -h 70%"          # the popup on a screen with room to spare around it
 POPUP_FULL = "-w 100% -h 100%"        # ... and on a phone, where the border is all it spares
+POPUP_TITLE = " agentkit "            # set into the popup's top edge
+POPUP_PADDING = 1                     # ... the column and row it leaves blank inside its border
+DIM = f"fg=#{terminal.STATE_STYLES['dim'][2]}"   # its border, and the session behind it
+FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, hands it variables
 SMALL_CLIENT = "#{||:#{e|<:#{client_width},60},#{e|<:#{client_height},25}}"
 HINT = "Ctrl-b m  menu"   # the right half of every seat's status bar: the one key
 CLOSE_HINT = "Ctrl-b m  x close"   # ... and of a done one's, which that menu's `x` closes at once
@@ -1410,13 +1414,24 @@ def popup_command():
     return shlex.join([sys.executable, str(config.REPO / "bin" / "ak"), "attach", "--overlay"])
 
 
+def tmux_version():
+    """(major, minor) of the tmux here, or (0, 0) where it names no release."""
+    try:
+        said = subprocess.run(["tmux", "-V"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        said = ""
+    found = re.search(r"(\d+)\.(\d+)", said)
+    return (int(found[1]), int(found[2])) if found else (0, 0)
+
+
 def tmux_conf():
     """Write agentkit's own tmux config file and return its path.
 
     Its own file, handed to tmux with `-f`, because the user's ~/.tmux.conf is theirs: nothing
     here reads it and nothing here writes to it.  It holds the one binding a seat needs --
-    `Ctrl-b m`, the menu in a popup over whatever is running -- and nothing else, because
-    everything else a seat wants is a session option, set on the session itself.
+    `Ctrl-b m`, the menu in a popup over whatever is running -- and the hook it leans on, and
+    nothing else, because everything else a seat wants is a session option, set on the session
+    itself.
 
     `-f` is only read when the tmux command is the one that starts the server, so `start` also
     loads this file into a server that was already up.  On agentkit's own server that is the
@@ -1433,10 +1448,28 @@ def tmux_conf():
     border, because a popup of 80% by 70% of forty by twelve holds a key line and nothing to
     press it on; anywhere larger it is the 80% by 70% it always was.  `display-popup` takes
     no format for its size, so the choice is `if-shell -F`'s.
+
+    The popup floats, on a tmux that has what it takes (FLOATS; an older one draws the plain
+    popup, and says nothing): a rounded border in the dim colour with ` agentkit ` set into
+    its top edge, a column and a row of padding inside it -- the menu's to leave, since tmux
+    pads nothing (`terminal.pad`) -- and none on a phone, which spares no cell.  While it is up
+    the pane it opened over draws its default text dim: tmux runs the binding's commands in
+    order and the one after `display-popup` only once the popup is down, whatever took it down
+    -- its menu ending, a crash, a kill, `display-popup -C` -- and a client that goes with the
+    popup still up has its commands dropped, so its going (`client-detached`) takes the style
+    off as well.  A seat's pane has no style of its own, so taking it off is what was there.
     """
     config.ensure_dirs()
     path = config.STATE / "tmux.conf"
     popup = tmux_word(popup_command())
+    small, large = f"display-popup -E {POPUP_FULL}", f"display-popup -E {POPUP_SIZE}"
+    dim = undim = hook = ""
+    if tmux_version() >= FLOATS:
+        border = f"-b rounded -S {tmux_word(DIM)} -T {tmux_word(POPUP_TITLE)}"
+        small, large = (f"{small} {border}",
+                        f"{large} {border} -e {terminal.PAD_ENV}={POPUP_PADDING}")
+        dim, undim = f"set -p window-style {tmux_word(DIM)} ; ", " ; set -pu window-style"
+        hook = f"set-hook -g client-detached {tmux_word('set -pu window-style')}\n"
     text = ("# written by `ak orch`; agentkit's own tmux config, never the user's ~/.tmux.conf\n"
             "set -g mouse on\n"
             "set -g history-limit 50000\n"
@@ -1444,8 +1477,8 @@ def tmux_conf():
             "set -g allow-passthrough on\n"
             'set -as terminal-features ",*:RGB"\n'
             f"bind-key {POPUP_KEY} if-shell -F {tmux_word(SMALL_CLIENT)} "
-            f"{tmux_word(f'display-popup -E {POPUP_FULL} {popup}')} "
-            f"{tmux_word(f'display-popup -E {POPUP_SIZE} {popup}')}\n")
+            f"{tmux_word(f'{dim}{small} {popup}{undim}')} "
+            f"{tmux_word(f'{dim}{large} {popup}{undim}')}\n" + hook)
     try:
         if not path.exists() or path.read_text() != text:
             path.write_text(text)
