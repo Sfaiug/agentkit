@@ -90,7 +90,7 @@ class LiveMenu(Sandbox):
         def quit_now(wake):
             waited.append(done.is_set())
             release.set()
-            return "q"
+            return ""
 
         screens = self.run_menu([quit_now], collect)
         self.assertTrue(done.wait(5))          # and the probe still ran, behind the draw
@@ -108,7 +108,7 @@ class LiveMenu(Sandbox):
             self.assertEqual(select.select([wake], [], [], 5)[0], [wake])
             return None
 
-        screens = self.run_menu([woken, lambda wake: "q"], collect)
+        screens = self.run_menu([woken, lambda wake: ""], collect)
         self.assertRegex(screens[0], r"Claude\s+[█░]+\s+52% left")
         self.assertRegex(screens[1], r"Claude\s+[█░]+\s+30% left")
 
@@ -120,7 +120,7 @@ class LiveMenu(Sandbox):
             return next(clocks) if fmt == "%H:%M" and not args else real(fmt, *args)
 
         with patch.object(menu.time, "strftime", side_effect=strftime):
-            screens = self.run_menu([lambda wake: None, lambda wake: "q"])
+            screens = self.run_menu([lambda wake: None, lambda wake: ""])
         self.assertIn("14:02", screens[0].splitlines()[0])
         self.assertIn("14:03", screens[1].splitlines()[0])
         for screen in screens:
@@ -181,12 +181,12 @@ class LiveMenu(Sandbox):
             os.write(writer, b"2\n")        # the rest of it, after however many redraws
             self.assertEqual(menu.wait_key("> ", menu.TICK), "12")
             self.assertEqual(terminal._HALF_TYPED, b"")
-            # a writer that closes mid-line has said its piece; a closed one says `q`
+            # a writer that closes mid-line has said its piece; a closed one goes back
             os.write(writer, b"n")
             os.close(writer)
             shut.append(True)
             self.assertEqual(menu.wait_key("> ", menu.TICK), "n")
-            self.assertEqual(menu.wait_key("> ", menu.TICK), "q")
+            self.assertEqual(menu.wait_key("> ", menu.TICK), "")
 
     def test_a_line_a_sub_screen_read_never_strands_the_key_behind_it(self):
         """One reader, or a buffered question swallows the next key and the screen spins."""
@@ -196,7 +196,7 @@ class LiveMenu(Sandbox):
         self.addCleanup(pipe.close)
         self.addCleanup(setattr, terminal, "_HALF_TYPED", b"")
         # a key, the answer to the question it opened, and the key after it, all at once
-        os.write(writer, b"x\n1\nq\n")
+        os.write(writer, b"x\n1\n\x1b\n")
         began = time.monotonic()
         with patch.object(sys, "stdin", pipe), redirect_stdout(io.StringIO()):
             self.assertEqual(menu.wait_key("> ", menu.TICK), "x")

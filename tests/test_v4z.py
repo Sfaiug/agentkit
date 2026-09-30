@@ -169,7 +169,7 @@ class Projects(Sandbox):
                 self.assertEqual(notify.session_number(name), number)
         with patch.object(orch, "listing", return_value=self.seats), \
                 patch.object(orch, "job_notices", return_value=[]), \
-                patch.object(menu, "read", side_effect=["m", "4", "q"]), \
+                patch.object(menu, "read", side_effect=["m", "4", ""]), \
                 patch.object(menu, "open_session") as opened, \
                 patch.object(terminal, "height", return_value=12), redirect_stdout(io.StringIO()):
             menu.loop(self.cfg, dry_run=True)

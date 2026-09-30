@@ -178,7 +178,7 @@ class MenuRows(Sandbox):
         self.seat("only-seat", "atoll", live="working")
         screen, pages = self.draw(100, 30)
         self.assertEqual(pages[1], 1)
-        for phrase in ("n new", "x stop", "c config", "i info", "q leave"):
+        for phrase in ("n new", "x stop", "c config", "i info", "esc leave"):
             self.assertIn(phrase, screen)
         for gone in ("p preview", "b browser", "r runs", "m more", "k previous"):
             self.assertNotIn(gone, screen)
@@ -193,12 +193,12 @@ class MenuRows(Sandbox):
 
     def test_removed_keys_answer_not_a_key(self):
         self.seat("only-seat", "atoll", live="working")
-        answers = iter(["r", "p", "b", "s", "u", "q"])
+        answers = iter(["r", "p", "b", "s", "u", ""])
         with patch.object(orch, "listing", return_value=self.seats), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "read", side_effect=lambda *_: next(answers)), \
                 patch.object(menu, "wait_key", side_effect=lambda prompt, timeout=None,
-                             wake=None: menu.read(prompt, "q")), \
+                             wake=None: menu.read(prompt, "")), \
                 patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:

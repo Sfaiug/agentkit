@@ -157,7 +157,7 @@ class Screen:
 
     def leave(self):
         mark = len(self.text())
-        os.write(self.master, b"q")
+        os.write(self.master, ESC)
         self.saw("<left>", after=mark)
         self.case.assertEqual(self.proc.wait(15), 0, self.text()[-3000:])
 

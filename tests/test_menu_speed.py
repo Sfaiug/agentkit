@@ -96,7 +96,7 @@ class MenuSpeed(Sandbox):
             return None                     # Esc: Keep
 
         script = iter([Key("down"), Key("up"), Key("wheel-down"), Key("char", "c"),
-                       Key("char", "m"), Key("char", "i"), Key("char", "x"), Key("char", "q")])
+                       Key("char", "m"), Key("char", "i"), Key("char", "x"), Key("esc")])
 
         def wait_key(prompt, timeout=None, wake=None):
             if began:
@@ -129,7 +129,7 @@ class MenuSpeed(Sandbox):
                                        ("char", "m", ["tidy-docs"]),
                                        ("char", "i", ["tidy-docs"]),
                                        ("char", "x", ["tidy-docs"]),
-                                       ("char", "q", ["tidy-docs"])], screens)
+                                       ("esc", "", ["tidy-docs"])], screens)
         self.assertEqual(marks, [(True,), ("tidy-docs",), (True,)])   # `c`, `m` on its seat, `i`
         self.assertEqual(self.estimates, [str(config.CODE / "acme")])   # once, not once a draw
 
