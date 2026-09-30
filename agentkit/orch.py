@@ -127,6 +127,7 @@ INTERPRETERS = (
 REPORTABLE = ("pass", "fail", "error", "blocked", "exhausted", "interrupted")
 _VERSIONS = {}             # installed harness builds, asked for once and only to name a refusal
 _MANAGER = {}              # whether this host has a user systemd manager, asked once
+_OOM_POLICY = {}           # whether a scope takes OOMPolicy=, asked once
 _SLICE = {}                # ... and what its slice says about itself, for the same reason
 _PROCESSES = {}            # the last reading of the process table, when, and whether it is held
 
@@ -335,6 +336,23 @@ def user_manager():
             except (OSError, ValueError):
                 pass
     return _MANAGER["answer"]
+
+
+def scope_oom_policy():
+    """Does a scope take OOMPolicy=?  systemd 253 and later.
+
+    An older systemd-run refuses the whole scope over it, and the run would start plainly,
+    outside the slice and its cap; there a scope keeps the default, which stops it whole.
+    Asked once per process, and only by a launch that is about to run systemd-run anyway.
+    """
+    if "answer" not in _OOM_POLICY:
+        try:
+            said = subprocess.run(["systemd-run", "--version"], capture_output=True, text=True,
+                                  stdin=subprocess.DEVNULL, timeout=5).stdout
+            _OOM_POLICY["answer"] = int(said.split()[1].split(".")[0]) >= 253
+        except (OSError, subprocess.SubprocessError, IndexError, ValueError):
+            _OOM_POLICY["answer"] = False
+    return _OOM_POLICY["answer"]
 
 
 def can_scope():

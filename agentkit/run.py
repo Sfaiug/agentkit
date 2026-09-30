@@ -1591,6 +1591,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             expired.session = expired.session or session
             raise
         note_turn_meters(cfg, name, target, account)
+        memory_cap_check(out_dir.parent.parent, log)
         return result
 
     def next_account(until, message):
@@ -2354,6 +2355,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         on_timeout=reason.append, cwd=str(cwd), output=progress,
                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=suite_env())
                     end = progress.tell()
+                memory_cap_check(run_dir, log or (lambda _line: None))
                 with log_path.open("rb") as progress:
                     progress.seek(max(offset, log_path.stat().st_size - OUT_CAP))
                     out = progress.read().decode("utf-8", errors="replace")
@@ -8508,13 +8510,17 @@ def run_scope_limits(ceiling_mb=None):
 
     CPU and I/O weight stay below the seats' 100, and the memory cap is applied
     as both MemoryMax and MemorySwapMax: the same number, so a leak cannot trade
-    one for the other and keep going.  The properties are what `systemd-run -p`
-    takes; the cap is what the receipt records, so the reason can still name the
-    number after the process that knew it is gone.
+    one for the other and keep going.  OOMPolicy=continue, where systemd takes it,
+    has the kernel end the one process that grew, not the whole scope: the loop,
+    its harness session and its worktree go on, and `memory_cap_check` counts the
+    kills.  The properties are what `systemd-run -p` takes; the cap is what the
+    receipt records, so the reason can still name the number after the process
+    that knew it is gone.
     """
     cap = memory_cap_mb(ceiling_mb)
     return cap, ("-p", "CPUWeight=40", "-p", "IOWeight=40",
-                 "-p", f"MemoryMax={cap}M", "-p", f"MemorySwapMax={cap}M")
+                 "-p", f"MemoryMax={cap}M", "-p", f"MemorySwapMax={cap}M",
+                 *(("-p", "OOMPolicy=continue") if orch.scope_oom_policy() else ()))
 
 
 def remember_memory_cap(state, placement, cap):
@@ -8584,7 +8590,7 @@ def _oom_kill_count(cgroup):
 
 
 def _scope_oom_probe(state):
-    """(systemd Result, oom_kill count) for the run's scope.  Either witness is enough."""
+    """(systemd Result, oom_kill count) for the run's scope: see `memory_cap_reason`."""
     result, kills = "", 0
     for unit in _scope_units(state.get("scope")):
         shown, cgroup = _systemctl_fields(unit)
@@ -8603,8 +8609,12 @@ def memory_cap_reason(state, probe=None):
 
     A run that was not given a cap cannot have been killed by one, and a plain
     start has no scope to ask.  `probe` returns the unit Result and the oom_kill
-    count so a test never asks the real manager.  Anything unreadable is not a
-    memory kill: a dead loop with no witness stays the interruption it always was.
+    count so a test never asks the real manager.  `oom-kill` is what a scope
+    launched before OOMPolicy=continue says; in one launched since, a kill is
+    one process, and only the third ends the run -- a loop that dies before it
+    is resumed like any dead loop, in a new scope that counts from zero.
+    Anything unreadable is not a memory kill: a dead loop with no witness stays
+    the interruption it always was.
     """
     cap = state.get("memory_cap_mb")
     if type(cap) is not int or cap <= 0 or not scope_is_real(state.get("scope")):
@@ -8614,19 +8624,58 @@ def memory_cap_reason(state, probe=None):
         result, kills = probe(state)
     except (OSError, subprocess.SubprocessError, TypeError, ValueError):
         return None
-    if result == "oom-kill" or (type(kills) is int and kills > 0):
+    if result == "oom-kill" or (type(kills) is int and kills >= MEMORY_CAP_KILLS):
         return memory_cap_line(cap)
     return None
 
 
-def conclude_memory_cap(run_dir, state, reason):
+MEMORY_CAP_KILLS = 3    # processes the kernel ends at one scope's cap before the run ends
+_OOM_SEEN = {}          # scope -> the oom_kill count this loop last said; no record keeps it
+
+
+class MemoryCapped(Exception):
+    """The kernel ended the third process at this run's memory cap: `drive` ends it `fail`."""
+
+
+def memory_cap_check(run_dir, log):
+    """Say each process the kernel ended at this run's cap, and end the run at the third.
+
+    Called as each worker turn and each done-when command ends.  The count is read
+    from the cgroup this loop runs in, and only when that is the run's own scope: a
+    run from a seat's shell sits in the seat's, whose kills are not the run's.
+    """
+    state = (read_state(Path(run_dir)) if run_dir is not None else None) or {}
+    scope, cap = state.get("scope"), state.get("memory_cap_mb")
+    if type(cap) is not int or cap <= 0 or not scope_is_real(scope):
+        return
+    try:
+        line = next(row for row in orch.OWN_CGROUP.read_text().splitlines()
+                    if row.startswith("0::"))
+    except (OSError, StopIteration):
+        return
+    cgroup = line[3:].strip().rstrip("/")
+    if cgroup.rsplit("/", 1)[-1] not in _scope_units(scope):
+        return
+    kills = _oom_kill_count(cgroup)
+    if kills <= _OOM_SEEN.get(scope, 0):
+        return
+    _OOM_SEEN[scope] = kills
+    reason = memory_cap_line(cap)
+    log(f"{reason.removeprefix('killed: ')} hit ({min(kills, MEMORY_CAP_KILLS)} of "
+        f"{MEMORY_CAP_KILLS}): the process that grew was ended")
+    if kills >= MEMORY_CAP_KILLS:
+        raise MemoryCapped(reason)
+
+
+def conclude_memory_cap(run_dir, state, reason, stop=True):
     """End the run `fail` on its memory cap, and stop the scope that hit it.
 
-    The loop that was inside the scope is already dead, so the reason is written
-    from outside: `log.txt`, `result.md`, and the state the hand-back reads.
-    Stopping the scope is what returns the memory; the kernel has usually killed
-    the processes already, and the stop collects whatever it missed.  It is not
-    an interruption: resuming a leak repeats it.
+    The reaper writes the reason from outside a dead loop's scope: `log.txt`,
+    `result.md`, and the state the hand-back reads.  Stopping the scope is what
+    returns the memory; the kernel has usually killed the processes already, and
+    the stop collects whatever it missed.  A loop still alive at its third kill
+    passes `stop=False` and stops its own scope last, as every ending does.  It is
+    not an interruption: resuming a leak repeats it.
     """
     state.update(state="fail", verdict="FAIL", finished_at=time.time(), error=reason)
     for key in ("recovery_pending", "interruption_reason", "interrupted_at",
@@ -8642,7 +8691,8 @@ def conclude_memory_cap(run_dir, state, reason):
     # The reaper is outside the scope -- the loop is already dead -- so it can
     # wait for the stop.  That is what puts the memory back before the tick
     # moves on, instead of leaving systemctl running uncollected.
-    stop_run_tree(state, wait=True)
+    if stop:
+        stop_run_tree(state, wait=True)
     history_finish(state)
     try:
         refresh_seat_tally(launched_session(state))
@@ -12754,6 +12804,14 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
         record_result(run_dir, state, log, cfg)
         announce(state, run_dir, log, cfg)
         stop_run_tree(read_state(run_dir) or state, log)
+        return 1
+    except MemoryCapped as exc:
+        # The kernel ended a third process at the run's cap.  The loop is alive to end
+        # the run the way the reaper ends one whose loop died there, and to hand it back;
+        # its own scope stops last, after the housekeeping below.
+        state = conclude_memory_cap(run_dir, read_state(run_dir) or {}, str(exc), stop=False)
+        announce(state, run_dir, log, cfg)
+        stop_after_finally = True
         return 1
     except Killed as exc:
         # A worker turn killed by signal twice within a minute: nothing was executed and
