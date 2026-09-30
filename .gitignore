@@ -4,9 +4,6 @@ __pycache__/
 .acceptance-*
 .phone-*
 # test sandboxes: a killed suite leaves these inside the checkout; the loop never commits them
-# every tempfile sandbox a test makes in the checkout: its prefix and eight random characters,
-# so a prefix nobody listed here is never swept into the loop's leftover commit
-/.*-????????/
 .after-from-pass-*
 .auth-watch-*
 .cards-*

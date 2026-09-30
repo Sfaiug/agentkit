@@ -479,7 +479,7 @@ def _reset_policy(cfg, provider, prov, now, depleted):
     except OSError:
         return prov, False   # a spend that cannot be recorded is a spend that is not made
     result = _adapter_json(harness, "reset", 60, prov.get("account")) or {}
-    spent = result.get("code") == "reset"
+    spent, spent_at = result.get("code") == "reset", time.time()
     left = _number(result.get("available"))
     try:
         _write_reset_state(path, {**record, "applied_at": now if spent else None,
@@ -515,6 +515,9 @@ def _reset_policy(cfg, provider, prov, now, depleted):
     if _number(fresh.get("resets")) is None:
         fresh["resets"] = left
     fresh["notes"] = [*(prov.get("notes") or []), f"usage-limit reset applied ({left:.0f} left)"]
+    # Every mark made before the credit went was a refusal of the week it replaced, one a
+    # worker made while this read was under way included: writing this record lifts them all.
+    fresh["reset_spent_at"] = spent_at
     return fresh, True
 
 
@@ -641,7 +644,8 @@ def _store(cache, fetched_at, providers, reset_checked_at=None, since=None):
     A read takes a probe per provider and account, and a worker refused meanwhile has marked
     its provider or account in the file this write replaces.  A mark made at or after `since`,
     when the writer began reading, is one it never saw and so never lifted: it is kept, and
-    ends as every mark does (`_gate_flags`), never because a read was under way.
+    ends as every mark does (`_gate_flags`), never because a read was under way.  A credit the
+    writer spent after it lifts it all the same (`reset_spent_at`).
     """
     config.ensure_dirs()
     if since is not None:
@@ -667,7 +671,8 @@ def _later_marks(cache, providers, since):
 
     def kept(old, new):
         at = _number(old.get("exhausted_at")) if isinstance(old, dict) else None
-        mine = _number(new.get("exhausted_at")) if isinstance(new, dict) else None
+        mine = (max(_number(new.get(key)) or 0 for key in ("exhausted_at", "reset_spent_at"))
+                if isinstance(new, dict) else None)
         if at is None or at < since or not isinstance(new, dict) or (mine or 0) >= at:
             return new
         return {**new, **{key: old[key] for key in ("exhausted_until", "exhausted_at",
