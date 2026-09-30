@@ -85,7 +85,7 @@ SHIPPED = tomllib.loads((REPO / "config.default.toml").read_text())
 MATRIX, ADD, REMOVE = ("agentkit · config", "agentkit · config · add a provider",
                        "agentkit · config · remove a provider")
 KEYS = {"row": "  ↑↓←→ move   ⏎ open   esc back", "add": "  ↑↓ move   ⏎ add   esc back",
-        "choose": "  ↑↓ move   ⏎ choose   esc back", "ask": "  esc keep"}
+        "choose": "  ↑↓ move   ⏎ choose   esc back", "ask": "  esc back"}
 GIVE, TAKE = "\x1b[?1049l", "\x1b[?1049h"
 
 

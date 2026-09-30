@@ -118,7 +118,7 @@ class Menu:
             env.update({"ESC_OVERLAY": "1", "AGENTKIT_SESSION": own})
         if notice:
             env["ESC_NOTICE"] = notice
-        self.keys = "esc close" if own else "esc leave"
+        self.keys = "esc leave"
         self.proc = subprocess.Popen([sys.executable, "-c", CHILD], stdin=self.slave,
                                      stdout=self.slave, stderr=self.slave, env=env,
                                      start_new_session=True)
@@ -200,10 +200,11 @@ class Menu:
 
     def back(self, name, where):
         """`q` leaves the screen `where` accepts up, and Esc takes it down within ESC_WAIT; the
-        key line under it names `esc` either way."""
+        key line under it ends `esc back`, or on the menu itself `esc leave`."""
         if where is not None:
             lines = self.screen(where)
-            self.case.assertIn("esc", lines[-1], lines)
+            self.case.assertTrue(lines[-1].endswith("esc leave" if name == "loop" else "esc back"),
+                                 lines)
         mark = len(self.text())
         self.send(b"q")
         time.sleep(0.3)
@@ -230,7 +231,7 @@ class EscBack(unittest.TestCase):
         menu_.send(b"m")
         menu_.back("show_session_models", title("alpha models"))
         menu_.send(b"x")                                  # alpha is working: asked under its row
-        menu_.back("choose", lambda lines: lines[-1].strip() == "esc keep")
+        menu_.back("choose", lambda lines: lines[-1].strip() == "esc back")
         self.assertNotIn("<stopped", menu_.text())
         menu_.highlight("ACME")
         menu_.press(ENTER, title("ACME"))
@@ -310,6 +311,15 @@ class EscBack(unittest.TestCase):
                                Key("char", "c"), Key("enter")), "ac")
         self.assertEqual(typed(Key("enter"), placeholder="auto"), "")   # the caller's default
         self.assertEqual(typed(Key("char", "q"), Key("esc")), terminal.ESC)
+        # wide characters are two cells each: no line drawn is wider than the screen
+        with patch.object(terminal, "read_key", side_effect=[Key("char", "界")] * 30
+                          + [Key("enter")]), \
+                patch.object(terminal, "width", return_value=40), \
+                redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(terminal.field("Name: ", "a placeholder wider than forty cells"),
+                             "界" * 30)
+        drawn = [terminal.cells(line) for line in out.getvalue().split("\r") if line]
+        self.assertLess(max(drawn), 40, drawn)
 
 
 

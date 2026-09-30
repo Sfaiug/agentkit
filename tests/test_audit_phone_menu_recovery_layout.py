@@ -533,7 +533,7 @@ class Phone(Sandbox):
         """The page inside the popup: heading and keys both within the box."""
         inside = Terminal.inside(screen)
         self.assertTrue(any("your projects" in line for line in inside), "\n".join(screen))
-        self.assertTrue(next(line for line in reversed(inside) if line.strip()).endswith("esc close"),
+        self.assertTrue(next(line for line in reversed(inside) if line.strip()).endswith("esc leave"),
                         "\n".join(screen))
         return inside
 
@@ -554,7 +554,7 @@ class Phone(Sandbox):
         def ready(screen):
             inside = Terminal.inside(screen)
             last = next((line for line in reversed(inside) if line.strip()), "")
-            return self.marked(inside) not in (None, at) and last.endswith(("esc leave", "esc close"))
+            return self.marked(inside) not in (None, at) and last.endswith("esc leave")
         return phone.wait(ready, f"the highlight moved by {key} off {at}")
 
     def turned(self, phone, before):
@@ -657,45 +657,46 @@ class Phone(Sandbox):
         # the popup: r renames it; Esc closes it; n starts a second seat and switches to it; a
         # number switches back; x stops this session, and the client falls back to the other
         phone.keys("C-b", "m")
-        phone.until("esc close", "1  new", prompt="esc close")
+        phone.until("esc leave", "1  new", prompt="esc leave")
         phone.press("r")
         phone.until("Name: new", prompt="Name: new")
         phone.type("Phone Audit")
-        screen = phone.until("esc close", "1  phone-au", prompt="esc close")
+        screen = phone.until("esc leave", "1  phone-au", prompt="esc leave")
         record = json.loads(config.session_path("phone-audit").read_text())
         self.assertEqual((record["orchestrator"], record["workers"]),
                          ("astra", ["opus", "astra", "fable", "spark", "grok", "gemini", "mimo"]))
         self.assertNotIn("p preview", "\n".join(screen))
         phone.keys("Escape")
-        phone.until(STAND_IN, absent=["esc close"])
+        phone.until(STAND_IN, absent=["esc leave"])
         phone.settled()                      # its screen goes before its process does
         phone.keys("C-b", "m")
-        phone.until("esc close", prompt="esc close")
+        phone.until("esc leave", prompt="esc leave")
         phone.press("n")                     # the old placeholder is held by the rename alias
         phone.until("Name: auto", prompt="Name: auto")
         phone.keys("Enter")
         phone.until("agentkit · new session", prompt="esc back")
         phone.keys("Enter")
-        phone.until("new-2 · opus", "Ctrl-b m  menu", absent=["esc close"])
+        phone.until("new-2 · opus", "Ctrl-b m  menu", absent=["esc leave"])
         phone.settled()
         self.assertTrue(self.has_seat("new-2"))
         phone.keys("C-b", "m")
-        phone.until("esc close", "1  new-2", "2  phone-au", prompt="esc close")
+        phone.until("esc leave", "1  new-2", "2  phone-au", prompt="esc leave")
         phone.press("2")
-        phone.until("phone-audit · astra", absent=["esc close"])
+        phone.until("phone-audit · astra", absent=["esc leave"])
         phone.settled()
         phone.keys("C-b", "m")
-        phone.until("esc close", "1  new-2", prompt="esc close")
+        phone.until("esc leave", "1  new-2", prompt="esc leave")
         phone.press("1")
-        phone.until("new-2 · opus", absent=["esc close"])
+        phone.until("new-2 · opus", absent=["esc leave"])
         phone.settled()
         phone.keys("C-b", "m")
-        phone.until("esc close", prompt="esc close")
+        phone.until("esc leave", prompt="esc leave")
         phone.press("x")                     # this session's, asked under its own row
-        phone.until("Stop new-2 and everything it runs?", "Keep", prompt="esc keep")
+        phone.until("Stop new-2 and everything it runs?", "Keep", prompt="esc back")
         self.stop_answered(phone)
-        # the seat is gone, so the attach is over: the menu is back, with no ghost row
-        screen = phone.until("your projects", "1  phone-audit", "esc leave", prompt="esc leave")
+        # the seat is gone, so the attach is over: the menu is back, with no ghost row and no box
+        screen = phone.until("your projects", "1  phone-audit", "esc leave", absent=["│"],
+                             prompt="esc leave")
         self.whole_page(screen, width, height)
         self.assertFalse(self.has_seat("new-2"))
         self.assertNotIn("2  phone-audit", "\n".join(screen))
@@ -750,10 +751,10 @@ class Phone(Sandbox):
         phone.press("11")                    # phone-audit, eleventh by name
         phone.until(STAND_IN, "phone-audit · astra")
         phone.keys("C-b", "m")
-        screen = phone.until("esc close", "your projects", " 1/", prompt="esc close")
+        screen = phone.until("esc leave", "your projects", " 1/", prompt="esc leave")
         self.every_page(phone, screen, self.popup_page, 12, 8)
         phone.keys("Escape")
-        phone.until(STAND_IN, absent=["esc close"])
+        phone.until(STAND_IN, absent=["esc leave"])
         phone.settled()                      # its screen goes before its process does
         phone.keys("C-b", "d")
         phone.until("your projects", prompt="esc leave")
@@ -783,11 +784,11 @@ class Phone(Sandbox):
         phone.press("11")
         phone.until(STAND_IN, "phone-audit · astra")
         phone.keys("C-b", "m")
-        screen = phone.until("esc close", "1/", prompt="esc close")
+        screen = phone.until("esc leave", "1/", prompt="esc leave")
         self.assertIn("no project", "\n".join(Terminal.inside(screen)))
         self.every_page(phone, screen, self.popup_page, 12, 8)
         phone.keys("Escape")
-        phone.until(STAND_IN, absent=["esc close"])
+        phone.until(STAND_IN, absent=["esc leave"])
         phone.settled()                      # its screen goes before its process does
         phone.keys("C-b", "d")
         phone.until("your projects", prompt="esc leave")
@@ -800,7 +801,7 @@ class Phone(Sandbox):
         screen = self.moved(phone, "j", screen)          # from phone-audit, eleventh, to twelfth
         self.assertEqual(self.marked(screen), 12)
         phone.press("x")
-        screen = "\n".join(phone.until("everything it runs?", "Keep", prompt="esc keep"))
+        screen = "\n".join(phone.until("everything it runs?", "Keep", prompt="esc back"))
         if narrow:   # the name is wider than the question's room, so it breaks where it must
             self.assertIn("zz-very-long-session-name-for-a-narrow", screen)
         else:
