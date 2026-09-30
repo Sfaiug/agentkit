@@ -1590,8 +1590,9 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 "login rather than retrying into it")
             expired.session = expired.session or session
             raise
+        finally:
+            memory_cap_check(out_dir.parent.parent, log)   # however the turn ended
         note_turn_meters(cfg, name, target, account)
-        memory_cap_check(out_dir.parent.parent, log)
         return result
 
     def next_account(until, message):
@@ -3990,6 +3991,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         finally:
             history_role_tokens(lp.state.get("run_id"), "reviewer", out2, lp.log,
                                 lp.cfg, lp.reviewer)
+            memory_cap_check(lp.run_dir, lp.log)
         lp.review_sid = sid2 or lp.review_sid
         if code2 != 0:
             lp.log(f"WARN reviewer {killed_word(code2) or f'exited {code2}'}; "
@@ -5211,6 +5213,7 @@ def target_fails(lp, upstream, dw_log):
                         or time.monotonic() - began > lp.done_when_limit):
                     break
                 began += busy_turn(lp.run_dir, probe_log, lp.log)
+        memory_cap_check(lp.run_dir, lp.log)
         # as after a gate: a command that exited may still have left processes behind
         worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
         if not (killed or code != 0):
@@ -12413,6 +12416,11 @@ def cmd_merge(argv):
     except Dead as exc:
         state.update(state="error", verdict="ERROR", error=str(exc), finished_at=time.time())
         park_error(run_dir, state)
+        note(lp, str(exc), failed=True)
+    except MemoryCapped as exc:
+        # the third kill at the cap ends a delivery retry as it ends a round; the tail
+        # below hands it back and stops the scope
+        conclude_memory_cap(run_dir, state, str(exc), stop=False)
         note(lp, str(exc), failed=True)
     except Blocked as exc:
         # a fixer here can say the task is wrong as readily as one in a round: the delivery

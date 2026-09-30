@@ -392,8 +392,6 @@ class MemoryCap(unittest.TestCase):
     def test_the_kernel_ends_the_allocator_alone_and_the_seat_slice_shows_no_pressure(self):
         if not shutil.which("systemd-run") or not orch.user_manager():
             self.skipTest("no user systemd manager")
-        if not orch.scope_oom_policy():
-            self.skipTest("this systemd's scopes take no OOMPolicy=")
         token = f"agentkit-test-cap{os.getpid() % 100000}{uuid.uuid4().hex[:4]}"
         self.assertTrue(token.startswith("agentkit-test-cap"))
         seat_slice = f"{token}-seats.slice"
@@ -408,7 +406,10 @@ class MemoryCap(unittest.TestCase):
         cap, props = run.run_scope_limits()
         self.assertEqual((cap, "MemoryMax=32M", "MemorySwapMax=32M"),
                          (32, ) + tuple(item for item in props if item.startswith("Memory")))
-        self.assertIn("OOMPolicy=continue", props)
+        # A systemd whose scopes take no OOMPolicy= is not asked for it, and stops the scope
+        # whole, as every run's was before; the cap and the seat's isolation hold either way.
+        continues = orch.scope_oom_policy()
+        self.assertEqual("OOMPolicy=continue" in props, continues)
         status = self.root / "bomb-status"
         went_on = self.root / "parent-status"
         sleeper = subprocess.Popen(
@@ -459,40 +460,47 @@ class MemoryCap(unittest.TestCase):
         self.addCleanup(bomb.wait, timeout=15)
         self.addCleanup(stop_bomb)
         # The status file is the child's own word that it armed inside the cap; the
-        # parent's is that the kernel ended the child alone and the scope counted it.
+        # parent's is that the kernel ended the child alone and the scope counted it; the
+        # unit Result is the kernel's, where the scope was stopped whole.
         report = parent = ""
+        shown = {}
         deadline = time.monotonic() + 25
         while time.monotonic() < deadline:
             if status.exists():
                 report = status.read_text().strip()
             if went_on.exists():
                 parent = went_on.read_text().strip()
-            if parent or report.startswith("refused") or report.startswith("survived"):
+            shown = _show(f"{bomb_unit}.scope")
+            if (parent or shown.get("Result") == "oom-kill" or report.startswith("refused")
+                    or report.startswith("survived")):
                 break
             time.sleep(0.1)
-        self.assertTrue(report.startswith("armed "), report)
+        self.assertTrue(report.startswith("armed "), report or shown)
         self.assertIn(run_slice, report)
         self.assertNotIn(seat_slice, report.split(" ", 1)[1])
-        self.assertEqual(parent, "went on 137 1")
-        shown = _show(f"{bomb_unit}.scope")
-        self.assertEqual(shown.get("ActiveState"), "active", shown)
-        self.assertNotEqual(shown.get("Result"), "oom-kill", shown)
+        if continues:
+            self.assertEqual(parent, "went on 137 1")
+            self.assertEqual(shown.get("ActiveState"), "active", shown)
+        else:
+            self.assertEqual(shown.get("Result"), "oom-kill", shown)
         after_current = int((slice_dir / "memory.current").read_text())
         after_pressure = _pressure_avg10((slice_dir / "memory.pressure").read_text())
         self.assertLess(after_current - before_current, 8 * 1024 * 1024)
         self.assertLess(after_pressure, 1.0)
         self.assertLessEqual(after_pressure, before_pressure + 0.5)
-        # The production reader, in the scope's own cgroup, says the kill and goes on.
         directory = self.run_dir("live", scope=bomb_unit, memory_cap_mb=32)
-        own = self.root / "bomb-cgroup"
-        own.write_text(f"0::{shown['ControlGroup']}\n")
-        said = []
-        with patch.object(orch, "OWN_CGROUP", own), patch.dict(run._OOM_SEEN, clear=True):
-            run.memory_cap_check(directory, said.append)
-        self.assertEqual(said, ["memory cap 0.03 GB hit (1 of 3): the process that grew "
-                                "was ended"])
-        # The production reaper, against the real scope: one kill is not the scope's end,
-        # so a loop that died here is an interruption, stopping only this scope.
+        if continues:
+            # The production reader, in the scope's own cgroup, says the kill and goes on.
+            own = self.root / "bomb-cgroup"
+            own.write_text(f"0::{shown['ControlGroup']}\n")
+            said = []
+            with patch.object(orch, "OWN_CGROUP", own), patch.dict(run._OOM_SEEN, clear=True):
+                run.memory_cap_check(directory, said.append)
+            self.assertEqual(said, ["memory cap 0.03 GB hit (1 of 3): the process that grew "
+                                    "was ended"])
+        # The production reaper, against the real scope, stopping only this scope: one
+        # kill is not a continuing scope's end, and a loop that died there is an
+        # interruption; a scope stopped whole ends the run `fail` with the reason.
         real_stop = orch.stop_scope
 
         def stop_only(scope, log=lambda _line: None, wait=True):
@@ -502,8 +510,13 @@ class MemoryCap(unittest.TestCase):
 
         with patch.object(orch, "stop_scope", side_effect=stop_only):
             state = run.reap(directory, run.read_state(directory))
-        self.assertEqual(state["state"], "interrupted")
-        self.assertNotIn("memory cap", state.get("error") or "")
+        if continues:
+            self.assertEqual(state["state"], "interrupted")
+            self.assertNotIn("memory cap", state.get("error") or "")
+        else:
+            self.assertEqual(state["state"], "fail")
+            self.assertEqual(state["error"], "killed: memory cap 0.03 GB")
+            self.assertIn("killed: memory cap 0.03 GB", run.handback_line(state, directory))
         self.assertIn(bomb_unit, self.stopped)
         # Drop the throwaway slice (and the sleeper in it) once the readings
         # are taken, then reap the systemd-run client.  No signal from here.
