@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -81,6 +82,28 @@ class Policy(Sandbox):
         self.assertNotIn("OOMPolicy=continue", props)
         self.assertEqual(asked, [])
 
+    def test_launches_at_once_ask_once(self):
+        # a job's delivery threads launch together; the second waits for the first's answer
+        asked, both = [], threading.Barrier(2, timeout=1)
+
+        def fake_run(argv, **_kw):
+            asked.append(argv)
+            try:
+                both.wait()     # a second question, if one were asked, would arrive now
+            except threading.BrokenBarrierError:
+                pass
+            return subprocess.CompletedProcess(argv, 0, stdout="257\n", stderr="")
+
+        with patch.object(orch, "user_manager", return_value=True), \
+                patch.object(orch.subprocess, "run", side_effect=fake_run):
+            launches = [threading.Thread(target=orch.scope_oom_policy) for _ in range(2)]
+            for launch in launches:
+                launch.start()
+            for launch in launches:
+                launch.join()
+            self.assertTrue(orch.scope_oom_policy())
+        self.assertEqual(len(asked), 1)
+
 
 class Loop(Sandbox):
     def setUp(self):
@@ -93,8 +116,7 @@ class Loop(Sandbox):
         self.stack.enter_context(patch.object(orch, "OWN_CGROUP", own))
         self.stack.enter_context(patch.object(orch, "CGROUP_ROOT", self.root / "cgroup"))
         self.stack.enter_context(patch.object(worker, "kill_marked", return_value=True))
-        run._OOM_SEEN.clear()
-        self.addCleanup(run._OOM_SEEN.clear)
+        os.environ.pop(run.OOM_LOGGED, None)    # the sandbox's patch.dict puts it back
         self.run_dir = config.RUNS / "20260930-2300-acme"
         self.run_dir.mkdir(parents=True)
         run.save_state(self.run_dir, {
@@ -136,6 +158,43 @@ class Loop(Sandbox):
                 self.assertEqual(code, 0)
         self.assertEqual(self.lines.count(HIT), 3)
         self.assertEqual(run.read_state(self.run_dir)["state"], "running")
+
+    def test_a_reviewer_and_a_suite_ending_at_once_log_a_kill_once(self):
+        self.kills(1)
+        both = threading.Barrier(2, timeout=1)
+
+        def log(line):
+            self.lines.append(line)
+            try:
+                both.wait()     # the other thread's line, if it said one, would arrive now
+            except threading.BrokenBarrierError:
+                pass
+
+        ending = [threading.Thread(target=run.memory_cap_note, args=(self.run_dir, log))
+                  for _ in range(2)]
+        for thread in ending:
+            thread.start()
+        for thread in ending:
+            thread.join()
+        self.assertEqual(self.lines, [HIT])
+
+    def test_new_code_in_the_same_scope_says_no_kill_twice(self):
+        # `pickup_new_code` execs a new interpreter with this environment in the same scope
+        self.kills(1)
+        run.memory_cap_note(self.run_dir, self.lines.append)
+        self.assertEqual(self.lines, [HIT])
+        after_exec = (
+            "import sys\nfrom pathlib import Path\n"
+            f"sys.path.insert(0, {str(REPO)!r})\n"
+            "from agentkit import orch, run\n"
+            f"orch.OWN_CGROUP = Path({str(self.root / 'own-cgroup')!r})\n"
+            f"orch.CGROUP_ROOT = Path({str(self.root / 'cgroup')!r})\n"
+            f"run.memory_cap_note(Path({str(self.run_dir)!r}), print)\n")
+        for count, said in ((1, ""), (2, HIT + "\n")):
+            self.kills(count)
+            child = subprocess.run([sys.executable, "-c", after_exec], capture_output=True,
+                                   text=True, env=dict(os.environ), timeout=60)
+            self.assertEqual((child.returncode, child.stdout), (0, said), child.stderr)
 
     def test_a_run_from_a_seat_shell_logs_no_kill_of_the_seat(self):
         (self.root / "own-cgroup").write_text(

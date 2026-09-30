@@ -9128,7 +9128,11 @@ def memory_cap_reason(state, probe=None):
     return None
 
 
-_OOM_SEEN = {}   # this loop's cgroup -> the oom_kill count it has already logged
+# "<cgroup> <oom_kill count>" this loop has logged.  In the environment, because a loop that
+# picks up new code replaces its interpreter (`pickup_new_code`) in the same scope, and must
+# not say those kills again; a resume in a new scope is a new process that starts without it.
+OOM_LOGGED = "AK_MEMORY_CAP_LOGGED"
+_OOM_LOCK = threading.Lock()   # a reviewer and a suite can end on two threads at once
 
 
 def memory_cap_note(run_dir, log):
@@ -9151,11 +9155,15 @@ def memory_cap_note(run_dir, log):
     cgroup = line[3:].strip().rstrip("/")
     if cgroup.rsplit("/", 1)[-1] not in _scope_units(scope):
         return
-    kills, seen = _oom_kill_count(cgroup), _OOM_SEEN.get(cgroup, 0)
+    with _OOM_LOCK:
+        where, _, said = os.environ.get(OOM_LOGGED, "").rpartition(" ")
+        seen = int(said) if where == cgroup and said.isdigit() else 0
+        kills = _oom_kill_count(cgroup)
+        if kills > seen:
+            os.environ[OOM_LOGGED] = f"{cgroup} {kills}"
     for _ in range(kills - seen):
         log(f"{memory_cap_line(cap).removeprefix('killed: ')} hit: "
             "the process that grew was ended")
-    _OOM_SEEN[cgroup] = max(kills, seen)
 
 
 def conclude_memory_cap(run_dir, state, reason):

@@ -32,6 +32,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from collections import Counter
@@ -127,7 +128,8 @@ INTERPRETERS = (
 REPORTABLE = ("pass", "fail", "error", "blocked", "exhausted", "interrupted")
 _VERSIONS = {}             # installed harness builds, asked for once and only to name a refusal
 _MANAGER = {}              # whether this host has a user systemd manager, asked once
-_OOM_POLICY = {}           # whether its scopes take OOMPolicy=continue, asked once too
+_OOM_POLICY = {}           # whether its scopes take OOMPolicy=continue, asked once too,
+_OOM_POLICY_LOCK = threading.Lock()   # ... however many of a job's threads launch at once
 _SLICE = {}                # ... and what its slice says about itself, for the same reason
 _PROCESSES = {}            # the last reading of the process table, when, and whether it is held
 
@@ -347,20 +349,21 @@ def scope_oom_policy():
     reliably, since a build tags its library as it likes.  Asked once per process, and only of
     a manager `user_manager` found.  No answer counts as older.
     """
-    if "answer" not in _OOM_POLICY:
-        version = 0
-        if user_manager():
-            try:
-                said = subprocess.run(
-                    ["systemctl", "--user", "show", "-p", "Version", "--value"],
-                    capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                    env=bus_env(), timeout=SLICE_WAIT).stdout
-            except (OSError, subprocess.SubprocessError):
-                said = ""
-            found = re.match(r"\s*(\d+)", said)
-            version = int(found.group(1)) if found else 0
-        _OOM_POLICY["answer"] = version >= 253
-    return _OOM_POLICY["answer"]
+    with _OOM_POLICY_LOCK:
+        if "answer" not in _OOM_POLICY:
+            version = 0
+            if user_manager():
+                try:
+                    said = subprocess.run(
+                        ["systemctl", "--user", "show", "-p", "Version", "--value"],
+                        capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                        env=bus_env(), timeout=SLICE_WAIT).stdout
+                except (OSError, subprocess.SubprocessError):
+                    said = ""
+                found = re.match(r"\s*(\d+)", said)
+                version = int(found.group(1)) if found else 0
+            _OOM_POLICY["answer"] = version >= 253
+        return _OOM_POLICY["answer"]
 
 
 def can_scope():
