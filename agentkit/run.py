@@ -3647,30 +3647,28 @@ def repair_open(state, tip):
     """Whether this repair run still holds its command on the target at `tip`.
 
     On its way it does; so does one that ended `blocked` on a question about that same tip,
-    which is the owner's to answer and nobody's to ask again.  A target that moved since is
-    a new question.
+    which is the owner's to answer and nobody's to ask again.  The tip it asked about is the
+    one it ran on, `base_sha`, not the one it was queued at: the target can move in between.
+    A target that moved since is a new question.
     """
     return followup_open(state) or (state.get("state") == "blocked"
-                                    and (state.get("repair") or {}).get("sha") == tip)
+                                    and state.get("base_sha") == tip)
 
 
-def open_followup(state, text, repair=None):
+def open_followup(state, text, repair=None, tip=None):
     """The open run already fixing `text`, or None.
 
     A follow-up is the same site in the same repository from the same seat.  A `repair` is
-    the same repository, target and command from any seat, open at the tip it names: the
+    the same repository, target and command from any seat, open at the target's `tip`: the
     target is everybody's.
     """
     for directory in run_dirs():
         other = read_state(directory) or {}
-        mine = other.get("repair") or {}
         if (other.get("run_id") != state.get("run_id") and other.get("followup")
                 and other.get("repo") == state.get("repo")
-                and (repair and mine.get("target") == repair["target"]
-                     and mine.get("command") == repair["command"]
-                     and repair_open(other, repair["sha"])
-                     or not repair and not mine
-                     and launched_session(other) == launched_session(state)
+                and other.get("repair") == repair
+                and (repair_open(other, tip) if repair else
+                     launched_session(other) == launched_session(state)
                      and other["followup"]["place"] == followup_place(text)
                      and followup_open(other))):
             return directory.name
@@ -3709,10 +3707,10 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
         cfg = report_config(cfg)
         repo = main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
-        key = repair and {"target": target, "command": repair["command"], "sha": repair["sha"]}
+        key = repair and {"target": target, "command": repair["command"]}
         for item in [repair["text"]] if repair else state["followups"]:
             source = {**state, "repo": str(repo)}
-            opened = open_followup(source, item, key)
+            opened = open_followup(source, item, key, repair and repair["sha"])
             if opened and repair:
                 return opened
             if opened:
@@ -3786,7 +3784,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                     # a launch that raised can leave its receipt queued for a slot, and the
                     # tick starts that: it is the repair all the same
                     return directory.name if repair_open(read_state(directory) or {},
-                                                         key["sha"]) else None
+                                                         repair["sha"]) else None
                 continue
             if repair:
                 return directory.name

@@ -44,6 +44,17 @@ class RedTargetRepair(unittest.TestCase):
         self.spawned.append((run_dir.name, argv))
         return 0
 
+    def move(self, owner):
+        """The target's next commit, as red as the last; the work branch rebased onto it."""
+        with (owner / "more.txt").open("a") as fh:
+            fh.write("more\n")
+        run.git(owner, "add", ".")
+        run.git(owner, "commit", "-m", "more")
+        run.git(owner, "push", "origin", "main")
+        run.git(self.wt, "fetch", "origin")
+        run.git(self.wt, "rebase", "origin/main")
+        return run.git(owner, "rev-parse", "HEAD")
+
     def red_run(self, where, seat, cmds=(f"{FAILS}  # once",)):
         """A run of `seat` whose final check fails on origin/main's own tip; parked."""
         lp, run_dir, _ = red.make_loop(self.root / where, self.wt, ["true", *cmds])
@@ -63,7 +74,7 @@ class RedTargetRepair(unittest.TestCase):
         self.assertEqual(self.spawned, [(name, [str(config.RUNS / name / "task.md")])])
         self.assertEqual(first["waiting_on"], {"ref": "origin/main", "sha": tip, "repair": name})
         repair = run.read_state(config.RUNS / name)
-        self.assertEqual(repair["repair"], {"target": "main", "command": FAILS, "sha": tip})
+        self.assertEqual(repair["repair"], {"target": "main", "command": FAILS})
         self.assertEqual(repair["launched_session"], "seat")
         self.assertTrue(repair["first"])
         task = (config.RUNS / name / "task.md").read_text()
@@ -79,7 +90,7 @@ class RedTargetRepair(unittest.TestCase):
         self.assertEqual(len(self.prepared), 2)
         self.assertEqual(third["waiting_on"]["repair"], self.prepared[1][0])
         self.assertEqual(run.read_state(config.RUNS / self.prepared[1][0])["repair"],
-                         {"target": "main", "command": "false", "sha": tip})
+                         {"target": "main", "command": "false"})
         # a repair that ended guards nothing: the next run on the same red starts another
         run.save_state(config.RUNS / name, {**repair, "state": "not_needed",
                                             "not_needed": "passes now"})
@@ -146,7 +157,7 @@ class RedTargetRepair(unittest.TestCase):
         run_dir.mkdir(parents=True)
         base = {"run_id": run_dir.name, "launched_session": "seat",
                 "started_at": time.time() - 60, "finished_at": time.time(),
-                "repair": {"target": "main", "command": "false", "sha": "0" * 40},
+                "repair": {"target": "main", "command": "false"},
                 "followup": {"run": "parked", "text": "`false` fails", "place": "`false`"}}
         endings = {"merged": {"state": "pass", "verdict": "PASS", "merged": True},
                    "not needed": {"state": "not_needed", "not_needed": "passes now"},
@@ -172,14 +183,15 @@ class RedTargetRepair(unittest.TestCase):
                     self.assertEqual(revive.called, told and not live)
                     shaped.assert_not_called()
 
-    def test_a_blocked_repair_asks_its_seat_and_holds_its_command_until_the_target_moves(self):
+    def test_a_blocked_repair_asks_its_seat_and_holds_its_command_while_its_tip_stands(self):
         _, owner, self.wt = red.make_repos(self.root)
-        tip = run.git(owner, "rev-parse", "HEAD")
         self.red_run("first", "seat")
         name = self.prepared[0][0]
         repair = config.RUNS / name
+        # queued at one tip, the repair starts on the next, and its question is about that one
+        tip = self.move(owner)
         blocked = {**run.read_state(repair), "state": "blocked", "verdict": "BLOCKED",
-                   "error": QUESTION, "blocked": f"## Blocked\n{QUESTION}",
+                   "base_sha": tip, "error": QUESTION, "blocked": f"## Blocked\n{QUESTION}",
                    "started_at": time.time() - 60, "finished_at": time.time()}
         run.save_state(repair, blocked)
 
@@ -191,7 +203,7 @@ class RedTargetRepair(unittest.TestCase):
             run.announce(dict(blocked), repair, self.logs.append)
         hand_back.assert_called_once()
         self.assertEqual(hand_back.call_args.args[0]["error"], QUESTION)
-        # its waiter, retried on the unchanged tip, waits on the same question
+        # its waiter, retried on that unchanged tip, waits on the same question
         again = self.red_run("first", "seat")
         self.assertEqual(len(self.prepared), 1)
         self.assertEqual(again["waiting_on"], {"ref": "origin/main", "sha": tip, "repair": name})
@@ -202,13 +214,7 @@ class RedTargetRepair(unittest.TestCase):
             watch.resume_waiting(log=self.logs.append)
         self.assertEqual(self.spawned, [])
         # a target that moved is a new question: the next run on its red repairs it again
-        (owner / "more.txt").write_text("more\n")
-        run.git(owner, "add", ".")
-        run.git(owner, "commit", "-m", "more")
-        run.git(owner, "push", "origin", "main")
-        moved = run.git(owner, "rev-parse", "HEAD")
-        run.git(self.wt, "fetch", "origin")
-        run.git(self.wt, "rebase", "origin/main")
+        moved = self.move(owner)
         with patch.object(run, "upstream_sha", return_value=moved):
             watch.resume_waiting(log=self.logs.append)
         self.assertEqual(self.spawned[:1], [(waiter.name, ["resume", waiter.name])])
