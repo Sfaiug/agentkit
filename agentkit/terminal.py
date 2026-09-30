@@ -40,7 +40,7 @@ KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
 _LIGHT = False     # its background is light (`sense`)
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
-_PAD = 0           # ... and those this process leaves (`pad`)
+_PAD = 0           # ... and those this process leaves (`inset`)
 LEVELS = (0, 95, 135, 175, 215, 255)   # each channel's steps in xterm's 6x6x6 colour cube
 _SGR = re.compile(r"\x1b\[([0-9;]*)m")
 _ANSWER = re.compile(rb"\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\)")   # its answer to OSC 11
@@ -216,7 +216,7 @@ class _Padded:
         return len(text)
 
 
-def pad():
+def inset():
     """Leave the cells the popup this runs in asks for (PAD_ENV) blank inside its border.
 
     tmux 3.5a borders a popup but pads nothing inside the border, so the screens leave the
