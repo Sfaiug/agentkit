@@ -178,8 +178,8 @@ levels = ["low", "medium", "high", "xhigh", "max", "ultra"]
 
 # The models this harness runs when `codex debug models` cannot say: the listed models of the
 # catalog codex 0.153.4 ships (`codex debug models --bundled`), each with the reasoning levels
-# it supports, strongest last.  A ChatGPT login runs Codex's own model and no other -- any -m
-# is HTTP 400 there -- so the adapter offers it `default` alone, which takes the words above.
+# it supports, strongest last.  `default` is Codex's own model, run with no -m, which takes
+# the words above.
 [catalog]
 default = { label = "Codex's own model", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
 gpt-6-astra = { label = "GPT-6-Astra", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }

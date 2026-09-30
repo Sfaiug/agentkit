@@ -44,9 +44,8 @@ provider = "anthropic"
 
 [models.astra]
 harness = "codex"
-model = "default"         # a ChatGPT-subscription Codex only runs its own default model: any
-                          # -m comes back HTTP 400, so `default` means "let Codex choose" and
-                          # the adapter passes no -m.  A real id belongs here under an API key.
+model = "default"         # `default` means "let Codex choose": the adapter passes no -m.
+                          # Any id `codex debug models` lists runs here too, as its -m.
 effort = "xhigh"
 provider = "openai"
 
