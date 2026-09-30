@@ -48,19 +48,21 @@ export AK_MAX_RUNS=0
 # every one is busy and the pool is smaller than the heavy suites the host admits at once, it
 # takes the next, which its seed creates.  It waits only at that bound with every target in use.
 # The bound is the loop's own count, `heavy_suite_limit`, never a number of ours; 0 is no cap.
-# The pool is the repositories the account has, counted up to the first one missing, never the
-# lock files: /tmp forgets those, and a leftover one names no repository.  The n-th target's
-# lock is the first one's with `-n` before `.lock`.
+# The pool is the repositories the account lists, never the lock files: /tmp forgets those, and
+# a leftover one names no repository.  A waiting suite lists it again every minute, since another
+# suite may have added a target.  The n-th target's lock is the first one's with `-n` before
+# `.lock`.
 # A lock file is created world-readable and locked through a read-only descriptor, so suites
 # running as different accounts all take it.  $AK_SMOKE_LOCK and $AK_SMOKE_LOCK_WAIT override
 # the first file and the hour-long wait, for tests, which never queue behind the host's suites.
 SMOKE_LOCK=${AK_SMOKE_LOCK:-/tmp/agentkit-smoke-remote.lock}
 SMOKE_LOCK_WAIT=${AK_SMOKE_LOCK_WAIT:-3600}
+SMOKE_LOCK_LIST=60   # seconds a try waits before the pool is listed again
 SMOKE_LOCK_WAITING="check 4: waiting for another suite's turn"
 SMOKE_LOCK_PID=""
 SMOKE_LOCK_HELD=0
 SMOKE_TARGET=agentkit-smoke
-# Takes the first free target, given the bound and how many targets exist.  Reports `waiting`
+# Takes the first free target, given the bound and the targets that exist.  Reports `waiting`
 # when every one is held and every minute after, then exactly one of `held` (`held-2`,
 # `held-3` ... past the first target) or `busy`.  In hold mode it keeps the descriptor -- and so
 # the target -- until the suite that started it is gone, which is what a killed or crashed suite
@@ -68,7 +70,7 @@ SMOKE_TARGET=agentkit-smoke
 SMOKE_LOCK_PY='
 import fcntl, os, sys, threading, time
 path, wait, hold, parent = sys.argv[1], float(sys.argv[2]), sys.argv[3] == "hold", int(sys.argv[4])
-bound, have = int(sys.argv[5]), int(sys.argv[6])
+bound, have = int(sys.argv[5]), sorted({int(n) for n in sys.argv[6].split(",") if n})
 stem = path[:-len(".lock")] if path.endswith(".lock") else path
 def open_lock(path):
     # Opening it and creating it are two different asks.  /tmp is sticky and world-writable, and
@@ -90,12 +92,19 @@ def open_lock(path):
         os.close(made)
     return os.open(path, os.O_RDONLY)
 
-def take():
-    # Every target that exists, then the next ones up to the bound, 0 for none; lowest first,
-    # so a new target is made only when every one before it is held.
-    n = 0
-    while not bound or n < max(bound, have):
+def targets():
+    # Every target that exists, lowest first; then, while the pool is below the bound (0 for
+    # none), the lowest numbers still missing, which the seed of whoever takes one creates.
+    yield from have
+    n, pool = 0, len(have)
+    while not bound or pool < bound:
         n += 1
+        if n not in have:
+            pool += 1
+            yield n
+
+def take():
+    for n in targets():
         fd = open_lock(path if n == 1 else "%s-%d.lock" % (stem, n))
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -156,28 +165,35 @@ smoke_lock_probe() {   # smoke_lock_probe <wait seconds>: prints held, held-2 ..
       waiting) printf '%s\n' "$SMOKE_LOCK_WAITING" >&2 ;;
       held*|busy) status=$line; break ;;
     esac
-  done < <(python3 -c "$SMOKE_LOCK_PY" "$SMOKE_LOCK" "$1" probe $$ "$(smoke_pool_bound)" 0)
+  done < <(python3 -c "$SMOKE_LOCK_PY" "$SMOKE_LOCK" "$1" probe $$ "$(smoke_pool_bound)" "")
   printf '%s\n' "$status"
   [ "$status" != busy ] || return 75
 }
+smoke_targets() {   # the numbers of the targets the account has, agentkit-smoke's 1: "1,3,"
+  gh api --paginate 'user/repos?affiliation=owner&per_page=100' --jq '.[].name' 2>/dev/null |
+    sed -nE 's/^agentkit-smoke$/1/p; s/^agentkit-smoke-([2-9]|[1-9][0-9]+)$/\1/p' | tr '\n' ,
+}
 smoke_lock_hold() {   # smoke_lock_hold <wait seconds>: 0 and $SMOKE_TARGET is this suite's, or 75
-  local dir line status=busy bound have=0 next=agentkit-smoke
+  local dir line status=busy bound have try end=$((SECONDS + $1))
   bound=$(smoke_pool_bound)
-  # Count the targets that exist; asking only reads, so it needs no lock.
   SMOKE_LOGIN=$(gh api user --jq .login 2>"$WORK/smoke-login.err" || true)
-  while [ -n "$SMOKE_LOGIN" ] && gh repo view "$SMOKE_LOGIN/$next" >/dev/null 2>&1; do
-    have=$((have + 1)); next=agentkit-smoke-$((have + 1))
-  done
   dir=$(mktemp -d "${TMPDIR:-/tmp}/ak-smoke-lock-XXXXXX") || return 75
   if ! mkfifo "$dir/status"; then rm -rf -- "$dir"; return 75; fi
-  python3 -c "$SMOKE_LOCK_PY" "$SMOKE_LOCK" "$1" hold $$ "$bound" "$have" >"$dir/status" &
-  SMOKE_LOCK_PID=$!
-  while IFS= read -r line; do
-    case "$line" in
-      waiting) printf '%s\n' "$SMOKE_LOCK_WAITING" ;;
-      held*|busy) status=$line; break ;;
-    esac
-  done <"$dir/status"
+  # Every try lists the pool anew, for a target another suite added; listing only reads.
+  while :; do
+    have=$(smoke_targets)
+    try=$((end - SECONDS)); [ "$try" -le "$SMOKE_LOCK_LIST" ] || try=$SMOKE_LOCK_LIST
+    python3 -c "$SMOKE_LOCK_PY" "$SMOKE_LOCK" "$try" hold $$ "$bound" "$have" >"$dir/status" &
+    SMOKE_LOCK_PID=$!
+    while IFS= read -r line; do
+      case "$line" in
+        waiting) printf '%s\n' "$SMOKE_LOCK_WAITING" ;;
+        held*|busy) status=$line; break ;;
+      esac
+    done <"$dir/status"
+    [ "$status" = busy ] && [ "$SECONDS" -lt "$end" ] || break
+    wait "$SMOKE_LOCK_PID" 2>/dev/null   # it printed busy and exited; this only reaps it
+  done
   rm -rf -- "$dir"
   if [ "$status" != busy ]; then
     SMOKE_TARGET=agentkit-smoke${status#held}
