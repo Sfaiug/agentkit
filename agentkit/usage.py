@@ -392,11 +392,9 @@ def _probe_gently(cfg, provider, account=None):
         fresh = _probe(cfg, provider, now, account)
         _note_retry(provider, fresh, time.time(), account)
         prov = _kept(cached, fresh, now)
-        # The mark travels with the record that replaces it, exactly as it does on the way out of
-        # `collect`: a provider parked until it says it has capacity must not read as eligible in
-        # the moment between this write and that one.  The caller still gets the bare reading, so
-        # what the reset policy and a refusal's own re-read do with the mark is unchanged.
-        _patch(provider, _carry_mark(cached, prov, now), now, account)
+        # The mark on disk travels with the record that replaces it (`_store`), not the one
+        # `cached` held: a mark made since, or a credit that lifted it since, is the later word.
+        _patch(provider, prov, now, account)
         return prov
 
 
@@ -518,6 +516,13 @@ def _reset_policy(cfg, provider, prov, now, depleted):
     # Every mark made before the credit went was a refusal of the week it replaced, one a
     # worker made while this read was under way included: writing this record lifts them all.
     fresh["reset_spent_at"] = spent_at
+    accounts, account = fresh.get("accounts"), prov.get("account")
+    if isinstance(accounts, dict) and isinstance(accounts.get(account), dict):
+        # The credit went to that account, and an account's mark is its own: the provider's
+        # fields are only the account a turn runs on next (`_gate_flags`).
+        record = {key: value for key, value in accounts[account].items()
+                  if key not in ("exhausted_until", "exhausted_at", "exhausted_ends")}
+        fresh["accounts"] = {**accounts, account: {**record, "reset_spent_at": spent_at}}
     return fresh, True
 
 
@@ -633,8 +638,9 @@ def _gate_flags(providers, now, cfg):
 _WRITES = itertools.count()   # a temporary name of each writer's own; see `_store`
 
 
-def _store(cache, fetched_at, providers, reset_checked_at=None, since=None):
-    """Replace the snapshot atomically, through a temporary file nobody else is writing.
+def _store(cache, fetched_at, providers, reset_checked_at=None):
+    """Replace the snapshot atomically, through a temporary file nobody else is writing, and
+    return the providers it now holds.
 
     The tick, every menu's probe thread and every `ak usage` write this one file, and a probe
     now writes its own answer here the moment it has it, so two writers sharing one temporary
@@ -642,26 +648,30 @@ def _store(cache, fetched_at, providers, reset_checked_at=None, since=None):
     takes it away again, so a writer that dies mid-way leaves nothing behind either.
 
     A read takes a probe per provider and account, and a worker refused meanwhile has marked
-    its provider or account in the file this write replaces.  A mark made at or after `since`,
-    when the writer began reading, is one it never saw and so never lifted: it is kept, and
-    ends as every mark does (`_gate_flags`), never because a read was under way.  A credit the
-    writer spent after it lifts it all the same (`reset_spent_at`).
+    its provider or account in the file this write replaces.  Whether the writer ever saw that
+    mark is not something any clock can tell, so it does not matter: every mark the file holds
+    is kept while it is still in force against what is written (`_carry_mark`), and so ends as
+    every mark does, never because a write did not know of it.  Only a later mark or a credit
+    spent at or after it (`reset_spent_at`) replaces it.  The file is read and replaced under
+    one lock every write takes, so no mark can land in between.
     """
     config.ensure_dirs()
-    if since is not None:
-        providers = _later_marks(cache, providers, since)
-    tmp = cache.with_suffix(f".tmp-{os.getpid()}-{next(_WRITES)}")
-    try:
-        tmp.write_text(json.dumps({"fetched_at": fetched_at, "providers": providers,
-                                   "reset_checked_at": (fetched_at if reset_checked_at is None
-                                                        else reset_checked_at)}))
-        tmp.replace(cache)
-    finally:
-        tmp.unlink(missing_ok=True)
+    with cache.with_suffix(".lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        providers = _marks_in_force(cache, providers, time.time())
+        tmp = cache.with_suffix(f".tmp-{os.getpid()}-{next(_WRITES)}")
+        try:
+            tmp.write_text(json.dumps({"fetched_at": fetched_at, "providers": providers,
+                                       "reset_checked_at": (fetched_at if reset_checked_at is None
+                                                            else reset_checked_at)}))
+            tmp.replace(cache)
+        finally:
+            tmp.unlink(missing_ok=True)
+    return providers
 
 
-def _later_marks(cache, providers, since):
-    """`providers`, keeping each mark the snapshot on disk gained at or after `since`."""
+def _marks_in_force(cache, providers, now):
+    """`providers`, keeping each mark the snapshot on disk holds that they do not end."""
     try:
         disk = json.loads(cache.read_text(encoding="utf-8"))["providers"]
     except (OSError, ValueError, TypeError, KeyError):
@@ -671,21 +681,22 @@ def _later_marks(cache, providers, since):
 
     def kept(old, new):
         at = _number(old.get("exhausted_at")) if isinstance(old, dict) else None
-        mine = (max(_number(new.get(key)) or 0 for key in ("exhausted_at", "reset_spent_at"))
-                if isinstance(new, dict) else None)
-        if at is None or at < since or not isinstance(new, dict) or (mine or 0) >= at:
+        if at is None or not isinstance(new, dict) or max(
+                _number(new.get(key)) or 0 for key in ("exhausted_at", "reset_spent_at")) >= at:
             return new
-        return {**new, **{key: old[key] for key in ("exhausted_until", "exhausted_at",
-                                                    "exhausted_ends") if key in old}}
+        return _carry_mark(old, new, now)
 
     out = {}
     for name, new in providers.items():
         old = disk.get(name) if isinstance(disk.get(name), dict) else {}
-        new = kept(old, new)
         if isinstance(new, dict) and isinstance(new.get("accounts"), dict):
+            # Each account's mark is its own; the provider's fields are only whichever account
+            # a turn runs on next, and another account's mark on them would mean nothing.
             theirs = old.get("accounts") if isinstance(old.get("accounts"), dict) else {}
             new = {**new, "accounts": {account: kept(theirs.get(account), record)
                                        for account, record in new["accounts"].items()}}
+        else:
+            new = kept(old, new)
         out[name] = new
     return out
 
@@ -713,7 +724,7 @@ def _patch(provider, prov, now, account=None):
     fetched, checked = _number(blob.get("fetched_at")), _number(blob.get("reset_checked_at"))
     try:
         _store(cache, 0.0 if fetched is None else fetched, providers,
-               0.0 if checked is None else checked, since=now)
+               0.0 if checked is None else checked)
     except OSError:
         pass                 # a cache that cannot be written costs a re-probe, nothing more
 
@@ -830,7 +841,7 @@ def collect(cfg, *, refresh=False):
                 if rolled or missing or due:
                     # fetched_at stays put: re-reading one provider must not extend the cache
                     # over the others, which were not re-read
-                    _store(cache, blob["fetched_at"], providers, checked, since=now)
+                    providers = _store(cache, blob["fetched_at"], providers, checked)
                 return Readings(_gate_flags(providers, now, cfg))
         except (OSError, ValueError, TypeError, KeyError):
             pass
@@ -840,9 +851,10 @@ def collect(cfg, *, refresh=False):
         prov = _carry_mark(cached.get(name),
                            _without_past(_probe_gently(cfg, name), now, "the adapter"), now)
         providers[name] = _maybe_reset(cfg, name, prov, now) if not refresh and due else prov
-    providers = _gate_flags(providers, now, cfg)
-    _store(cache, now, providers, now if not refresh and due else (checked or 0), since=now)
-    return Readings(providers)
+    # What is answered is what was written, a mark another worker made meanwhile included.
+    providers = _store(cache, now, _gate_flags(providers, now, cfg),
+                       now if not refresh and due else (checked or 0))
+    return Readings(_gate_flags(providers, now, cfg))
 
 
 class Readings(dict):
@@ -909,12 +921,8 @@ def replenish(cfg, provider, depleted=True):
     now = time.time()
     prov = _without_past(_probe_gently(cfg, provider), now, "the adapter")
     prov, spent = _reset_policy(cfg, provider, prov, now, depleted)
-    if not spent and not config.accounts(cfg, provider):
-        # No credit went, so this reading is of the window the mark was made in, and the
-        # mark travels with it as it does out of every other write: a parked provider
-        # must not read as eligible until it is refused again.  A spent credit lifts it
-        # instead, and an account's mark is its own, already carried by the probe above.
-        prov = _carry_mark(_cached_provider(provider), prov, now)
+    # No credit went, so this reading is of the window the mark was made in, and the mark
+    # travels with it as it does out of every other write (`_store`).  A spent credit lifts it.
     _patch(provider, prov, now)
     return spent, _number(prov.get("resets")) or 0.0
 
