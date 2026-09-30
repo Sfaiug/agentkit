@@ -349,7 +349,8 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
     a reviewer kept from before can be the very model now executing.  A refused provider
     never gets the work back (that is how a handover becomes a circle); its review is a
     different matter and takes the spares road if it refuses that too.  Records the move
-    in `executor_history` with the reason (`stalled`, `dry`). `dry` is every provider that
+    in `executor_history` with the reason (`stalled`, `dry`); an attempt that finds nobody
+    records nothing, since the same worker carries on. `dry` is every provider that
     already refused this piece of work.
     """
     current = state.get("executor")
@@ -374,9 +375,6 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
     except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
         pass
     if new is None:
-        state.setdefault("executor_history", []).append(
-            {"at": time.time(), "from": current, "to": current,
-             "reason": f"{reason} (no other provider)"})
         return None
     state.setdefault("executor_history", []).append(
         {"at": time.time(), "from": current, "to": new, "reason": reason})
