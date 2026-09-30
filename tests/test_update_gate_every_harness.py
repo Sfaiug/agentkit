@@ -25,11 +25,14 @@ def between(start, end):
 
 # check 3 with the helpers it calls, and `ak usage` answering nothing
 CHECK = ('. "$REPO/tests/acceptance.sh"\nak() { return 1; }\n'
-         + between("model_unavailable()", "skip_unavailable()")
+         + between("model_unavailable()", "reprobe()")
          + between("newrepo()", 'echo "workdir:') + between("# --- 3:", "# --- 4:") + "finish\n")
 BINARIES = {"claude": "claude", "codex": "codex", "muse": "muse", "grokbuild": "grok",
             "antigravity": "agy", "opencode": "opencode"}
-# the smallest turns check 3 makes: (model, harness, model id, effort)
+# the harnesses beside Claude, Codex and Muse, and the smallest turns check 3 makes on them:
+# (model, harness, model id, effort)
+REST = ("grokbuild", "antigravity", "opencode")
+LOGGED_IN = {harness: "0 fixture: logged in" for harness in REST}
 SMALLEST = re.findall(r'"(\w+) (\w+) (\S+) (\w+)"', between("# --- 3:", "# --- 4:"))
 ADAPTER = '''#!/bin/bash
 S=$FIXTURE/${0##*/}; S=${S%.sh}
@@ -88,9 +91,11 @@ class EveryHarness(unittest.TestCase):
         return runs.read_text().splitlines() if runs.exists() else []
 
     def test_every_harness_with_a_login_makes_its_smallest_turn(self):
-        self.assertEqual({h for _, h, _, _ in SMALLEST}, {"grokbuild", "antigravity", "opencode"})
-        result = self.gate({h: "0 fixture: logged in" for _, h, _, _ in SMALLEST})
+        result = self.gate(LOGGED_IN)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual({h: len(self.turns(h)) for h in REST}, dict.fromkeys(REST, 1),
+                         result.stdout)
+        self.assertEqual([h for _, h, _, _ in SMALLEST], list(REST))
         for model, harness, model_id, effort in SMALLEST:
             with self.subTest(harness=harness):
                 self.assertIn(f"PASS  3c {model} ({harness}): {model_id} at {effort} "
@@ -107,14 +112,12 @@ class EveryHarness(unittest.TestCase):
         self.assertIn("3 passed, 0 failed, 0 skipped", result.stdout)
 
     def test_a_turn_that_fails_fails_the_gate(self):
-        self.assertEqual(len(SMALLEST), 3)
         # an error with an answer, a success with none, and neither
-        for (model, harness, _, _), turn in zip(SMALLEST, ("1 Hello", "0 ", "1 ")):
+        for harness, turn in zip(REST, ("1 Hello", "0 ", "1 ")):
             with self.subTest(harness=harness, turn=turn):
-                result = self.gate({h: "0 fixture: logged in" for _, h, _, _ in SMALLEST},
-                                   {harness: turn})
+                result = self.gate(LOGGED_IN, {harness: turn})
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                self.assertRegex(result.stdout, rf"FAIL  3c {model} \({harness}\): .* gave no answer")
+                self.assertRegex(result.stdout, rf"FAIL  3c \w+ \({harness}\): .* gave no answer")
                 self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
 
     def test_a_harness_with_no_login_is_not_checked_never_passed(self):
