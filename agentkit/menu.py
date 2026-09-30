@@ -1306,7 +1306,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                      if any(name == cursor for _, name in lines)), page)
     # The layout is min(terminal width, 120); beyond that the margin grows, never the text.
     out = []
-    moves = []    # what may move: (key, what it shows, its first cell, highlighted, bar colour)
+    # what may move: (key, what it shows -- a word, or a bar's value and its blocks -- its first
+    # cell, highlighted, a bar's colour); a bar's news is its value, which rounding can hide
+    moves = []
     if not compact:
         out += [terminal.header_line("", time.strftime("%H:%M"), width),
                 terminal.rule_line(width)]
@@ -1316,11 +1318,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         for line in meters:
             out.append(line)
             text = terminal.ANSI.sub("", line)
-            bar = re.search("[█░]+", text)
-            if bar:
-                moves.append((("usage", text[:bar.start()].strip()), bar.group(),
+            bar, left = re.search("[█░]+", text), re.search(r"(\d+)% left", text)
+            if bar and left:
+                moves.append((("usage", text[:bar.start()].strip()),
+                              (int(left.group(1)) / 100, bar.group()),
                               (len(out), terminal.cells(text[:bar.start()]) + 1), False,
-                              fill(int(re.search(r"(\d+)% left", text).group(1)))))
+                              fill(int(left.group(1)))))
     body = [("  no sessions; n starts one", None)]
     if ordered:
         # One blank line between projects; seat rows two under their project.
@@ -1364,9 +1367,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         if word and terminal.state_text(word) in text:
             moves.append((("word", name), word, (len(out), terminal.cells(
                 text[:text.index(terminal.state_text(word))]) + 1), lit, None))
-        tasks = re.search(r"tasks ([█░]+|[#-]+) \d", text)
+        tasks = re.search(r"tasks ([█░]+|[#-]+) (\d+)/(\d+)", text)
         if tasks and word == "working":
-            moves.append((("tasks", name), tasks.group(1),
+            moves.append((("tasks", name), (int(tasks.group(2)) / int(tasks.group(3)),
+                                            tasks.group(1)),
                           (len(out), terminal.cells(text[:tasks.start(1)]) + 1), lit, None))
     if not compact:
         out.append("")
@@ -1388,8 +1392,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             elif shown in ("needs you", "done"):
                 clock.start([cell], *(motion.pulsing if shown == "needs you" else motion.settling)(
                     terminal.state_glyph(shown), shown, since, lit))
-            elif key[0] != "word" and len(before) == len(shown):
-                clock.start([cell], *motion.gliding(before, shown, since, colour, lit))
+            elif key[0] != "word" and len(before[1]) == len(shown[1]):
+                # a cell each, so a frame rewrites only the cells that moved
+                cells, until = motion.gliding(before[1], shown[1], since, colour, lit,
+                                              sweep=shown[0] == 1 > before[0])
+                for n, animation in enumerate(cells):
+                    clock.start([(cell[0], cell[1] + n)], animation, until)
         moved = clock.frame()
     # Home and write over, each line cleared past its end and the screen below the last: one
     # write, so no draw ever shows a blank screen or a half-drawn one.
@@ -3494,12 +3502,12 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
         while True:
             if look:
                 live.ask(look=True)       # read and looked at again, off the draw
-            found, groups = last          # no key waits for a read: it draws the last one
             messages = orch.job_notices()
             if messages:
                 keyboard.give()           # a notice waits for its Enter, like any sub-screen
                 show_notices(messages)
                 clock.forget()            # and the menu it comes back to replays nothing
+            found, groups = last          # after any notice: what changed under it is drawn as is
             drawn = {} if keyboard.take() else None
             own = config.current_session() if overlay else None
             listed = keys if drawn is None else \
