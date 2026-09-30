@@ -90,7 +90,7 @@ class QuotaWordsBounded(unittest.TestCase):
         self.account, self.marked, self.lines = None, [], []
         self.stack.enter_context(patch.object(
             usage, "account",
-            side_effect=lambda cfg, provider: (self.account, False) if self.account
+            side_effect=lambda cfg, provider, **_kw: (self.account, False) if self.account
             else (None, None)))
         self.stack.enter_context(patch.object(
             usage, "mark_exhausted", side_effect=lambda *a, **k: self.marked.append(a)))
