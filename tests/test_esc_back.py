@@ -358,5 +358,28 @@ class Pipe(Sandbox):
             self.assertEqual(menu.read("> ", ""), "")
 
 
+
+class NewSessionKeyboard(Sandbox):
+    def test_n_gives_the_menus_own_keyboard_back_before_the_seat_is_made(self):
+        # A keyboard `n` took for its usage wait must never stand in for the menu's: the one
+        # given back before the seat is made is the menu's, or the seat opens on raw modes.
+        events = []
+
+        class MenuKeyboard:
+            def give(self):
+                events.append("given")
+        keyboard = MenuKeyboard()
+        with patch.object(orch, "ask_name", return_value="acme"), \
+                patch.object(orch, "taken_names", return_value=[]), \
+                patch.object(menu, "waited",
+                             side_effect=lambda fn, title, keyboard=None:
+                             events.append(("waited", keyboard)) or {}), \
+                patch.object(orch, "select", return_value=("opus", None, ["opus"], ["astra"])), \
+                patch.object(orch, "seat_cwd", return_value=str(self.root)), \
+                patch.object(orch, "create", side_effect=lambda *a, **k: events.append("made") or {}), \
+                patch.object(menu, "open_session"), patch.object(terminal, "frame"):
+            self.assertEqual(menu.new_session({"defaults": {}}, False, keyboard), "acme")
+        self.assertEqual(events, [("waited", keyboard), "given", "made"])
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
