@@ -59,7 +59,8 @@ for arg in rest:
             next(rest, None)           # the pane: there is only the one
     else:
         words.append(arg)
-if command in ("set-option", "set", "show-options", "show") and "p" in flags and pane.parent.is_dir():
+if (command in ("set-option", "set", "show-options", "show") and "p" in flags
+        and pane.parent.is_dir()):
     options = json.loads(pane.read_text()) if pane.exists() else {}
     if command.startswith("show"):
         for name in words or sorted(options):
@@ -194,7 +195,8 @@ class FakeTmux:
             env = {**self.env, "STANDIN_END": end}
             env.update([flags["-e"].split("=", 1)] if "-e" in flags else [])
             popup = subprocess.Popen(command[-1], shell=True, env=env, start_new_session=True)
-            self.case.addCleanup(lambda: popup.poll() is None and os.killpg(popup.pid, signal.SIGKILL))
+            self.case.addCleanup(
+                lambda: popup.poll() is None and os.killpg(popup.pid, signal.SIGKILL))
             deadline = time.monotonic() + 15
             while not self.saw.exists() or not self.saw.read_text():
                 self.case.assertLess(time.monotonic(), deadline, "the popup never said what it saw")
@@ -261,7 +263,9 @@ class Popup:
                               terminal.PAD_ENV)}
         env.update({"TERM": "xterm-256color", "COLORTERM": "truecolor", "LANG": "C.UTF-8",
                     "LC_ALL": "C.UTF-8", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
-                    "FLOATS_REPO": str(REPO), **({terminal.PAD_ENV: str(padding)} if padding else {})})
+                    "FLOATS_REPO": str(REPO)})
+        if padding:
+            env[terminal.PAD_ENV] = str(padding)
         self.proc = subprocess.Popen([sys.executable, "-c", CHILD], stdin=self.slave,
                                      stdout=self.slave, stderr=self.slave, env=env,
                                      start_new_session=True)
