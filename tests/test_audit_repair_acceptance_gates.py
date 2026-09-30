@@ -140,15 +140,16 @@ drive probe xterm-256color printenv HOME USER
 
     def test_pipeline_failures_accumulate_in_parent_and_have_diagnostics(self):
         assertions = between(FRESH, 'bad="" ASSERTION=0', "# --- the throwaway HOME's shell")
-        lines = '\n'.join(line for line in FRESH.splitlines() if line.startswith('  must "ak orch list'))
-        result = self.shell(assertions + '\nLIST="wrong output"\n' + lines + '''
+        lines = '\n'.join(re.findall(r'^  must "ak orch list(?:.*\\\n)*.*', FRESH, re.M))
+        result = self.shell(assertions + '\nLIST="wrong output" PICKED=""\n' + lines + '''
 must "pipeline's producer failed" bash -o pipefail -c 'false | cat'
 verdict fixture evidence
 finish
 ''')
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn('0 passed, 1 failed, 0 skipped', result.stdout)
-        self.assertIn('does not show the seat; ak orch list does not show its models;', result.stdout)
+        self.assertIn('does not show the seat; ak orch list does not show the models the picker chose;',
+                      result.stdout)
         self.assertIn("exit=1 log=", result.stdout)
         self.assertIn("command=grep", result.stdout)
 
@@ -427,17 +428,18 @@ E2E_TMUX_DIR="$TMUX_TMPDIR"
             work = self.root / f'gate-{number}'
             work.mkdir()
             (work / 'failure.log').write_text(f'gate {number}')
-            for secret in ('phone', 'phone.pub', 'ghenv', 'source.bundle'):
+            for secret in ('phone', 'phone.pub', 'ghenv', 'source.bundle', 'home/.ak-e2e-env'):
+                (work / secret).parent.mkdir(exist_ok=True)
                 (work / secret).write_text('fixture secret')
             result = self.shell('''say() { echo "$*"; }
-INVOKER=fixture INVHOME="$HOME"
+INVOKER=fixture INVHOME="$HOME" UH="$WORK/home"
 ''' + cleanup + f'\ncleanup_logs {code}', env={"WORK": str(work)}, check=True)
             self.assertFalse(work.exists())
             if code:
                 self.assertIn(f'failure logs: {archive}', result.stdout)
                 self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
                 with tarfile.open(archive) as saved:
-                    self.assertEqual(saved.getnames(), ['.', './failure.log'])
+                    self.assertEqual(sorted(saved.getnames()), ['.', './failure.log', './home'])
                     self.assertEqual(saved.extractfile('./failure.log').read().decode(), f'gate {number}')
             elif number == 0:
                 self.assertFalse(archive.exists())
@@ -447,7 +449,7 @@ INVOKER=fixture INVHOME="$HOME"
         work.mkdir()
         self.script('tar', 'echo "fixture archive failure" >&2; exit 29\n')
         result = self.shell('''say() { echo "$*"; }
-INVOKER=fixture INVHOME="$HOME"
+INVOKER=fixture INVHOME="$HOME" UH="$WORK/home"
 ''' + cleanup + '\ncleanup_logs 1', env={"WORK": str(work)}, check=True)
         self.assertIn('WARN could not archive', result.stdout)
         self.assertFalse(work.exists())

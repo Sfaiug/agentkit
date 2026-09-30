@@ -2,9 +2,12 @@
 
 The watcher's freeze marks and stall entries and a rename's `launched_session` are written
 while the loop runs, holding a record of its own in memory: its next save merges what it
-changed and keeps the rest.  Offline: a sandbox HOME, no real process, tmux or seat.
+changed and keeps the rest.  The tick's passes change a record only through `run.record`,
+and one it cannot read is left as it is.  Offline: a sandbox HOME, no real process, tmux or
+seat.
 """
 
+import json
 import os
 from pathlib import Path
 import unittest
@@ -201,6 +204,136 @@ class Contract(Fixture):
         self.assertEqual(temps[0], temps[1])
         self.assertNotEqual(temps[1], temps[2])
         self.assertTrue(run.read_state(self.run_dir)["handback_pending"])
+
+    def test_an_unreadable_record_is_left_as_it_is_and_the_caller_learns_it(self):
+        path = self.run_dir / "run.json"
+        path.write_text('{"state": "runn')
+        with self.assertRaises(run.Unreadable), self.writes() as write:
+            with run.record(self.run_dir) as state:
+                state["thawed_at"] = 7000
+        write.assert_not_called()
+        self.assertEqual(path.read_text(), '{"state": "runn')
+        path.unlink()
+        with self.assertRaises(run.Unreadable):
+            with run.record(self.run_dir) as state:
+                state["thawed_at"] = 7000
+        self.assertFalse(path.exists())
+
+
+class Tick(Fixture):
+    """Each pass changes a record through `record`, onto the record as it stands under the lock.
+
+    `between` changes run.json right after the pass's first read, before its locked one.  A
+    torn record there is left byte for byte, and so is a key another writer set when the locked
+    read fails for a moment: the pass never writes the copy it read first, and says why.
+    """
+    NOW = 10000
+
+    def setUp(self):
+        super().setUp()
+        self.base = run.read_state(self.run_dir)
+        for target, name, value in (
+                (run, "process_active", False),        # every loop here is gone
+                (run, "is_superseded", True),          # a later merged run did the work
+                (run, "tick_admission", True),
+                (run, "exhausted_wait", "window"),
+                (run, "run_workers", []),
+                (run, "executable_models", []),
+                (run, "run_scope_limits", (None, [])),
+                (run, "spawn_bg", 0),
+                (config, "role_groups", (None, None)),
+                (worker, "auth_ok", (True, "")),       # the login is back
+                (watch, "tell_parked", True),          # the parking's notice lands
+                (orch, "start_in_slice", 4242)):
+            self.stack.enter_context(patch.object(target, name, return_value=value))
+        self.stack.enter_context(patch.object(watch.usage, "readiness",
+                                              side_effect=lambda cfg, providers: providers))
+
+    def passes(self):
+        gone, now = str(self.root / "gone"), self.NOW
+        return (
+            ("resume_dead_loops", {"worktree": gone},
+             lambda log: watch.resume_dead_loops(log=log, now=now)),
+            ("recover_runs", {"state": "stalled"},
+             lambda log: watch.recover_runs({}, log=log, now=now)),
+            ("resume_waiting_login", {"state": "waiting_login", "waiting_for": "claude"},
+             lambda log: watch.resume_waiting_login(log=log, now=now)),
+            ("resume_exhausted", {"state": "exhausted"},
+             lambda log: watch.resume_exhausted({}, {}, [], log=log, now=now)),
+            ("resume_errored", {"state": "error", "error_retry_at": now},
+             lambda log: watch.resume_errored(log=log, now=now)),
+            ("resume_waiting", {"state": "waiting", "worktree": gone},
+             lambda log: watch.resume_waiting(log=log, now=now)))
+
+    def tear(self):
+        (self.run_dir / "run.json").write_text('{"state": "runn')
+
+    def another_writer(self):
+        """A mark landing past the pass's lock, as `mark_delivery`'s does."""
+        path = self.run_dir / "run.json"
+        path.write_text(json.dumps({**json.loads(path.read_text()), "handback_pending": True}))
+
+    def tick(self, state, run_pass, between, fail=False):
+        """One pass over `state`, with `between` right after its first read; the pass's log.
+
+        With `fail`, every read under the lock after that finds nothing, as a read can for a
+        moment (too many open files) on a record that is whole.  `self.between` is what
+        run.json held once `between` ran.
+        """
+        run.save_state(self.run_dir, {**self.base, **state})
+        path, real, logs, self.between = self.run_dir / "run.json", run.read_state, [], None
+
+        def read(run_dir):
+            if self.between is None:
+                first = real(run_dir)
+                between()
+                self.between = path.read_bytes()
+                return first
+            locked = str(run_dir) in getattr(run._RECOVERY_HELD, "paths", ())
+            return None if fail and locked else real(run_dir)
+        with patch.object(run, "read_state", side_effect=read):
+            run_pass(logs.append)
+        return logs
+
+    def test_every_pass_leaves_a_record_it_cannot_read_as_it_is_and_says_so(self):
+        for name, state, run_pass in self.passes():
+            for between, fail in ((self.tear, False), (self.another_writer, True)):
+                with self.subTest(name, between=between.__name__):
+                    logs = self.tick(state, run_pass, between, fail)
+                    self.assertEqual((self.run_dir / "run.json").read_bytes(), self.between)
+                    self.assertTrue(any(line.startswith("WARN")
+                                        and "run.json cannot be read" in line
+                                        for line in logs), logs)
+
+    def test_every_pass_keeps_a_key_another_writer_set_while_it_decided(self):
+        for name, state, run_pass in self.passes():
+            with self.subTest(name):
+                self.tick(state, run_pass, self.another_writer)
+                self.assertNotEqual((self.run_dir / "run.json").read_bytes(), self.between)
+                self.assertTrue(run.read_state(self.run_dir)["handback_pending"])
+
+    def test_a_launch_leaves_a_record_it_cannot_read_as_it_is_and_says_so(self):
+        # unreadable after the start: the child owns the run now, so the launch stands
+        launch = lambda log: self.assertEqual(watch.launch_resume(self.run_dir.name, log), 4242)
+        for between, fail in ((self.tear, False), (self.another_writer, True)):
+            with self.subTest(between.__name__):
+                logs = self.tick({}, launch, between, fail)
+                self.assertEqual((self.run_dir / "run.json").read_bytes(), self.between)
+                self.assertTrue(any(line.startswith("WARN") and "run.json cannot be read" in line
+                                    for line in logs), logs)
+        # unreadable before it: nothing is started
+        self.tear()
+        orch.start_in_slice.reset_mock()
+        logs = []
+        self.assertFalse(watch.launch_resume(self.run_dir.name, logs.append))
+        orch.start_in_slice.assert_not_called()
+        self.assertEqual((self.run_dir / "run.json").read_text(), '{"state": "runn')
+        self.assertTrue(any(line.startswith("WARN") and "run.json cannot be read" in line
+                            for line in logs), logs)
+        self.tick({"scope": "none"}, launch, self.another_writer)
+        state = run.read_state(self.run_dir)
+        self.assertTrue(state["handback_pending"])
+        self.assertIsNone(state["scope"])     # the launch's own placement, empty in a fake start
 
 
 if __name__ == "__main__":

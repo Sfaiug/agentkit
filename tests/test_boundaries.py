@@ -26,7 +26,7 @@ RULES = [
      "pattern": "claude|codex|muse|opencode|grok|grokbuild|antigravity|gemini|anthropic|openai"
                 "|xai|mimo|[\"']meta[\"']|[\"']google[\"']",
      "home": ("adapters/", "agentkit/harness/", "config.default.toml"),
-     "max": 305},
+     "max": 304},
     # What a refusal from a provider looks like is the harness's to say (adapters/*.toml,
     # its plugin): a copy in the loop or the watcher is a second classifier to keep in step.
     {"name": "provider failure words",
@@ -41,7 +41,7 @@ RULES = [
      "flags": (),
      "pattern": r"\.save_state\(",
      "home": ("agentkit/run.py",),
-     "max": 21},
+     "max": 0},
     # A live loop writes its record through `Loop.write`, which keeps what the watcher or a
     # rename put there since; a whole save of its memory would put the old record back.
     {"name": "a live loop's whole saves",

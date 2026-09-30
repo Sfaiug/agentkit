@@ -1048,7 +1048,9 @@ def review_pass(state, cfg):
     if state.get("repo") and not all(evidence.get(key) for key in ("head_sha", "tree_sha")):
         return False
     if (evidence.get("returncode") != 0 or evidence.get("verdict") != "PASS"
-            or evidence.get("done_when") is not True
+            # a reviewed PR whose repository declares no suite ran nothing: None, not True
+            or not (evidence.get("done_when") is True
+                    or (state.get("review_pr") and evidence.get("done_when", False) is None))
             or evidence.get("executor") != state.get("executor")
             or not evidence.get("reviewer") or evidence["reviewer"] != state.get("reviewer")
             or not evidence.get("reviewer_provider")):
@@ -3669,23 +3671,27 @@ def followups_in(text):
     """The reviewer's `## Follow-ups` items, in order, markers stripped.
 
     Read like `finding_count` reads `## Findings`: the section ends at the next heading of
-    the same level or higher, never at a deeper one. Indented evidence stays with its item.
+    the same level or higher, never at a deeper one. Evidence indented past its item's
+    marker stays with it, however wide the marker. An item saying there are none is no
+    follow-up: it would start a fix run for nothing.
     """
     heading = FOLLOWUPS.search(text or "")
     if not heading:
         return []
     section = text[heading.end():]
     end = re.search(rf"^#{{1,{len(heading.group(1))}}}[ \t]", section, re.M)
-    items, indent = [], None
+    items, marker, indent = [], None, None
     for line in (section[:end.start()] if end else section).splitlines():
-        if indent is not None and (not line.strip() or line[:indent].isspace()):
-            items[-1] += "\n" + line[indent:]
+        depth = len(line) - len(line.lstrip())
+        if marker is not None and (not line.strip() or depth > marker):
+            items[-1] += "\n" + line[min(depth, indent):]
             continue
         item = FOLLOWUP_ITEM.match(line)
-        indent = item.start(1) if item else None
+        marker, indent = (depth, item.start(1)) if item else (None, None)
         if item:
             items.append(item.group(1))
-    return [item.strip() for item in items]
+    return [item for item in map(str.strip, items)
+            if not re.fullmatch(r"(?:none|n/a)\.?", item, re.I)]
 
 
 def record_flakes(state, text):
@@ -4284,7 +4290,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         verdict = "FAIL"
         overridden = f"the reviewer said PASS but {killed_word(code) or f'exited {code}'}"
         lp.log(f"WARN {overridden}; overriding to FAIL")
-    if not ok and verdict == "PASS":
+    if ok is False and verdict == "PASS":
         verdict = "FAIL"
         overridden = "the reviewer said PASS while done-when is failing"
         lp.log(f"WARN {overridden}; overriding to FAIL")
@@ -5785,7 +5791,8 @@ def land(lp, upstream, verify, deliver, execv=None):
     covers a fetch and `deliver` -- the push, the PR, its required checks and the
     merge.  A target still on the commit the branch was verified on lands.  One
     moved only by commits that touch none of this branch's files is rebased onto
-    under the turn and lands on the verified checks.  Any other move gives the turn
+    under the turn and lands on the verified checks; where they share only markdown
+    docs, it lands once the done-when passes again (`disjoint_move`).  Any other move gives the turn
     to the next run while this one verifies again holding it, from before its
     rebase through its merge, lending the delivery turn only to branches changing
     other files, so the lap lands when its check passes; a third such lap parks
@@ -5860,13 +5867,19 @@ def disjoint_move(lp, upstream, verified, tip):
     True when `tip` only adds commits to `verified` and they touch none of the files this
     branch changes: the branch is rebased onto it (merged, where `how_to_integrate` says so)
     and the review of the verified commit is carried onto the new one, as a clean
-    integration keeps its review.  False, the branch back where it was, for anything else.
+    integration keeps its review.  Files both sides changed may only be markdown docs outside
+    `tests/`: no heavy suite reads those, and what docs can break a done-when checks, so the
+    done-when runs again on the new commit first.  False, the branch back where it was, for
+    anything else.
     """
     if git_out(lp.wt, "merge-base", "--is-ancestor", verified, tip)[0] != 0:
         return False
-    ours = git(lp.wt, "diff", "--no-renames", "--name-only", verified, "HEAD").splitlines()
-    theirs = git(lp.wt, "diff", "--no-renames", "--name-only", verified, tip).splitlines()
-    if set(ours) & set(theirs):
+    # read as the merge turn reads them: a quoted or trimmed path is not the file it names
+    ours, theirs = merge_turn_files(lp.wt, verified), merge_turn_files(lp.wt, verified, tip)
+    if ours is None or theirs is None:
+        return False
+    shared = sorted(ours & theirs)
+    if not all(path.endswith(".md") and "tests" not in path.split("/") for path in shared):
         return False
     how = how_to_integrate(lp)
     old_head = git(lp.wt, "rev-parse", "HEAD")
@@ -5880,20 +5893,48 @@ def disjoint_move(lp, upstream, verified, tip):
     except Stopped:
         abort_stopped_integration(lp, how)
         raise
-    if rc == 0:
-        set_base(lp, tip)
-        landed = commit_identity(lp.wt)
-        kept["review"] = {**kept["review"], **landed,
-                          "rebased_from": old_head, "patch_id": patch_id(lp.wt, tip)}
-        carried = lp.state.get("final_check")
-        if (isinstance(carried, dict) and carried.get("outcome") == "passed"
-                and carried.get("sha") == old_head):
-            kept["final_check"] = {**carried, "sha": landed["head_sha"]}
-        moved = git(lp.wt, "rev-list", "--count", f"{verified}..{tip}")
-        lp.log(f"--- merge: {upstream} moved {moved} commits, none touching this branch's "
-               "files; landing on the verified checks")
-    else:
+    if rc != 0:
         git_out(lp.wt, how, "--abort")
+    else:
+        set_base(lp, tip)
+        if not shared:
+            moved = git(lp.wt, "rev-list", "--count", f"{verified}..{tip}")
+            lp.log(f"--- merge: {upstream} moved {moved} commits, none touching this branch's "
+                   "files; landing on the verified checks")
+        elif git_out(lp.wt, "diff", "--quiet", tip, "HEAD")[0] == 0:
+            rc = 1      # the target already carries the work: the reserved lap says so
+        else:
+            lp.log(f"--- merge: {upstream} moved, overlapping this branch only in docs "
+                   f"({', '.join(shared)}); landing after the done-when")
+            # the pending review's round, as `integrate` checks a clean rebase: the last
+            # round keeps its own done-when log
+            dw_path = lp.run_dir / f"round-{lp.state['review_pending']['round']}" / "donewhen.log"
+            dw_path.parent.mkdir(parents=True, exist_ok=True)
+            identity = commit_identity(lp.wt)
+            ok, dw_log = run_done_when(lp.every, lp.wt, dw_path, lp.artifacts,
+                                       lp.done_when_limit, lp.log, silence=lp.turn_limit,
+                                       run_dir=lp.run_dir)
+            # pinned as `verify_work` pins, but committing no leftovers: what lands is the
+            # rebased commit the review is carried onto, and untracked files stay untracked
+            ok = (ok and commit_identity(lp.wt) == identity
+                  and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0)
+            lp.log(f"done-when after the {how}: {'all passed' if ok else 'FAILED'}")
+            if ok:
+                record_flakes(lp.state, dw_log)
+            else:
+                rc = 1
+        if rc == 0:
+            landed = commit_identity(lp.wt)
+            kept["review"] = {**kept["review"], **landed,
+                              "rebased_from": old_head, "patch_id": patch_id(lp.wt, tip)}
+            carried = lp.state.get("final_check")
+            if (isinstance(carried, dict) and carried.get("outcome") == "passed"
+                    and carried.get("sha") == old_head):
+                kept["final_check"] = {**carried, "sha": landed["head_sha"]}
+        else:
+            # back on the verified commit: the reserved lap checks again and fixes it
+            git(lp.wt, "reset", "--hard", old_head)
+            lp.state["base_sha"] = verified
     lp.state.update(kept)
     lp.state.pop("review_pending", None)
     lp.save()
@@ -6054,15 +6095,17 @@ def merge_turn(lp, upstream, reserve=False):
                 pass
 
 
-def merge_turn_files(wt, upstream):
-    """The branch's paths, including both sides of renames; None means unknown."""
-    base = git(wt, "merge-base", upstream, "HEAD", check=False)
+def merge_turn_files(wt, upstream, head="HEAD"):
+    """The paths `head` changed since its merge base with `upstream`; None means unknown.
+
+    Both sides of a rename count."""
+    base = git(wt, "merge-base", upstream, head, check=False)
     if not base:
         return None
     # `git()` strips whitespace; NUL-delimited paths can start with it, or contain
     # newlines. Read stdout intact so those are still the same files in every clone.
     code, out, err = tool_run(["git", "-C", str(wt), "diff", "--no-renames",
-                               "--name-only", "-z", base, "HEAD"])
+                               "--name-only", "-z", base, head])
     if stopped(code, err):
         raise Stopped(f"git diff stopped in {wt}: {err.strip()}")
     return set(out.split("\0")) - {""} if code == 0 else None
@@ -6644,18 +6687,28 @@ class Record(dict):
         self.written = copy.deepcopy(dict(self))
 
 
+class Unreadable(OSError):
+    """`record` found no run.json it could read, and wrote nothing: the caller skips the run."""
+
+
 @contextmanager
 def record(run_dir):
     """The one way to change a record that exists: read, change and write it under one lock.
 
     Yields the record as it stands under `recovery_lock`, the lock every save and a stop hold;
     the caller changes keys (a key popped is removed) and a clean exit writes once, if anything
-    changed.  An exception writes nothing.  One block per run at a time: a second one inside
-    would read the record without the first one's changes, and write over them.
+    changed.  An exception writes nothing.  A run.json that is missing or cannot be read raises
+    `Unreadable` before the block runs: nobody can tell what it held, so nothing is written
+    over it -- not a copy read before the lock, and not a record of only the changed keys.
+    One block per run at a time: a second one inside would read the record without the first
+    one's changes, and write over them.
     """
     run_dir = Path(run_dir)
     with recovery_lock(run_dir):
-        current = Record(run_dir, read_state(run_dir) or {})
+        loaded = read_state(run_dir)
+        if loaded is None:
+            raise Unreadable("run.json cannot be read")
+        current = Record(run_dir, loaded)
         yield current
         current.flush()
 
@@ -7070,8 +7123,10 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
     parts += ["", "## Done-when", "```", "\n".join(result_done_when(cmds, state)), "```", ""]
     parts += [final_check_line(state, cmds), ""]
     for entry in state["round_summaries"]:
-        parts += [f"## Round {entry['round']} ({entry['verdict']}, done-when "
-                  f"{'passed' if entry['done_when'] else 'failed'})", "", entry["summary"], ""]
+        dw = {True: "done-when passed", False: "done-when failed"}.get(
+            entry["done_when"], "done-when not run")
+        parts += [f"## Round {entry['round']} ({entry['verdict']}, {dw})", "",
+                  entry["summary"], ""]
     if state.get("error"):
         parts += ["## Why this run stopped", "", state["error"], ""]
     if state["verdict"] != "PASS" and state["findings"]:
@@ -13690,7 +13745,7 @@ def review_pr(cfg, run_dir, url, opts, log):
                                    run_dir=lp.run_dir)
         log(f"tests ({tests}): {'passed' if ok else 'FAILED'}")
     else:
-        ok, dw_log = True, "(AGENTS.md declares no `tests:` command; nothing was run)"
+        ok, dw_log = None, "(AGENTS.md declares no `tests:` command; nothing was run)"
         log("tests: AGENTS.md declares none")
     if is_own:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. "

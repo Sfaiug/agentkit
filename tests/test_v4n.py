@@ -188,7 +188,8 @@ class LaunchAndCache(Sandbox):
 
     def test_first_usage_read_fills_old_cache_before_printing_without_spending(self):
         providers = {"openai": {"harness": "codex", "meters": [], "error": None}}
-        usage._store(config.STATE / "usage.json", 9999, providers)
+        (config.STATE / "usage.json").write_text(json.dumps(
+            {"fetched_at": 9999, "providers": providers, "reset_checked_at": 9999}))
         with patch.object(usage, "_adapter_json", return_value={"available": 3}) as adapter, \
                 patch.object(usage, "_maybe_reset") as spend, redirect_stdout(io.StringIO()) as out:
             usage.main([])

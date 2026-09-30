@@ -433,26 +433,27 @@ class Slots(unittest.TestCase):
 
     def test_v5am_concurrent_cold_usage_cache_keeps_all_runs_running(self):
         os.environ["AK_MAX_RUNS"] = "0"
-        # Hold all four readers after writing the snapshot each assembled: every writer's
-        # temporary name is its own, so every rename succeeds.  Only collect's own publish is
-        # held; a probe publishes its answer under its provider's lock, where nobody else is.
-        barrier = '''import os, pathlib, sys, time
-replace = pathlib.Path.replace
-def publish(path, target):
-    if path.name.startswith("usage.tmp") and sys._getframe(2).f_code.co_name == "collect":
-        root = pathlib.Path(os.environ["V5AM_FIXTURE"])
-        (root / ("cache-ready-" + str(os.getpid()))).touch()
-        end = time.monotonic() + 10
-        while len(list(root.glob("cache-ready-*"))) < 4:
-            assert time.monotonic() < end, "cache publishers did not meet"
-            time.sleep(.01)
-        try:
-            return replace(path, target)
-        except FileNotFoundError:
-            (root / ("cache-raced-" + str(os.getpid()))).touch()
-            raise
-    return replace(path, target)
-pathlib.Path.replace = publish
+        # Hold all four readers once each has assembled its snapshot, and let them all write it
+        # at once: every write takes the cache's one lock, so every rename succeeds.  Only
+        # collect's own publish is held; a probe publishes its answer the moment it has it.
+        barrier = '''import os, pathlib, time
+from agentkit import usage
+root = pathlib.Path(os.environ["V5AM_FIXTURE"])
+store, replace = usage._store, pathlib.Path.replace
+def publish(*args, **kwargs):
+    (root / ("cache-ready-" + str(os.getpid()))).touch()
+    end = time.monotonic() + 10
+    while len(list(root.glob("cache-ready-*"))) < 4:
+        assert time.monotonic() < end, "cache publishers did not meet"
+        time.sleep(.01)
+    return store(*args, **kwargs)
+def rename(path, target):
+    try:
+        return replace(path, target)
+    except FileNotFoundError:
+        (root / ("cache-raced-" + str(os.getpid()))).touch()
+        raise
+usage._store, pathlib.Path.replace = publish, rename
 '''
         with patch.dict(globals(), {"LAUNCH": barrier + LAUNCH}):
             for name in ("one", "two", "three", "four"):
@@ -462,6 +463,11 @@ pathlib.Path.replace = publish
         self.assertEqual(len(list(self.root.glob("cache-raced-*"))), 0)
         self.assertEqual(sum(s["state"] == "running" for _, s in self.states()), 4)
         self.finish_all()
+        # With every writer gone, each one's change landed whole: the snapshot reads, holds
+        # every provider, and no writer's temporary file is left beside it.
+        cache = json.loads((config.STATE / "usage.json").read_text())
+        self.assertEqual(set(cache["providers"]), set(self.cfg["providers"]))
+        self.assertEqual(list(config.STATE.glob("usage.tmp*")), [])
 
     def test_v5am_usage_retry_is_specific_and_bounded(self):
         cache = config.STATE / "usage.json"

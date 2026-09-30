@@ -2540,19 +2540,17 @@ def config_mark(cfg, name, column):
     return _saved(cfg, defaults, before)
 
 
-def config_effort(cfg, name, step, efforts=config.efforts, wrap=False):
-    """`name`'s effort one step along that model's own efforts (config.efforts, or a model's
-    own screen's _catalog_efforts), never past either end unless `wrap` takes it round to the
-    other, and saved; one set to an effort it does not take lands on its first.  The efforts
-    are read `now`, off the catalog already in hand (config.catalog_now): a listing never
-    stands between the key and its frame.  What to say under the matrix, or ""."""
+def config_effort(cfg, name, step, wrap=False):
+    """`name`'s effort one step along that model's own efforts (config.efforts), never past
+    either end unless `wrap` takes it round to the other, and saved; one set to an effort it
+    does not take lands on its first.  The efforts are read `now`, off the catalog already in
+    hand (config.catalog_now): a listing never stands between the key and its frame.  What to
+    say under the matrix, or ""."""
     entry = cfg["models"][name]
     try:
-        levels = efforts(entry.get("harness"), entry.get("model"), now=True)
+        levels = config.efforts(entry.get("harness"), entry.get("model"), now=True)
     except config.Error as exc:
         return f"config: {exc}"
-    if not levels:
-        return f"the catalog names no efforts for {entry.get('model')}"
     current = entry.get("effort")
     at = levels.index(current) + step if current in levels else 0
     at = at % len(levels) if wrap else at
@@ -2574,28 +2572,27 @@ def _nearest(effort, levels):
                if word in EFFORT_RANK else len(EFFORT_RANK))
 
 
-def _catalog_efforts(harness, model, now=False):
-    """The efforts the catalog lists for that model id, and [] for one it names none for or
-    does not list: never config.efforts' vocabulary, which is no catalog's offer.  `now`
-    reads it as config.efforts does."""
-    return next((list(entry["efforts"]) for entry in (
-        config.catalog_now if now else config.catalog)(harness) if entry["id"] == model), [])
+def _offered(harness, *screen):
+    """Every model that harness's catalog lists, asked while `screen` waits on it (`waited`),
+    each with the efforts it is offered at (config.efforts): the catalog's own, or for one
+    whose efforts it does not say -- a model newer than its adapter's table -- the harness's
+    `[effort] levels`, read without asking the catalog a second time."""
+    return [dict(model, efforts=model["efforts"] or config.efforts(harness))
+            for model in waited(lambda: config.catalog(harness), *screen)]
 
 
 def config_model_id(cfg, name, step, screen):
-    """`name`'s model id one step along the models its harness's catalog lists efforts for,
+    """`name`'s model id one step along the models its harness's catalog lists (_offered),
     never past either end, and saved with the effort that follows it (_nearest); an id not
-    among them lands on the first.  One whose efforts the catalog does not say -- OpenCode's
-    -- has none to follow with, and is not offered.  `screen` is what waits on the catalog
-    (`waited`).  What to say under the screen, or ""."""
+    among them lands on the first.  `screen` is what waits on the catalog (`waited`).  What to
+    say under the screen, or ""."""
     entry = cfg["models"][name]
     try:
-        models = [model for model in waited(lambda: config.catalog(entry.get("harness")),
-                                            *screen) if model["efforts"]]
+        models = _offered(entry.get("harness"), *screen)
     except config.Error as exc:
         return f"config: {exc}"
     if not models:
-        return f"the {entry.get('harness')} catalog names no model with its efforts"
+        return f"the {entry.get('harness')} catalog names no model"
     ids, current = [model["id"] for model in models], entry.get("model")
     at = ids.index(current) + step if current in ids else 0
     if not 0 <= at < len(ids) or ids[at] == current:
@@ -2638,11 +2635,11 @@ def config_model(cfg, name):
     keys until Esc, each change saved and drawn at once.
 
     ↑/↓, k/j and the wheel move between rows and ←/→ step the value on one: the id through
-    its harness's catalog (config.catalog) and nothing else, the effort through the efforts
-    that catalog lists for it.  Nothing is typed, so no id or effort the catalog does not
-    offer is ever written.  Enter on `Remove` asks `Keep` or `Remove` under it, `Keep`
-    picked and Esc keeping it; the last model is refused without asking, and one removed goes
-    back to the matrix at once.
+    its harness's catalog (config.catalog) and nothing else, the effort through that model's
+    own (config.efforts).  Nothing is typed, so no id or effort ak does not offer is ever
+    written.  Enter on `Remove` asks `Keep` or `Remove` under it, `Keep` picked and Esc
+    keeping it; the last model is refused without asking, and one removed goes back to the
+    matrix at once.
     """
     here, note, title = MODEL_ROWS[0], "", f"config · {name}"
     while name in cfg["models"]:
@@ -2695,7 +2692,7 @@ def config_model(cfg, name):
                 note = (config_model_id(cfg, name, step, (
                     title, lambda: model_body(cfg, name, here)[0], keys))
                         if here == "model id"
-                        else config_effort(cfg, name, step, _catalog_efforts))
+                        else config_effort(cfg, name, step))
             except Back:
                 return                # Esc while the catalog was asked
 
@@ -2833,10 +2830,10 @@ def _add_choices(cfg, picked, screen):
     it shows).
 
     The harnesses of the providers the config has (config.provider_harnesses), with their
-    providers' names; then the models that harness's catalog lists efforts for, as
-    config_model_id offers them, each id beside its label where the two differ; then that
-    model's efforts.  A model the config runs already, or an effort it runs it at, is marked
-    with the names it runs under.  `screen` is what waits on a catalog (`waited`).
+    providers' names; then every model that harness's catalog lists, as config_model_id offers
+    them (_offered), each id beside its label where the two differ; then that model's efforts.
+    A model the config runs already, or an effort it runs it at, is marked with the names it
+    runs under.  `screen` is what waits on a catalog (`waited`).
     """
     def mark(names):
         return f"{terminal.glyph('done')} {', '.join(names)}" if names else ""
@@ -2849,8 +2846,7 @@ def _add_choices(cfg, picked, screen):
     if len(picked) == 1:
         return [(model, [model["label"], "" if model["id"] == model["label"] else model["id"],
                          mark(_runs(cfg, harness, model["id"]))])
-                for model in waited(lambda: config.catalog(harness), *screen)
-                if model["efforts"]]
+                for model in _offered(harness, *screen)]
     model = picked[1]["id"]
     return [(effort, [effort, mark(_runs(cfg, harness, model, effort))])
             for effort in picked[1]["efforts"]]
@@ -2927,7 +2923,7 @@ def config_add(cfg):
             ats.pop()
             continue
         if not choices and not note:
-            note = (f"the {picked[0][0][0]} catalog names no model with its efforts" if picked
+            note = (f"the {picked[0][0][0]} catalog names no model" if picked
                     else "no provider the config has names a harness")
         adding = len(picked) == len(ADD_STEPS) - 1
         keys = ADD_KEYS["add" if adding else "choose"][0 if terminal.utf8() else 1] + "   esc back"
@@ -3040,14 +3036,13 @@ def config_add_provider(cfg, keyboard):
     A new provider's harness, the shipped default's for it, is installed when its program is
     nowhere to be found, then logged in: each its adapter's own verb, run as install.sh runs
     them, with the terminal given back for it and taken again after.  Then its shipped
-    [providers.*] table goes in, with the first model its harness's catalog lists efforts
-    for, under the name and
-    at the effort the shipped default gives that provider's first model -- `spark`, and the
-    effort or the nearest one it takes -- so a `usage_model` in that table names it.  It joins
-    neither default until it is chosen there.  Where a model of that name is here already
-    nothing is installed or added, since the table would name that model instead.  A verb that
-    fails adds nothing, and waits until what it said has been read.  Esc goes back with
-    nothing done.  What to say under the matrix, or "".
+    [providers.*] table goes in, with the first model its harness's catalog lists (_offered),
+    under the name and at the effort the shipped default gives that provider's first model --
+    `spark`, and the effort or the nearest one it takes -- so a `usage_model` in that table
+    names it.  It joins neither default until it is chosen there.  Where a model of that name
+    is here already nothing is installed or added, since the table would name that model
+    instead.  A verb that fails adds nothing, and waits until what it said has been read.  Esc
+    goes back with nothing done.  What to say under the matrix, or "".
     """
     shipped = config.shipped()
     labels = _by_label([name for name in shipped.get("providers") or {}
@@ -3084,12 +3079,11 @@ def config_add_provider(cfg, keyboard):
     if failed:
         return failed
     try:
-        models = [model for model in waited(lambda: config.catalog(harness),
-                                            "config · add a provider") if model["efforts"]]
+        models = _offered(harness, "config · add a provider")
     except Back:
         return ""                     # Esc while its catalog was asked: nothing added
     if not models:
-        return f"the {harness} catalog names no model with its efforts; {picked} is not added"
+        return f"the {harness} catalog names no model; {picked} is not added"
     model, before = models[0], copy.deepcopy(cfg)
     cfg["providers"][name] = shipped["providers"][name]
     cfg["models"][first] = {

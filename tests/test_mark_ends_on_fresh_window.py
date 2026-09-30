@@ -434,6 +434,188 @@ class FreshWindowEndsMark(unittest.TestCase):
             self.assertNotIn("exhausted_until", providers["alpha"])
             self.assertFalse(providers["alpha"]["exhausted"])
 
+    def reset_adapter(self, status=None, **said):
+        adapters = self.root / "adapters"
+        adapters.mkdir()
+        (adapters / "fake.toml").write_text("[usage]\nreset = true\n")
+        self.stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}))
+        self.stack.enter_context(patch.object(
+            usage, "_adapter_json", side_effect=lambda harness, verb, *_a, **_kw:
+            {"code": "reset", "available": 0, **said} if verb == "reset"
+            else status if verb == "reset-status" else None))
+
+    def while_writing(self, asked, other):
+        """Probe `asked`, and run `other` as another process would the moment that probe's
+        write reads the snapshot it starts from: at once where nothing stops it, else as soon
+        as it may."""
+        cache, answered, real = config.STATE / "usage.json", [], Path.read_text
+        writer = threading.Thread(target=other)
+
+        def probe(cfg, provider, now, account=None):
+            answered.append((provider, account))
+            return {**self.fake_probe(cfg, provider, now, account), "resets": 1.0}
+
+        def read_text(path, *a, **kw):
+            try:
+                return real(path, *a, **kw)
+            finally:
+                if (path == cache and asked in answered and writer.ident is None
+                        and threading.current_thread() is threading.main_thread()):
+                    writer.start()
+                    writer.join(1)
+
+        with patch.object(usage, "_probe", side_effect=probe):
+            with patch.object(Path, "read_text", read_text):
+                usage._probe_gently(self.cfg, *asked)
+                writer.join()
+            self.assertIn(asked, answered)
+
+    def test_a_write_begun_before_a_credit_never_brings_back_the_mark_it_lifted(self):
+        self.reset_adapter()
+        self.set_meters("alpha", self.old_window())
+        self.set_meters("beta", self.old_window(used=10))
+        until, spent = NOW + 5 * 86400, []
+        with patch.object(usage, "_probe", side_effect=lambda *a, **kw: {
+                **self.fake_probe(*a, **kw), "resets": 1.0}):
+            usage.collect(self.cfg)
+            usage.mark_exhausted(self.cfg, "alpha", until)
+        self.now += usage.PROBE_EVERY + 1
+        # beta's probe writes a snapshot it read before alpha's refused worker spent a credit
+        self.while_writing(("beta", None),
+                           lambda: spent.append(usage.replenish(self.cfg, "alpha")))
+        self.assertEqual(spent, [(True, 0.0)])
+        stored = json.loads((config.STATE / "usage.json").read_text())["providers"]["alpha"]
+        self.assertNotIn("exhausted_until", stored)
+        providers = usage.collect(self.cfg)
+        self.assertFalse(providers["alpha"]["exhausted"])
+        self.assertIn("one", usage.pick_order(self.cfg, providers, ["one", "two"], quiet=True))
+
+    def test_a_refusal_written_after_a_credit_it_began_before_stays_lifted(self):
+        self.reset_adapter()
+        self.set_meters("alpha", self.old_window())
+        self.set_meters("beta", self.old_window(used=10))
+        until, spent, real = NOW + 5 * 86400, [], usage._patch
+
+        def delayed(provider, prov, account=None, **kw):
+            if kw.get("mark") and not spent:
+                # the refusal's process stalls before its write, and a credit goes meanwhile
+                self.now += 1
+                spent.append(usage.replenish(self.cfg, "alpha"))
+            return real(provider, prov, account, **kw)
+
+        with patch.object(usage, "_probe", side_effect=lambda *a, **kw: {
+                **self.fake_probe(*a, **kw), "resets": 1.0}):
+            usage.collect(self.cfg)
+            with patch.object(usage, "_patch", side_effect=delayed):
+                usage.mark_exhausted(self.cfg, "alpha", until)
+            self.assertEqual(spent, [(True, 0.0)])
+            providers = usage.collect(self.cfg)
+        self.assertNotIn("exhausted_until", providers["alpha"])
+        self.assertFalse(providers["alpha"]["exhausted"])
+        self.assertIn("one", usage.pick_order(self.cfg, providers, ["one", "two"], quiet=True))
+
+    def test_records_written_while_a_probe_writes_keep_their_marks(self):
+        self.two_accounts()
+        until, cache = NOW + 5 * 86400, config.STATE / "usage.json"
+
+        def others():
+            # `first` and beta are read and then refuse a worker each, all in other processes
+            usage._probe_gently(self.cfg, "alpha", "first")
+            usage._probe_gently(self.cfg, "beta")
+            with patch.object(usage, "collect", side_effect=lambda cfg: usage.Readings(
+                    json.loads(cache.read_text())["providers"])):
+                usage.mark_exhausted(self.cfg, "alpha", until, account="first")
+                usage.mark_exhausted(self.cfg, "beta", until)
+
+        # No snapshot yet: `second`'s probe starts its write from nothing
+        self.while_writing(("alpha", "second"), others)
+        stored = json.loads(cache.read_text())["providers"]
+        self.assertEqual(stored["alpha"]["accounts"].get("first", {}).get("exhausted_until"), until)
+        self.assertEqual(stored.get("beta", {}).get("exhausted_until"), until)
+        with patch.object(usage, "_probe", side_effect=self.fake_probe):
+            providers = usage.collect(self.cfg)
+            self.assertTrue(providers["beta"]["exhausted"])
+            self.assertEqual(usage.account(self.cfg, "alpha"), ("second", True))
+
+    def test_a_credit_spent_on_an_account_refills_that_accounts_reading(self):
+        self.reset_adapter(weekly_used=0, resets_at=NOW + WEEK)
+        self.two_accounts()
+        for account in ("first", "second"):
+            self.set_meters("alpha", self.old_window(used=100), account=account)
+        with patch.object(usage, "_probe", side_effect=lambda *a, **kw: {
+                **self.fake_probe(*a, **kw), "resets": 1.0}):
+            # Both spent: the credit goes to `first`, the account a turn would run on next.
+            self.assertEqual(usage.replenish(self.cfg, "alpha"), (True, 0.0))
+            providers = usage.collect(self.cfg)
+        first = providers["alpha"]["accounts"]["first"]
+        self.assertEqual([meter["used"] for meter in first["meters"]], [0])
+        self.assertEqual(first["resets"], 0)
+        self.assertFalse(first["exhausted"])
+        self.assertTrue(providers["alpha"]["accounts"]["second"]["exhausted"])
+        self.assertFalse(providers["alpha"]["exhausted"])
+        self.assertIn("one", usage.pick_order(self.cfg, providers, ["one", "two"], quiet=True))
+
+    def test_a_credit_on_one_account_keeps_what_another_wrote_meanwhile(self):
+        adapters = self.root / "adapters"
+        adapters.mkdir()
+        (adapters / "fake.toml").write_text("[usage]\nreset = true\n")
+        self.stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}))
+        self.two_accounts()
+        self.set_meters("alpha", self.old_window(used=95), account="first")
+        self.set_meters("alpha", self.old_window(used=98), account="second")
+        cache, armed = config.STATE / "usage.json", []
+
+        def adapter(harness, verb, *_a, **_kw):
+            if verb != "reset" or not armed:
+                return None
+            # a turn on `second` reports it spent while the credit for `first` is under way
+            self.assertTrue(usage.record_turn_meters(
+                self.cfg, "alpha", [{"name": "weekly", "used": 100, "resets_at": NOW + WEEK / 2,
+                                     "window_secs": WEEK}], account="second", now=self.now + 1))
+            return {"code": "reset", "available": 0}
+
+        with patch.object(usage, "_probe", side_effect=lambda *a, **kw: {
+                    **self.fake_probe(*a, **kw), "resets": 1.0}), \
+                patch.object(usage, "_adapter_json", side_effect=adapter):
+            for cached in (False, True):
+                with self.subTest(cached=cached):
+                    shutil.rmtree(config.STATE)
+                    config.ensure_dirs()
+                    armed.clear()
+                    if cached:
+                        # a fresh snapshot whose reset policy is due: the credit goes from it
+                        usage.collect(self.cfg)
+                        blob = json.loads(cache.read_text())
+                        blob["reset_checked_at"] = NOW - usage.CACHE_TTL - 1
+                        cache.write_text(json.dumps(blob))
+                    armed.append(True)
+                    read = usage.collect(self.cfg)
+                    second = read["alpha"]["accounts"]["second"]
+                    self.assertEqual([meter["used"] for meter in second["meters"]], [100])
+                    self.assertTrue(second["exhausted"])
+                    self.assertEqual(read["alpha"]["account"], "first")
+                    self.assertEqual([meter["used"] for meter in
+                                      self.stored_account("second")["meters"]], [100])
+
+    def test_a_count_a_cached_read_recovers_is_spent_by_that_read(self):
+        self.reset_adapter({"available": 1}, weekly_used=0, resets_at=NOW + WEEK)
+        self.set_meters("alpha", self.old_window(used=100))
+        self.set_meters("beta", self.old_window(used=10))
+        cache = config.STATE / "usage.json"
+        with patch.object(usage, "_probe", side_effect=lambda *a, **kw: {
+                **self.fake_probe(*a, **kw), "resets": None}):
+            self.assertTrue(usage.collect(self.cfg)["alpha"]["exhausted"])
+            # a fresh snapshot that could not count alpha's resets, its policy check due
+            blob = json.loads(cache.read_text())
+            blob["reset_checked_at"] = NOW - usage.CACHE_TTL - 1
+            cache.write_text(json.dumps(blob))
+            read = usage.collect(self.cfg)
+        stored = json.loads(cache.read_text())["providers"]["alpha"]
+        for alpha in (read["alpha"], stored):
+            self.assertEqual([meter["used"] for meter in alpha["meters"]], [0])
+            self.assertEqual(alpha["resets"], 0)
+        self.assertFalse(read["alpha"]["exhausted"])
+
     def test_a_mark_written_with_its_deadline_alone_survives_later_writes(self):
         # Marks written before `exhausted_at` existed hold the deadline alone.
         self.two_accounts()

@@ -1,5 +1,6 @@
 """Enter on a model's label in `c` opens that model's own screen: its id picked from the catalog,
-its effort following the new model's own list, and `Remove`, all without typing.
+its effort following the new model's own list -- its harness's for one whose efforts the catalog
+does not say -- and `Remove`, all without typing.
 
 Each screen test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a
 pty of its own, through tests/test_config_matrix.py's Screen, in a temporary HOME whose
@@ -130,8 +131,7 @@ class ModelScreen(unittest.TestCase):
         before = screen.path.read_bytes()
         screen.press(LEFT)                                # the catalog's first: nothing before it
         self.assertEqual(screen.path.read_bytes(), before)
-        ids = [model for model, efforts in CATALOG if efforts]    # the Sonnet 5 says none
-        for model in ids[1:]:
+        for model in [model for model, _ in CATALOG][1:]:     # the Sonnet 5's efforts too
             screen.press(RIGHT, lambda lines: value(lines, "model id") == f"‹ {model} ›")
             self.assertEqual(screen.saved()["models"]["opus"]["model"], model)
         before = screen.path.read_bytes()
@@ -147,10 +147,12 @@ class ModelScreen(unittest.TestCase):
         screen = Screen(self, child=CHILD)
         open_model(screen, DOWN, "opus")
         effort = lambda: screen.saved()["models"]["opus"]["effort"]
-        # xhigh is not the Sonnet's: high is nearest; past the Sonnet 5, whose efforts the
-        # catalog does not say, the Haiku's only is none; back, low
+        # xhigh is not the Sonnet's: high is nearest; the Sonnet 5, whose efforts the catalog
+        # does not say, takes Claude's own, high among them; the Haiku's only is none; back, low
         for key, model, wanted in ((RIGHT, "claude-sonnet-4-6", "high"),
+                                   (RIGHT, "claude-sonnet-5", "high"),
                                    (RIGHT, "claude-haiku-4-5", "none"),
+                                   (LEFT, "claude-sonnet-5", "low"),
                                    (LEFT, "claude-sonnet-4-6", "low")):
             lines = screen.press(key, lambda lines: value(lines, "model id") == f"‹ {model} ›")
             self.assertEqual(value(lines, "effort"), f"‹ {wanted} ›")
@@ -163,13 +165,11 @@ class ModelScreen(unittest.TestCase):
         before = screen.path.read_bytes()
         screen.press(RIGHT)
         self.assertEqual(screen.path.read_bytes(), before)
-        # fable's id is none the catalog lists: no effort is offered for it, and none saved
+        # fable's id is none the catalog lists: its effort steps Claude's own, as on the matrix
         screen.press(ESC, lambda lines: title(lines) == "agentkit · config")
         screen.press(UP + ENTER, lambda lines: title(lines) == "agentkit · config · fable")
-        lines = screen.press(DOWN + RIGHT, lambda lines: "the catalog names no efforts for "
-                                                         "claude-fable-5-1" in lines[-3])
-        self.assertEqual(value(lines, "effort"), "‹ xhigh ›")
-        self.assertEqual(screen.path.read_bytes(), before)
+        screen.press(DOWN + RIGHT, lambda lines: value(lines, "effort") == "‹ max ›")
+        self.assertEqual(screen.saved()["models"]["fable"]["effort"], "max")
         screen.press(ESC, lambda lines: title(lines) == "agentkit · config")
         screen.leave()
 
@@ -265,14 +265,15 @@ class ModelScreen(unittest.TestCase):
                                       "  effort    ‹ xhigh ›",
                                       "  Remove"])
         self.assertNotIn("Reviews its own company's work", "\n".join(lines))
-        # a click on the id's left arrow steps it back, past the Sonnet 5
+        # a click on the id's left arrow steps it back: the Sonnet 5 takes Claude's own
+        # efforts, xhigh among them; the Sonnet 4.6 does not
         number = next(n for n, line in enumerate(lines, 1)
                       if "‹ claude-haiku-4-5 ›" in line)
-        lines = screen.click(13, number,
-                             lambda lines: any("‹ claude-sonnet-4-6 ›" in line
-                                               for line in lines))
-        self.assertEqual(screen.saved()["models"]["haiku"]["model"], "claude-sonnet-4-6")
-        self.assertEqual(screen.saved()["models"]["haiku"]["effort"], "high")   # was xhigh
+        for model, effort in (("claude-sonnet-5", "xhigh"), ("claude-sonnet-4-6", "high")):
+            screen.click(13, number,
+                         lambda lines: any(f"‹ {model} ›" in line for line in lines))
+            self.assertEqual(screen.saved()["models"]["haiku"]["model"], model)
+            self.assertEqual(screen.saved()["models"]["haiku"]["effort"], effort)
         screen.press(ESC, lambda lines: title(lines) == "agentkit · config")
         screen.leave()
 

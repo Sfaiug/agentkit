@@ -489,17 +489,24 @@ def unit_loaded(unit, uncertain=True):
 
 
 def next_scope_unit(unit):
-    """Choose a free transient name when a previous attempt still owns the base name."""
+    """Choose a free transient name when a previous attempt still owns the base name.
+
+    `start_in_slice` places work as a scope or, for a caller outside the user manager, a
+    service, so a name is free only while neither is loaded.
+    """
     if not user_manager():
         return unit
     for suffix in range(1, 100):
         candidate = unit if suffix == 1 else f"{unit}-{suffix}"
-        state = unit_loaded(f"{candidate}.scope", uncertain=None)
-        if state is None:
-            # Let the wrapper attempt the original name and make its usual plain fallback
-            # if the bus is still unavailable.
-            return unit
-        if not state:
+        for kind in ("scope", "service"):
+            state = unit_loaded(f"{candidate}.{kind}", uncertain=None)
+            if state is None:
+                # Let the wrapper attempt the original name and make its usual plain fallback
+                # if the bus is still unavailable.
+                return unit
+            if state:
+                break
+        else:
             return candidate
     raise OSError(f"no free systemd scope name for {unit}")
 
@@ -625,8 +632,9 @@ def stop_scope(scope, log=lambda _: None, wait=True):
     """Ask systemd to stop a detached run's unit, including escaped grandchildren.
 
     A placement records the bare unit name, and `start_in_slice` makes it a scope or, for a
-    caller outside the user manager, a service: a bare name stops whichever of the two it is
-    (systemctl stops the one that exists and only complains about the other).
+    caller outside the user manager, a service: a bare name stops whichever of the two it is.
+    Waited for, True only when the manager stopped one of them and refused neither, so a
+    caller falls back to ending the processes itself; unwaited, True once the stop is asked.
     """
     if not isinstance(scope, str) or not scope or scope == "none" or scope.startswith("none ("):
         return False
@@ -634,19 +642,26 @@ def stop_scope(scope, log=lambda _: None, wait=True):
         return False
     units = ([scope] if scope.endswith((".scope", ".service"))
              else [f"{scope}.scope", f"{scope}.service"])
-    command = ["systemctl", "--user", "stop", *units]
+    command = ["systemctl", "--user", "stop"]
     try:
-        if wait:
-            subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, env=bus_env(), timeout=SLICE_WAIT)
-        else:
-            subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, start_new_session=True,
-                             env=bus_env())
+        if not wait:
+            subprocess.Popen([*command, *units], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True, env=bus_env())
+            return True
+        # one unit at a time: for several, systemctl answers with the first one's error, and
+        # the scope's "not loaded" would hide the service's refusal to stop
+        codes = [subprocess.run([*command, unit], stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                env=bus_env(), timeout=SLICE_WAIT).returncode
+                 for unit in units]
     except (OSError, subprocess.SubprocessError) as exc:
         log(f"WARN could not stop {scope}: {exc}")
         return False
-    return True
+    refused = [code for code in codes if code not in (0, NO_SUCH_UNIT)]
+    if refused:
+        log(f"WARN could not stop {scope}: systemctl exited {refused[0]}")
+    return not refused and 0 in codes
 
 
 def slice_cgroup():
