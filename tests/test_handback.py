@@ -699,15 +699,14 @@ class HandBack(Sandbox):
         self.assertTrue(state["handed_back"])       # the tick's own copy did not undo it
         self.assertNotIn("handback_pending", state)
         self.assertNotIn("pending_inbox", state)    # ... and the question is still struck off
-        handbacks = lambda: [text for seat, text in self.typed if seat == SEAT]
-        self.assertEqual(len(handbacks()), 1)
+        self.assertEqual(len(self.typed), 1)
         # no later tick says it a second time
         self.tick()
-        self.assertEqual(len(handbacks()), 1)
+        self.assertEqual(len(self.typed), 1)
 
     def test_a_merge_question_the_inbox_did_not_take_is_typed_again_before_the_user_hears(self):
         question, url, sha = "Merge PR #9?", "https://github.com/o/r/pull/9", "abc"
-        pending = {"question": question, "url": url, "sha": sha}
+        pending = {"question": question, "url": url, "sha": sha, "asked": False}
         card = ("needs", question, {"session": watch.inbox(), "event_id": f"inbox:{url}:{sha}"})
         self.sent = False       # the inbox seat does not take it, so the user is not asked
         self.assertNotEqual(watch.ask_inbox(self.cfg, question, url, sha, self.logs.append), 0)
@@ -727,6 +726,13 @@ class HandBack(Sandbox):
         self.tick()
         self.assertEqual(len(self.typed), 3)
         self.assertEqual(self.cards, [card] * 2)
+        self.assertNotIn("pending_inbox", run.read_state(directory))
+        # one kept before `asked` was may already be in the seat: it is only pinged, as then
+        legacy = {key: pending[key] for key in ("question", "url", "sha")}
+        run.save_state(directory, {**run.read_state(directory), "pending_inbox": legacy})
+        self.tick()
+        self.assertEqual(len(self.typed), 3)
+        self.assertEqual(self.cards, [card] * 3)
         self.assertNotIn("pending_inbox", run.read_state(directory))
 
     def test_the_runs_list_marking_an_ending_seen_cannot_undo_a_hand_back(self):

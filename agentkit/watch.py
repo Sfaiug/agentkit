@@ -5514,11 +5514,12 @@ def main(argv):
                             if run.owes_ending(receipt):
                                 run.announce(receipt, run_dir, log)
                             # A question the seat never took is typed again before the user
-                            # hears it; one it took whose ping failed is only pinged.
+                            # hears it; one it took whose ping failed is only pinged, and so is
+                            # one kept before `asked` was, whose typing nobody knows the end of.
                             question = receipt.get("pending_inbox")
                             if question and ask_inbox(
                                     config.load(), question["question"], question["url"],
-                                    question["sha"], log, asked=question.get("asked", False),
+                                    question["sha"], log, asked=question.get("asked", True),
                                     typed=lambda: run.mark_delivery(
                                         run_dir, receipt, pending_inbox={**question, "asked": True})
                                     ) == 0:

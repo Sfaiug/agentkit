@@ -696,8 +696,7 @@ with tempfile.TemporaryDirectory(prefix=".usage-fresh-", dir=config.REPO) as tmp
     finished.mkdir()
     for error in (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError):
         receipt = {"state": "pass", "notification_pending": True,
-                   "pending_inbox": {"question": "Fixture question", "url": "fixture", "sha": "abc",
-                                     "asked": True}}
+                   "pending_inbox": {"question": "Fixture question", "url": "fixture", "sha": "abc"}}
         run.save_state(finished, receipt)
         for mock in passes.values():
             mock.reset_mock()

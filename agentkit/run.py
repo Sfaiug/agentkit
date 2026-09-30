@@ -13821,7 +13821,7 @@ def review_pr(cfg, run_dir, url, opts, log):
                 merge_own_pr(lp, url, head)
             else:
                 question = f"PR #{number} by {info['author']}: {info['title']}. Merge? yes/no"
-                pending = {"question": question, "url": url, "sha": head}
+                pending = {"question": question, "url": url, "sha": head, "asked": False}
                 if watch.ask_inbox(cfg, question, url, head, log,
                                    typed=lambda: pending.update(asked=True)) == 0:
                     state["merge_note"] = f"offered to the {watch.inbox()} session at {head[:12]}"
