@@ -21,4 +21,4 @@ no project
 agentkit
   3  herdr        fable  ● working
 
-  n new   x stop   c config   i info   q leave
+  n new   x stop   c config   i info   esc leave

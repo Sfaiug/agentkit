@@ -3639,20 +3639,20 @@ with open(sys.argv[1], "w") as fh:
     json.dump({"fetched_at": time.time(), "providers": providers}, fh)
 PY
 MENU=0
-printf 'q\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-q.log" 2>&1 || MENU=1
+printf '\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-q.log" 2>&1 || MENU=1
 # the key line is those five letter keys and nothing else; numbers open seats
-grep -q '^  n new   x stop   c config   i info   q leave' "$WORK/menu-q.log" || MENU=1
+grep -q '^  n new   x stop   c config   i info   esc leave' "$WORK/menu-q.log" || MENU=1
 grep -q 'p preview\|b browser\|r runs\|u update\|s shell' "$WORK/menu-q.log" && MENU=1
 # `c` lists the config with its values and `i` is one screen; `r`/`p`/`b`/`s`/`u` are not keys
-printf 'c\nq\nq\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-c.log" 2>&1 || MENU=1
+printf 'c\n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-c.log" 2>&1 || MENU=1
 grep -q 'orch  exec  review  effort' "$WORK/menu-c.log" || MENU=1
-printf 'i\nq\nq\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-i.log" 2>&1 || MENU=1
+printf 'i\n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-i.log" 2>&1 || MENU=1
 grep -q '^agentkit: you talk to one orchestrator' "$WORK/menu-i.log" || MENU=1
 for key in r p b s u; do
-  printf "$key\nq\n" | HOME="$MHOME" ak --dry-run >"$WORK/menu-$key.log" 2>&1 || MENU=1
+  printf "$key\n\n" | HOME="$MHOME" ak --dry-run >"$WORK/menu-$key.log" 2>&1 || MENU=1
   grep -q "not a key: '$key'" "$WORK/menu-$key.log" || MENU=1
 done
-printf 'q\n' | HOME="$MHOME" ak attach --dry-run >"$WORK/menu-attach.log" 2>&1 || MENU=1
+printf '\n' | HOME="$MHOME" ak attach --dry-run >"$WORK/menu-attach.log" 2>&1 || MENU=1
 grep -q 'n new' "$WORK/menu-attach.log" || MENU=1
 # from a pipe `n` asks Name, Orchestrator and Workers a line at a time: Enter takes each
 # default, the seat starts as new, and a dry run only says what it would start
@@ -3666,9 +3666,9 @@ MSESSION=$(sed -n 's/^would start \(new\(-[0-9]*\)\{0,1\}\): opus, workers opus 
 printf 'n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-n-eof.log" 2>&1 || MENU=1
 grep -q '^would start new' "$WORK/menu-n-eof.log" || MENU=1
 ls "$MHOME/.agentkit/state" | grep -qE '^(session|rulebook)-' && MENU=1
-printf 'zz\nq\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-bad.log" 2>&1 || MENU=1
+printf 'zz\n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-bad.log" 2>&1 || MENU=1
 grep -q "not a key: 'zz'" "$WORK/menu-bad.log" || MENU=1
-[ "$MENU" = 0 ] && ok "20 the menu: numbers and n/x/c/i/q on the line, c placeholder and i info, r/p/b/s/u refused, q quits, n asks Name, Orchestrator and Workers with defaults and would start ${MSESSION:-?} creating no session, and a stray key is refused" \
+[ "$MENU" = 0 ] && ok "20 the menu: numbers and n/x/c/i/esc on the line, c placeholder and i info, r/p/b/s/u refused, an empty line leaves, n asks Name, Orchestrator and Workers with defaults and would start ${MSESSION:-?} creating no session, and a stray key is refused" \
               || no "20 the menu"; [ "$MENU" = 0 ] || sed 's/^/      /' "$WORK/menu-n.log" | head -12
 
 # --- 20c: the menu offers only what makes sense, and works from any terminal (offline) ---
@@ -3756,7 +3756,7 @@ SH
 chmod +x "$CBIN"/*
 : >"$SSHLOG"
 CLIENT=0
-printf 'q\n' | HOME="$CHOME" PATH="$CBIN:$PATH" ak >"$WORK/client.log" 2>&1 || CLIENT=1
+printf '\n' | HOME="$CHOME" PATH="$CBIN:$PATH" ak >"$WORK/client.log" 2>&1 || CLIENT=1
 HOME="$CHOME" ak --dry-run >"$WORK/client-dry.log" 2>&1 || CLIENT=1
 grep -q '^would run ssh -t srv ak --client$' "$WORK/client-dry.log" || CLIENT=1
 [ "$(cat "$SSHLOG")" = "-t srv ak --client" ] || CLIENT=1
@@ -3945,11 +3945,11 @@ ovhost send-keys -t ovhost C-b m
 : >"$WORK/overlay-popup.txt"
 for _ in $(seq 1 30); do
   ovhost capture-pane -p -t ovhost >"$WORK/overlay-popup.txt" 2>/dev/null
-  grep -q 'n start a session   r rename this session   x stop this session   q close' "$WORK/overlay-popup.txt" && break
+  grep -q 'n start a session   r rename this session   x stop this session   esc close' "$WORK/overlay-popup.txt" && break
   sleep 1
 done
 # the popup drew this server's two seats, in order, under the overlay's own key line
-grep -q 'n start a session   r rename this session   x stop this session   q close' "$WORK/overlay-popup.txt" || OVERLAY=1
+grep -q 'n start a session   r rename this session   x stop this session   esc close' "$WORK/overlay-popup.txt" || OVERLAY=1
 NEEDS_GLYPH=$(LC_ALL=C.UTF-8 PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("needs you"))')
 grep -q "1  $OV1  fable  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
 grep -q "2  $OV2  astra  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
@@ -4015,7 +4015,7 @@ for seat in my-big-task resume-seat by-hand pair-one pair-two nopin-seat; do
 done
 # (a) Enter at the menu's Name question leaves a new placeholder for the orchestrator to name;
 # `ak orch rename` gives it the user's own name in tmux, in its environment and on its bar
-printf 'n\n\n\n\nq\n' | akn >"$WORK/name-new.log" 2>&1 || NAME=1
+printf 'n\n\n\n\n\n' | akn >"$WORK/name-new.log" 2>&1 || NAME=1
 NAUTO=$(sed -n 's/^session \(new\(-[0-9]*\)\{0,1\}\) is running; .*/\1/p' "$WORK/name-new.log")
 jq -e '.orchestrator == "opus"' "$NH/.agentkit/state/session-$NAUTO.json" >/dev/null 2>&1 || NAME=1
 akn orch rename "$NAUTO" '  My Big/Task  ' >"$WORK/name-rename.log" 2>&1 || NAME=1
@@ -4026,7 +4026,7 @@ tm has-session -t =my-big-task 2>/dev/null || NAME=1
   = "AGENTKIT_SESSION=my-big-task" ] || NAME=1
 jq -e '.orchestrator == "opus"' "$NH/.agentkit/state/session-my-big-task.json" >/dev/null 2>&1 || NAME=1
 # (b) Enter at a second `n` takes the next placeholder: the first still leads to the renamed seat
-printf 'n\n\n\n\nq\n' | akn >"$WORK/name-dup.log" 2>&1 || NAME=1
+printf 'n\n\n\n\n\n' | akn >"$WORK/name-dup.log" 2>&1 || NAME=1
 NSECOND=$(sed -n 's/^session \(new\(-[0-9]*\)\{0,1\}\) is running; .*/\1/p' "$WORK/name-dup.log")
 [ -n "$NSECOND" ] && [ "$NSECOND" != "$NAUTO" ] || NAME=1
 tm has-session -t "=$NSECOND" 2>/dev/null || NAME=1
@@ -4072,7 +4072,7 @@ SLUG=$(printf '%s' "$NSEAT" | sed 's/[^A-Za-z0-9]/-/g')
 mkdir -p -- "$NH/.claude/projects/$SLUG"
 printf '{"type":"mode"}\n' >"$NH/.claude/projects/$SLUG/$CONV.jsonl"    # what the harness wrote
 printf '{"type":"mode"}\n' >"$NH/.claude/projects/$SLUG/conv-1111.jsonl"   # somebody else's
-printf 'q\n' | akn >"$WORK/name-menu.log" 2>&1 || NAME=1
+printf '\n' | akn >"$WORK/name-menu.log" 2>&1 || NAME=1
 jq -e --arg c "$CONV" '.conversation == $c' "$NH/.agentkit/state/session-resume-seat.json" \
   >/dev/null 2>&1 || NAME=1
 # (f2) two seats started in the same second, in one directory, on the harness whose TUI takes
@@ -4136,11 +4136,11 @@ tm show-options -t pair-one -v status-right 2>/dev/null \
 SLUGX=$(printf '%s' "$NNOPIN" | sed 's/[^A-Za-z0-9]/-/g')
 mkdir -p -- "$NH/.claude/projects/$SLUGX"
 printf '{"type":"mode"}\n' >"$NH/.claude/projects/$SLUGX/conv-later.jsonl"   # somebody else's
-printf 'q\n' | akp >"$WORK/name-nopin-menu.log" 2>&1 || NAME=1
+printf '\n' | akp >"$WORK/name-nopin-menu.log" 2>&1 || NAME=1
 jq -e '.resumable == false and (has("conversation") | not)' \
   "$NH/.agentkit/state/session-nopin-seat.json" >/dev/null 2>&1 || NAME=1
 tm kill-session -t =nopin-seat 2>/dev/null
-printf 'q\n' | akp --dry-run >"$WORK/name-nopin-gone.log" 2>&1 || NAME=1
+printf '\n' | akp --dry-run >"$WORK/name-nopin-gone.log" 2>&1 || NAME=1
 grep -q ' nopin-seat ' "$WORK/name-nopin-gone.log" && NAME=1
 # ... and its name still starts it again, fresh, where it ran
 ( cd "$WORK" && akp orch nopin-seat ) >"$WORK/name-nopin-restart.log" 2>&1 || NAME=1
@@ -4163,7 +4163,7 @@ json.dump({"orchestrator": "fable", "workers": ["opus"], "cwd": sys.argv[2],
            "created": int(time.time()), "seen": int(time.time()),
            "conversation": "conv-5555", "resumable": True}, open(sys.argv[1], "w"))
 OLD
-printf 'q\n' | akp --dry-run >"$WORK/name-old-menu.log" 2>&1 || NAME=1
+printf '\n' | akp --dry-run >"$WORK/name-old-menu.log" 2>&1 || NAME=1
 grep -q ' old-seat ' "$WORK/name-old-menu.log" && NAME=1
 jq -e '.resumable == false and (has("conversation") | not)' \
   "$NH/.agentkit/state/session-old-seat.json" >/dev/null 2>&1 || NAME=1
@@ -4200,7 +4200,7 @@ done
 # (h) tmux loses the session, the record does not: the menu offers it back, and it comes back
 # in the directory it ran in
 tm kill-session -t =resume-seat 2>/dev/null
-printf 'q\n' | akn --dry-run >"$WORK/name-ghost.log" 2>&1 || NAME=1
+printf '\n' | akn --dry-run >"$WORK/name-ghost.log" 2>&1 || NAME=1
 RESUME_GLYPH=$(PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("needs you"))')
 grep -qE "^ +[0-9]+  resume-seat +opus +$RESUME_GLYPH needs you" "$WORK/name-ghost.log" || NAME=1
 grep -q "session closed: press" "$WORK/name-ghost.log" || NAME=1
@@ -4271,7 +4271,7 @@ json.dump({"orchestrator": "fable", "workers": ["opus"], "cwd": "/tmp",
            "created": time.time() - 9 * 86400, "seen": time.time() - 8 * 86400,
            "conversation": "conv-old"}, open(sys.argv[1], "w"))
 STALE
-printf 'q\n' | akn >"$WORK/name-sweep.log" 2>&1 || NAME=1
+printf '\n' | akn >"$WORK/name-sweep.log" 2>&1 || NAME=1
 # The sweep is reported once before the header, and stays off the main screen.
 python3 - "$WORK/name-sweep.log" <<'SWEEP' || NAME=1
 from pathlib import Path
@@ -4283,7 +4283,7 @@ before, screen = "\n".join(lines[:header_at]), "\n".join(lines[header_at:])
 assert before.count("forgot the session stale-seat, gone for 8d") == 1, text
 assert "forgot the session stale-seat" not in screen, text
 SWEEP
-printf 'q\n' | akn >"$WORK/name-sweep-again.log" 2>&1 || NAME=1
+printf '\n' | akn >"$WORK/name-sweep-again.log" 2>&1 || NAME=1
 grep -q 'forgot the session stale-seat' "$WORK/name-sweep-again.log" && NAME=1
 [ -e "$NH/.agentkit/state/session-stale-seat.json" ] && NAME=1
 for seat in my-big-task "$NSECOND" resume-seat by-hand pair-one pair-two old-seat old-renamed; do
@@ -4318,9 +4318,9 @@ grep -qE '^ ?update: (done|FAILED) \(.*update-job-[0-9]+-[0-9]+-[a-f0-9]+\.log\)
 # the job ran there and not here: an update log under that HOME, and the gate never started
 grep -q 'nothing was upgraded' "$UH2"/.agentkit/tmp/update-*.log 2>/dev/null || UPD=1
 # the result is a notice line, once, and then it is gone
-printf 'q\n' | HOME="$UH2" ak --dry-run >"$WORK/update-notice.log" 2>&1 || UPD=1
+printf '\n' | HOME="$UH2" ak --dry-run >"$WORK/update-notice.log" 2>&1 || UPD=1
 [ "$(grep -c '^ update: ' "$WORK/update-notice.log")" -eq 1 ] || UPD=1
-printf 'q\n' | HOME="$UH2" ak --dry-run >"$WORK/update-notice2.log" 2>&1 || UPD=1
+printf '\n' | HOME="$UH2" ak --dry-run >"$WORK/update-notice2.log" 2>&1 || UPD=1
 [ "$(grep -c '^ update: ' "$WORK/update-notice2.log")" -eq 0 ] || UPD=1
 [ -e "$UH2/.agentkit/state/update-result" ] && UPD=1
 # and the jobs server it ran on is not the menu's: no `update` row was ever drawn
@@ -4377,7 +4377,7 @@ HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= AGENTKIT_SESSION=smoke-shape ak notify nee
 grep -q 'no webhook configured; message: Needs you . smoke-shape: Which branch?' "$WORK/needs-real.log" || SHAPE=1
 jq -e '.session == "smoke-shape" and .kind == "needs" and .text == "Which branch?" and (.time | type == "number")' \
   "$NSH/.agentkit/state/notify-smoke-shape.json" >/dev/null 2>&1 || SHAPE=1
-printf 'q\n' | HOME="$NSH" ak --dry-run >"$WORK/menu-shape.log" 2>&1 || SHAPE=1
+printf '\n' | HOME="$NSH" ak --dry-run >"$WORK/menu-shape.log" 2>&1 || SHAPE=1
 grep -qE "^ *$NUM  smoke-shape +astra +! needs you +Which branch\?$" "$WORK/menu-shape.log" || SHAPE=1
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= ak notify needs "no text" --file "$WORK/shape-attach.txt" >"$WORK/needs-file.log" 2>&1
 [ "$?" = 2 ] || SHAPE=1
@@ -5506,10 +5506,10 @@ def menu_lines(keys):
     return [line.rstrip() for line in out.getvalue().splitlines() if line.strip()]
 
 
-assert menu.KEYS == "n new   x stop   c config   i info   q leave", menu.KEYS
+assert menu.KEYS == "n new   x stop   c config   i info   esc leave", menu.KEYS
 assert not hasattr(menu, "runs_listing") and not hasattr(menu, "runs")
 assert not hasattr(menu, "recover_run") and not hasattr(menu, "watch_run")
-lines = menu_lines("q\n")
+lines = menu_lines("\n")
 assert any(line == "atoll" for line in lines), lines
 assert not any("seats" in line for line in lines), lines
 assert any("your projects" in line for line in lines), lines
@@ -5525,10 +5525,10 @@ assert "Merge the MOV helper" in "\n".join(lines), lines
 assert "hero swapped" in "\n".join(lines), lines
 assert not any("press r" in line for line in lines), lines
 for key in ("r", "p", "b", "s", "u"):
-    out = menu_lines(f"{key}\nq\n")
+    out = menu_lines(f"{key}\n\n")
     assert any(f"not a key: {key!r}" in line for line in out), (key, out)
-assert any("orch  exec  review  effort" in line for line in menu_lines("c\nq\nq\n")), lines
-info = menu_lines("i\nq\nq\n")
+assert any("orch  exec  review  effort" in line for line in menu_lines("c\n\n")), lines
+info = menu_lines("i\n\n")
 assert any("agentkit: you talk to one orchestrator" in line for line in info), info
 assert watch.plan_progress("atoll-fix") == (2, 5)
 assert watch.plan_progress("no-such-seat") == (0, 0)
