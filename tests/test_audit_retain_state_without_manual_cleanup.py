@@ -4,7 +4,7 @@ All writable state, fake adapters and socket directories live inside this checko
 collector is ever pointed at the owner's ~/.agentkit, and no real model or account is used.
 """
 
-from contextlib import ExitStack, redirect_stdout
+from contextlib import ExitStack, redirect_stdout, suppress
 import fcntl
 import gzip
 import io
@@ -32,7 +32,11 @@ class RetainState(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".retention-", dir=REPO)
         self.addCleanup(tmp.cleanup)
-        self.root = Path(tmp.name)
+        # Unlistable from creation: no reader of the checkout ever learns the fixture's name,
+        # whose access times the snapshots compare. Cleanup restores the permission itself.
+        self.root = Path(tmp.name) / "hidden" / "fixture"
+        self.root.parent.mkdir(0o300)
+        self.root.mkdir()
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.object(config, "HOME", self.root / ".agentkit"))
@@ -187,6 +191,24 @@ if not review:
                     visit(child)
         visit(path)
         return result
+
+    def test_readers_of_the_checkout_never_reach_the_fixture_even_during_setup(self):
+        if os.geteuid() == 0:
+            self.skipTest("root reads a directory it has no permission for")
+        # Git, grep or a parallel test list the checkout with ordinary reads, also while
+        # setUp builds the fixture; the snapshots compare access times, so none may reach it.
+        others, seen, mkdir = set(REPO.glob(".retention-*")), set(), os.mkdir
+        def reader(*args, **kwargs):
+            mkdir(*args, **kwargs)
+            for top in set(REPO.glob(".retention-*")) - others:
+                seen.update(directory for directory, _, _ in os.walk(top))
+        with patch.object(os, "mkdir", reader):
+            self.setUp()
+        before = self.snapshot(self.root)
+        for directory in seen:
+            with suppress(OSError):     # a parallel run's fixture may be gone already
+                os.listdir(directory)
+        self.assertEqual(self.snapshot(self.root), before)
 
     def test_month_fixture_exact_plan_removal_identity_idempotency_and_history(self):
         merged, merged_wt = self.receipt("01-merged")
