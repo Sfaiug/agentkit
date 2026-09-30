@@ -403,6 +403,24 @@ class Writes(Sandbox):
         self.assertEqual(state["executor"], "opus")
         self.assertNotEqual(state["reviewer"], "astra")
 
+    def test_v5y_m_launch_on_a_full_disk_collects_nothing(self):
+        # collecting scans the host's processes and sockets, so a full host disk must never
+        # decide what a launch here reads
+        task = ("---\nrepo: none\n---\n# Ship it\n\n## Done when\n```bash\ntrue\n```\n")
+        run_dir = config.RUNS / "20260917-1200-ship-it"
+        run_dir.mkdir(parents=True)
+        (run_dir / "task.md").write_text(task)
+        opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
+                "--no-worktree": False, "--no-merge": False, "--bg": False}
+        with patch.dict(os.environ, {"AGENTKIT_SESSION": "", "AGENTKIT_GC_DISK_PERCENT": "0"}), \
+                patch.object(run, "gc") as collected, \
+                patch.object(run, "pick_models", return_value=("opus", "astra")), \
+                patch.object(run, "rounds", return_value=None), \
+                patch.object(run.usage, "collect", return_value={}):
+            run.capture_launch(run_dir, {})
+            run.loop(self.cfg, run_dir, run_dir / "task.md", opts, lambda line: None)
+        collected.assert_not_called()
+
     def test_v5y_l_stale_preset_reviewer_is_repicked_for_review(self):
         providers = self.providers_gating_astra()
         with redirect_stderr(io.StringIO()):
