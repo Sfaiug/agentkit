@@ -918,6 +918,7 @@ PANE_LINES = 15         # how much of a pane's tail says what it is doing
 STALL_WAIT = 180        # how long a stall line has to stand before anything is typed at all
 NUDGE_EVERY = 180       # and at most one keystroke per seat in that many seconds
 GIVE_UP = 3600          # an hour of it: the user is asked, once, and the nudging stops
+PARKED_NUDGES = 2       # the stop hook's LIMIT: nudges for the same parked run, then a stop stands
 # Unknown logout wording is still a reason to ask, never a reason to type `continue`.
 LOGIN_HINT = re.compile(r"/login\b|\b(?:log[ -]?in|sign[ -]in|logged out|expired|revoked|"
                         r"unauthori[sz]ed|401|403)\b|"
@@ -2650,6 +2651,12 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     the line saying what that session is now and why: a bare keystroke typed first would take
     the prompt that line waits for, and leave the seat deciding without it.
 
+    Every `continue` is a new turn, so the hook's two blocks a turn cannot be counted here: a
+    seat is nudged at most PARKED_NUDGES times for the same parked run, and the next stop
+    stands, as the hook's third does.  A run keeps its count when it is resumed and parks again,
+    so runs taking turns buy no more; only a newer notice for the seat, answered or not, starts
+    every count again.
+
     The episode is `turn_began` and the output that turn stopped on, both of them stop_marks'
     to say, so a footer that repainted is the same episode and the same words after another
     turn are a new one.  What answers a `done` is done_holds.  A seat with no turn marked at
@@ -2691,17 +2698,28 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
         if found is not None and found["word"] != "working":
             return      # that session has stopped: tell_waits says so, and why, instead
     mine = []
-    for _, record in records:
+    for run_dir, record in records:
         try:
             if run_mod.launched_session(record) == name:
-                mine.append((record, run_mod.going(record)))
+                mine.append((run_dir.name, record, run_mod.going(record)))
         except config.Error:
             continue    # a record whose seat cannot be resolved is nobody's run to wait on
     # the hook's `parked`: `unfinished`, and not going -- or `stalled`, which nothing resumes
-    parked = any((not going or record.get("state") == "stalled") and run_mod.unfinished(record)
-                 for record, going in mine)
-    if not parked and any(going for _, going in mine):
+    parked = [run for run, record, going in mine
+              if (not going or record.get("state") == "stalled") and run_mod.unfinished(record)]
+    if not parked and any(going for *_, going in mine):
         return
+    nudged = {}
+    if parked:
+        since = (notify.last(name, include_seen=True) or {}).get("time")
+        kept = live.get("parked_nudged")
+        if isinstance(kept, dict) and kept.get("notice") == since and isinstance(
+                kept.get("runs"), dict):
+            nudged = kept["runs"]
+        if all(nudged.get(run, 0) >= PARKED_NUDGES for run in parked):
+            return      # it has had its nudges for every run parked: this stop stands
+        nudged = {"notice": since,
+                  "runs": {**nudged, **{run: nudged.get(run, 0) + 1 for run in parked}}}
     if not parked and waiting_on(name, records):
         return          # it ended its turn on `ak wait`, and that session is working
     if not parked and notice and notice["kind"] == "done" and done_holds(
@@ -2717,7 +2735,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
             or progress_output(harness, pane_tail(current)) != said):
         return          # it moved, or the seat is the user's again: neither is this rule's
     if type_into(session, keys, log):
-        seat_write(name, stop_nudged=[began, said])
+        seat_write(name, stop_nudged=[began, said], **({"parked_nudged": nudged} if nudged else {}))
         log(f"{name}: stopped with no question, no done and no run; typed {keys!r}")
 
 
