@@ -69,6 +69,29 @@ class SecondBreak(unittest.TestCase):
         self.assertEqual(seat, "fix-ui")
         self.assertIn("gate-b", line)
 
+    def test_a_pending_notice_ends_when_its_own_commit_goes_green(self):
+        state = {}
+        self.merged("run-a", A, 1, "fix-api", age=1800)
+        self.checks[A] = ("failed", "gate-a", PR + "1/checks")
+
+        def stuck(seat, line, log, receipt, **_kw):
+            receipt("mark")
+            self.typed.append((seat["name"], line))
+            return False
+
+        with patch.object(watch, "type_at_prompt", stuck):
+            watch.after_merge_checks(state, False, lambda line: None, now=NOW)
+        self.assertEqual([seat for seat, _ in self.typed], ["fix-api"])
+
+        self.checks[A] = ("passed", None, None)
+        self.merged("run-b", B, 2, "fix-ui", age=600)
+        self.checks[B] = ("failed", "gate-b", PR + "2/checks")
+        watch.after_merge_checks(state, False, lambda line: None, now=NOW)
+        self.assertEqual(len(self.typed), 2, self.typed)
+        seat, line = self.typed[1]
+        self.assertEqual(seat, "fix-ui")
+        self.assertIn("gate-b", line)
+
 
 if __name__ == "__main__":
     unittest.main()
