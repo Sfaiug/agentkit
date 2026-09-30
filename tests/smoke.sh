@@ -1712,7 +1712,7 @@ retrylaunch retry-review work dead    # reviewer never comes back -> fall back t
 # --- 1: usage --------------------------------------------------------------
 model_unavailable() {   # missing binary/login, or nothing; a broken saved login exits 1
   PYTHONPATH="$REPO" python3 - "$@" <<'PY'
-import os, re, shutil, sys
+import json, os, re, shutil, sys
 from agentkit import config, worker
 harness = config.model(config.load(), sys.argv[1])["harness"]
 manifest = config.manifest(harness)
@@ -1725,11 +1725,19 @@ else:
         print(why)
         # Only an explicitly absent credential justifies skipping. An existing but
         # empty, unreadable, malformed or expired credential must still fail the gate.
-        # A settings file with no key in it (OpenCode's) holds no credential: it is no login.
+        # OpenCode's settings file that parses and holds no key is no login; one that is
+        # empty or no longer parses may have held one, and is broken.
         missing = re.match(r"^\S+: no (OAuth credentials in |provider key in )?(.+?)"
                            r"(?: and no CLAUDE_CODE_OAUTH_TOKEN| and none saved)?; run ", why)
+        settings = False
+        if missing and missing[1] == "provider key in ":
+            try:
+                with open(missing[2]) as fh:
+                    settings = isinstance(json.load(fh), dict)
+            except (OSError, ValueError):
+                pass
         token = manifest.get("worker_token", {}).get("file")
-        if (not missing or (missing[1] != "provider key in " and os.path.lexists(missing[2]))
+        if (not missing or (os.path.lexists(missing[2]) and not settings)
                 or (token and os.path.lexists(config.SECRETS / token))):
             sys.exit(1)
 PY
@@ -1882,7 +1890,9 @@ fi
 # Every harness here with its login makes a real call, since `ak update` upgrades each one
 # and this is its gate: Claude, Codex and Muse write a file and resume the session (3a/3b);
 # the rest make the smallest turn they allow (3c): the cheapest model their catalog lists
-# at its lowest effort, a one-word prompt that needs no tool, straight through the adapter.
+# at its lowest effort, a one-word prompt that needs no tool, through the adapter with the
+# flags a worker's turn gets, since those are what an upgrade breaks.  An answer holding
+# nothing but blanks is no answer: an adapter writes a newline when the harness said nothing.
 # A missing harness or login is reported as not checked: never a pass, and never a skip
 # that holds the gate.  Broken saved logins still fail.  One harness installed with its
 # login is what the suite needs, and with none here it fails rather than skipping everything.
@@ -1969,7 +1979,7 @@ for pair in "${HARNESSES[@]}"; do
     A="${AGENTKIT_ADAPTER_DIR:-$REPO/adapters}/$H.sh"
     "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M" >"$WORK/$M.log" 2>&1
     CALLRC=$?
-    if [ "$CALLRC" = 0 ] && [ -s "$WORK/o-$M/final.md" ]; then
+    if [ "$CALLRC" = 0 ] && grep -q '[^[:space:]]' "$WORK/o-$M/final.md" 2>/dev/null; then
       ok "3c $M ($H): $1 at $2 answered a one-word prompt"
     else
       no "3c $M ($H): $1 at $2 gave no answer"
