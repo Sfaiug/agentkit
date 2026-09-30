@@ -713,10 +713,12 @@ def update_agentkit(progress=None):
 def start_agentkit():
     """`detached`, in a process and session of its own, its stdout a pipe to read: `ak`'s start
     update (menu.update_first), which goes on to its end whether or not `ak` does."""
+    # run from where this module is, so the child is this same code whatever checkout it moves
     return subprocess.Popen([sys.executable, "-m", "agentkit.update", "--agentkit"],
-                            cwd=config.REPO, env=config.child_env(), stdin=subprocess.DEVNULL,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8",
-                            errors="replace", start_new_session=True)
+                            cwd=Path(__file__).resolve().parents[1], env=config.child_env(),
+                            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, encoding="utf-8", errors="replace",
+                            start_new_session=True)
 
 
 def detached():
