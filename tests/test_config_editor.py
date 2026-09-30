@@ -180,7 +180,7 @@ class Editor(unittest.TestCase):
             self.assertEqual(path.read_text(), want)
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
         _, screen = self.drive()
-        self.assertRegex(screen, r"\n  Discord +connected\n")
+        self.assertRegex(screen, r"\n  Discord +id …2345 · webhook …ooks/x\n")
         # An empty answer keeps what is there.
         before = {name: (config.SECRETS / name).read_bytes()
                   for name in ("discord_webhook", "discord_user_id")}

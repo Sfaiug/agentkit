@@ -293,6 +293,8 @@ def post(payload, files, message, receipt=None):
             if isinstance(data, dict) and str(data.get("id", "")).isdigit():
                 receipt.update(message_id=str(data["id"]),
                                webhook=hashlib.sha256(url.encode()).hexdigest())
+            if isinstance(data, dict) and isinstance(data.get("mentions"), list):
+                _learn(data["mentions"])
     except urllib.error.HTTPError as exc:
         result.update(status="pending" if exc.code in (408, 429) or exc.code >= 500 else "blocked",
                       error=f"HTTP {exc.code}")
@@ -307,6 +309,32 @@ def post(payload, files, message, receipt=None):
         print(f"notify: webhook POST failed ({type(exc).__name__})", file=sys.stderr)
         return 1
     return 0
+
+
+def _learn(mentions):
+    """Keep the name Discord gave the user a delivered card pinged, for the `c` screen's row.
+
+    No bot may ask Discord who an id is, and a webhook's own GET names nobody; the message a
+    card created does, in its `mentions`. Best effort: the card was delivered either way.
+    """
+    for user in mentions:
+        if isinstance(user, dict) and user.get("id") and isinstance(user.get("username"), str):
+            path = config.STATE / "discord-user.json"
+            tmp = path.with_suffix(".tmp")
+            try:
+                tmp.write_text(json.dumps({"id": str(user["id"]), "name": user["username"]}) + "\n")
+                tmp.replace(path)
+            except OSError:
+                pass
+
+
+def pinged(user_id):
+    """The Discord name a delivered card's receipt gave `user_id`, or None until one has."""
+    try:
+        data = json.loads((config.STATE / "discord-user.json").read_text())
+    except (OSError, ValueError):
+        return None
+    return data.get("name") if isinstance(data, dict) and data.get("id") == user_id else None
 
 
 def retry_after(exc):
