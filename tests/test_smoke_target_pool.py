@@ -32,7 +32,8 @@ gh() {
   printf '%s\n' "$*" >>"$WORK/gh.log"
   case "$*" in
     'api user --jq .login') echo caller ;;
-    'api --paginate user/repos?affiliation=owner&per_page=100 --jq .[].name') ls "$ACCOUNT" | sed 's/\.git$//' ;;
+    'api --paginate user/repos?affiliation=owner&per_page=100 --jq .[].name')
+      ls "$ACCOUNT" | sed 's/\.git$//' ;;
     'repo view caller/'*) test -d "$ACCOUNT/${3#caller/}.git" ;;
     'repo create caller/'*' --private') git init -q --bare -b main "$ACCOUNT/${3#caller/}.git" ;;
     'repo clone caller/'*) git clone -q "$ACCOUNT/${3#caller/}.git" "$4" ;;
