@@ -89,6 +89,9 @@ class Slots(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
+        # A handoff on a host with a user manager would put the child in a real scope, which
+        # stops itself -- SIGTERM to the child -- as its run ends.
+        self.stack.enter_context(patch.object(orch, "user_manager", return_value=False))
         self.script(self.bin / "tmux", 'import sys\nassert sys.argv[1:3] == ["-L", "agentkit-test"]\nsys.exit(1)\n')
         for name in ("gh", "claude", "codex", "muse"):
             self.script(self.bin / name, 'raise AssertionError("external call forbidden")\n')
@@ -430,12 +433,13 @@ class Slots(unittest.TestCase):
 
     def test_v5am_concurrent_cold_usage_cache_keeps_all_runs_running(self):
         os.environ["AK_MAX_RUNS"] = "0"
-        # Hold all four publishers after writing usage.tmp: exactly one rename
-        # succeeds, so the other readers must recover from the published snapshot.
-        barrier = '''import os, pathlib, time
+        # Hold all four readers after writing the snapshot each assembled: every writer's
+        # temporary name is its own, so every rename succeeds.  Only collect's own publish is
+        # held; a probe publishes its answer under its provider's lock, where nobody else is.
+        barrier = '''import os, pathlib, sys, time
 replace = pathlib.Path.replace
 def publish(path, target):
-    if path.name == "usage.tmp":
+    if path.name.startswith("usage.tmp") and sys._getframe(2).f_code.co_name == "collect":
         root = pathlib.Path(os.environ["V5AM_FIXTURE"])
         (root / ("cache-ready-" + str(os.getpid()))).touch()
         end = time.monotonic() + 10
@@ -454,7 +458,8 @@ pathlib.Path.replace = publish
             for name in ("one", "two", "three", "four"):
                 self.launch(name)
         self.wait(lambda: len(self.calls()) == 4)
-        self.assertEqual(len(list(self.root.glob("cache-raced-*"))), 3)
+        self.assertEqual(len(list(self.root.glob("cache-ready-*"))), 4)
+        self.assertEqual(len(list(self.root.glob("cache-raced-*"))), 0)
         self.assertEqual(sum(s["state"] == "running" for _, s in self.states()), 4)
         self.finish_all()
 
