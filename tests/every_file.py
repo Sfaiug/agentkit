@@ -6,8 +6,8 @@ unseen.  It is no part of smoke.sh and never touches its lock: it holds no smoke
 waits for none.  Each file runs once, in a process of its own from the checkout's root with
 no stdin, and without the caller's AGENTKIT_*/AK_* variables: a file started from inside a run
 must not pass for part of it (AGENTKIT_RUN, AK_RUN_DEPTH, AK_PARENT_RUN ...).  As many run at
-once as the host's live headroom fits, read the way the loop reads it for heavy suites.  A
-failing file fails the whole and is named with its last lines.
+once as the host's cores and free memory fit, read as the loop reads them for heavy suites.
+A failing file fails the whole and is named with its last lines.
 
     python3 tests/every_file.py [checkout]
 """
@@ -56,7 +56,11 @@ def main(root):
     skip = smoke_runs((tests / "smoke.sh").read_text())
     todo = sorted(path for path in tests.glob("test_*.py") if path.stem not in skip)
     env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
-    jobs = run.derived_heavy_limit(job_cpus=FILE_CPUS, job_mem_mb=FILE_MEM_MB)
+    # The host's cores -- the slice's CPU quota where it sets one -- and its free memory, not
+    # the moment's idle cores: a sweep takes minutes, and one busy tenth of a second must not
+    # hold all of it to one file at a time.
+    readings = dict(run.host_readings(), slice_cpu_used=0.0, load=0.0)
+    jobs = run.derived_heavy_limit(readings, job_cpus=FILE_CPUS, job_mem_mb=FILE_MEM_MB)
     began, failed = time.monotonic(), 0
     with ThreadPoolExecutor(jobs) as pool:
         running = {pool.submit(run_file, root, path, env): path for path in todo}
