@@ -104,6 +104,10 @@ def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
         harness = None
 
     composed = []
+    # an earlier try's Enter failed and left this very question in the composer: only its
+    # Enter is owed, and that draft is ours, not one the question would be typed onto
+    ours = re.sub(r"\s+", "", line)
+    stuck = composer_draft(harness, pane_text(session)) == ours
 
     def veto(held):
         # Under the seat lock the other senders type under, with their owner-question veto --
@@ -117,10 +121,12 @@ def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
             return False
         composed.append(True)
         pane = pane_text(session)
-        return (_decided_state(held, harness, pane) in ("draft", "asking")
-                or bool(composer_draft(harness, pane)))
+        state, draft = _decided_state(held, harness, pane), composer_draft(harness, pane)
+        if stuck:
+            return state == "asking" or draft != ours
+        return state in ("draft", "asking") or bool(draft)
 
-    if not type_checked(session, line, log, harness,
+    if not type_checked(session, line, log, harness, pending=stuck,
                         guard=lambda: notify.session_lock(name), veto=veto):
         log(f"WARN could not type the question into the {name} seat")
         return 1
