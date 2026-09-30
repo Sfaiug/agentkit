@@ -475,9 +475,13 @@ def header_line(screen, clock, term_width=None):
     return title + " " * (room - cells(title) - cells(clock)) + clock
 
 
-def rule_line(term_width=None):
-    """One dim rule the width of the layout."""
-    return styled("─" * layout_width(term_width), "dim")
+def rule_line(term_width=None, filled=0):
+    """One dim rule the width of the layout, the `filled` part of it (0 to 1) from the left in
+    the accent: how far `ak`'s own update has got.  That part is drawn heavy (`━`), so it reads
+    where there is no colour to fill it with."""
+    room = layout_width(term_width)
+    done = round(room * max(0, min(1, filled)))
+    return styled("━" * done, "accent") + styled("─" * (room - done), "dim")
 
 
 def key_parts(text):
@@ -512,8 +516,7 @@ def key_line(text, term_width=None):
 
 
 def progress_bar(done, total, narrow=False):
-    """`████░░░░ 4/7`: tasks merged, passed or skipped of all tasks, or the steps `ak`'s own
-    update has done of all of them. No fake bar."""
+    """`████░░░░ 4/7`: tasks merged, passed or skipped of all tasks. No fake bar."""
     total = max(0, int(total or 0))
     done = max(0, min(int(done or 0), total)) if total else 0
     size = 4 if narrow else 8
@@ -543,7 +546,7 @@ def is_sequence(answer):
     return isinstance(answer, str) and answer.startswith(ESC) and answer != ESC
 
 
-def frame(name, body=(), keyline="q back"):
+def frame(name, body=(), keyline="q back", filled=0):
     """One sub-screen in the shared frame: the landed docs/cli-design.md chrome,
     then the caller's prompt.
 
@@ -553,8 +556,9 @@ def frame(name, body=(), keyline="q back"):
     body sits between the rule and the blank line; the caller reads the prompt,
     so every screen ends the same way.  Over a screen read with the keys it is written over
     in place, in one write, the way the menu is, so moving through it never flickers.
+    `filled` is the rule's (rule_line).
     """
-    lines = [header_line(name, time.strftime("%H:%M")), rule_line(), *body, "",
+    lines = [header_line(name, time.strftime("%H:%M")), rule_line(filled=filled), *body, "",
              *key_line(keyline)]
     if taken():
         # each line is cleared before it is written, never after: a line filling the last

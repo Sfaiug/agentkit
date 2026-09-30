@@ -2,13 +2,13 @@
 
 At rest one thing moves, a working session's `●` breathing; news moves once and is then still --
 a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright, a bar
-that changed value glides to it; a popup's content fades in once, as it opens -- and every
-motion runs on this same clock (docs/cli-design.md, Motion).  A screen says which cells animate
-and how when it draws (`Clock.start`), asking first which of its values are news (`Clock.look`);
-the wait loop asks how long until the next frame (`Clock.wait`) and what to write then
-(`Clock.frame`).  No screen keeps a timer: time, easing
-and the running animations live here, and cells animated alike are in one phase because each
-reads one clock.
+that changed value glides to it; a popup's content fades in once, as it opens; the rule under a
+screen's header glides while its content is fetched -- and every motion runs on this same clock
+(docs/cli-design.md, Motion).  A screen says which cells animate and how when it draws
+(`Clock.start`), asking first which of its values are news (`Clock.look`); the wait loop asks
+how long until the next frame (`Clock.wait`) and what to write then (`Clock.frame`).  No screen
+keeps a timer: time, easing and the running animations live here, and cells animated alike are
+in one phase because each reads one clock.
 """
 
 import math
@@ -26,6 +26,9 @@ LIT = 0.3           # ... a task bar's newly filled block stays lit after the gl
 SWEEP = 0.4         # ... the light takes across a bar that reached full, after the glide
 BRIGHTER = 0.5      # how lit news is: half way from its colour to the foreground
 FADE = 0.12         # seconds a popup's content takes to come up out of the background
+WAIT = 0.15         # ... a screen's content is fetched for before its rule says so
+LAP = 1.2           # ... the segment on that rule takes along it, and again, until it lands
+SEGMENT = 8         # cells that segment is long
 PARTS = "▏▎▍▌▋▊▉"   # a bar's cell one to seven eighths full, as a glide passes through it
 
 
@@ -106,6 +109,28 @@ def gliding(before, after, began, colour=None, bright=False, sweep=False):
         return at
     return ([cell(n) for n in range(size)],
             began + GLIDE + (SWEEP if sweep else LIT if new else 0))
+
+
+def fetching(clock, began):
+    """The rule under a screen's header, its second row, animated on `clock` while the screen's
+    content is fetched from `began`, a cell each; `clock`.
+
+    For WAIT seconds it is the rule as drawn -- a wait shorter than that shows nothing -- then a
+    bright segment SEGMENT cells long glides along it, in from the left and out at the right in
+    LAP seconds, and again; the screen draws the rule still once what it waits on has landed.
+    """
+    lit = terminal.styled("━", terminal.faded("working", -BRIGHTER))
+    still, size = terminal.rule_line(1), terminal.layout_width()
+
+    def cell(n):
+        def at(now):
+            t = now - began - WAIT
+            head = eased(t % LAP / LAP) * (size + SEGMENT)
+            return lit if t >= 0 and head - SEGMENT <= n < head else still
+        return at
+    for n in range(size):
+        clock.start([(2, 1 + n)], cell(n))
+    return clock
 
 
 class Clock:

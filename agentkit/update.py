@@ -628,22 +628,21 @@ def update_agentkit(progress=None):
     its own or another branch out is somebody's work, and is left as it is, saying so.
     Everything both commands print is said out loud, because the menu shows the last lines
     of it; stdout is a pipe, so install.sh sees no tty and asks no questions.
-    `progress(done, total, step)` hears of each step as it begins: `ak`'s start draws its bar
-    from it, and fetches as a step of its own first, so the bar moves through the network wait.
+    `progress(done, total)` hears of each step as it begins and of the last one's end: `ak`'s
+    start fills the rule under its header from it, and fetches as a step of its own first, so
+    the rule moves through the network wait.
     """
     directory = agentkit_dir()
     why = left_as_is()
     if why:
         say(f"update: agentkit: left as it is: {directory} is {why}")
         return 1
-    steps = [("pull", ["git", "-C", str(directory), "pull", "--ff-only"]),
-             ("install", [str(directory / "install.sh")])]
+    steps = [["git", "-C", str(directory), "pull", "--ff-only"], [str(directory / "install.sh")]]
     if progress:
-        steps.insert(0, ("fetch", ["git", "-C", str(directory), "fetch", "--quiet", "origin",
-                                   "main"]))
-    for done, (name, cmd) in enumerate(steps):
+        steps.insert(0, ["git", "-C", str(directory), "fetch", "--quiet", "origin", "main"])
+    for done, cmd in enumerate(steps):
         if progress:
-            progress(done, len(steps), name)
+            progress(done, len(steps))
         say(f"update: $ {shlex.join(cmd)}")
         try:
             proc = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace",
@@ -656,6 +655,8 @@ def update_agentkit(progress=None):
         if proc.returncode != 0:
             say(f"update: {shlex.join(cmd)} exited {proc.returncode}")
             return proc.returncode
+    if progress:
+        progress(len(steps), len(steps))
     return 0
 
 
