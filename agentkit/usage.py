@@ -680,9 +680,11 @@ def _marks_in_force(cache, providers, now):
         return providers
 
     def kept(old, new):
-        at = _number(old.get("exhausted_at")) if isinstance(old, dict) else None
-        if at is None or not isinstance(new, dict) or max(
-                _number(new.get(key)) or 0 for key in ("exhausted_at", "reset_spent_at")) >= at:
+        if not isinstance(old, dict) or not isinstance(new, dict):
+            return new
+        # A mark from before `exhausted_at` was written is older than any other.
+        at = _number(old.get("exhausted_at")) or 0
+        if any((_number(new.get(key)) or -1) >= at for key in ("exhausted_at", "reset_spent_at")):
             return new
         return _carry_mark(old, new, now)
 

@@ -434,6 +434,29 @@ class FreshWindowEndsMark(unittest.TestCase):
             self.assertNotIn("exhausted_until", providers["alpha"])
             self.assertFalse(providers["alpha"]["exhausted"])
 
+    def test_a_mark_written_with_its_deadline_alone_survives_later_writes(self):
+        # Marks written before `exhausted_at` existed hold the deadline alone.
+        self.two_accounts()
+        until = NOW + 5 * 86400
+        cache = config.STATE / "usage.json"
+        with patch.object(usage, "_probe", side_effect=self.fake_probe):
+            usage.collect(self.cfg)
+            usage.mark_exhausted(self.cfg, "alpha", until, account="first")
+            usage.mark_exhausted(self.cfg, "beta", until)
+            blob = json.loads(cache.read_text())
+            for record in (blob["providers"]["alpha"]["accounts"]["first"],
+                           blob["providers"]["beta"]):
+                del record["exhausted_at"], record["exhausted_ends"]
+            cache.write_text(json.dumps(blob))
+            self.now = NOW + usage.PROBE_EVERY + 1
+            usage._probe_gently(self.cfg, "alpha", "first")
+            self.assertEqual(usage.replenish(self.cfg, "beta"), (False, 0.0))
+            self.assertEqual(self.stored_account("first").get("exhausted_until"), until)
+            providers = usage.collect(self.cfg)
+            self.assertEqual(providers["alpha"]["account"], "second")
+            self.assertEqual(providers["beta"].get("exhausted_until"), until)
+            self.assertTrue(providers["beta"]["exhausted"])
+
     def test_a_credit_spent_on_an_account_lifts_that_accounts_mark(self):
         adapters = self.root / "adapters"
         adapters.mkdir()
