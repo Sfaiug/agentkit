@@ -159,10 +159,10 @@ class StatusBar(Sandbox):
     def test_overlay_lists_the_four_entries(self):
         self.assertEqual(menu.OVERLAY_KEYS,
                          "n start a session   r rename this session   "
-                         "x stop this session   esc close")
+                         "x stop this session   esc leave")
         entries = menu.OVERLAY_KEYS.split("   ")
         self.assertEqual(entries, ["n start a session", "r rename this session",
-                                   "x stop this session", "esc close"])
+                                   "x stop this session", "esc leave"])
         with patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
                 patch.object(watch, "live_state",

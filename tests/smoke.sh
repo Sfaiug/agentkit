@@ -3866,11 +3866,11 @@ ovhost send-keys -t ovhost C-b m
 : >"$WORK/overlay-popup.txt"
 for _ in $(seq 1 30); do
   ovhost capture-pane -p -t ovhost >"$WORK/overlay-popup.txt" 2>/dev/null
-  grep -q 'n start a session   r rename this session   x stop this session   esc close' "$WORK/overlay-popup.txt" && break
+  grep -q 'n start a session   r rename this session   x stop this session   esc leave' "$WORK/overlay-popup.txt" && break
   sleep 1
 done
 # the popup drew this server's two seats, in order, under the overlay's own key line
-grep -q 'n start a session   r rename this session   x stop this session   esc close' "$WORK/overlay-popup.txt" || OVERLAY=1
+grep -q 'n start a session   r rename this session   x stop this session   esc leave' "$WORK/overlay-popup.txt" || OVERLAY=1
 NEEDS_GLYPH=$(LC_ALL=C.UTF-8 PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("needs you"))')
 grep -q "1  $OV1  fable  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
 grep -q "2  $OV2  astra  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1

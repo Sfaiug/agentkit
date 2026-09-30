@@ -196,16 +196,16 @@ class ModelScreen(unittest.TestCase):
         self.assertEqual(highlighted(lines), "› Remove")
         before = screen.path.read_bytes()
         mark = len(screen.text())
-        asked = screen.press(ENTER, lambda lines: lines[-1].strip() == "esc keep")
+        asked = screen.press(ENTER, lambda lines: lines[-1].strip() == "esc back")
         self.assertIn("  Remove opus from the config?", asked)
         self.assertFalse(any(line.startswith("›") for line in asked), asked)
         self.assertEqual(choices(screen, mark), ["› Keep", "  Remove"])
         lines = screen.press(ENTER, lambda lines: lines[-1] == KEYS["remove"])   # Enter keeps
         self.assertEqual(screen.path.read_bytes(), before)
-        screen.press(ENTER, lambda lines: lines[-1].strip() == "esc keep")
+        screen.press(ENTER, lambda lines: lines[-1].strip() == "esc back")
         lines = screen.press(ESC, lambda lines: lines[-1] == KEYS["remove"])     # so does Esc
         self.assertEqual(screen.path.read_bytes(), before)
-        screen.press(ENTER, lambda lines: lines[-1].strip() == "esc keep")
+        screen.press(ENTER, lambda lines: lines[-1].strip() == "esc back")
         lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == "agentkit · config")
         self.assertNotIn(" opus ", "\n".join(lines))
         self.assertIn("haiku", highlighted(lines))        # the row under it

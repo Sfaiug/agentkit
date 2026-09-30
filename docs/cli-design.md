@@ -137,7 +137,7 @@ seat it closes at once, with no question: `orch.cmd_stop` takes its runs,
 checkouts, conversation, state files and tmux session. Any other it asks about
 inline, under that seat's row, as a two-item selector -- `Stop <name> and
 everything it runs?`, `Keep` preselected, then `Stop` -- where Enter or a click
-answers and Esc, or a click anywhere else, keeps; the key line reads `esc keep`
+answers and Esc, or a click anywhere else, keeps; the key line reads `esc back`
 while it asks. The key line says `x close` while a done seat is highlighted (in
 the popup, while its own seat is done) and `x stop` otherwise, and a done
 seat's tmux bar reads `Ctrl-b m  x close` on its right half.
