@@ -11,6 +11,7 @@ its head, judged against the repo and posted back as a GitHub review. The seat's
 PR merges on PASS with green checks; anyone else's asks the inbox.
 """
 
+import copy
 import fcntl
 import hashlib
 import json
@@ -2571,6 +2572,10 @@ class Loop:
         # Keep the launch limits on resume; older receipts and review-only runs get defaults.
         self.done_when_limit = 3600 * state.get("ceiling_hours", CEILING_HOURS)
         self.turn_limit = 60 * state.get("silence_minutes", SILENCE_MINUTES)
+        # the record as this loop was handed it -- every caller saves it first -- or last wrote
+        # it: what `save` measures its own changes by.  Never read back off the disk, where a
+        # key another writer set since would read as one this loop removed.
+        self.written = copy.deepcopy(state)
 
     def role(self, name):
         """The preamble this run's workers get: a scratch run has no commits to talk about."""
@@ -2592,9 +2597,26 @@ class Loop:
         return self.round_dir / name
 
     def save(self):
+        """Write what this loop changed since it was handed the record or last wrote it, no more.
+
+        The watcher and a rename write a live run's record too -- a freeze, a stall entry, a
+        seat's new name -- and a whole save from this loop's memory would put the old record
+        back over them.  `state` is written every time, so a stop that landed in between is
+        refused by `record`'s guard as a whole save refused it.
+        """
         self.state.update(executor=self.executor, reviewer=self.reviewer,
                           exec_session=self.exec_sid, review_session=self.review_sid)
-        save_state(self.run_dir, self.state)
+        if not (self.run_dir / "run.json").exists():
+            save_state(self.run_dir, self.state)
+        else:
+            with record(self.run_dir) as current:
+                for key in {"state", *self.state, *self.written}:
+                    if key not in self.state:
+                        current.pop(key, None)
+                    elif (key == "state" or key not in self.written
+                          or self.written[key] != self.state[key]):
+                        current[key] = self.state[key]
+        self.written = copy.deepcopy(self.state)
         history.update_run(self.state.get("run_id"), repo=self.state.get("repo"),
                            executor=self.executor, reviewer=self.reviewer,
                            rounds_used=len(self.state.get("round_summaries") or []),
@@ -5930,13 +5952,16 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     return state
 
 
-def _write_state(run_dir, state):
-    """The bare record write every save ends in; the guard and the lock live in `save_state`."""
+def _write_state(run_dir, state, temp="run.tmp"):
+    """The bare record write every save ends in; the guard and the lock live in `save_state`.
+
+    One temporary file per lock a writer holds: `mark_delivery` writes under another lock
+    than a save, and two writers filling one temporary file would put a torn record in place.
+    """
     record_limits(state)
-    path = run_dir / "run.json"
-    tmp = path.with_suffix(".tmp")
+    tmp = run_dir / temp
     tmp.write_text(json.dumps(state, indent=2))
-    tmp.replace(path)
+    tmp.replace(run_dir / "run.json")
 
 
 def save_state(run_dir, state):
@@ -5963,6 +5988,44 @@ def save_state(run_dir, state):
             if isinstance(existing, dict) and existing.get("state") == "stopped":
                 raise StopRequested(f"{run_dir.name} was stopped")
         _write_state(run_dir, state)
+
+
+class Record(dict):
+    """A run's record as `record` read it; changed as a dict, written by `record` or `flush`."""
+
+    def __init__(self, run_dir, loaded):
+        super().__init__(loaded)
+        self.run_dir, self.stopped = run_dir, loaded.get("state") == "stopped"
+        self.written = copy.deepcopy(loaded)
+
+    def flush(self):
+        """Write now what changed since the read or the last flush, and only if something did.
+
+        For a caller whose next step reads this write's time.  The guard is `save_state`'s: a
+        record that says `stopped` never goes back to anything else.
+        """
+        if self == self.written:
+            return
+        if self.stopped and self.get("state") != "stopped":
+            raise StopRequested(f"{self.run_dir.name} was stopped")
+        _write_state(self.run_dir, self)
+        self.written = copy.deepcopy(dict(self))
+
+
+@contextmanager
+def record(run_dir):
+    """The one way to change a record that exists: read, change and write it under one lock.
+
+    Yields the record as it stands under `recovery_lock`, the lock every save and a stop hold;
+    the caller changes keys (a key popped is removed) and a clean exit writes once, if anything
+    changed.  An exception writes nothing.  One block per run at a time: a second one inside
+    would read the record without the first one's changes, and write over them.
+    """
+    run_dir = Path(run_dir)
+    with recovery_lock(run_dir):
+        current = Record(run_dir, read_state(run_dir) or {})
+        yield current
+        current.flush()
 
 
 def stop_check(run_dir):
@@ -7031,7 +7094,7 @@ def mark_delivery(run_dir, state, **marks):
         # Past `save_state`'s guard on purpose: these are endings a stop always
         # refuses, so no stop can race them, and this lock plus that one in this
         # order would invert the order `reap` takes them in.  See `save_state`.
-        _write_state(run_dir, current)
+        _write_state(run_dir, current, "delivery.tmp")
         return True
 
 
@@ -11994,6 +12057,7 @@ def cmd_merge(argv):
     cmds = with_suite(done_when(body, run_dir / "task.md"), state["worktree"],
                       state.get("target") or state.get("base"))
     body += project_lessons(state.get("repo") or None, state, log)
+    save_state(run_dir, state)  # the Loop measures its saves against the record it is handed
     lp = Loop(cfg, run_dir, state, {}, log, Path(state["worktree"]),
               body, cmds, f"Repo checkout: {state['worktree']}\n\n{body}", [])
     # A delivery retry stays a delivery retry: a pickup would resume the run through

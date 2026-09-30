@@ -2119,18 +2119,17 @@ def rename(old, new, log=print, *, auto=False):
                 record = run_mod.read_state(run_dir)
             except (config.Error, OSError, ValueError):
                 continue
-            if not isinstance(record, dict):
+            # a first look without the lock, so a run the seat never launched is left as it is
+            if not isinstance(record, dict) or old not in (record.get("launched_session"),
+                                                           record.get("session")):
                 continue
-            moved = False
-            for key in ("launched_session", "session"):
-                if record.get(key) == old:
-                    record[key] = new
-                    moved = True
-            if moved:
-                try:
-                    run_mod.save_state(run_dir, record)
-                except (config.Error, OSError, ValueError):
-                    pass
+            try:
+                with run_mod.record(run_dir) as record:
+                    for key in ("launched_session", "session"):
+                        if record.get(key) == old:
+                            record[key] = new
+            except (config.Error, OSError, ValueError):
+                pass
         moved_seat = find(new)
         if moved_seat is not None and on_own_server(moved_seat):
             try:
