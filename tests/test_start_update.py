@@ -1,7 +1,7 @@
-"""`ak` updates agentkit when it starts: behind origin, one screen draws `Updating agentkit` and
-the session rows' bar through fetch, pull and install, then the menu starts again on the new
-commit; offline or slow, it opens as it is within three seconds; a checkout somebody works in
-is left as it is.
+"""`ak` updates agentkit when it starts: behind origin, the menu's frame says `agentkit ·
+updating` and fills the rule under it through fetch, pull and install, then the menu starts
+again on the new commit; offline or slow, it opens as it is within three seconds; a checkout
+somebody works in is left as it is.
 
 Each case runs the menu in a child process whose ~/agentkit is a clone, in a temporary HOME, of
 a throwaway bare origin, with a fake install.sh committed there; the child's loop, maintenance
@@ -18,9 +18,6 @@ import tempfile
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO))
-from agentkit import terminal
-
 INSTALL = '#!/bin/sh\necho installed >>"$(dirname "$0")/../installs"\n'
 # The menu, with the live checkout the sandbox's clone and everything past its start stubbed.
 CHILD = r"""
@@ -100,21 +97,23 @@ class StartUpdate(unittest.TestCase):
         path = self.root / "installs"
         return len(path.read_text().splitlines()) if path.exists() else 0
 
-    def test_behind_draws_the_bar_and_starts_on_the_new_commit(self):
+    def test_behind_fills_the_rule_and_starts_on_the_new_commit(self):
         new = self.merge("second")
+        self.env["COLUMNS"] = "90"
         out, (head, _) = self.start()
-        self.assertIn("Updating agentkit", out)
-        steps = [f"  {terminal.progress_bar(done, 3)} · {step}"
-                 for done, step in enumerate(("fetch", "pull", "install"))]
-        self.assertEqual(steps[0], "  ░░░░░░░░ 0/3 · fetch")    # the rows' own bar, as it draws
         lines = out.splitlines()
-        self.assertEqual([line for line in lines if line in steps], steps, out)
+        # the rule under the header, a third more of it heavy as each of fetch, pull and install
+        # begins, and all of it once install is done
+        rules = ["━" * 30 * done + "─" * (90 - 30 * done) for done in range(4)]
+        self.assertEqual([line for line in lines if line in rules], rules, out)
+        self.assertEqual([lines[lines.index(rule) - 1][:19] for rule in rules],
+                         ["agentkit · updating"] * 4, out)
         self.assertEqual(out.count("<start>"), 2, out)          # it started again
-        self.assertLess(lines.index(steps[-1]), len(lines) - 1 - lines[::-1].index("<start>"))
+        self.assertLess(lines.index(rules[-1]), len(lines) - 1 - lines[::-1].index("<start>"))
         self.assertEqual(head, new)
         self.assertEqual(self.installs(), 1)
         out, (head, _) = self.start()                           # current: nothing to do
-        self.assertNotIn("Updating agentkit", out)
+        self.assertNotIn("updating", out)
         self.assertEqual((head, self.installs()), (new, 1))
 
     def test_an_origin_that_never_answers_opens_the_menu_within_three_seconds(self):
@@ -126,14 +125,14 @@ class StartUpdate(unittest.TestCase):
         self.env["GIT_SSH_COMMAND"] = str(hang)     # a network that takes the packets and no more
         out, (head, seconds) = self.start()
         self.assertLess(seconds, 3)
-        self.assertNotIn("Updating agentkit", out)
+        self.assertNotIn("updating", out)
         self.assertEqual((head, self.installs()), (self.first, 0))
 
     def test_a_dirty_checkout_is_left_as_it_is(self):
         self.merge("second")
         (self.clone / "notes").write_text("somebody's edit\n")
         out, (head, _) = self.start()
-        self.assertNotIn("Updating agentkit", out)
+        self.assertNotIn("updating", out)
         self.assertEqual(out.count("<start>"), 1)
         self.assertEqual((head, self.installs()), (self.first, 0))
         self.assertEqual((self.clone / "notes").read_text(), "somebody's edit\n")

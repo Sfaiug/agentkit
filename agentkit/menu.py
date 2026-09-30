@@ -415,14 +415,16 @@ def wait_key(prompt, timeout=None, wake=None):
     return read("", "q")
 
 
-def moving(clock, wake=None, timeout=TICK):
-    """`wait_key` on the main screen, its digit wait and its stop question: `timeout` seconds at
-    most, and each of `clock`'s frames drawn while something moves and no key is waiting.
+def moving(clock, wake=None, timeout=TICK, going=None):
+    """`wait_key` on the main screen, its digit wait and its stop question, and on a screen whose
+    content is fetched: `timeout` seconds at most, and each of `clock`'s frames drawn while
+    something moves and no key is waiting.
 
     Only a wait that ran to its frame draws one.  One that ended before it, on news, returns
     None, its cells forgotten, for the caller to draw the screen again; so does one a resize
     ended, at any time, and the clock forgets what it had seen as well: a resize moves every
-    cell, and the draw after it shows the values as they are (`motion.Clock.forget`).
+    cell, and the draw after it shows the values as they are (`motion.Clock.forget`).  So does
+    the first frame after `going()` says what the screen waits on has landed, for it to be drawn.
     """
     left, until = timeout, time.monotonic() + timeout
     terminal.asked_again()          # a draw asked for before the one just made is answered
@@ -440,6 +442,8 @@ def moving(clock, wake=None, timeout=TICK):
             return None
         sys.stdout.write(clock.frame())
         sys.stdout.flush()
+        if going is not None and not going():
+            return None
         left = until - time.monotonic()
 
 
@@ -2581,7 +2585,8 @@ def config_model(cfg, name):
                     else config_effort(cfg, name, step, _catalog_efforts))
 
 
-def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2):
+def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
+               fetched=None):
     """One draw of a matrix screen and the key read on it: (act, here, column, top).
 
     The `c` screen and a project's feature switches are read this way: rows the highlight moves
@@ -2593,6 +2598,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     `marks` columns and `less` or `more` on another's arrows; `column` is None where no cell was
     clicked.  `act` is `back` for Esc, `q` or a click on `esc back`, None when the screen wants
     drawing again -- a resize, or `timeout` seconds with no key -- and the key's name otherwise.
+    `fetched()` says since when the screen's content is being fetched, or None: while it is, the
+    rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
     """
     said = ["", *(terminal.styled("  " + part, "dim")
                   for part in terminal.wrap(note, terminal.layout_width() - 2))] if note else []
@@ -2601,7 +2608,14 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     top = max(0, min(max(top, drawn[-1] - room + 1), drawn[0], len(body) - room))
     shown = body[top:top + room]
     terminal.frame(title, shown + said, keys)     # its first line is the terminal's third
-    key = terminal.read_key(timeout)
+    began = fetched and fetched()
+    if began is None:
+        key = terminal.read_key(timeout)
+    else:
+        clock = motion.Clock()
+        for n, animation in enumerate(motion.fetching(terminal.layout_width(), began)):
+            clock.start([(2, 1 + n)], animation)
+        key = moving(clock, timeout=timeout, going=lambda: fetched() == began)
     if key is None:
         return None, here, None, top
     act, column = key.name, None
@@ -3353,7 +3367,8 @@ def show_features(checkout, dry_run=False):
 
     The rows are the project's `list` as last answered (`switches`), asked again every TICK
     while the screen is open and drawn within STIR of landing, so the screen never waits on
-    it.  ↑/↓ move between features and ←/→ between `you` and `everyone`; Enter, space or a
+    it, and within a frame of landing while there are no rows yet, the rule gliding meanwhile.
+    ↑/↓ move between features and ←/→ between `you` and `everyone`; Enter, space or a
     click flips a mark by calling the project's `set` at once, and draws the row it answers
     with.  What a `set` could not do is one dim line under the rows, the mark as it was, until
     the next key; a `list` that failed is one too, for as long as the rows drawn are older than
@@ -3361,6 +3376,11 @@ def show_features(checkout, dry_run=False):
     """
     here, column, top, note = None, 0, 0, ""
     keys = FEATURES_KEYS[0 if terminal.utf8() else 1] + "   esc back"
+
+    def fetched():      # when the list the screen has no rows without was asked, till it lands
+        entry = _SWITCHES[str(checkout)]
+        return entry["asked"] if entry["going"] and entry["rows"] is None else None
+
     while True:
         features = switches(checkout, TICK)
         rows = [("feature", row["id"]) for row in features or ()]
@@ -3377,7 +3397,7 @@ def show_features(checkout, dry_run=False):
         # one line whatever it says, so the rows stay where a click is read against them
         act, here, clicked, top = matrix_key(checkout.name, body, places, rows, here, top,
                                              terminal.cut(note, terminal.layout_width() - 2),
-                                             keys, STIR)
+                                             keys, STIR, fetched=fetched)
         if act is None:
             continue                  # a resize, or a look at whether the answer has landed
         note, column = "", column if clicked is None else clicked
@@ -3644,9 +3664,9 @@ UPDATE_TAIL = 10   # how many of a failed start-up update's last lines `ak` show
 
 
 def update_first():
-    """`ak` opens on the latest agentkit: when origin's main has moved past ~/agentkit, one screen
-    says `Updating agentkit` over the session rows' bar through update_agentkit's steps, then
-    the menu starts again on the new code.
+    """`ak` opens on the latest agentkit: when origin's main has moved past ~/agentkit, the menu's
+    frame says `agentkit · updating` and fills the rule under it through update_agentkit's
+    steps, then the menu starts again on the new code.
 
     Only the checkout this runs from moves, as with the tick (update.go_live), so a worktree's
     `bin/ak` -- a test's above all -- never moves the live one under it.  One somebody works in,
@@ -3658,10 +3678,9 @@ def update_first():
         return
     before, screen, said = update.agentkit_version(), sys.stdout, io.StringIO()
 
-    def draw(done, total, step):
+    def draw(done, total):
         with redirect_stdout(screen):
-            terminal.frame("", ["", "  Updating agentkit",
-                                f"  {terminal.progress_bar(done, total)} · {step}"], "")
+            terminal.frame("updating", (), "", done / total)
 
     with redirect_stdout(said):
         failed = update.update_agentkit(draw)
