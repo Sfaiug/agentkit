@@ -492,8 +492,8 @@ def waited(work, title, body=list, keys="esc back", keyboard=None):
     A fetch that lands within a frame is simply had, and so is one with no keyboard to read, as
     it always was.  Over one that takes longer, on the keyboard a screen has -- or `keyboard`,
     taken for the wait -- the screen is drawn, and again after a resize, and its rule glides
-    once the fetch is past motion.WAIT (motion.fetching), on the clock's own frames.  Esc, `q`,
-    the end of input or a click on `esc back` raises Back, `work` left to finish on its own
+    once the fetch is past motion.WAIT (motion.fetching), on the clock's own frames.  Esc, the
+    end of input or a click on `esc back` raises Back, `work` left to finish on its own
     and its answer unused; any other key is let go.
     """
     fetch = Fetch(work)
@@ -507,8 +507,7 @@ def waited(work, title, body=list, keys="esc back", keyboard=None):
             clock = motion.fetching(motion.Clock(), fetch.began)
             key = moving(clock, timeout=TICK, going=fetch.is_alive)
             while key is not None:        # a key is read, and the rule glides on as it was
-                if (key.name in ("esc", "eof") or key.char in ("q", "Q")
-                        or key.name == "click" and any(
+                if (key.name in ("esc", "eof") or key.name == "click" and any(
                             (4 + len(lines) + number, item) == (key.row, "esc")
                             and first <= key.col <= last
                             for number, text in enumerate(terminal.key_line(keys))

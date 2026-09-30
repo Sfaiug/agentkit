@@ -299,6 +299,16 @@ class EscBack(unittest.TestCase):
         menu_.back("pause", None)
         menu_.leave()
 
+    def test_a_screen_waiting_on_a_fetch_lets_q_go_and_goes_back_on_esc(self):
+        Key, done = terminal.Key, threading.Event()
+        self.addCleanup(done.set)                 # the fetch left to finish on its own
+        with patch.object(terminal, "taken", return_value=True), \
+                patch.object(terminal, "frame"), \
+                patch.object(menu, "moving", side_effect=[Key("char", "q"), Key("esc")]) as keys:
+            with self.assertRaises(menu.Back):
+                menu.waited(lambda: done.wait(10), "new session")
+        self.assertEqual(keys.call_count, 2)      # `q` was read, and let go
+
     def test_a_field_edits_and_answers_on_the_keys(self):
         Key = terminal.Key
 
