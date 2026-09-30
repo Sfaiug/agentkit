@@ -3,8 +3,8 @@
 A temporary HOME holds config.toml and the secrets.  The matrix is driven in-process with
 `terminal.read_key` fed its keys and a keyboard that is always taken (tests/test_config_matrix.py
 drives it on a real pty); Discord reads lines through the patched `menu.read` seam, the way
-test_v5u drives the screens.  What is pinned is the round trip: a mark writes the default
-orchestrator and the default workers that `n` then takes with Enter, effort steps within its
+test_v5u drives the screens, and the meters are an empty reading.  What is pinned is the round
+trip: a mark writes the seat `fix-api`'s record and never `[defaults]`, effort steps within its
 model's own words, add writes a whole block off its three lists, Discord writes the two
 secrets, and Version asks no harness anything.
 """
@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, terminal, update
+from agentkit import config, menu, terminal, update, usage
 
 OWN = """max_runs = 0
 
@@ -71,15 +71,22 @@ class Editor(unittest.TestCase):
         self.path = self.home / "config.toml"
         self.path.write_text((REPO / "config.default.toml").read_text())
         config.ensure_dirs()
+        config.save_session(config.load(), "fix-api", "opus", ["opus", "astra"])
 
-    def drive(self, *keys):
-        """The `c` screen against `keys`, then Esc; (the config it left, everything it printed)."""
+    def drive(self, *keys, session=None):
+        """The `c` screen, on `session` when one is named, against `keys`, then Esc; (the config
+        it left, everything it printed)."""
         keys = [terminal.Key(*key) if isinstance(key, tuple) else terminal.Key(key)
                 for key in (*keys, "esc")]
         out = io.StringIO()
-        with patch.object(terminal, "read_key", side_effect=keys), redirect_stdout(out):
-            left = menu.show_config(False, Taken())
+        with patch.object(terminal, "read_key", side_effect=keys), \
+                patch.object(usage, "collect", return_value=usage.Readings({})), \
+                redirect_stdout(out):
+            left = menu.show_config(False, Taken(), session)
         return left, out.getvalue()
+
+    def record(self):
+        return config.load_session(config.load(), "fix-api")
 
     def steps(self, step, *answers):
         """One step under the matrix against typed `answers`; (everything it printed, the seam)."""
@@ -88,35 +95,27 @@ class Editor(unittest.TestCase):
             step()
         return out.getvalue(), read
 
-    def test_toggling_default_workers_is_what_enter_takes(self):
+    def test_toggling_a_sessions_workers_writes_its_record_and_not_the_defaults(self):
         # fable in, astra out: the list keeps its order and the new one goes last
-        left, _ = self.drive("right", "enter", "down", "down", "space")
-        self.assertEqual(tomllib.loads(self.path.read_text())["defaults"]["workers"],
-                         ["opus", "fable"])
-        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
-        # every model stays a choice; Enter takes the two the screen left
-        with patch.object(terminal, "ask", return_value="") as ask:
-            self.assertEqual(orch.prompt_workers(left), ["opus", "fable"])
-        self.assertEqual(ask.call_args[0][1], "opus fable")
-        self.assertEqual(ask.call_args[0][2], config.offered(left))
-
-    def test_the_last_default_worker_cannot_go(self):
-        self.path.write_text(OWN)
         before = self.path.read_bytes()
-        _, screen = self.drive("right", "enter")
-        self.assertIn("exec needs one model", screen)
+        self.drive("right", "enter", "down", "down", "space", session="fix-api")
+        self.assertEqual(self.record()["workers"], ["opus", "fable"])
         self.assertEqual(self.path.read_bytes(), before)
 
-    def test_choosing_the_default_orchestrator(self):
-        self.drive("down", "down", "enter")
-        self.assertEqual(tomllib.loads(self.path.read_text())["defaults"]["orchestrator"], "astra")
-        self.assertEqual(orch.choose(config.load(), {})[0], "astra")
-        # an old [tiers] file is written in the new shape by the first save, and only then
+    def test_the_last_worker_cannot_go(self):
         self.path.write_text(OWN)
-        self.assertEqual(self.path.read_text(), OWN)
+        config.save_session(config.load(), "fix-api", "solo", ["solo"])
+        before = self.path.read_bytes()
+        _, screen = self.drive("right", "enter", session="fix-api")
+        self.assertIn("exec needs one model", screen)
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(self.record()["workers"], ["solo"])
+
+    def test_an_old_tiers_file_is_written_in_the_new_shape_by_the_first_save(self):
+        self.path.write_text(OWN)
+        self.drive("down")
+        self.assertEqual(self.path.read_text(), OWN)      # nothing changed: nothing to save
         self.drive("enter")
-        self.assertEqual(self.path.read_text(), OWN)      # the one there is: nothing to save
-        self.drive("right", "right", "right", "enter")
         saved = tomllib.loads(self.path.read_text())
         self.assertNotIn("tiers", saved)
         self.assertEqual(saved["defaults"], {"orchestrator": "solo", "workers": ["solo"]})
@@ -163,12 +162,16 @@ class Editor(unittest.TestCase):
                                                 '[models.fable]\nnickname = "f"\nharness = "claude"')
         text += '\n[extra]\nanswer = 42\n\n[extra.nested]\ndeep = true\n'
         self.path.write_text(text)
-        self.drive("right", "enter")
+        levels = [{"id": "claude-fable-5-1", "label": "Fable 5.1",
+                   "efforts": ["low", "medium", "high", "xhigh", "max"]}]
+        with patch.object(config, "catalog", return_value=levels):
+            self.drive("enter")
         again = tomllib.loads(self.path.read_text())
         self.assertEqual(again["mystery"], 7)
         self.assertEqual(again["models"]["fable"]["nickname"], "f")
         self.assertEqual(again["extra"], {"answer": 42, "nested": {"deep": True}})
-        self.assertEqual(again["defaults"]["workers"], ["opus", "astra", "fable"])
+        self.assertEqual(again["models"]["fable"]["effort"], "max")
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
 
     def test_discord_writes_secret_files_0600(self):
         _, screen = self.drive()
@@ -223,14 +226,14 @@ class Editor(unittest.TestCase):
         self.path.write_text(self.path.read_text() + '\n[models.Discord]\nharness = "claude"\n'
                              'model = "m"\neffort = "high"\nprovider = "anthropic"\n')
         with patch.object(menu, "config_discord") as step:
-            self.drive("down", "down", "right", "enter")     # fable, opus, then Discord, a Claude
+            # fable, opus, then Discord, a Claude
+            self.drive("down", "down", "right", "enter", session="fix-api")
         self.assertEqual(step.call_count, 0)
-        self.assertEqual(tomllib.loads(self.path.read_text())["defaults"]["workers"],
-                         ["opus", "astra", "Discord"])
+        self.assertEqual(self.record()["workers"], ["opus", "astra", "Discord"])
 
     def test_main_screen_lists_values(self):
-        _, screen = self.drive()
-        self.assertTrue(screen.startswith("agentkit · config"), screen)
+        _, screen = self.drive(session="fix-api")
+        self.assertTrue(screen.startswith("agentkit · config · fix-api"), screen)
         for bit in ("orch  exec  review  effort", "Claude", "opus    claude", "●", "■", "□",
                     "‹ xhigh ›", "add a model", "Discord", "Version        abc1234 · 2026-09-29",
                     "esc back"):
