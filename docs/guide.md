@@ -16,7 +16,7 @@ Ak workers (`AK_RUN_ROLE=worker`) and their descendants do not count; any old ca
 orchestrator` (shipped `opus`), or while it is spent the first model in config order that is not, and the `[defaults]
 workers` (`opus astra`) and `reviewers` (workers when omitted) not spent; an empty group falls back to another company's fresh model before the executor's company's, before the executor itself. From a pipe the name, orchestrator and workers read one line each, Enter taking each default; reviewers inherit the defaults, and
 `--dry-run` starts no session. The seat opens in `~/code`; `ak orch <name>` keeps the shell's directory and reopens an
-existing seat. As soon as the project is known, `ak orch project [<seat>] <checkout>` files this seat (or the named one) by checkout name or path; only known checkouts are accepted. Each launched run refiles it under the project most of its runs belong to,
+existing seat. As soon as the project is known, `ak orch project [<seat>] <checkout>` files this seat (or the named one) by checkout name or path; only known checkouts are accepted, and it stays there until filed again. A seat never filed so is refiled by each launched run under the project most of its runs belong to,
 counting a run from its launch, still queued for a slot or not, for the checkout under `~/code` or `~/agentkit`
 (agentkit's own; a second clone at `~/code/agentkit` counts as it) its task's `repo:` names, else for the one its task's `~/.agentkit/tasks/<project>/` is named for, never
 one it merely inherits, and a worktree, sandbox or scratch workspace for nothing; a tie keeps its project. A seat with no

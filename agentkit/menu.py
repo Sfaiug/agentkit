@@ -963,9 +963,10 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
 
     A project is a checkout under ~/code, or agentkit's own at ~/agentkit -- one of
     `orch.checkouts()` -- and a seat is filed under the one its repo *is* (`orch.checkout_of`):
-    the project most of its runs vote for, a queued run's included (`run.join_session_project`),
-    whether it works in one checkout or across them from ~/code. Only a seat none of whose runs
-    votes files under the fallback heading.
+    the one `ak orch project` filed it under, else the project most of its runs vote for, a
+    queued run's included (`run.join_session_project`), whether it works in one checkout or
+    across them from ~/code. Only a seat nobody filed and none of whose runs votes files under
+    the fallback heading.
     A run makes no project and no row: no worktree, no throwaway repo under
     ~/.agentkit/tmp and no run id is ever a heading. A project with no offered seat
     is not listed, unless its AGENTS.md names its feature switches: that one is listed

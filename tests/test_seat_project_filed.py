@@ -1,4 +1,4 @@
-"""A seat files its project before launching runs; later votes still decide it.
+"""A seat filed by hand stays under that project; a seat nobody filed follows its runs' vote.
 
 Offline, with invented checkouts and seat records under a temporary HOME.
 """
@@ -52,7 +52,7 @@ class SeatProjectFiled(Sandbox):
                 for value in (checkout.name, str(checkout)):
                     with self.subTest(seat=seat, checkout=value):
                         record = self.file(*seat, value)
-                        self.assertEqual(record, {**self.record, "repo": str(checkout)})
+                        self.assertEqual(record, {**self.record, "repo": str(checkout), "filed": True})
 
     def test_checkout_name_matches_in_any_case(self):
         checkout = self.checkout(config.CODE / "CLOVER")
@@ -116,22 +116,27 @@ class SeatProjectFiled(Sandbox):
             with self.subTest(args=args), self.assertRaisesRegex(config.Error, "usage:"):
                 orch.main(["project", *args])
 
-    def test_first_run_elsewhere_moves_the_filed_seat(self):
+    def test_filed_seat_stays_whatever_its_runs_vote(self):
         self.file("bramble")
-        self.assertEqual(run.join_session_project("fix-api"), str(self.bramble))
-        self.vote("first", self.acme)
+        for name in ("first", "second", "third"):
+            self.vote(name, self.acme)
+            self.assertEqual(run.join_session_project("fix-api"), str(self.bramble))
+        self.assertEqual(config.load_session(self.cfg, "fix-api")["repo"], str(self.bramble))
+        self.assertEqual(self.file("acme")["repo"], str(self.acme))
+        for name in ("fourth", "fifth", "sixth", "seventh"):
+            self.vote(name, self.bramble)
         self.assertEqual(run.join_session_project("fix-api"), str(self.acme))
         self.assertEqual(config.load_session(self.cfg, "fix-api")["repo"], str(self.acme))
 
-    def test_tie_keeps_the_filing_until_another_project_wins(self):
-        self.file("bramble")
+    def test_unfiled_seat_follows_its_runs_and_a_tie_keeps_its_project(self):
         self.vote("first", self.bramble)
+        self.assertEqual(run.join_session_project("fix-api"), str(self.bramble))
         self.vote("second", self.acme)
         self.assertEqual(run.join_session_project("fix-api"), str(self.bramble))
         self.assertEqual(config.load_session(self.cfg, "fix-api")["repo"], str(self.bramble))
         self.vote("third", self.acme)
         self.assertEqual(run.join_session_project("fix-api"), str(self.acme))
-
+        self.assertEqual(config.load_session(self.cfg, "fix-api")["repo"], str(self.acme))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
