@@ -313,12 +313,23 @@ class Tick(Fixture):
                 self.assertTrue(run.read_state(self.run_dir)["handback_pending"])
 
     def test_a_launch_leaves_a_record_it_cannot_read_as_it_is_and_says_so(self):
-        launch = lambda log: watch.launch_resume(self.run_dir.name, log)
+        # unreadable after the start: the child owns the run now, so the launch stands
+        launch = lambda log: self.assertEqual(watch.launch_resume(self.run_dir.name, log), 4242)
         for between, fail in ((self.tear, False), (self.another_writer, True)):
             with self.subTest(between.__name__):
-                with self.assertRaises(run.Unreadable):
-                    self.tick({}, launch, between, fail)
+                logs = self.tick({}, launch, between, fail)
                 self.assertEqual((self.run_dir / "run.json").read_bytes(), self.between)
+                self.assertTrue(any(line.startswith("WARN") and "run.json cannot be read" in line
+                                    for line in logs), logs)
+        # unreadable before it: nothing is started
+        self.tear()
+        orch.start_in_slice.reset_mock()
+        logs = []
+        self.assertFalse(watch.launch_resume(self.run_dir.name, logs.append))
+        orch.start_in_slice.assert_not_called()
+        self.assertEqual((self.run_dir / "run.json").read_text(), '{"state": "runn')
+        self.assertTrue(any(line.startswith("WARN") and "run.json cannot be read" in line
+                            for line in logs), logs)
         self.tick({"scope": "none"}, launch, self.another_writer)
         state = run.read_state(self.run_dir)
         self.assertTrue(state["handback_pending"])

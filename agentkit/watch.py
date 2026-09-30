@@ -3585,12 +3585,16 @@ def launch_resume(run_id, log=lambda _: None, verb="resume"):
     Into agentkit's slice, where every other agent process runs: a tick from cron would
     otherwise leave its resumes in the system's own cgroup, outside every limit the host has
     for the work.  `verb` starts `ak run merge <id>` the same way, for a job whose task's
-    delivery is retried in the task's own scope rather than in the job's.
+    delivery is retried in the task's own scope rather than in the job's.  A record it cannot
+    read starts nothing; one it cannot read once the child is started keeps that launch.
     """
     run_dir = config.RUNS / run_id
     from . import run as run_mod
     with run_mod.recovery_lock(run_dir):
-        receipt = run_mod.read_state(run_dir) or {}
+        receipt = run_mod.read_state(run_dir)
+        if receipt is None:
+            log(f"WARN could not {verb} {run_id}: run.json cannot be read")
+            return False
         unit = f"agentkit-run-{run_id}"
         if (receipt.get("scope") and str(receipt["scope"]) != "none"
                 and not str(receipt["scope"]).startswith("none (")):
@@ -3612,7 +3616,7 @@ def launch_resume(run_id, log=lambda _: None, verb="resume"):
         except OSError as exc:
             log(f"WARN could not {verb} {run_id}: {exc}")
             return False
-        if receipt:
+        try:
             with run_mod.record(run_dir) as state:
                 state["scope"] = placement.get("scope")
                 if placement.get("scope_reason"):
@@ -3620,6 +3624,9 @@ def launch_resume(run_id, log=lambda _: None, verb="resume"):
                 else:
                     state.pop("scope_reason", None)
                 run_mod.remember_memory_cap(state, placement, cap)
+        except run_mod.Unreadable as exc:
+            # the child owns the run now and its caller waits on it: only the scope goes unsaid
+            log(f"WARN {run_id} was started, but its scope is not recorded: {exc}")
     return pid
 
 
