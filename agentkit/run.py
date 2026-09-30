@@ -5458,11 +5458,14 @@ def merge_turn(lp, upstream, reserve=False):
     the silence watch the wait is no stall, and the wait counts as no step's work.
     The kernel wakes every waiter of a flock and any one may win, so a free turn goes
     by the waiters' queue instead: a `--first` run before the rest, then the earliest
-    to enter.  A waiter holds a flock on a place named by its rank; one that wins the
-    turn behind a live place ranked before its own lets the turn go and waits for that
-    place.  A waiter parked behind a reservation gives its place up until the
-    reservation ends, so it holds back no disjoint branch, and the kernel lets a dead
-    waiter's place go.  A reserved lap taking its lent turn back queues for nobody.
+    to enter by the host's monotonic clock, which no clock adjustment moves back.  A
+    waiter holds a flock on a place named by its rank and listing its files; one that
+    wins the turn behind a live place ranked before its own lets the turn go and waits
+    for that place.  A place whose files a live reservation blocks holds nobody back,
+    so disjoint branches still land during a reserved lap's re-check, and its waiter
+    keeps its rank for when the reservation ends; parking swaps the place for a new one,
+    waking whoever waited on the old.  The kernel lets a dead waiter's place go.  A
+    reserved lap taking its lent turn back queues for nobody.
     """
     current = getattr(_MERGE_HELD, "hold", None)
     if current is not None and not current.lent:
@@ -5473,23 +5476,21 @@ def merge_turn(lp, upstream, reserve=False):
     what = f"{Path(lp.state.get('repo') or lp.wt).name} {upstream.removeprefix('origin/')}"
     path = merge_turn_lock(url, upstream)
     lock = current.lock if current is not None else path.open("a")
-    rank = f"{0 if lp.state.get('first') else 1}{time.time_ns():020d}"
-    place = None
+    rank = f"{0 if lp.state.get('first') else 1}{time.monotonic_ns():020d}"
+    place = files = None
     waited = False
     retaking = False
 
-    def queue():
-        nonlocal place
-        if place is None and current is None:
-            place = merge_turn_queue(path, rank)
+    def leave(old):
+        if old is not None:
+            old[0].unlink(missing_ok=True)
+            old[1].close()
 
-    def leave():
+    def queue(renew=False):
         nonlocal place
-        if place is not None:
-            name, held_place = place
-            place = None
-            name.unlink(missing_ok=True)
-            held_place.close()
+        if current is None and (place is None or renew):
+            old, place = place, merge_turn_queue(path, rank, files)
+            leave(old)
 
     def waiting():
         nonlocal waited, step, retaking, retake_step
@@ -5518,6 +5519,7 @@ def merge_turn(lp, upstream, reserve=False):
     retake_step = None
     try:
         try:
+            files = merge_turn_files(lp.wt, upstream)
             while True:
                 try:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -5526,10 +5528,9 @@ def merge_turn(lp, upstream, reserve=False):
                     waiting()
                     fcntl.flock(lock, fcntl.LOCK_EX)
                 blocker = merge_turn_blocker(
-                    path, merge_turn_files(lp.wt, upstream),
-                    current.reservation.name if current is not None else None)
+                    path, files, current.reservation.name if current is not None else None)
                 if blocker is not None:
-                    leave()
+                    queue(renew=True)
                 elif current is None:
                     blocker = merge_turn_ahead(path, rank)
                     if blocker is not None:
@@ -5544,7 +5545,7 @@ def merge_turn(lp, upstream, reserve=False):
                 except FileNotFoundError:
                     pass           # the holder finished between the probe and the wait
         finally:
-            leave()
+            leave(place)
             if waited:
                 lp.state.pop("merge_turn", None)
             if retaking:
@@ -5626,24 +5627,29 @@ def merge_turn_blocker(path, files, own=None):
     return None
 
 
-def merge_turn_queue(path, rank):
+def merge_turn_queue(path, rank, files):
     """(name, file): a place in the queue for `path`'s turn, flocked before it is named.
 
     A probe reads an unlocked place as its dead waiter's and removes it, so the place
-    is locked under another name first.  Its name sorts in rank order, and is new on
-    every queueing, so no probe of an old place removes a new one.
+    is locked and its files written under another name first.  Its name sorts in rank
+    order, and is new on every queueing, so no probe of an old place removes a new one.
     """
     name = path.with_name(f"{path.stem}.{rank}-{os.getpid()}-{threading.get_ident()}"
-                          f"-{time.time_ns()}.wait")
+                          f"-{time.monotonic_ns()}.wait")
     fresh = name.with_suffix(".new")
     place = fresh.open("w")
     fcntl.flock(place, fcntl.LOCK_EX)
+    json.dump(None if files is None else sorted(files), place)
+    place.flush()
     fresh.rename(name)
     return name, place
 
 
 def merge_turn_ahead(path, rank):
-    """A live waiter's place ranked before `rank`, which the turn goes to first; else None."""
+    """A live waiter's place ranked before `rank` that no reservation blocks; else None.
+
+    Probed only while holding delivery's flock, as reservations are.
+    """
     mine = f"{path.stem}.{rank}-"
     for place in sorted(path.parent.glob(f"{path.stem}.*.wait")):
         if place.name >= mine:
@@ -5653,7 +5659,13 @@ def merge_turn_ahead(path, rank):
                 try:
                     fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:
-                    return place
+                    try:
+                        theirs = set(json.load(probe))
+                    except (TypeError, ValueError):
+                        theirs = None           # unknown files wait for any reservation
+                    if merge_turn_blocker(path, theirs) is None:
+                        return place
+                    continue
                 place.unlink(missing_ok=True)      # a dead waiter's place is no place
         except FileNotFoundError:
             pass

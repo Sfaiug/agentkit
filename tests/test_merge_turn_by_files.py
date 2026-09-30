@@ -5,6 +5,7 @@ fixture stubs only providers and PR operations, and really squash-merges on orig
 """
 
 from contextlib import redirect_stdout
+import fcntl
 import io
 import os
 from pathlib import Path
@@ -224,6 +225,40 @@ class MergeTurnByFiles(LandingCase):
                     self.assertFalse(thread.is_alive())
         self.assertEqual(errors, [])
         self.assertTrue(all(event.is_set() for event in events))
+
+    def test_a_reservation_ending_passes_the_turn_to_first_then_the_longest_wait(self):
+        remote, owner = make_origin(self.root)
+        holder = make_run(self.root, remote, "acme", ["true"], {"shared.txt": "acme\n"})
+        order, threads = [], []
+        real_flock = fcntl.flock
+
+        def flock(fh, op):
+            real_flock(fh, op)
+            if (op == fcntl.LOCK_EX and threading.current_thread().name == "urgent"
+                    and str(fh.name).endswith(".hold")):
+                time.sleep(0.5)     # the last waiter the kernel schedules once it ends
+        self.stack.enter_context(patch.object(fcntl, "flock", flock))
+        with run.merge_turn(holder, "origin/main", reserve=True):
+            run.set_base(holder, holder.base_sha)
+            try:
+                for name in ("early", "late", "urgent"):
+                    lp = make_run(self.root, remote, name, ["true"], {"shared.txt": f"{name}\n"})
+                    lp.state["first"] = name == "urgent"
+
+                    def take(lp=lp):
+                        with run.merge_turn(lp, "origin/main"):
+                            order.append(lp.state["title"])
+                    threads.append(threading.Thread(target=take, name=name, daemon=True))
+                    threads[-1].start()
+                    self.until(lambda: run.merge_turn_note(run.read_state(lp.run_dir) or {}),
+                               f"{name} to wait for the reservation")
+            finally:
+                run.drop_reserved_turn()
+                for thread in threads:
+                    thread.join(20)
+                    self.assertFalse(thread.is_alive(), "a waiter never took the turn")
+        self.assertEqual(order, ["urgent", "early", "late"])
+        self.assertFalse(list(config.RUNS.glob("*.wait")))
 
     def test_disjoint_reservations_and_other_targets_can_take_the_turn(self):
         remote, owner = make_origin(self.root)
