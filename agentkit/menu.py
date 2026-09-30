@@ -2772,6 +2772,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None):
         here = here if here in rows else rows[0]      # the highlight is the row itself
         if here[0] == "model" and column not in columns:
             column = columns[-1]      # up from Providers' acts onto a row without marks
+        if here == PROVIDERS and column == 3 and not selected:
+            column = 0                # the one cell leads to `+ add`, as the first mark does
         where = ("label" if here == PROVIDERS else "still" if here == VERSION else "row"
                  if here[0] == "row" else "effort" if column == 3 else "label" if column < 0
                  else "mark")
