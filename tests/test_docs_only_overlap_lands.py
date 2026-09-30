@@ -165,6 +165,7 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         state = run.read_state(lp.run_dir)
         self.assertEqual(state["base_sha"], tip)
         self.assertEqual(state["review"]["head_sha"], head)
+        self.assertEqual(state["final_check"]["sha"], head)     # carried, as a disjoint move's
         self.assertEqual(state["verdict"], "PASS")
         self.assertNotIn("review_pending", state)
         log = (lp.run_dir / "log.txt").read_text()
