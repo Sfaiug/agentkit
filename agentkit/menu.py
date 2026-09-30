@@ -522,11 +522,16 @@ def waited(work, title, body=list, keys="esc back", keyboard=None):
 
 
 def pause(*lines):
-    """Say something and, when someone is there to read it, wait until they have."""
+    """Say something and, when someone is there to read it, wait until they have: Esc or Enter,
+    read a key at a time on the menu's keyboard or, where the menu gave it back, on the keys
+    alone, so Esc goes back at once here too."""
     for line in lines:
         print(line)
     if sys.stdin.isatty() and sys.stdout.isatty():
-        read("esc back ", "")
+        with closing(terminal.Keyboard(screen=False)) as keys:
+            if not terminal.taken():
+                keys.take()
+            read("esc back ", "")
 
 
 def seat_state(cfg, session, **facts):
@@ -2761,10 +2766,10 @@ def config_matrix(cfg, keyboard, version):
     on `+ add a model` opens its screen (config_add), and a model added there is the row
     highlighted after it.  On `Providers` ←/→ move between `+ add` and `− remove`, and Enter or
     a click on one runs it (config_add_provider, config_remove_provider); on `Discord` its two
-    secrets are typed on the same keys (config_discord).  `Version` is read, and does nothing.  On a screen too short
-    for every row the part the highlight is on is shown, and what the last key could not do --
-    the last worker, a save or a catalog that failed -- has lines of its own under it, whatever
-    the height, until the next key.
+    secrets are typed on the same keys (config_discord).  `Version` is read, and does nothing.
+    On a screen too short for every row the part the highlight is on is shown, and what the
+    last key could not do -- the last worker, a save or a catalog that failed -- has lines of
+    its own under it, whatever the height, until the next key.
     """
     here, column, top, note = None, 0, 0, ""
     while True:
@@ -3580,9 +3585,10 @@ def pressed(key, drawn, found):
     Enter is the highlighted seat's number, and a click on any line of a seat is that seat's;
     on a project's heading either is that project's checkout, whose switches it opens.
     A click on the key line is the key of the item under it, `⏎ open` being Enter; Esc, a click
-    on `esc leave` and a keyboard that is gone are ESC, which leaves; a character is itself; anything else is "", which asks for
-    nothing.  `drawn` is the layout on the screen when the key was read, so a click lands where
-    he saw, and `found` the seats now, so a seat is opened by the number it has now.
+    on `esc leave` and a keyboard that is gone are ESC, which leaves; a character is itself;
+    anything else is "", which asks for nothing.  `drawn` is the layout on the screen when the
+    key was read, so a click lands where he saw, and `found` the seats now, so a seat is
+    opened by the number it has now.
     """
     numbers = {session["name"]: str(number) for number, session in enumerate(found, 1)}
 
