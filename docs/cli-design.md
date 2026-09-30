@@ -393,7 +393,7 @@ nothing fading out (`motion.Clock.rise`).
 
 A screen whose content is still being fetched after 150 ms -- a project's feature
 switches while their `list` or a `set` is asked, a harness's model catalog on the
-`c` screens, the usage `m` and `n` ask before their screens and the main screen
+`c` screens, the usage `c` on a session and `n` ask before their screens and the main screen
 asks every minute -- has a bright segment eight cells long glide along its rule, in
 from the left and out at the right every 1.2 s, until it lands; the screen then
 draws what came within a frame, its rule still. A fetch shorter than that shows
