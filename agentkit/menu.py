@@ -481,9 +481,10 @@ class Fetch(threading.Thread):
         return self.got["answer"]
 
 
-def waited(work, title, body=(), keys="esc back", keyboard=None):
+def waited(work, title, body=list, keys="esc back", keyboard=None):
     """What `work()` answers, asked off the drawing thread while the screen it is asked on waits
-    on it: `title` over `body` and `keys`, as terminal.frame draws it.
+    on it: `title` over the lines `body()` lays out at the terminal's width and `keys`, as
+    terminal.frame draws it.
 
     A fetch that lands within a frame is simply had, and so is one with no keyboard to read, as
     it always was.  Over one that takes longer, on the keyboard a screen has -- or `keyboard`,
@@ -498,13 +499,14 @@ def waited(work, title, body=(), keys="esc back", keyboard=None):
              and keyboard.take())
     try:
         while fetch.is_alive() and terminal.taken():
-            terminal.frame(title, body, keys)
+            lines = body()            # laid out again after a resize: no line wider than it
+            terminal.frame(title, lines, keys)
             clock = motion.fetching(motion.Clock(), fetch.began)
             key = moving(clock, timeout=TICK, going=fetch.is_alive)
             while key is not None:        # a key is read, and the rule glides on as it was
                 if (key.name in ("esc", "eof") or key.char in ("q", "Q")
                         or key.name == "click" and any(
-                            (4 + len(body) + number, item) == (key.row, "esc")
+                            (4 + len(lines) + number, item) == (key.row, "esc")
                             and first <= key.col <= last
                             for number, text in enumerate(terminal.key_line(keys))
                             for first, last, item in terminal.key_spans(text))):
@@ -2676,7 +2678,8 @@ def config_model(cfg, name):
         elif here in MODEL_ROWS[:2] and act in ("left", "right"):
             step = 1 if act == "right" else -1
             try:
-                note = (config_model_id(cfg, name, step, (title, shown, keys))
+                note = (config_model_id(cfg, name, step, (
+                    title, lambda: model_body(cfg, name, here)[0], keys))
                         if here == "model id"
                         else config_effort(cfg, name, step, _catalog_efforts))
             except Back:
@@ -2902,10 +2905,10 @@ def config_add(cfg):
     once, and joins neither default until it is chosen there.
     """
     picked, ats, top, note = [], [0], 0, ""   # (value, texts) of each step chosen; its highlight
-    screen = None                             # the list last drawn, for a catalog to wait on
     while True:
         try:
-            choices = _add_choices(cfg, [value for value, _ in picked], screen)
+            choices = _add_choices(cfg, [value for value, _ in picked], (
+                "config · add a model", lambda: add_body(picked, [], 0)[0]))
         except config.Error as exc:
             choices, note = [], f"config: {exc}"
         except Back:                  # Esc while the harness's catalog was asked: back one list
@@ -2925,8 +2928,7 @@ def config_add(cfg):
         drawn = next((line for line, number in places.items() if number == at), len(body) - 1)
         top = max(0, min(max(top, drawn - room + 1), drawn, len(body) - room))
         shown = body[top:top + room]
-        screen = ("config · add a model", shown + said, keys)
-        terminal.frame(*screen)
+        terminal.frame("config · add a model", shown + said, keys)
         key = terminal.read_key()
         if key is None:
             continue                  # a resize: drawn again at the new size

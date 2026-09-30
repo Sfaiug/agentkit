@@ -4,13 +4,16 @@ still being fetched after 150 ms has a bright segment glide along it until it la
 fetched sooner shows nothing -- a list asked again under rows already drawn, and a `set`, as
 much as a first list; Esc during a glide goes back within 100 ms, and a `set` it leaves behind
 never draws over a later one.  A screen waiting on a fetch draws itself again on a resize, moves
-its rule on the clock's frames however fast keys come, and goes back on a click on `esc back`.
+its rule on the clock's frames however fast keys come, and goes back on a click on `esc back`;
+the model-id step and `add a model`, waiting on a catalog at 80 columns, are laid out again at
+40: every line fits, and a click on the `esc back` drawn goes back.
 
 The update runs in-process against a temporary HOME, every command it would run answered by a
 fake `subprocess.run`, so no checkout moves.  The glide runs a project's feature switches screen
 in a child process on a pty of its own, the project's `list` and `set` a fake that sleeps as
-long as the test says, and so does the wait; nothing reaches a real project, seat or the owner's
-~/.agentkit, and the only process signalled is the test's own child.
+long as the test says, and so do the wait and a catalog, over a config built in the child;
+nothing reaches a real project, seat or the owner's ~/.agentkit, and the only process signalled
+is the test's own child.
 """
 
 from contextlib import redirect_stdout
@@ -63,12 +66,41 @@ keyboard.take()
 if os.environ["RULE_WAIT"]:
     try:
         menu.waited(lambda: time.sleep(float(os.environ["RULE_WAIT"])), "config · acme",
-                    ["", "  a line"])
+                    lambda: ["", "  a line"])
     except menu.Back:
         print("<went back>", flush=True)
 for _ in range(int(os.environ["RULE_OPENS"])):
     menu.show_features(Path.home() / "code" / "ACME")
     print("<back>", flush=True)
+keyboard.give()
+"""
+# The child for a catalog wait: the model `acme`'s own screen (RULE_SCREEN=model) or `add a
+# model`, over a config whose one model runs an id 59 characters long, the only one a catalog
+# lists that answers after each of RULE_CATALOG's seconds in turn; it says when it has gone back.
+CATALOG = r"""
+import os, sys, time
+sys.path.insert(0, os.environ["RULE_REPO"])
+from agentkit import config, menu, terminal
+
+ID = "acme-model-" + "x" * 48
+sleeps = [float(seconds) for seconds in os.environ["RULE_CATALOG"].split(",")]
+
+def catalog(harness):
+    time.sleep(sleeps.pop(0))
+    return [{"id": ID, "label": ID, "efforts": ["low", "high"]}]
+
+config.catalog = catalog
+cfg = {"defaults": {"orchestrator": "acme", "workers": ["acme"]},
+       "models": {"acme": {"harness": "claude", "model": ID, "effort": "high",
+                           "provider": "anthropic"}},
+       "providers": {"anthropic": {"mode": "subscription"}}}
+keyboard = terminal.Keyboard()
+keyboard.take()
+if os.environ["RULE_SCREEN"] == "model":
+    menu.config_model(cfg, "acme")
+else:
+    menu.config_add(cfg)
+print("<went back>", flush=True)
 keyboard.give()
 """
 # What a worker's own run leaves in the environment; nothing here may act on that run.
@@ -80,7 +112,7 @@ GLIDE = re.compile(r"\x1b\[2;\d+H\x1b\[[0-9;]*m━")   # a lit cell written on t
 class Screen:
     """The child on an 80x24 pty: what it wrote, and when each part of it arrived."""
 
-    def __init__(self, case, seconds=0, tick=10, flip=0, opens=1, wait=""):
+    def __init__(self, case, seconds=0, tick=10, flip=0, opens=1, wait="", child=CHILD, **more):
         home = tempfile.TemporaryDirectory(prefix="rule-progress-")
         case.addCleanup(home.cleanup)
         self.master, self.slave = os.openpty()
@@ -90,10 +122,10 @@ class Screen:
                     "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "AK_RUN_DEPTH": "0",
                     "AK_MAX_RUNS": "0", "RULE_REPO": str(REPO), "RULE_LIST": str(seconds),
                     "RULE_TICK": str(tick), "RULE_SET": str(flip), "RULE_OPENS": str(opens),
-                    "RULE_WAIT": str(wait)})
+                    "RULE_WAIT": str(wait), **more})
         self.case, self.output, self.arrived = case, b"", []
         self.lock = threading.Lock()
-        self.proc = subprocess.Popen([sys.executable, "-c", CHILD], stdin=self.slave,
+        self.proc = subprocess.Popen([sys.executable, "-c", child], stdin=self.slave,
                                      stdout=self.slave, stderr=self.slave, env=env,
                                      start_new_session=True)
         self.reader = threading.Thread(target=self._read, daemon=True)
@@ -140,6 +172,24 @@ class Screen:
             self.case.assertLess(time.monotonic(), deadline,
                                  f"timed out waiting for {pattern!r}:\n{self.text()[-2000:]!r}")
             time.sleep(0.01)
+
+
+def click_back_at_forty(case, screen):
+    """The pty made 40 columns wide under a screen waiting on a fetch: every line of the screen
+    it draws again fits, and `esc back` is clicked where it is drawn."""
+    after = len(screen.text())
+    fcntl.ioctl(screen.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 40, 0, 0))
+    os.kill(screen.proc.pid, signal.SIGWINCH)      # the test's own child
+    screen.when(r"\x1b\[H\x1b\[K", after)
+    start = screen.text().index("\x1b[H\x1b[K", after)
+    screen.when(r"\x1b\[J", start)
+    text = screen.text()
+    lines = terminal.ANSI.sub("", text[start:text.index("\x1b[J", start)]).split("\r\n")[:-1]
+    for line in lines:
+        case.assertLessEqual(terminal.cells(line), 40, lines)
+    row, line = next((row, line) for row, line in enumerate(lines, 1) if "esc back" in line)
+    column = line.index("esc") + 2
+    os.write(screen.master, f"\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m".encode())
 
 
 class RuleProgress(unittest.TestCase):
@@ -261,6 +311,32 @@ class RuleProgress(unittest.TestCase):
         columns = re.findall(r"\x1b\[2;(\d+)H", screen.text()[drawn:])
         self.assertLessEqual(max(map(int, columns)), 40)
         os.write(screen.master, b"\x1b[<0;4;6M\x1b[<0;4;6m")   # a click on `esc back`
+        screen.when("<went back>")
+        self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
+
+    def test_the_model_id_step_waited_on_is_laid_out_again_at_forty_columns(self):
+        screen = Screen(self, opens=0, child=CATALOG, RULE_SCREEN="model", RULE_CATALOG="30")
+        screen.when("model id")
+        os.write(screen.master, b"\x1b[C")             # the next id: the catalog is asked
+        screen.when(GLIDE.pattern)
+        click_back_at_forty(self, screen)
+        screen.when("<went back>")
+        self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
+
+    def test_add_a_model_waited_on_is_laid_out_again_at_forty_columns(self):
+        screen = Screen(self, opens=0, child=CATALOG, RULE_SCREEN="add", RULE_CATALOG="0,30")
+        screen.when(r"⏎\S* choose")
+        os.write(screen.master, b"\r")                  # claude, its catalog had at once
+        screen.when("acme-model-x")
+        os.write(screen.master, b"\r")                  # the model, its line 70 columns wide
+        screen.when(r"⏎\S* add")
+        after = len(screen.text())
+        os.write(screen.master, b"\x1b")                # back to the models, asked again
+        screen.when(GLIDE.pattern, after)
+        after = len(screen.text())
+        click_back_at_forty(self, screen)
+        screen.when(r"⏎\S* choose", after)             # back one list, to the harnesses
+        os.write(screen.master, b"\x1b")
         screen.when("<went back>")
         self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
 
