@@ -3015,13 +3015,13 @@ def _add_subscription(cfg, keyboard, provider, listed, picked, verbs=("login",))
     """Another subscription of `provider`, `picked` being the name it will get: its harness's
     login, run on the terminal under the account name last in `listed`, then `listed` as the
     provider's `accounts` -- the ones it had, `default` when it had none, and that name.  A
-    kept login is given no `verbs`, since it is logged in already.  A login that fails adds
-    nothing.  What to say under the matrix, or ""."""
-    try:
-        harness, _ = config.provider_harness(cfg, provider)
-    except config.Error as exc:
-        return f"config: {exc}"
-    failed = _adapter_verbs(keyboard, harness, verbs, picked, listed[-1])
+    kept login is given no `verbs`, since it is logged in already.  Its harness is its models'
+    or, with none left, the shipped default's (config.provider_harnesses).  A login that fails
+    adds nothing.  What to say under the matrix, or ""."""
+    harnesses = config.provider_harnesses(cfg, provider)
+    if not harnesses:
+        return f"config: no model names a harness for [providers.{provider}]"
+    failed = _adapter_verbs(keyboard, harnesses[0], verbs, picked, listed[-1])
     if failed:
         return failed
     before = copy.deepcopy(cfg)
@@ -3069,16 +3069,14 @@ def config_add_provider(cfg, keyboard):
     for name, account, label in config.kept_logins():
         listed = config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]
         if name in labels.values():
-            table, after = shipped, None if account == config.DEFAULT_ACCOUNT else [account]
+            after = None if account == config.DEFAULT_ACCOUNT else [account]
         elif name in cfg["providers"] and account not in listed:
-            table, after = cfg, [*listed, account]
+            after = [*listed, account]
         else:
             continue       # it is in ak again, or has no provider to go back to
-        try:
-            passed, said = worker.auth_ok(config.provider_harness(table, name)[0],
-                                          account=account)
-        except config.Error:
-            continue
+        # its provider's harness even with none of its models left, as _add_subscription finds it
+        harnesses = config.provider_harnesses(cfg, name)
+        passed, said = worker.auth_ok(harnesses[0], account=account) if harnesses else (0, "")
         if passed:
             who = re.search(r"; logged in as (.+)$", said)
             offers.append((who[1] if who else "", label, (name, after)))

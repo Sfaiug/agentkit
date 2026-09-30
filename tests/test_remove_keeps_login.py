@@ -171,6 +171,24 @@ class RemoveKeepsLogin(unittest.TestCase):
         self.assertEqual(verbs(home, "login"), [])
         screen.leave()
 
+    def test_a_kept_login_of_a_provider_with_no_model_left_is_offered_through_its_shipped_harness(
+            self):
+        # ChatGPT II taken out, then astra from the model screen: no model says openai's harness
+        screen = Screen(self, child=CHILD, text=CLAUDE + '[providers.openai]\n'
+                        'mode = "subscription"\naccounts = ["default"]\n')
+        home = screen.path.parent.parent
+        logged_in(home, "codex", "c3", "cy@acme.test")
+        (home / ".agentkit" / "state").mkdir()
+        (home / ".agentkit" / "state" / "kept-logins.json").write_text(
+            '[["openai", "c3", "ChatGPT II"]]')
+        open_providers(screen)
+        _, offered = pick(screen, ENTER, ADD, 7)
+        self.assertEqual(offered[-1], "  Use cy@acme.test")
+        screen.press(DOWN * 6 + ENTER, lambda lines: title(lines) == MATRIX)
+        self.assertEqual(screen.saved()["providers"]["openai"]["accounts"], ["default", "c3"])
+        self.assertEqual(verbs(home, "login"), [])
+        screen.leave()
+
     def test_a_kept_login_whose_auth_fails_is_not_offered(self):
         screen = Screen(self, child=CHILD, text=SEVERAL)
         home = screen.path.parent.parent
