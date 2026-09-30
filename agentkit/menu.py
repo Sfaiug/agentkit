@@ -414,20 +414,25 @@ def wait_key(prompt, timeout=None, wake=None):
     return read("", "q")
 
 
-def moving(clock, wake):
-    """`wait_key` on the main screen: TICK seconds at most, and each of `clock`'s frames drawn
-    while something moves and no key is waiting.
+def moving(clock, wake=None, timeout=TICK):
+    """`wait_key` on the main screen, its digit wait and its stop question: `timeout` seconds at
+    most, and each of `clock`'s frames drawn while something moves and no key is waiting.
 
-    Only a wait that ran to its frame draws one; a wait that ends before it ended on news or a
-    resize, and returns None for the whole screen to be drawn again.
+    Only a wait that ran to its frame draws one.  One that ended before it -- on news or a
+    resize -- or on a resize just as its frame fell due returns None, its cells forgotten, since
+    a resize moves them all and the screen is the caller's to draw again.
     """
-    until = time.monotonic() + TICK
+    until = time.monotonic() + timeout
+    terminal.asked_again()          # a draw asked for before the one just made is answered
     while True:
         due = clock.wait()
-        key = wait_key("> ", TICK if due is None else
+        key = wait_key("> ", timeout if due is None else
                        max(0, min(due, until - time.monotonic())), wake)
-        if key is not None or due is None or clock.wait() > 0 or time.monotonic() >= until:
+        if key is not None or due is None or time.monotonic() >= until:
             return key
+        if clock.wait() > 0 or terminal.asked_again():
+            clock.clear()
+            return None
         sys.stdout.write(clock.frame())
         sys.stdout.flush()
 
@@ -3498,7 +3503,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                     # 1 then 2 within half a second is seat 12, whatever asks for a draw between
                     more, until = None, time.monotonic() + 0.5
                     while more is None and time.monotonic() < until:
-                        more = wait_key("", until - time.monotonic())
+                        more = moving(clock, timeout=until - time.monotonic())
                     if isinstance(more, terminal.Key) and "0" <= more.char[:1] <= "9":
                         key += more.char
                     elif more is not None:
@@ -3524,9 +3529,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
 
                     def around():     # the menu around the question, drawn again on a resize
                         draw(cfg, found, "esc keep", page, cursor, drawn, own, ask=seat,
-                             look=False, groups=groups)
+                             look=False, groups=groups, clock=clock)
                         return drawn["ask"]
-                    if terminal.choose(["Keep", "Stop"], "Keep", around=around) != "Stop":
+                    if terminal.choose(["Keep", "Stop"], "Keep", around=around,
+                                       wait=lambda: moving(clock)) != "Stop":
                         continue
                 keyboard.give()
                 close_seat(seat, dry_run)

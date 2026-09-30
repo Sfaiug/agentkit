@@ -575,12 +575,24 @@ GIVE = "\033[?1006l\033[?1000l\033[?25h\033[?1049l"
 _TAKEN = None      # the Keyboard that has the terminal now, or None
 _KEYED = b""       # what a keyboard sent past the key it was read for, or while `sense` asked
 _PRESSED = False   # the left button went down and has not been read coming up
+_ASKED = False     # a resize or a return from ^Z asked for a draw (`asked_again`)
 _REPORT = re.compile(r"\x1b\[<\d+;\d+;\d+[Mm]")   # a mouse report, as mode 1006 sends one
 
 
 def taken():
     """Whether a `Keyboard` has the terminal, so keys are read one at a time and not in lines."""
     return _TAKEN is not None
+
+
+def asked_again():
+    """Whether a resize or a return from ^Z asked for a draw since this was last asked.
+
+    `read_key` answers one with the same None a wait that ran out gets; a screen drawing only
+    some cells on its own clock (`menu.moving`) asks this, or it would draw them where they were.
+    """
+    global _ASKED
+    asked, _ASKED = _ASKED, False
+    return asked
 
 
 class Keyboard:
@@ -754,7 +766,7 @@ def read_key(timeout=None, wake=None):
     while the button is down is answered at once; should that key give the terminal away,
     the rest of the click is no click (`Keyboard.give`).
     """
-    global _PRESSED
+    global _PRESSED, _ASKED
     fd = sys.stdin.fileno()
     until = None if timeout is None else time.monotonic() + timeout
     while True:
@@ -765,6 +777,7 @@ def read_key(timeout=None, wake=None):
                                   [], [], left)[0]
             if fd not in ready:
                 if again is not None and again in ready:
+                    _ASKED = True
                     try:
                         os.read(again, 4096)
                     except OSError:
@@ -888,7 +901,7 @@ def clicks_its_own(read):
 
 
 @clicks_its_own
-def choose(choices, default=None, several=False, around=None):
+def choose(choices, default=None, several=False, around=None, wait=None):
     """One of `choices` picked with the keys, or with `several` a list of them; None on Esc or `q`.
 
     The list is drawn where the cursor is and drawn over in place as the highlight moves.
@@ -901,6 +914,8 @@ def choose(choices, default=None, several=False, around=None):
     on, and is called again whenever the screen wants drawing again -- a resize -- so the list
     and the rows a click is read against are always where that screen now puts them.  There a
     click on a choice picks it, or with `several` marks it, and a click anywhere else goes back.
+    `wait`, where given, reads the key in `read_key`'s place, or None for a draw: the menu's own
+    (`menu.moving`) keeps its dots breathing while the list is asked.
     """
     marked = set(default or ()) if several else set()
     at = choices.index(default) if not several and default in choices else 0
@@ -919,7 +934,7 @@ def choose(choices, default=None, several=False, around=None):
                          "".join(f"\r{line}\033[K\n" for line in lines))
         sys.stdout.flush()
         drawn = len(lines)
-        key = read_key()
+        key = read_key() if wait is None else wait()
         if key is None:
             again = around is not None
             continue
