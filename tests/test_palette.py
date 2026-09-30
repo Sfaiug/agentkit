@@ -112,7 +112,7 @@ class Palette(unittest.TestCase):
 
 
 class Bars(Sandbox):
-    def test_bars_at_half_a_sixth_and_a_thirtieth_left_draw_accent_amber_red(self):
+    def test_bars_at_half_a_sixth_and_a_thirtieth_left_draw_own_amber_red(self):
         week = {"name": "weekly", "resets_at": 10000 + 3 * 86400, "window_secs": 604800}
         (config.STATE / "usage.json").write_text(json.dumps({"fetched_at": 10000, "providers": {
             "anthropic": {"meters": [{**week, "used": 50}]},
@@ -124,21 +124,35 @@ class Bars(Sandbox):
                 rows = {terminal.plain(row).split()[0]: row
                         for row in menu.usage_lines(self.cfg, 100)[1:]}
                 # 50% left is six cells of twelve, 15% two, and 3% still one
-                for label, cells, kind in (("Claude", 6, "accent"), ("ChatGPT", 2, "amber"),
+                for label, cells, kind in (("Claude", 6, "#D97757"), ("ChatGPT", 2, "amber"),
                                            ("Muse", 1, "FAIL")):
                     self.assertIn(terminal.styled("█" * cells, kind) +
                                   terminal.styled("░" * (12 - cells), "dim"), rows[label])
-        self.assertEqual([menu.fill(left) for left in (100, 21, 20, 6, 5, 1, 0)],
-                         ["accent", "accent", "amber", "amber", "FAIL", "FAIL", "FAIL"])
+        self.assertEqual([menu.fill(left, "#736CD3") for left in (100, 21, 20, 6, 5, 1, 0)],
+                         ["#736CD3", "#736CD3", "amber", "amber", "FAIL", "FAIL", "FAIL"])
         with patch.object(terminal, "colour_depth", return_value=24):
             dark = "\n".join(menu.usage_lines(self.cfg, 100))
             with patch.object(terminal, "_LIGHT", True):
                 light = "\n".join(menu.usage_lines(self.cfg, 100))
-        for text, accent, amber, red in ((dark, "137;180;250", "249;226;175", "243;139;168"),
-                                         (light, "30;102;245", "156;99;20", "210;15;57")):
-            self.assertIn(f"\033[38;2;{accent}m██████\033[0m", text)
+        for text, amber, red in ((dark, "249;226;175", "243;139;168"),
+                                 (light, "156;99;20", "210;15;57")):
+            self.assertIn("\033[38;2;217;119;87m██████\033[0m", text)   # Claude's, on both
             self.assertIn(f"\033[1;38;2;{amber}m██\033[0m", text)
             self.assertIn(f"\033[38;2;{red}m█\033[0m", text)
+
+    def test_a_light_grey_of_the_callers_reads_as_its_mirror_on_a_light_background(self):
+        with patch.object(terminal, "colour_depth", return_value=24):
+            dark = [terminal.styled("█", own) for own in ("#FFFFFF", "#C8C8C0", "#303030", "#D97757")]
+            with patch.object(terminal, "_LIGHT", True):
+                light = [terminal.styled("█", own) for own in ("#FFFFFF", "#C8C8C0", "#303030", "#D97757")]
+        self.assertEqual(dark, ["\033[38;2;255;255;255m█\033[0m", "\033[38;2;200;200;192m█\033[0m",
+                                "\033[38;2;48;48;48m█\033[0m", "\033[38;2;217;119;87m█\033[0m"])
+        # ChatGPT's white reads black and a light grey dark; a dark grey and a hue read as they are
+        self.assertEqual(light, ["\033[38;2;0;0;0m█\033[0m", "\033[38;2;55;55;63m█\033[0m",
+                                 "\033[38;2;48;48;48m█\033[0m", "\033[38;2;217;119;87m█\033[0m"])
+        with patch.object(terminal, "colour_depth", return_value=8), \
+                patch.object(terminal, "_LIGHT", True):
+            self.assertEqual(terminal.styled("█", "#FFFFFF"), "\033[30m█\033[0m")
 
 
 if __name__ == "__main__":

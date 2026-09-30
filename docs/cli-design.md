@@ -263,15 +263,16 @@ how old a reading is: an open menu probes each provider at most once a minute,
 host-wide, the tick does when no menu is open, and Muse's billed probe spends at
 most one model call in ten minutes. A row with no
 shared week at all -- no reading, or nothing but one model's private cap --
-is `—` and the words that say why, never `—` alone. The bar's filled cells say
-what is left, whoever's week it is (`menu.fill`, on the whole percent the row
-prints): the accent above 20% left, amber from 20% down, red from 5% down; a
-week with anything left keeps at least one filled cell, so its red is seen, and
-the empty cells are dim. The rows run red through violet by the hue of the
-company's own colour -- Claude `#D97757`, ChatGPT `#FFFFFF`, Muse `#3E9EFB`,
-Grok `#FCFCFC`, Gemini `#203B9B`, MiMo `#FB8046`, or the provider's
-`colour = "#RRGGBB"` in config.toml, else the accent -- the near-greys last and
-lightest first: Claude, MiMo, Muse, Gemini, ChatGPT, Grok. The bar gives way to the
+is `—` and the words that say why, never `—` alone. The bar's filled cells are
+the company's own colour -- Claude `#D97757`, ChatGPT `#FFFFFF`, Muse `#3E9EFB`,
+Grok `#736CD3`, Gemini `#203B9B`, MiMo `#FB8046`, or the provider's
+`colour = "#RRGGBB"` in config.toml, else the accent -- until little is left,
+whoever's week it is (`menu.fill`, on the whole percent the row prints): amber
+from 20% down, red from 5% down; a week with anything left keeps at least one
+filled cell, so its red is seen, and the empty cells are dim. On a light
+background a light grey is drawn as its mirror tone, so ChatGPT's white reads
+black. The rows run red through violet by the hue of that colour, the
+near-greys last and lightest first: Claude, MiMo, Muse, Gemini, Grok, ChatGPT. The bar gives way to the
 notes first, down to four cells; only then does each note that still will not
 fit give way on its own, so a phone keeps every short note it has room for
 rather than losing them all with one long one. Everything else a provider knows -- `week

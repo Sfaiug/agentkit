@@ -73,7 +73,7 @@ class UsageBars(Sandbox):
         self.assertNotIn("old", lines[3])
         self.assertIn("no reading yet", lines[2])
         self.assertIn("no reading yet", lines[4])
-        self.assertIn("no reading yet", lines[6])
+        self.assertIn("no reading yet", lines[5])
         for line in self.bars(lines):
             self.assertNotIn("resets", line)
             self.assertLess(self.bar_cells(line), 12, lines)
@@ -96,11 +96,11 @@ class UsageBars(Sandbox):
         for line in self.bars(lines):
             self.assertEqual(self.bar_cells(line), 12, lines)
         self.assertIn("98% left · resets Mon 16:13 · Fable 41%", lines[1])
-        self.assertIn("0% left · resets Mon 12:00", lines[5])
+        self.assertIn("0% left · resets Mon 12:00", lines[6])
         self.assertTrue(lines[3].endswith("45% left · resets Mon 16:13"), lines)
         self.assertIn("no reading yet", lines[2])
         self.assertIn("no reading yet", lines[4])
-        self.assertIn("no reading yet", lines[6])
+        self.assertIn("no reading yet", lines[5])
 
     def test_v5ai_d_fixtures_match_byte_for_byte(self):
         for width in (40, 100):
@@ -137,7 +137,7 @@ class UsageBars(Sandbox):
             {"fetched_at": NOW, "providers": fresh}))
         plain = self.lines(70)
         self.assertEqual(lines[1], plain[1])
-        self.assertEqual(lines[5], plain[5])
+        self.assertEqual(lines[6], plain[6])
 
     def test_v5ai_f_bars_share_one_width_and_fit_below_forty(self):
         for width in (28, 32, 36):

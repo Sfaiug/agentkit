@@ -94,7 +94,7 @@ class UsageRow(Sandbox):
             self.providers["openai"]["resets"] = resets
             self.cache()
             for width in (40, 100):
-                line = menu.usage_lines(self.cfg, width)[5]
+                line = menu.usage_lines(self.cfg, width)[6]
                 self.assertRegex(line, r"ChatGPT\s+░+\s+0% left")
                 self.assertNotIn("█", line)
                 self.assertEqual("resets Mon 00:00" in line, width == 100)
@@ -277,7 +277,7 @@ class UsageRow(Sandbox):
             lines = menu.usage_lines(self.cfg, width)
             self.assertTrue(all(terminal.cells(line) <= width for line in lines), lines)
             self.assertTrue(lines[1].endswith(claude), lines)
-            self.assertTrue(lines[5].endswith(chatgpt), lines)
+            self.assertTrue(lines[6].endswith(chatgpt), lines)
             self.assertTrue(lines[3].endswith(muse), lines)
             self.assertRegex(lines[1], r"Claude\s+█+░+\s+21% left")
 

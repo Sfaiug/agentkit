@@ -34,6 +34,7 @@ STATE_STYLES = {
 # darkened until every one reads on white; the accent and the highlight's `›` are `working`'s.
 LIGHT = {"needs you": "9c6314", "working": "1e66f5", "done": "338022", "FAIL": "d20f39",
          "dim": "6c6f85", "waiting": "6c6f85"}
+GREY = 0.15        # saturation under which a colour is a grey rather than a hue
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
 _LIGHT = False     # its background is light (`sense`)
 _ANSWER = re.compile(rb"\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\)")   # its answer to OSC 11
@@ -97,6 +98,16 @@ def xterm_colour(rgb):
     colours += [(232 + i, (8 + 10 * i,) * 3) for i in range(24)]
     return min(colours, key=lambda item: sum((a - b) ** 2
                for a, b in zip(wanted, item[1])))[0]
+
+
+def on_background(rgb):
+    """A caller's own colour as it reads here: on a light background a light grey is drawn
+    as its mirror tone, so a white company reads black; a hue or a dark grey reads on both."""
+    r, g, b = (int(rgb[i:i + 2], 16) for i in (0, 2, 4))
+    top = max(r, g, b)
+    if _LIGHT and top > 127 and (top - min(r, g, b)) / top < GREY:
+        return "".join(f"{255 - c:02x}" for c in (r, g, b))
+    return rgb
 
 
 def basic_colour(rgb):
@@ -249,8 +260,9 @@ def styled(text, kind):
     else:
         # `#RRGGBB` is a colour of the caller's own -- a provider's, on its usage bar -- and
         # takes the nearest the terminal has, as a state's colour does
-        _, _, rgb, tone, emphasis = (("", "", kind[1:], basic_colour(kind[1:]), "")
-                                     if kind.startswith("#") else STATE_STYLES[word])
+        own = kind.startswith("#") and on_background(kind[1:])
+        _, _, rgb, tone, emphasis = (("", "", own, basic_colour(own), "")
+                                     if own else STATE_STYLES[word])
         rgb = LIGHT.get(word, rgb) if _LIGHT else rgb
         code = ("38;2;" + ";".join(str(int(rgb[i:i + 2], 16)) for i in (0, 2, 4))
                 if depth == 24 else f"38;5;{xterm_colour(rgb)}" if depth == 256 else tone)
