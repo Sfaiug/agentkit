@@ -57,6 +57,13 @@ class NeedsYouAfterAnswer(unittest.TestCase):
                 "word": "needs you", "reason": reason, "since": 100}):
             self.assertEqual(notify.transition(SEAT, now=now, seat={"name": SEAT}), 0)
 
+    def ask(self, at, question, since=100):
+        """`ak notify needs` at `at`, with the seat's screen in `needs you` since `since`."""
+        with patch.object(notify.time, "time", return_value=at), \
+                patch.object(watch, "_session_state", return_value={
+                    "word": "needs you", "reason": question, "since": since}):
+            self.assertEqual(notify.shaped("needs", question, session=SEAT), 0)
+
     def back_in_needs_you(self, reason):
         notify.record(SEAT, "needs", QUESTION, time=100)
         self.tick(100, QUESTION)
@@ -105,15 +112,42 @@ class NeedsYouAfterAnswer(unittest.TestCase):
         self.tick(160, QUESTION)
         notify.answered(SEAT, 200)
         # The seat asks again with `ak notify` before any tick has read the answer.
-        with patch.object(notify.time, "time", return_value=220), \
-                patch.object(watch, "_session_state", return_value={
-                    "word": "needs you", "reason": "Which port?", "since": 100}):
-            self.assertEqual(notify.shaped("needs", "Which port?", session=SEAT), 0)
+        self.ask(220, "Which port?")
         for now in (300, 400, 500, 600):
             self.tick(now, "Which port?")
         self.assertEqual(self.edits, [("1", "Answered")])
         self.assertEqual(self.cards, [f"Needs you · {SEAT}: {QUESTION}",
                                       f"Needs you · {SEAT}: Which port?"])
+
+    def test_a_new_question_after_an_upgrade_is_carded(self):
+        notify.record(SEAT, "needs", QUESTION, time=100)
+        self.tick(100, QUESTION)
+        notify.answered(SEAT, 120)
+        # This agentkit is installed at 150, and the seat asks again after it.
+        with patch.object(notify, "installed_at", return_value=150):
+            self.ask(220, "Which port?")
+            for now in (300, 400, 500, 600):
+                self.tick(now, "Which port?")
+        self.assertEqual(self.cards, [f"Needs you · {SEAT}: Which port?"])
+
+    def test_a_late_card_for_a_retired_question_reads_answered(self):
+        notify.record(SEAT, "needs", QUESTION, time=100)
+        self.tick(100, QUESTION)
+        self.tick(160, QUESTION)
+        notify.answered(SEAT, 200)
+        with patch.object(watch, "_session_state", return_value={
+                "word": "working", "reason": "", "since": 210}):
+            notify.transition(SEAT, now=210, seat={"name": SEAT})
+        # Discord is down when the seat asks again, and the question is retired before it is up.
+        deliver = notify.post.side_effect
+        notify.post.side_effect = lambda payload, files, message, receipt: receipt.update(
+            status="pending") or 0
+        self.ask(220, "Which port?", since=220)
+        notify.clear(SEAT)
+        notify.post.side_effect = deliver
+        with patch.object(notify.time, "time", return_value=300 + notify.RETRY_BACKOFF[0]):
+            notify.retry_pending(log=lambda _: None)
+        self.assertEqual(self.edits, [("1", "Answered"), ("2", "Answered")])
 
     def test_a_needs_you_standing_before_an_upgrade_is_history(self):
         notify.record(SEAT, "needs", QUESTION, time=100)
