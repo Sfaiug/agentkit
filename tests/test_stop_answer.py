@@ -155,9 +155,10 @@ class StopAnswer(unittest.TestCase):
 
     def test_a_peer_message_asking_is_not_the_owner_asking(self):
         peer = ('<cross-session-message from="acme-fix-api" to="answer-seat">'
-                "Which parser should I use?</cross-session-message>")
+                "Which parser should I use?\n</cross-session-message>")
         latch = self.prompt(peer)
         self.assertTrue(latch["peer"])
+        self.assertTrue(latch["asked"])    # only the peer exclusion keeps it held
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
 
 
