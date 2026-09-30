@@ -13671,11 +13671,12 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
 
     A match is a run whose state is `running` or `queued` with a live process
     (`process_active`), in the task's repository, launched by anybody, where either a
-    done-when of the new task and of the running run name the same test file, or their
-    titles share at least four significant words.  Each match is a dict with the run's
+    done-when of the new task and of the running run name the same test file -- not a
+    general check, which three other jobs there whose titles do not name it ran too,
+    unless both titles name it -- or their titles share at least four significant words.  Each match is a dict with the run's
     id, seat (None for nobody's), started_at, title, shared test files and shared
     title-word count.  Read-only: run state comes only from run_dirs(), read_state()
-    and process_active(), and a running run's done-when from its own task.md.  A
+    and process_active(), and a run's done-when from its own task.md.  A
     scratch task, or one whose repository cannot be resolved, is never checked.
     """
     stop = {"the", "a", "an", "and", "or", "of", "to", "for", "in", "on", "with",
@@ -13716,6 +13717,71 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
         return []
     if repo is None:
         return []
+    def ours(directory, state, run_meta):
+        """Whether a run works in the task's repository.
+
+        `repo` only reaches run.json once the run builds its worktree, so a queued
+        receipt -- and a running run still that early -- is matched through the repo
+        its own task names; without one there is nothing to compare.
+        """
+        try:
+            if state.get("repo"):
+                return Path(state["repo"]).expanduser().resolve() == repo
+            return bool(run_meta.get("repo")) and \
+                task_repo(run_meta, directory / "task.md") == repo
+        except (config.Error, OSError):
+            return False
+
+    def names(text, name):
+        """Whether a title names what the test file `name` checks.
+
+        A title word is a word of the file's own name, or one of three or more letters
+        with a plain ending added (invoice and invoices, round and rounding); any longer
+        prefix would read `allow` as naming test_all.py.
+        """
+        subject = set(re.findall(r"[a-z0-9]+",
+                                 name.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower())) - {"test"}
+        for word in re.findall(r"[a-z0-9]+", (text or "").lower()):
+            for part in subject:
+                short, long = sorted((word, part), key=len)
+                if long == short or (len(short) >= 3 and long.startswith(short)
+                                     and long[len(short):] in ("s", "es", "d", "ed", "ing")):
+                    return True
+        return False
+
+    named = None
+
+    def specific(files, other_title):
+        """The files among `files` both titles name, or fewer than three unrelated jobs ran.
+
+        A check such as a docs test sits in the done-when of job after job whatever they
+        change, so sharing it says nothing about the work; a test only the jobs changing
+        its behaviour name still does, and so does any test both titles name, whoever
+        else ran it.  A job whose title names the file changes what it checks, so it
+        never makes the file general; a job is a title, so relaunches of one count once.
+        """
+        nonlocal named
+        if named is None and files:
+            named = {}
+            for directory in run_dirs():
+                state = read_state(directory)
+                if not state:
+                    continue
+                try:
+                    run_meta, body, parsed_title = parse_task(directory / "task.md")
+                    found = test_files(done_when(body, directory / "task.md"))
+                except (OSError, config.Error):
+                    continue
+                if not ours(directory, state, run_meta):
+                    continue
+                job = state.get("title") or parsed_title
+                for name in found:
+                    if not names(job, name):
+                        named.setdefault(name, set()).add(job)
+        return {name for name in files
+                if names(title, name) and names(other_title, name)
+                or len(named.get(name, set()) - {title, other_title}) < 3}
+
     mine_files = test_files(cmds)
     mine_words = significant_words(title, repo.name)
     matches = []
@@ -13732,25 +13798,10 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
             other_cmds = done_when(body, directory / "task.md")
         except (OSError, config.Error):
             rival_meta, other_cmds, parsed_title = {}, [], None
-        # `repo` only reaches run.json once the run builds its worktree, so a queued
-        # receipt -- and a running run still that early -- is matched through the repo
-        # its own task names; without one there is nothing to compare, so it is skipped
-        if state.get("repo"):
-            try:
-                same = Path(state["repo"]).expanduser().resolve() == repo
-            except OSError:
-                continue
-        elif rival_meta.get("repo"):
-            try:
-                same = task_repo(rival_meta, directory / "task.md") == repo
-            except (config.Error, OSError):
-                continue
-        else:
+        if not ours(directory, state, rival_meta):
             continue
-        if not same:
-            continue
-        shared = sorted(mine_files & test_files(other_cmds))
         other_title = state.get("title") or parsed_title or directory.name
+        shared = sorted(specific(mine_files & test_files(other_cmds), other_title))
         words = (len(mine_words & significant_words(other_title, repo.name))
                  if state.get("title") or parsed_title else 0)
         if not shared and words < 4:
