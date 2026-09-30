@@ -73,9 +73,9 @@ class Editor(unittest.TestCase):
         config.ensure_dirs()
 
     def drive(self, *keys):
-        """The `c` screen against `keys`, then `q`; (the config it left, everything it printed)."""
+        """The `c` screen against `keys`, then Esc; (the config it left, everything it printed)."""
         keys = [terminal.Key(*key) if isinstance(key, tuple) else terminal.Key(key)
-                for key in (*keys, ("char", "q"))]
+                for key in (*keys, "esc")]
         out = io.StringIO()
         with patch.object(terminal, "read_key", side_effect=keys), redirect_stdout(out):
             left = menu.show_config(False, Taken())

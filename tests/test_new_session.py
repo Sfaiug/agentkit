@@ -71,13 +71,13 @@ class NewSession(Sandbox):
             self.assertEqual(menu.new_session(self.cfg, True), "new")
         self.assertIn("not a choice: ','", out.getvalue())
 
-    def test_q_at_last_prompt_creates_nothing(self):
-        self.assertIsNone(self.new(["", "", "q"]))
+    def test_esc_at_last_prompt_creates_nothing(self):
+        self.assertIsNone(self.new(["", "", "\x1b"]))
         self.assertEqual(list(config.STATE.glob("session-*.json")), [])
 
     def test_login_error_keeps_the_menu_open(self):
         with self.answers(["", "", ""]), patch.object(menu, "read", return_value=""), \
-                patch.object(menu, "wait_key", side_effect=["n", "q"]) as keys, \
+                patch.object(menu, "wait_key", side_effect=["n", ""]) as keys, \
                 patch.object(menu, "Live"), patch.object(terminal.Keyboard, "take", return_value=False), \
                 patch.object(orch, "create", side_effect=config.Error("no working seat login")), \
                 patch.object(menu, "pause") as pause, redirect_stdout(io.StringIO()):

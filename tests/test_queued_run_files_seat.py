@@ -85,8 +85,8 @@ class QueuedRunFilesSeat(Sandbox):
         self.assertIsNone(self.repo())
         # Filed from the records the draw reads anyway: no run.json twice.
         with patch.object(run, "read_state", wraps=run.read_state) as read, \
-                patch.object(menu, "wait_key", return_value="q"), \
-                patch.object(menu, "read", return_value="q"), \
+                patch.object(menu, "wait_key", return_value=""), \
+                patch.object(menu, "read", return_value=""), \
                 patch.object(menu.Live, "look"), \
                 patch.object(menu.Live, "probe", return_value=False), \
                 patch.object(orch, "job_notices", return_value=[]), \

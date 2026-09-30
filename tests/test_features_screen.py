@@ -171,7 +171,7 @@ class Menu:
                     continue                  # still being written
                 lines = [terminal.ANSI.sub("", line).rstrip("\r")
                          for line in part.split("\x1b[J")[0].split("\n")[:-1]]
-                if (any("q leave" in line for line in lines) if kind == MENU
+                if (any("esc leave" in line for line in lines) if kind == MENU
                         else bool(lines) and lines[0].startswith("agentkit · ACME")):
                     return lines if where is None or where(lines) else None
             return None
@@ -189,8 +189,8 @@ class Menu:
 
     def leave(self, screen=False):
         if screen:
-            self.press(ESC, MENU)       # Esc goes back from the screen, and `q` leaves the menu
-        os.write(self.master, b"q")
+            self.press(ESC, MENU)       # Esc goes back from the screen, and leaves the menu
+        os.write(self.master, ESC)
         self.case.assertEqual(self.proc.wait(15), 0, self.text()[-3000:])
 
 

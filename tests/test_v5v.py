@@ -102,11 +102,11 @@ class Picker(NewSession):
         self.assertEqual(record["orchestrator"], "astra")
         self.assertEqual(record["workers"], config.offered(self.cfg))
 
-    def test_q_at_first_and_last_questions_create_nothing(self):
-        self.assertIsNone(self.new(["q"]))
-        self.assertIsNone(self.new(["", "", "q"]))
+    def test_esc_at_first_and_last_questions_create_nothing(self):
+        self.assertIsNone(self.new(["\x1b"]))
+        self.assertIsNone(self.new(["", "", "\x1b"]))
 
-        with self.answers(["q"]), patch.object(orch, "maintenance"), \
+        with self.answers(["\x1b"]), patch.object(orch, "maintenance"), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(orch.main(["--dry-run"]), 0)
         self.assertEqual(list(config.STATE.glob("session-*.json")), [])
