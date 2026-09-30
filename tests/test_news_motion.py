@@ -4,11 +4,12 @@
 it -- the seats read again and a byte on the wake pipe: a seat turning `needs you` pulses its `!`
 twice toward the light over 600 ms and is still in its colour; one turning `done` has its `✓`
 settle from bright to its colour over 400 ms; a usage bar that moves glides to its new value in
-eighths of a cell over 300 ms and ends on exactly the bar the draw wrote; a task bar filling up
-lights its new block and then sends one light across it, left to right, once.  The first draw,
-one after another screen, one after a resize and a menu opened again draw what they find as it
-is, and nothing moves under NO_COLOR.  Offline, in a throwaway HOME: the probe is never started,
-the reads are the test's own and the keyboard is a stand-in.
+eighths of a cell over 300 ms, a frame writing only the cells that moved, and ends on exactly the
+bar the draw wrote; a task bar filling up lights its new blocks and then sends one light across
+it, left to right, once -- and so does a bar that was drawn full already, its value reaching
+full.  The first draw, one after another screen, a notice or a resize, and a menu opened again
+draw what they find as it is, and nothing moves under NO_COLOR.  Offline, in a throwaway HOME:
+the probe is never started, the reads are the test's own and the keyboard is a stand-in.
 """
 
 import io
@@ -26,6 +27,7 @@ from agentkit import config, menu, motion, orch, terminal
 Key = terminal.Key
 NEEDS = (0xf9, 0xe2, 0xaf)          # `needs you` on a dark background
 DONE = (0xa6, 0xe3, 0xa1)           # `done`
+LIT = tuple(int(terminal.faded("working", -motion.BRIGHTER)[i:i + 2], 16) for i in (1, 3, 5))
 CELL = re.compile(r"\x1b\[(\d+);(\d+)H((?:(?!\x1b\[\d+;\d+H).)*)", re.S)
 WEEK = 604800
 
@@ -33,10 +35,12 @@ WEEK = 604800
 def painted(text):
     """What a frame wrote, a cell at a time: (character, its colour as (r, g, b), or None)."""
     colour, found = None, []
-    for escape, char in re.findall(r"\x1b\[([\d;]*)m|(.)", text, re.S):
+    for escape, final, char in re.findall(r"\x1b\[([\d;]*)([A-Za-z])|(.)", text, re.S):
         if char:
             found.append((char, colour))
             continue
+        if final != "m":
+            continue                        # a move or a clear, no colour
         codes = escape.split(";")
         if "38" in codes:
             colour = tuple(int(code) for code in codes[codes.index("38") + 2:][:3])
@@ -45,10 +49,15 @@ def painted(text):
     return found
 
 
-def filled(text):
-    """How full a bar a frame wrote is, in cells, its partial block counted in eighths."""
+def filled(bar):
+    """How full a bar is, in cells, its partial block counted in eighths."""
     return sum(1 if char == "█" else (motion.PARTS.index(char) + 1) / 8
-               for char, _ in painted(text) if char == "█" or char in motion.PARTS)
+               for char, _ in bar if char == "█" or char in motion.PARTS)
+
+
+def lit(bar):
+    """The cells of a bar lit by news."""
+    return {n for n, (_, colour) in enumerate(bar) if colour == LIT}
 
 
 class Keyboard:
@@ -73,7 +82,7 @@ class NewsMotion(Sandbox):
             "COLORTERM": "truecolor"}))
         repo = config.CODE / "acme"
         (repo / ".git").mkdir(parents=True)
-        self.words, self.tasks, self.live = {}, {}, None
+        self.words, self.tasks, self.notices, self.live = {}, {}, [], None
         self.cache(used=20)
 
         def row_state(cfg, session, look=True, **facts):
@@ -90,7 +99,7 @@ class NewsMotion(Sandbox):
                 (menu, "seat_row_state", row_state),
                 (menu, "seat_progress", lambda name: self.tasks.get(name, (0, 0))),
                 (menu, "seat_estimate", lambda *args, **kwargs: None),
-                (orch, "job_notices", lambda: []),
+                (orch, "job_notices", lambda: [self.notices.pop()] if self.notices else []),
                 (menu.Live, "probe", lambda self, now=None: False),
                 (menu.Live, "watch", watch),
                 (terminal, "Keyboard", Keyboard),
@@ -160,8 +169,26 @@ class NewsMotion(Sandbox):
             if cells and text.startswith("\033[H"):
                 break                        # drawn again: what follows is another screen's
             tail = text.rpartition("\033[J")[2] if text.startswith("\033[H") else text
-            cells += [(at, (int(row), int(column)), what) for row, column, what in CELL.findall(tail)]
+            cells += [(at, (int(row), int(column)), what)
+                      for row, column, what in CELL.findall(tail)]
         return waits[drawn][2], cells
+
+    def bar(self, cells, start, size):
+        """The bar of `size` cells from `start`, as each frame left it: (when, a (block, colour)
+        a cell).  The draw's own frame writes every cell; each frame after it only cells that
+        changed."""
+        (row, column), frames = start, []
+        for when, (at_row, at_column), text in cells:
+            if at_row != row or not column <= at_column < column + size:
+                continue
+            [block] = painted(text)
+            if not frames or frames[-1][0] != when:
+                frames.append((when, dict(frames[-1][1]) if frames else {}))
+            if len(frames) > 1:
+                self.assertNotEqual(frames[-1][1].get(at_column), block, "a cell that did not move")
+            frames[-1][1][at_column] = block
+        self.assertEqual(len(frames[0][1]), size)
+        return [(when, [state[column + n] for n in range(size)]) for when, state in frames]
 
     def cell(self, screen, name, text):
         """Where `text` starts on `name`'s row of a drawn screen: its row and its column."""
@@ -219,47 +246,73 @@ class NewsMotion(Sandbox):
         waits, at = self.run_menu([None, self.news(lambda: self.cache(used=70))])
         screen, cells = self.written(waits, at)
         self.assertIn("30% left", terminal.ANSI.sub("", screen))     # the words say it at once
-        bar = self.cell(screen, "Claude", "█")
-        self.assertEqual({cell for _, cell, _ in cells}, {bar})
+        (row, column) = start = self.cell(screen, "Claude", "█")
+        self.assertEqual({cell for _, cell, _ in cells}, {(row, column + n) for n in range(12)})
+        frames = self.bar(cells, start, 12)
         # 80% left was ten cells of twelve, 30% is four: it glides down from the one to the
         # other through the eighths
-        full = [filled(text) for _, _, text in cells]
+        full = [filled(bar) for _, bar in frames]
         self.assertEqual(full, sorted(full, reverse=True))
         self.assertEqual(full[0], 10)
         self.assertEqual(full[-1], 4)
         self.assertGreater(len({value % 1 for value in full}), 2, full)
-        # and its last frame is the bar the draw wrote, to the byte
-        row = next(line for line in screen.split("\n") if "Claude" in line)
-        self.assertEqual(terminal.ANSI.sub("", cells[-1][2]), "████░░░░░░░░")
-        self.assertIn(cells[-1][2], row)
-        self.assertTrue(0.25 <= cells[-1][0] - cells[0][0] <= 0.6, cells[-1][0] - cells[0][0])
+        # and its last frame is the bar the draw wrote, cell for cell
+        drawn = painted(next(line for line in screen.split("\n") if "Claude" in line))
+        self.assertEqual(frames[-1][1], drawn[column - 1:column + 11])
+        self.assertEqual("".join(block for block, _ in frames[-1][1]), "████░░░░░░░░")
+        self.assertTrue(0.25 <= frames[-1][0] - frames[0][0] <= 0.6, frames[-1][0] - frames[0][0])
         self.assert_still(waits)
 
-    def test_a_task_bar_filling_up_lights_its_new_block_and_sweeps_once(self):
-        self.words, self.tasks = {"fix-api": "working"}, {"fix-api": (3, 4)}
+    def assert_swept(self, frames, size):
+        """One light crosses the bar left to right, once, after anything else lit on it: from the
+        last frame lit in more than one cell on, each frame lights one cell at most, never one
+        left of the one before; and the bar ends unlit."""
+        lights = [lit(bar) for _, bar in frames]
+        after = max((n for n, cells in enumerate(lights) if len(cells) > 1), default=-1) + 1
+        sweep = [min(cells) for cells in lights[after:] if cells]
+        self.assertTrue(all(len(cells) <= 1 for cells in lights[after:]), lights)
+        self.assertEqual(sweep, sorted(sweep), lights)
+        self.assertLessEqual(sweep[0], 2, lights)
+        self.assertGreaterEqual(sweep[-1], size - 3, lights)
+        self.assertEqual(lights[-1], set())
+
+    def test_a_task_bar_filling_up_lights_its_new_blocks_and_sweeps_once(self):
+        self.words, self.tasks = {"fix-api": "working"}, {"fix-api": (1, 4)}
         waits, at = self.run_menu([None, self.news(
             lambda: self.tasks.update({"fix-api": (4, 4)}))])
         screen, cells = self.written(waits, at)
-        bar = self.cell(screen, "fix-api", "████████ 4/4")
+        start = self.cell(screen, "fix-api", "████████ 4/4")
         dot = self.cell(screen, "fix-api", "●")
-        self.assertEqual({cell for _, cell, _ in cells}, {bar, dot})  # the dot breathes on
-        frames = [painted(text) for _, cell, text in cells if cell == bar]
-        lit = [{n for n, (_, colour) in enumerate(frame) if colour} for frame in frames]
-        # six cells of eight become eight: the two new ones light while it glides to them...
-        self.assertTrue(any(lights and lights <= {6, 7} for lights in lit), lit)
-        # ...and then one light crosses the full bar, left to right, once
-        sweep = [min(lights - {6, 7}) for lights in lit if lights - {6, 7}]
-        self.assertEqual(sweep, sorted(sweep))
-        self.assertLessEqual(sweep[0], 1)
-        self.assertGreaterEqual(sweep[-1], 4)
-        # still after it: the bar as the draw wrote it, and no more writes to it
-        self.assertEqual("".join(char for char, _ in frames[-1]), "████████")
-        self.assertEqual(lit[-1], set())
-        ended = max(when for when, cell, _ in cells if cell == bar)
+        frames = self.bar(cells, start, 8)
+        # two cells of eight become eight: the six new ones light as it glides over them...
+        self.assertTrue(any(len(lit(bar)) > 1 and lit(bar) <= set(range(2, 8))
+                            for _, bar in frames), [lit(bar) for _, bar in frames])
+        # ...and then one light crosses the whole full bar, left to right, once
+        self.assert_swept(frames, 8)
+        self.assertEqual("".join(block for block, _ in frames[-1][1]), "████████")
+        self.assertEqual({colour for _, colour in frames[-1][1]}, {None})   # plain, as drawn
+        # still after it: no more writes to it, while the dot breathes on
+        ended = frames[-1][0]
         self.assertTrue(0.6 <= ended - cells[0][0] <= 1.0, ended - cells[0][0])
         self.assertTrue(any(when > ended + 0.2 for when, cell, _ in cells if cell == dot))
 
-    def test_nothing_is_replayed_on_opening_after_another_screen_or_a_resize(self):
+    def test_a_bar_drawn_full_already_sweeps_when_its_value_reaches_full(self):
+        # 19/20 and 99% left both round to a full bar: the value, not the blocks, is the news
+        self.words, self.tasks = {"fix-api": "working"}, {"fix-api": (19, 20)}
+        self.cache(used=1)
+
+        def full():
+            self.tasks["fix-api"] = (20, 20)
+            self.cache(used=0)
+        waits, at = self.run_menu([None, self.news(full)])
+        screen, cells = self.written(waits, at)
+        for name, text, size in (("fix-api", "████████ 20/20", 8), ("Claude", "█", 12)):
+            with self.subTest(name):
+                frames = self.bar(cells, self.cell(screen, name, text), size)
+                self.assertEqual({filled(bar) for _, bar in frames}, {size})   # nothing glides
+                self.assert_swept(frames, size)
+
+    def test_nothing_is_replayed_on_opening_after_another_screen_a_notice_or_a_resize(self):
         self.words = {"fix-api": "done", "web-portal": "needs you"}
 
         def away(dry_run=False):            # while `i` is up, a seat turns and the usage moves
@@ -272,13 +325,23 @@ class NewsMotion(Sandbox):
             self.cache(used=90)
             terminal._ASKED = True
 
-        with patch.object(menu, "show_info", side_effect=away):
-            waits, _ = self.run_menu([Key("char", "i"), self.news(resized), None])
+        def noticed(messages):              # while a notice is up, a seat turns again
+            self.words["fix-api"] = "done"
+            self.cache(used=50)
+            self.live.read()
+
+        with patch.object(menu, "show_info", side_effect=away), \
+                patch.object(menu, "show_notices", side_effect=noticed):
+            waits, _ = self.run_menu([Key("char", "i"), self.news(resized), None, self.news(
+                lambda: self.notices.append("fix-api finished")), None])
         drawn = [n for n, (_, _, text) in enumerate(waits) if text.startswith("\033[H")]
-        self.assertGreaterEqual(len(drawn), 3)          # opened, back from `i`, resized
         screens = [terminal.ANSI.sub("", waits[n][2]) for n in drawn]
+        # opened, back from `i`, resized, a wait, back from the notice, a wait
+        self.assertEqual(len(screens), 6, screens)
         self.assertIn("! needs you", screens[1].split("fix-api")[1].split("\n")[0])
-        self.assertIn("10% left", screens[-1])
+        self.assertIn("10% left", screens[2])
+        self.assertIn("✓ done", screens[4].split("fix-api")[1].split("\n")[0])
+        self.assertIn("50% left", screens[4])
         for timeout, _, text in waits:
             self.assertNotRegex(text, r"\x1b\[\d+;\d+H")  # no cell ever written on its own
             self.assertGreater(timeout, motion.FRAME)       # and no wait for a frame
