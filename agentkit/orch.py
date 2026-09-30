@@ -74,6 +74,20 @@ POPUP_TITLE = " agentkit "            # set into the popup's top edge
 POPUP_PADDING = 1                     # ... the column and row it leaves blank inside its border
 DIM = f"fg=#{terminal.STATE_STYLES['dim'][2]}"   # its border, and the session behind it
 FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, hands it variables
+# What `Ctrl-b m` runs in the background for a popup that floats (`tmux_conf`), `p` the pane it
+# opens over: the first popup over it keeps the pane's own style, every one counts itself in,
+# the pane draws dim, the popup is held until it is down, and the last one down puts the style
+# the pane had back -- none, or its own, exactly.  It ends in `true` whatever failed (a pane
+# stopped under it), because tmux shows a job that ends otherwise over the pane.
+FLOAT = ('o() { tmux show-options -pqv -t "$p" "$1"; }; n=$(o @ak_floats); '
+         '[ -n "$n" ] || tmux set-option -p -t "$p" @ak_was "$(o window-style)"; '
+         'tmux set-option -p -t "$p" @ak_floats $((${n:-0} + 1)) \\; '
+         'set-option -p -t "$p" window-style %(dim)s; '
+         'tmux %(popup)s -c "$c" -t "$p" %(command)s; n=$(o @ak_floats) was=$(o @ak_was); '
+         'if [ "${n:-1}" -gt 1 ]; then tmux set-option -p -t "$p" @ak_floats $((n - 1)); '
+         'else tmux set-option -pu -t "$p" @ak_floats \\; set-option -pu -t "$p" @ak_was; '
+         'if [ -n "$was" ]; then tmux set-option -p -t "$p" window-style "$was"; '
+         'else tmux set-option -pu -t "$p" window-style; fi; fi; true')
 SMALL_CLIENT = "#{||:#{e|<:#{client_width},60},#{e|<:#{client_height},25}}"
 HINT = "Ctrl-b m  menu"   # the right half of every seat's status bar: the one key
 CLOSE_HINT = "Ctrl-b m  x close"   # ... and of a done one's, which that menu's `x` closes at once
@@ -1431,9 +1445,8 @@ def tmux_conf():
 
     Its own file, handed to tmux with `-f`, because the user's ~/.tmux.conf is theirs: nothing
     here reads it and nothing here writes to it.  It holds the one binding a seat needs --
-    `Ctrl-b m`, the menu in a popup over whatever is running -- and the hook it leans on, and
-    nothing else, because everything else a seat wants is a session option, set on the session
-    itself.
+    `Ctrl-b m`, the menu in a popup over whatever is running -- and nothing else, because
+    everything else a seat wants is a session option, set on the session itself.
 
     `-f` is only read when the tmux command is the one that starts the server, so `start` also
     loads this file into a server that was already up.  On agentkit's own server that is the
@@ -1455,23 +1468,25 @@ def tmux_conf():
     popup, and says nothing): a rounded border in the dim colour with ` agentkit ` set into
     its top edge, a column and a row of padding inside it -- the menu's to leave, since tmux
     pads nothing (`terminal.inset`) -- and none on a phone, which spares no cell.  While it is up
-    the pane it opened over draws its default text dim: tmux runs the binding's commands in
-    order and the one after `display-popup` only once the popup is down, whatever took it down
-    -- its menu ending, a crash, a kill, `display-popup -C` -- and a client that goes with the
-    popup still up has its commands dropped, so its going (`client-detached`) takes the style
-    off as well.  A seat's pane has no style of its own, so taking it off is what was there.
+    the pane it opened over draws its default text dim (FLOAT).  The popup is opened from a
+    `run-shell` job rather than by the binding, because a binding's commands are its client's
+    and go with it: the job's `display-popup` returns once the popup is down, whatever took it
+    down -- its menu ending, a crash, a kill, `display-popup -C`, its client going -- and the
+    job then puts the pane's style back, when no other client's popup is still up over it.
     """
     config.ensure_dirs()
     path = config.STATE / "tmux.conf"
-    popup = tmux_word(popup_command())
     small, large = f"display-popup -E {POPUP_FULL}", f"display-popup -E {POPUP_SIZE}"
-    dim = undim = hook = ""
     if tmux_version() >= FLOATS:
-        border = f"-b rounded -S {tmux_word(DIM)} -T {tmux_word(POPUP_TITLE)}"
-        small, large = (f"{small} {border}",
-                        f"{large} {border} -e {terminal.PAD_ENV}={POPUP_PADDING}")
-        dim, undim = f"set -p window-style {tmux_word(DIM)} ; ", " ; set -pu window-style"
-        hook = f"set-hook -g client-detached {tmux_word('set -pu window-style')}\n"
+        border = f"-b rounded -S {shlex.quote(DIM)} -T {shlex.quote(POPUP_TITLE)}"
+        small, large = (
+            "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}'; " + tmux_text(
+                FLOAT % {"dim": shlex.quote(DIM), "popup": popup,
+                         "command": shlex.quote(popup_command())}))
+            for popup in (f"{small} {border}",
+                          f"{large} {border} -e {terminal.PAD_ENV}={POPUP_PADDING}"))
+    else:
+        small, large = (f"{popup} {tmux_word(popup_command())}" for popup in (small, large))
     text = ("# written by `ak orch`; agentkit's own tmux config, never the user's ~/.tmux.conf\n"
             "set -g mouse on\n"
             "set -g history-limit 50000\n"
@@ -1479,8 +1494,7 @@ def tmux_conf():
             "set -g allow-passthrough on\n"
             'set -as terminal-features ",*:RGB"\n'
             f"bind-key {POPUP_KEY} if-shell -F {tmux_word(SMALL_CLIENT)} "
-            f"{tmux_word(f'{dim}{small} {popup}{undim}')} "
-            f"{tmux_word(f'{dim}{large} {popup}{undim}')}\n" + hook)
+            f"{tmux_word(small)} {tmux_word(large)}\n")
     try:
         if not path.exists() or path.read_text() != text:
             path.write_text(text)

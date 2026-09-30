@@ -618,6 +618,8 @@ def readline(prompt=""):
             line, _HALF_TYPED = _HALF_TYPED, b""
             return _REPORT.sub("", line.decode("utf-8", "replace")) or None
         _HALF_TYPED += byte
+    if _PAD:
+        sys.stdout.write("\r")    # the terminal echoed the Enter to column 1: back in the padding
     line, _, _HALF_TYPED = _HALF_TYPED.partition(b"\n")
     return _REPORT.sub("", line.decode("utf-8", "replace"))
 
