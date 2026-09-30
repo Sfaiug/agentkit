@@ -622,13 +622,19 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
 
 
 def stop_scope(scope, log=lambda _: None, wait=True):
-    """Ask systemd to stop a detached run scope, including escaped grandchildren."""
+    """Ask systemd to stop a detached run's unit, including escaped grandchildren.
+
+    A placement records the bare unit name, and `start_in_slice` makes it a scope or, for a
+    caller outside the user manager, a service: a bare name stops whichever of the two it is
+    (systemctl stops the one that exists and only complains about the other).
+    """
     if not isinstance(scope, str) or not scope or scope == "none" or scope.startswith("none ("):
         return False
     if not user_manager():
         return False
-    unit = scope if scope.endswith(".scope") else f"{scope}.scope"
-    command = ["systemctl", "--user", "stop", unit]
+    units = ([scope] if scope.endswith((".scope", ".service"))
+             else [f"{scope}.scope", f"{scope}.service"])
+    command = ["systemctl", "--user", "stop", *units]
     try:
         if wait:
             subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -638,7 +644,7 @@ def stop_scope(scope, log=lambda _: None, wait=True):
                              stderr=subprocess.DEVNULL, start_new_session=True,
                              env=bus_env())
     except (OSError, subprocess.SubprocessError) as exc:
-        log(f"WARN could not stop {scope}.scope: {exc}")
+        log(f"WARN could not stop {scope}: {exc}")
         return False
     return True
 

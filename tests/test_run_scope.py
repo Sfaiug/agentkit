@@ -248,12 +248,16 @@ class RunScope(unittest.TestCase):
         with patch.object(config, "current_session", return_value="restarted-session"):
             self.assertEqual(run.launch_session(directory), "old-session")
 
-    def test_stop_scope_uses_systemctl_scope_unit(self):
+    def test_stop_scope_stops_the_scope_or_the_service(self):
         with patch.object(orch, "user_manager", return_value=True), \
                 patch.object(orch.subprocess, "run", return_value=MagicMock()) as run_call:
             self.assertTrue(orch.stop_scope("agentkit-run-r3"))
-        self.assertEqual(run_call.call_args.args[0],
-                         ["systemctl", "--user", "stop", "agentkit-run-r3.scope"])
+            self.assertEqual(run_call.call_args.args[0],
+                             ["systemctl", "--user", "stop", "agentkit-run-r3.scope",
+                              "agentkit-run-r3.service"])
+            self.assertTrue(orch.stop_scope("agentkit-run-r3.service"))
+            self.assertEqual(run_call.call_args.args[0],
+                             ["systemctl", "--user", "stop", "agentkit-run-r3.service"])
 
     def test_scope_name_probe_failure_allows_plain_fallback(self):
         with patch.object(orch, "user_manager", return_value=True), \
