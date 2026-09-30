@@ -206,6 +206,19 @@ class AnswerClosesQuestion(Sandbox):
         self.prompt(message="Use the second schema.")
         self.assert_answered()
 
+    def test_owner_prompt_closes_a_card_no_notice_asked(self):
+        # The screen alone said needs you and its card went out: no notice holds the answer.
+        notify._card_write(SEAT, {"word": "needs you", "since": 10000, "began": 10000,
+                                  "episode": "acme-dialog", "sent": True,
+                                  "open_needs": [{"message_id": "1"}]})
+        self.prompt()
+        answer = {"word": "needs you", "since": 10000, "reason": "waiting for you"}
+        self.assertEqual(notify.transition(SEAT, answer=answer, seat=self.seat), 0)
+        self.assertEqual(self.edits, [("1", "Answered")])
+        card = notify._card_read(SEAT)
+        self.assertNotEqual(card["episode"], "acme-dialog")
+        self.assertFalse(card["sent"])
+
     def test_prompt_leaves_a_watcher_alert_open(self):
         self.notice(watcher=True)
         for text in ("Use the second schema.", HANDBACK):
