@@ -166,8 +166,8 @@ Example: `↑↓ move   ⏎ open   n new   x stop   c config   i info   esc leav
 `c` and `i` are sub-screens in the same frame, headed `agentkit · config` and
 `agentkit · info`. `c` is a matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
-accent, a row of label, harness (dim), then `orchestrator` (`●` on the one
-default, `○` dim elsewhere), `worker` (`■`/`□`) and `effort` (`‹ xhigh ›`);
+accent, a row of label, harness (dim), then `orchestrator` (`●` on the highlighted
+session's, `○` dim elsewhere), `worker` (`■`/`□`) and `effort` (`‹ xhigh ›`);
 the columns are `orch` and `work` where the full words do not fit, then the
 harness gives way, then the label. ↑/↓, k/j and the wheel move between rows,
 ←/→ between all three columns; Enter or space on an effort steps it up through
