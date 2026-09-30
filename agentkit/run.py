@@ -13671,11 +13671,12 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
 
     A match is a run whose state is `running` or `queued` with a live process
     (`process_active`), in the task's repository, launched by anybody, where either a
-    done-when of the new task and of the running run name the same test file, or their
-    titles share at least four significant words.  Each match is a dict with the run's
+    done-when of the new task and of the running run name the same test file -- not a
+    general check, which three other jobs there named too -- or their titles share at
+    least four significant words.  Each match is a dict with the run's
     id, seat (None for nobody's), started_at, title, shared test files and shared
     title-word count.  Read-only: run state comes only from run_dirs(), read_state()
-    and process_active(), and a running run's done-when from its own task.md.  A
+    and process_active(), and a run's done-when from its own task.md.  A
     scratch task, or one whose repository cannot be resolved, is never checked.
     """
     stop = {"the", "a", "an", "and", "or", "of", "to", "for", "in", "on", "with",
@@ -13716,6 +13717,33 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
         return []
     if repo is None:
         return []
+    named = None
+
+    def specific(files, other_title):
+        """The files among `files` that fewer than three other jobs of this repository named.
+
+        A check such as a docs test sits in the done-when of job after job whatever they
+        change, so sharing it says nothing about the work; a test only the jobs changing
+        its behaviour name still does.  A job is a title: relaunches of one count once.
+        """
+        nonlocal named
+        if named is None and files:
+            named = {}
+            for directory in run_dirs():
+                state = read_state(directory)
+                try:
+                    if not state or not state.get("repo") or \
+                            Path(state["repo"]).expanduser().resolve() != repo:
+                        continue
+                    _, body, parsed_title = parse_task(directory / "task.md")
+                    found = test_files(done_when(body, directory / "task.md"))
+                except (OSError, config.Error):
+                    continue
+                for name in found:
+                    named.setdefault(name, set()).add(state.get("title") or parsed_title)
+        return {name for name in files
+                if len(named.get(name, set()) - {title, other_title}) < 3}
+
     mine_files = test_files(cmds)
     mine_words = significant_words(title, repo.name)
     matches = []
@@ -13749,8 +13777,8 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
             continue
         if not same:
             continue
-        shared = sorted(mine_files & test_files(other_cmds))
         other_title = state.get("title") or parsed_title or directory.name
+        shared = sorted(specific(mine_files & test_files(other_cmds), other_title))
         words = (len(mine_words & significant_words(other_title, repo.name))
                  if state.get("title") or parsed_title else 0)
         if not shared and words < 4:
