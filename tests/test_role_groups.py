@@ -45,7 +45,7 @@ class RoleGroups(unittest.TestCase):
         old = config.save_session(self.cfg, "old", "seat", ["alpha", "beta"])
         self.assertNotIn("reviewers", old)
         self.groups()
-        config.save(self.cfg)
+        config.save(self.cfg, self.cfg["defaults"])       # as a creation writes them
         self.assertEqual(config.load()["defaults"]["reviewers"], ["gamma", "delta"])
         config.save_session(self.cfg, "new", "seat", ["alpha"], {"reviewers": ["delta"]})
         self.assertEqual(config.load_session(self.cfg, "new")["reviewers"], ["delta"])
@@ -67,8 +67,11 @@ class RoleGroups(unittest.TestCase):
                 if bad is not None:  # TOML has no null; each of these is valid TOML.
                     path.write_text(original.replace(
                         "[defaults]", f"[defaults]\nreviewers = {json.dumps(bad)}"))
-                    with self.assertRaisesRegex(config.Error, r"\[defaults\].reviewers"):
-                        config.load()
+                    if bad == ["missing"]:    # a model removed since the creation: passed over
+                        self.assertNotIn("missing", config.load()["defaults"]["reviewers"])
+                    else:
+                        with self.assertRaisesRegex(config.Error, r"\[defaults\].reviewers"):
+                            config.load()
                 record = {"orchestrator": "seat", "workers": ["alpha"], "reviewers": bad}
                 config.session_path("bad").write_text(json.dumps(record))
                 with self.assertRaises(config.Error):

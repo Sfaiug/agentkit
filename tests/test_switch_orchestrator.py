@@ -330,6 +330,7 @@ class Switch(Sandbox):
         self.assertEqual(rows["opus"], "●■□")
         self.assertEqual(rows["astra"], "○■■")
         with patch.object(menu.update, "agentkit_version", return_value="fixture"), \
+                patch.object(menu.usage, "collect", return_value={}), \
                 patch.object(terminal, "layout_width", return_value=100), \
                 redirect_stdout(io.StringIO()) as out:
             menu.show_config(dry_run=True, session="fix-api")

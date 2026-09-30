@@ -59,7 +59,8 @@ class SessionModels(Sandbox):
                          ["astra", "opus"])
 
     def rows(self, lines):
-        return {terminal.plain(line).split()[0]: marks(line) for line in lines if marks(line)}
+        return {terminal.plain(line).lstrip("› ").split()[0]: marks(line)
+                for line in lines if marks(line)}
 
     def test_a_legacy_record_shows_workers_in_both_columns_until_the_first_flip(self):
         self.assertNotIn("reviewers", config.load_session(self.cfg, "old"))
@@ -138,8 +139,27 @@ class SessionModels(Sandbox):
         self.assertEqual(run.run_workers(self.cfg, going), ["opus", "astra"])
         self.assertEqual(run.run_reviewers(self.cfg, going), ["astra"])
 
+    def test_the_body_holds_the_current_groups_and_a_spent_note(self):
+        spent = usage.Readings({"anthropic": {"meters": [{
+            "name": "weekly_all", "used": 100, "exhausted": True, "resets_at": 10000 + 86400}]}})
+        with patch.object(terminal, "layout_width", return_value=100):
+            lines, _ = menu.config_body(self.cfg, "fixture", ("model", "opus"), 1,
+                                        self.selected("fix-api"), spent)
+        self.assertEqual(self.rows(lines)["opus"], "●■□")
+        self.assertEqual(self.rows(lines)["astra"], "○■■")
+        row = next(terminal.plain(line) for line in lines if "opus" in terminal.plain(line))
+        self.assertIn("spent · resets", row)
+        self.assertNotIn("spent", next(terminal.plain(line) for line in lines
+                                       if "astra" in terminal.plain(line)))
+        with patch.object(terminal, "layout_width", return_value=40):
+            lines, _ = menu.config_body(self.cfg, "fixture", None, 0, self.selected("fix-api"),
+                                        spent)
+        self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
+        self.assertTrue(any("spent · resets" in terminal.plain(line) for line in lines))
+
     def test_a_dry_run_draws_the_sessions_marks_and_a_seat_without_a_record_only_efforts(self):
         with patch.object(update, "agentkit_version", return_value="fixture"), \
+                patch.object(usage, "collect", return_value=usage.Readings({})), \
                 patch.object(terminal, "layout_width", return_value=100), \
                 redirect_stdout(io.StringIO()) as out:
             menu.show_config(dry_run=True, session="fix-api")

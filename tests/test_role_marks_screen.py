@@ -82,10 +82,18 @@ class RoleMarks(Sandbox):
             orch.create(self.cfg, "fix-api", self.root, unnamed=True,
                         selection=({}, ("opus", "selected", ["opus"], ["fable"])))
         self.assertEqual(config.load_session(self.cfg, "fix-api")["reviewers"], ["fable"])
-        chosen = {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["fable"]}
-        self.assertEqual(self.cfg["defaults"], chosen)
-        self.assertEqual(config.load()["defaults"], chosen)
-        self.assertEqual({**self.cfg, "defaults": before["defaults"]}, before)
+        self.assertEqual(config.load()["defaults"],
+                         {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["fable"]})
+        self.assertEqual(self.cfg, before)
+
+    def test_a_seat_ensure_starts_is_what_n_starts_from_too(self):
+        with patch.object(orch, "select", return_value=("astra", "opus is spent", ["fable"])), \
+                patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
+                patch.object(orch, "launch"), patch.object(orch, "refuse_held"), \
+                patch.object(orch.usage, "collect", return_value={}), \
+                patch.object(orch, "find", return_value=None):
+            self.assertTrue(orch.ensure(self.cfg, "watcher", log=lambda line: None))
+        self.assertEqual(config.load()["defaults"], {"orchestrator": "astra", "workers": ["fable"]})
 
     def test_ascii_and_phone_keep_three_columns_and_click_targets(self):
         selected = {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["astra"]}
