@@ -11883,9 +11883,12 @@ def run_repo_cleanup(wt, run_dir):
 
     The line runs once -- `cleanup.log` going up is the mark, claimed atomically, so
     a removal that is retried never re-runs it -- with a ten-minute limit, its output
-    beside the run's own log.  Whatever it does, the removal goes ahead and the run's
-    record is untouched: a failing, missing or timed-out cleanup leaves one line in
-    the run's log and nothing else.  No declaration, no checkout, or no run directory
+    beside the run's own log.  It gets the repo's secrets (~/.agentkit/env/<repo>.env)
+    as the run's commands did, but only its own environment does: a stop, a sweep or
+    the collector may be no run loop at all, and may clean several repositories.
+    Whatever it does, the removal goes ahead and the run's record is untouched: a
+    failing, missing or timed-out cleanup leaves one line in the run's log and nothing
+    else.  No declaration, no checkout, or no run directory
     left to report into, and this is exactly as if it had never been called.
     """
     try:
@@ -11901,13 +11904,15 @@ def run_repo_cleanup(wt, run_dir):
             fh.write(f"$ {cmd}\n")
             fh.flush()
             try:
+                repo = (read_state(Path(run_dir)) or {}).get("repo")
+                env = {**os.environ, **(config.repo_env(repo) if repo else {})}
                 proc = subprocess.run(["bash", "-c", cmd], cwd=str(wt), stdout=fh,
                                       stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                      timeout=CLEANUP_LIMIT)
+                                      timeout=CLEANUP_LIMIT, env=env)
             except subprocess.TimeoutExpired:
                 outcome = f"timed out after {CLEANUP_LIMIT // 60} minutes"
                 fh.write(f"[{outcome}]\n")
-            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            except (OSError, ValueError, subprocess.SubprocessError, config.Error) as exc:
                 outcome = f"could not run: {exc}"
                 fh.write(f"[{outcome}]\n")
             else:
