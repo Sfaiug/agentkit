@@ -31,7 +31,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import terminal
+from agentkit import config, terminal
 
 # The child: the real loop, `c` and `n` screens and create; fakes for what a seat is and does.
 # Once the menu is left it says what fix-api's next run picks, from fix-api's own environment.
@@ -50,7 +50,9 @@ menu.seat_row_state = lambda cfg, session, **facts: {"word": "working", "reason"
                                                      "since": None}
 menu.usage_lines = lambda cfg, width: []
 menu.Live.probe = lambda self, now=None: False
-usage.collect = lambda cfg, **kwargs: usage.Readings({})
+down = usage.Readings({})           # the harnesses ONE_DOWN names are not logged in
+down.harnesses = {name: f"{name} is not logged in" for name in os.environ["ONE_DOWN"].split()}
+usage.collect = lambda cfg, **kwargs: down
 orch.switch_orchestrator = lambda cfg, name, model, providers=None: (
     config.update_session(name, orchestrator=model), "")[1]
 orch.fresh_command = lambda cfg, name, seat=None, account=None: (["harness"], None)
@@ -100,7 +102,7 @@ def title(name):
 class Menu:
     """One child menu on a pty: what it wrote so far, keys sent to it, and its HOME."""
 
-    def __init__(self, case):
+    def __init__(self, case, down=""):
         self.case = case
         home = tempfile.TemporaryDirectory(prefix="one-config-")
         case.addCleanup(home.cleanup)
@@ -126,7 +128,8 @@ class Menu:
                     "TERM": "xterm-256color", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
                     "AGENTKIT_TMUX_SOCKET": "agentkit-test",
                     "AGENTKIT_ADAPTER_DIR": str(self.home / "adapters"),
-                    "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "ONE_REPO": str(REPO)})
+                    "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "ONE_REPO": str(REPO),
+                    "ONE_DOWN": down})
         self.proc = subprocess.Popen([sys.executable, "-c", CHILD], stdin=self.slave,
                                      stdout=self.slave, stderr=self.slave, env=env,
                                      start_new_session=True)
@@ -247,6 +250,43 @@ class OneConfigScreen(unittest.TestCase):
         # and so does the next run it starts: its executor and its reviewer
         menu.leave()
         menu.saw("<picks fable astra>")
+
+    def test_a_refusal_is_one_line_and_leaves_the_record_alone(self):
+        menu = Menu(self, down="claude")
+        menu.screen()
+        menu.press(b"c", title("config · fix-api"))
+        menu.press(DOWN + RIGHT + RIGHT + SPACE,          # opus joins the reviewers
+                   lambda lines: marks(model(lines, "opus")) == "●■■")
+        # Claude is down in this child, so astra leaving executes leaves no runnable
+        # executor: refused in one line, and the record stays as it was
+        lines = menu.press(DOWN + LEFT + SPACE,
+                           lambda lines: any("no allowed" in line for line in lines))
+        self.assertEqual([line.strip() for line in lines if "no allowed" in line],
+                         ["no allowed executor/reviewer pair"])
+        self.assertEqual(marks(model(lines, "astra")), "○■■")
+        record = menu.record()
+        self.assertEqual((record["workers"], record["reviewers"]),
+                         (["opus", "astra"], ["astra", "opus"]))
+        menu.press(ESC)
+        menu.leave()
+
+    def test_a_seat_naming_a_removed_model_still_opens_c_with_the_efforts(self):
+        menu = Menu(self)
+        menu.screen()
+        shipped = menu.config.read_text()
+        cfg = tomllib.loads(shipped)
+        del cfg["models"]["opus"]                         # removed while fix-api orchestrates on it
+        menu.config.write_text(config.dump(cfg))
+        lines = menu.press(b"c", title("config"))
+        self.assertEqual(lines[2].split(), ["effort"])
+        self.assertFalse(any(marks(line) for line in lines), lines)
+        said = " ".join(line.strip() for line in lines)
+        self.assertIn("fix-api's roles are not shown", said)
+        self.assertIn("unknown model 'opus'", said)
+        self.assertTrue(any("+ add a model" in line for line in lines), lines)
+        menu.press(ESC)
+        menu.config.write_text(shipped)                   # for the pick the child ends on
+        menu.leave()
 
     def test_on_a_heading_only_the_efforts_show(self):
         menu = Menu(self)

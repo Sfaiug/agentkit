@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -85,6 +86,20 @@ class RoleMarks(Sandbox):
         self.assertEqual(config.load()["defaults"],
                          {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["fable"]})
         self.assertEqual(self.cfg, before)
+
+    def test_a_creation_keeps_what_a_file_from_before_the_models_set(self):
+        path = config.HOME / config.CONFIG_NAME
+        path.write_text("max_runs = 3\nmax_gates = 2\nrun_memory_max_mb = 512\n")
+        with patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
+                patch.object(orch, "launch"), patch.object(orch.shutil, "which", return_value="fake"), \
+                patch.object(orch, "refuse_held"), patch.object(orch, "alias_names", return_value=set()):
+            orch.create(config.load(), "fix-api", self.root, unnamed=True,
+                        selection=({}, ("opus", "selected", ["opus"], ["fable"])))
+        saved = tomllib.loads(path.read_text())
+        self.assertEqual((saved["max_runs"], saved["max_gates"], saved["run_memory_max_mb"]),
+                         (3, 2, 512))
+        self.assertEqual(saved["defaults"],
+                         {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["fable"]})
 
     def test_a_seat_ensure_starts_is_what_n_starts_from_too(self):
         with patch.object(orch, "select", return_value=("astra", "opus is spent", ["fable"])), \

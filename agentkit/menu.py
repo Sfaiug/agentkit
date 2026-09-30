@@ -2751,7 +2751,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
 
 
 @terminal.clicks_its_own
-def config_matrix(cfg, keyboard, version, session=None, selected=None, providers=None):
+def config_matrix(cfg, keyboard, version, session=None, selected=None, providers=None, note=""):
     """The `c` screen read with the keys until Esc; the config as it left it.
 
     `selected` is `session`'s record, and its role marks are that seat's models: Enter, space or
@@ -2768,11 +2768,12 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     secrets are typed on the same keys (config_discord).  `Version` is read, and does nothing.
     On a screen too short for every row the part the highlight is on is shown, and what the
     last key could not do -- the last worker, a switch, a save or a catalog that failed -- has
-    lines of its own under it, whatever the height, until the next key.
+    lines of its own under it, whatever the height, until the next key; `note` is said so
+    before the first.
     """
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
     title = f"config · {session}" if selected else "config"
-    here, column, top, note = None, columns[1], 0, ""
+    here, column, top = None, columns[1], 0
     while True:
         rows = [*(("model", name) for name in config_models(cfg)),
                 *(("row", row) for row in CONFIG_ROWS)]
@@ -3181,7 +3182,9 @@ def show_config(dry_run=False, keyboard=None, session=None):
     """`c`: every model in one matrix of `session`'s roles -- the seat highlighted on the main
     screen, read from its own record -- and the efforts, then `+ add a model`, `Providers`,
     `Discord` and `Version`, read with the menu's keyboard (config_matrix), so nothing is typed.
-    On a heading, with no seats, or for a seat with no record, the matrix is the efforts alone.
+    On a heading, with no seats, or for a seat with no record, the matrix is the efforts alone,
+    and so it is for a record naming a model removed here, saying so under the rows: the
+    screen that adds it back still opens.
 
     Providers, models, efforts and the two Discord secrets live here, the way they live in
     ~/.agentkit/config.toml and ~/.agentkit/secrets, so nobody opens either file; a seat's
@@ -3192,12 +3195,16 @@ def show_config(dry_run=False, keyboard=None, session=None):
     """
     try:
         cfg = config.load()
-        selected = config.load_session(cfg, session, required=False) if session else None
     except config.Error as exc:
         if keyboard is not None:
             keyboard.give()
         pause(f"config: {exc}")
         return None
+    try:
+        selected, note = (config.load_session(cfg, session, required=False)
+                          if session else None), ""
+    except config.Error as exc:
+        selected, note = None, f"{session}'s roles are not shown: {exc}"
     try:                      # what a flip is refused on, and spent; Esc while it is read
         providers = waited(lambda: usage.collect(cfg), f"config · {session}",
                            keyboard=keyboard) if selected else {}
@@ -3210,7 +3217,7 @@ def show_config(dry_run=False, keyboard=None, session=None):
                        config_body(cfg, version, selected=selected, providers=providers)[0],
                        "esc back")
         return cfg
-    return config_matrix(cfg, keyboard, version, session, selected, providers)
+    return config_matrix(cfg, keyboard, version, session, selected, providers, note)
 
 
 def session_mark(cfg, name, selected, model, column, providers):

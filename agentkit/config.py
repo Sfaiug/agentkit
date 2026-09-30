@@ -885,7 +885,12 @@ def remember_defaults(record):
     one write of them (save).  The file is read again first, so nothing changed in it since
     is written back over; a failed write keeps the ones before."""
     try:
-        save(load(), {key: record[key] for key in _DEFAULTS_ORDER if key in record})
+        cfg = load()
+        # a file from before it held the models (max_runs alone) loads as the shipped one: its
+        # own keys are written back over the shipped ones, as they were
+        cfg.update((key, value) for key, value in (_read_toml(HOME / CONFIG_NAME) or {}).items()
+                   if key not in ("defaults", "tiers", "models", "providers"))
+        save(cfg, {key: record[key] for key in _DEFAULTS_ORDER if key in record})
     except (Error, OSError):
         pass    # the seat is made all the same
 
