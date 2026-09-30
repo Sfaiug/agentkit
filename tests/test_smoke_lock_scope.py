@@ -55,8 +55,8 @@ gh() {
   printf '%s\n' "$*" >>"$WORK/gh.log"
   case "$*" in
     'api user --jq .login') echo caller ;;
+    'api --paginate user/repos?affiliation=owner&per_page=100 --jq .[].name') echo agentkit-smoke ;;
     'repo view caller/agentkit-smoke') test -d "$ORIGIN" ;;
-    'repo view caller/'*) return 1 ;;
     "repo clone caller/agentkit-smoke "*)
       lockstate >"$WORK/lock-at-seed"; git clone -q "$ORIGIN" "$4" ;;
     *) echo "unexpected gh command: $*" >&2; return 97 ;;
@@ -181,8 +181,8 @@ class CheckFourAlone(unittest.TestCase):
         # waiting, and it has not touched the remote: it only asked what exists
         self.assertIsNone(proc.poll(), "\n".join(seen))
         self.assertEqual(self.gh_calls(), ["api user --jq .login",
-                                           "repo view caller/agentkit-smoke",
-                                           "repo view caller/agentkit-smoke-2"], "\n".join(seen))
+                                           "api --paginate user/repos?affiliation=owner&per_page=100 --jq .[].name"],
+                         "\n".join(seen))
         fcntl.flock(fd, fcntl.LOCK_UN)
         out = self.rest(proc, lines, seen)
         self.assertEqual(proc.returncode, 0, out)
@@ -206,8 +206,7 @@ class CheckFourAlone(unittest.TestCase):
         self.assertIn("PASS  5 a check after check 4", out)
         self.assertIn("1 failed", out)
         # the remote was never touched: it only asked what exists
-        self.assertFalse([c for c in self.gh_calls()
-                          if not c.startswith(("api user", "repo view"))], out)
+        self.assertFalse([c for c in self.gh_calls() if not c.startswith("api ")], out)
         self.assertIsNone(self.noted("lock-at-run"), out)
 
     def test_no_other_check_takes_the_lock(self):

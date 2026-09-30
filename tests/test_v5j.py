@@ -78,7 +78,7 @@ def lock_argv(script, path, seconds):
     there until this test does.
     """
     if script == SMOKE:
-        return [str(path), str(seconds), "probe", "-1", "1", "0"]
+        return [str(path), str(seconds), "probe", "-1", "1", ""]
     return [str(path), str(seconds), "-1"]
 
 
