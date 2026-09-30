@@ -12,7 +12,6 @@ reads one clock.
 
 import math
 import time
-from itertools import groupby
 
 from . import terminal
 
@@ -71,41 +70,40 @@ def settling(glyph, word, began, bright=False):
     return at, began + SETTLE
 
 
-def gliding(before, after, began, colour=None, bright=False):
+def gliding(before, after, began, colour=None, bright=False, sweep=False):
     """A bar drawn `before` and now `after`, each its blocks as a draw writes them (`███░░`),
-    from `began`; and when it is still.
+    from `began`: an animation for each of its cells, left to right, and when it is still.
 
     Its filled end glides from the one to the other in GLIDE seconds, an eighth of a cell at a
     time where the blocks are `█`.  On a plain bar -- a seat's tasks -- each block it newly
-    fills lights, until LIT seconds after the glide; and a bar that reached full sends one light
-    across it, a cell at a time left to right, in the SWEEP seconds after.  `colour` is the kind
-    a coloured bar's filled blocks are drawn in, its empty ones dim, and None a plain bar's.
-    Its last frame is `after` exactly as the draw wrote it.
+    fills lights, until LIT seconds after the glide; and with `sweep`, its value just reached
+    full, one light crosses it a cell at a time left to right in the SWEEP seconds after the
+    glide, the only light then.  `colour` is the kind a coloured bar's filled blocks are drawn
+    in, its empty ones dim, and None a plain bar's.  Each cell's last frame is that cell as the
+    draw wrote it.
     """
     full, empty = "█░" if set(after) <= set("█░") else "#-"
     size, was, filled = len(after), before.count(full), after.count(full)
     new = colour is None and filled > was
-    swept = filled == size > was
     light = terminal.faded(colour or "working", -BRIGHTER)
 
-    def at(now):
-        t = now - began
-        reached = was + (filled - was) * eased(t / GLIDE)
-        whole, part = divmod(round(reached * 8), 8) if full == "█" else (round(reached), 0)
-        blocks = full * whole + (PARTS[part - 1] if part else "")
-        blocks += empty * (size - len(blocks))
-        lit = set(range(was, min(filled, math.ceil(reached)))) if new and t < GLIDE + LIT \
-            else set()
-        if swept and GLIDE <= t < GLIDE + SWEEP:
-            lit.add(int(size * (t - GLIDE) / SWEEP))
-        kinds = [light if cell in lit else colour if block != empty else colour and "dim"
-                 for cell, block in enumerate(blocks)]
-        text = ""
-        for kind, same in groupby(zip(blocks, kinds), key=lambda pair: pair[1]):
-            run = "".join(block for block, _ in same)
-            text += terminal.styled(run, kind) if kind else run
-        return terminal.highlight(text, mark=False) if bright else text
-    return at, began + GLIDE + max(LIT if new else 0, SWEEP if swept else 0)
+    def cell(n):
+        def at(now):
+            t = now - began
+            reached = was + (filled - was) * eased(t / GLIDE)
+            eighths = round(reached * 8) - 8 * n if full == "█" else 8 * (round(reached) - n)
+            block = full if eighths >= 8 else PARTS[eighths - 1] if eighths > 0 else empty
+            if (new and was <= n < reached and t < GLIDE + (0 if sweep else LIT)
+                    or sweep and GLIDE <= t < GLIDE + SWEEP
+                    and n == int(size * (t - GLIDE) / SWEEP)):
+                kind = light
+            else:
+                kind = colour if block != empty else colour and "dim"
+            text = terminal.styled(block, kind) if kind else block
+            return terminal.highlight(text, mark=False) if bright else text
+        return at
+    return ([cell(n) for n in range(size)],
+            began + GLIDE + (SWEEP if sweep else LIT if new else 0))
 
 
 class Clock:
