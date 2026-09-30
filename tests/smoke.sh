@@ -170,20 +170,25 @@ smoke_lock_probe() {   # smoke_lock_probe <wait seconds>: prints held, held-2 ..
   [ "$status" != busy ] || return 75
 }
 smoke_targets() {   # the numbers of the targets the account has, agentkit-smoke's 1: "1,3,"
-  gh api --paginate 'user/repos?affiliation=owner&per_page=100' --jq '.[].name' 2>/dev/null |
+  local names       # 1 when the account's repositories could not be listed, whole
+  names=$(gh api --paginate 'user/repos?affiliation=owner&per_page=100' --jq '.[].name' \
+    2>/dev/null) || return 1
+  printf '%s\n' "$names" |
     sed -nE 's/^agentkit-smoke$/1/p; s/^agentkit-smoke-([2-9]|[1-9][0-9]+)$/\1/p' | tr '\n' ,
 }
 smoke_lock_hold() {   # smoke_lock_hold <wait seconds>: 0 and $SMOKE_TARGET is this suite's, or 75
-  local dir line status=busy bound have try end=$((SECONDS + $1))
+  local dir line status=busy bound pool have try end=$((SECONDS + $1))
   bound=$(smoke_pool_bound)
   SMOKE_LOGIN=$(gh api user --jq .login 2>"$WORK/smoke-login.err" || true)
   dir=$(mktemp -d "${TMPDIR:-/tmp}/ak-smoke-lock-XXXXXX") || return 75
   if ! mkfifo "$dir/status"; then rm -rf -- "$dir"; return 75; fi
-  # Every try lists the pool anew, for a target another suite added; listing only reads.
+  # Every try lists the pool anew, for a target another suite added; listing only reads.  A
+  # listing that failed says nothing about the pool, so that try takes only agentkit-smoke,
+  # found or made as it always was, and makes no other target.
   while :; do
-    have=$(smoke_targets)
+    if have=$(smoke_targets); then pool=$bound; else have=1, pool=1; fi
     try=$((end - SECONDS)); [ "$try" -le "$SMOKE_LOCK_LIST" ] || try=$SMOKE_LOCK_LIST
-    python3 -c "$SMOKE_LOCK_PY" "$SMOKE_LOCK" "$try" hold $$ "$bound" "$have" >"$dir/status" &
+    python3 -c "$SMOKE_LOCK_PY" "$SMOKE_LOCK" "$try" hold $$ "$pool" "$have" >"$dir/status" &
     SMOKE_LOCK_PID=$!
     while IFS= read -r line; do
       case "$line" in

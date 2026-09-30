@@ -33,6 +33,7 @@ gh() {
   case "$*" in
     'api user --jq .login') echo caller ;;
     'api --paginate user/repos?affiliation=owner&per_page=100 --jq .[].name')
+      [ -z "${LISTING_FAILS:-}" ] || return 1
       ls "$ACCOUNT" | sed 's/\.git$//' ;;
     'repo view caller/'*) test -d "$ACCOUNT/${3#caller/}.git" ;;
     'repo create caller/'*' --private') git init -q --bare -b main "$ACCOUNT/${3#caller/}.git" ;;
@@ -103,14 +104,14 @@ class TargetPool(unittest.TestCase):
         fcntl.flock(fd, fcntl.LOCK_EX)
         return fd
 
-    def suite(self, name, wait=60):
+    def suite(self, name, wait=60, **env):
         work = self.root / name
         (work / "home").mkdir(parents=True)
         with (work / "out").open("w") as out:
             proc = subprocess.Popen(["bash", str(self.script)], stdout=out,
                                     stderr=subprocess.STDOUT, start_new_session=True,
                                     env={**self.env, "WORK": str(work), "HOME": str(work / "home"),
-                                         "AK_SMOKE_LOCK_WAIT": str(wait)})
+                                         "AK_SMOKE_LOCK_WAIT": str(wait), **env})
 
         def stop():
             (work / "release").touch()
@@ -209,6 +210,23 @@ class TargetPool(unittest.TestCase):
                 self.assertEqual(self.target(work), "agentkit-smoke-3")
                 self.assertNotIn(WAITING, self.finish(proc, work))
                 self.assertFalse([c for c in self.changed(work) if c.startswith("repo create")])
+
+    def test_a_listing_that_failed_makes_no_target(self):
+        # the reviewer's case: bound 2, the first and third targets exist, the first is held,
+        # and the account cannot be listed. The suite takes no number it cannot see: it waits
+        # for agentkit-smoke, and never makes agentkit-smoke-2 beside the free third.
+        self.bound(2)
+        self.existing("agentkit-smoke", "agentkit-smoke-3")
+        first = self.hold(1)
+        proc, work = self.suite("blind", LISTING_FAILS="1")
+        self.until(lambda: WAITING in self.out(work), "waited", work)
+        time.sleep(1.5)
+        self.assertIsNone(proc.poll(), self.out(work))
+        self.assertEqual(self.changed(work), [], self.out(work))
+        fcntl.flock(first, fcntl.LOCK_UN)
+        self.assertEqual(self.target(work), "agentkit-smoke")
+        self.finish(proc, work)
+        self.assertFalse([c for c in self.changed(work) if c.startswith("repo create")])
 
     def test_a_waiting_suite_takes_a_target_another_suite_added(self):
         # another suite, admitted at a larger bound, makes the second target while this one waits
