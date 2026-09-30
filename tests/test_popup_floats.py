@@ -40,11 +40,11 @@ from agentkit import config, motion, orch, terminal
 DIM = f"fg=#{terminal.STATE_STYLES['dim'][2]}"
 OWN = "fg=red,bg=blue,bold"         # a style a pane may have of its own
 
-# tmux as far as this test asks it: `-V`; `set`/`show` on the one pane's options; and
-# `display-popup`, logged, its command run and waited for.  With no pane it answers what tmux
-# answers with no server up.
+# tmux as far as this test asks it: `-V`; `set`/`show` on the one pane's options; `wait-for`'s
+# locks; and `display-popup`, logged, its command run and waited for.  With no pane it answers
+# what tmux answers with no server up.
 FAKE_TMUX = r"""#!/usr/bin/env python3
-import json, os, subprocess, sys
+import json, os, subprocess, sys, time
 from pathlib import Path
 
 args = sys.argv[1:]
@@ -73,13 +73,25 @@ for command, *given in listed:
     if command in ("show-options", "show") and "p" in flags:
         for name in words or sorted(options):
             if name in options:
-                print(options[name] if "v" in flags else f"{name} {options[name]}")
+                print(options[name] if "v" in flags else f"{name} {options[name] or "''"}")
     elif command in ("set-option", "set") and "p" in flags:
         if "u" in flags:
             options.pop(words[0], None)
         else:
             options[words[0]] = words[1]
-        pane.write_text(json.dumps(options))
+        written = pane.with_name(f"pane-{os.getpid()}.json")
+        written.write_text(json.dumps(options))
+        os.replace(written, pane)       # whole, for whoever reads it meanwhile
+    elif command == "wait-for":
+        lock = pane.with_name(f"lock-{words[0]}")
+        while "L" in flags:
+            try:
+                os.close(os.open(lock, os.O_CREAT | os.O_EXCL))
+                break
+            except FileExistsError:
+                time.sleep(0.01)        # held: wait, as a second `wait-for -L` does
+        if "U" in flags:
+            lock.unlink(missing_ok=True)
     elif command == "display-popup":
         with open(os.environ["FAKE_TMUX_POPUPS"], "a") as log:
             log.write(json.dumps(given) + "\n")
@@ -192,12 +204,12 @@ class FakeTmux:
     def options(self):
         return json.loads(self.pane.read_text()) if self.pane.exists() else {}
 
-    def open(self, small=False, end="exit"):
+    def start(self, small=False, end="exit"):
         """`Ctrl-b m` on a client that is a phone (`small`) or not, as tmux 3.5a runs it: the job
-        its `run-shell -b` starts, the pane and the client expanded into it, until the popup
-        says what it saw.  `end` is how the popup comes down: its menu ending (`exit`), a crash
-        (`crash`), or a kill (`kill`, at `down`) -- what `display-popup -C` and a client going do
-        to it as well."""
+        its `run-shell -b` starts, the pane and the client expanded into it, and where the popup
+        will say what it saw.  `end` is how the popup comes down: its menu ending (`exit`), a
+        crash (`crash`), or a kill (`kill`, at `down`) -- what `display-popup -C` and a client
+        going do to it as well."""
         self.opened += 1
         saw = self.root / f"saw-{self.opened}.json"
         run = tmux_words(self.branches()[0 if small else 1])
@@ -208,13 +220,21 @@ class FakeTmux:
                                stderr=subprocess.DEVNULL,       # as `run-shell` has it
                                env={**self.env, "STANDIN_SAW": str(saw), "STANDIN_END": end})
         self.case.addCleanup(lambda: job.poll() is None and os.killpg(job.pid, signal.SIGKILL))
+        return job, saw
+
+    def seen(self, saw):
+        """What a popup `start` began saw, once it has said."""
         deadline = time.monotonic() + 15
         while not saw.exists():
             self.case.assertLess(time.monotonic(), deadline, "the popup never said what it saw")
             time.sleep(0.02)
         seen = json.loads(saw.read_text())
         self.case.addCleanup(self._gone, seen["pid"])
-        return job, seen
+        return seen
+
+    def open(self, small=False, end="exit"):
+        job, saw = self.start(small, end)
+        return job, self.seen(saw)
 
     @staticmethod
     def _gone(pid):
@@ -264,7 +284,7 @@ class TheBinding(unittest.TestCase):
 class ThePaneBehind(unittest.TestCase):
     def test_opening_dims_it_and_closing_puts_its_own_style_back_however_the_popup_goes(self):
         tmux = FakeTmux(self)
-        for own in ({}, {"window-style": OWN}):
+        for own in ({}, {"window-style": OWN}, {"window-style": ""}):   # none, its own, empty
             tmux.pane.write_text(json.dumps(own))
             for small in (False, True):
                 for end in ("exit", "crash", "kill"):
@@ -274,16 +294,25 @@ class ThePaneBehind(unittest.TestCase):
                         self.assertEqual(seen["padding"], None if small else "1")
                         self.assertEqual(tmux.options(), own)   # exactly: nothing more, nothing less
 
-    def test_it_stays_dim_until_the_last_popup_over_it_is_down(self):
+    def test_it_stays_dim_until_the_last_popup_over_it_is_down_however_they_race(self):
         tmux = FakeTmux(self)
-        tmux.pane.write_text(json.dumps({"window-style": OWN}))
-        first = tmux.open(end="kill")
-        second = tmux.open(small=True, end="kill")
-        self.assertEqual(second[1]["style"], DIM)
-        tmux.down(*first, end="kill")
-        self.assertEqual(tmux.options()["window-style"], DIM)    # the second is still up
-        tmux.down(*second, end="kill")
-        self.assertEqual(tmux.options(), {"window-style": OWN})
+        for own in ({}, {"window-style": OWN}, {"window-style": ""}):
+            tmux.pane.write_text(json.dumps(own))
+            with self.subTest(own=own, race="opened in the same instant"):
+                started = [tmux.start(end="kill"), tmux.start(small=True, end="kill")]
+                first, second = ((job, tmux.seen(saw)) for job, saw in started)
+                self.assertEqual(second[1]["style"], DIM)
+                tmux.down(*first, end="kill")
+                self.assertEqual(tmux.options()["window-style"], DIM)   # the second is still up
+                tmux.down(*second, end="kill")
+                self.assertEqual(tmux.options(), own)
+            with self.subTest(own=own, race="closed in the same instant"):
+                both = [tmux.open(end="kill"), tmux.open(small=True, end="kill")]
+                for _, seen in both:
+                    os.kill(seen["pid"], signal.SIGKILL)
+                for job, _ in both:
+                    self.assertEqual(job.wait(15), 0)
+                self.assertEqual(tmux.options(), own)
 
 
 class Popup:
