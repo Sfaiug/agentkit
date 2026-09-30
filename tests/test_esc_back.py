@@ -240,7 +240,7 @@ class EscBack(unittest.TestCase):
     def test_the_config_screen_and_every_row_it_opens_go_back_on_esc(self):
         menu_ = Menu(self)
         menu_.screen()
-        config_ = title("config")
+        config_ = title("config · alpha")        # the highlighted seat's
         menu_.press(b"c", config_)
 
         def model(lines):             # the first model's own screen, opened from its label
