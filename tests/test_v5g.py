@@ -17,6 +17,7 @@ from unittest.mock import patch
 import unittest
 
 from test_v4n import REPO, Sandbox
+from test_v5y import offline
 from agentkit import config, menu, orch, run, terminal, watch
 
 NOW = 1_800_000_000      # what every draw and tally reads as the time
@@ -29,6 +30,7 @@ LONG_Q = ("Should the dashboard filter by workspace and show archived runs by de
 class Tallies(Sandbox):
     def setUp(self):
         super().setUp()
+        offline(self)
         self.stack.enter_context(patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
         self.stack.enter_context(patch.object(menu.time, "time", return_value=NOW))
         self.stack.enter_context(patch("agentkit.watch.live_state", side_effect=lambda seat, *a, **kw:

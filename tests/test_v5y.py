@@ -36,10 +36,27 @@ def colours_on(case):
     os.environ.pop("NO_COLOR", None)
 
 
+def offline(case):
+    """Nothing real the caller's shell names: its webhook, its run, its tmux server, its /proc.
+
+    The sink posts nowhere and outranks any webhook, so a finished run cannot reach the
+    owner's Discord; an inherited run directory would make a launch adopt the caller's run;
+    the sandbox's `agentkit-test` server is shared by every test that names it; and the one
+    live process is this one, under an identity no /proc read gave.
+    """
+    case.stack.enter_context(patch.dict(os.environ, {
+        "AK_NOTIFY_SINK": "off", "AGENTKIT_DISCORD_WEBHOOK": "",
+        "AGENTKIT_DISCORD_USER_ID": "", config.RUN_DIR_ENV: ""}))
+    case.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
+    case.stack.enter_context(patch.object(run, "process_identity", side_effect=lambda pid, **_kw: (
+        {"boot": "fixture-boot", "ticks": 1, "started_at": 1.0} if pid == os.getpid() else None)))
+
+
 class Bar(Sandbox):
     def setUp(self):
         super().setUp()
         colours_on(self)
+        offline(self)
 
     def test_v5y_a_left_half_reads_state_and_last_column(self):
         left, right, title = orch.bar("herdr", "fable", "working", "tasks x 2/5")
@@ -142,6 +159,7 @@ class Bar(Sandbox):
 class Writes(Sandbox):
     def setUp(self):
         super().setUp()
+        offline(self)
         # a launch here is a top-level one behind the admission gate, whatever run the suite
         # itself runs under: a nested or ungated run claims its slot at once, never `waiting`
         self.stack.enter_context(patch.dict(os.environ, {
