@@ -5962,19 +5962,21 @@ def merge_turn(lp, upstream, reserve=False):
             # no child process of the holder's own running: without its own mark the
             # silence watch would read the holder's wait as a stall and resume it.
             retaking = True
+            retake_step = history.close_step(lp.state.get("run_id"), at, log=lp.log)
             lp.state["merge_retake"] = {"pid": os.getpid(), "of": what}
             lp.write()
             lp.log(f"--- merge: taking back the merge turn of {what}; "
                    "a borrower is landing on it")
-            retake_step = history.close_step(lp.state.get("run_id"), at, log=lp.log)
             return
         if waited:
             return
         waited = True
+        # closed before the save, which can block on the record's lock: the sampler would
+        # count that wait as the step's, and no later close takes it back
+        step = history.close_step(lp.state.get("run_id"), at, log=lp.log)
         lp.state["merge_turn"] = {"pid": os.getpid(), "of": what}
         lp.write()
         lp.log(f"--- merge: waiting for the merge turn of {what}; another run is landing on it")
-        step = history.close_step(lp.state.get("run_id"), at, log=lp.log)
 
     step = None
     retake_step = None
