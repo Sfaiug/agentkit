@@ -343,15 +343,16 @@ def scope_oom_policy():
 
     An older systemd-run refuses the whole scope over it, and the run would start plainly,
     outside the slice and its cap; there a scope keeps the default, which stops it whole.
-    Asked once per process, and only by a launch that is about to run systemd-run anyway.
+    The version is the one systemd-run names in its own file, the libsystemd-shared it
+    links: read, not asked, for the reason `user_manager` connects.  Asked once per process.
     """
     if "answer" not in _OOM_POLICY:
+        found, binary = None, shutil.which("systemd-run")
         try:
-            said = subprocess.run(["systemd-run", "--version"], capture_output=True, text=True,
-                                  stdin=subprocess.DEVNULL, timeout=5).stdout
-            _OOM_POLICY["answer"] = int(said.split()[1].split(".")[0]) >= 253
-        except (OSError, subprocess.SubprocessError, IndexError, ValueError):
-            _OOM_POLICY["answer"] = False
+            found = binary and re.search(rb"libsystemd-shared-(\d+)", Path(binary).read_bytes())
+        except OSError:
+            pass
+        _OOM_POLICY["answer"] = bool(found) and int(found.group(1)) >= 253
     return _OOM_POLICY["answer"]
 
 

@@ -1,0 +1,17 @@
+{
+  "run_id": "20260101-0900-flaky-fixture",
+  "title": "flaky",
+  "state": "running",
+  "verdict": null,
+  "repo": "/home/fixture/code/acme",
+  "pid": 1988783,
+  "process_identity": {
+    "boot": "918a387f-b4a2-44f6-ac16-c96feaba0494",
+    "ticks": 234237258,
+    "started_at": 1790778550.58
+  },
+  "started_at": 1790778551.1406484,
+  "round_summaries": [],
+  "silence_minutes": 20,
+  "ceiling_hours": 6
+}
