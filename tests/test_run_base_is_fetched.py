@@ -1,4 +1,5 @@
-"""agentkit: a new run is cut from its base as origin has it now, not from a stale local ref."""
+"""agentkit: a new run is cut from its base as origin has it now, not from a stale local ref,
+however the base is named and whatever the clone fetches."""
 
 from contextlib import ExitStack
 import os
@@ -82,6 +83,15 @@ class RunBaseIsFetched(unittest.TestCase):
     def test_a_local_branch_behind_origin_is_cut_from_origin(self):
         self.assertEqual(self.cut("main"), self.fresh)
 
+    def test_a_base_named_in_full_is_cut_from_origin(self):
+        self.assertEqual(self.cut("refs/heads/main"), self.fresh)
+
+    def test_a_single_branch_clone_fetches_a_base_it_does_not_follow(self):
+        self.git(self.repo, "config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main")
+        self.git(self.repo, "branch", "dev", self.stale)
+        self.git(self.origin, "update-ref", "refs/heads/dev", self.fresh)
+        self.assertEqual(self.cut("dev"), self.fresh)
+
     def test_the_default_base_is_fetched_before_it_is_read(self):
         self.assertEqual(self.cut(), self.fresh)
 
@@ -97,9 +107,10 @@ class RunBaseIsFetched(unittest.TestCase):
     def test_offline_it_falls_back_to_the_local_ref_and_says_so(self):
         self.git(self.repo, "remote", "set-url", "origin", str(self.root / "gone.git"))
         self.assertEqual(self.cut("main"), self.stale)
-        self.assertTrue(any(line.startswith("WARN git fetch origin failed; basing this run "
-                                            "on the local main") for line in self.logs),
-                        self.logs)
+        warned = [line for line in self.logs if line.startswith(
+            "WARN git fetch origin failed; basing this run on the local main")]
+        self.assertEqual(len(warned), 1, self.logs)
+        self.assertNotIn("\n", warned[0])
 
 
 if __name__ == "__main__":
