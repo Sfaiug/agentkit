@@ -138,6 +138,8 @@ BASE_BRANCH_MODIFIED = re.compile(r"Base branch was modified", re.I)
 GITHUB_5XX = re.compile(r"status code: 5\d\d|HTTP 5\d\d|Bad Gateway|Gateway Timeout|"
                         r"Service Unavailable|couldn't respond to your request in time", re.I)
 MERGE_RETRIES = 3      # how often either is re-fetched, re-checked and tried again
+# a fetch that lost the ref it updates to another process's fetch -- see `fetch`
+REF_LOCKED = re.compile(r"cannot lock ref|unable to update local ref", re.I)
 # what git and gh say when the prompt they wanted was refused; each is a stop, never a wait
 PROMPTED = re.compile(r"terminal prompts disabled|could not read (?:Username|Password)|"
                       r"prompts (?:are )?disabled|askpass", re.I)
@@ -433,6 +435,24 @@ def git_out(repo, *args):
     if stopped(code, err):
         raise Stopped(f"git {' '.join(args)} stopped in {repo}: {(out + err).strip()}")
     return code, (out + err).strip()
+
+
+def fetch(repo, *args, check=False):
+    """`git fetch` as `git_out` answers it; `check` raises on a failure as `git` does.
+
+    Every run's worktree shares one repository's refs, so two runs fetching at once race for
+    the same remote-tracking ref and the loser's fetch fails on git's ref lock.  That lock
+    already put the two in order: the loser goes again at once, until it goes through or
+    TOOL_CAP is spent, so a passed run is never handed back over another run's fetch.
+    """
+    deadline = time.monotonic() + TOOL_CAP
+    while True:
+        code, out = git_out(repo, "fetch", *args)
+        if code == 0 or not REF_LOCKED.search(out) or time.monotonic() >= deadline:
+            break
+    if check and code != 0:
+        raise config.Error(f"git fetch {' '.join(args)} failed in {repo}: {out}")
+    return code, out
 
 
 def gh(cwd, *args, timeout=None):
@@ -4775,7 +4795,7 @@ def integrate(lp, upstream):
     for lap in (1, 2, 3):
         # --prune: a merged PR's branch, deleted on origin, otherwise leaves its tracking ref
         # behind, and push's lease holds a later run that reuses the name to that dead head
-        rc, out = git_out(lp.wt, "fetch", "origin", "--prune")
+        rc, out = fetch(lp.wt, "origin", "--prune")
         if rc != 0:
             return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
         if not git(lp.wt, "rev-parse", "--verify", "--quiet", f"{upstream}^{{commit}}",
@@ -4941,7 +4961,7 @@ def integrate(lp, upstream):
             # the delivery turn and carry these checks over that disjoint move.
             new_tip = tip
         else:
-            rc, out = git_out(lp.wt, "fetch", "origin", "--prune")
+            rc, out = fetch(lp.wt, "origin", "--prune")
             if rc != 0:
                 return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
             new_tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False)
@@ -5299,7 +5319,7 @@ def do_merge(lp, url, upstream):
             step = history.close_step(lp.state.get("run_id"), log=lp.log)   # a wait, not work
             time.sleep(delay)
             history.open_step(lp.state.get("run_id"), step, log=lp.log)
-            frc, fetched = git_out(lp.wt, "fetch", "origin")
+            frc, fetched = fetch(lp.wt, "origin")
             if frc != 0:
                 return note(lp, f"git fetch origin failed: {fetched[-400:]}", failed=True)
             vrc, view = gh(lp.run_dir, "pr", "view", url, "--json",
@@ -5784,7 +5804,7 @@ def land(lp, upstream, verify, deliver, execv=None):
                     held.releasable = False   # the check passed; the merge keeps the turn
                 verified = lp.base_sha
                 with merge_turn(lp, upstream):
-                    rc, out = git_out(lp.wt, "fetch", "origin", "--prune")
+                    rc, out = fetch(lp.wt, "origin", "--prune")
                     if rc != 0:
                         return note(lp, f"git fetch origin failed: {out[-400:]}", failed=True)
                     tip = git(lp.wt, "rev-parse", "--verify", "--quiet",
@@ -6253,7 +6273,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             wt.mkdir(parents=True, exist_ok=True)
         else:
             if receipt.get("followup"):
-                git(repo, "fetch", "origin", "--prune")
+                fetch(repo, "origin", "--prune", check=True)
             base = meta.get("base") or default_base(repo, log)
             # where the PR goes: a run cut from `dev` can still be meant for `main`
             target = meta.get("target") or base
@@ -10738,7 +10758,7 @@ def upstream_sha(wt, ref):
     Either object format counts: sha1 oids are 40 hex chars, sha256 ones 64.
     """
     try:
-        if git_out(wt, "fetch", "origin")[0] != 0:
+        if fetch(wt, "origin")[0] != 0:
             return None
         sha = git(wt, "rev-parse", f"{ref}^{{commit}}", check=False)
     except (config.Error, OSError):
@@ -13539,7 +13559,7 @@ def review_pr(cfg, run_dir, url, opts, log):
     if disk_pressure():
         gc(log)
     base, head = info["baseRefName"], info["headRefOid"]
-    git(repo, "fetch", "-q", "origin", f"pull/{number}/head", base)
+    fetch(repo, "-q", "origin", f"pull/{number}/head", base, check=True)
     git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}")
     base_sha = git(repo, "merge-base", f"origin/{base}", head)
     if prior.get("worktree"):
