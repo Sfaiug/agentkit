@@ -89,7 +89,7 @@ class Menu:
                     "CLOSE_REPO": str(REPO), "CLOSE_SEATS": str(self.seats)})
         if own:
             env.update({"CLOSE_OVERLAY": "1", "AGENTKIT_SESSION": own})
-        self.leave_key = "q close" if own else "q leave"
+        self.leave_key = "esc close" if own else "esc leave"
         self.proc = subprocess.Popen([sys.executable, "-c", CHILD], stdin=self.slave,
                                      stdout=self.slave, stderr=self.slave, env=env,
                                      start_new_session=True)
@@ -184,7 +184,7 @@ class Menu:
         self.proc.send_signal(signal.SIGWINCH)
 
     def leave(self):
-        self.send(b"q")
+        self.send(ESC)
         self.case.assertEqual(self.proc.wait(15), 0, self.text()[-3000:])
 
 
@@ -289,7 +289,11 @@ class CloseAndInfo(unittest.TestCase):
         mark = menu.mark()
         menu.send(b"i")
         menu.frame(keys="esc back", after=mark)
-        menu.send(b"q")                           # `q` goes back, and does not leave the menu
+        mark = menu.mark()
+        menu.send(b"q")                           # `q` is no key here: the screen stays up
+        time.sleep(0.3)
+        self.assertNotIn("esc leave", menu.text()[mark:])
+        menu.send(ESC)
         menu.frame(after=mark)
         menu.leave()
         self.assertNotIn("<opened", menu.text())

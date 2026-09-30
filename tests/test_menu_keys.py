@@ -63,7 +63,7 @@ def open_session(cfg, session, dry_run):
 def ask_name(taken, auto=False):
     cooked = bool(termios.tcgetattr(0)[3] & termios.ICANON) if os.isatty(0) else None
     print(f"<lines {cooked}>", flush=True)
-    print(f"<answered {menu.read('Name (Enter: auto): ', 'q')!r}>", flush=True)
+    print(f"<answered {menu.read('Name (Enter: auto): ', '')!r}>", flush=True)
     return orch.BACK
 
 orch.taken_names = lambda: set()
@@ -156,7 +156,7 @@ class Menu:
                     continue                  # still being written, or a sub-screen's
                 lines = [terminal.ANSI.sub("", line).rstrip("\r")
                          for line in part.split("\x1b[J")[0].split("\n")[:-1]]
-                if any("q leave" in line for line in lines):
+                if any("esc leave" in line for line in lines):
                     return lines if where is None or where(lines) else None
             return None
         return self.until(ready, "a drawn menu")
@@ -178,7 +178,7 @@ class Menu:
         self.proc.send_signal(signal.SIGWINCH)
 
     def leave(self):
-        self.send(b"q")
+        self.send(b"\x1b")
         self.case.assertEqual(self.proc.wait(15), 0, self.text()[-3000:])
 
 
@@ -189,8 +189,8 @@ class MenuKeys(unittest.TestCase):
         menu.saw("<drawing 2>")                 # the clock's redraw, the screen being cleared
         menu.send(b"n")                         # once, no Enter, in the middle of that draw
         menu.saw("agentkit · new", "Name (Enter: auto): ")
-        menu.saw("<lines True>")                # the question reads a line, echoed, as ever
-        menu.send(b"q\n")
+        menu.saw("<lines False>")               # the question is typed on the menu's keys
+        menu.send(b"q\r")                       # where `q` is a letter like any other
         menu.saw("<answered 'q'>")
         mark = len(menu.text())
         menu.frame(lambda lines: any("seat-a" in line for line in lines))
@@ -203,9 +203,9 @@ class MenuKeys(unittest.TestCase):
         """`n`, its answer and the menu's next key at once: the question takes only its line."""
         menu = Menu(self, ["seat-a"])
         menu.frame()
-        menu.send(b"nq\nq")
+        menu.send(b"nq\r\x1b")
         menu.saw("<answered 'q'>")
-        self.assertEqual(menu.proc.wait(15), 0, menu.text()[-3000:])   # and that `q` leaves
+        self.assertEqual(menu.proc.wait(15), 0, menu.text()[-3000:])   # and that Esc leaves
 
     def test_down_and_enter_open_the_second_seat(self):
         menu = Menu(self, ["seat-a", "seat-b", "seat-c"])
@@ -246,7 +246,7 @@ class MenuKeys(unittest.TestCase):
         menu.saw("<answered 'fable'>")
         self.assertNotIn("\x1b[<", menu.text()[mark:])
         lines = menu.frame(lambda lines: "seat-b" in menu.highlighted(lines))
-        column = lines[-1].index("q leave") + 1
+        column = lines[-1].index("esc leave") + 1
         menu.click(column, len(lines))
         self.assertEqual(menu.proc.wait(15), 0, menu.text()[-3000:])
         self.assertEqual(menu.text().count("<opened"), 1)
@@ -265,7 +265,7 @@ class MenuKeys(unittest.TestCase):
         menu.saw("<opened seat-b>")
         menu.leave()
 
-    def test_q_gives_the_terminal_back_exactly_as_it_was(self):
+    def test_esc_gives_the_terminal_back_exactly_as_it_was(self):
         menu = Menu(self, ["seat-a"])
         menu.frame()
         during = termios.tcgetattr(menu.slave)
@@ -301,8 +301,8 @@ class MenuKeys(unittest.TestCase):
         mark = len(menu.text())
         menu.send(b"1n")                    # the key read while waiting is still pressed
         menu.saw("<opened seat-01>", "agentkit · new", after=mark)
-        menu.send(b"q\n")
-        menu.saw("<answered 'q'>", after=mark)
+        menu.send(b"\r")
+        menu.saw("<answered ''>", after=mark)
         menu.frame(lambda lines: "seat-01" in menu.highlighted(lines))
         menu.leave()
         self.assertNotIn("<opened seat-10>", menu.text())
@@ -391,12 +391,13 @@ class MenuKeys(unittest.TestCase):
                     "MENU_KEYS_REPO": str(REPO), "MENU_KEYS_SEATS": str(seats),
                     "MENU_KEYS_TICK": "10", "MENU_KEYS_SLOW": "0",
                     "MENU_KEYS_SESSION_READS": "0"})
-        proc = subprocess.run([sys.executable, "-c", CHILD], input="zz\n\nn\nq\n2\nq\n",
+        proc = subprocess.run([sys.executable, "-c", CHILD], input="zz\nq\nn\nq\n2\n\n",
                               capture_output=True, text=True, env=env, timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         out = proc.stdout
-        self.assertIn("\n  n new   x stop   c config   i info   q leave\n", out)
+        self.assertIn("\n  n new   x stop   c config   i info   esc leave\n", out)
         self.assertIn("not a key: 'zz'", out)
+        self.assertIn("not a key: 'q'", out)       # and the empty line at the end leaves
         self.assertIn("<lines None>", out)
         self.assertIn("<answered 'q'>", out)
         self.assertIn("<opened seat-b>", out)
@@ -424,7 +425,7 @@ class MenuKeys(unittest.TestCase):
         self.assertEqual(pick([Key("space"), Key("enter")], choices, default=["fable"],
                               several=True)[0], [])
         self.assertIsNone(pick([Key("down"), Key("esc")], choices)[0])
-        self.assertIsNone(pick([Key("char", "q")], choices)[0])
+        self.assertEqual(pick([Key("char", "q"), Key("enter")], choices)[0], "fable")
 
 
 if __name__ == "__main__":
