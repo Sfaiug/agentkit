@@ -1580,7 +1580,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     # Every role (and retry) lives under <run>/round-N/<role> and inherits this audit log.
     env = {**run_child_env(), "AK_RUN_ROLE": "worker",
            "AK_RUN_LOG": str(out_dir.parent.parent / "log.txt")}
-    attempt, calls, refills, last_kill, account, began = 1, 0, 0, None, None, None
+    attempt, calls, refills, last_kill, account, span = 1, 0, 0, None, None, None
     handover_tried = False
 
     def turn(text, target, session):
@@ -1590,7 +1590,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         it, so a retry that outlived the sweep would otherwise run a whole turn no
         record wants anymore.
         """
-        nonlocal account, began
+        nonlocal account, span
         stop_check(out_dir.parent.parent)
         account = usage.account(cfg, entry["provider"])[0]
         began = time.time()
@@ -1603,8 +1603,27 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 "login rather than retrying into it")
             expired.session = expired.session or session
             raise
+        span = (began, time.time())
         note_turn_meters(cfg, name, target, account)
         return result
+
+    def swapped(code, killed, session):
+        """Whether an install or revert of this harness overlapped the turn that just failed.
+
+        Its command was missing then, which reads as a harness that cannot run, so the swap is
+        waited out like a provider fault and the turn starts again on its session: once per
+        swap, since that start comes after the swap ended.
+        """
+        if killed or not code or killed_word(code) or update.swap_end(
+                entry["harness"], *span) is None:
+            return False
+        worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
+        log(f"WARN {role} {name} exited {code} while {entry['harness']} was being swapped; "
+            "starting again once that swap has ended"
+            + (f", resuming session {session}" if session else ""))
+        while (end := update.swap_end(entry["harness"], *span) or 0) > (now := time.time()):
+            transient_wait(out_dir, min(SWAP_POLL, end - now))
+        return True
 
     def next_account(until, message):
         """Park the account this turn ran on alone, and whether another of its provider has
@@ -1623,6 +1642,9 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         # transport failure the three attempts are for, not a session that cannot be opened.
         asked = session if not calls else None
         code, text, sid, killed = turn(body, target, session)
+        if swapped(code, killed, sid or session):
+            session, calls = sid or session, calls + 1
+            continue
         if asked and resume_failed(target, killed, text):
             # One empty exit abandons the id. The role continues in a new conversation,
             # and the dead id is not retried and does not spend the transport attempts.
@@ -1655,16 +1677,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 log(f"WARN {role} {name} ended its turn with a command still in the background "
                     "again; carrying on with what it reported")
             target = finish
-        # A harness being installed or reverted under the turn had no command to run it, which
-        # reads as one that cannot run: that swap is waited out like a provider fault.
-        if not killed and code and not killed_word(code) and update.swap_end(
-                entry["harness"], began) is not None:
-            worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
-            log(f"WARN {role} {name} exited {code} while {entry['harness']} was being swapped; "
-                "starting again once that swap has ended"
-                + (f", resuming session {session}" if session else ""))
-            while (end := update.swap_end(entry["harness"], began) or 0) > (now := time.time()):
-                transient_wait(out_dir, min(SWAP_POLL, end - now))
+        if swapped(code, killed, session):      # the fresh or the foreground turn
             continue
         # A harness that never ran the turn says so on stderr, and that outranks the refusal
         # words below: a 404 for a model it does not have reads `API Error` like a 500, and

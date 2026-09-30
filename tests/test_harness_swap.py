@@ -39,8 +39,11 @@ class HarnessSwap(unittest.TestCase):
         self.cfg = config.load()
         self.calls, self.logs, self.sleeps = [], [], []
 
-    def call(self, answers):
-        """call_retrying for opus, whose worker plays `answers` back: (code, text, stderr)."""
+    def call(self, answers, session=None):
+        """call_retrying for opus, whose worker plays `answers` back: (code, text, stderr).
+
+        A turn that exits 127 never ran, so it names no session.
+        """
         def fake(*args, **_kw):
             code, text, stderr = answers[min(len(self.calls), len(answers) - 1)]
             self.calls.append(args)
@@ -49,12 +52,12 @@ class HarnessSwap(unittest.TestCase):
             (out / "final.md").write_text(text)
             (out / "stderr.log").write_text(stderr)
             (out / "events.jsonl").write_text("")
-            return code, text, "sess-1", False
+            return code, text, None if code == 127 else "sess-1", False
 
         with patch.object(run.worker, "call", side_effect=fake):
             return run.call_retrying(self.cfg, "opus", "body", self.root,
                                      self.root / "run" / "round-1" / "executor", "executor",
-                                     None, self.logs.append)
+                                     session, self.logs.append)
 
     def test_a_turn_failing_during_a_swap_waits_for_its_end_then_passes(self):
         swap = update.swapping("claude")
@@ -66,15 +69,16 @@ class HarnessSwap(unittest.TestCase):
             if len(self.sleeps) == 2:
                 swap.__exit__(None, None, None)
 
+        # a resume the missing command failed is not a session that cannot be opened
         with patch.object(run.time, "sleep", side_effect=sleep):
             code, text, session, _ = self.call([(127, "", MISSING),
-                                                (0, "## Summary\nDone.\n", "")])
+                                                (0, "## Summary\nDone.\n", "")], "sess-1")
         self.assertEqual((code, session), (0, "sess-1"))
         self.assertIn("Done.", text)
         self.assertEqual(len(self.sleeps), 2)
         self.assertTrue(all(0 < delay <= run.SWAP_POLL for delay in self.sleeps), self.sleeps)
-        # the second start resumed the failed turn's session, after the swap ended
-        self.assertEqual([args[6] for args in self.calls], [None, "sess-1"])
+        # the second start resumed the same session, after the swap ended
+        self.assertEqual([args[6] for args in self.calls], ["sess-1", "sess-1"])
         self.assertTrue(any("being swapped" in line for line in self.logs), self.logs)
 
     def test_a_turn_failing_again_after_the_swap_cannot_run(self):
@@ -94,10 +98,29 @@ class HarnessSwap(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
         self.assertIn("command not found", str(broken.exception))
 
+    def test_a_swap_begun_after_the_turn_ended_holds_nothing(self):
+        swap = update.swapping("claude")
+        self.addCleanup(swap.__exit__, None, None, None)
+
+        def begin(*_a):
+            # the turn has returned, and the upgrade starts its install a moment later
+            with patch.object(update.time, "time", return_value=time.time() + 1):
+                swap.__enter__()
+
+        with patch.object(run, "note_turn_meters", side_effect=begin), \
+                patch.object(run.time, "sleep", side_effect=AssertionError("waited")), \
+                self.assertRaises(run.CannotRun):
+            self.call([(127, "", MISSING)])
+        self.assertEqual(len(self.calls), 1)
+
     def test_a_swap_left_without_an_end_past_the_cap_holds_nothing(self):
         # the upgrade died mid-install and never wrote the end: its step was killed at the cap
-        with patch.object(update.time, "time", return_value=time.time() - update.STEP_CAP - 60):
-            update.swapping("claude").__enter__()
+        began = time.time() - update.STEP_CAP - 60
+        swap = update.swapping("claude")
+        self.addCleanup(swap.__exit__, None, None, None)
+        with patch.object(update.time, "time", return_value=began):
+            swap.__enter__()
+        self.assertEqual(update.swap_end("claude", began, began), began + update.STEP_CAP)
         with patch.object(run.time, "sleep", side_effect=AssertionError("waited")), \
                 self.assertRaises(run.CannotRun):
             self.call([(127, "", MISSING)])

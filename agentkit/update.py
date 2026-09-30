@@ -50,7 +50,8 @@ ASK_EVERY = 60 * 60         # how often the tick asks a harness's latest release
 RETRY_AFTER = 24 * 60 * 60  # a gate can fail for what the release did not cause: try it daily
 
 VERSION_KEY = "{version}"   # `[update] revert`: where the version to reinstall goes
-SWAPS = "harness-swaps.json"  # each harness's latest install or revert: `swapping` writes it
+SWAPS = "harness-swaps.json"  # the latest installs and reverts, [harness, began, ended]
+SWAPS_KEPT = 16               # far more than can begin between a turn's end and the look at it
 
 
 def _argv(harness, facts, key):
@@ -159,46 +160,43 @@ def swapping(name):
     Between the two its command is missing or half-installed, and a worker turn that starts
     then fails for it: `swap_end` is how `run.call_retrying` tells that failure from a harness
     that cannot run.  The gates after it are not a swap, the harness is whole while they run.
-    Upgrades run one at a time, so the latest swap of a harness is the only one kept: no
-    earlier one reaches past it.  A mark that cannot be written costs a turn its retry, never
-    the upgrade.
+    A mark that cannot be written costs a turn its retry, never the upgrade.
     """
     began = time.time()
-    _mark_swap(name, {"began": began})
+    _mark_swap(name, began, None)
     try:
         yield
     finally:
-        _mark_swap(name, {"began": began, "ended": time.time()})
+        _mark_swap(name, began, time.time())
 
 
-def _mark_swap(name, swap):
+def _mark_swap(name, began, ended):
     path = config.STATE / SWAPS
     try:
-        try:
-            swaps = json.loads(path.read_text())
-        except (OSError, ValueError):
-            swaps = {}
-        swaps = {**(swaps if isinstance(swaps, dict) else {}), name: swap}
-        path.with_suffix(".tmp").write_text(json.dumps(swaps))
+        swaps = [swap for swap in json.loads(path.read_text()) if swap[:2] != [name, began]]
+    except (OSError, ValueError, TypeError, KeyError):
+        swaps = []
+    try:
+        path.with_suffix(".tmp").write_text(
+            json.dumps([*swaps[1 - SWAPS_KEPT:], [name, began, ended]]))
         os.replace(path.with_suffix(".tmp"), path)
     except OSError:
         pass
 
 
-def swap_end(name, since, now=None):
-    """When the swap of harness `name` that overlapped an attempt begun at `since` ends, or None.
+def swap_end(name, since, until):
+    """When the swaps of harness `name` that overlapped an attempt from `since` to `until` end.
 
-    One that never recorded its end ends `STEP_CAP` after it began, when its step is killed:
-    until then it is taken as still running, and after it holds nothing.
+    None when none did.  One that never recorded its end ends `STEP_CAP` after it began, when
+    its step is killed: until then it is taken as still running, and after it holds nothing.
     """
-    now = time.time() if now is None else now
     try:
-        swap = json.loads((config.STATE / SWAPS).read_text())[name]
-        began = float(swap["began"])
-        ended = float(swap.get("ended") or began + STEP_CAP)
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        swaps = [(began, ended or began + STEP_CAP) for harness, began, ended
+                 in json.loads((config.STATE / SWAPS).read_text()) if harness == name]
+        return max((ended for began, ended in swaps if began <= until and ended > since),
+                   default=None)
+    except (OSError, ValueError, TypeError):
         return None
-    return ended if began <= now and ended > since else None
 
 
 def muse_install_lock(directory, *, remove_stale=False):
