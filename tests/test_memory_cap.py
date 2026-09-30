@@ -126,6 +126,9 @@ class MemoryCap(unittest.TestCase):
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         config.ensure_dirs()
+        # These are the stop policy's scopes, ended whole at the cap: the one a manager
+        # older than 253 keeps.  test_memory_cap_ends_the_grower.py has the continue policy.
+        self.stack.enter_context(patch.object(orch, "scope_oom_policy", return_value=False))
         # No test signals a marked pid.  The scope stop stays real only for the
         # integration test, which wraps it and checks the unit name first.
         # Every other test injects the stop.

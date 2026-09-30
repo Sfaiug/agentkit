@@ -76,8 +76,10 @@ and when a run under way in the same repository names the same test (a general c
 regardless. Runs have no count cap and wait FIFO while free memory is under the larger of 3 GB and 20% of RAM, ak's own
 slice CPU pressure is above 40%, or the nearest limited cgroup is past 75% of its `memory.high` outside reclaimable
 file cache; a pinned `max_load` restores the host-load check instead, each run the host has frozen counting 1 while held; a
-worker's own test runs share the parent's slot, and a third level is refused. A run that hits its own memory cap, the
-40% of the slice ceiling, 4 GB where there is no ceiling, unless `run_memory_max_mb` sets it, ends `fail` with `killed: memory cap`.
+worker's own test runs share the parent's slot, and a third level is refused. Past its own memory cap, the 40% of the
+slice ceiling, 4 GB where there is no ceiling, unless `run_memory_max_mb` sets it, a run loses only the process that grew:
+its command exits 137, the log says `memory cap N GB hit`, and the run goes on as after any failed command or killed worker.
+Under a systemd older than 253 the whole run ends `fail` with `killed: memory cap` instead.
 `ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the CPU gate but still waiting for the memory floor, and takes the next heavy suite turn and merge turn first, marked `first` in `ak run status`.
 A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run scope and cap; one run from a terminal runs its tasks in its own process.
 
