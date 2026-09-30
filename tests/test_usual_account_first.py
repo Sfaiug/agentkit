@@ -151,7 +151,7 @@ class UsualAccountFirst(unittest.TestCase):
             orch.create(self.cfg, "new-api", self.root,
                         selection=(usage.collect(self.cfg), ("opus", "chosen", ["astra"])))
         record = config.session_records()["new-api"]
-        self.assertEqual((record["account"], record["home_account"]), ("second", "second"))
+        self.assertEqual((record["account"], record.get("home_account")), ("second", "second"))
         # A model switch to this provider opens its seat anew, on the same account.
         config.save_session(self.cfg, "fix-ui", "astra", ["astra"], {
             "cwd": str(self.root), "created": self.now - 60})
@@ -159,13 +159,13 @@ class UsualAccountFirst(unittest.TestCase):
                 patch.object(orch, "launch"):
             self.assertEqual(orch.switch_orchestrator(self.cfg, "fix-ui", "opus"), "")
         record = config.session_records()["fix-ui"]
-        self.assertEqual((record["account"], record["home_account"]), ("second", "second"))
+        self.assertEqual((record["account"], record.get("home_account")), ("second", "second"))
         self.meters(0, 100)
         with patch.object(orch, "start"):
             orch.create(self.cfg, "spill-api", self.root,
                         selection=(usage.collect(self.cfg), ("opus", "chosen", ["astra"])))
         record = config.session_records()["spill-api"]
-        self.assertEqual((record["account"], record["home_account"]), ("default", "default"))
+        self.assertEqual((record["account"], record.get("home_account")), ("default", "default"))
 
     def test_an_idle_seat_comes_back_to_the_account_it_opened_on(self):
         self.seat_account("second")
