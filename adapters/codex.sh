@@ -15,7 +15,7 @@
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                  `codex debug models`, else the [catalog] table of
 #                                  adapters/codex.toml
-# The model `default`, and an empty one, mean this account picks no model: `run` and
+# The model `default`, and an empty one, mean Codex picks its own model: `run` and
 # `interactive` then pass no -m at all -- see the note above the `interactive` printf.
 # $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then uses that
 # subscription's own login, and no other
@@ -96,8 +96,8 @@ run)
   cd -- "$ws" || { echo "codex.sh: no such workspace: $ws" >&2; exit 2; }
   # `codex exec resume` has no -C flag, hence the cd above; prompt comes from stdin.
   if [ -n "$sid" ]; then set -- exec resume "$sid" -; else set -- exec; fi
-  # A `default` (or empty) model means this account cannot be told which model to run, so -m is
-  # left off entirely and codex runs its own -- see the note above the `interactive` printf.
+  # A `default` (or empty) model leaves -m off entirely and codex runs its own -- see the note
+  # above the `interactive` printf.
   case $model in ""|default) ;; *) set -- "$@" -m "$model" ;; esac
   if [ -n "$ACCOUNT" ]; then home || exit 2; set -- "$@" -c "$STORE"; fi
   # project_doc_max_bytes=0 keeps the repository's AGENTS.md out of the turn (`codex debug
@@ -130,11 +130,9 @@ interactive)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   # a seat being resumed: `codex resume <thread-id>`, which takes the same options
   resume=""; [ -n "${3:-}" ] && resume=$(printf 'resume %q ' "$3")
-  # Codex on a ChatGPT subscription runs its own model and no other: every -m comes back as
-  # HTTP 400 "The '<model>' model is not supported when using Codex with a ChatGPT account".
-  # So the model `default` -- and an empty one -- passes no -m at all, and the effort, which
-  # that account does take, still goes through.  A real id (an API key's, which may choose)
-  # is passed exactly as before.  The model value decides; the auth is never probed.
+  # The model `default` -- and an empty one -- passes no -m at all, and Codex runs its own
+  # model at the effort given.  A real id is passed as -m, on a ChatGPT login as on an API
+  # key.  The model value decides; the auth is never probed.
   mflag=""; case $1 in ""|default) ;; *) mflag=$(printf -- '-m %q ' "$1") ;; esac
   # The orchestrator rulebook this launch is handed.  Codex 0.153.4 has no instructions-file
   # option of its own (`codex --help`, `codex exec --help`); what it does take per launch is the
@@ -295,16 +293,13 @@ hooks)
     echo "codex: this build reports no hook support; its seats fall back to screen rules" >&2
   fi ;;
 models)
-  # `default` alone for a ChatGPT login: that account runs Codex's own model and no other, and
-  # any -m comes back HTTP 400 there.  Any other login gets `default`, then the listed models
-  # of `codex debug models`, refreshed for it (never --bundled, which skips that), each with
-  # the reasoning levels it supports, strongest last.  A listing that fails, outlasts ten
+  # `default`, then the listed models of `codex debug models`, refreshed for this login (never
+  # --bundled, which skips that), each with the reasoning levels it supports, strongest last.
+  # A ChatGPT login runs any of them as an API key does.  A listing that fails, outlasts ten
   # seconds or lists nothing leaves the [catalog] table, and so does a host with no `timeout`
   # to bound it (stock macOS): nothing waits on a listing it cannot stop.
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-  if jq -e '.auth_mode == "chatgpt"' "$AUTH" >/dev/null 2>&1; then
-    python3 "$REPO/tools/catalog.py" codex | awk -F'\t' '$1 == "default"'
-  elif listed=$(command -v timeout >/dev/null && command -v codex >/dev/null \
+  if listed=$(command -v timeout >/dev/null && command -v codex >/dev/null \
       && timeout 10 codex debug models 2>/dev/null | jq -r '.models[] | select(.visibility == "list")
         | [.slug, .display_name, ((.supported_reasoning_levels // []) | map(.effort) | join(" "))]
         | @tsv') && [ -n "$listed" ]; then

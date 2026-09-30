@@ -102,26 +102,27 @@ class Catalog(unittest.TestCase):
         self.assertEqual(got["claude-haiku-4-5"], ("Haiku 4.5", "none"))
         self.assertEqual(self.log.read_text(), "", "claude itself is never asked")
 
-    def test_codex_offers_a_chatgpt_login_default_alone(self):
+    def test_codex_lists_every_model_for_a_chatgpt_login_and_an_api_key(self):
         auth = self.home / ".codex/auth.json"
         auth.parent.mkdir()
-        auth.write_text('{"auth_mode": "chatgpt", "OPENAI_API_KEY": null, "tokens": {}}')
         self.stub("codex", listing=FIXTURES / "codex-models.json")
-        self.assertEqual(lines(self.models("codex")),
-                         [["default", "Codex's own model", "low medium high xhigh max ultra"]])
-        self.assertEqual(self.log.read_text(), "", "a ChatGPT login's codex is never asked")
-        # an API key runs any model codex lists, refreshed, each with its own levels, and
+        # either login runs any model codex lists, refreshed, each with its own levels, and
         # none it hides
-        auth.write_text('{"auth_mode": "apikey", "OPENAI_API_KEY": "sk-dummy"}')
-        self.assertEqual(lines(self.models("codex")), [
+        listed = [
             ["default", "Codex's own model", "low medium high xhigh max ultra"],
             ["gpt-6-astra", "GPT-6-Astra", "low medium high xhigh max ultra"],
             ["gpt-5.6-sol", "GPT-5.6-Sol", "low medium high xhigh max ultra"],
             ["gpt-5.6-terra", "GPT-5.6-Terra", "low medium high xhigh max ultra"],
             ["gpt-5.6-luna", "GPT-5.6-Luna", "low medium high xhigh max"],
             ["gpt-5.5", "GPT-5.5", "low medium high xhigh"],
-        ])
-        self.assertEqual(self.log.read_text(), "debug models\n", "not --bundled: it never refreshes")
+        ]
+        for login in ('{"auth_mode": "chatgpt", "OPENAI_API_KEY": null, "tokens": {}}',
+                      '{"auth_mode": "apikey", "OPENAI_API_KEY": "sk-dummy"}'):
+            self.log.write_text("")
+            auth.write_text(login)
+            self.assertEqual(lines(self.models("codex")), listed, login)
+            self.assertEqual(self.log.read_text(), "debug models\n",
+                             "not --bundled: it never refreshes")
         # and a listing that fails leaves the table
         self.stub("codex", listing=FIXTURES / "codex-models.json", rc=1)
         got = {model: efforts for model, _, efforts in lines(self.models("codex"))}
@@ -257,8 +258,8 @@ class Catalog(unittest.TestCase):
             self.assertEqual(watch.doctor([]), 0)
         self.assertEqual(out.getvalue().splitlines(), [
             "slice test", "tick  lock free",
-            "effort  grok: grok-4.5 takes low medium high, not xhigh",
-            "effort  haiku: claude-haiku-4-5 takes none, not low"])
+            "effort  haiku: claude-haiku-4-5 takes none, not low",
+            "effort  grok: grok-4.5 takes low medium high, not xhigh"])
         self.assertEqual(path.read_text(), text, "flagged, never changed")
         # `none` is how a model that runs at no effort is configured
         path.write_text(default + haiku.format("none"))

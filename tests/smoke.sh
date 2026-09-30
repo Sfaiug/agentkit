@@ -1290,10 +1290,9 @@ result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loa
 raise SystemExit(not result.wasSuccessful())
 PY
 }
-# The -m rule, built offline against a `codex` that only records its own argv: Codex on a
-# ChatGPT subscription answers every explicit model with HTTP 400, so the model `default` --
-# and an empty one -- has to leave -m off on both command lines the adapter builds, while the
-# effort, which that account does take, still goes through; a real id still gets its -m.
+# The -m rule, built offline against a `codex` that only records its own argv: the model
+# `default` -- and an empty one -- lets Codex choose, so it has to leave -m off on both command
+# lines the adapter builds, while the effort still goes through; a real id still gets its -m.
 codex_model_flag_check() {
   local d rc=0 model argv line
   d=$(mktemp -d "${TMPDIR:-/tmp}/codex-mflag-XXXXXX") || return 1
@@ -2204,7 +2203,7 @@ fi
 # codex or muse command and nothing above the adapter knows what a bypass flag is called.
 ORCH2=0
 printf '\n' | HOME="$ORCHHOME" ak orch --dry-run --model astra smoke-orch-astra >"$WORK/orch-astra.log" 2>&1 || ORCH2=1
-# no -m: a ChatGPT-subscription Codex runs its own model and rejects every other one (check 6e)
+# no -m: astra's model `default` lets Codex choose its own (check 6e)
 grep -q "codex --yolo -c 'model_reasoning_effort" "$WORK/orch-astra.log" || ORCH2=1
 grep -q ' -m ' "$WORK/orch-astra.log" && ORCH2=1
 printf '\n' | HOME="$ORCHHOME" ak orch --dry-run --model spark smoke-orch-spark >"$WORK/orch-spark.log" 2>&1 || ORCH2=1
@@ -5028,8 +5027,8 @@ except Exception:
     :
   else
   CMODEL=$(PYTHONPATH="$REPO" python3 -c 'from agentkit import config; print(config.model(config.load(), "astra")["model"])')
-  # the model flag the adapter would build, by the same rule (check 6e): a ChatGPT-subscription
-  # Codex is given none.  In a subshell, so the suite's own arguments survive `set --`.
+  # the model flag the adapter would build, by the same rule (check 6e): `default` is given
+  # none.  In a subshell, so the suite's own arguments survive `set --`.
   ( case $CMODEL in ""|default) set -- exec ;; *) set -- exec -m "$CMODEL" ;; esac
     codex "$@" --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check \
       'Use the browser MCP server to list the open tabs of the shared Chromium. Then print one final line, exactly: BROWSER_TABS=<number of tabs>' \
