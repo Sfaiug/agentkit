@@ -181,7 +181,14 @@ sys.exit(1)
 
     def wait_for(self, predicate, seconds=20):
         deadline = time.monotonic() + seconds
-        while not predicate():
+
+        def met():
+            try:
+                return predicate()
+            except FileNotFoundError:   # the job's directory is made before its job.json
+                return False
+
+        while not met():
             self.assertLess(time.monotonic(), deadline, "job did not reach expected state")
             time.sleep(0.02)
 
