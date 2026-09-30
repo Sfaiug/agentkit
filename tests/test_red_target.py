@@ -154,6 +154,20 @@ class RedTarget(unittest.TestCase):
         self.assertIn("$ false (on origin/main", (run_dir / "target-probe.log").read_text())
         self.assert_on_branch_head_and_clean(wt, head)
 
+    def test_a_target_failing_elsewhere_is_named_by_its_own_failure(self):
+        # one suite, two failures: the branch fails it at one check and the target at
+        # another, and the park says what the target failed, not what the branch did
+        _, _, wt = make_repos(self.root)
+        cmd = ("if [ \"$(git log -1 --format=%s)\" = work ]; then echo 'FAIL 49 on the branch'; "
+               "else echo 'FAIL 4 on the target'; fi; exit 1")
+        lp, run_dir, _ = make_loop(self.root, wt, [f"{cmd}  # once"])
+        self.assertFalse(run.final_check(lp, "origin/main"))
+        state = run.read_state(run_dir)
+        self.assertEqual(state["state"], "waiting")
+        self.assertIn("FAIL 49 on the branch", state["final_check"]["line"])
+        self.assertEqual(state["merge_note"],
+                         f"origin/main itself fails: `{cmd}` \u2014 FAIL 4 on the target")
+
     def test_final_check_passing_on_the_target_runs_the_fixer(self):
         # the branch carries a breakage the target never had: the probe passes there,
         # so the fixer runs exactly as today and the run lands through
@@ -390,7 +404,7 @@ class RedTarget(unittest.TestCase):
                 fcntl.flock(holder, fcntl.LOCK_UN)
             thread.join(20)
             self.assertFalse(thread.is_alive(), "the heavy probe never finished")
-            self.assertEqual(results["probed"], True)
+            self.assertTrue(results["probed"])
             self.assertIn("$ false (on", (run_dir / "target-probe.log").read_text())
             # light, while the turn is still held elsewhere
             (self.root / "light").mkdir()
@@ -404,7 +418,7 @@ class RedTarget(unittest.TestCase):
                 probe.start()
                 probe.join(20)
                 self.assertFalse(probe.is_alive(), "the light probe waited for a turn")
-            self.assertEqual(light["probed"], True)
+            self.assertTrue(light["probed"])
             self.assertIn("$ false (on", (run_dir2 / "target-probe.log").read_text())
 
 
