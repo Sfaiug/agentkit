@@ -14,9 +14,10 @@ the moment it is pressed, and from a pipe it is a line.
       2  fix-api             fable   ● working     tasks ██░░░ 2/5
       3  web-portal          fable   ✓ done        hero swapped and published
 
-      ↑↓ move   ⏎ open   n new   x stop   c config   m models   i info   esc leave
+      ↑↓ move   ⏎ open   n new   x stop   c config   i info   esc leave
 
-`n` asks for a name, then shows the orchestrator and both roles with the defaults chosen already.
+`n` asks for a name, then shows the orchestrator and both roles with the last created session's
+chosen already.
 Enter leaves naming to the orchestrator once it knows the work. The name is the row, the
 status bar and the title of every message it sends until `r` renames it.
 
@@ -70,8 +71,8 @@ during a draw is read by the next wait.  The sub-screens are not live: they
 are read once, like any other question -- but a project's feature switches, which draw again
 within a second of their `list` landing.
 
-Seven keys: the numbers, `n`, `x`, `c` (models, providers, effort, discord, version),
-`m` (the highlighted seat's models), `i`, and Esc, which leaves, as it goes back from every
+Six keys: the numbers, `n`, `x`, `c` (the highlighted seat's models, every model's effort,
+providers, discord, version), `i`, and Esc, which leaves, as it goes back from every
 screen and question under it; `q` is no key.  A question typed inside the menu is typed on its
 keys (`terminal.field`), so Esc cancels it at once.  From a pipe an empty line or the end of
 input leaves, or goes back.
@@ -79,7 +80,7 @@ On a terminal one seat row is highlighted as well: ↑/↓, k/j and the wheel mo
 click opens a seat, and a click on the key line does what its key does (`loop`,
 `terminal.Keyboard`).  `x` is
 the highlighted seat's: a done one is closed at once, and any other is asked about under its row,
-`Keep` or `Stop` -- so the key line says `x close` while a done seat is highlighted.  `m` is
+`Keep` or `Stop` -- so the key line says `x close` while a done seat is highlighted.  `c` holds
 its orchestrator, executors and reviewers: the orchestrator moves the seat at once, the
 roles flip with the same keys and save at once.  `i` is one screen read with the same
 keys, back on Esc.
@@ -125,16 +126,12 @@ from . import command_help, config, history, notify, orch, terminal, update, usa
 from .harness import load as harness_plugin
 
 KEYS = "n new   x stop   c config   i info   esc leave"
-# With the keyboard the highlight turns the pages, so `m` opens the highlighted seat's models
-# instead of turning them; from a pipe `m` still pages, and KEYS stays the line menu's.
-TERMINAL_KEYS = "n new   x stop   c config   m models   i info   esc leave"
 # What `i` says about the keys and the states, in the README's own words: the page and the
 # screen are one text, and tests/test_docs.py holds README.md to these lines.
 INFO_KEYS = ("1 2 3   open that session",
              "n       start a session",
              "x       stop a session, or close a done one",
-             "c       change the config",
-             "m       change the session's models",
+             "c       change the config and the session's models",
              "i       show info",
              "esc     leave")
 INFO_STATES = (("needs you", "it asked you something, or it cannot go on without you"),
@@ -2228,11 +2225,13 @@ def config_models(cfg):
     return config.offered(cfg)
 
 
-def config_body(cfg, version, at=None, column=0):
+def config_body(cfg, version, at=None, column=0, selected=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
-    Every offered model once, under its provider's name: label, harness (dim), three role marks,
-    and its effort between the arrows that step it. Under them `+ add a model`, `Providers`
+    Every offered model once, under its provider's name: label, harness (dim), the three role
+    marks of `selected` -- a session's record, whose missing reviewers are its workers -- and
+    its effort between the arrows that step it; with no session, only the effort, still
+    column 3.  Under them `+ add a model`, `Providers`
     (providers_lines), `Discord` and `Version` with their values. A row is
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
     `Discord` is still a model; `at` is the highlighted one and `column` the cell on it the keys
@@ -2242,15 +2241,14 @@ def config_body(cfg, version, at=None, column=0):
     """
     room, utf, colour = terminal.layout_width(), terminal.utf8(), terminal.colour_depth()
     marks = "●○■□" if utf else "*.x."
-    names = config_models(cfg)
-    defaults, models = cfg["defaults"], cfg["models"]
+    names, models = config_models(cfg), cfg["models"]
     efforts = {name: ("‹ {} ›" if utf else "< {} >").format(models[name].get("effort", "?"))
                for name in names}
     label = max(terminal.cells(name) for name in names)
     harness = max(terminal.cells(str(models[name].get("harness", ""))) for name in names)
-    heads = CONFIG_HEADS
-    widths = [terminal.cells(head) for head in heads[:3]]
-    widths.append(max(terminal.cells(text) for text in (heads[3], *efforts.values())))
+    heads = CONFIG_HEADS if selected else CONFIG_HEADS[3:]
+    widths = [terminal.cells(head) for head in heads[:-1]]
+    widths.append(max(terminal.cells(text) for text in (heads[-1], *efforts.values())))
     rest = sum(2 + width for width in widths)
     label = min(label, max(1, room - 2 - rest))
     harness = min(harness, max(0, room - 2 - label - 2 - rest))
@@ -2261,10 +2259,10 @@ def config_body(cfg, version, at=None, column=0):
     for provider in dict.fromkeys(models[name]["provider"] for name in names):
         lines.append(terminal.styled(NAMES.get(provider, provider.title()), "accent"))
         for name in (name for name in names if models[name]["provider"] == provider):
-            texts = (marks[0] if defaults["orchestrator"] == name else marks[1],
-                     marks[2] if name in defaults["workers"] else marks[3],
-                     marks[2] if name in defaults.get("reviewers", defaults["workers"])
-                     else marks[3], efforts[name])
+            texts = ((marks[0] if selected["orchestrator"] == name else marks[1],
+                      marks[2] if name in selected["workers"] else marks[3],
+                      marks[2] if name in selected.get("reviewers", selected["workers"])
+                      else marks[3]) if selected else ()) + (efforts[name],)
             shown = terminal.cut(name, label)
             line = "  " + (terminal.styled(shown, "reverse") if at == ("model", name)
                            and column < 0 else shown) + " " * (label - terminal.cells(shown))
@@ -2272,7 +2270,7 @@ def config_body(cfg, version, at=None, column=0):
             if harness:
                 line += "  " + terminal.styled(terminal.pad(str(models[name].get("harness", "")),
                                                             harness), "dim")
-            for number, (text, width) in enumerate(zip(texts, widths)):
+            for number, text, width in zip(range(4 - len(texts), 4), texts, widths):
                 shown, lead = (f" {text} ", (width - 3) // 2) if number < 3 else (text, 0)
                 kind = ("reverse" if at == ("model", name) and number == column else
                         "dim" if text in (marks[1], marks[3]) else None)
@@ -2346,17 +2344,6 @@ def _saved(cfg, table, before):
         table.update(before)
         return f"config: {exc}"
     return ""
-
-
-def config_mark(cfg, name, column):
-    """Save a valid role change at once; a refusal or failed save leaves every mark alone."""
-    defaults = cfg["defaults"]
-    changed, note = orch.role_mark(cfg, defaults, name, column, {})
-    if note or changed == defaults:
-        return note
-    before = dict(defaults)
-    defaults.update(changed)
-    return _saved(cfg, defaults, before)
 
 
 def config_effort(cfg, name, step, efforts=config.efforts, wrap=False):
@@ -2560,13 +2547,15 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
 
 
 @terminal.clicks_its_own
-def config_matrix(cfg, keyboard, version):
+def config_matrix(cfg, keyboard, version, session=None, selected=None):
     """The `c` screen read with the keys until Esc; the config as it left it.
 
-    ↑/↓, k/j and the wheel move between rows and ←/→ between columns, the effort's too.  Enter,
-    space or a click flips a mark; Enter or space on an effort steps it up, from its highest
-    round to its lowest, and a click on its arrow steps it that way: each change is saved and
-    drawn at once.
+    `selected` is `session`'s record, and its role marks are that seat's models: Enter, space or
+    a click flips one (session_mark), the orchestrator moving the seat at once, the roles saved
+    to the record for the runs it launches next.  With no session there are no marks.
+    ↑/↓, k/j and the wheel move between rows and ←/→ between columns, the effort's too.  Enter
+    or space on an effort steps it up, from its highest round to its lowest, and a click on its
+    arrow steps it that way: each change is saved and drawn at once.
     Enter or a click on a model's label, left of its marks, opens that model's own screen
     (config_model), and Esc there comes back to its row.  Enter or a click
     on `+ add a model` opens its screen (config_add), and a model added there is the row
@@ -2574,20 +2563,25 @@ def config_matrix(cfg, keyboard, version):
     a click on one runs it (config_add_provider, config_remove_provider); on `Discord` its two
     secrets are typed on the same keys (config_discord).  `Version` is read, and does nothing.
     On a screen too short for every row the part the highlight is on is shown, and what the
-    last key could not do -- the last worker, a save or a catalog that failed -- has lines of
-    its own under it, whatever the height, until the next key.
+    last key could not do -- the last worker, a switch, a save or a catalog that failed -- has
+    lines of its own under it, whatever the height, until the next key.
     """
-    here, column, top, note = None, 0, 0, ""
+    columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
+    title = f"config · {session}" if selected else "config"
+    providers = usage.collect(cfg) if selected else {}     # what a flip is refused on
+    here, column, top, note = None, columns[1], 0, ""
     while True:
         rows = [*(("model", name) for name in config_models(cfg)),
                 *(("row", row) for row in CONFIG_ROWS)]
         here = here if here in rows else rows[0]      # the highlight is the row itself
+        if here[0] == "model" and column not in columns:
+            column = columns[-1]      # up from Providers' acts onto a row without marks
         where = ("label" if here == PROVIDERS else "still" if here == VERSION else "row"
                  if here[0] == "row" else "effort" if column == 3 else "label" if column < 0
                  else "mark")
         keys = CONFIG_KEYS[where][0 if terminal.utf8() else 1] + "   esc back"
-        body, places = config_body(cfg, version, here, column)
-        act, here, clicked, top = matrix_key("config", body, places, rows, here, top, note, keys,
+        body, places = config_body(cfg, version, here, column, selected)
+        act, here, clicked, top = matrix_key(title, body, places, rows, here, top, note, keys,
                                             marks=3)
         if act is None:
             continue                  # a resize: drawn again at the new size
@@ -2613,13 +2607,14 @@ def config_matrix(cfg, keyboard, version):
                     pause(f"config: {exc}")
                     return cfg
         elif act in ("left", "right"):
-            column = min(max(column + (1 if act == "right" else -1), -1), 3)
+            at = columns.index(column) + (1 if act == "right" else -1)
+            column = columns[min(max(at, 0), len(columns) - 1)]
         elif act in ("enter", "space") and column < 0:
             config_model(cfg, here[1])
             if here[1] not in cfg["models"]:
                 here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
         elif act in ("enter", "space") and column < 3:
-            note = config_mark(cfg, here[1], column)
+            note = session_mark(cfg, session, selected, here[1], column, providers)
         elif act in ("enter", "space", "less", "more"):     # the effort column
             note = config_effort(cfg, here[1], -1 if act == "less" else 1,
                                  wrap=act in ("enter", "space"))
@@ -2716,7 +2711,7 @@ def config_add(cfg):
     added at another effort, never at one it runs it at.  Esc steps back one level, and
     out from the harnesses.  Nothing is typed, so no harness, model or effort the catalog does
     not offer is ever written.  The new model is offered as orchestrator and as worker at
-    once, and joins neither default until it is chosen there.
+    once, and holds no seat's role until it is marked there.
     """
     picked, ats, top, note = [], [0], 0, ""   # (value, texts) of each step chosen; its highlight
     while True:
@@ -2841,8 +2836,8 @@ def config_add_provider(cfg, keyboard):
     [providers.*] table goes in, with the first model its harness's catalog lists efforts
     for, under the name and
     at the effort the shipped default gives that provider's first model -- `spark`, and the
-    effort or the nearest one it takes -- so a `usage_model` in that table names it.  It joins
-    neither default until it is chosen there.  Where a model of that name is here already
+    effort or the nearest one it takes -- so a `usage_model` in that table names it.  It holds
+    no seat's role until it is marked there.  Where a model of that name is here already
     nothing is installed or added, since the table would name that model instead.  A verb that
     fails adds nothing, and waits until what it said has been read.  Esc goes back with
     nothing done.  What to say under the matrix, or "".
@@ -2972,19 +2967,22 @@ def config_discord():
         pause(f"discord: {exc}")
 
 
-def show_config(dry_run=False, keyboard=None):
-    """`c`: every model in one matrix of the defaults and the efforts, then `+ add a model`,
-    `Providers`, `Discord` and `Version`, read with the menu's keyboard (config_matrix), so
-    nothing is typed.
+def show_config(dry_run=False, keyboard=None, session=None):
+    """`c`: every model in one matrix of `session`'s roles -- the seat highlighted on the main
+    screen, read from its own record -- and the efforts, then `+ add a model`, `Providers`,
+    `Discord` and `Version`, read with the menu's keyboard (config_matrix), so nothing is typed.
+    On a heading, with no seats, or for a seat with no record, the matrix is the efforts alone.
 
-    Providers, models, the defaults a new seat takes, efforts and the two Discord secrets live
-    here, the way they live in ~/.agentkit/config.toml and ~/.agentkit/secrets, so nobody opens
-    either file.  A dry run, and a menu with no keyboard to read -- a pipe -- draw it once and read
-    nothing.  Returns the config as the screen left it, for the menu to go on with; None when
-    there was nothing to show.
+    Providers, models, efforts and the two Discord secrets live here, the way they live in
+    ~/.agentkit/config.toml and ~/.agentkit/secrets, so nobody opens either file; a seat's
+    models live in its record, the one place its row and its runs read them from too.  A dry
+    run, and a menu with no keyboard to read -- a pipe -- draw it once and read nothing.
+    Returns the config as the screen left it, for the menu to go on with; None when there was
+    nothing to show.
     """
     try:
         cfg = config.load()
+        selected = config.load_session(cfg, session, required=False) if session else None
     except config.Error as exc:
         if keyboard is not None:
             keyboard.give()
@@ -2993,64 +2991,10 @@ def show_config(dry_run=False, keyboard=None):
     # one git call a visit, not a draw; nothing about a harness and nothing over the network
     version = update.agentkit_version()
     if dry_run or keyboard is None or not keyboard.take():
-        terminal.frame("config", config_body(cfg, version)[0], "esc back")
+        terminal.frame(f"config · {session}" if selected else "config",
+                       config_body(cfg, version, selected=selected)[0], "esc back")
         return cfg
-    return config_matrix(cfg, keyboard, version)
-
-
-def session_models_body(cfg, selected, notes, at=None, column=0):
-    """The `m` screen's lines, and where its rows sit on them: {line: (name, cells)}.
-
-    Every model once, the way `n` shows its three columns: the title, then `orch` (`●`
-    holding the seat, `○` dim elsewhere), `exec` and `review` (`■` in the group, `□` dim
-    out of it), the harness and effort dim beside them, a spent model dim with its reset
-    note. `selected` is the session's models, `notes` its spent lines; a record without
-    reviewers shows its workers in both role columns until the first flip writes them
-    apart. `at` is the highlighted model's name and `column` the cell the keys act on, 0
-    orchestrator, 1 executes and 2 reviews; `cells` are (first, last, column) for a
-    click, counted from 1 as the terminal counts.
-    """
-    room, utf, colour = terminal.layout_width(), terminal.utf8(), terminal.colour_depth()
-    names = list(notes)
-    marks = "●○■□" if utf else "*.x."
-    heads = orch.ROLE_HEADS
-    titles = {name: orch.model_title(cfg, name) for name in names}
-    rest = sum(len(head) + 2 for head in heads)
-    wide = min(max(terminal.cells(title) for title in titles.values()),
-               max(1, min(room // 3, room - 2 - rest)))
-    lines = [terminal.styled(" " * (2 + wide) + "".join("  " + head for head in heads), "dim")]
-    places = {}
-    reviewers = selected.get("reviewers", selected["workers"])
-    for name in names:
-        entry, note = config.model(cfg, name), notes[name]
-        line = "  " + terminal.pad(titles[name], wide)
-        texts = (marks[name != selected["orchestrator"]],
-                 marks[2 + (name not in selected["workers"])],
-                 marks[2 + (name not in reviewers)])
-        own = []
-        for number, (text, head) in enumerate(zip(texts, heads)):
-            first = terminal.cells(line) + 3
-            shown = f" {text} "
-            kind = "dim" if note or text in (marks[1], marks[3]) else None
-            if name == at and column == number:
-                kind = "reverse"
-                if not colour:
-                    shown = f"[{text}]"
-            lead = (len(head) - 3) // 2
-            line += ("  " + " " * lead + (terminal.styled(shown, kind) if kind else shown)
-                     + " " * (len(head) - lead - 3))
-            own.append((first, first + len(head) - 1, number))
-        detail = f"{entry['harness']} · {entry['effort']}" + (f" · {note}" if note else "")
-        parts = [line + "  " + terminal.styled(detail, "dim")]
-        if terminal.cells(parts[0]) > room:
-            parts = [line.rstrip(), *(terminal.styled("    " + part, "dim")
-                                     for part in terminal.wrap(detail, room - 4))]
-        if note:
-            parts[0] = "  " + terminal.styled(parts[0][2:], "dim")
-        for number, part in enumerate(parts):
-            places[len(lines)] = (name, own)
-            lines.append(terminal.highlight(part, number == 0) if name == at else part)
-    return lines, places
+    return config_matrix(cfg, keyboard, version, session, selected)
 
 
 def session_mark(cfg, name, selected, model, column, providers):
@@ -3082,60 +3026,6 @@ def session_mark(cfg, name, selected, model, column, providers):
         return f"session: {name} has no saved models"
     selected.update(changed)
     return ""
-
-
-@terminal.clicks_its_own
-def show_session_models(name, dry_run=False, keyboard=None):
-    """`m` on a seat: its orchestrator, executors and reviewers, with the matrix's keys.
-
-    The three columns `n` shows, holding the session's current models: ↑/↓ move between
-    models and ←/→ between the orchestrator, executes and reviews. Enter, space or a
-    click on the orchestrator moves the seat to that model at once, under the same name,
-    with a handover as its first prompt; on a role it flips a mark and saves it to the
-    session's record at once, for the runs it launches next. Each group keeps one model,
-    a flip leaving no allowed pair is refused in one line under the rows, and so is a
-    model whose harness is not installed or not logged in, or whose meter is spent. A dry
-    run, and a menu with no keyboard to read -- a pipe -- draw it once and read nothing.
-    Esc or a click on `esc back` goes back.
-    """
-    try:
-        cfg = config.load()
-        record = config.load_session(cfg, name, required=False)
-    except config.Error as exc:
-        if keyboard is not None:
-            keyboard.give()
-        pause(f"models: {exc}")
-        return
-    if record is None:
-        if keyboard is not None:
-            keyboard.give()
-        pause(f"models: {name} has no saved models")
-        return
-    selected = {"orchestrator": record["orchestrator"], "workers": list(record["workers"])}
-    if "reviewers" in record:
-        selected["reviewers"] = list(record["reviewers"])
-    providers = usage.collect(cfg)
-    notes = {model: orch.spent_note(cfg, model, providers) for model in config.offered(cfg)}
-    rows = list(notes)
-    here, column, top, note = None, 0, 0, ""
-    keys = CONFIG_KEYS["mark"][0 if terminal.utf8() else 1] + "   esc back"
-    while True:
-        here = here if here in rows else rows[0]      # the highlight is the model itself
-        body, places = session_models_body(cfg, selected, notes, here, column)
-        if dry_run or keyboard is None or not keyboard.take():
-            terminal.frame(f"{name} models", body, "esc back")
-            return
-        act, here, clicked, top = matrix_key(f"{name} models", body, places, rows, here, top,
-                                             note, keys, marks=3)
-        if act is None:
-            continue                  # a resize: drawn again at the new size
-        note, column = "", column if clicked is None else clicked
-        if act == "back":
-            return
-        if act in ("left", "right"):
-            column = min(max(column + (1 if act == "right" else -1), 0), 2)
-        elif act in ("enter", "space"):
-            note = session_mark(cfg, name, selected, here, column, providers)
 
 
 # A production project's feature switches are live data in the project, reached through the one
@@ -3416,13 +3306,13 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     kept for after, with the screen it was read on.  The highlight is the seat's name, so it
     stays on its seat whatever comes or goes above it.  A key that does nothing here is let
     go without a word, and every key that does something gives the terminal back before it
-    does it -- but `i`, `c`, `m`, `n`, `r` and `x`'s question, which are read with the keys on
+    does it -- but `i`, `c`, `n`, `r` and `x`'s question, which are read with the keys on
     the screen the menu has: `x` on a done seat closes it at once, and on any other asks `Keep`
     or `Stop` under its row, Enter or a click answering and Esc keeping it.  Esc, and a click
     on `esc leave`, leaves; `q` is no key.
     """
     keys = OVERLAY_KEYS if overlay else KEYS
-    actions = ("n", "x", "r") if overlay else ("n", "x", "c", "m", "i")
+    actions = ("n", "x", "r") if overlay else ("n", "x", "c", "i")
     page, cursor, ahead, look = 0, None, None, False
     last = [[], None]                     # what the last read left: the seats and their groups
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
@@ -3439,8 +3329,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                 show_notices(messages)
             drawn = {} if keyboard.take() else None
             own = config.current_session() if overlay else None
-            listed = keys if drawn is None else \
-                f"{move_keys()}   {TERMINAL_KEYS if not overlay else keys}"
+            listed = keys if drawn is None else f"{move_keys()}   {keys}"
             page, pages = draw(cfg, found, listed, page, cursor, drawn, own, look=False,
                                groups=groups)
             cursor = drawn["cursor"] if drawn else cursor   # the seat he sees highlighted
@@ -3504,7 +3393,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                 keyboard.give()
                 close_seat(seat, dry_run)
                 continue
-            if key not in ("i", "c", "m", "n", "r"):
+            if key not in ("i", "c", "n", "r"):
                 keyboard.give()           # whatever the key opens has the terminal as it was
             if key.isdigit():
                 if 1 <= int(key) <= len(found):
@@ -3528,12 +3417,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                 rename_this_session(dry_run)
             elif key == "c" and not overlay:
                 # read with the keys, too; the looks and probes go on with what it saved
-                cfg = live.cfg = show_config(dry_run, keyboard) or cfg
+                cfg = live.cfg = show_config(dry_run, keyboard,
+                                             seat if isinstance(seat, str) else None) or cfg
             elif key == "i" and not overlay:
                 show_info(dry_run)        # read with the keys, on the screen the menu has
-            elif key == "m" and not overlay and drawn is not None:
-                if isinstance(seat, str):
-                    show_session_models(seat, dry_run, keyboard)
             elif key in ("m", "k") and pages > 1:
                 page = (page + (1 if key == "m" else -1)) % pages
             elif key:

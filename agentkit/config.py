@@ -330,10 +330,11 @@ def load():
     the shipped default answers for the models, and the home file still answers for max_runs.
 
     Every model is offered as orchestrator and as worker; `[defaults]` names the orchestrator
-    and the workers a new seat starts with.  A file from before it said that with two tier
-    lists, and reads as what they meant outside a session: the first of A orchestrating for B
-    without it.  Nothing writes it back until the owner saves from the `c` screen, which then
-    writes `[defaults]` and the top-level `pace_margin` in their place.
+    and the workers a new seat starts with, the last created seat's (remember_defaults).  A
+    file from before it said that with two tier lists, and reads as what they meant outside a
+    session: the first of A orchestrating for B without it.  Nothing writes it back until the
+    config is next saved, which then writes `[defaults]` and the top-level `pace_margin` in
+    their place.
     """
     tables = ("defaults", "tiers", "models", "providers")
     path = HOME / CONFIG_NAME
@@ -872,6 +873,22 @@ def save_session(cfg, name, orchestrator, workers, extra=None):
                                               **(extra or {})})
     _write_json(session_path(name), selection)
     return selection
+
+
+def remember_defaults(cfg, record):
+    """[defaults] as the seat just created was given, in `cfg` and in the file: what the next
+    `n` starts from, and the only thing that writes them.  The file is read again first, so a
+    config a menu has held for hours never writes back over a change made since, and one
+    that no longer offers a model of the record keeps its defaults, as a failed write does."""
+    cfg["defaults"] = {key: record[key] for key in _DEFAULTS_ORDER if key in record}
+    try:
+        saved = load()
+        if {record["orchestrator"], *record["workers"],
+                *record.get("reviewers", ())} <= set(offered(saved)):
+            saved["defaults"] = cfg["defaults"]
+            save(saved)
+    except (Error, OSError):
+        pass    # the seat is made all the same; the next `n` here still starts from it
 
 
 def update_session(name, **fields):
