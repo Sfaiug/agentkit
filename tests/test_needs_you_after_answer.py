@@ -87,6 +87,30 @@ class NeedsYouAfterAnswer(unittest.TestCase):
             self.tick(now, "waiting for you")
         self.assertEqual(self.cards, [f"Needs you · {SEAT}: waiting for you"])
 
+    def test_an_edit_discord_did_not_take_is_tried_again_first(self):
+        edit, refused = notify.close_needs.side_effect, []
+
+        def close(card, status):
+            if len(refused) < 2:
+                refused.append(status)
+                return list(card.get("open_needs", []))
+            return edit(card, status)
+
+        notify.close_needs.side_effect = close
+        self.back_in_needs_you("waiting for you")
+
+    def test_a_needs_you_standing_before_an_upgrade_is_history(self):
+        notify.record(SEAT, "needs", QUESTION, time=100)
+        self.tick(100, QUESTION)
+        self.tick(160, QUESTION)
+        notify.answered(SEAT, 200)
+        self.tick(230, "waiting for you")
+        # This agentkit is installed while the seat still waits, from before the upgrade.
+        with patch.object(notify, "installed_at", return_value=1000):
+            for now in (1100, 1200, 1300, 1400):
+                self.tick(now, "waiting for you")
+        self.assertEqual(self.cards, [f"Needs you · {SEAT}: {QUESTION}"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

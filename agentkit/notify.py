@@ -971,11 +971,14 @@ def needs_transition(session, card, answer, now, seat=None):
             else:
                 # Input in this episode: it ends without a card.
                 card["closed"] = "Answered"
-            if answered_here:
-                # The answer ends the needs you it answered: one still read at the next tick
-                # came after it -- a dialog, or the seat waiting again -- and is an episode
-                # of its own, though no tick saw the seat work in between.
-                card["word"] = ""
+            if answered_here and not card.get("open_needs"):
+                # The answer ends the needs you it answered once Discord took every edit: one
+                # still read now came after it -- a dialog, or the seat waiting again -- and
+                # is an episode of its own, though no tick saw the seat work in between.  Its
+                # minute counts from now; it began after the answer, which an upgrade since
+                # makes history.
+                card = {"word": "needs you", "since": now, "began": declared["answered_at"],
+                        "episode": secrets.token_hex(16), "sent": False, "open_needs": []}
             _card_write(session, card)
         return 0
     if card.get("sent") or card.get("closed") or now - card["since"] < CARD_WAIT:

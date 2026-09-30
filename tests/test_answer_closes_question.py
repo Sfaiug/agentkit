@@ -161,7 +161,10 @@ class AnswerClosesQuestion(Sandbox):
         self.assertEqual((answer["word"], answer["reason"]), ("needs you", "waiting for you"))
         self.assertEqual(notify.transition(name, answer=answer, seat=self.seat), 0)
         self.assertEqual(self.edits, [("1", "Answered")])
-        self.assertEqual(notify._card_read(name)["closed"], "Answered")
+        # The answer ended its episode: the seat waiting now is one of its own, not carded yet.
+        card = notify._card_read(name)
+        self.assertNotEqual(card["episode"], "acme-question")
+        self.assertFalse(card["sent"])
         self.assertTrue(self.handback())
         self.assertEqual(self.typed, [HANDBACK])
 
