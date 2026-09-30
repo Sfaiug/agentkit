@@ -65,10 +65,14 @@ class GeneralChecks(unittest.TestCase):
         return run.already_under_way(self.root / "task.md", {"repo": str(self.repo)},
                                      title, cmds)
 
+    def past(self, test, titles=("Add export button", "Rename billing page",
+                                 "Explain the retry flag"), stub=False):
+        """Earlier jobs of acme that each ran `test`: finished, or queued receipts."""
+        for n, title in enumerate(titles):
+            self.record(f"20260901-100{n}-past", title, [f"python3 {test}"], stub=stub)
+
     def test_shared_general_check_starts(self):
-        for n, title in enumerate(("Add export button", "Rename billing page",
-                                   "Explain the retry flag")):
-            self.record(f"20260901-100{n}-past", title, ["python3 tests/test_docs.py"])
+        self.past("tests/test_docs.py")
         self.record("20260930-1200-invoice", "Invoices round to cents",
                     ["python3 tests/test_invoice.py", "python3 tests/test_docs.py"], live=True)
         self.assertEqual(self.rivals("Search ignores accents",
@@ -76,9 +80,7 @@ class GeneralChecks(unittest.TestCase):
                                       "python3 tests/test_docs.py"]), [])
 
     def test_behaviour_test_still_refuses_beside_a_general_check(self):
-        for n, title in enumerate(("Add export button", "Rename billing page",
-                                   "Explain the retry flag")):
-            self.record(f"20260901-100{n}-past", title, ["python3 tests/test_docs.py"])
+        self.past("tests/test_docs.py")
         self.record("20260930-1200-invoice", "Invoices round to cents",
                     ["python3 tests/test_invoice.py", "python3 tests/test_docs.py"], live=True)
         rivals = self.rivals("Invoice totals show the currency",
@@ -87,10 +89,7 @@ class GeneralChecks(unittest.TestCase):
         self.assertEqual(rivals[0]["files"], ["tests/test_invoice.py"])
 
     def test_queued_receipts_count_as_jobs(self):
-        for n, title in enumerate(("Add export button", "Rename billing page",
-                                   "Explain the retry flag")):
-            self.record(f"20260930-110{n}-queued", title, ["python3 tests/test_docs.py"],
-                        stub=True)
+        self.past("tests/test_docs.py", stub=True)
         self.record("20260930-1200-invoice", "Invoices round to cents",
                     ["python3 tests/test_docs.py"], live=True)
         self.assertEqual(self.rivals("Search ignores accents",
@@ -98,28 +97,40 @@ class GeneralChecks(unittest.TestCase):
 
     def test_jobs_naming_the_file_never_make_it_general(self):
         """Three earlier invoice-rounding tasks change what the file checks."""
-        for n, title in enumerate(("Invoice rounding keeps half cents",
-                                   "Round invoice lines before the total",
-                                   "Credit notes round like invoices")):
-            self.record(f"20260901-100{n}-past", title,
-                        ["python3 tests/test_invoice_rounding.py"])
+        self.past("tests/test_invoice_rounding.py", ("Invoice rounding keeps half cents",
+                                                     "Round invoice lines before the total",
+                                                     "Credit notes round like invoices"))
         self.record("20260930-1200-invoice", "Invoices round to cents",
                     ["python3 tests/test_invoice_rounding.py"], live=True)
         rivals = self.rivals("Fix invoice rounding precision",
                              ["python3 tests/test_invoice_rounding.py"])
         self.assertEqual(rivals[0]["files"], ["tests/test_invoice_rounding.py"])
 
+    def test_both_titles_naming_the_file_refuse_however_general(self):
+        self.past("tests/test_invoice_rounding.py")
+        self.record("20260930-1200-invoice", "Invoices round to cents",
+                    ["python3 tests/test_invoice_rounding.py"], live=True)
+        rivals = self.rivals("Fix invoice rounding precision",
+                             ["python3 tests/test_invoice_rounding.py"])
+        self.assertEqual(rivals[0]["files"], ["tests/test_invoice_rounding.py"])
+
+    def test_a_longer_word_is_not_the_file_subject(self):
+        """`allow` does not name test_all.py, so these jobs make it a general check."""
+        self.past("tests/test_all.py", ("Allow empty exports", "Allow custom avatars",
+                                        "Allow keyboard navigation"))
+        self.record("20260930-1200-invoice", "Invoices round to cents",
+                    ["python3 tests/test_all.py"], live=True)
+        self.assertEqual(self.rivals("Search ignores accents",
+                                     ["python3 tests/test_all.py"]), [])
+
     def test_one_job_relaunched_is_not_a_general_check(self):
         """Retries of one task under its own title count once, not as three jobs."""
-        for n in range(3):
-            self.record(f"20260901-100{n}-retry", "Half cents go to the customer",
-                        ["python3 tests/test_invoice.py"])
+        self.past("tests/test_invoice.py", ["Half cents go to the customer"] * 3)
         self.record("20260930-1200-invoice", "Invoices round to cents",
                     ["python3 tests/test_invoice.py"], live=True)
         rivals = self.rivals("Invoice totals show the currency",
                              ["python3 tests/test_invoice.py"])
         self.assertEqual(rivals[0]["files"], ["tests/test_invoice.py"])
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -13672,8 +13672,8 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
     A match is a run whose state is `running` or `queued` with a live process
     (`process_active`), in the task's repository, launched by anybody, where either a
     done-when of the new task and of the running run name the same test file -- not a
-    general check, which three other jobs there whose titles do not name it ran too --
-    or their titles share at least four significant words.  Each match is a dict with the run's
+    general check, which three other jobs there whose titles do not name it ran too,
+    unless both titles name it -- or their titles share at least four significant words.  Each match is a dict with the run's
     id, seat (None for nobody's), started_at, title, shared test files and shared
     title-word count.  Read-only: run state comes only from run_dirs(), read_state()
     and process_active(), and a run's done-when from its own task.md.  A
@@ -13735,25 +13735,30 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
     def names(text, name):
         """Whether a title names what the test file `name` checks.
 
-        A word of the file's own name begins a title word, or a title word of four or
-        more letters begins it: invoice and invoices, rounding and round.
+        A title word is a word of the file's own name, or one of three or more letters
+        with a plain ending added (invoice and invoices, round and rounding); any longer
+        prefix would read `allow` as naming test_all.py.
         """
         subject = set(re.findall(r"[a-z0-9]+",
                                  name.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower())) - {"test"}
-        return any(word.startswith(part) or (len(word) >= 4 and part.startswith(word))
-                   for word in re.findall(r"[a-z0-9]+", (text or "").lower())
-                   for part in subject)
+        for word in re.findall(r"[a-z0-9]+", (text or "").lower()):
+            for part in subject:
+                short, long = sorted((word, part), key=len)
+                if long == short or (len(short) >= 3 and long.startswith(short)
+                                     and long[len(short):] in ("s", "es", "d", "ed", "ing")):
+                    return True
+        return False
 
     named = None
 
     def specific(files, other_title):
-        """The files among `files` fewer than three other unrelated jobs there named.
+        """The files among `files` both titles name, or fewer than three unrelated jobs ran.
 
         A check such as a docs test sits in the done-when of job after job whatever they
         change, so sharing it says nothing about the work; a test only the jobs changing
-        its behaviour name still does.  A job whose title names the file changes what it
-        checks, so it never makes the file general; a job is a title, so relaunches of
-        one count once.
+        its behaviour name still does, and so does any test both titles name, whoever
+        else ran it.  A job whose title names the file changes what it checks, so it
+        never makes the file general; a job is a title, so relaunches of one count once.
         """
         nonlocal named
         if named is None and files:
@@ -13774,7 +13779,8 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
                     if not names(job, name):
                         named.setdefault(name, set()).add(job)
         return {name for name in files
-                if len(named.get(name, set()) - {title, other_title}) < 3}
+                if names(title, name) and names(other_title, name)
+                or len(named.get(name, set()) - {title, other_title}) < 3}
 
     mine_files = test_files(cmds)
     mine_words = significant_words(title, repo.name)
