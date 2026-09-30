@@ -36,7 +36,7 @@ printf '%s\\n%s\\n' "$(sed -n '2,$p' "$resp")" "$(sed -n '1p' "$resp")"
 
 # One JSON line per turn: the login it ran on and the conversation it resumed.  A token with a
 # `refuse-<token>` file is refused as a spent subscription is, in Claude's own words; one with a
-# `dry-<token>` file fails with an answer that names its quota, which only `worker_dry` reads.
+# `dry-<token>` file fails with an answer that names its quota, which is the model talking.
 FAKE_CLAUDE = """#!/usr/bin/env bash
 sid=""
 while [ $# -gt 0 ]; do [ "$1" = --resume ] && sid=$2; shift; done
@@ -225,20 +225,18 @@ class Accounts(unittest.TestCase):
         self.assertEqual(usage.account(self.cfg, "anthropic")[1], False)
         self.assertTrue(usage.model_exhausted(self.cfg, "opus", usage.collect(self.cfg))[0])
 
-    def test_quota_only_a_failed_answer_names_goes_to_the_next_account_too(self):
+    def test_quota_only_a_failed_answer_names_parks_no_account(self):
         self.configure()
         self.meters("tok-default", 10)
         self.meters("tok-second", 30)
         (self.fake / "dry-tok-second").touch()
         code, answer, session, _ = self.turn()
-        self.assertEqual((code, session), (0, "s1"))
-        self.assertIn("Done on tok-default", answer)
-        self.assertEqual([(c["token"], c["resume"]) for c in self.calls()],
-                         [("tok-second", ""), ("tok-default", "s1")])
-        self.assertTrue(any("ran dry on account second: ran dry on 'insufficient_quota'" in line
-                            for line in self.lines), self.lines)
-        self.assertEqual(usage.account(self.cfg, "anthropic"), ("default", True))
-        self.assertTrue(usage.collect(self.cfg)["anthropic"]["accounts"]["second"]["exhausted"])
+        self.assertEqual((code, session), (1, "s1"))
+        self.assertIn("Stopped on insufficient_quota.", answer)
+        self.assertEqual([(c["token"], c["resume"]) for c in self.calls()], [("tok-second", "")])
+        self.assertFalse([line for line in self.lines if "ran dry" in line], self.lines)
+        self.assertEqual(usage.account(self.cfg, "anthropic"), ("second", True))
+        self.assertFalse(usage.collect(self.cfg)["anthropic"]["accounts"]["second"]["exhausted"])
 
     def test_a_provider_without_accounts_is_one_login_as_before(self):
         self.configure(accounts="")

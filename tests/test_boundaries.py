@@ -33,7 +33,7 @@ RULES = [
      "flags": ("-i",),
      "pattern": "rate[ _-]?limit|quota|capacity|overload|usage[ _-]?limit",
      "home": ("adapters/", "agentkit/harness/"),
-     "max": 153},
+     "max": 141},
     # run.json has one writer, so its keys and their transitions can be read in one file.
     # Called through the module (`run.save_state`); watch.py's own `save_state` writes the
     # watcher's state, not a run record.

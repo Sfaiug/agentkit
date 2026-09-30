@@ -140,6 +140,11 @@ refusals = ["provider.rate-limit", "provider.quota", "rate limit", "429", "quota
             "500", "502", "503", "504", "Internal server error", "overloaded", "529",
             "at capacity"]
 quotas = ["provider.rate-limit", "provider.quota", "rate limit", "429", "quota"]
+# `outages` say the provider is down, and the turn is waited out even beside one of the
+# `faults`, which say the harness never ran it and hand it to another at once.  A worker turn
+# reads these, `refusals` and `quotas` only as whole words, in what the harness itself said,
+# beside the words no harness owns (`STALL` in agentkit/harness/__init__.py).
+outages = ["500", "502", "503", "504", "529"]
 # No `terminal`: a trivial turn ends on `text`, a tool turn on `step_finish`, a refused one on
 # `error` -- there is no single terminal kind, and the error record declares itself a failure.
 

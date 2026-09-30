@@ -154,6 +154,12 @@ refusals = ["usage limit", "rate limit", "rate_limit_error", "overloaded", "529"
             "Can't reach the API server", "at capacity"]
 quotas = ["rate limit", "rate_limit_error", "Usage limit reached", "usage limit", "429",
           "insufficient_quota", "insufficient quota", "payment required"]
+# `outages` say the provider is down, and the turn is waited out even beside one of the
+# `faults`, which say the harness never ran it and hand it to another at once.  A worker turn
+# reads these, `refusals` and `quotas` only as whole words, in what the harness itself said,
+# beside the words no harness owns (`STALL` in agentkit/harness/__init__.py).
+outages = ["Can't reach the API server", "500", "502", "503", "504", "529"]
+faults = ["please run /login", "invalid x-api-key", "authentication_error"]
 # `terminal` is the event log's terminal record kind: the stream ends with a `result` event,
 # which is what adapters/claude.sh reads final.md out of, failure or not.
 terminal = "result"

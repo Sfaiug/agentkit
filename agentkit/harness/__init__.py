@@ -16,6 +16,7 @@ No module outside this package names a harness: the core asks
 
 import importlib
 from pathlib import Path
+import re
 
 from .. import config
 
@@ -33,8 +34,32 @@ UPDATE = {"version": None, "upgrade": None, "revert": None, "latest": None, "env
 # and None where the manifest names none, which is the host's usual minute.
 USAGE = {"capture": False, "strips_timestamp": False, "reset": False, "none": False,
          "probe_every": None}
+# `[stall]`: the words no one harness owns, read for every harness beside its manifest's own:
+# HTTP's, the shell's, a command line's and a login's, which any harness may pass on.
+STALL = {"refusals": ("API Error",),
+         "outages": ("overloaded", "at capacity", "Internal server error", "Bad Gateway",
+                     "Gateway Timeout", "Service unavailable"),
+         "faults": ("command not found", "Argument list too long", "not installed",
+                    "unknown option", "unknown flag", "unknown shorthand flag",
+                    "unknown argument", "unknown arguments", "unknown command",
+                    "unrecognized option", "unrecognized argument", "unrecognized arguments",
+                    "unexpected argument", "invalid option", "unknown model", "invalid model",
+                    "model not found", "not logged in", "please log in", "please login",
+                    "unauthorized", "unauthorised", "authentication failed",
+                    "authentication required", "authentication error", "invalid api key")}
+# What a failed turn's own output says, as `Harness.failure` reads it: the account's window is
+# spent, the provider declined the turn or is down, or the harness never ran the turn at all.
+SPENT, REFUSAL, OUTAGE, FAULT = "spent", "refusal", "outage", "fault"
 
 _LOADED = {}
+
+
+def says(text, word):
+    """Does `text` say `word` on its own: never inside a longer word, nor its digits inside a
+    longer number -- a request id, a byte count, a duration?"""
+    head = r"(?<!\w)(?<!\d\.)" if re.match(r"\w", word) else ""
+    tail = r"(?!\w)(?!\.\d)" if re.search(r"\w$", word) else ""
+    return bool(word) and re.search(head + re.escape(word) + tail, text, re.I) is not None
 
 
 def _module(name):
@@ -85,6 +110,34 @@ class Harness:
         facts = self._section("usage", USAGE)
         facts["none"] = bool(facts.get("none"))
         return facts
+
+    def failure(self, said, ran=True):
+        """What a failed turn's own output says, in its `[stall]` words: (outcome, word).
+
+        `said` is the harness's own -- its stderr, its failure events, a final.md nothing
+        answered (`run.harness_said`) -- never the model's answer, and a word counts only
+        standing on its own (`says`).  A spent window (`quotas`) outranks a refusal
+        (`refusals`), and a refusal an outage (`outages`).  In a turn that never `ran` -- it
+        left no answer at all -- a `faults` word says the harness could not run it, and that
+        outranks the rest, unless an outage word says the provider was down beside it.
+        (None, None) where it said none of them.
+        """
+        block = config.manifest(self.name).get("stall")
+        block = block if isinstance(block, dict) else {}
+
+        def first(key):
+            listed = block.get(key)
+            words = (listed if isinstance(listed, list) else []) + list(STALL.get(key, ()))
+            return next((word for word in words if isinstance(word, str) and says(said, word)),
+                        None)
+
+        outage = first("outages")
+        fault = None if ran or outage else first("faults")
+        for outcome, word in ((FAULT, fault), (SPENT, first("quotas")),
+                              (REFUSAL, first("refusals")), (OUTAGE, outage)):
+            if word:
+                return outcome, word
+        return None, None
 
     @property
     def conversation_facts(self):

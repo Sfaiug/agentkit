@@ -132,24 +132,27 @@ class QuotaWordsBounded(unittest.TestCase):
 
     def test_a_word_moved_into_a_manifest_still_hands_over_or_waits(self):
         # a harness that never ran the turn hands it over at once, in its own manifest's words
-        self.assertIn("unknown option", stall("claude")["faults"])
+        line = "The model gpt-nonexistent was not found. Try a different model."
+        self.assertIn("was not found", stall("codex")["faults"])
         with self.assertRaises(run.CannotRun) as broken:
-            self.turn("opus", {"code": 1, "stderr.log": "error: unknown option '--effort'\n"})
-        self.assertIn("unknown option '--effort'", str(broken.exception))
+            self.turn("astra", {"code": 1, "stderr.log": f"{line}\n"})
+        self.assertIn(line, str(broken.exception))
         self.sleep.assert_not_called()
         # ... unless the provider was down beside it, which is waited out on the same session
-        self.assertIn("Bad Gateway", stall("claude")["outages"])
+        self.assertIn("Can't reach the API server", stall("claude")["outages"])
         self.sleep.side_effect = None
         code, text, session, _ = self.turn(
             "opus", {"code": 1, "stderr.log": "error: unknown option '--effort'\n"
-                                              "upstream answered Bad Gateway\n"}, DONE)
+                                              "Can't reach the API server\n"}, DONE)
         self.assertEqual((code, session), (0, "s1"))
         self.assertIn("Done.", text)
         self.assertEqual(self.sleep.call_args_list, [((60,),)])
         # and an outage the harness put where the answer belongs is waited out as before
-        self.assertIn("Gateway Timeout", stall("codex")["outages"])
+        self.assertIn("idle timeout", stall("codex")["outages"])
         self.sleep.reset_mock()
-        code, text, _, _ = self.turn("astra", {"code": 1, "final.md": "Gateway Timeout"}, DONE)
+        code, text, _, _ = self.turn(
+            "astra", {"code": 1, "final.md": "stream disconnected: idle timeout waiting for SSE"},
+            DONE)
         self.assertEqual(code, 0)
         self.assertEqual(self.sleep.call_args_list, [((60,),)])
         self.assertEqual(self.marked, [])
