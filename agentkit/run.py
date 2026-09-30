@@ -3648,7 +3648,7 @@ def repair_open(state, tip):
 
     The one answer to both "does this red get a repair" and "do its waiters retry": one
     repair per command per tip.  On its way it does, on any tip.  Ended, it holds the tip it
-    tried -- the one it ended on (`question_tip`), else the one its branch last stood on
+    tried -- the one its branch stood on as it ended (`question_tip`), else its base
     (`base_sha`, all a receipt from before `question_tip` has) -- unless it merged,
     which moved the target, or found the command passing there (`not needed`).  Failed,
     passed unmerged or blocked, another run of it on the same tip would only repeat it; a
@@ -3661,18 +3661,16 @@ def repair_open(state, tip):
 
 
 def question_tip(lp):
-    """What a repair records as it ends as the tip it tried: the one a question is about.
+    """What a repair records with its ending as the tip it tried: the one a question is about.
 
-    The target as its checkout last fetched it: its start, its executor and its integration
-    each fetch, and any of them can read a newer tip than the one it was queued at or based
-    on -- an executor that rebases onto it moves no `base_sha` -- so the newest it saw is the
-    one it failed on, passed on or asks about.
+    The newest target commit its branch stands on.  An executor that rebases onto a newer
+    tip moves no `base_sha`, and the target ref is the whole repository's: any checkout's
+    fetch moves it past a tip this branch never stood on.
     """
     if not lp.state.get("repair"):
         return {}
     upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
-    return {"question_tip": git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False)
-            or None}
+    return {"question_tip": git(lp.wt, "merge-base", "HEAD", upstream, check=False) or None}
 
 
 def open_followup(state, text, repair=None, tip=None):
@@ -7615,10 +7613,13 @@ def clear_delivery(state):
     with it.  Left there, a `handed_back` from the attempt before would make every later tick
     skip the new ending as already said; a `recovery_notified` would make the next
     interruption keep quiet because an earlier one had already spoken; and `reported` would
-    fold the new ending out of the menu.  Every one of them is the last attempt's word.
+    fold the new ending out of the menu; a repair's `question_tip` would outrank the tip
+    this attempt tried in an ending written from outside, a stop's or a memory cap's.  Every
+    one of them is the last attempt's word.
     """
     for key in ("handed_back", "handback_pending", "handback_typed", "handback_note",
-                "handback_wait_reason", "notification_pending", "recovery_notified"):
+                "handback_wait_reason", "notification_pending", "recovery_notified",
+                "question_tip"):
         state.pop(key, None)
     state["reported"] = False
     return state
@@ -12769,13 +12770,15 @@ def cmd_merge(argv):
         state.update(state="exhausted", error=str(exc))
         note(lp, str(exc), failed=True)
     except Dead as exc:
-        state.update(state="error", verdict="ERROR", error=str(exc), finished_at=time.time())
+        state.update(state="error", verdict="ERROR", error=str(exc), finished_at=time.time(),
+                     **question_tip(lp))
         park_error(run_dir, state)
         note(lp, str(exc), failed=True)
     except Blocked as exc:
         # a fixer here can say the task is wrong as readily as one in a round: the delivery
         # retry ends `blocked` with the section, and no later command picks it up
-        state.update(state="blocked", verdict="BLOCKED", error=str(exc), blocked=exc.section)
+        state.update(state="blocked", verdict="BLOCKED", error=str(exc), blocked=exc.section,
+                     **question_tip(lp))
         note(lp, str(exc), failed=True)
     except config.Error as exc:
         # a git or gh that stopped -- including the one that reads the PR -- must leave this
@@ -12784,18 +12787,18 @@ def cmd_merge(argv):
         if state.get("review_pending"):
             state.update(state="exhausted", error=str(exc))
         else:
-            state["state"] = "pass" if review_pass(state, cfg) else "fail"
+            state.update(state="pass" if review_pass(state, cfg) else "fail",
+                         **question_tip(lp))
         note(lp, str(exc), failed=True)
     else:
         if state.get("state") != "waiting":
-            state["state"] = "pass" if review_pass(state, cfg) else "fail"
+            state.update(state="pass" if review_pass(state, cfg) else "fail",
+                         **question_tip(lp))
     finally:
         _RUN_CONTEXT.state = previous
         sampler.stop()
         sampler.join(timeout=2)
         history.close_step(run_dir.name, log=log)
-    if state.get("state") in ENDED:
-        state.update(question_tip(lp))
     state["finished_at"] = time.time()
     save_state(run_dir, state)
     write_result(run_dir, state, cmds, log, cfg)
