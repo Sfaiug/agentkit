@@ -67,9 +67,10 @@ minute -- the cadence is the host's and not this screen's -- and never blocks a 
 draw; Muse's adapter keeps its own ten-minute cache, because its probe is a billed request.
 Those ten seconds hold whatever stdin is, a script's half-written line included, and a key typed
 during a draw is read by the next wait.  At rest one thing moves: on a terminal of 256 colours or
-more each working seat's `●` breathes, all in one phase, on `motion`'s clock (`moving`).  The
-sub-screens are not live: they are read once, like any other question -- but a project's feature
-switches, which draw again within a second of their `list` landing.
+more each working seat's `●` breathes, all in one phase, on `motion`'s clock (`moving`); and
+news seen while the menu is up moves once on it -- a `!` pulses, a `✓` settles, a bar glides --
+then is still.  The sub-screens are not live: they are read once, like any other question --
+but a project's feature switches, which draw again within a second of their `list` landing.
 
 Seven keys: the numbers, `n`, `x`, `c` (models, providers, effort, discord, version),
 `m` (the highlighted seat's models), `i`, `q`.
@@ -417,23 +418,28 @@ def moving(clock, wake=None, timeout=TICK):
     """`wait_key` on the main screen, its digit wait and its stop question: `timeout` seconds at
     most, and each of `clock`'s frames drawn while something moves and no key is waiting.
 
-    Only a wait that ran to its frame draws one.  One that ended before it -- on news or a
-    resize -- or on a resize just as its frame fell due returns None, its cells forgotten, since
-    a resize moves them all and the screen is the caller's to draw again.
+    Only a wait that ran to its frame draws one.  One that ended before it, on news, returns
+    None, its cells forgotten, for the caller to draw the screen again; so does one a resize
+    ended, at any time, and the clock forgets what it had seen as well: a resize moves every
+    cell, and the draw after it shows the values as they are (`motion.Clock.forget`).
     """
-    until = time.monotonic() + timeout
+    left, until = timeout, time.monotonic() + timeout
     terminal.asked_again()          # a draw asked for before the one just made is answered
     while True:
         due = clock.wait()
-        key = wait_key("> ", timeout if due is None else
-                       max(0, min(due, until - time.monotonic())), wake)
+        key = wait_key("> ", left if due is None else max(0, min(due, left)), wake)
+        if key is None and terminal.asked_again():
+            clock.clear()
+            clock.forget()
+            return None
         if key is not None or due is None or time.monotonic() >= until:
             return key
-        if clock.wait() > 0 or terminal.asked_again():
+        if clock.wait() > 0:
             clock.clear()
             return None
         sys.stdout.write(clock.frame())
         sys.stdout.flush()
+        left = until - time.monotonic()
 
 
 def pause(*lines):
@@ -1175,8 +1181,11 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     `groups`, `v5o_groups`' answer already in hand, is drawn as it is, and nothing is read.
 
     `clock`, the menu's `motion.Clock`, is handed each working seat's `●` to breathe while the
-    menu has the keyboard, and the dots go out in the draw's own write at the clock's phase, so
-    no dot jumps when the screen is drawn over.
+    menu has the keyboard, and the news since the draw before: a `!` that turned `needs you`
+    pulses, a `✓` that turned `done` settles and a usage or tasks bar that moved glides.  Their
+    first frame goes out in the draw's own write, at the clock's phase, so nothing jumps when
+    the screen is drawn over.  While a popup's content fades in, the whole screen is handed to
+    it, to come up out of the background (`motion.Clock.rise`).
     """
     owned = drawn is not None
     if (not owned and sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
@@ -1298,13 +1307,29 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                      if any(name == cursor for _, name in lines)), page)
     # The layout is min(terminal width, 120); beyond that the margin grows, never the text.
     out = []
+    # what may move: (key, what it shows -- a word, or a bar's value and its blocks -- its first
+    # cell, highlighted, a bar's colour); a bar's news is its value, which rounding can hide
+    moves = []
     if not compact:
         out += [terminal.header_line("", time.strftime("%H:%M"), width),
                 terminal.rule_line(width)]
     if meters:
         if not compact:
             out.append("")
-        out += meters
+        for line in meters:
+            out.append(line)
+            text = terminal.ANSI.sub("", line)
+            bar, left = re.search("[█░]+", text), re.search(r"(\d+)% left", text)
+            if bar and left:
+                # its filled cells' colour, its company's as `usage_lines` drew it; one spent
+                # has none drawn, and is red whoever's it is
+                shade = next((kind for kind in (fill(int(left.group(1)), colour(cfg, name))
+                                                for name in cfg["providers"])
+                              if terminal.styled("█", kind).removesuffix("\033[0m") in line),
+                             fill(int(left.group(1)), "accent"))
+                moves.append((("usage", text[:bar.start()].strip()),
+                              (int(left.group(1)) / 100, bar.group()),
+                              (len(out), terminal.cells(text[:bar.start()]) + 1), False, shade))
     body = [("  no sessions; n starts one", None)]
     if ordered:
         # One blank line between projects; seat rows two under their project.
@@ -1337,7 +1362,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         body = body[:at] + [(line, None) for line in asked] + body[at:]
     else:
         at = 0
-    dot, dots = terminal.state_text("working"), []    # each working seat's `●`, and its light
     for line, name in body:
         # while a question is up its first answer carries the mark, and the seat only its light;
         # a heading is flush left, so its mark goes in front of it
@@ -1345,9 +1369,15 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         out.append(terminal.highlight(("  " if isinstance(name, Path) else "") + line,
                                       mark=name != above and not at) if lit else line)
         above = name
-        text = terminal.ANSI.sub("", line)
-        if words.get(name) == "working" and dot in text:
-            dots.append(((len(out), terminal.cells(text[:text.index(dot)]) + 1), lit))
+        text, word = terminal.ANSI.sub("", line), words.get(name)
+        if word and terminal.state_text(word) in text:
+            moves.append((("word", name), word, (len(out), terminal.cells(
+                text[:text.index(terminal.state_text(word))]) + 1), lit, None))
+        tasks = re.search(r"tasks ([█░]+|[#-]+) (\d+)/(\d+)", text)
+        if tasks and word == "working":
+            moves.append((("tasks", name), (int(tasks.group(2)) / int(tasks.group(3)),
+                                            tasks.group(1)),
+                          (len(out), terminal.cells(text[:tasks.start(1)]) + 1), lit, None))
     if not compact:
         out.append("")
     keys_top = len(out)
@@ -1355,15 +1385,32 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     if not owned:
         print("\n".join(out))
         return page, (len(pages) if ordered else 1)
-    moved = ""
+    moved, rising = "", False
     if clock is not None:
         clock.clear()
-        for cell, lit in dots:
-            clock.start([cell], motion.breathing(terminal.state_glyph("working"), "working", lit))
+        rising = clock.rise(out)
+        news = clock.look({key: shown for key, shown, _, _, _ in moves})
+        for key, shown, cell, lit, shade in moves:
+            since, before = news.get(key, (None, None))
+            if shown == "working":
+                clock.start([cell], motion.breathing(terminal.state_glyph(shown), shown, lit))
+            elif since is None:
+                continue
+            elif shown in ("needs you", "done"):
+                clock.start([cell], *(motion.pulsing if shown == "needs you" else motion.settling)(
+                    terminal.state_glyph(shown), shown, since, lit))
+            elif key[0] != "word" and len(before[1]) == len(shown[1]):
+                # a cell each, so a frame rewrites only the cells that moved
+                cells, until = motion.gliding(before[1], shown[1], since, shade, lit,
+                                              sweep=shown[0] == 1 > before[0])
+                for n, animation in enumerate(cells):
+                    clock.start([(cell[0], cell[1] + n)], animation, until)
         moved = clock.frame()
     # Home and write over, each line cleared past its end and the screen below the last: one
-    # write, so no draw ever shows a blank screen or a half-drawn one.
-    sys.stdout.write("\033[H" + "".join(f"\033[K{line}\n" for line in out) + "\033[J" + moved)
+    # write, so no draw ever shows a blank screen or a half-drawn one.  Lines that rise are
+    # the frame's to write, from the background up, and never first as they are.
+    sys.stdout.write("\033[H" + ("" if rising else "".join(f"\033[K{line}\n" for line in out))
+                     + "\033[J" + moved)
     sys.stdout.flush()
     drawn.update(order=order, cursor=cursor, words=words,
                  ask=top + at + len(asked) - 1 if at else None,
@@ -3435,8 +3482,12 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     seat's capture holds up a read or a draw.  The first draw's meters are the cache's, and
     the probe that follows it runs in a thread and asks for one more draw when it lands.
     Nothing here waits on an adapter, and a key typed during a draw is read by the next wait.
-    Between draws the working seats' dots breathe, a frame whenever the clock says one is due
-    and no key is waiting (`moving`), so a key is read within a frame of being pressed.
+    Between draws the working seats' dots breathe, and what changed since the draw before moves
+    once, a frame whenever the clock says one is due and no key is waiting (`moving`), so a key
+    is read within a frame of being pressed.  A key that opens another screen, a notice and a
+    resize have the clock forget what it saw, so the menu after them replays nothing.  The
+    popup's content fades in on that clock, and a key pressed while it does is answered as at
+    any other time, its draw coming up with the rest; the popup closes the moment its menu ends.
 
     On a terminal the menu has the keyboard (`terminal.Keyboard`) and there are no lines: a
     key acts the moment it is pressed.  One seat row is highlighted; ↑/↓, k/j and the wheel
@@ -3454,7 +3505,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     actions = ("n", "x", "r") if overlay else ("n", "x", "c", "m", "i")
     page, cursor, ahead, look = 0, None, None, False
     last = [[], None]                     # what the last read left: the seats and their groups
-    clock = motion.Clock()                # what moves between draws: the working seats' dots
+    clock = motion.Clock(fade=overlay)    # what moves between draws: the dots, news, and
+                                          # the popup's first draw coming up
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
         if keyboard.take():
             terminal.sense()              # true colour and the background, once, before a draw
@@ -3462,11 +3514,12 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
         while True:
             if look:
                 live.ask(look=True)       # read and looked at again, off the draw
-            found, groups = last          # no key waits for a read: it draws the last one
             messages = orch.job_notices()
             if messages:
                 keyboard.give()           # a notice waits for its Enter, like any sub-screen
                 show_notices(messages)
+                clock.forget()            # and the menu it comes back to replays nothing
+            found, groups = last          # after any notice: what changed under it is drawn as is
             drawn = {} if keyboard.take() else None
             own = config.current_session() if overlay else None
             listed = keys if drawn is None else \
@@ -3492,6 +3545,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                         cursor = order[min(max(at, 0), len(order) - 1)]
                     look = False          # the highlight moves over what is in hand
                     continue
+                clock.forget()            # whatever the key opens, the menu back replays nothing
                 typed, key = key, pressed(key, shown, found)
                 if isinstance(key, Path):
                     cursor = key              # the heading, highlighted when he is back
@@ -3639,6 +3693,8 @@ def main(argv):
         if arg not in flags:
             raise config.Error(f"{USAGE}  (got {arg!r})")
         flags[arg] = True
+    if flags["--overlay"]:
+        terminal.inset()                  # inside the border, what the popup asks to be left
     if not (flags["--dry-run"] or flags["--overlay"]):
         update_first()
     if not flags["--dry-run"]:

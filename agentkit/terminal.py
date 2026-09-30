@@ -35,8 +35,15 @@ STATE_STYLES = {
 LIGHT = {"needs you": "9c6314", "working": "1e66f5", "done": "338022", "FAIL": "d20f39",
          "dim": "6c6f85", "waiting": "6c6f85"}
 GREY = 0.15        # saturation under which a colour is a grey rather than a hue
+# The kinds a screen asks `styled` for by what they mean, and the word whose colour each is.
+KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "needs you",
+         "good": "done"}
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
 _LIGHT = False     # its background is light (`sense`)
+PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
+_PAD = 0           # ... and those this process leaves (`inset`)
+LEVELS = (0, 95, 135, 175, 215, 255)   # each channel's steps in xterm's 6x6x6 colour cube
+_SGR = re.compile(r"\x1b\[([0-9;]*)m")
 _ANSWER = re.compile(rb"\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\)")   # its answer to OSC 11
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
@@ -91,10 +98,9 @@ def colour_depth():
 def xterm_colour(rgb):
     """Nearest fixed xterm colour; the first sixteen depend on the user's palette."""
     wanted = tuple(int(rgb[i:i + 2], 16) for i in (0, 2, 4))
-    levels = (0, 95, 135, 175, 215, 255)
     colours = [(16 + 36 * r + 6 * g + b, (red, green, blue))
-               for r, red in enumerate(levels) for g, green in enumerate(levels)
-               for b, blue in enumerate(levels)]
+               for r, red in enumerate(LEVELS) for g, green in enumerate(LEVELS)
+               for b, blue in enumerate(LEVELS)]
     colours += [(232 + i, (8 + 10 * i,) * 3) for i in range(24)]
     return min(colours, key=lambda item: sum((a - b) ** 2
                for a, b in zip(wanted, item[1])))[0]
@@ -116,11 +122,49 @@ def basic_colour(rgb):
 
 
 def faded(word, amount):
-    """`word`'s colour `amount` (0 to 1) of the way to the background, as `#RRGGBB` for `styled`."""
-    rgb = LIGHT.get(word, STATE_STYLES[word][2]) if _LIGHT else STATE_STYLES[word][2]
-    back = 255 if _LIGHT else 0
-    return "#" + "".join(f"{round(int(rgb[i:i + 2], 16) * (1 - amount) + back * amount):02x}"
+    """`word`'s colour -- or a kind's, as `styled` reads it -- `amount` (0 to 1) of the way to the
+    background, or with a negative one that far toward the foreground, where it is lit; as
+    `#RRGGBB` for `styled`."""
+    word = KINDS.get(word, word)
+    rgb = (on_background(word[1:]) if word.startswith("#") else
+           LIGHT.get(word, STATE_STYLES[word][2]) if _LIGHT else STATE_STYLES[word][2])
+    to, amount = (255 if _LIGHT else 0) if amount >= 0 else (0 if _LIGHT else 255), abs(amount)
+    return "#" + "".join(f"{round(int(rgb[i:i + 2], 16) * (1 - amount) + to * amount):02x}"
                          for i in (0, 2, 4))
+
+
+def fade(text, amount):
+    """`text` as a draw wrote it, every colour in it -- and the foreground its plain cells take,
+    the one `faded` lights toward -- `amount` (0 to 1) of the way to the background: a popup's
+    content coming up out of it (`motion.Clock.rise`).  Where colour cannot move it is as it is.
+    """
+    depth = colour_depth()
+    if amount <= 0 or depth <= 8:
+        return text
+    back = 255 if _LIGHT else 0
+
+    def tone(rgb):
+        mixed = [round(c * (1 - amount) + back * amount) for c in rgb or (255 - back,) * 3]
+        return ("\033[38;2;{};{};{}m".format(*mixed) if depth == 24 else
+                f"\033[38;5;{xterm_colour(''.join(f'{c:02x}' for c in mixed))}m")
+
+    out, rgb, at = tone(None), None, 0
+    for code in _SGR.finditer(text):
+        # the colour this code leaves, read back from what `styled` and `highlight` write
+        parts = [int(part or 0) for part in code.group(1).split(";")]
+        while parts:
+            first = parts.pop(0)
+            if first in (0, 39):
+                rgb = None
+            elif first == 38 and parts[:1] == [2]:
+                rgb, parts = parts[1:4], parts[4:]
+            elif first == 38 and parts[:1] == [5]:
+                n, parts = parts[1] - 16, parts[2:]
+                rgb = ((8 + 10 * (n - 216),) * 3 if n >= 216 else
+                       (LEVELS[n // 36], LEVELS[n // 6 % 6], LEVELS[n % 6]))
+        out += text[at:code.end()] + tone(rgb)
+        at = code.end()
+    return out + text[at:] + "\033[0m"
 
 
 def tmux_state(option, colour=False):
@@ -156,11 +200,51 @@ def tmux_runs(option):
 
 
 def width():
-    return max(1, shutil.get_terminal_size((100, 24)).columns)
+    return max(1, shutil.get_terminal_size((100, 24)).columns - 2 * _PAD)
 
 
 def height():
-    return max(1, shutil.get_terminal_size((100, 24)).lines)
+    return max(1, shutil.get_terminal_size((100, 24)).lines - 2 * _PAD)
+
+
+class _Padded:
+    """stdout `_PAD` cells in from every edge: each place a screen writes at, and the start of
+    each line it begins, moved in by them."""
+
+    PLACES = re.compile(r"\x1b\[(?:(\d+);(\d+))?H|\r|\n")
+
+    def __init__(self, stream):
+        self.stream = stream
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+    def write(self, text):
+        def moved(place):
+            if place.group() in "\r\n":
+                return f"{place.group()}\033[{_PAD + 1}G"
+            return f"\033[{int(place.group(1) or 1) + _PAD};{int(place.group(2) or 1) + _PAD}H"
+        self.stream.write(self.PLACES.sub(moved, text))
+        return len(text)
+
+
+def inset():
+    """Leave the cells the popup this runs in asks for (PAD_ENV) blank inside its border.
+
+    tmux 3.5a borders a popup but pads nothing inside the border, so the screens leave the
+    padding themselves: they lay out to the room inside it (`width`, `height`), what they write
+    is moved in by it, and a click is read back to the cell it means.  Anywhere the variable is
+    not set -- a phone's popup, which spares no cell, and every screen outside one -- nothing
+    changes.
+    """
+    global _PAD
+    try:
+        wanted = max(0, int(os.environ.get(PAD_ENV) or 0))
+    except ValueError:
+        wanted = 0
+    if wanted and sys.stdout.isatty():
+        _PAD, sys.stdout = wanted, _Padded(sys.stdout)
+        sys.stdout.write("\033[H")    # what is written before a screen places itself is in too
 
 
 def plain(text):
@@ -261,8 +345,7 @@ def styled(text, kind):
     depth = colour_depth()
     if not depth or not text:
         return text
-    word = {"accent": "working", "ok": "done", "amber": "needs you",
-            "attention": "needs you", "good": "done"}.get(kind, kind)
+    word = KINDS.get(kind, kind)
     if kind in ("bold", "reverse"):
         code = "1" if kind == "bold" else "7"
     else:
@@ -536,6 +619,8 @@ def readline(prompt=""):
             line, _HALF_TYPED = _HALF_TYPED, b""
             return _REPORT.sub("", line.decode("utf-8", "replace")) or None
         _HALF_TYPED += byte
+    if _PAD:
+        sys.stdout.write("\r")    # the terminal echoed the Enter to column 1: back in the padding
     line, _, _HALF_TYPED = _HALF_TYPED.partition(b"\n")
     return _REPORT.sub("", line.decode("utf-8", "replace"))
 
@@ -862,7 +947,7 @@ def _sequence(fd):
         if button & 64:
             return Key({0: "wheel-up", 1: "wheel-down"}.get(button & 3, "other"))
         if not button & 99:        # the left button, not a drag: going down is half a click
-            return Key("click", "", col, row) if final == b"m" else None
+            return Key("click", "", col - _PAD, row - _PAD) if final == b"m" else None
         return Key("other")
     if kind == b"O" and final == b"M":
         return Key("enter")                        # the keypad's own Enter
