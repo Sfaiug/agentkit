@@ -434,14 +434,15 @@ class FreshWindowEndsMark(unittest.TestCase):
             self.assertNotIn("exhausted_until", providers["alpha"])
             self.assertFalse(providers["alpha"]["exhausted"])
 
-    def reset_adapter(self, **said):
+    def reset_adapter(self, status=None, **said):
         adapters = self.root / "adapters"
         adapters.mkdir()
         (adapters / "fake.toml").write_text("[usage]\nreset = true\n")
         self.stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}))
         self.stack.enter_context(patch.object(
             usage, "_adapter_json", side_effect=lambda harness, verb, *_a, **_kw:
-            {"code": "reset", "available": 0, **said} if verb == "reset" else None))
+            {"code": "reset", "available": 0, **said} if verb == "reset"
+            else status if verb == "reset-status" else None))
 
     def while_writing(self, asked, other):
         """Probe `asked`, and run `other` as another process would the moment that probe's
@@ -571,6 +572,25 @@ class FreshWindowEndsMark(unittest.TestCase):
                     self.assertEqual(read["alpha"]["account"], "first")
                     self.assertEqual([meter["used"] for meter in
                                       self.stored_account("second")["meters"]], [100])
+
+    def test_a_count_a_cached_read_recovers_is_spent_by_that_read(self):
+        self.reset_adapter({"available": 1}, weekly_used=0, resets_at=NOW + WEEK)
+        self.set_meters("alpha", self.old_window(used=100))
+        self.set_meters("beta", self.old_window(used=10))
+        cache = config.STATE / "usage.json"
+        with patch.object(usage, "_probe", side_effect=lambda *a, **kw: {
+                **self.fake_probe(*a, **kw), "resets": None}):
+            self.assertTrue(usage.collect(self.cfg)["alpha"]["exhausted"])
+            # a fresh snapshot that could not count alpha's resets, its policy check due
+            blob = json.loads(cache.read_text())
+            blob["reset_checked_at"] = NOW - usage.CACHE_TTL - 1
+            cache.write_text(json.dumps(blob))
+            read = usage.collect(self.cfg)
+        stored = json.loads(cache.read_text())["providers"]["alpha"]
+        for alpha in (read["alpha"], stored):
+            self.assertEqual([meter["used"] for meter in alpha["meters"]], [0])
+            self.assertEqual(alpha["resets"], 0)
+        self.assertFalse(read["alpha"]["exhausted"])
 
     def test_a_mark_written_with_its_deadline_alone_survives_later_writes(self):
         # Marks written before `exhausted_at` existed hold the deadline alone.

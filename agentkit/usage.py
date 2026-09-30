@@ -705,9 +705,9 @@ def _store(cfg, providers, now, fetched_at=None, checked=None, counted=None):
     `providers` -- this read's own copies, taken before its probes and credits went out -- can
     be older than any: a copy stands in only for a record the file does not hold.  What the
     read itself adds is derived here from the record the file holds: the accounts the config
-    lists, the meters past their reset dropped, the reset counts it asked for (`counted`, by
-    provider, of the account it asked about), and the flags (`_gate_flags`).  A provider the
-    config no longer has goes.
+    lists, the meters past their reset dropped, the reset counts it asked for where none is
+    written yet (`counted`, by provider, of the account it asked about), and the flags
+    (`_gate_flags`).  A provider the config no longer has goes.
     """
     def rolled(record):
         past = any(_past(meter, now) for meter in record.get("meters") or [])
@@ -724,10 +724,11 @@ def _store(cfg, providers, now, fetched_at=None, checked=None, counted=None):
                 prov["accounts"] = {account: rolled(_record(theirs.get(account))
                                                     or _record(ours.get(account)))
                                     for account in listed}
-            if name in (counted or {}):
-                asked = mine.get("account")
-                (prov["accounts"][asked] if listed and asked in prov["accounts"]
-                 else prov)["resets"] = counted[name]
+            asked = mine.get("account")
+            record = prov["accounts"][asked] if listed and asked in prov["accounts"] else prov
+            if name in (counted or {}) and _number(record.get("resets")) is None:
+                # a count written since -- the one a credit left -- is the later word
+                record["resets"] = counted[name]
             disk[name] = prov
         return _gate_flags({name: disk[name] for name in providers}, now, cfg)
     return _write(change, fetched_at, checked)
@@ -859,7 +860,9 @@ def collect(cfg, *, refresh=False):
                         harness, _ = config.provider_harness(cfg, name)
                     except config.Error:
                         continue      # a provider whose models were all removed: nothing to ask
-                    counted[name] = _resets(harness, providers[name].get("account"))
+                    # the policy below spends from this count
+                    counted[name] = providers[name]["resets"] = _resets(
+                        harness, providers[name].get("account"))
                 if due:
                     # a credit writes its own record, which is how a fresh week lifts a mark
                     providers = {name: _maybe_reset(cfg, name, prov, now)
