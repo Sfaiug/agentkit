@@ -4490,8 +4490,9 @@ def resume_waiting(dry_run=False, log=print, now=None):
     The tick parks it `waiting` on its upstream at the sha a fetch reads now, and
     resumes it -- the command's own resume, detached, never waited on -- on the
     first pass that reads another sha there, or, for a run parked on a red target,
-    that finds the run repairing it no longer open.  A fetch that fails, or a ref that
-    will not parse, is not a move: the waiter keeps waiting, silently.  A
+    that finds the run repairing it no longer holding that sha (`repair_open`).  A
+    fetch that fails, or a ref that will not parse, is not a move: the waiter keeps
+    waiting, silently.  A
     worktree that is gone cannot be resumed at all, so that run becomes an
     interruption naming what is really wrong, the way a login run's does.  A
     conflict FAIL at its budget stays a FAIL: more rounds are the owner's
@@ -4555,7 +4556,7 @@ def resume_waiting(dry_run=False, log=print, now=None):
                     waiting_on = state.get("waiting_on") or {}
                     if not waiting_on.get("sha"):
                         # no baseline to move from: this pass takes one, and the next
-                        # merge after it, or the end of the repair it names, resumes the run.
+                        # merge after it, or the repair it names letting go, resumes the run.
                         waiting_on = {**waiting_on, "ref": ref, "sha": sha}
                         state["waiting_on"] = waiting_on
                         run_mod.save_state(run_dir, state)

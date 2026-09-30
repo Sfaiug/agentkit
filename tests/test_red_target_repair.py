@@ -91,7 +91,8 @@ class RedTargetRepair(unittest.TestCase):
         self.assertEqual(third["waiting_on"]["repair"], self.prepared[1][0])
         self.assertEqual(run.read_state(config.RUNS / self.prepared[1][0])["repair"],
                          {"target": "main", "command": "false"})
-        # a repair that ended guards nothing: the next run on the same red starts another
+        # a repair that found the command passing guards nothing: the next run on the same
+        # red starts another
         run.save_state(config.RUNS / name, {**repair, "state": "not_needed",
                                             "not_needed": "passes now"})
         fourth = self.red_run("fourth", "seat")
@@ -119,11 +120,12 @@ class RedTargetRepair(unittest.TestCase):
                            "repair": repair}})
         return run_dir
 
-    def test_parked_runs_retry_when_their_repair_ends_merged_or_not(self):
+    def test_parked_runs_retry_when_their_repair_lets_go_of_their_tip(self):
         sha = "0" * 40
         repair = config.RUNS / "20260930-0201-repair"
         repair.mkdir(parents=True)
-        base = {"run_id": repair.name, "launched_session": "seat",
+        # the repair tried an earlier tip: however it ended, it never tried this one
+        base = {"run_id": repair.name, "launched_session": "seat", "base_sha": "1" * 40,
                 "repair": {"target": "main", "command": "false"},
                 "followup": {"run": "parked", "text": "`false` fails", "place": "`false`"}}
         with patch.object(run, "upstream_sha", return_value=sha):
@@ -227,6 +229,44 @@ class RedTargetRepair(unittest.TestCase):
         self.assertEqual(len(self.prepared), 2)
         self.assertEqual(later["waiting_on"],
                          {"ref": "origin/main", "sha": moved, "repair": self.prepared[1][0]})
+
+    def test_one_repair_per_command_per_tip_however_it_ended(self):
+        _, owner, self.wt = red.make_repos(self.root)
+        tip = run.git(owner, "rev-parse", "HEAD")
+        self.red_run("first", "seat")
+        endings = {"failed": {"state": "fail", "verdict": "FAIL"},
+                   "passed unmerged": {"state": "pass", "verdict": "PASS"},
+                   # a receipt from before `question_tip`: its base is the tip it asked about
+                   "blocked, old receipt": {"state": "blocked", "verdict": "BLOCKED",
+                                            "error": QUESTION,
+                                            "blocked": f"## Blocked\n{QUESTION}"}}
+        for word, ending in endings.items():
+            with self.subTest(word):
+                name = self.prepared[-1][0]
+                repair = config.RUNS / name
+                run.save_state(repair, {**run.read_state(repair), **ending, "base_sha": tip,
+                                        "finished_at": time.time()})
+                # its waiter stays parked on it while that tip stands ...
+                self.spawned.clear()
+                waiter = self.parked(tip, name)
+                with patch.object(run, "upstream_sha", return_value=tip):
+                    watch.resume_waiting(log=self.logs.append)
+                self.assertEqual(self.spawned, [])
+                # ... and one retried there anyway starts no second repair
+                prepared = len(self.prepared)
+                again = self.red_run("first", "seat")
+                self.assertEqual(len(self.prepared), prepared)
+                self.assertEqual(again["waiting_on"],
+                                 {"ref": "origin/main", "sha": tip, "repair": name})
+                # a tip no repair tried is a new red: the waiter retries and repairs it
+                tip = self.move(owner)
+                with patch.object(run, "upstream_sha", return_value=tip):
+                    watch.resume_waiting(log=self.logs.append)
+                self.assertEqual(self.spawned, [(waiter.name, ["resume", waiter.name])])
+                moved = self.red_run("first", "seat")
+                self.assertEqual(len(self.prepared), prepared + 1)
+                self.assertEqual(moved["waiting_on"], {"ref": "origin/main", "sha": tip,
+                                                       "repair": self.prepared[-1][0]})
 
     def test_a_repair_whose_launch_raised_but_stayed_queued_is_still_waited_on(self):
         _, owner, self.wt = red.make_repos(self.root)
