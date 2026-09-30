@@ -357,7 +357,7 @@ Helpers: `menu.wait_key`, `terminal.read_key`, `terminal.readline`,
 At rest one thing moves: each working session's `●`, on the main list and in the
 popup, eases from `working`'s colour to a tone of it half way to the background
 and back every two seconds, every dot in the same phase; its word and everything
-else stand still. Every animation, this one and those after it, runs on one
+else stand still, but the rule while the usage is asked (below). Every animation, this one and those after it, runs on one
 clock, `motion.Clock`, and no screen keeps a timer: a screen hands the clock the
 cells that move when it draws, and each of the menu's waits -- for a key, for a
 second digit, for the stop question's answer -- draws a frame only while
@@ -384,14 +384,18 @@ key's draw, at once, or news -- comes up with it, and the popup closes at once,
 nothing fading out (`motion.Clock.rise`).
 
 A screen whose content is still being fetched after 150 ms -- a project's feature
-switches before their first `list` lands -- has a bright segment eight cells long
-glide along its rule, in from the left and out at the right every 1.2 s, until it
-lands; the screen then draws what came within a frame, its rule still. A fetch
-shorter than that shows nothing, and keys are read as ever while it glides
-(`motion.fetching`, `menu.matrix_key`).
+switches while their `list` or a `set` is asked, a harness's model catalog on the
+`c` screens, the usage the main screen asks every minute -- has a bright segment
+eight cells long glide along its rule, in from the left and out at the right every
+1.2 s, until it lands; the screen then draws what came within a frame, its rule
+still. A fetch shorter than that shows nothing. Keys are read as ever while it
+glides; where the screen waits on the fetch itself -- a `set`, a catalog -- Esc
+goes back from the wait, the fetch left to finish on its own, and any other key is
+let go (`motion.fetching`, `menu.matrix_key`, `menu.waited`).
 
 Helpers: `motion.Clock`, `motion.breathing`, `motion.pulsing`, `motion.settling`,
-`motion.gliding`, `motion.fetching`, `menu.moving`, `terminal.faded`, `terminal.fade`.
+`motion.gliding`, `motion.fetching`, `menu.moving`, `menu.waited`, `terminal.faded`,
+`terminal.fade`.
 
 ## Ages
 
