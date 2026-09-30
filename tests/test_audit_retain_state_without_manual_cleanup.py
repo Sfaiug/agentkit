@@ -32,7 +32,11 @@ class RetainState(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".retention-", dir=REPO)
         self.addCleanup(tmp.cleanup)
-        self.root = Path(tmp.name)
+        # A search-only parent: readers listing the checkout cannot find the fixture, whose
+        # access times the snapshots compare. Cleanup restores the permission itself.
+        self.root = Path(tmp.name) / "fixture"
+        self.root.mkdir()
+        os.chmod(tmp.name, 0o100)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.object(config, "HOME", self.root / ".agentkit"))
@@ -187,6 +191,15 @@ if not review:
                     visit(child)
         visit(path)
         return result
+
+    def test_readers_walking_the_checkout_leave_fixture_access_times_alone(self):
+        if os.geteuid() == 0:
+            self.skipTest("root reads a directory it has no permission for")
+        # Git, grep or a parallel test list the checkout with ordinary reads; the
+        # snapshots compare access times, so those reads must not reach the fixture.
+        before = self.snapshot(self.root)
+        list(os.walk(REPO / self.root.relative_to(REPO).parts[0]))
+        self.assertEqual(self.snapshot(self.root), before)
 
     def test_month_fixture_exact_plan_removal_identity_idempotency_and_history(self):
         merged, merged_wt = self.receipt("01-merged")
