@@ -73,7 +73,7 @@ for command, *given in listed:
     if command in ("show-options", "show") and "p" in flags:
         for name in words or sorted(options):
             if name in options:
-                print(options[name] if "v" in flags else f"{name} {options[name] or "''"}")
+                print(options[name] if "v" in flags else name + " " + (options[name] or "''"))
     elif command in ("set-option", "set") and "p" in flags:
         if "u" in flags:
             options.pop(words[0], None)
