@@ -71,14 +71,14 @@ def lock_program(script):
 
 def lock_argv(script, path, seconds):
     """Both copies take the same file and wait; only smoke.sh's has a probe mode, and a pool
-    of targets whose bound here is the one file.
+    of targets whose bound here is the one file, with no repository behind it yet.
 
     A parent of -1 is no live process, so e2e's copy -- which only ever holds -- falls straight
     out of its `while os.getppid() == parent` watch once it has reported, instead of standing
     there until this test does.
     """
     if script == SMOKE:
-        return [str(path), str(seconds), "probe", "-1", "1"]
+        return [str(path), str(seconds), "probe", "-1", "1", "0"]
     return [str(path), str(seconds), "-1"]
 
 
