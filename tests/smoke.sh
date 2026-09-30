@@ -154,7 +154,7 @@ except config.Error:
 print(limit and max(limit, run._heavy_max_existing() + 1))
 PY
 }
-smoke_lock_probe() {   # smoke_lock_probe <wait seconds>: prints held... (0) or busy (75)
+smoke_lock_probe() {   # smoke_lock_probe <wait seconds>: prints held, held-2 ... (0) or busy (75)
   local line status=busy
   while IFS= read -r line; do
     case "$line" in
