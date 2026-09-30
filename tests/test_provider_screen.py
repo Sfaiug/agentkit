@@ -274,7 +274,7 @@ class ProviderScreen(unittest.TestCase):
                 mock.patch.object(menu, "draw", return_value=(0, 1)), \
                 mock.patch.object(menu.orch, "listing", return_value=[]), \
                 mock.patch.object(menu.orch, "job_notices", return_value=[]), \
-                mock.patch.object(menu, "wait_key", side_effect=["c", "q"]), \
+                mock.patch.object(menu, "wait_key", side_effect=["c", ""]), \
                 mock.patch.object(menu, "read", return_value=""), \
                 mock.patch.object(menu, "show_config", return_value=left):
             self.assertEqual(menu.loop(before, dry_run=True), 0)

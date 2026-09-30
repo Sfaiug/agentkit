@@ -209,7 +209,7 @@ class LiveStatus(unittest.TestCase):
                 return None
             return answer
 
-        answers = iter([news(flip), news(touch), lambda wake: "q"])
+        answers = iter([news(flip), news(touch), lambda wake: ""])
 
         def wait_key(prompt, timeout=None, wake=None):
             self.assertEqual(timeout, menu.TICK)
@@ -325,7 +325,7 @@ class LiveStatus(unittest.TestCase):
 
         def leave(wake):
             release.set()
-            return "q"
+            return ""
 
         answers = iter([flip, leave])
 
@@ -378,7 +378,7 @@ class LiveStatus(unittest.TestCase):
             while self.pane.call_count == captures[0] and time.monotonic() < until:
                 time.sleep(0.05)                        # the clock's look, off the draw
             captures.append(self.pane.call_count)
-            return "q"
+            return ""
 
         answers = iter([add, start, leave])
         with patch.object(orch, "listing",

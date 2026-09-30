@@ -76,7 +76,7 @@ class Back(unittest.TestCase):
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "draw", return_value=(0, 1)), \
                 patch.object(menu, "installed", return_value=""), \
-                patch.object(menu, "read", side_effect=["\x1b[A", "q"]) as read, \
+                patch.object(menu, "read", side_effect=["\x1b[A", ""]) as read, \
                 redirect_stdout(out):
             self.assertEqual(menu.loop({}), 0)
         self.assertEqual(read.call_count, 2)
@@ -117,8 +117,8 @@ class Back(unittest.TestCase):
         _, _, stopped = self.stop("2", "")
         self.assertEqual(stopped.call_count, 0)
 
-    def test_v5u_x_q_goes_back_before_confirm(self):
-        screen, read, stopped = self.stop("q")
+    def test_v5u_x_esc_goes_back_before_confirm(self):
+        screen, read, stopped = self.stop("\x1b")
         self.assertEqual(read.call_count, 1)   # picked nothing: never asked to stop
         self.assertEqual(stopped.call_count, 0)
         self.assertNotIn("stop atoll-fix? [y/N] ", screen)
@@ -138,25 +138,23 @@ class Back(unittest.TestCase):
         self.assertNotIn("Enter to go back", (REPO / "agentkit" / "menu.py").read_text())
 
     def test_v5u_frame_headers_and_key_lines(self):
-        """`x`, `n`, `c` and `i`: framed, key line first key `q back` -- `esc back` on `c` and
-        `i`, which read no line."""
+        """`x`, `n`, `c` and `i`: framed, and the key line `esc back`."""
         screens = {}
-        screens["stop"], _, _ = self.stop("q")
+        screens["stop"], _, _ = self.stop("\x1b")
         out = io.StringIO()
         with patch.object(orch, "taken_names", return_value=[]), \
                 patch.object(orch, "ask_name", return_value=None), \
                 redirect_stdout(out):
             menu.new_session({}, True)
         screens["new"] = out.getvalue()
-        screens["config"], _ = self.config_screen("q")
-        screens["info"], _ = self.info_screen("q")
+        screens["config"], _ = self.config_screen("\x1b")
+        screens["info"], _ = self.info_screen("\x1b")
         for name, screen in screens.items():
             lines = screen.splitlines()
             with self.subTest(screen=name):
                 self.assertTrue(lines[0].startswith(f"agentkit · {name}"), lines[0])
                 self.assertRegex(lines[0], r"\d\d:\d\d$")
-                back = "  esc back" if name in ("config", "info") else "  q back"
-                keys = [line for line in lines if line.startswith(back)]
+                keys = [line for line in lines if line.startswith("  esc back")]
                 self.assertTrue(keys, screen)
 
     def test_v5u_new_screen_is_framed(self):
@@ -168,7 +166,7 @@ class Back(unittest.TestCase):
             self.assertIsNone(menu.new_session({}, True))
         lines = out.getvalue().splitlines()
         self.assertTrue(lines[0].startswith("agentkit · new"), lines[0])
-        self.assertTrue(any(line.startswith("  q back") for line in lines))
+        self.assertTrue(any(line.startswith("  esc back") for line in lines))
 
     def test_v5u_x_asks_through_terminal_ask(self):
         with patch.object(terminal, "ask", return_value="atoll-fix") as ask, \
@@ -184,13 +182,13 @@ class Back(unittest.TestCase):
         self.assertEqual(ask("2"), "parser")
         self.assertEqual(ask("parser"), "parser")
         self.assertEqual(ask("PARSER"), "parser")
-        self.assertIsNone(ask("q"))
+        self.assertIsNone(ask("\x1b"))
         self.assertEqual(ask(""), "")
 
     def test_v5u_no_banned_strings_on_screens(self):
         """No screen prints `Enter to go back`, `Number [` or `1) ` any more."""
-        screens = [self.stop("q")[0], self.config_screen("q")[0],
-                   self.info_screen("q")[0]]
+        screens = [self.stop("\x1b")[0], self.config_screen("\x1b")[0],
+                   self.info_screen("\x1b")[0]]
         out = io.StringIO()
         with patch.object(orch, "taken_names", return_value=[]), \
                 patch.object(orch, "ask_name", return_value=None), \

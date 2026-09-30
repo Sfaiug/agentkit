@@ -107,10 +107,10 @@ class SeatNameAsked(Sandbox):
                 self.assertEqual(text.count(PROMPT), 2)
                 self.assertIn("a session named fix-api is already there", text)
 
-    def test_q_creates_nothing_and_never_asks_for_models(self):
+    def test_esc_creates_nothing_and_never_asks_for_models(self):
         for entry in ("menu", "orch"):
             with self.subTest(entry=entry):
-                name, text = self.start(entry, "q\n")
+                name, text = self.start(entry, "\x1b\n")
                 self.assertIsNone(name)
                 self.assertNotIn("Orchestrator", text)
                 self.assertEqual(config.session_records(), {})
