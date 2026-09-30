@@ -307,6 +307,9 @@ class Projects(Sandbox):
     def test_v5ak_i_gc_collects_throwaway_runs_and_keeps_everything_else(self):
         # The checkout run's seat is still there: a month-old run of a seat that is gone
         # goes whole, throwaway or not (test_cleanup's 31-day run).
+        # A full disk shortens the age to one day and would take the young run too: the
+        # disk this machine happens to have is not the fixture's.
+        self.stack.enter_context(patch.object(run, "disk_pressure", return_value=None))
         self.seat("atoll-fix", "atoll")
         old = self.record("old-throwaway", owner="smoke-seat",
                           repo=str(config.TMP / "smoke-repo"), state="fail",
