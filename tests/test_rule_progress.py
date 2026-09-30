@@ -2,13 +2,15 @@
 `agentkit · updating`, one step at a time, with no bar of its own; a screen whose content is
 still being fetched after 150 ms has a bright segment glide along it until it lands, and one
 fetched sooner shows nothing -- a list asked again under rows already drawn, and a `set`, as
-much as a first list; Esc during a glide goes back within 100 ms.
+much as a first list; Esc during a glide goes back within 100 ms, and a `set` it leaves behind
+never draws over a later one.  A screen waiting on a fetch draws itself again on a resize, moves
+its rule on the clock's frames however fast keys come, and goes back on a click on `esc back`.
 
 The update runs in-process against a temporary HOME, every command it would run answered by a
 fake `subprocess.run`, so no checkout moves.  The glide runs a project's feature switches screen
 in a child process on a pty of its own, the project's `list` and `set` a fake that sleeps as
-long as the test says; nothing reaches a real project, seat or the owner's ~/.agentkit, and the only process
-signalled is the test's own child.
+long as the test says, and so does the wait; nothing reaches a real project, seat or the owner's
+~/.agentkit, and the only process signalled is the test's own child.
 """
 
 from contextlib import redirect_stdout
@@ -17,6 +19,7 @@ import io
 import os
 from pathlib import Path
 import re
+import signal
 import struct
 import subprocess
 import sys
@@ -29,28 +32,44 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, update  # noqa: E402
+from agentkit import config, menu, motion, terminal, update  # noqa: E402
 
-# The child: the real feature switches screen and key reader over a `list` that takes RULE_LIST
-# seconds, asked again every RULE_TICK, and a `set` that takes RULE_SET; it says when the screen
-# has gone back.
+# The child: the real feature switches screen and key reader, opened RULE_OPENS times, over a
+# `list` that takes RULE_LIST seconds, asked again every RULE_TICK, and `set`s that take each of
+# RULE_SET in turn, answering the row as each left it; it says when the screen has gone back.
+# With RULE_WAIT it is a screen waiting that long on a fetch instead.
 CHILD = r"""
 import os, sys, time
 from pathlib import Path
 sys.path.insert(0, os.environ["RULE_REPO"])
 from agentkit import menu, terminal
 
+server = {"id": "dark", "name": "Dark mode", "you": False, "everyone": False}
+sets = [float(seconds) for seconds in os.environ["RULE_SET"].split(",")]
+
 def features_run(checkout, *words):
-    time.sleep(float(os.environ["RULE_" + words[0].upper()]))
-    row = {"id": "dark", "name": "Dark mode", "you": words[0] == "set", "everyone": False}
-    return ([row] if words[0] == "list" else row), ""
+    if words[0] == "list":
+        time.sleep(float(os.environ["RULE_LIST"]))
+        return [dict(server)], ""
+    server[words[2]] = words[3] == "on"
+    row = dict(server)
+    time.sleep(sets.pop(0) if sets else 0)
+    print(f"<set {words[2]} {words[3]} answered>", flush=True)
+    return row, ""
 
 menu.features_run, menu.TICK = features_run, float(os.environ["RULE_TICK"])
 keyboard = terminal.Keyboard()
 keyboard.take()
-menu.show_features(Path.home() / "code" / "ACME")
+if os.environ["RULE_WAIT"]:
+    try:
+        menu.waited(lambda: time.sleep(float(os.environ["RULE_WAIT"])), "config · acme",
+                    ["", "  a line"])
+    except menu.Back:
+        print("<went back>", flush=True)
+for _ in range(int(os.environ["RULE_OPENS"])):
+    menu.show_features(Path.home() / "code" / "ACME")
+    print("<back>", flush=True)
 keyboard.give()
-print("<back>", flush=True)
 """
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
@@ -61,7 +80,7 @@ GLIDE = re.compile(r"\x1b\[2;\d+H\x1b\[[0-9;]*m━")   # a lit cell written on t
 class Screen:
     """The child on an 80x24 pty: what it wrote, and when each part of it arrived."""
 
-    def __init__(self, case, seconds, tick=10, flip=0):
+    def __init__(self, case, seconds=0, tick=10, flip=0, opens=1, wait=""):
         home = tempfile.TemporaryDirectory(prefix="rule-progress-")
         case.addCleanup(home.cleanup)
         self.master, self.slave = os.openpty()
@@ -70,7 +89,8 @@ class Screen:
         env.update({"HOME": home.name, "TERM": "xterm-256color", "COLORTERM": "truecolor",
                     "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "AK_RUN_DEPTH": "0",
                     "AK_MAX_RUNS": "0", "RULE_REPO": str(REPO), "RULE_LIST": str(seconds),
-                    "RULE_TICK": str(tick), "RULE_SET": str(flip)})
+                    "RULE_TICK": str(tick), "RULE_SET": str(flip), "RULE_OPENS": str(opens),
+                    "RULE_WAIT": str(wait)})
         self.case, self.output, self.arrived = case, b"", []
         self.lock = threading.Lock()
         self.proc = subprocess.Popen([sys.executable, "-c", CHILD], stdin=self.slave,
@@ -199,6 +219,49 @@ class RuleProgress(unittest.TestCase):
         pressed = time.monotonic()
         os.write(screen.master, b"\x1b")
         self.assertLess(screen.when("<back>") - pressed, 0.1)
+        self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
+
+    def test_a_set_left_behind_by_esc_never_draws_over_a_later_one(self):
+        screen = Screen(self, 0, flip="2,0", opens=2)
+        screen.when("Dark mode")
+        os.write(screen.master, b"\r")                  # `you on`, answered in two seconds
+        screen.when(GLIDE.pattern)
+        os.write(screen.master, b"\x1b")
+        screen.when("<back>")
+        screen.when("Dark mode", after=screen.text().index("<back>"))    # open again
+        os.write(screen.master, b"\x1b[C\r")           # `everyone on`, answered at once
+        screen.when("<set everyone on answered>")
+        screen.when("<set you on answered>")            # with `everyone` still off in its row
+        time.sleep(1.5)                                  # a draw since, a second at a time
+        text = terminal.ANSI.sub("", screen.text().split("\x1b[H")[-1].split("\x1b[J")[0])
+        line = next(line for line in text.splitlines() if "Dark mode" in line)
+        self.assertEqual([mark for mark in line.split() if mark in "●○"], ["●", "●"], line)
+        os.write(screen.master, b"\x1b")
+        self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
+
+    def test_a_wait_keeps_to_the_clock_redraws_on_a_resize_and_a_click_goes_back(self):
+        screen = Screen(self, wait=30, opens=0)
+        screen.when(GLIDE.pattern)
+        began = time.monotonic()
+        for _ in range(100):                             # keys the wait lets go, every 5 ms
+            os.write(screen.master, b"x")
+            time.sleep(0.005)
+        with screen.lock:
+            sizes = [0] + [size for _, size in screen.arrived]
+            frames = sum(b"\x1b[2;" in screen.output[before:size]
+                         for (at, size), before in zip(screen.arrived, sizes) if at >= began)
+        self.assertLessEqual(frames, 2 + (time.monotonic() - began) / motion.FRAME)
+        after = len(screen.text())
+        fcntl.ioctl(screen.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 40, 0, 0))
+        os.kill(screen.proc.pid, signal.SIGWINCH)      # the test's own child
+        screen.when(r"\x1b\[H\x1b\[Kagentkit · config · acme", after)
+        drawn = screen.text().rindex("\x1b[H")
+        self.assertRegex(screen.text()[drawn:], r"[^─]─{40}\x1b")     # the rule 40 wide
+        screen.when(GLIDE.pattern, drawn)
+        columns = re.findall(r"\x1b\[2;(\d+)H", screen.text()[drawn:])
+        self.assertLessEqual(max(map(int, columns)), 40)
+        os.write(screen.master, b"\x1b[<0;4;6M\x1b[<0;4;6m")   # a click on `esc back`
+        screen.when("<went back>")
         self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
 
 
