@@ -185,7 +185,14 @@ class BusySuite(unittest.TestCase):
             except BaseException as exc:      # noqa: BLE001 -- the test reads it
                 results["probed"] = exc
         probe = threading.Thread(target=body, daemon=True)
-        probe.start()
+        # a wait for the turn longer than the probe's whole limit, which is charged none of it
+        lp.done_when_limit = 2
+        with run.gate_lock(ACME, 0).open("a") as turn:
+            fcntl.flock(turn, fcntl.LOCK_EX)
+            probe.start()
+            self.until(lambda: (run.read_state(run_dir) or {}).get("gate_turn"),
+                       "the probe to wait for a turn")
+            time.sleep(2.5)
         self.until(lambda: "busy" in self.marks.read_text(), "the probe to say busy")
         self.until(self.turn_free, "the busy probe to give its turn back")
         self.assertTrue(probe.is_alive(), results)

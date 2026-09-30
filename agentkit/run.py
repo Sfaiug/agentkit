@@ -5193,8 +5193,8 @@ def target_fails(lp, upstream, dw_log):
         lp.log(f"--- merge: `{cmd}` failed; probing it once on {upstream} ({tip[:12]})")
         probe_log = lp.run_dir / "target-probe.log"
         heavy_probe = cmd in (getattr(lp, "once", None) or [])
-        began = time.monotonic()
         with gate_turn(lp.run_dir, probe_log, lp.log) if heavy_probe else nullcontext():
+            began = time.monotonic()    # as `run_done_when`'s ceiling: from the turn, not the wait
             while True:
                 with probe_log.open("ab") as progress:
                     progress.write(f"$ {cmd} (on {upstream} {tip})\n".encode())
