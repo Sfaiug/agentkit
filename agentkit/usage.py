@@ -697,30 +697,35 @@ def _onto(old, new, now, spent=None):
     return _carry_mark(old, new, now)
 
 
-def _store(cfg, providers, fetched_at=None, checked=None):
-    """Put what `collect` read into the cache as the cache stands now, and return it as written.
+def _store(cfg, providers, now, fetched_at=None, checked=None, counted=None):
+    """Write what `collect` answers, derived from the cache as it stands now, and return it.
 
-    Each provider's and account's reading goes over the record the file holds (`_onto`), so a
-    mark made while this read was under way is kept, and answered: whether this read ever saw
-    it is not something any clock can tell, and does not matter.  A provider this read did not
-    read is left alone; one the config no longer has goes, and so does an account a provider
-    no longer lists.
+    Every probe, credit, refusal and turn has written its own change the moment it had it, so
+    the file holds each of them, a mark made while this read was under way included, and
+    `providers` -- this read's own copies, taken before its probes and credits went out -- can
+    be older than any: a copy stands in only for a record the file does not hold.  What the
+    read itself adds is derived here from the record the file holds: the accounts the config
+    lists, the meters past their reset dropped, the reset counts it asked for (`counted`, by
+    provider, of the account it asked about), and the flags (`_gate_flags`).  A provider the
+    config no longer has goes.
     """
-    def change(disk, now):
+    def change(disk, _):
         for name in [name for name in disk if name not in cfg["providers"]]:
             del disk[name]
-        for name, new in providers.items():
-            old = _record(disk.get(name))
-            if isinstance(new.get("accounts"), dict):
-                # Each account's mark is its own; the provider's fields are only whichever
-                # account a turn runs on next, and derived from them on every read.
-                theirs = _record(old.get("accounts"))
-                disk[name] = {**new, "accounts": {
-                    account: _onto(_record(theirs.get(account)), record, now)
-                    for account, record in new["accounts"].items()}}
-            else:
-                disk[name] = _onto(old, new, now)
-        return {name: disk[name] for name in providers}
+        for name, mine in providers.items():
+            prov = dict(disk[name] if isinstance(disk.get(name), dict) else mine)
+            listed = config.accounts(cfg, name)
+            if listed:
+                theirs, ours = _record(prov.get("accounts")), _record(mine.get("accounts"))
+                prov["accounts"] = {account: _without_past(
+                    _record(theirs.get(account)) or _record(ours.get(account)), now, "the adapter")
+                    for account in listed}
+            if name in (counted or {}):
+                asked = mine.get("account")
+                (prov["accounts"][asked] if listed and asked in prov["accounts"]
+                 else prov)["resets"] = counted[name]
+            disk[name] = _without_past(prov, now, "the adapter")
+        return _gate_flags({name: disk[name] for name in providers}, now, cfg)
     return _write(change, fetched_at, checked)
 
 
@@ -844,12 +849,13 @@ def collect(cfg, *, refresh=False):
                     providers[name] = _reread(cfg, name, providers[name], now)
                 missing = [name for name, prov in providers.items()
                            if _number(prov.get("resets")) is None]
+                counted = {}
                 for name in missing:
                     try:
                         harness, _ = config.provider_harness(cfg, name)
                     except config.Error:
                         continue      # a provider whose models were all removed: nothing to ask
-                    providers[name]["resets"] = _resets(harness, providers[name].get("account"))
+                    counted[name] = _resets(harness, providers[name].get("account"))
                 if due:
                     # a credit writes its own record, which is how a fresh week lifts a mark
                     providers = {name: _maybe_reset(cfg, name, prov, now)
@@ -857,7 +863,8 @@ def collect(cfg, *, refresh=False):
                 if rolled or missing or due:
                     # fetched_at stays put: re-reading one provider must not extend the cache
                     # over the others, which were not re-read
-                    providers = _store(cfg, providers, checked=now if due else None)
+                    providers = _store(cfg, providers, now, checked=now if due else None,
+                                       counted=counted)
                 return Readings(_gate_flags(providers, now, cfg))
         except (OSError, ValueError, TypeError, KeyError):
             pass
@@ -866,8 +873,7 @@ def collect(cfg, *, refresh=False):
         prov = _without_past(_probe_gently(cfg, name), now, "the adapter")
         providers[name] = _maybe_reset(cfg, name, prov, now) if not refresh and due else prov
     # What is answered is what was written, a mark another worker made meanwhile included.
-    providers = _store(cfg, _gate_flags(providers, now, cfg), now,
-                       now if not refresh and due else None)
+    providers = _store(cfg, providers, now, now, now if not refresh and due else None)
     return Readings(_gate_flags(providers, now, cfg))
 
 

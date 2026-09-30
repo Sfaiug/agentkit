@@ -530,6 +530,48 @@ class FreshWindowEndsMark(unittest.TestCase):
         self.assertFalse(providers["alpha"]["exhausted"])
         self.assertIn("one", usage.pick_order(self.cfg, providers, ["one", "two"], quiet=True))
 
+    def test_a_credit_on_one_account_keeps_what_another_wrote_meanwhile(self):
+        adapters = self.root / "adapters"
+        adapters.mkdir()
+        (adapters / "fake.toml").write_text("[usage]\nreset = true\n")
+        self.stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}))
+        self.two_accounts()
+        self.set_meters("alpha", self.old_window(used=95), account="first")
+        self.set_meters("alpha", self.old_window(used=98), account="second")
+        cache, armed = config.STATE / "usage.json", []
+
+        def adapter(harness, verb, *_a, **_kw):
+            if verb != "reset" or not armed:
+                return None
+            # a turn on `second` reports it spent while the credit for `first` is under way
+            self.assertTrue(usage.record_turn_meters(
+                self.cfg, "alpha", [{"name": "weekly", "used": 100, "resets_at": NOW + WEEK / 2,
+                                     "window_secs": WEEK}], account="second", now=self.now + 1))
+            return {"code": "reset", "available": 0}
+
+        with patch.object(usage, "_probe", side_effect=lambda *a, **kw: {
+                    **self.fake_probe(*a, **kw), "resets": 1.0}), \
+                patch.object(usage, "_adapter_json", side_effect=adapter):
+            for cached in (False, True):
+                with self.subTest(cached=cached):
+                    shutil.rmtree(config.STATE)
+                    config.ensure_dirs()
+                    armed.clear()
+                    if cached:
+                        # a fresh snapshot whose reset policy is due: the credit goes from it
+                        usage.collect(self.cfg)
+                        blob = json.loads(cache.read_text())
+                        blob["reset_checked_at"] = NOW - usage.CACHE_TTL - 1
+                        cache.write_text(json.dumps(blob))
+                    armed.append(True)
+                    read = usage.collect(self.cfg)
+                    second = read["alpha"]["accounts"]["second"]
+                    self.assertEqual([meter["used"] for meter in second["meters"]], [100])
+                    self.assertTrue(second["exhausted"])
+                    self.assertEqual(read["alpha"]["account"], "first")
+                    self.assertEqual([meter["used"] for meter in
+                                      self.stored_account("second")["meters"]], [100])
+
     def test_a_mark_written_with_its_deadline_alone_survives_later_writes(self):
         # Marks written before `exhausted_at` existed hold the deadline alone.
         self.two_accounts()
