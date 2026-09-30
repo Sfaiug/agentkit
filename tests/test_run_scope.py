@@ -250,14 +250,34 @@ class RunScope(unittest.TestCase):
 
     def test_stop_scope_stops_the_scope_or_the_service(self):
         with patch.object(orch, "user_manager", return_value=True), \
-                patch.object(orch.subprocess, "run", return_value=MagicMock()) as run_call:
+                patch.object(orch.subprocess, "run",
+                             return_value=subprocess.CompletedProcess([], 0)) as run_call:
             self.assertTrue(orch.stop_scope("agentkit-run-r3"))
-            self.assertEqual(run_call.call_args.args[0],
-                             ["systemctl", "--user", "stop", "agentkit-run-r3.scope",
-                              "agentkit-run-r3.service"])
+            self.assertEqual([call.args[0] for call in run_call.call_args_list],
+                             [["systemctl", "--user", "stop", "agentkit-run-r3.scope"],
+                              ["systemctl", "--user", "stop", "agentkit-run-r3.service"]])
             self.assertTrue(orch.stop_scope("agentkit-run-r3.service"))
             self.assertEqual(run_call.call_args.args[0],
                              ["systemctl", "--user", "stop", "agentkit-run-r3.service"])
+
+    def test_a_stop_that_stopped_nothing_is_not_success(self):
+        # 5 is systemctl's "not loaded": the other of a bare name's two units, never a stop
+        cases = [("agentkit-run-acme", {"agentkit-run-acme.scope": 0}, True),
+                 ("agentkit-run-acme", {"agentkit-run-acme.service": 0}, True),
+                 ("agentkit-run-acme", {"agentkit-run-acme.service": 1}, False),
+                 ("agentkit-run-acme", {}, False),
+                 ("agentkit-run-acme.scope", {"agentkit-run-acme.scope": 1}, False),
+                 ("agentkit-run-acme.scope", {}, False)]
+        for scope, codes, stopped in cases:
+            def systemctl(command, **_kw):
+                return subprocess.CompletedProcess(command, codes.get(command[-1], 5))
+
+            with self.subTest(scope=scope, codes=codes), \
+                    patch.object(orch, "user_manager", return_value=True), \
+                    patch.object(orch.subprocess, "run", side_effect=systemctl):
+                self.assertEqual(orch.stop_scope(scope), stopped)
+                # the watcher's kill_tree fallback runs exactly when nothing was stopped
+                self.assertEqual(watch.stop_run_scope({"scope": scope}), stopped)
 
     def test_scope_name_probe_failure_allows_plain_fallback(self):
         with patch.object(orch, "user_manager", return_value=True), \
@@ -306,6 +326,8 @@ class RunScope(unittest.TestCase):
             "import os, signal, sys\n"
             "from pathlib import Path\n"
             "if sys.argv[1:3] == ['--user', 'stop']:\n"
+            "    if sys.argv[3].endswith('.service'):\n"
+            "        sys.exit(5)\n"
             "    os.kill(int(Path(os.environ['CHILD_PID']).read_text()), signal.SIGKILL)\n")
         systemctl.chmod(0o755)
         proc = subprocess.Popen(
