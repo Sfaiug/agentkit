@@ -107,7 +107,7 @@ class Parked(unittest.TestCase):
         self.assertTrue(run.going(state))
         self.assertEqual(menu.run_state_word(state), "working")
         calls = []
-        with patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None:
+        with patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None, park_as=False:
                           calls.append((d, a, expected)) or 0):
             watch.resume_errored(log=self.log, now=self.now + 61)
         self.assertEqual(len(calls), 1)
@@ -202,7 +202,7 @@ class Parked(unittest.TestCase):
         run_dir = self.receipt("20260922-1205-reviewer", state="exhausted",
                                executor="opus", error=TRANSPORT_DEATH)
         calls = []
-        with patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None:
+        with patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None, park_as=False:
                           calls.append((d, a, expected)) or 0):
             watch.resume_exhausted(self.cfg, self.providers(), log=self.log, now=self.now)
         self.assertEqual(len(calls), 1)
@@ -260,7 +260,7 @@ class Parked(unittest.TestCase):
         self.assertEqual(self.logs, [])
         self.assertEqual(run.read_state(run_dir)["state"], "waiting")
         with patch.object(run, "upstream_sha", return_value=new), \
-                patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None:
+                patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None, park_as=False:
                              calls.append((d, a, expected)) or 0):
             watch.resume_waiting(log=self.log, now=self.now)
         self.assertEqual(len(calls), 1)
@@ -511,7 +511,7 @@ class Parked(unittest.TestCase):
                                executor="opus", error=TRANSPORT_DEATH,
                                exhausted_resume_at=self.now - 700)
         calls = []
-        with patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None:
+        with patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None, park_as=False:
                           calls.append((d, a, expected)) or 0):
             # past the quota throttle, inside the hour: a dead reviewer costs
             # reviewer turns by the hour, not by the tick
@@ -861,7 +861,7 @@ class Parked(unittest.TestCase):
                                          error_retry_at=self.now - 1,
                                          waiting_on={"ref": "origin/main", "sha": "0" * 40})
 
-                def resume(d, args, expected=None):
+                def resume(d, args, expected=None, park_as=False):
                     self.assertEqual(run.read_state(d), expected)
                     return run.cmd_resume(args[1:])
 
