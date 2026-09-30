@@ -1677,8 +1677,11 @@ def new_session(cfg, dry_run, keyboard=None):
         return None
     unnamed = name is None
     try:
-        with closing(terminal.Keyboard()) as keyboard:     # Esc read while the usage is asked
+        if keyboard is not None:    # the menu's own, given back below for the seat to open on
             providers = waited(lambda: usage.collect(cfg), "new session", keyboard=keyboard)
+        else:
+            with closing(terminal.Keyboard()) as own:     # Esc read while the usage is asked
+                providers = waited(lambda: usage.collect(cfg), "new session", keyboard=own)
     except Back:
         return None
     selected = orch.select(cfg, providers, prompting=True)
