@@ -26,7 +26,7 @@ RULES = [
      "pattern": "claude|codex|muse|opencode|grok|grokbuild|antigravity|gemini|anthropic|openai"
                 "|xai|mimo|[\"']meta[\"']|[\"']google[\"']",
      "home": ("adapters/", "agentkit/harness/", "config.default.toml"),
-     "max": 305},
+     "max": 303},
     # What a refusal from a provider looks like is the harness's to say (adapters/*.toml,
     # its plugin): a copy in the loop or the watcher is a second classifier to keep in step.
     {"name": "provider failure words",

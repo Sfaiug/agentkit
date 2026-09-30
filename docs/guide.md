@@ -265,8 +265,7 @@ reporting count and space freed. The tick takes a leftover merged tree only if c
 
 `~/.agentkit/config.toml` is copied from the checkout's `config.default.toml` by the first `install.sh` and never
 overwritten. The menu's `c` screen changes it at once: `orch` (`●`), `exec` and `review` (`■`) are the `[defaults]`, `‹ xhigh ›` a model's `effort`. An effort step is drawn at once from the catalog in hand; a harness's model list still being fetched counts from the next step. Each group keeps one model and only a flip no run could start from is refused. Omitted reviewers show the worker marks until the first mark flipped writes separate lists.
-A model's own screen sets its `model` from the harness's catalog (the effort following to one it lists) and its `effort`;
-`Remove` asks first, keeps the last model and the model's `[providers.*]` table even when it was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-5`). The keys:
+A model's own screen sets its `model` from the harness's catalog (the effort following to one the new model takes) and its `effort`; `Remove` asks first, keeps the last model and the model's `[providers.*]` table even when it was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-5`). The keys:
 
 - `max_runs` (0, no count cap; `ak run status` names the cap in force), `min_free_mb`, `max_load` (unset: ak's CPU pressure
   gates; pinned: the host load check, 0 disables it), `run_memory_max_mb` (one run's cap in MiB); `AK_MAX_RUNS`, `AK_MIN_FREE_MB` and `AK_MAX_LOAD` override them.
@@ -301,7 +300,7 @@ and `echo.toml` are a whole working harness in two pages. The script implements 
 `usage` (one JSON object of meters, `error` set rather than a non-zero exit), `auth [seat]` (one line, exit 0 with a
 token or 1 with why not; never a network call), `interactive <model> <effort> [<session> [new]]` (the TUI command line,
 with the harness's own bypass flag), `hooks` (install its lifecycle hooks idempotently), `models` (an `id<TAB>label<TAB>efforts` line per model, efforts strongest last, `none` for a model that runs at no effort, empty
-where the harness does not say: live where the harness lists them (Claude's models API, Muse's `muse serve` `model/list`),
+where the harness does not say, which `c` then offers at its harness's `[effort]` vocabulary: live where the harness lists them (Claude's models API, Muse's `muse serve` `model/list`),
 else its `[catalog]`, which also stands in for a listing that fails, takes ten seconds or has no `timeout` to stop it), `install` and `login` for a fresh box, and
 optionally `reset-status` and `reset` where the provider hands out usage-limit resets. Grok's `auth` passes on a refresh
 token, since grok renews its six-hour key itself. Antigravity's `usage` reads the Gemini window of agy's own `/usage`
