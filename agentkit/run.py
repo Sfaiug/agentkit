@@ -5637,13 +5637,8 @@ def merge_turn_queue(path, rank):
                           f"-{time.time_ns()}.wait")
     fresh = name.with_suffix(".new")
     place = fresh.open("w")
-    try:
-        fcntl.flock(place, fcntl.LOCK_EX)
-        fresh.rename(name)
-    except BaseException:
-        place.close()
-        fresh.unlink(missing_ok=True)
-        raise
+    fcntl.flock(place, fcntl.LOCK_EX)
+    fresh.rename(name)
     return name, place
 
 
