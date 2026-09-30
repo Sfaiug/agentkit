@@ -458,8 +458,8 @@ def moving(clock, wake=None, timeout=TICK, going=None):
 
 
 class Back(Exception):
-    """Esc, `q`, the end of input or a click on `esc back`, read while a screen waited on what
-    it fetches (`waited`)."""
+    """Esc, the end of input or a click on `esc back`, read while a screen waited on what it
+    fetches (`waited`)."""
 
 
 class Fetch(threading.Thread):
