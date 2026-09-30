@@ -138,10 +138,11 @@ BASE_BRANCH_MODIFIED = re.compile(r"Base branch was modified", re.I)
 GITHUB_5XX = re.compile(r"status code: 5\d\d|HTTP 5\d\d|Bad Gateway|Gateway Timeout|"
                         r"Service Unavailable|couldn't respond to your request in time", re.I)
 MERGE_RETRIES = 3      # how often either is re-fetched, re-checked and tried again
-# a fetch that lost the ref it updates to another process: the ref moved under it, or git's
-# lock on it is held -- not a ref no retry can write, such as a stale name in its way; see `fetch`
-REF_LOCKED = re.compile(r"cannot lock ref '[^']*': (?:is at \w+ but expected \w+|"
-                        r"Unable to create '[^']*': File exists)")
+# the line a fetch prints for a ref another process holds: the ref moved under it, or git's
+# lock on it is held -- not a ref no retry can write, such as a stale name in its way; see
+# `fetch`.  `.*`, not `[^']*`: a ref name or a checkout path may hold an apostrophe
+REF_LOCKED = re.compile(r"error: cannot lock ref '.*': (?:is at \w+ but expected \w+|"
+                        r"Unable to create '.*': File exists\.)")
 # what git and gh say when the prompt they wanted was refused; each is a stop, never a wait
 PROMPTED = re.compile(r"terminal prompts disabled|could not read (?:Username|Password)|"
                       r"prompts (?:are )?disabled|askpass", re.I)
@@ -450,8 +451,7 @@ def fetch(repo, *args, check=False):
     """
     deadline = time.monotonic() + TOOL_CAP
     code, out = git_out(repo, "fetch", *args)
-    while (code != 0 and time.monotonic() < deadline
-           and 0 < len(REF_LOCKED.findall(out)) == out.count("cannot lock ref")):
+    while code != 0 and time.monotonic() < deadline and ref_held(out):
         try:
             code, out = git_out(repo, "fetch", *args, timeout=deadline - time.monotonic())
         except Stopped:
@@ -461,6 +461,19 @@ def fetch(repo, *args, check=False):
     if check and code != 0:
         raise config.Error(f"git fetch {' '.join(args)} failed in {repo}: {out}")
     return code, out
+
+
+def ref_held(out):
+    """Did this failed fetch fail only on refs another process holds?
+
+    Every error it printed and every ref it rejected has to be one: a tag it would clobber
+    or a stale name beside a lost race is a failure no retry clears.  A `-q` fetch prints no
+    rejected ref, so no loop fetch is quiet.
+    """
+    failed = [line for line in out.splitlines()
+              if line.startswith(("error:", "fatal:"))
+              or line.strip().startswith("!") and not line.endswith("(unable to update local ref)")]
+    return bool(failed) and all(REF_LOCKED.fullmatch(line) for line in failed)
 
 
 def gh(cwd, *args, timeout=None):
@@ -13567,7 +13580,7 @@ def review_pr(cfg, run_dir, url, opts, log):
     if disk_pressure():
         gc(log)
     base, head = info["baseRefName"], info["headRefOid"]
-    fetch(repo, "-q", "origin", f"pull/{number}/head", base, check=True)
+    fetch(repo, "origin", f"pull/{number}/head", base, check=True)
     git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}")
     base_sha = git(repo, "merge-base", f"origin/{base}", head)
     if prior.get("worktree"):

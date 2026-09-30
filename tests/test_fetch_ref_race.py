@@ -25,9 +25,17 @@ URL = "https://github.com/acme/widget/pull/7"
 LOCKED = ("error: cannot lock ref 'refs/remotes/origin/main': is at 1111111 but expected 2222222\n"
           " ! 2222222..3333333  main       -> origin/main  (unable to update local ref)")
 UNREACHABLE = "fatal: unable to access 'https://github.com/acme/widget/': Could not resolve host"
-# a stale name in the way of one ref beside a lost race on another: no retry writes it
+# another fetch holding git's lock, apostrophes in the ref name and the checkout path included
+HELD = ("error: cannot lock ref 'refs/remotes/origin/acme's-fix': Unable to create "
+        "'/srv/acme's repo/.git/refs/remotes/origin/acme's-fix.lock': File exists.\n\n"
+        "Another git process seems to be running in this repository, e.g.\n"
+        "remove the file manually to continue.\nFrom /srv/acme's repo/origin\n"
+        " ! 2222222..3333333  acme's-fix -> origin/acme's-fix  (unable to update local ref)")
+# beside a lost race, a stale name in the way of one ref, or a tag the fetch would clobber:
+# no retry writes either
 STALE = (LOCKED + "\nerror: cannot lock ref 'refs/remotes/origin/topic': "
          "'refs/remotes/origin/topic/child' exists; cannot create 'refs/remotes/origin/topic'")
+CLOBBER = LOCKED + "\n ! [rejected]        v1         -> v1  (would clobber existing tag)"
 ALWAYS = 10 ** 6
 FAKE_GIT = """#!/bin/sh
 if [ "$1" = -C ] && [ "$3" = fetch ]; then
@@ -138,7 +146,7 @@ class FetchRefRace(unittest.TestCase):
         return len(self.fetches.read_text().splitlines())
 
     def test_a_fetch_that_lost_the_ref_lock_twice_goes_again_and_the_run_merges(self):
-        self.assertTrue(self.land(2, LOCKED))
+        self.assertTrue(self.land(2, HELD))
         self.merges.assert_called_once()
         self.assertTrue(self.lp.state["merged"])
         self.assertIsNone(self.lp.state["merge_note"])
@@ -146,7 +154,7 @@ class FetchRefRace(unittest.TestCase):
         self.assertGreater(self.attempts(), 2)
 
     def test_any_other_fetch_failure_is_reported_as_before(self):
-        for answer in (UNREACHABLE, STALE):
+        for answer in (UNREACHABLE, STALE, CLOBBER):
             with self.subTest(answer=answer):
                 self.assertFalse(self.land(ALWAYS, answer))
                 self.assertEqual(self.attempts(), 1)
