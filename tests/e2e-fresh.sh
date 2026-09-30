@@ -64,10 +64,12 @@ unset AK_RUN_ROLE AGENTKIT_SESSION
 # on the caller's PATH or where its installer puts it, wherever that is.
 EPATH="$UH/.local/bin:$UH/.npm-global/bin:$INVHOME/.local/bin:$INVHOME/.npm-global/bin:/usr/local/bin:/usr/bin:/bin"
 HOSTBIN=" "   # the harness binaries this host has
+HOSTPATH=""   # their directories: a login shell's /etc/profile may set PATH outright, so they go
+              # back on after it, behind whatever the new HOME's own login files put first
 for h in claude codex muse grok opencode agy; do
   found=$(PATH="$PATH:$INVHOME/.local/bin:$INVHOME/.npm-global/bin:${GROK_BIN_DIR:-$INVHOME/.grok/bin}:$INVHOME/.opencode/bin" \
           command -v "$h") || continue
-  EPATH="$EPATH:${found%/*}" HOSTBIN="$HOSTBIN$h "
+  EPATH="$EPATH:${found%/*}" HOSTPATH="$HOSTPATH:${found%/*}" HOSTBIN="$HOSTBIN$h "
 done
 # The throwaway HOME's own tmux server, like the smoke suite's: a test socket in a socket
 # directory under the workdir, so no seat of yours is in reach.
@@ -270,11 +272,16 @@ if [ -z "$TOKEN" ]; then
   finish; exit 1
 fi
 
-# the token the newcomer would have gotten from `gh auth login`, out of sight of `ps`
-printf 'export GH_TOKEN=%s\n' "$TOKEN" >"$WORK/ghenv"
+# the token the newcomer would have gotten from `gh auth login`, out of sight of `ps`, and the
+# host's harnesses, sourced after the login files like the token
+printf 'export GH_TOKEN=%s\nexport PATH="$PATH%s"\n' "$TOKEN" "$HOSTPATH" >"$WORK/ghenv"
 install -m 0600 "$WORK/ghenv" "$UH/.ak-e2e-env"
 rm -f -- "$WORK/ghenv"
 install -d -m 0755 "$UH/e2e"
+# ... and the git credential helper `gh auth login` sets up with it, which install.sh leaves
+# to the login in a sandbox HOME: without it no `git push` or fetch here can authenticate.
+as 'gh auth setup-git' >"$WORK/setup-git.log" 2>&1 || {
+  no "a fresh install: gh auth setup-git failed with the lent token"; cat "$WORK/setup-git.log"; finish; exit 1; }
 
 # Install this checkout's committed revision, not the origin's default branch. Refuse a
 # dirty tree so the printed revision identifies every byte under test. A bundle also works
@@ -605,16 +612,14 @@ NODIALOG='Do you trust|trust the files|No, exit|Choose the text style|Select a t
 # ==== d) the menu, through a pty, on both terminals ==========================
 SEAT=""
 if doing d && [ -z "$SEATLOGIN" ]; then
-  skip_checks d/d2 "the menu's seat is fable, and claude or its own login is not on this host"
+  skip_checks d/d2 "the menu's seat is opus, and claude or its own login is not on this host"
 elif doing d; then
   cat >"$WORK/menu1.exp" <<EXP
 expect 120 $MENU
-send n\n
-expect 60 Project \[
-send \n
-expect 60 Name:
+send n
+expect 60 Name \(Enter: auto\):
 send atoll\n
-expect 240 Orchestrator \[fable\]:
+expect 240 space choose
 send \n
 expect 240 $PROMPT
 refute $NODIALOG
@@ -627,7 +632,7 @@ EXP
   must "the menu did not run through to a supported harness prompt (xterm-256color)" test "$D1" = 0
   LIST=$(as 'ak orch list' 2>&1)
   must "ak orch list does not show the seat" grep -q '^atoll ' <<<"$LIST"
-  must "ak orch list does not show its models" awk -F'  +' '/^atoll /{ok = ($5 == "fable" && $6 != "" && $6 != "—")} END{exit !ok}' <<<"$LIST"
+  must "ak orch list does not show its models" awk -F'  +' '/^atoll /{ok = ($5 != "" && $5 != "—" && $6 != "" && $6 != "—")} END{exit !ok}' <<<"$LIST"
   SEAT=atoll
   # the same menu from a terminal whose terminfo this box has never seen
   cat >"$WORK/menu2.exp" <<EXP
@@ -642,7 +647,7 @@ EXP
   drive menu2 xterm-ghostty ak
   D2=$?
   must "the menu could not attach the seat under TERM=xterm-ghostty" test "$D2" = 0
-  verdict "d  menu through a pty: n, the name, Enter, Enter, detach; attach again from xterm-ghostty" \
+  verdict "d  menu through a pty: n, the name, Enter on the picker, detach; attach again from xterm-ghostty" \
     "atoll created on $(printf '%s' "$LIST" | awk -F'  +' '/^atoll /{print $5; exit}'), prompt up with no trust/theme/permission dialog, listed, detached"
   for f in menu1 menu2; do
     [ -s "$WORK/$f.log" ] && grep -q 'MISSING\|PRESENT' "$WORK/$f.log" && {
@@ -736,8 +741,10 @@ TASK
   install -m 0644 "$WORK/task.md" "$UH/e2e/task.md"
   must "cloning $SMOKE_REPO failed" test "$CRC" = 0
   must "seeding $SMOKE_REPO failed" test "$SRC" = 0
+  # Its log lines reach this gate's output as they come: a gate silent for as long as a run
+  # can take is killed for it.
   [ "$CRC" = 0 ] && [ "$SRC" = 0 ] &&
-    as 'timeout 3600 ak run ~/e2e/task.md --rounds 2' >"$WORK/run.log" 2>&1
+    as 'timeout 3600 ak run ~/e2e/task.md --rounds 2' 2>&1 | tee "$WORK/run.log"
   RRC=$?
   RUNID=$(sed -n 's/^\[[0-9:]*\] run \([^:]*\): .*$/\1/p' "$WORK/run.log" | head -1)
   RESULT="$UH/.agentkit/runs/$RUNID/result.md"
@@ -749,7 +756,6 @@ TASK
   must "remote done-when failed" as 'python3 ~/agentkit/tests/verify_delivery.py ~/agentkit-smoke ~/e2e/task.md ~/e2e/delivered'
   verdict "f  a real task, orchestrated headlessly" \
     "$(grep -h '^pr: ' "$RESULT" 2>/dev/null) merged, done-when passed on fetched $SMOKE_REPO origin/main"
-  [ "$RRC" = 0 ] || tail -15 "$WORK/run.log" | sed 's/^/      /'
 fi
 
 # ==== g) the two notifications, never posted ================================
@@ -783,24 +789,23 @@ if doing g; then
     "${UID_WANT:+mention <@$(printf '%s' "$UID_WANT" | cut -c1-4)...>, }two words and the seat, nothing posted"
 fi
 
-# ==== d, closing: x and a number stop the seat ==============================
+# ==== d, closing: x and Stop stop the seat ==================================
 if doing d && [ -n "$SEATLOGIN" ]; then
   cat >"$WORK/menu3.exp" <<EXP
 expect 120 $MENU
-send x\n
-expect 60 Stop \[atoll\]
-send 1\n
-expect 60 stop atoll\?
-send y\n
-expect 60 stopped atoll
-send q\n
+send x
+expect 60 Keep
+send j
+send \n
+expect 60 no sessions; n starts one
+send q
 EXP
   drive menu3 xterm-256color ak
   D3=$?
   as 'ak orch list' >"$WORK/orch-after.txt" 2>&1
-  must "x and a number did not stop the seat" test "$D3" = 0
+  must "x and Stop did not stop the seat" test "$D3" = 0
   must "the seat is still running" bash -c "! grep -q '^atoll ' '$WORK/orch-after.txt'"
-  verdict "d2 menu: x, 1 stops the session" "atoll stopped, ak orch list is empty again"
+  verdict "d2 menu: x, Stop stops the session" "atoll stopped, ak orch list is empty again"
   [ "$D3" = 0 ] || { sed 's/^/      /' "$WORK/menu3.log" | tail -4; tail -c 400 "$WORK/pty/menu3.txt" | sed 's/^/      | /'; }
 fi
 
