@@ -5785,7 +5785,8 @@ def land(lp, upstream, verify, deliver, execv=None):
     covers a fetch and `deliver` -- the push, the PR, its required checks and the
     merge.  A target still on the commit the branch was verified on lands.  One
     moved only by commits that touch none of this branch's files is rebased onto
-    under the turn and lands on the verified checks.  Any other move gives the turn
+    under the turn and lands on the verified checks; where they share only markdown
+    docs, it lands once the done-when passes again (`disjoint_move`).  Any other move gives the turn
     to the next run while this one verifies again holding it, from before its
     rebase through its merge, lending the delivery turn only to branches changing
     other files, so the lap lands when its check passes; a third such lap parks
@@ -5860,13 +5861,19 @@ def disjoint_move(lp, upstream, verified, tip):
     True when `tip` only adds commits to `verified` and they touch none of the files this
     branch changes: the branch is rebased onto it (merged, where `how_to_integrate` says so)
     and the review of the verified commit is carried onto the new one, as a clean
-    integration keeps its review.  False, the branch back where it was, for anything else.
+    integration keeps its review.  Files both sides changed may only be markdown docs outside
+    `tests/`: no heavy suite reads those, and what docs can break a done-when checks, so the
+    done-when runs again on the new commit first.  False, the branch back where it was, for
+    anything else.
     """
     if git_out(lp.wt, "merge-base", "--is-ancestor", verified, tip)[0] != 0:
         return False
-    ours = git(lp.wt, "diff", "--no-renames", "--name-only", verified, "HEAD").splitlines()
-    theirs = git(lp.wt, "diff", "--no-renames", "--name-only", verified, tip).splitlines()
-    if set(ours) & set(theirs):
+    # read as the merge turn reads them: a quoted or trimmed path is not the file it names
+    ours, theirs = merge_turn_files(lp.wt, verified), merge_turn_files(lp.wt, verified, tip)
+    if ours is None or theirs is None:
+        return False
+    shared = sorted(ours & theirs)
+    if not all(path.endswith(".md") and "tests" not in path.split("/") for path in shared):
         return False
     how = how_to_integrate(lp)
     old_head = git(lp.wt, "rev-parse", "HEAD")
@@ -5880,20 +5887,48 @@ def disjoint_move(lp, upstream, verified, tip):
     except Stopped:
         abort_stopped_integration(lp, how)
         raise
-    if rc == 0:
-        set_base(lp, tip)
-        landed = commit_identity(lp.wt)
-        kept["review"] = {**kept["review"], **landed,
-                          "rebased_from": old_head, "patch_id": patch_id(lp.wt, tip)}
-        carried = lp.state.get("final_check")
-        if (isinstance(carried, dict) and carried.get("outcome") == "passed"
-                and carried.get("sha") == old_head):
-            kept["final_check"] = {**carried, "sha": landed["head_sha"]}
-        moved = git(lp.wt, "rev-list", "--count", f"{verified}..{tip}")
-        lp.log(f"--- merge: {upstream} moved {moved} commits, none touching this branch's "
-               "files; landing on the verified checks")
-    else:
+    if rc != 0:
         git_out(lp.wt, how, "--abort")
+    else:
+        set_base(lp, tip)
+        if not shared:
+            moved = git(lp.wt, "rev-list", "--count", f"{verified}..{tip}")
+            lp.log(f"--- merge: {upstream} moved {moved} commits, none touching this branch's "
+                   "files; landing on the verified checks")
+        elif git_out(lp.wt, "diff", "--quiet", tip, "HEAD")[0] == 0:
+            rc = 1      # the target already carries the work: the reserved lap says so
+        else:
+            lp.log(f"--- merge: {upstream} moved, overlapping this branch only in docs "
+                   f"({', '.join(shared)}); landing after the done-when")
+            # the pending review's round, as `integrate` checks a clean rebase: the last
+            # round keeps its own done-when log
+            dw_path = lp.run_dir / f"round-{lp.state['review_pending']['round']}" / "donewhen.log"
+            dw_path.parent.mkdir(parents=True, exist_ok=True)
+            identity = commit_identity(lp.wt)
+            ok, dw_log = run_done_when(lp.every, lp.wt, dw_path, lp.artifacts,
+                                       lp.done_when_limit, lp.log, silence=lp.turn_limit,
+                                       run_dir=lp.run_dir)
+            # pinned as `verify_work` pins, but committing no leftovers: what lands is the
+            # rebased commit the review is carried onto, and untracked files stay untracked
+            ok = (ok and commit_identity(lp.wt) == identity
+                  and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0)
+            lp.log(f"done-when after the {how}: {'all passed' if ok else 'FAILED'}")
+            if ok:
+                record_flakes(lp.state, dw_log)
+            else:
+                rc = 1
+        if rc == 0:
+            landed = commit_identity(lp.wt)
+            kept["review"] = {**kept["review"], **landed,
+                              "rebased_from": old_head, "patch_id": patch_id(lp.wt, tip)}
+            carried = lp.state.get("final_check")
+            if (isinstance(carried, dict) and carried.get("outcome") == "passed"
+                    and carried.get("sha") == old_head):
+                kept["final_check"] = {**carried, "sha": landed["head_sha"]}
+        else:
+            # back on the verified commit: the reserved lap checks again and fixes it
+            git(lp.wt, "reset", "--hard", old_head)
+            lp.state["base_sha"] = verified
     lp.state.update(kept)
     lp.state.pop("review_pending", None)
     lp.save()
@@ -6054,15 +6089,17 @@ def merge_turn(lp, upstream, reserve=False):
                 pass
 
 
-def merge_turn_files(wt, upstream):
-    """The branch's paths, including both sides of renames; None means unknown."""
-    base = git(wt, "merge-base", upstream, "HEAD", check=False)
+def merge_turn_files(wt, upstream, head="HEAD"):
+    """The paths `head` changed since its merge base with `upstream`; None means unknown.
+
+    Both sides of a rename count."""
+    base = git(wt, "merge-base", upstream, head, check=False)
     if not base:
         return None
     # `git()` strips whitespace; NUL-delimited paths can start with it, or contain
     # newlines. Read stdout intact so those are still the same files in every clone.
     code, out, err = tool_run(["git", "-C", str(wt), "diff", "--no-renames",
-                               "--name-only", "-z", base, "HEAD"])
+                               "--name-only", "-z", base, head])
     if stopped(code, err):
         raise Stopped(f"git diff stopped in {wt}: {err.strip()}")
     return set(out.split("\0")) - {""} if code == 0 else None
