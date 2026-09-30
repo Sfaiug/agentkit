@@ -5456,6 +5456,13 @@ def merge_turn(lp, upstream, reserve=False):
     and merge, keeping its reservation until it finishes. While it waits behind a
     borrower it keeps that holding mark and its slot; a separate retake mark tells only
     the silence watch the wait is no stall, and the wait counts as no step's work.
+    The kernel wakes every waiter of a flock and any one may win, so a free turn goes
+    by the waiters' queue instead: a `--first` run before the rest, then the earliest
+    to enter.  A waiter holds a flock on a place named by its rank; one that wins the
+    turn behind a live place ranked before its own lets the turn go and waits for that
+    place.  A waiter parked behind a reservation gives its place up until the
+    reservation ends, so it holds back no disjoint branch, and the kernel lets a dead
+    waiter's place go.  A reserved lap taking its lent turn back queues for nobody.
     """
     current = getattr(_MERGE_HELD, "hold", None)
     if current is not None and not current.lent:
@@ -5466,8 +5473,23 @@ def merge_turn(lp, upstream, reserve=False):
     what = f"{Path(lp.state.get('repo') or lp.wt).name} {upstream.removeprefix('origin/')}"
     path = merge_turn_lock(url, upstream)
     lock = current.lock if current is not None else path.open("a")
+    rank = f"{0 if lp.state.get('first') else 1}{time.time_ns():020d}"
+    place = None
     waited = False
     retaking = False
+
+    def queue():
+        nonlocal place
+        if place is None and current is None:
+            place = merge_turn_queue(path, rank)
+
+    def leave():
+        nonlocal place
+        if place is not None:
+            name, held_place = place
+            place = None
+            name.unlink(missing_ok=True)
+            held_place.close()
 
     def waiting():
         nonlocal waited, step, retaking, retake_step
@@ -5500,11 +5522,18 @@ def merge_turn(lp, upstream, reserve=False):
                 try:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:
+                    queue()
                     waiting()
                     fcntl.flock(lock, fcntl.LOCK_EX)
                 blocker = merge_turn_blocker(
                     path, merge_turn_files(lp.wt, upstream),
                     current.reservation.name if current is not None else None)
+                if blocker is not None:
+                    leave()
+                elif current is None:
+                    blocker = merge_turn_ahead(path, rank)
+                    if blocker is not None:
+                        queue()
                 if blocker is None:
                     break
                 fcntl.flock(lock, fcntl.LOCK_UN)
@@ -5515,6 +5544,7 @@ def merge_turn(lp, upstream, reserve=False):
                 except FileNotFoundError:
                     pass           # the holder finished between the probe and the wait
         finally:
+            leave()
             if waited:
                 lp.state.pop("merge_turn", None)
             if retaking:
@@ -5591,6 +5621,45 @@ def merge_turn_blocker(path, files, own=None):
                         return reserved
                 else:
                     reserved.unlink(missing_ok=True)   # a dead holder's record is no hold
+        except FileNotFoundError:
+            pass
+    return None
+
+
+def merge_turn_queue(path, rank):
+    """(name, file): a place in the queue for `path`'s turn, flocked before it is named.
+
+    A probe reads an unlocked place as its dead waiter's and removes it, so the place
+    is locked under another name first.  Its name sorts in rank order, and is new on
+    every queueing, so no probe of an old place removes a new one.
+    """
+    name = path.with_name(f"{path.stem}.{rank}-{os.getpid()}-{threading.get_ident()}"
+                          f"-{time.time_ns()}.wait")
+    fresh = name.with_suffix(".new")
+    place = fresh.open("w")
+    try:
+        fcntl.flock(place, fcntl.LOCK_EX)
+        fresh.rename(name)
+    except BaseException:
+        place.close()
+        fresh.unlink(missing_ok=True)
+        raise
+    return name, place
+
+
+def merge_turn_ahead(path, rank):
+    """A live waiter's place ranked before `rank`, which the turn goes to first; else None."""
+    mine = f"{path.stem}.{rank}-"
+    for place in sorted(path.parent.glob(f"{path.stem}.*.wait")):
+        if place.name >= mine:
+            break
+        try:
+            with place.open() as probe:
+                try:
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    return place
+                place.unlink(missing_ok=True)      # a dead waiter's place is no place
         except FileNotFoundError:
             pass
     return None
