@@ -2151,12 +2151,9 @@ def _secret_set(name):
 
 
 def config_models(cfg):
-    """The offered models in the order the `c` screen lists them: under their providers, each
-    provider where its first model is in the file."""
-    names = config.offered(cfg)
-    providers = dict.fromkeys(cfg["models"][name]["provider"] for name in names)
-    return [name for provider in providers for name in names
-            if cfg["models"][name]["provider"] == provider]
+    """The offered models in the order the `c` screen lists them: config.offered's, under their
+    providers."""
+    return config.offered(cfg)
 
 
 def config_body(cfg, version, at=None, column=0):
