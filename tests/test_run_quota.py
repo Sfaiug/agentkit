@@ -380,8 +380,7 @@ class Quota(unittest.TestCase):
         self.assertEqual(lp.executor, "opus")
         history = run.read_state(run_dir)["executor_history"]
         self.assertEqual([(entry["from"], entry["to"], entry["reason"]) for entry in history],
-                         [("astra", "opus", "dry"),
-                          ("opus", "opus", "dry (no other provider)")])
+                         [("astra", "opus", "dry")])
 
     def test_quota_words_must_stand_on_their_own(self):
         self.assertEqual(run.worker_dry(self.cfg, "astra", "API Error: rate limit exceeded"),
@@ -861,12 +860,10 @@ class QuotaDry(unittest.TestCase):
         self.assertEqual([row["model"] for row in self.calls()],
                          ["astra", "opus", "spark", "spark"])
         # astra started round 1 and never finished it, and that is what it is credited with;
-        # the failed handover attempt stays on the record beside the moves themselves
+        # the attempt that found nobody is no move, so it leaves nothing on the record
         self.assertEqual(state["executor_history"],
                          [{"from": "astra", "to": "opus", "reason": "dry",
                            "model": "astra", "rounds": [1], "why": "ran dry"},
-                          {"from": "opus", "to": "opus", "reason": "dry (no other provider)",
-                           "model": "opus", "rounds": [1], "why": "ran dry"},
                           {"from": "opus", "to": "spark", "reason": "dry",
                            "model": "opus", "rounds": [1], "why": "ran dry"}])
         self.assertEqual(self.calls()[1]["session"], [])   # a fresh session, not astra's
@@ -968,9 +965,7 @@ class QuotaDry(unittest.TestCase):
                          [{"from": "astra", "to": "spark", "reason": "dry",
                            "model": "astra", "rounds": [1], "why": "ran dry"},
                           {"from": "spark", "to": "opus", "reason": "dry",
-                           "model": "spark", "rounds": [1], "why": "ran dry"},
-                          {"from": "opus", "to": "opus", "reason": "dry (no other provider)",
-                           "model": "opus", "rounds": [1], "why": "ran dry"}])
+                           "model": "spark", "rounds": [1], "why": "ran dry"}])
         # openai refills; the resume takes the work off opus, which held round 1 as well
         self.providers["openai"].pop("exhausted_until")
         self.plan({})
@@ -982,8 +977,6 @@ class QuotaDry(unittest.TestCase):
                            "model": "astra", "rounds": [1], "why": "ran dry"},
                           {"from": "spark", "to": "opus", "reason": "dry",
                            "model": "spark", "rounds": [1], "why": "ran dry"},
-                          {"from": "opus", "to": "opus", "reason": "dry (no other provider)",
-                           "model": "opus", "rounds": [1], "why": "ran dry"},
                           {"from": "opus", "to": "astra", "reason": "dry",
                            "model": "opus", "rounds": [1], "why": "ran dry"}])
         self.assertEqual(run.executor_line(state),

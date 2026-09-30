@@ -2817,9 +2817,9 @@ def hand_executor(lp, why, detail, dry):
     the same round budget.  Only the model changes, and it changes in run.json too, so what
     `ak run status` shows and what the result reads is who really did which round.
 
-    Returns the new executor, or None where none is eligible: the refused providers and the
-    handover attempt are recorded either way, because the post-mortem needs the attempt as
-    well as the move.  `dry` is every provider that already refused this piece of work, not
+    Returns the new executor, or None where none is eligible.  An attempt that finds nobody
+    records nothing: the same worker carries on, and run.json would otherwise show a handover
+    that never happened.  `dry` is every provider that already refused this piece of work, not
     just the last one -- handing the work back to one of those is how a handover becomes a
     circle -- so the caller's set grows here and stays grown for the rest of the round.
     """
@@ -2841,8 +2841,6 @@ def hand_executor(lp, why, detail, dry):
         new = None
     rnd = started_round(lp.run_dir, lp.state)
     if new is None:
-        note_handover(lp.state, before, why, rnd, to=before, reason="dry (no other provider)")
-        lp.save()
         return None
     note_handover(lp.state, before, why, rnd, to=new, reason="dry")
     lp.executor, lp.exec_sid = new, None
@@ -3218,7 +3216,6 @@ def execute(lp, role, text, name):
             before = lp.executor
             new = hand_executor(lp, refused.why, refused.detail, dry)
             if new is None:
-                lp.save()  # keep the refused providers and the handover attempt on the record
                 raise QuotaDry(f"{role} {before} ran dry on {refused.mark!r}: {refused.detail}; "
                                f"no other provider can execute; "
                                + ("retrying in ten minutes. " if lp.state.get("refusal_retry")
@@ -3254,7 +3251,6 @@ def execute(lp, role, text, name):
         before = lp.executor
         new = hand_executor(lp, "ran dry", f"ran dry on {mark!r}", dry)
         if new is None:
-            lp.save()  # keep the refused providers and the handover attempt on the record
             raise QuotaDry(f"{role} {before} ran dry on {mark!r} and no other provider "
                            f"can execute; resume when a meter refills. See {out}*/stderr.log")
         body = f"{HANDOVER.format(before=before)}\n\n{text}"
@@ -10648,13 +10644,13 @@ def executor_line(state):
     """
     name = str(state.get("executor", "?"))
     history = [entry for entry in state.get("executor_history") or [] if isinstance(entry, dict)]
-    if not history:
-        return name
-    # a handover attempt that went nowhere held no new round, so it is not a link
+    # a handover attempt that went nowhere (an older record, the tick's) is no link and no reason
     held = [e for e in history
             if e.get("from") is None or e.get("to") is None or e["from"] != e["to"]]
+    if not held:
+        return name
     chain = " \u2192 ".join([*(str(e.get("model") or e.get("from") or "?") for e in held), name])
-    return f"{chain} ({history[-1].get('why') or history[-1].get('reason') or 'changed'})"
+    return f"{chain} ({held[-1].get('why') or held[-1].get('reason') or 'changed'})"
 
 
 def blocked_note(state, word=None):

@@ -182,9 +182,8 @@ class TransientHandover(unittest.TestCase):
         self.assertEqual([args[1] for args in calls], ["alpha"] * 3)
         self.assertEqual(sleeps, [60, 300])
         self.assertEqual(lp.executor, "alpha")
-        history = lp.state.get("executor_history") or []
-        self.assertEqual([(entry["from"], entry["to"], entry["reason"]) for entry in history],
-                         [("alpha", "alpha", "dry (no other provider)")])
+        # nobody took the work, so the record shows no handover
+        self.assertEqual(lp.state.get("executor_history") or [], [])
 
     def test_transient_reviewer_waits_rather_than_falling_back_to_self_review(self):
         # the executor is the only spare: falling back would review its own work,
