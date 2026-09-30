@@ -40,7 +40,8 @@ gh() {
 }
 ak() {
   if [ "$1 $2" = "run clean" ]; then rm -rf -- "$WORK/wt"; return 0; fi
-  basename "$(git remote get-url origin)" .git >"$WORK/target"
+  # renamed into place, so the test never reads a target half written
+  basename "$(git remote get-url origin)" .git >"$WORK/target.part" && mv "$WORK/target.part" "$WORK/target"
   until [ -e "$WORK/release" ]; do sleep .1; done
   local d="$HOME/.agentkit/runs/fake-run"
   mkdir -p -- "$d" "$WORK/wt"
@@ -139,6 +140,11 @@ class TargetPool(unittest.TestCase):
         self.assertIn("PASS  4 ak run: pr: https://example.invalid/pull/1 merged", out)
         return out
 
+    def changed(self, work):
+        """The gh calls that did more than ask what exists."""
+        calls = (work / "gh.log").read_text().splitlines()
+        return [c for c in calls if not c.startswith(("api user", "repo view"))]
+
     def seeded(self, name):
         return subprocess.run(["git", "--git-dir", str(self.account / f"{name}.git"), "show",
                                "main:tests/test_hello.py"], capture_output=True).returncode == 0
@@ -163,8 +169,7 @@ class TargetPool(unittest.TestCase):
         self.assertEqual(self.target(work), "agentkit-smoke-3")
         out = self.finish(proc, work)
         self.assertNotIn(WAITING, out)
-        calls = (work / "gh.log").read_text().splitlines()
-        self.assertEqual([c for c in calls if c.startswith("repo create")],
+        self.assertEqual([c for c in self.changed(work) if c.startswith("repo create")],
                          ["repo create caller/agentkit-smoke-3 --private"])
         self.assertTrue(self.seeded("agentkit-smoke-3"))
         self.assertFalse(self.seeded("agentkit-smoke-2"))   # a busy target is never reset
@@ -174,17 +179,27 @@ class TargetPool(unittest.TestCase):
         self.existing("agentkit-smoke", "agentkit-smoke-2")
         self.hold(1)
         second = self.hold(2)
+        self.target_lock(3).touch()   # a leftover lock file names no repository
         proc, work = self.suite("waiting")
         self.until(lambda: WAITING in self.out(work), "waited", work)
         time.sleep(1.5)
-        # waiting, and it has touched no remote: no login asked, nothing created or cloned
+        # waiting, and it has touched no remote: nothing created or cloned
         self.assertIsNone(proc.poll(), self.out(work))
-        self.assertFalse((work / "gh.log").exists(), self.out(work))
-        self.assertFalse(self.target_lock(3).exists())
+        self.assertEqual(self.changed(work), [], self.out(work))
         fcntl.flock(second, fcntl.LOCK_UN)
         self.assertEqual(self.target(work), "agentkit-smoke-2")
         self.finish(proc, work)
-        self.assertNotIn("agentkit-smoke-3", (work / "gh.log").read_text())
+        self.assertNotIn("agentkit-smoke-3", "\n".join(self.changed(work)))
+
+    def test_an_existing_target_is_taken_above_the_bound_without_its_lock_file(self):
+        # /tmp forgot the second target's lock file, and the bound fell to one since it was made
+        self.bound(1)
+        self.existing("agentkit-smoke", "agentkit-smoke-2")
+        self.hold(1)
+        proc, work = self.suite("second")
+        self.assertEqual(self.target(work), "agentkit-smoke-2")
+        self.assertNotIn(WAITING, self.finish(proc, work))
+        self.assertFalse([c for c in self.changed(work) if c.startswith("repo create")])
 
     def test_a_killed_holder_frees_its_target(self):
         self.bound(1)
@@ -209,11 +224,10 @@ class TargetPool(unittest.TestCase):
         # derived from the host's headroom: 3.5 idle cores fit 5, 2000 MB fit 4
         self.assertEqual(bound(AK_HOST_READINGS=readings), "4")
         self.bound(2)
-        self.assertEqual(bound(), "2")
-        # turns the loop opened in a busier hour are suites it may still be running
+        # turn files a busier hour opened are no admission: the loop enforces its limit now
         for slot in range(5):
             (self.caller / f".agentkit/runs/.heavy-{slot}.lock").touch()
-        self.assertEqual(bound(), "5")
+        self.assertEqual(bound(), "2")
         self.bound(0)
         self.assertEqual(bound(), "0")   # no cap: a suite never waits for a target
 
