@@ -87,7 +87,7 @@ def make_run(root, remote, name, cmds, edits):
 
 class DocsOnlyOverlapLands(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".docs-overlap-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-docs-overlap-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
