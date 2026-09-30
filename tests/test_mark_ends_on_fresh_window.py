@@ -8,8 +8,10 @@ from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -286,21 +288,32 @@ class FreshWindowEndsMark(unittest.TestCase):
             self.assertTrue(accounts["second"]["exhausted"])
             self.assertEqual(usage.account(self.cfg, "alpha"), ("first", True))
 
-    def test_an_account_marked_during_its_rollover_read_stays_marked(self):
+    def two_accounts(self):
         self.cfg["providers"]["alpha"]["accounts"] = ["first", "second"]
+        self.set_meters("alpha", self.old_window(), account="first")
+        self.set_meters("alpha", self.old_window(), account="second")
+        self.set_meters("beta", self.old_window(used=10))
+
+    def stored_account(self, account):
+        stored = json.loads((config.STATE / "usage.json").read_text())
+        return stored["providers"]["alpha"]["accounts"][account]
+
+    def mark_first_while_reading(self, stale):
+        """What a read returns when `first` refuses a worker while it is still asking `second`.
+
+        That worker's process marks `first`; its own read finds the snapshot fresh, so it asks
+        no adapter.  `stale`: the read is of a whole stale snapshot, else of a fresh one whose
+        `first` session meter rolled over.
+        """
+        self.two_accounts()
         self.set_meters("alpha", [{"name": "session", "used": 40, "resets_at": NOW + 100,
                                    "window_secs": usage.SESSION_SECS}, *self.old_window()],
                         account="first")
-        self.set_meters("alpha", self.old_window(), account="second")
-        self.set_meters("beta", self.old_window(used=10))
         until = NOW + 5 * 86400
         refused = []
 
         def probe(cfg, provider, now, account=None):
             if account == "second" and self.now > NOW and not refused:
-                # `first` refuses a worker while the read its own session rolling over
-                # began is still asking `second`: that worker's process marks it.  Its
-                # read finds the snapshot fresh, so it asks no adapter.
                 cache = config.STATE / "usage.json"
                 with patch.object(usage, "collect", side_effect=lambda cfg: usage.Readings(
                         json.loads(cache.read_text())["providers"])):
@@ -308,18 +321,88 @@ class FreshWindowEndsMark(unittest.TestCase):
                                                         account="first"))
             return self.fake_probe(cfg, provider, now, account)
 
-        with patch.object(usage, "_probe", side_effect=probe):
-            self.assertEqual(usage.collect(self.cfg)["alpha"]["account"], "first")
-            self.now = NOW + usage.PROBE_EVERY + 41
-            self.set_meters("alpha", self.old_window(), account="first")
+        self.stack.enter_context(patch.object(usage, "_probe", side_effect=probe))
+        self.assertEqual(usage.collect(self.cfg)["alpha"]["account"], "first")
+        self.now = NOW + usage.PROBE_EVERY + 41
+        self.set_meters("alpha", self.old_window(), account="first")
+        if stale:
+            self.stale_cache()
+        read = usage.collect(self.cfg)
+        self.assertEqual(refused, [until])
+        return read, until
+
+    def test_an_account_marked_during_its_rollover_read_stays_marked(self):
+        _, until = self.mark_first_while_reading(stale=False)
+        providers = usage.collect(self.cfg)
+        self.assertEqual(providers["alpha"]["accounts"]["first"]["exhausted_until"], until)
+        self.assertTrue(providers["alpha"]["accounts"]["first"]["exhausted"])
+        self.assertEqual(self.stored_account("first")["exhausted_until"], until)
+        self.assertEqual(usage.account(self.cfg, "alpha"), ("second", True))
+
+    def test_a_read_returns_an_account_mark_made_during_it_as_written(self):
+        marks = ("exhausted_until", "exhausted_at", "exhausted_ends")
+        for stale in (False, True):
+            with self.subTest(stale=stale):
+                shutil.rmtree(config.STATE)
+                config.ensure_dirs()
+                self.now = NOW
+                read, until = self.mark_first_while_reading(stale)
+                first = read["alpha"]["accounts"]["first"]
+                self.assertEqual(first.get("exhausted_until"), until)
+                self.assertEqual({key: first.get(key) for key in marks},
+                                 {key: self.stored_account("first").get(key) for key in marks})
+                self.assertTrue(first["exhausted"])
+                # ... so the read itself sends the next turn to the other subscription
+                self.assertEqual(read["alpha"]["account"], "second")
+                self.assertFalse(read["alpha"]["exhausted"])
+
+    def test_a_mark_made_between_a_probes_read_and_its_clock_survives_its_write(self):
+        self.two_accounts()
+        until = NOW + 5 * 86400
+        real, marked = usage._cached_provider, []
+
+        def cached(provider, account=None):
+            record = real(provider, account)
+            if account == "first" and self.now > NOW and not marked:
+                # `first` refuses a worker just after its own probe read the snapshot, and the
+                # probe reads the clock a moment after that
+                marked.append(usage.mark_exhausted(self.cfg, "alpha", until, account="first"))
+                self.now += 1
+            return record
+
+        with patch.object(usage, "_probe", side_effect=self.fake_probe):
             usage.collect(self.cfg)
-            self.assertEqual(refused, [until])
-            providers = usage.collect(self.cfg)
-            self.assertEqual(providers["alpha"]["accounts"]["first"]["exhausted_until"], until)
-            self.assertTrue(providers["alpha"]["accounts"]["first"]["exhausted"])
-            stored = json.loads((config.STATE / "usage.json").read_text())
-            self.assertEqual(stored["providers"]["alpha"]["accounts"]["first"]["exhausted_until"],
-                             until)
+            self.now = NOW + usage.PROBE_EVERY + 1
+            with patch.object(usage, "_cached_provider", side_effect=cached):
+                usage._probe_gently(self.cfg, "alpha", "first")
+            self.assertEqual(marked, [until])
+            self.assertEqual(self.stored_account("first").get("exhausted_until"), until)
+            self.assertEqual(usage.account(self.cfg, "alpha"), ("second", True))
+
+    def test_a_mark_written_while_the_snapshot_is_replaced_survives_it(self):
+        self.two_accounts()
+        until = NOW + 5 * 86400
+        cache, marked = config.STATE / "usage.json", []
+        marker = threading.Thread(target=lambda: marked.append(
+            usage.mark_exhausted(self.cfg, "alpha", until, account="first")))
+        real = Path.replace
+
+        def replace(path, target):
+            if target == cache and marker.ident is None:
+                # `first` refuses a worker just as probing `second` replaces the snapshot:
+                # that worker's process writes its mark now, or as soon as it may
+                marker.start()
+                marker.join(1)
+            return real(path, target)
+
+        with patch.object(usage, "_probe", side_effect=self.fake_probe):
+            usage.collect(self.cfg)
+            self.now = NOW + usage.PROBE_EVERY + 1
+            with patch.object(Path, "replace", replace):
+                usage._probe_gently(self.cfg, "alpha", "second")
+                marker.join()
+            self.assertEqual(marked, [until])
+            self.assertEqual(self.stored_account("first").get("exhausted_until"), until)
             self.assertEqual(usage.account(self.cfg, "alpha"), ("second", True))
 
     def test_a_credit_spent_after_a_mark_made_during_its_read_lifts_it(self):
@@ -350,6 +433,52 @@ class FreshWindowEndsMark(unittest.TestCase):
             providers = usage.collect(self.cfg)
             self.assertNotIn("exhausted_until", providers["alpha"])
             self.assertFalse(providers["alpha"]["exhausted"])
+
+    def test_a_mark_written_with_its_deadline_alone_survives_later_writes(self):
+        # Marks written before `exhausted_at` existed hold the deadline alone.
+        self.two_accounts()
+        until = NOW + 5 * 86400
+        cache = config.STATE / "usage.json"
+        with patch.object(usage, "_probe", side_effect=self.fake_probe):
+            usage.collect(self.cfg)
+            usage.mark_exhausted(self.cfg, "alpha", until, account="first")
+            usage.mark_exhausted(self.cfg, "beta", until)
+            blob = json.loads(cache.read_text())
+            for record in (blob["providers"]["alpha"]["accounts"]["first"],
+                           blob["providers"]["beta"]):
+                del record["exhausted_at"], record["exhausted_ends"]
+            cache.write_text(json.dumps(blob))
+            self.now = NOW + usage.PROBE_EVERY + 1
+            usage._probe_gently(self.cfg, "alpha", "first")
+            self.assertEqual(usage.replenish(self.cfg, "beta"), (False, 0.0))
+            self.assertEqual(self.stored_account("first").get("exhausted_until"), until)
+            providers = usage.collect(self.cfg)
+            self.assertEqual(providers["alpha"]["account"], "second")
+            self.assertEqual(providers["beta"].get("exhausted_until"), until)
+            self.assertTrue(providers["beta"]["exhausted"])
+
+    def test_a_credit_spent_on_an_account_lifts_that_accounts_mark(self):
+        adapters = self.root / "adapters"
+        adapters.mkdir()
+        (adapters / "fake.toml").write_text("[usage]\nreset = true\n")
+        self.stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}))
+        self.two_accounts()
+        until = NOW + 5 * 86400
+        with patch.object(usage, "_probe", side_effect=lambda *a, **kw: {
+                    **self.fake_probe(*a, **kw), "resets": 1.0}), \
+                patch.object(usage, "_adapter_json", side_effect=lambda harness, verb, *_a, **_kw:
+                             {"code": "reset", "available": 0} if verb == "reset" else None):
+            usage.collect(self.cfg)
+            usage.mark_exhausted(self.cfg, "alpha", until, account="first")
+            usage.mark_exhausted(self.cfg, "alpha", until, account="second")
+            # Both refused: the credit goes to `first`, the account a turn would run on next.
+            self.assertTrue(usage.replenish(self.cfg, "alpha")[0])
+            accounts = usage.collect(self.cfg)["alpha"]["accounts"]
+            self.assertNotIn("exhausted_until", accounts["first"])
+            self.assertFalse(accounts["first"]["exhausted"])
+            self.assertEqual(accounts["second"]["exhausted_until"], until)
+            self.assertNotIn("exhausted_until", self.stored_account("first"))
+            self.assertEqual(usage.account(self.cfg, "alpha"), ("first", True))
 
 
 if __name__ == "__main__":
