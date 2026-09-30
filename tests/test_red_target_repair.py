@@ -188,11 +188,16 @@ class RedTargetRepair(unittest.TestCase):
         self.red_run("first", "seat")
         name = self.prepared[0][0]
         repair = config.RUNS / name
-        # queued at one tip, the repair starts on the next, and its question is about that one
+        # based on the tip it was queued at, the repair fetches the next and asks about that
+        lp, _, _ = red.make_loop(self.root / "repair", self.wt, ["true"])
+        lp.state["repair"] = run.read_state(repair)["repair"]
         tip = self.move(owner)
         blocked = {**run.read_state(repair), "state": "blocked", "verdict": "BLOCKED",
-                   "base_sha": tip, "error": QUESTION, "blocked": f"## Blocked\n{QUESTION}",
-                   "started_at": time.time() - 60, "finished_at": time.time()}
+                   "base_sha": lp.state["base_sha"], "error": QUESTION,
+                   "blocked": f"## Blocked\n{QUESTION}", "started_at": time.time() - 60,
+                   "finished_at": time.time(), **run.question_tip(lp)}
+        self.assertNotEqual(blocked["base_sha"], tip)
+        self.assertEqual(blocked["question_tip"], tip)
         run.save_state(repair, blocked)
 
         @contextmanager
