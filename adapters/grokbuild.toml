@@ -7,10 +7,15 @@ version = 1
 
 # `ak update` reads the version off the TUI, upgrades it with the TUI's own command, and
 # puts a bad build back with the versioned reinstall -- so the plan takes no snapshot.
+# `latest` is its own check on its own channel, which names the installed release first.
 [update]
 version = ["grok", "--version"]
 upgrade = ["grok", "update"]
 revert = ["grok", "update", "--version", "{version}"]
+latest = ["sh", "-c", '''
+command -v grok >/dev/null || PATH="${GROK_BIN_DIR:-$HOME/.grok/bin}${PATH:+:$PATH}"
+out=$(grok update --check --json 2>/dev/null)
+case $out in *latestVersion*) echo "${out#*latestVersion}" ;; esac''']
 
 # A launcher-issued conversation id, opened with --session-id and continued with --resume,
 # exactly like a claude seat's: the defaults answer everything, so this table declares

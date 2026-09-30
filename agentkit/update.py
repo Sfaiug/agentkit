@@ -400,20 +400,30 @@ def moved(before, after):
 
 
 RELEASE = re.compile(r"\d+\.\d+\.\d+")
+BUILD = re.compile(r"\d+\.\d+\.\d+-R\d+(?:\.\d+)*")   # 1.4.1-R4503.1: build 4503.1 of 1.4.1
 
 
 def _release(text):
-    """The first X.Y.Z a version identity names, or "" when it names none."""
-    match = RELEASE.search(text or "")
+    """The build a version identity names, else its first X.Y.Z, or "" when it names neither.
+
+    A label may say `1.4.1` before its build `1.4.1-R4503.1`, and a newer build of the same
+    X.Y.Z is a newer release.
+    """
+    match = BUILD.search(text or "") or RELEASE.search(text or "")
     return match.group(0) if match else ""
 
 
 def _downgrade(old, new):
-    """True when both identities name a release and the new one is the lower."""
-    old_release, new_release = _release(old), _release(new)
-    return (bool(old_release and new_release)
-            and [int(part) for part in new_release.split(".")]
-            < [int(part) for part in old_release.split(".")])
+    """True when both identities name a release and the new one is the lower.
+
+    A build is compared only with a build: a label without one says nothing about which build
+    of its release is installed.
+    """
+    old_key, new_key = ([int(part) for part in re.findall(r"\d+", _release(text))]
+                        for text in (old, new))
+    if len(old_key) == 3 or len(new_key) == 3:
+        old_key, new_key = old_key[:3], new_key[:3]
+    return bool(old_key and new_key) and new_key < old_key
 
 
 def kept(before, after):
