@@ -1,8 +1,7 @@
 # agentkit architecture
 
-What each module owns and hides, what it offers and who uses it, true today. Where knowledge
-has leaked out of its home the map says so; `tests/test_boundaries.py` counts those leaks,
-and its `max` counts only go down.
+What each module owns, hides and offers, and who uses it, true today. Where knowledge
+leaked from its home the map says so; `tests/test_boundaries.py` counts those leaks.
 
 ## What matters most
 
@@ -15,7 +14,7 @@ and its `max` counts only go down.
   going. Tests never touch the real ones.
 - A harness is meant to be a plugin: an adapter pair, an optional plugin module and one
   config entry. Its names and failure words also live in some twenty other files today.
-- `run.py` (14.7k lines) holds nearly the whole run side; `watch.py` also writes run.json.
+- `run.py` (14.7k lines) holds nearly the whole run side.
 
 ## Entry points
 
@@ -69,7 +68,8 @@ and its `max` counts only go down.
   cleanup, compression. Used by run's gc, orch, update, notify. Leaks: Claude and Codex
   config formats; imports run back.
 - `terminal.py`: width, wrapping, colour, keys, `choose`/`ask`/`frame`, state styles, for
-  every listing screen (docs/cli-design.md). Used by menu, usage, orch, watch, run.
+  every listing screen (docs/cli-design.md). Used by menu, usage, orch, watch, run, motion.
+- `motion.py`: the one animation clock: time, easing, what moves. Used by menu.
 - `command_help.py`: help text per verb, for bin/ak and each `main`; imports nothing.
 - `browser.py`: the shared Chromium stack: units, CDP, MCP, VNC, tab ownership. Used by run,
   watch. Leak: registers its MCP per harness by name.
@@ -96,7 +96,7 @@ and its `max` counts only go down.
 - `hooks/seat-state.sh`: every harness's lifecycle hook; writes a seat's `hook-`/`stop-`
   facts. `hooks/orchestrator-stop.sh`: the end-of-turn rule, via run and watch.
   `hooks/opencode-seat/`: OpenCode's plugin, feeding seat-state.sh. Leak: both shell hooks
-  rebuild the seat file names and rename chain config.py owns.
+  rebuild config.py's seat file names and rename chain.
 - `tools/`, called by adapters: `rulebook.py` (a seat's rulebook), `idle-compact.py`
   (compacts idle seats), `codex-seat.py`, `trust.py`, `catalog.py`, `desktop-mcp.py`.
 - `tests/`: one file per behaviour, run straight; `smoke.sh` is the gate, with real model
