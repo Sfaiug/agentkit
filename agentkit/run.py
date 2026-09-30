@@ -4958,6 +4958,16 @@ def do_merge(lp, url, upstream):
             lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
             return True
         if lost:
+            # the last attempt's 5xx may have merged too, and no re-check followed it
+            src, current = gh(lp.run_dir, "pr", "view", url, "--json", "state",
+                              "-q", ".state")
+            if stopped(src, current):
+                raise Stopped(current)
+            if src == 0 and current.strip() == "MERGED":
+                lp.state["merged"] = True
+                save_state(lp.run_dir, lp.state)
+                lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
+                return True
             return park_waiting(
                 lp, f"gh pr merge --{method} failed after {MERGE_RETRIES} retries: {cause}; "
                     f"the PR is open at {url}", upstream,
@@ -12887,7 +12897,7 @@ def merge_own_pr(lp, url, head):
                 save_state(lp.run_dir, lp.state)
                 lp.log(f"--- merge: own {url} already merged at {head[:12]}")
                 return True
-            if (stopped(rc, out) or attempt > MERGE_RETRIES
+            if (stopped(rc, out) or stopped(src, current) or attempt > MERGE_RETRIES
                     or not GITHUB_5XX.search(out or "")):
                 break
             delay = transient_delay(attempt)
