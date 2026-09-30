@@ -123,7 +123,7 @@ import time
 from contextlib import closing, redirect_stdout
 from pathlib import Path
 
-from . import command_help, config, history, motion, notify, orch, terminal, update, usage
+from . import command_help, config, history, motion, notify, orch, terminal, update, usage, worker
 from .harness import load as harness_plugin
 
 KEYS = "n new   x stop   c config   i info   esc leave"
@@ -2990,7 +2990,9 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None):
     """Each of `verbs` of `harness`'s adapter, run as install.sh runs them, for `account`'s
     login when one is named, with the terminal given back for them and taken again after.  The
     first that fails ends them, and waits until what it said has been read: what to say about
-    it under the matrix, or ""."""
+    it under the matrix, or "".  No verbs is nothing to run, and the terminal stays."""
+    if not verbs:
+        return ""
     keyboard.give()
     failed = ""
     for verb in verbs:
@@ -3009,16 +3011,17 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None):
     return failed
 
 
-def _add_subscription(cfg, keyboard, provider, listed, picked):
+def _add_subscription(cfg, keyboard, provider, listed, picked, verbs=("login",)):
     """Another subscription of `provider`, `picked` being the name it will get: its harness's
-    login, run on the terminal under the fresh account name last in `listed`, then `listed` as
-    the provider's `accounts` -- the ones it had, `default` when it had none, and that name.
-    A login that fails adds nothing.  What to say under the matrix, or ""."""
+    login, run on the terminal under the account name last in `listed`, then `listed` as the
+    provider's `accounts` -- the ones it had, `default` when it had none, and that name.  A
+    kept login is given no `verbs`, since it is logged in already.  A login that fails adds
+    nothing.  What to say under the matrix, or ""."""
     try:
         harness, _ = config.provider_harness(cfg, provider)
     except config.Error as exc:
         return f"config: {exc}"
-    failed = _adapter_verbs(keyboard, harness, ("login",), picked, listed[-1])
+    failed = _adapter_verbs(keyboard, harness, verbs, picked, listed[-1])
     if failed:
         return failed
     before = copy.deepcopy(cfg)
@@ -3031,7 +3034,11 @@ def config_add_provider(cfg, keyboard):
     """`+ add` on the Providers row: a provider the shipped default has and the config has not,
     picked from a list, then put in the way it ships, so nothing is typed; or, listed after
     them as the name it will get (`ChatGPT II`, config.account_label), another subscription
-    of a provider the config has, which is only logged in and listed (_add_subscription).
+    of a provider the config has, which is only logged in and listed (_add_subscription); or,
+    last, `Use <who>`, a login `− remove` left on disk (config.kept_logins) whose adapter's
+    `auth` still passes, put back with no login: a subscription into `accounts` under its old
+    name, a provider's usual login as that provider is added.  <who> is who that `auth` says
+    it is `; logged in as`, else the name the login's usage row had.
 
     A new provider's harness, the shipped default's for it, is installed when its program is
     nowhere to be found, then logged in: each its adapter's own verb, run as install.sh runs
@@ -3056,17 +3063,36 @@ def config_add_provider(cfg, keyboard):
         after = [*(config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]), os.urandom(3).hex()]
         more[config.account_label({"providers": {name: {"accounts": after}}}, name, after[-1],
                                   text)] = (name, after)
+    kept = {}
+    for name, account, label in config.kept_logins():
+        listed = config.accounts(cfg, name)
+        if account == config.DEFAULT_ACCOUNT and name in labels.values():
+            table, after = shipped, None
+        elif name in cfg["providers"] and account not in (config.DEFAULT_ACCOUNT, *listed):
+            table, after = cfg, [*(listed or [config.DEFAULT_ACCOUNT]), account]
+        else:
+            continue       # it is in ak again, or has no provider to go back to
+        try:
+            passed, said = worker.auth_ok(config.provider_harness(table, name)[0],
+                                          account=account)
+        except config.Error:
+            continue
+        if passed:
+            who = re.search(r"; logged in as (.+)$", said)
+            kept[f"Use {who[1] if who else label}"] = (name, after)
     keys = ADD_KEYS["add"][0 if terminal.utf8() else 1] + "   esc back"
 
     def around():     # the screen the list is drawn on, drawn again on a resize
-        terminal.frame("config · add a provider", [""] * (len(labels) + len(more)), keys)
+        terminal.frame("config · add a provider", [""] * (len(labels) + len(more) + len(kept)),
+                       keys)
         return 3
-    picked = terminal.choose([*labels, *more], around=around)
+    picked = terminal.choose([*labels, *more, *kept], around=around)
     if picked is None:
         return ""
-    if picked in more:
-        return _add_subscription(cfg, keyboard, *more[picked], picked)
-    name = labels[picked]
+    name, after = {**more, **kept}.get(picked) or (labels[picked], None)
+    if after:
+        return _add_subscription(cfg, keyboard, name, after, picked,
+                                 () if picked in kept else ("login",))
     try:
         harness, first = config.provider_harness(shipped, name)
     except config.Error as exc:
@@ -3074,8 +3100,9 @@ def config_add_provider(cfg, keyboard):
     if first in cfg["models"]:
         return f"{picked} adds its model as {first}, and a model has that name; nothing added"
     program = (harness_plugin(harness).update["version"] or [harness])[0]
-    failed = _adapter_verbs(keyboard, harness, ("login",) if config.harness_binary(program)
-                            else ("install", "login"), picked)
+    verbs = () if config.harness_binary(program) else ("install",)
+    failed = _adapter_verbs(keyboard, harness, verbs if picked in kept else (*verbs, "login"),
+                            picked)
     if failed:
         return failed
     try:
@@ -3100,9 +3127,11 @@ def config_remove_provider(cfg):
     models?` or `Remove <subscription>?` asked under it, `Keep` picked and Esc keeping it.
     config.remove_provider takes a provider's table, its models and their places in
     [defaults], and with its table goes its usage row.  A subscription, named as its usage row
-    is (config.account_label), leaves only the provider's `accounts`, and its login stays on disk;
-    the usual login is never offered.  The last provider is not offered either, and with
-    nothing to offer it is refused without asking.  What to say under the matrix, or "".
+    is (config.account_label), leaves only the provider's `accounts`; the usual login is never
+    offered.  The last provider is not offered either, and with nothing to offer it is refused
+    without asking.  Either way no login file goes: the login taken out, the provider's usual
+    one for a provider, is recorded (config.keep_login) for `+ add` to offer back.  What to say
+    under the matrix, or "".
     """
     labels = {}
     for text, name in _by_label(list(cfg["providers"]),
@@ -3134,12 +3163,15 @@ def config_remove_provider(cfg):
     if terminal.choose(["Keep", "Remove"], "Keep", around=asked) != "Remove":
         return ""
     before = copy.deepcopy(cfg)
-    if account is not None:
-        cfg["providers"][name]["accounts"].remove(account)
-        return _saved(cfg, cfg, before)
     try:
-        config.remove_provider(cfg, name)
-    except config.Error as exc:
+        # first, so nothing leaves ak unrecorded; a removal that fails below leaves its login
+        # in ak, and a login in ak is never offered
+        config.keep_login(name, account or config.DEFAULT_ACCOUNT, picked)
+        if account is not None:
+            cfg["providers"][name]["accounts"].remove(account)
+        else:
+            config.remove_provider(cfg, name)
+    except (config.Error, OSError) as exc:
         return str(exc)
     return _saved(cfg, cfg, before)
 
