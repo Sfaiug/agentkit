@@ -5801,8 +5801,8 @@ def merge_turn(lp, upstream, reserve=False):
                 try:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:
+                    waiting()          # before queueing: joining the queue is the wait's too
                     queue()
-                    waiting()
                     fcntl.flock(lock, fcntl.LOCK_EX)
                 blocker = merge_turn_blocker(
                     path, files, current.reservation.name if current is not None else None)
