@@ -3391,7 +3391,9 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     if conversation and not dry_run:
         extra["conversation"] = conversation
         extra["id_source"] = LAUNCHER
-    config.save_session(cfg, name, model, workers, extra)
+    record = config.save_session(cfg, name, model, workers, extra)
+    if not dry_run:
+        config.remember_defaults(cfg, record)
     # a name may be used again once its seat is gone, and this seat has said nothing yet: the
     # last message of the one before it is not this one's state, and a question it left
     # standing on Discord is closed rather than dropped with its card -- by a start, never by

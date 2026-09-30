@@ -40,7 +40,7 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename`. Used by menu, watch, run, notify, usage, update.
   Leaks: rename rewrites watch.json and run.json; binds Claude panes by name.
-- `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`/`m`/`i`. Also owns run listing
+- `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`/`i`. Also owns run listing
   (`run_records`, `tally`) and the seat status bar (`redress`) that watch, run, orch and
   notify import. Leaks: provider colour and name tables; reads `usage.json` itself.
 - `config.py`: every `~/.agentkit` path, config.toml, models, providers, accounts, adapter
