@@ -7,7 +7,8 @@ as the hook holds it, and a seat whose `ak wait` names a session that has stoppe
 with its reason, before any bare `continue`.  Offline: a fake tmux, fake adapters for the three
 harnesses, fake run receipts and a throwaway HOME; the hook runs as its harness runs it, JSON on
 stdin.  The seat's turn began once, long ago, and never moves: what is decided here is read off
-runs, notices, waits and the screen.
+runs, notices, waits and the screen.  So the hook's two blocks a turn are two nudges for the
+same parked run, until a different run parks or the seat has a new notice.
 """
 
 from contextlib import redirect_stdout
@@ -26,6 +27,7 @@ SEAT, OTHER = "acme-api", "fix-api"
 HARNESSES = ("muse", "opencode", "antigravity")
 SAID = "Here is my recommendation. Let me know if I should continue."
 PARKED, THEIRS = "20260101-0800-parked", "20260101-0900-schema"
+LATER = "20260101-1000-parked"
 TOLD = (f"{OTHER} is now needs you: session closed: press its number to reopen. "
         "Decide the next step.")
 
@@ -109,8 +111,9 @@ class NudgeTurnRule(Sandbox):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(watch.wait_main([OTHER]), 0)
 
-    def hook_holds(self):
-        """Does hooks/orchestrator-stop.sh send this same stop back, where a harness runs it?"""
+    def hook_holds(self, blocks=0):
+        """Does hooks/orchestrator-stop.sh send this same stop back, where a harness runs it,
+        having sent `blocks` of this turn's stops back already?"""
         home, sockets = self.root / "hook-home", self.root / "sockets"
         sockets.mkdir(mode=0o700, exist_ok=True)
         for name, target in (("state", config.STATE), ("runs", config.RUNS)):
@@ -119,7 +122,7 @@ class NudgeTurnRule(Sandbox):
             if not link.is_symlink():
                 link.symlink_to(target)
         (config.STATE / f"stop-{SEAT}.json").write_text(json.dumps(
-            {"session": SEAT, "turn": watch.seat_read(SEAT)["turn_began"], "blocks": 0}) + "\n")
+            {"session": SEAT, "turn": watch.seat_read(SEAT)["turn_began"], "blocks": blocks}) + "\n")
         transcript = self.root / "transcript.jsonl"
         transcript.write_text(json.dumps({"type": "assistant", "message": {
             "role": "assistant", "content": [{"type": "text", "text": SAID}]}}) + "\n")
@@ -133,10 +136,10 @@ class NudgeTurnRule(Sandbox):
         self.assertEqual(done.returncode, 0, done.stderr)
         return '"block"' in done.stdout
 
-    def judged(self):
+    def judged(self, blocks=0):
         """(the hook holds this stop, what the tick types at it): the two always agree."""
         self.stopped()
-        return self.hook_holds(), self.tick()
+        return self.hook_holds(blocks), self.tick()
 
     def test_a_parked_run_holds_a_stop_past_a_run_going_a_wait_and_a_done(self):
         for harness in HARNESSES:
@@ -181,6 +184,27 @@ class NudgeTurnRule(Sandbox):
                 # the wait is over, and the next stop on nothing is sent back as any other is
                 self.stopped()
                 self.assertEqual(self.tick(), ["continue"])
+
+    def test_d_the_same_parked_run_is_nudged_twice_and_the_third_stop_stands(self):
+        """Each `continue` is a turn, so a seat that never decides was nudged forever."""
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                self.receipt(PARKED, SEAT, "interrupted", recovery_pending=True)
+                self.assertEqual(self.judged(0), (True, ["continue"]))
+                self.assertEqual(self.judged(1), (True, ["continue"]))
+                self.assertEqual(self.judged(2), (False, []))
+                self.stopped()
+                self.assertEqual(self.tick(), [])       # and every stop after it stands too
+                # a different run parks, and then the owner is asked and answers: a new notice
+                self.receipt(LATER, SEAT, "stalled", error="no output for 20 minutes")
+                for then in (lambda: None, lambda: notify.record(
+                        SEAT, "needs", "Resume both?", answered_at=time.time() + 1)):
+                    then()
+                    for typed in (["continue"], ["continue"], []):
+                        self.stopped()
+                        self.assertEqual(self.tick(), typed)
 
 
 if __name__ == "__main__":
