@@ -160,11 +160,11 @@ class LandingCase(unittest.TestCase):
             return real_done_when(cmds, wt, out, *args, **kwargs)
         self.stack.enter_context(patch.object(run, "run_done_when", side_effect=done_when))
 
-        def git_out(repo, *args):
+        def git_out(repo, *args, **kw):
             if args[:1] == ("rebase",):
                 own = getattr(run._MERGE_HELD, "hold", None) is not None
                 self.rebases.append((Path(repo).name, own))
-            return real_git_out(repo, *args)
+            return real_git_out(repo, *args, **kw)
         self.stack.enter_context(patch.object(run, "git_out", side_effect=git_out))
 
         def probe(lp, upstream, dw_log):

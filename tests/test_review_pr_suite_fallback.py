@@ -80,14 +80,9 @@ class ReviewPrSuiteFallback(unittest.TestCase):
         directory.mkdir()
         info = {"state": "OPEN", "headRefOid": head, "baseRefName": "main",
                 "title": "Mend the fence", "author": "fixture", "body": "Fixture PR"}
-        original_git = run.git
-
-        def local_git(repo, *args, **kwargs):
-            return "" if args[0] == "fetch" else original_git(repo, *args, **kwargs)
-
         with patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "checkout_for", return_value=self.repo), \
-                patch.object(run, "git", side_effect=local_git), \
+                patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "gh_json", return_value=(info, "")):
             state = run.review_pr(self.cfg, directory, "https://github.com/acme/acme/pull/1",
                                   {"--review": None, "--review-pr": "x"}, self.logs.append)

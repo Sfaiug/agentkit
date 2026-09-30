@@ -170,14 +170,9 @@ class RepoSuite(unittest.TestCase):
         directory.mkdir()
         info = {"state": "OPEN", "headRefOid": head, "baseRefName": "main",
                 "title": "Suite once", "author": "fixture", "body": "Fixture PR description"}
-        original_git = run.git
-
-        def local_git(repo, *args, **kwargs):
-            return "" if args[0] == "fetch" else original_git(repo, *args, **kwargs)
-
         with patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "checkout_for", return_value=self.repo), \
-                patch.object(run, "git", side_effect=local_git), \
+                patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "post_review", return_value=True), \
                 patch.object(run, "checks", return_value=(False, "fixture: no merge")), \
                 patch.object(run, "gh_json", return_value=(info, "")):
