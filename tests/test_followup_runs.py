@@ -160,7 +160,7 @@ class FollowupRuns(unittest.TestCase):
         code = run.drive(self.cfg, directory, opts, self.logs.append)
         return code, run.read_state(directory)
 
-    def test_merge_launches_each_item_with_evidence_and_original_workers(self):
+    def test_merge_launches_each_item_with_evidence_and_the_session_workers(self):
         directory, state = self.source(followups=[DEFECT + "\nreproduction details", OTHER])
         config.save_session(self.cfg, "seat", self.executor, [self.reviewer])
         with patch.dict(os.environ, {"AGENTKIT_SESSION": "", "AK_RUN_DEPTH": "1",
@@ -171,7 +171,7 @@ class FollowupRuns(unittest.TestCase):
         for child, item, (_, env, _) in zip(children, state["followups"], self.spawns):
             receipt = run.read_state(child)
             self.assertEqual(receipt["launched_session"], "seat")
-            self.assertEqual(receipt["workers"], state["workers"])
+            self.assertEqual(receipt["workers"], [self.reviewer])
             self.assertEqual(receipt["run_depth"], 0)
             self.assertIsNone(receipt["parent_run"])
             self.assertEqual(env["AGENTKIT_SESSION"], "seat")
@@ -186,12 +186,21 @@ class FollowupRuns(unittest.TestCase):
         self.start(directory, run.read_state(directory))
         self.assertEqual(len(self.spawns), 2)
 
-    def test_fix_run_keeps_discovering_run_lists_not_session_current_ones(self):
+    def test_fix_run_takes_session_current_lists_and_discovering_ones_only_without_a_record(self):
         directory, state = self.source("lists", reviewers=[self.executor])
         config.update_session("seat", workers=[self.reviewer], reviewers=[self.reviewer])
         with patch.dict(os.environ, {"AGENTKIT_SESSION": "seat"}):
             child = self.start(directory, state)[0]
         receipt = run.read_state(child)
+        self.assertEqual(receipt["workers"], [self.reviewer])
+        self.assertEqual(receipt["reviewers"], [self.reviewer])
+        parent = run.read_state(directory)
+        self.assertEqual(run.run_workers(self.cfg, parent), [self.executor, self.reviewer])
+        self.assertEqual(run.run_reviewers(self.cfg, parent), [self.executor])
+        config.session_path("seat").unlink()   # a seat made by hand: a pane, no record
+        directory, state = self.source("no-record", reviewers=[self.executor], followups=[OTHER])
+        with patch.object(orch, "find", return_value={"name": "seat"}):
+            receipt = run.read_state(self.start(directory, state)[0])
         self.assertEqual(receipt["workers"], state["workers"])
         self.assertEqual(receipt["reviewers"], [self.executor])
 
