@@ -338,7 +338,7 @@ class Matrix(unittest.TestCase):
         mark = len(screen.text())
         screen.press(ENTER)                               # the step, then the screen again
         screen.saw("<discord step>", after=mark)
-        self.assertIn("\x1b[?1049l", screen.text()[mark:])    # it had the terminal as it was
+        self.assertNotIn("\x1b[?1049l", screen.text()[mark:])   # typed on the matrix's keys
         lines = screen.press(DOWN, lambda lines: highlighted(lines).startswith("› Version"))
         self.assertEqual(lines[-1], "  ↑↓ move   esc back")      # no action to name
         mark = len(screen.text())

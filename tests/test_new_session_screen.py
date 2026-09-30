@@ -167,7 +167,7 @@ class Screen:
         return self.until(ready, f"a screen with {marker!r}")
 
     def picker(self, where=None, after=0):
-        return self.drawn("esc back", where, after)
+        return self.drawn("space choose", where, after)
 
     def menu(self, after=0):
         return self.drawn("esc leave", after=after)
