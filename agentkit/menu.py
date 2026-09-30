@@ -3504,6 +3504,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                     more, until = None, time.monotonic() + 0.5
                     while more is None and time.monotonic() < until:
                         more = moving(clock, timeout=until - time.monotonic())
+                        if more is None and time.monotonic() < until:
+                            # a resize: drawn anew, so the dots breathe on where they now are
+                            page, pages = draw(cfg, found, listed, page, cursor, drawn, own,
+                                               look=False, groups=groups, clock=clock)
                     if isinstance(more, terminal.Key) and "0" <= more.char[:1] <= "9":
                         key += more.char
                     elif more is not None:

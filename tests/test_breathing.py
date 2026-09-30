@@ -169,19 +169,25 @@ class Breathing(Sandbox):
 
     def test_the_second_digit_and_the_stop_question_wait_breathing(self):
         self.words.update({f"zz-{n}": "done" for n in range(7)})     # ten seats: `1` may be 1x
-        script = iter([Key("char", "1"), *[None] * 14, Key("char", "x"), *[None] * 6,
-                       Key("esc"), "q"])
+        script = iter([Key("char", "1"), *[None] * 4, "resize", *[None] * 10, Key("char", "x"),
+                       *[None] * 6, Key("esc"), "q"])
 
         def answer(timeout):
             key = next(script)
-            if key is None:
+            if key is None or key == "resize":
                 time.sleep(timeout)          # nothing typed: the wait runs to its frame
+            if key == "resize":
+                terminal._ASKED = True       # what `read_key` leaves when a resize ended it
+                return None
             return key
         waits = self.run_menu(answer)
-        # `1` waits half a second for a second digit, the dots breathing, then opens seat 1
+        # `1` waits half a second for a second digit, the dots breathing, then opens seat 1; a
+        # resize in that half second draws the list anew and the dots breathe on where it put them
         opened = next(n for n, (_, _, written) in enumerate(waits) if "<opened fix-api>" in written)
-        self.assertGreater(opened, 5)
-        self.assert_breathing(waits[0][2], waits[1:opened])
+        redrawn = next(n for n in range(1, opened) if waits[n][2][:3] == "\033[H")
+        self.assert_breathing(waits[0][2], waits[1:redrawn])
+        self.assertGreater(opened - redrawn, 2)
+        self.assert_breathing(waits[redrawn][2], waits[redrawn + 1:opened])
         # `x` asks under the highlighted seat, and the dots breathe where that screen put them
         asked = next(n for n, (_, _, written) in enumerate(waits)
                      if "Stop fix-api and everything it runs?" in terminal.ANSI.sub("", written))
