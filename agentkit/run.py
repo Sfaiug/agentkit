@@ -131,7 +131,11 @@ PR_URL = re.compile(r"https://\S+?/pull/\d+")
 # the race a merge can lose to a merge to the target between the push and this call; the
 # answer is a retry, never an ending -- see `do_merge`
 BASE_BRANCH_MODIFIED = re.compile(r"Base branch was modified", re.I)
-MERGE_RETRIES = 3      # how often that race is re-fetched, re-checked and tried again
+# GitHub's own server failing the call, which its answer says to resubmit: the merge may or
+# may not have gone through, so it is re-checked and retried like the race above
+GITHUB_5XX = re.compile(r"status code: 5\d\d|HTTP 5\d\d|Bad Gateway|Gateway Timeout|"
+                        r"Service Unavailable|couldn't respond to your request in time", re.I)
+MERGE_RETRIES = 3      # how often either is re-fetched, re-checked and tried again
 # what git and gh say when the prompt they wanted was refused; each is a stop, never a wait
 PROMPTED = re.compile(r"terminal prompts disabled|could not read (?:Username|Password)|"
                       r"prompts (?:are )?disabled|askpass", re.I)
@@ -4891,8 +4895,9 @@ def do_merge(lp, url, upstream):
     target between the push and this call, not an ending: the answer is re-fetched, the
     PR is re-checked to still be mergeable, and the merge is tried again -- three times,
     with a growing wait -- and only then does the run park `waiting` with the reason,
-    retried after the next merge to the target.  Work that passed review is never thrown
-    away over one lost race.
+    retried after the next merge to the target.  GitHub answering with a 5xx of its own
+    takes the same road, and a merge it went through with anyway counts as merged.  Work
+    that passed review is never thrown away over one lost race or one bad answer.
     """
     method = lp.state["merge_method"]
     why, raced = "", 0
@@ -4905,15 +4910,21 @@ def do_merge(lp, url, upstream):
             if ready:
                 rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method], "--delete-branch",
                              "--match-head-commit", lp.state["delivery_sha"])
-            if rc == 0 or stopped(rc, out) or not BASE_BRANCH_MODIFIED.search(out or ""):
+            if rc == 0 or stopped(rc, out):
+                break
+            if BASE_BRANCH_MODIFIED.search(out or ""):
+                cause = "the base branch was modified under the merge"
+            elif GITHUB_5XX.search(out or ""):
+                cause = "GitHub failed the merge call"
+            else:
                 break
             if raced >= MERGE_RETRIES:
                 lost = True
                 break
             raced += 1
             delay = transient_delay(raced)
-            lp.log(f"WARN the base branch was modified under the merge; re-fetching, "
-                   f"re-checking and retrying in {delay}s ({raced}/{MERGE_RETRIES})")
+            lp.log(f"WARN {cause}; re-fetching, re-checking and retrying in {delay}s "
+                   f"({raced}/{MERGE_RETRIES})")
             step = history.close_step(lp.state.get("run_id"), log=lp.log)   # a wait, not work
             time.sleep(delay)
             history.open_step(lp.state.get("run_id"), step, log=lp.log)
@@ -4963,9 +4974,19 @@ def do_merge(lp, url, upstream):
             lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
             return True
         if lost:
+            # the last attempt's 5xx may have merged too, and no re-check followed it
+            src, current = gh(lp.run_dir, "pr", "view", url, "--json", "state",
+                              "-q", ".state")
+            if stopped(src, current):
+                raise Stopped(current)
+            if src == 0 and current.strip() == "MERGED":
+                lp.state["merged"] = True
+                save_state(lp.run_dir, lp.state)
+                lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
+                return True
             return park_waiting(
-                lp, f"gh pr merge --{method} failed after {MERGE_RETRIES} retries of a "
-                    f"modified base; the PR is open at {url}", upstream,
+                lp, f"gh pr merge --{method} failed after {MERGE_RETRIES} retries: {cause}; "
+                    f"the PR is open at {url}", upstream,
                 git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False) or None)
         vrc, why = gh(lp.run_dir, "pr", "view", url, "--json", "mergeStateStatus",
                       "-q", ".mergeStateStatus")
@@ -12870,7 +12891,8 @@ def merge_own_pr(lp, url, head):
     unreviewed code. Without the recorded writer there is no independence to
     enforce, so there is no automatic merge. A merge that stopped but went
     through server-side, or one somebody else landed between the checks and the
-    turn, still counts as merged.
+    turn, still counts as merged.  GitHub answering with a 5xx of its own is asked
+    again, three times with a growing wait, as `do_merge` does.
     """
     if not lp.state.get("own_orchestrator"):
         return note(lp, "no recorded writer for this PR; refusing the automatic merge",
@@ -12880,21 +12902,29 @@ def merge_own_pr(lp, url, head):
     lp.state["delivery_sha"] = head
     save_state(lp.run_dir, lp.state)
     with merge_turn(lp, upstream):
-        rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method],
-                     "--delete-branch", "--match-head-commit", head)
-        if rc == 0:
-            lp.state["merged"] = True
-            save_state(lp.run_dir, lp.state)
-            lp.log(f"--- merge: merged own {url} with --{method} at {head[:12]}, "
-                   "remote branch deleted")
-            return True
-        src, current = gh(lp.run_dir, "pr", "view", url, "--json", "state",
-                          "-q", ".state")
-        if not stopped(src, current) and src == 0 and current.strip() == "MERGED":
-            lp.state["merged"] = True
-            save_state(lp.run_dir, lp.state)
-            lp.log(f"--- merge: own {url} already merged at {head[:12]}")
-            return True
+        for attempt in range(1, MERGE_RETRIES + 2):
+            rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method],
+                         "--delete-branch", "--match-head-commit", head)
+            if rc == 0:
+                lp.state["merged"] = True
+                save_state(lp.run_dir, lp.state)
+                lp.log(f"--- merge: merged own {url} with --{method} at {head[:12]}, "
+                       "remote branch deleted")
+                return True
+            src, current = gh(lp.run_dir, "pr", "view", url, "--json", "state",
+                              "-q", ".state")
+            if not stopped(src, current) and src == 0 and current.strip() == "MERGED":
+                lp.state["merged"] = True
+                save_state(lp.run_dir, lp.state)
+                lp.log(f"--- merge: own {url} already merged at {head[:12]}")
+                return True
+            if (stopped(rc, out) or stopped(src, current) or attempt > MERGE_RETRIES
+                    or not GITHUB_5XX.search(out or "")):
+                break
+            delay = transient_delay(attempt)
+            lp.log(f"WARN GitHub failed the merge call; retrying in {delay}s "
+                   f"({attempt}/{MERGE_RETRIES})")
+            time.sleep(delay)
         if stopped(rc, out):
             return note(lp, f"gh pr merge --{method} stopped: "
                             f"{(out or '').strip()[-400:]}", failed=True)

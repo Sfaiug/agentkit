@@ -6,7 +6,7 @@ nothing at all, the reviewer is a stub verdict, and `gh` is a stub that can lose
 to a merge to the target.
 """
 
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 import json
 import os
 from pathlib import Path
@@ -22,6 +22,9 @@ from agentkit import config, run, usage
 URL = "https://github.com/fixture/repo/pull/7"
 BASE_RACE = ("GraphQL: Base branch was modified. Review and try the merge again. "
              "(mergePullRequest)")
+GITHUB_504 = ('non-200 OK status code: 504 Gateway Timeout body: "{\\"message\\": \\"We '
+              "couldn't respond to your request in time. Sorry about that. Please try "
+              'resubmitting your request and contact us if the problem persists.\\"}"')
 
 
 def make_repos(root):
@@ -676,7 +679,7 @@ class MergeStep(unittest.TestCase):
         state = run.read_state(run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertNotEqual(state["verdict"], "FAIL")
-        self.assertIn("modified base", state["merge_note"])
+        self.assertIn("base branch was modified", state["merge_note"])
         self.assertEqual(state["waiting_on"]["ref"], "origin/main")
 
     def test_a_base_race_waits_for_known_mergeability_before_retrying(self):
@@ -699,6 +702,122 @@ class MergeStep(unittest.TestCase):
         self.assertEqual(seen, ["merge", "view", "view", "merge"])
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
                          [60, 300])
+
+    def test_a_github_5xx_on_the_merge_is_rechecked_and_a_merge_it_made_counts(self):
+        # GitHub's own 504 may have merged anyway: the re-check finds it merged, and the run
+        # lands rather than ending with a CLEAN PR left open
+        _, _, wt = make_repos(self.root)
+        lp, run_dir, _ = make_loop(self.root, wt)
+        seen = []
+
+        def fake_gh(cwd, *args, **kwargs):
+            seen.append(args[1])
+            if args[:2] == ("pr", "merge"):
+                return 1, GITHUB_504
+            if args[:2] == ("pr", "view"):
+                return 0, json.dumps({"state": "MERGED", "headRefOid": lp.state["delivery_sha"],
+                                      "baseRefName": "main", "mergeable": "UNKNOWN"})
+            raise AssertionError(args)
+
+        with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
+            self.assertTrue(run.do_merge(lp, URL, "origin/main"))
+        self.assertEqual(seen, ["merge", "view"])
+        self.assertTrue(run.read_state(run_dir)["merged"])
+        self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
+                         [60])
+
+    def test_a_github_5xx_on_the_merge_is_tried_again(self):
+        _, _, wt = make_repos(self.root)
+        lp, run_dir, _ = make_loop(self.root, wt)
+        seen = []
+
+        def fake_gh(cwd, *args, **kwargs):
+            seen.append(args[1])
+            if args[:2] == ("pr", "merge"):
+                return (1, GITHUB_504) if len(seen) == 1 else (0, "merged")
+            if args[:2] == ("pr", "view"):
+                return 0, json.dumps({"state": "OPEN", "headRefOid": lp.state["delivery_sha"],
+                                      "baseRefName": "main", "mergeable": "MERGEABLE"})
+            raise AssertionError(args)
+
+        with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
+            self.assertTrue(run.do_merge(lp, URL, "origin/main"))
+        self.assertEqual(seen, ["merge", "view", "merge"])
+        self.assertTrue(run.read_state(run_dir)["merged"])
+
+    def test_an_own_pr_merge_asks_again_after_a_github_5xx(self):
+        _, _, wt = make_repos(self.root)
+        lp, run_dir, _ = make_loop(self.root, wt)
+        lp.state["own_orchestrator"] = "opus"
+        merges = []
+
+        def fake_gh(cwd, *args, **kwargs):
+            if args[:2] == ("pr", "merge"):
+                merges.append(args)
+                return (1, GITHUB_504) if len(merges) == 1 else (0, "merged")
+            if args[:2] == ("pr", "view"):
+                return 0, "OPEN"
+            raise AssertionError(args)
+
+        with patch.object(run, "gh", side_effect=fake_gh), \
+                patch.object(run, "merge_turn", lambda lp, upstream: nullcontext()), \
+                patch.object(run.time, "sleep") as slept:
+            self.assertTrue(run.merge_own_pr(lp, URL, lp.state["delivery_sha"]))
+        self.assertEqual(len(merges), 2)
+        self.assertTrue(run.read_state(run_dir)["merged"])
+        self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
+                         [60])
+
+    def test_a_merge_github_made_on_the_last_5xx_counts(self):
+        # every attempt answers 504 and GitHub merged on the last one: no re-check followed
+        # that attempt inside the loop, so the one before parking finds it merged
+        _, _, wt = make_repos(self.root)
+        lp, run_dir, _ = make_loop(self.root, wt)
+        merges = []
+
+        def fake_gh(cwd, *args, **kwargs):
+            if args[:2] == ("pr", "merge"):
+                merges.append(args)
+                return 1, GITHUB_504
+            if args[:2] == ("pr", "view") and "-q" in args:
+                return 0, "MERGED"
+            if args[:2] == ("pr", "view"):
+                return 0, json.dumps({"state": "OPEN", "headRefOid": lp.state["delivery_sha"],
+                                      "baseRefName": "main", "mergeable": "MERGEABLE"})
+            raise AssertionError(args)
+
+        with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
+            self.assertTrue(run.do_merge(lp, URL, "origin/main"))
+        self.assertEqual(len(merges), run.MERGE_RETRIES + 1)
+        state = run.read_state(run_dir)
+        self.assertTrue(state["merged"])
+        self.assertNotEqual(state.get("state"), "waiting")
+
+    def test_an_own_pr_merge_stops_when_its_recheck_stops(self):
+        for answer in ((None, "timed out"), (1, "fatal: terminal prompts disabled")):
+            with self.subTest(answer=answer):
+                root = Path(tempfile.mkdtemp(dir=self.root))
+                _, _, wt = make_repos(root)
+                lp, run_dir, _ = make_loop(root, wt)
+                lp.state["own_orchestrator"] = "opus"
+                merges = []
+
+                def fake_gh(cwd, *args, **kwargs):
+                    if args[:2] == ("pr", "merge"):
+                        merges.append(args)
+                        return 1, GITHUB_504
+                    if args[:2] == ("pr", "view"):
+                        return answer
+                    raise AssertionError(args)
+
+                with patch.object(run, "gh", side_effect=fake_gh), \
+                        patch.object(run, "merge_turn", lambda lp, upstream: nullcontext()), \
+                        patch.object(run.time, "sleep"):
+                    self.assertFalse(run.merge_own_pr(lp, URL, lp.state["delivery_sha"]))
+                self.assertEqual(len(merges), 1)
+                state = run.read_state(run_dir)
+                self.assertFalse(state["merged"])
+                self.assertTrue(state["merge_failed"])
 
 
 if __name__ == "__main__":
