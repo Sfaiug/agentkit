@@ -709,22 +709,26 @@ def _store(cfg, providers, now, fetched_at=None, checked=None, counted=None):
     provider, of the account it asked about), and the flags (`_gate_flags`).  A provider the
     config no longer has goes.
     """
+    def rolled(record):
+        past = any(_past(meter, now) for meter in record.get("meters") or [])
+        return _without_past(record, now, "the adapter") if past else dict(record)
+
     def change(disk, _):
         for name in [name for name in disk if name not in cfg["providers"]]:
             del disk[name]
         for name, mine in providers.items():
-            prov = dict(disk[name] if isinstance(disk.get(name), dict) else mine)
+            prov = rolled(disk[name] if isinstance(disk.get(name), dict) else mine)
             listed = config.accounts(cfg, name)
             if listed:
                 theirs, ours = _record(prov.get("accounts")), _record(mine.get("accounts"))
-                prov["accounts"] = {account: _without_past(
-                    _record(theirs.get(account)) or _record(ours.get(account)), now, "the adapter")
-                    for account in listed}
+                prov["accounts"] = {account: rolled(_record(theirs.get(account))
+                                                    or _record(ours.get(account)))
+                                    for account in listed}
             if name in (counted or {}):
                 asked = mine.get("account")
                 (prov["accounts"][asked] if listed and asked in prov["accounts"]
                  else prov)["resets"] = counted[name]
-            disk[name] = _without_past(prov, now, "the adapter")
+            disk[name] = prov
         return _gate_flags({name: disk[name] for name in providers}, now, cfg)
     return _write(change, fetched_at, checked)
 
