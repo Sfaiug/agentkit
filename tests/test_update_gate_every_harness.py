@@ -39,7 +39,7 @@ S=$FIXTURE/${0##*/}; S=${S%.sh}
 case $1 in
   auth) read -r rc line <"$S.auth"; echo "$line"; exit "$rc" ;;
   run) printf '%s\\n' "${*:2:2}" >>"$S.runs"; cat "$5" >>"$S.prompts"; mkdir -p "$6"
-       read -r rc answer <"$S.turn"; printf '%s' "$answer" >"$6/final.md"
+       read -r rc answer <"$S.turn"; printf '%b' "$answer" >"$6/final.md"
        echo fixture-session >"$6/session_id"; exit "$rc" ;;
 esac
 exit 97
@@ -112,13 +112,14 @@ class EveryHarness(unittest.TestCase):
         self.assertIn("3 passed, 0 failed, 0 skipped", result.stdout)
 
     def test_a_turn_that_fails_fails_the_gate(self):
-        # an error with an answer, a success with none, and neither
-        for harness, turn in zip(REST, ("1 Hello", "0 ", "1 ")):
-            with self.subTest(harness=harness, turn=turn):
-                result = self.gate(LOGGED_IN, {harness: turn})
-                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                self.assertRegex(result.stdout, rf"FAIL  3c \w+ \({harness}\): .* gave no answer")
-                self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
+        # an error with an answer, a success with none or only a blank line, and neither
+        for harness in REST:
+            for turn in ("1 Hello", "0 ", "0 \\n", "1 "):
+                with self.subTest(harness=harness, turn=turn):
+                    result = self.gate(LOGGED_IN, {harness: turn})
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertRegex(result.stdout, rf"FAIL  3c \w+ \({harness}\): .* gave no answer")
+                    self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
 
     def test_a_harness_with_no_login_is_not_checked_never_passed(self):
         token = self.home / ".gemini/antigravity-cli/antigravity-oauth-token"
@@ -147,6 +148,21 @@ class EveryHarness(unittest.TestCase):
         self.assertNotIn("SKIP ", result.stdout)
         self.assertIn("1 passed, 0 failed, 0 skipped", result.stdout)
         self.assertNotIn("counted as passed", result.stdout)
+
+    def test_a_broken_opencode_settings_file_still_fails(self):
+        # Settings that parse and hold no key are no login; a file that is empty or no longer
+        # parses may have held one, and fails as every broken saved login does.
+        settings = self.home / ".config/opencode/opencode.json"
+        settings.parent.mkdir(parents=True)
+        for text in ('{"provider": {"mimo": {"apiKey": "k', ""):
+            with self.subTest(settings=text):
+                settings.write_text(text)
+                result = self.gate({**LOGGED_IN, "opencode": f"1 opencode: no provider key in "
+                                    f"{settings} and none saved; run `opencode auth login`"})
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("FAIL  3c: required model mimo login check failed", result.stdout)
+                self.assertNotIn("NOT CHECKED  3c mimo", result.stdout)
+                self.assertEqual(self.turns("opencode"), [])
 
 
 if __name__ == "__main__":
