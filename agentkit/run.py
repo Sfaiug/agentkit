@@ -5868,10 +5868,11 @@ def disjoint_move(lp, upstream, verified, tip):
     """
     if git_out(lp.wt, "merge-base", "--is-ancestor", verified, tip)[0] != 0:
         return False
-    # -z: a quoted path (`"docs/\303\274ber.md"`) would not read as the file it names
-    ours = git(lp.wt, "diff", "--no-renames", "--name-only", "-z", verified, "HEAD").split("\0")
-    theirs = git(lp.wt, "diff", "--no-renames", "--name-only", "-z", verified, tip).split("\0")
-    shared = sorted((set(ours) & set(theirs)) - {""})
+    # read as the merge turn reads them: a quoted or trimmed path is not the file it names
+    ours, theirs = merge_turn_files(lp.wt, verified), merge_turn_files(lp.wt, verified, tip)
+    if ours is None or theirs is None:
+        return False
+    shared = sorted(ours & theirs)
     if not all(path.endswith(".md") and "tests" not in path.split("/") for path in shared):
         return False
     how = how_to_integrate(lp)
@@ -6088,15 +6089,17 @@ def merge_turn(lp, upstream, reserve=False):
                 pass
 
 
-def merge_turn_files(wt, upstream):
-    """The branch's paths, including both sides of renames; None means unknown."""
-    base = git(wt, "merge-base", upstream, "HEAD", check=False)
+def merge_turn_files(wt, upstream, head="HEAD"):
+    """The paths `head` changed since its merge base with `upstream`; None means unknown.
+
+    Both sides of a rename count."""
+    base = git(wt, "merge-base", upstream, head, check=False)
     if not base:
         return None
     # `git()` strips whitespace; NUL-delimited paths can start with it, or contain
     # newlines. Read stdout intact so those are still the same files in every clone.
     code, out, err = tool_run(["git", "-C", str(wt), "diff", "--no-renames",
-                               "--name-only", "-z", base, "HEAD"])
+                               "--name-only", "-z", base, head])
     if stopped(code, err):
         raise Stopped(f"git diff stopped in {wt}: {err.strip()}")
     return set(out.split("\0")) - {""} if code == 0 else None

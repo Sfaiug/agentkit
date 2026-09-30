@@ -21,6 +21,7 @@ from agentkit import config, run
 
 GUIDE = "docs/guide.md"
 NOTES = "docs/über.md"      # git quotes it unless asked not to
+CODE = "\tapp.py"          # git() would trim the tab off a list's first path
 LINES = "1\n2\n3\n4\n5\n"
 
 
@@ -40,7 +41,7 @@ def make_origin(root):
     run.git(root, "clone", str(remote), str(owner))
     run.git(owner, "config", "user.name", "fixture")
     run.git(owner, "config", "user.email", "fixture@localhost")
-    commit(owner, {GUIDE: LINES, NOTES: LINES, "app.py": LINES}, "base")
+    commit(owner, {GUIDE: LINES, NOTES: LINES, CODE: LINES}, "base")
     run.git(owner, "push", "origin", "main")
     return remote, owner
 
@@ -207,10 +208,12 @@ class DocsOnlyOverlapLands(unittest.TestCase):
 
     def test_code_overlap_takes_the_reserved_lap(self):
         remote, owner = make_origin(self.root)
+        # the branch's own first path sorts before the shared code file, main's does not
         lp = make_run(self.root, remote, "gizmo", self.cmds(),
-                      {GUIDE: "gizmo\n2\n3\n4\n5\n", "app.py": "gizmo\n2\n3\n4\n5\n"})
+                      {GUIDE: "gizmo\n2\n3\n4\n5\n", CODE: "gizmo\n2\n3\n4\n5\n",
+                       "\t0.md": "gizmo\n"})
         self.assertTrue(self.land(lp, owner, {GUIDE: "1\n2\n3\n4\nfive\n",
-                                              "app.py": "1\n2\n3\n4\nfive\n"}))
+                                              CODE: "1\n2\n3\n4\nfive\n"}))
         self.assertEqual(self.delivered, [True])
         self.assertEqual(self.pickups, [{"land_lap": 1}, {"land_lap": 2}])
         # the reserved lap runs the heavy suite again
