@@ -92,6 +92,7 @@ sys.exit(item.get("rc", 0))
         d.mkdir(exist_ok=True)
         return SimpleNamespace(run_dir=d, target="origin/release/v4", reviewer="stub",
                                state={"head_sha": SHA}, findings="VERDICT: PASS", log=lambda s: None,
+                               write=lambda: None,
                                turn_limit=60 * run.SILENCE_MINUTES,
                                done_when_limit=3600 * run.CEILING_HOURS)
 

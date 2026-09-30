@@ -167,7 +167,8 @@ class GateLanders(unittest.TestCase):
         run.save_state(run_dir, state)
         lp = SimpleNamespace(state=run.read_state(run_dir), run_dir=run_dir,
                              wt=self.root / "wt", base_sha="base0001",
-                             log=lambda msg: None, no_pickup=True)
+                             log=lambda msg: None, no_pickup=True,
+                             write=lambda: run.save_state(run_dir, lp.state))
         firsts = []
 
         def verify():
@@ -228,7 +229,8 @@ class GateLanders(unittest.TestCase):
         logs = []
         lp = SimpleNamespace(state=run.read_state(run_dir), run_dir=run_dir,
                              wt=self.root / "wt", base_sha="base0001",
-                             log=logs.append, no_pickup=True)
+                             log=logs.append, no_pickup=True,
+                             write=lambda: run.save_state(run_dir, lp.state))
         repo = run.main_checkout(ACME)
 
         def verify():
@@ -262,7 +264,8 @@ class GateLanders(unittest.TestCase):
         (rerun / "landing_since").write_text("1000.0")
         kept = SimpleNamespace(state=run.read_state(rerun), run_dir=rerun,
                                wt=self.root / "wt", base_sha="base0001",
-                               log=lambda msg: None, no_pickup=True)
+                               log=lambda msg: None, no_pickup=True,
+                               write=lambda: run.save_state(rerun, kept.state))
 
         def again():
             self.assertEqual(run.mark_gate_wait(rerun, repo), 1000.0)

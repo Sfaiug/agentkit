@@ -42,6 +42,13 @@ RULES = [
      "pattern": r"\.save_state\(",
      "home": ("agentkit/run.py",),
      "max": 21},
+    # A live loop writes its record through `Loop.write`, which keeps what the watcher or a
+    # rename put there since; a whole save of its memory would put the old record back.
+    {"name": "a live loop's whole saves",
+     "flags": (),
+     "pattern": r"save_state\((self\.)?lp\.",
+     "home": (),
+     "max": 0},
     # A seat's files are named once, so a rename, a forget or a new store moves them all.
     {"name": "per-seat state file names",
      "flags": (),

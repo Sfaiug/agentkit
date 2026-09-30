@@ -131,10 +131,13 @@ class MergePipeline(Fixture):
             state = self.survives(lambda: self.assertTrue(run.final_check(self.lp, "origin/main")))
         self.assertEqual(state["final_check"]["outcome"], "passed")
 
-    def test_a_stop_still_ends_a_pipeline_save(self):
+    def test_a_stop_still_ends_a_pipeline_save_and_a_release_still_lets_go(self):
         run.save_state(self.run_dir, {**run.read_state(self.run_dir), "state": "stopped"})
         with self.assertRaises(run.StopRequested):
             run.note(self.lp, "the PR is closed")
+        self.lp.state["merge_hold"] = {"pid": 1, "of": "acme main"}
+        run._MergeHold(None, self.lp, True).release()     # its fallback, not a raise
+        self.assertNotIn("merge_hold", self.lp.state)
         self.assertEqual(run.read_state(self.run_dir)["state"], "stopped")
 
 
