@@ -140,15 +140,16 @@ drive probe xterm-256color printenv HOME USER
 
     def test_pipeline_failures_accumulate_in_parent_and_have_diagnostics(self):
         assertions = between(FRESH, 'bad="" ASSERTION=0', "# --- the throwaway HOME's shell")
-        lines = '\n'.join(line for line in FRESH.splitlines() if line.startswith('  must "ak orch list'))
-        result = self.shell(assertions + '\nLIST="wrong output"\n' + lines + '''
+        lines = '\n'.join(re.findall(r'^  must "ak orch list(?:.*\\\n)*.*', FRESH, re.M))
+        result = self.shell(assertions + '\nLIST="wrong output" PICKED=""\n' + lines + '''
 must "pipeline's producer failed" bash -o pipefail -c 'false | cat'
 verdict fixture evidence
 finish
 ''')
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn('0 passed, 1 failed, 0 skipped', result.stdout)
-        self.assertIn('does not show the seat; ak orch list does not show its models;', result.stdout)
+        self.assertIn('does not show the seat; ak orch list does not show the models the picker chose;',
+                      result.stdout)
         self.assertIn("exit=1 log=", result.stdout)
         self.assertIn("command=grep", result.stdout)
 
