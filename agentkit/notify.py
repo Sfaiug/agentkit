@@ -856,7 +856,9 @@ def _remember_card(event, previous=None):
                 and current.get("time", 0) >= event["created_at"])
     if event["kind"] == "needs" and receipt.get("message_id"):
         pending = {**receipt, "embed": event["payload"]["embeds"][0]}
-        answered = current is not None and resolved(current)
+        # An answer from before this episode began was to an earlier needs you, not this one.
+        answered = (current is not None and resolved(current)
+                    and (current.get("answered_at") or math.inf) > card.get("since", 0))
         if (card.get("episode") != event.get("episode") or card.get("closed")
                 or card.get("word") != "needs you" or answered):
             finished = card.get("word") == "done" or declared
@@ -963,12 +965,17 @@ def needs_transition(session, card, answer, now, seat=None):
     answered_here = (declared and resolved(declared)
                      and (declared.get("answered_at") or 0) > card["since"])
     if _attached(session, card["since"], seat) or answered_here:
-        if not card.get("closed") or card.get("open_needs"):
+        if not card.get("closed") or card.get("open_needs") or answered_here:
             if card.get("sent"):
                 _close_card(session, card, "Answered")
             else:
                 # Input in this episode: it ends without a card.
                 card["closed"] = "Answered"
+            if answered_here:
+                # The answer ends the needs you it answered: one still read at the next tick
+                # came after it -- a dialog, or the seat waiting again -- and is an episode
+                # of its own, though no tick saw the seat work in between.
+                card["word"] = ""
             _card_write(session, card)
         return 0
     if card.get("sent") or card.get("closed") or now - card["since"] < CARD_WAIT:
