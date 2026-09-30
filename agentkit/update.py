@@ -112,12 +112,17 @@ def version(harness):
 
 
 def step(cmd, fh, env=None, timeout=STEP_CAP):
-    """Run one command into the log; True when it exited 0."""
+    """Run one command into the log; True when it exited 0.
+
+    Its stdin is /dev/null: an update runs unattended, and a gate started from a terminal
+    must not wait on it -- a smoke suite that did held the host's suite lock for hours.
+    """
     cmd = [config.harness_binary(cmd[0]) or cmd[0], *cmd[1:]]
     fh.write(f"\n$ {shlex.join(cmd)}\n")
     fh.flush()
     try:
-        with subprocess.Popen(cmd, stdout=fh, stderr=subprocess.STDOUT, start_new_session=True,
+        with subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=fh, stderr=subprocess.STDOUT,
+                              start_new_session=True,
                               env={**config.child_env(), **PINS, **(env or {})}) as proc:
             try:
                 code = proc.wait(timeout=timeout)
