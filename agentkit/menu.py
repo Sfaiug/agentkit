@@ -418,10 +418,10 @@ def moving(clock, wake=None, timeout=TICK):
     """`wait_key` on the main screen, its digit wait and its stop question: `timeout` seconds at
     most, and each of `clock`'s frames drawn while something moves and no key is waiting.
 
-    Only a wait that ran to its frame draws one.  One that ended before it, on news, or on a
-    resize at any time returns None, its cells forgotten, for the caller to draw the screen
-    again; a resize moves every cell, so the clock forgets what it had seen as well, and that
-    draw is of the values as they are (`motion.Clock.forget`).
+    Only a wait that ran to its frame draws one.  One that ended before it, on news, returns
+    None, its cells forgotten, for the caller to draw the screen again; so does one a resize
+    ended, at any time, and the clock forgets what it had seen as well: a resize moves every
+    cell, and the draw after it shows the values as they are (`motion.Clock.forget`).
     """
     left, until = timeout, time.monotonic() + timeout
     terminal.asked_again()          # a draw asked for before the one just made is answered
@@ -3525,7 +3525,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                         cursor = order[min(max(at, 0), len(order) - 1)]
                     look = False          # the highlight moves over what is in hand
                     continue
-                clock.forget()            # whatever the key opens, the menu after it is as it is
+                clock.forget()            # whatever the key opens, the menu back replays nothing
                 typed, key = key, pressed(key, shown, found)
                 if isinstance(key, Path):
                     cursor = key              # the heading, highlighted when he is back

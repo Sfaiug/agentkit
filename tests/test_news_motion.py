@@ -246,9 +246,9 @@ class NewsMotion(Sandbox):
         frames = [painted(text) for _, cell, text in cells if cell == bar]
         lit = [{n for n, (_, colour) in enumerate(frame) if colour} for frame in frames]
         # six cells of eight become eight: the two new ones light while it glides to them...
-        self.assertTrue(any(cells and cells <= {6, 7} for cells in lit), lit)
+        self.assertTrue(any(lights and lights <= {6, 7} for lights in lit), lit)
         # ...and then one light crosses the full bar, left to right, once
-        sweep = [min(cells - {6, 7}) for cells in lit if cells - {6, 7}]
+        sweep = [min(lights - {6, 7}) for lights in lit if lights - {6, 7}]
         self.assertEqual(sweep, sorted(sweep))
         self.assertLessEqual(sweep[0], 1)
         self.assertGreaterEqual(sweep[-1], 4)
