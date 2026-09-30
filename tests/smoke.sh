@@ -37,11 +37,13 @@ export AK_MAX_RUNS=0
 # every `ak` this suite runs and everything those runs start in turn; the three checks that
 # need a delivered POST point it at a local recorder of their own instead.  Check 5d proves it.
 
-# --- one suite at a time, on everything two suites would share ---------------
-# The provider logins and the remote are shared: two suites running at once would use the
-# same subscriptions and reset the same remote for that account, so the turn covers the whole suite. A suite
-# takes this host-wide lock before its first check and gives it back once its last one has
-# reported; a second suite waits its turn rather than overlapping at all.
+# --- one suite at a time on the shared remote, and nowhere else ---------------
+# Suites run side by side: every check runs on the suite's own HOME, tmux socket and fakes, and
+# the real model calls go through the same logins the host's seats use all day.  Check 4 alone
+# touches something two suites share, `<login>/agentkit-smoke`, a fixed repository whose `main`
+# it resets and whose ak/* branches it deletes, out from under another suite's run.  So check 4
+# alone takes this host-wide lock, from just before it seeds the remote until its delivery is
+# read, and every other check runs while another suite holds it.
 # The lock file is created world-readable and locked through a read-only descriptor, so suites
 # running as different accounts all take it.  $AK_SMOKE_LOCK_WAIT overrides the hour-long wait,
 # for tests.
@@ -165,6 +167,16 @@ smoke_lock_hold() {   # smoke_lock_hold <wait seconds>: 0 and the lock is this s
   SMOKE_LOCK_PID=""
   return 75
 }
+smoke_lock_drop() {   # give the remote back: the holder goes, and its descriptor with it
+  [ -z "$SMOKE_LOCK_PID" ] || kill "$SMOKE_LOCK_PID" 2>/dev/null
+  SMOKE_LOCK_PID=""; SMOKE_LOCK_HELD=0
+}
+# Side by side, what two suites name has to differ too.  A run id is the minute plus the task's
+# title, and a gate kills every process carrying AGENTKIT_RUN=<id> host-wide; a seat that brings
+# a tmux server up names the host's systemd scope for it after itself, and a second scope of
+# that name is refused.  So the suite's pid, `$$`, which no other suite alive has, ends the title
+# of every run it launches and the fixed name of a seat that starts a server.  (6d's and 21's
+# seats keep their names: tests of their own pin them, and nothing but 6f reads a seat's scope.)
 # The test hook: take the lock with that wait and report, cloning nothing at all.
 if [ "${1:-}" = --lock-probe ]; then
   [ $# = 2 ] || { echo "usage: tests/smoke.sh --lock-probe <seconds>" >&2; exit 2; }
@@ -1399,10 +1411,10 @@ WORK="$HOME/.agentkit/tmp/smoke-$(date +%Y%m%d-%H%M%S)"
 SMOKE_CALLER_HOME=$HOME
 mkdir -p -- "$HOME/.agentkit/tmp"
 # This name is stamped to the second, and two suites can start inside the same second: the
-# second of them is here to wait its turn below, not to die on the first one's directory.
+# second of them is here to run beside the first, not to die on the first one's directory.
 mkdir -- "$WORK" 2>/dev/null || WORK=$(mktemp -d -- "$WORK-XXXXXX") || exit 1
 PYTHONPATH="$REPO" python3 -m agentkit.retention begin "$WORK" smoke "$$" || :
-# The lock is the last thing given back, once every check has reported.  Its holder is started
+# A suite that dies inside check 4 gives the remote back here.  The lock's holder is started
 # well below this line, so the trap has to read a name that may still be unset.  The sandbox is
 # settled on the suite's exit status, read before anything else can overwrite it: a passed
 # suite takes its own sandbox with it, a failed one keeps its own and takes the older ones,
@@ -1450,20 +1462,6 @@ newrepo() {
   printf '%s' "$d"
 }
 echo "workdir: $WORK"
-# The turn on everything two suites share, taken before the first check and given back by the
-# trap above once the last one has reported.  Without it nothing below may run: not check 4,
-# whose remote it is, and not the checks that use the same provider logins.
-# So this ends the suite the way check 0 does, and
-# it is asked before any other reason to skip -- a spent model does not excuse touching a
-# remote that is not ours.
-if ! smoke_lock_hold "$SMOKE_LOCK_WAIT"; then
-  no "4 ak run: another suite still holds the turn after ${SMOKE_LOCK_WAIT}s;\
- its provider logins and remote were never this suite's to take"
-  skip_checks 4b/4c/4d "prerequisite run did not happen: another suite holds the turn"
-  echo "      stopping here: the provider logins and remote are still in use by the other suite"
-  finish
-  exit 1
-fi
 if python3 "$REPO/tests/test_v5a.py"; then
   ok "44 desktop notices and boot recovery: named offline checks a-f"
 else
@@ -1570,21 +1568,21 @@ printf '## Summary\nwrote retry.txt on call %s\nSMOKE_SECRET=%s\n' "$n" "${SMOKE
 SH
   chmod +x "$d/$h.sh"
 }
-cat >"$WORK/retry-task.md" <<'MD'
+cat >"$WORK/retry-task.md" <<MD
 ---
 repo: __REPO__
 base: main
 rounds: 1
 ---
-# __TITLE__
+# __TITLE__ $$
 
 ## Goal
 Nothing: the fake adapters do the work.
 
 ## Done when
-```bash
+\`\`\`bash
 test -f retry.txt
-```
+\`\`\`
 MD
 # The pick-order and fallback checks from here on rank spark and grok too, which the shipped
 # defaults do not name as workers: their HOMEs take the shipped config with every model but
@@ -1908,8 +1906,14 @@ done
 # run from inside a clone, has to find both, pass review, rebase, push, open a PR and merge it.
 # The private target stays under the caller's own account. Reset it to its seed and remove
 # leftover ak/* branches before every run, so `main` is always exactly the same failing state.
+# That remote is every suite's on this host, so this is the one check that waits for the lock:
+# taken before the seed, given back once the delivery on it is read.  A suite that cannot take
+# it fails this check alone and runs the rest.
 if skip_spent 4/4b/4c/4d opus astra; then
   :   # skip before cloning or resetting the remote baseline, not after a worker's 429
+elif ! smoke_lock_hold "$SMOKE_LOCK_WAIT"; then
+  no "4 ak run: another suite still holds the remote after ${SMOKE_LOCK_WAIT}s; it was never this suite's to reset"
+  skip_checks 4b/4c/4d "prerequisite run did not happen: another suite holds the remote"
 else
 SMOKE_LOGIN=$(gh api user --jq .login 2>"$WORK/smoke-login.err" || true)
 SMOKE_REPO="$SMOKE_LOGIN/agentkit-smoke"
@@ -1946,11 +1950,11 @@ PY
   done
 ) >"$WORK/seed.log" 2>&1
 SRC=$?
-cat >"$WORK/task.md" <<'MD'
+cat >"$WORK/task.md" <<MD
 ---
 rounds: 2
 ---
-# Smoke make hello pass
+# Smoke make hello pass $$
 
 ## Goal
 tests/test_hello.py imports the name hello from a module hello and expects hello() to return
@@ -1961,9 +1965,9 @@ the string "hello". Add the smallest module that makes the test pass. Nothing el
 - No new dependencies.
 
 ## Done when
-```bash
+\`\`\`bash
 python3 -m pytest -q
-```
+\`\`\`
 MD
 # A smoke run is not a job, so its own end-of-run notification must not reach Discord: an
 # unusable webhook makes `ak notify` print the message instead of posting it, which is also
@@ -1982,6 +1986,7 @@ if [ "$RC" = 0 ] && [ -n "$RUNDIR" ]; then
     "$CLONE" "$WORK/task.md" "$WORK/delivered"
   DELIVERYRC=$?
 fi
+smoke_lock_drop
 if [ "$RC" = 0 ] && [ -n "$RUNDIR" ] && grep -q '^VERDICT: PASS' "$RUNDIR/result.md" 2>/dev/null &&
    grep -q '^merged: yes$' "$RUNDIR/result.md" && grep -q '^pr: https://' "$RUNDIR/result.md" &&
    [ "$DELIVERYRC" = 0 ]; then
@@ -2370,18 +2375,20 @@ fi
 SLICE_STATE=$(systemctl --user is-system-running 2>/dev/null || true)
 case "$SLICE_STATE" in
   initializing|starting|running|degraded|maintenance|stopping)
-    tm kill-session -t =smoke-slice 2>/dev/null
-    PYTHONPATH="$REPO" python3 - <<'PYSLICE' >"$WORK/slice.log" 2>&1
+    SLICESEAT=smoke-slice-$$
+    tm kill-session -t "=$SLICESEAT" 2>/dev/null
+    PYTHONPATH="$REPO" python3 - "$SLICESEAT" <<'PYSLICE' >"$WORK/slice.log" 2>&1
+import sys
 from pathlib import Path
 from agentkit import config, orch
 config.ensure_dirs()
-config.save_session(config.load(), "smoke-slice", "astra", ["opus"])
-orch.start("smoke-slice", Path("/tmp"), ["sleep", "600"], "astra")
+config.save_session(config.load(), sys.argv[1], "astra", ["opus"])
+orch.start(sys.argv[1], Path("/tmp"), ["sleep", "600"], "astra")
 PYSLICE
     SLICERC=$?
-    PANEPID=$(tm list-panes -t =smoke-slice -F '#{pane_pid}' 2>/dev/null | head -1)
+    PANEPID=$(tm list-panes -t "=$SLICESEAT" -F '#{pane_pid}' 2>/dev/null | head -1)
     SLICECG=$(cat "/proc/${PANEPID:-0}/cgroup" 2>/dev/null || true)
-    ak orch stop smoke-slice >>"$WORK/slice.log" 2>&1 || :
+    ak orch stop "$SLICESEAT" >>"$WORK/slice.log" 2>&1 || :
     if [ "$SLICERC" = 0 ] && grep -q 'agentkit-test[.]slice' <<<"$SLICECG"; then
       ok "6f the slice: a seat's pane runs in agentkit-test.slice, under agentkit.slice"
     else
@@ -3164,7 +3171,7 @@ repo: $R
 base: main
 rounds: 1
 ---
-# Smoke env file
+# Smoke env file $$
 
 ## Goal
 Nothing: the fake adapters do the work.
@@ -3196,20 +3203,20 @@ mkdir -p -- "$SCRH" "$SCRAD"
 fakeadapter "$SCRAD" claude work; fakeadapter "$SCRAD" codex pass; fakeadapter "$SCRAD" muse pass
 fakeadapter "$SCRAD" grokbuild meterless
 fakeadapter "$SCRAD" opencode meterless
-cat >"$WORK/task-scratch.md" <<'MD'
+cat >"$WORK/task-scratch.md" <<MD
 ---
 repo: none
 rounds: 1
 ---
-# Smoke scratch workspace
+# Smoke scratch workspace $$
 
 ## Goal
 Nothing: the fake adapters do the work.
 
 ## Done when
-```bash
+\`\`\`bash
 test -f retry.txt
-```
+\`\`\`
 MD
 HOME="$SCRH" AGENTKIT_ADAPTER_DIR="$SCRAD" ak run "$WORK/task-scratch.md" --rounds 1 \
   --exec opus --review astra >"$WORK/scratch.log" 2>&1
@@ -3487,7 +3494,7 @@ base: feature
 target: main
 rounds: 2
 ---
-# Smoke target branch
+# Smoke target branch $$
 
 ## Goal
 Nothing: the fake adapters do the work.
@@ -3807,6 +3814,7 @@ OVH="$WORK/home-overlay"; OVTMP="$WORK/ovt"
 mkdir -p -- "$OVH/.agentkit/state" "$OVTMP"
 cp "$MHOME/.agentkit/state/usage.json" "$OVH/.agentkit/state/usage.json"
 OVERLAY=0
+OV1=smoke-ov-1-$$ OV2=smoke-ov-2-$$
 # 20e's two servers, both throwaway: the seats on the suite's own socket in a directory of this
 # check's own -- so the seats the popup lists are these two and never another check's -- and the
 # terminal that attaches one of them on a socket beside it.
@@ -3814,26 +3822,27 @@ OVERLAY=0
 ovtmux() { env -u TMUX LC_ALL=C.UTF-8 TMUX_TMPDIR="$OVTMP" tmux -L agentkit-test "$@"; }
 ovhost() { env -u TMUX LC_ALL=C.UTF-8 TMUX_TMPDIR="$OVTMP" tmux -L agentkit-test-outer "$@"; }
 TMUX_TMPDIR="$OVTMP" HOME="$OVH" PYTHONPATH="$REPO" TERM=xterm-256color LC_ALL=C.UTF-8 \
-  env -u NO_COLOR python3 - >"$WORK/overlay-start.log" 2>&1 <<'PY' || OVERLAY=1
+  env -u NO_COLOR python3 - "$OV1" "$OV2" >"$WORK/overlay-start.log" 2>&1 <<'PY' || OVERLAY=1
+import sys
 from agentkit import config, orch
 
 config.ensure_dirs()
 cfg = config.load()
-config.save_session(cfg, "smoke-ov-1", "fable", ["opus"])
-config.save_session(cfg, "smoke-ov-2", "astra", ["opus"])
-orch.start("smoke-ov-1", "/tmp", ["sleep", "600"], "fable")
-orch.start("smoke-ov-2", "/tmp", ["sleep", "600"], "astra")
+config.save_session(cfg, sys.argv[1], "fable", ["opus"])
+config.save_session(cfg, sys.argv[2], "astra", ["opus"])
+orch.start(sys.argv[1], "/tmp", ["sleep", "600"], "fable")
+orch.start(sys.argv[2], "/tmp", ["sleep", "600"], "astra")
 PY
 # the status bar, set on the sessions themselves and on nothing else. Both halves are
 # plain text: the name and the orchestrator until the first classification, the one key on
 # the right, the name as the title. The tick and every menu draw rewrite them through the
 # one writer; a rename writes them at once. What they come to on screen is asserted
 # further down.
-[ "$(ovtmux show-options -t smoke-ov-1 -v status 2>/dev/null)" = on ] || OVERLAY=1
-[ "$(ovtmux show-options -t smoke-ov-1 -v status-left 2>/dev/null)" = " smoke-ov-1 · fable " ] || OVERLAY=1
-[ "$(ovtmux show-options -t smoke-ov-2 -v status-left 2>/dev/null)" = " smoke-ov-2 · astra " ] || OVERLAY=1
-[ "$(ovtmux show-options -t smoke-ov-1 -v status-right 2>/dev/null)" = " Ctrl-b m  menu " ] || OVERLAY=1
-[ "$(ovtmux show-options -t smoke-ov-1 -v set-titles-string 2>/dev/null)" = "smoke-ov-1" ] || OVERLAY=1
+[ "$(ovtmux show-options -t "$OV1" -v status 2>/dev/null)" = on ] || OVERLAY=1
+[ "$(ovtmux show-options -t "$OV1" -v status-left 2>/dev/null)" = " $OV1 · fable " ] || OVERLAY=1
+[ "$(ovtmux show-options -t "$OV2" -v status-left 2>/dev/null)" = " $OV2 · astra " ] || OVERLAY=1
+[ "$(ovtmux show-options -t "$OV1" -v status-right 2>/dev/null)" = " Ctrl-b m  menu " ] || OVERLAY=1
+[ "$(ovtmux show-options -t "$OV1" -v set-titles-string 2>/dev/null)" = "$OV1" ] || OVERLAY=1
 # the binding and the three server options, out of agentkit's own file and into the server
 grep -q '^bind-key m if-shell -F .*display-popup -E -w 100% -h 100% .*attach --overlay.*display-popup -E -w 80% -h 70% .*attach --overlay' \
   "$OVH/.agentkit/state/tmux.conf" || OVERLAY=1
@@ -3843,12 +3852,12 @@ ovtmux list-keys -T prefix 2>/dev/null | grep -q 'display-popup' || OVERLAY=1
 # a phone scrolls with its finger, and has 50000 lines to scroll
 [ "$(ovtmux show-options -gv mouse 2>/dev/null)" = on ] || OVERLAY=1
 [ "$(ovtmux show-options -gv history-limit 2>/dev/null)" = 50000 ] || OVERLAY=1
-[ "$(ovtmux show-options -t smoke-ov-1 -v remain-on-exit 2>/dev/null)" = on ] || OVERLAY=1
-# a terminal for smoke-ov-1: its own tmux server, so nothing here nests, and a TERM every box has
-ovtmux set-environment -t smoke-ov-1 HOME "$OVH"
-ovtmux set-environment -t smoke-ov-1 TMUX_TMPDIR "$OVTMP"
+[ "$(ovtmux show-options -t "$OV1" -v remain-on-exit 2>/dev/null)" = on ] || OVERLAY=1
+# a terminal for the first seat: its own tmux server, so nothing here nests, and a TERM every box has
+ovtmux set-environment -t "$OV1" HOME "$OVH"
+ovtmux set-environment -t "$OV1" TMUX_TMPDIR "$OVTMP"
 ovhost new-session -d -x 130 -y 40 -s ovhost \
-  "env -u TMUX TMUX_TMPDIR=$OVTMP TERM=xterm-256color tmux -L agentkit-test attach -t =smoke-ov-1" \
+  "env -u TMUX TMUX_TMPDIR=$OVTMP TERM=xterm-256color tmux -L agentkit-test attach -t =$OV1" \
   || OVERLAY=1
 sleep 2
 ovhost send-keys -t ovhost C-b m
@@ -3861,8 +3870,8 @@ done
 # the popup drew this server's two seats, in order, under the overlay's own key line
 grep -q 'n start a session   r rename this session   x stop this session   q close' "$WORK/overlay-popup.txt" || OVERLAY=1
 NEEDS_GLYPH=$(LC_ALL=C.UTF-8 PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("needs you"))')
-grep -q "1  smoke-ov-1  fable  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
-grep -q "2  smoke-ov-2  astra  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
+grep -q "1  $OV1  fable  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
+grep -q "2  $OV2  astra  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
 grep -q 'p preview' "$WORK/overlay-popup.txt" && OVERLAY=1   # not offered over a running session
 # 2 switches this client to that seat, and the popup comes down behind it. switch-client, the
 # popup closing and the seat drawing its own bar are three redraws, in that order and none of
@@ -3871,15 +3880,15 @@ ovhost send-keys -t ovhost 2 Enter
 OVWHERE=0
 : >"$WORK/overlay-after.txt"
 for _ in $(seq 1 30); do
-  OVWHERE=$(ovtmux list-clients -F '#{session_name}' 2>/dev/null | grep -c '^smoke-ov-2$')
+  OVWHERE=$(ovtmux list-clients -F '#{session_name}' 2>/dev/null | grep -c "^$OV2\$")
   ovhost capture-pane -p -t ovhost >"$WORK/overlay-after.txt" 2>/dev/null
   [ "$OVWHERE" = 1 ] && ! grep -q 'n start a session' "$WORK/overlay-after.txt" &&
-    grep -q 'smoke-ov-2 · astra' "$WORK/overlay-after.txt" && break
+    grep -q "$OV2 · astra" "$WORK/overlay-after.txt" && break
   sleep 1
 done
 [ "$OVWHERE" = 1 ] || OVERLAY=1
 grep -q 'n start a session' "$WORK/overlay-after.txt" && OVERLAY=1        # the popup came down with it
-grep -q 'smoke-ov-2 · astra' "$WORK/overlay-after.txt" || OVERLAY=1   # the seat's own status bar
+grep -q "$OV2 · astra" "$WORK/overlay-after.txt" || OVERLAY=1   # the seat's own status bar
 ovhost kill-server 2>/dev/null
 ovtmux kill-server 2>/dev/null
 [ "$OVERLAY" = 0 ] && ok "20e Ctrl-b m: the popup drew both seats under the overlay's own keys, 2 switched the client to smoke-ov-2 and closed the popup behind it; each seat carried the status bar agentkit's own tmux.conf dressed it with" \
@@ -4503,7 +4512,9 @@ grep -q '^merge: waiting for the maintainer$' "$FH/.agentkit/runs/$FRUNID/result
 # The PR head exists only as refs/pull/7/head on a bare origin, the way GitHub serves it. The
 # fake `gh` describes the PR, records the review it is asked to post and reports no checks. The
 # fake adapters answer PASS, so the question has to reach an inbox seat -- pointed at a smoke
-# name, never the real `inbox` -- and the user through `ak notify needs`.
+# name, never the real `inbox` -- and the user through `ak notify needs`.  The run id is the
+# minute plus the repository's name, so that name carries the suite's pid.
+PREPO="smokerepo-$$" INBOX="smoke-inbox-$$"
 PH="$WORK/home-prreview"; PAD="$WORK/ad-prreview"; PBIN="$WORK/bin-prreview"; PGHLOG="$WORK/gh-pr.log"
 mkdir -p -- "$PH/.agentkit/state" "$PAD" "$PBIN" "$PH/code"
 fakeadapter "$PAD" claude pass; fakeadapter "$PAD" codex pass; fakeadapter "$PAD" muse pass
@@ -4525,9 +4536,9 @@ for name, meters in (("anthropic", (("weekly_all", 80), ("weekly_scoped", 53))),
 with open(sys.argv[1], "w") as fh:
     json.dump({"fetched_at": time.time(), "providers": providers}, fh)
 PY
-PORIGIN="$WORK/gh-remote/smokeowner/smokerepo.git"; mkdir -p -- "$(dirname "$PORIGIN")"
+PORIGIN="$WORK/gh-remote/smokeowner/$PREPO.git"; mkdir -p -- "$(dirname "$PORIGIN")"
 git init -q --bare -b main -- "$PORIGIN"
-PR=$(newrepo home-prreview/code/smokerepo)
+PR=$(newrepo "home-prreview/code/$PREPO")
 git -C "$PR" remote add origin "$PORIGIN"
 printf -- '---\ntests: test -f contrib.txt\n---\n# smokerepo\n' >"$PR/AGENTS.md"
 git -C "$PR" add -A; git -C "$PR" commit -qm "declare tests"; git -C "$PR" push -q -u origin main
@@ -4536,22 +4547,22 @@ git -C "$PR" commit -qm "add contrib.txt"; PHEAD=$(git -C "$PR" rev-parse HEAD)
 git -C "$PR" push -q origin "contrib:refs/pull/7/head"; git -C "$PR" checkout -q main; git -C "$PR" branch -qD contrib
 cat >"$PBIN/gh" <<SH
 #!/usr/bin/env bash
-GHLOG="$PGHLOG"; PHEAD=$PHEAD
+GHLOG="$PGHLOG"; PHEAD=$PHEAD; PREPO=$PREPO
 SH
 cat >>"$PBIN/gh" <<'SH'
 printf '%s\n' "$*" >>"$GHLOG"
 case "${1:-} ${2:-}" in
-  "pr view") printf '{"number":7,"title":"Add contrib","body":"adds a file","author":{"login":"bob"},"baseRefName":"main","headRefOid":"%s","url":"https://github.com/smokeowner/smokerepo/pull/7","state":"OPEN","isDraft":false}\n' "$PHEAD" ;;
-  "api repos/smokeowner/smokerepo/pulls/7/reviews") cp -- "${10#body=@}" "${GHLOG%.log}-review.md" ;;
+  "pr view") printf '{"number":7,"title":"Add contrib","body":"adds a file","author":{"login":"bob"},"baseRefName":"main","headRefOid":"%s","url":"https://github.com/smokeowner/%s/pull/7","state":"OPEN","isDraft":false}\n' "$PHEAD" "$PREPO" ;;
+  "api repos/smokeowner/$PREPO/pulls/7/reviews") cp -- "${10#body=@}" "${GHLOG%.log}-review.md" ;;
   "api graphql") printf '{"data":{"repository":{"ref":{"branchProtectionRule":null}}}}\n' ;;
   "api --paginate") printf '[]\n' ;;
   *) echo "fake gh: unexpected $*" >&2; exit 1 ;;
 esac
 SH
 chmod +x "$PBIN/gh"
-tm kill-session -t =smoke-inbox 2>/dev/null
-HOME="$PH" AGENTKIT_INBOX_SESSION=smoke-inbox AGENTKIT_ADAPTER_DIR="$PAD" AGENTKIT_DISCORD_WEBHOOK= \
-  PATH="$PBIN:$PATH" ak run --review-pr https://github.com/smokeowner/smokerepo/pull/7 >"$WORK/prreview.log" 2>&1
+tm kill-session -t "=$INBOX" 2>/dev/null
+HOME="$PH" AGENTKIT_INBOX_SESSION="$INBOX" AGENTKIT_ADAPTER_DIR="$PAD" AGENTKIT_DISCORD_WEBHOOK= \
+  PATH="$PBIN:$PATH" ak run --review-pr "https://github.com/smokeowner/$PREPO/pull/7" >"$WORK/prreview.log" 2>&1
 PRC=$?
 PRUNID=$(sed -n 's/^\[[0-9:]*\] run \([^:]*\): .*$/\1/p' "$WORK/prreview.log" | head -1)
 PJSON="$PH/.agentkit/runs/$PRUNID/run.json"
@@ -4560,10 +4571,10 @@ PRR=0
 [ "$(jq -r '.verdict' "$PJSON" 2>/dev/null)" = PASS ] || PRR=1
 [ "$(jq -r '.executor' "$PJSON" 2>/dev/null)" = null ] || PRR=1
 [ "$(jq -r '.reviewer' "$PJSON" 2>/dev/null)" = astra ] || PRR=1
-[ "$(jq -r '.review_pr' "$PJSON" 2>/dev/null)" = "https://github.com/smokeowner/smokerepo/pull/7" ] || PRR=1
+[ "$(jq -r '.review_pr' "$PJSON" 2>/dev/null)" = "https://github.com/smokeowner/$PREPO/pull/7" ] || PRR=1
 [ "$(jq -r '.review_posted' "$PJSON" 2>/dev/null)" = true ] || PRR=1
 [ "$(jq -r '.head_sha' "$PJSON" 2>/dev/null)" = "$PHEAD" ] || PRR=1
-grep -q "^api repos/smokeowner/smokerepo/pulls/7/reviews --method POST -f commit_id=$PHEAD -f event=COMMENT -F body=@" "$PGHLOG" || PRR=1
+grep -q "^api repos/smokeowner/$PREPO/pulls/7/reviews --method POST -f commit_id=$PHEAD -f event=COMMENT -F body=@" "$PGHLOG" || PRR=1
 grep -q "^agentkit review of ${PHEAD:0:12} by " "${PGHLOG%.log}-review.md" 2>/dev/null || PRR=1
 grep -q '^VERDICT: PASS' "${PGHLOG%.log}-review.md" 2>/dev/null || PRR=1
 grep -q '^\$ test -f contrib.txt' "$PH/.agentkit/runs/$PRUNID/round-1/donewhen.log" 2>/dev/null || PRR=1
@@ -4571,14 +4582,14 @@ grep -q 'You are the reviewer of a pull request by another author' \
   "$PH/.agentkit/runs/$PRUNID/round-1/reviewer/prompt.md" 2>/dev/null || PRR=1
 grep -q '^+c$' "$PH/.agentkit/runs/$PRUNID/round-1/reviewer/prompt.md" 2>/dev/null || PRR=1   # the diff
 git -C "$PH/.agentkit/wt/$PRUNID" rev-parse HEAD 2>/dev/null | grep -q "^$PHEAD$" || PRR=1
-tm has-session -t =smoke-inbox 2>/dev/null || PRR=1
-grep -q 'asked the smoke-inbox seat: PR #7 by bob: Add contrib. Merge? yes/no' "$WORK/prreview.log" || PRR=1
+tm has-session -t "=$INBOX" 2>/dev/null || PRR=1
+grep -q "asked the $INBOX seat: PR #7 by bob: Add contrib. Merge? yes/no" "$WORK/prreview.log" || PRR=1
 # the seat holds a `sleep`, so what was typed sits echoed in its pane: the merge is pinned to the head
-tm capture-pane -p -J -t =smoke-inbox: 2>/dev/null | grep -q -- "--match-head-commit $PHEAD" || PRR=1
-grep -q 'message: Needs you . smoke-inbox: PR #7 by bob: Add contrib. Merge? yes/no' "$WORK/prreview.log" || PRR=1
+tm capture-pane -p -J -t "=$INBOX:" 2>/dev/null | grep -q -- "--match-head-commit $PHEAD" || PRR=1
+grep -q "message: Needs you . $INBOX: PR #7 by bob: Add contrib. Merge? yes/no" "$WORK/prreview.log" || PRR=1
 jq -e '.kind == "needs" and .text == "PR #7 by bob: Add contrib. Merge? yes/no"' \
-  "$PH/.agentkit/state/notify-smoke-inbox.json" >/dev/null 2>&1 || PRR=1
-tm kill-session -t =smoke-inbox 2>/dev/null
+  "$PH/.agentkit/state/notify-$INBOX.json" >/dev/null 2>&1 || PRR=1
+tm kill-session -t "=$INBOX" 2>/dev/null
 [ "$PRR" = 0 ] && ok "25 ak run --review-pr: astra reviews despite Fable lagging 80/53, PR head checked out, tests: run, PASS posted as a comment, smoke-inbox seat asked to merge --match-head-commit ${PHEAD:0:12}, user pinged" \
              || { no "25 ak run --review-pr: exit=$PRC verdict=$(jq -r .verdict "$PJSON" 2>/dev/null)"; sed 's/^/      /' "$WORK/prreview.log" | tail -8; }
 
@@ -4588,13 +4599,13 @@ tm kill-session -t =smoke-inbox 2>/dev/null
 # seat and pings nobody -- and `ak watch` will launch it again.
 PBIN2="$WORK/bin-prreview-refused"
 mkdir -p -- "$PBIN2"
-sed 's|  "api repos/smokeowner/smokerepo/pulls/7/reviews") cp .*|  "api repos/smokeowner/smokerepo/pulls/7/reviews") echo "HTTP 502: bad gateway" >\&2; exit 1 ;;|' \
+sed 's|  "api repos/smokeowner/\$PREPO/pulls/7/reviews") cp .*|  "api repos/smokeowner/$PREPO/pulls/7/reviews") echo "HTTP 502: bad gateway" >\&2; exit 1 ;;|' \
   "$PBIN/gh" >"$PBIN2/gh"
 chmod +x "$PBIN2/gh"
 grep -q 'HTTP 502' "$PBIN2/gh" || echo "      (25b: the refusing gh was not written)"
 tm kill-session -t =smoke-inbox-refused 2>/dev/null
 HOME="$PH" AGENTKIT_INBOX_SESSION=smoke-inbox-refused AGENTKIT_ADAPTER_DIR="$PAD" AGENTKIT_DISCORD_WEBHOOK= \
-  PATH="$PBIN2:$PATH" ak run --review-pr https://github.com/smokeowner/smokerepo/pull/7 >"$WORK/prreview-refused.log" 2>&1
+  PATH="$PBIN2:$PATH" ak run --review-pr "https://github.com/smokeowner/$PREPO/pull/7" >"$WORK/prreview-refused.log" 2>&1
 PRC2=$?
 PRUNID2=$(sed -n 's/^\[[0-9:]*\] run \([^:]*\): .*$/\1/p' "$WORK/prreview-refused.log" | head -1)
 PJSON2="$PH/.agentkit/runs/$PRUNID2/run.json"
@@ -4745,21 +4756,21 @@ HOOKURL=""
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   HOOKURL=$(head -1 "$WORK/hook-url.txt" 2>/dev/null); [ -n "$HOOKURL" ] && break; sleep 0.3
 done
-cat >"$WORK/orphan-template.md" <<'MD'
+cat >"$WORK/orphan-template.md" <<MD
 ---
 repo: __REPO__
 base: main
 rounds: 1
 ---
-# Smoke orphan run
+# Smoke orphan run $$
 
 ## Goal
 Nothing: the fake adapters do the work.
 
 ## Done when
-```bash
+\`\`\`bash
 test -f never-written.txt
-```
+\`\`\`
 MD
 FBREPO=$(newrepo "repo-fallback")
 sed "s|__REPO__|$FBREPO|" "$WORK/orphan-template.md" >"$WORK/task-orphan.md"
@@ -5117,7 +5128,7 @@ grep -qE '^20260101-0901-merged .+ merged https://github.com/me/atoll/pull/12$' 
 grep -qE '^20260101-0902-waiting .+ PR open https://github.com/them/atoll/pull/13$' "$WORK/delivered-status.log" || DEL=1
 grep -qE '^20260101-0903-nomerge .+ not merged: --no-merge$' "$WORK/delivered-status.log" || DEL=1
 # and the run check 16 really made says it too, in its result and in its own status line
-grep -q '^# PASS, delivered — Smoke scratch workspace$' "$SCRDIR/result.md" || DEL=1
+grep -q "^# PASS, delivered — Smoke scratch workspace $$\$" "$SCRDIR/result.md" || DEL=1
 grep -q 'not merged' "$SCRDIR/result.md" && DEL=1
 HOME="$SCRH" ak run status --plain "$SCRID" >"$WORK/delivered-scratch.log" 2>&1 || DEL=1
 grep -q ' scratch  delivered$' "$WORK/delivered-scratch.log" || DEL=1
@@ -5136,6 +5147,7 @@ STALLH="$WORK/home-stall"; STALLT="$WORK/stall-tmux"; STALLAD="$WORK/ad-stall"
 STALLBIN="$WORK/bin-stall"; STALLTYPED="$WORK/stall-typed"
 mkdir -p -- "$STALLH/.agentkit/state" "$STALLT" "$STALLAD" "$STALLBIN" "$STALLTYPED"
 STALL=0
+STALLSEAT=stall-claude-$$   # the first seat, which brings this check's server up
 cat >"$STALLAD/claude.sh" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-}" = usage ] && printf '%s\n' '{"meters":[],"error":"unknown: smoke fake"}'
@@ -5176,15 +5188,17 @@ SH
 chmod +x "$STALLAD"/*.sh
 TMUX_TMPDIR="$STALLT" HOME="$STALLH" AGENTKIT_ADAPTER_DIR="$STALLAD" AGENTKIT_DISCORD_WEBHOOK= \
   TYPEDIR="$STALLTYPED" ADAPTERS="$STALLAD" PYTHONPATH="$REPO" \
-  python3 - >"$WORK/stall.log" 2>&1 <<'PY' || STALL=1
+  python3 - "$STALLSEAT" >"$WORK/stall.log" 2>&1 <<'PY' || STALL=1
 import json
 import os
 import pathlib
+import sys
 import time
 
 from agentkit import config, notify, orch, watch
 
 typed = pathlib.Path(os.environ["TYPEDIR"])
+CLAUDE = sys.argv[1]
 cfg = config.load()
 config.ensure_dirs()
 
@@ -5218,7 +5232,7 @@ def meta_window(seconds_from_now):
 fixtures = config.REPO / "tests/fixtures"
 claude_pane = (fixtures / "claude-stall-pane.txt").read_text()
 codex_pane = (fixtures / "codex-stall-pane.txt").read_text()
-seat("stall-claude", claude_pane, "opus")
+seat(CLAUDE, claude_pane, "opus")
 seat("stall-codex-goal", codex_pane.replace("exceeded retry limit, last status: 429 Too Many Requests",
                                           "Goal stalled: no progress after three attempts"), "astra")
 seat("stall-codex-quota", codex_pane, "astra")
@@ -5230,8 +5244,8 @@ time.sleep(1.5)                     # the panes have to have painted before anyt
 meta_window(3600)                   # muse's window is open, so its seat is not to be typed into
 state, said = {"stalls": {}}, []
 watch.health(cfg, state, False, said.append)
-stalled = {"stall-claude", "stall-codex-goal", "stall-codex-quota", "stall-muse"}
-assert set(state["stalls"]) == {"stall-claude", "stall-codex-goal"}, state
+stalled = {CLAUDE, "stall-codex-goal", "stall-codex-quota", "stall-muse"}
+assert set(state["stalls"]) == {CLAUDE, "stall-codex-goal"}, state
 assert watch.seat_read("stall-codex-quota")["usage_refusal"]["at"] > 0
 assert watch.seat_read("stall-muse")["usage_wait"]["until"] > time.time()
 assert all(typed_into(name) == "" for name in stalled), "typed into a stall three seconds old"
@@ -5247,7 +5261,7 @@ watch.seat_write("stall-codex-quota", usage_refusal={**refusal, "at": refusal["a
 said = []
 watch.health(cfg, state, False, said.append)
 time.sleep(1.0)
-assert typed_into("stall-claude") == "continue\n", typed_into("stall-claude")
+assert typed_into(CLAUDE) == "continue\n", typed_into(CLAUDE)
 assert typed_into("stall-codex-goal") == "/goal resume\n", typed_into("stall-codex-goal")
 assert typed_into("stall-codex-quota") == "continue\n", typed_into("stall-codex-quota")
 assert typed_into("stall-muse") == "", "typed into a seat whose provider window is still open"
@@ -5260,7 +5274,7 @@ assert json.loads((config.STATE / "openai-reset.json").read_text())["outcome"] =
 # a second pass straight after types nothing: one resume per seat per three minutes
 watch.health(cfg, state, False, said.append)
 time.sleep(0.5)
-assert typed_into("stall-claude") == "continue\n", typed_into("stall-claude")
+assert typed_into(CLAUDE) == "continue\n", typed_into(CLAUDE)
 
 # Muse's window has passed, so now that seat is resumed too
 meta_window(-60)
@@ -5279,8 +5293,8 @@ said = []
 watch.health(cfg, state, False, said.append)
 time.sleep(0.5)
 assert all(typed_into(name) == before[name] for name in stalled), "nudged after the hour was up"
-assert not (config.STATE / "notify-stall-claude.json").exists(), "asked an idle seat"
-assert state["stalls"]["stall-claude"]["told"], state    # the hour is latched, not asked
+assert not (config.STATE / f"notify-{CLAUDE}.json").exists(), "asked an idle seat"
+assert state["stalls"][CLAUDE]["told"], state    # the hour is latched, not asked
 said = []
 watch.health(cfg, state, False, said.append)
 assert not [line for line in said if "asked the user" in line], said    # silent, and stays silent
@@ -5288,9 +5302,9 @@ assert not [line for line in said if "asked the user" in line], said    # silent
 # The user takes over this watcher-authored capacity alert; orchestrator questions
 # retain their separate open-plus-progress contract, exercised by check 32.
 watch.save_state({"reviewed": {}, "own": {}, "stalls": dict(state["stalls"])})
-orch.seen_by_user("stall-claude")
-assert "stall-claude" not in watch.load_state()["stalls"], watch.load_state()
-assert notify.last("stall-claude") is None
+orch.seen_by_user(CLAUDE)
+assert CLAUDE not in watch.load_state()["stalls"], watch.load_state()
+assert notify.last(CLAUDE) is None
 
 # a seat whose pane shows no signature at all is forgotten, and never typed into
 said, moving = [], {"stalls": {"fine-seat": {"since": time.time() - 600,
@@ -5327,23 +5341,24 @@ case "$*" in
 esac
 SH
 chmod +x "$STALLBIN/gh"
-HOME="$STALLH" TMUX_TMPDIR="$STALLT" PYTHONPATH="$REPO" python3 - <<'PY'
+HOME="$STALLH" TMUX_TMPDIR="$STALLT" PYTHONPATH="$REPO" python3 - "$STALLSEAT" <<'PY'
+import sys
 import time
 from agentkit import orch, watch
-pane = watch.pane_text(orch.find("stall-claude"))
+pane = watch.pane_text(orch.find(sys.argv[1]))
 state = watch.load_state()
 entry = {"signature": "API Error"}
 watch.observe(entry, pane, "claude", time.time() - 600)
-state["stalls"] = {"stall-claude": entry}
+state["stalls"] = {sys.argv[1]: entry}
 watch.save_state(state)
 PY
 STALLWAS=$(md5sum <"$STALLH/.agentkit/state/watch.json")
-STALLTYPEDWAS=$(cat "$STALLTYPED/stall-claude.txt" 2>/dev/null || echo none)
+STALLTYPEDWAS=$(cat "$STALLTYPED/$STALLSEAT.txt" 2>/dev/null || echo none)
 HOME="$STALLH" TMUX_TMPDIR="$STALLT" AGENTKIT_ADAPTER_DIR="$STALLAD" PATH="$STALLBIN:$PATH" \
   ak watch --dry-run >"$WORK/stall-dry.log" 2>&1 || STALL=1
-grep -q "^would resume stall-claude, stalled on API Error, with 'continue'\$" "$WORK/stall-dry.log" || STALL=1
+grep -q "^would resume $STALLSEAT, stalled on API Error, with 'continue'\$" "$WORK/stall-dry.log" || STALL=1
 [ "$(md5sum <"$STALLH/.agentkit/state/watch.json")" = "$STALLWAS" ] || STALL=1
-[ "$(cat "$STALLTYPED/stall-claude.txt" 2>/dev/null || echo none)" = "$STALLTYPEDWAS" ] || STALL=1
+[ "$(cat "$STALLTYPED/$STALLSEAT.txt" 2>/dev/null || echo none)" = "$STALLTYPEDWAS" ] || STALL=1
 env -u TMUX TMUX_TMPDIR="$STALLT" tmux -L agentkit-test kill-server 2>/dev/null
 [ "$STALL" = 0 ] && ok "34 the session babysitter: a fresh stall is left alone, a three-minute-old one gets 'continue' (Codex goal mode '/goal resume'), one resume per three minutes, Muse's window waited out and OpenAI's reset spent first, an hour of it asks the user once, and a working seat and a seat nothing started are never typed into" \
                 || { no "34 the session babysitter"; sed 's/^/      /' "$WORK/stall.log" "$WORK/stall-dry.log" 2>/dev/null | head -12; }
@@ -5523,20 +5538,20 @@ grep -q '^session echo-seat in ' "$WORK/echo-orch.log" || ECHORC=1
 jq -e '.orchestrator == "echo" and (has("conversation") | not)' \
   "$EHOME/.agentkit/state/session-echo-seat.json" >/dev/null || ECHORC=1
 # (b) a whole loop executes through it, reviewed on another provider
-cat >"$WORK/task-echo.md" <<'MD'
+cat >"$WORK/task-echo.md" <<MD
 ---
 repo: none
 rounds: 1
 ---
-# Smoke fourth harness
+# Smoke fourth harness $$
 
 ## Goal
 Nothing: the echo adapter answers with the prompt's last line.
 
 ## Done when
-```bash
+\`\`\`bash
 true
-```
+\`\`\`
 MD
 akecho run "$WORK/task-echo.md" --rounds 1 --exec echo --review astra \
   >"$WORK/echo-run.log" 2>&1 || ECHORC=1

@@ -75,13 +75,14 @@ E2E_TMUX_SOCKET=agentkit-test
 E2E_TMUX_DIR="$WORK/tmux"
 mkdir -p -- "$E2E_TMUX_DIR"
 
-# --- the same one-suite-at-a-time lock tests/smoke.sh takes ------------------
-# Step f's clone, run and delivery check are one turn on the host-wide lock: two gates running
-# at once would collide on seat names and on the account's persistent target.  Same file,
-# same hour-long wait, same wording, and the file is created world-readable and locked
+# --- one gate at a time on its remote, the way tests/smoke.sh guards its own --------
+# Step f's clone, run and delivery check are one turn on a host-wide lock: two gates running
+# at once would collide on seat names and on the account's persistent target.  That target is
+# `<login>/agentkit-e2e`, not the smoke suite's, so the file is this gate's own; the same
+# hour-long wait and wording, and the file is created world-readable and locked
 # through a read-only descriptor so suites running as
 # different accounts all reach it.  $AK_SMOKE_LOCK_WAIT overrides the wait, for tests.
-SMOKE_LOCK=/tmp/agentkit-smoke-remote.lock
+SMOKE_LOCK=/tmp/agentkit-e2e-remote.lock
 SMOKE_LOCK_WAIT=${AK_SMOKE_LOCK_WAIT:-3600}
 SMOKE_LOCK_WAITING="check 4: waiting for another suite's turn"
 SMOKE_LOCK_PID=""
