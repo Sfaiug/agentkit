@@ -99,11 +99,22 @@ def ask_inbox(cfg, question, url, sha, log):
     except (config.Error, OSError):
         harness = None
 
+    composed = []
+
     def veto(held):
-        # Read under the seat lock the other senders type under: a draft in the composer or a
-        # dialog on screen would go out with the question as one garbled prompt.  No owner-
-        # question veto: the notice standing there is the last merge question, ours.
-        return _decided_state(held, harness, pane_text(session)) in ("draft", "asking")
+        # Under the seat lock the other senders type under, with their owner-question veto --
+        # except for an earlier PR's merge question, which is ours.  The screen is read once,
+        # before typing: text already in the composer, or a dialog, would go out with the
+        # question as one garbled prompt, and after typing the composer holds the question.
+        notice = notify.last(held)
+        if owner_question(notice) and not str(notice.get("source") or "").startswith("inbox:"):
+            return True
+        if composed:
+            return False
+        composed.append(True)
+        pane = pane_text(session)
+        return (_decided_state(held, harness, pane) in ("draft", "asking")
+                or bool(composer_draft(harness, pane)))
 
     if type_checked(session, line, log, harness,
                     guard=lambda: notify.session_lock(name), veto=veto):
@@ -2222,34 +2233,36 @@ def follow_title(session, log=lambda _: None):
     return new
 
 
+def composer_draft(harness, pane):
+    """The whole composer's text without whitespace, "" when empty, None with no prompt row."""
+    rows = pane_tail(pane).splitlines()
+    at = next((at for at in range(len(rows) - 1, -1, -1)
+               if re.match(r"(?:│\s*)?[❯›⟩]", strip_sgr(rows[at]).strip())), None)
+    if at is None:
+        return None
+    chrome = screen(harness)
+    plain = strip_sgr(rows[at]).strip()
+    boxed = plain.startswith("│") and plain.endswith("│")
+    # A boxed composer's edges are chrome, including on continuation rows.
+    parts = [_draft_text(rows[at], plain[:-1].rstrip() if boxed else plain,
+                         chrome["composer"])]
+    # A wrap can split a line. Read the whole composer, without its footer, so text
+    # on a continuation row counts as much as text on the prompt row.
+    for raw in rows[at + 1:]:
+        plain = strip_sgr(raw).strip()
+        if chrome_line(chrome, plain):
+            break
+        if not has_dim(raw):
+            if boxed and plain.startswith("│") and plain.endswith("│"):
+                plain = plain[1:-1].strip()
+            parts.append(plain)
+    return re.sub(r"\s+", "", "".join(parts))
+
+
 def sync_title(session, log=lambda _: None, *, force=False):
     """Record a title only once the harness takes it; abandon a name after three tries."""
     if any(session.get(key) for key in orch.CLOSED):
         return False
-
-    def draft(pane):
-        rows = pane_tail(pane).splitlines()
-        at = next((at for at in range(len(rows) - 1, -1, -1)
-                   if re.match(r"(?:│\s*)?[❯›⟩]", strip_sgr(rows[at]).strip())), None)
-        if at is None:
-            return None
-        chrome = screen(plugin.name)
-        plain = strip_sgr(rows[at]).strip()
-        boxed = plain.startswith("│") and plain.endswith("│")
-        # A boxed composer's edges are chrome, including on continuation rows.
-        parts = [_draft_text(rows[at], plain[:-1].rstrip() if boxed else plain,
-                             chrome["composer"])]
-        # A wrap can split the name itself. Compare the whole composer, without its
-        # footer, so an owner's added text on a continuation row still vetoes Enter.
-        for raw in rows[at + 1:]:
-            plain = strip_sgr(raw).strip()
-            if chrome_line(chrome, plain):
-                break
-            if not has_dim(raw):
-                if boxed and plain.startswith("│") and plain.endswith("│"):
-                    plain = plain[1:-1].strip()
-                parts.append(plain)
-        return re.sub(r"\s+", "", "".join(parts))
 
     with notify.session_lock(session["name"]) as name:
         session = dict(session, name=name)
@@ -2267,7 +2280,8 @@ def sync_title(session, log=lambda _: None, *, force=False):
             return False
         pending = (plugin.title_command(attempt["name"])
                    if attempt and attempt.get("tries") and attempt.get("pending", True) else None)
-        composed = [True] if pending and draft(pane_text(session)) == re.sub(r"\s+", "", pending) else []
+        composed = [True] if pending and composer_draft(
+            plugin.name, pane_text(session)) == re.sub(r"\s+", "", pending) else []
         if composed:
             line = pending    # our line still needs Enter, even after its seat changes name
         title = plugin.session_title(record)
@@ -2301,10 +2315,10 @@ def sync_title(session, log=lambda _: None, *, force=False):
         if not plugin.title_ready(current, state):
             return True
         if composed:
-            return draft(pane) != re.sub(r"\s+", "", line)
+            return composer_draft(plugin.name, pane) != re.sub(r"\s+", "", line)
         if state not in ("at_prompt", "working"):
             return True
-        return draft(pane) != ""
+        return composer_draft(plugin.name, pane) != ""
 
     def typed():
         nonlocal attempt

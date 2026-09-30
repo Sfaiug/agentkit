@@ -2,7 +2,7 @@
 
 Offline: `orch.tmux_out` is a fake recording each send and serving one scripted pane, and
 `watch.time.sleep` only runs the test's hook.  The second sender is `type_into`, the real
-path hand-backs, `tell_parked` and revive type through; the lock is the real one.
+path `tell_parked` and revive type through; the lock is the real one.
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -26,8 +26,20 @@ SHA = "abc123def4567890"
 QUESTION = "PR #9 by bob: Fix the api. Merge? yes/no"
 FIX = REPO / "tests/fixtures"
 IDLE = "API Error: 500\n❯"
-DRAFT = (FIX / "claude-draft-pane.txt").read_text(encoding="utf-8", errors="replace")
-DIALOG = (FIX / "claude-dialog-pane.txt").read_text(encoding="utf-8", errors="replace")
+
+
+def fixture(kind):
+    return (FIX / f"claude-{kind}-pane.txt").read_text(encoding="utf-8", errors="replace")
+
+
+HELD = {
+    "draft": fixture("draft"),
+    "dialog": fixture("dialog"),
+    # the owner's text under a turn in flight: the screen reads `working`, not `draft`
+    "working": fixture("working").replace("\n❯\xa0\n", "\n❯\xa0Owner's unsent message\n"),
+    # an empty prompt row with the owner's text on the row under it reads `at_prompt`
+    "continued": fixture("prompt").replace("\n❯\xa0\n", "\n❯\xa0\n  the rest of my line\n"),
+}
 
 
 class AskInboxLock(unittest.TestCase):
@@ -57,7 +69,9 @@ class AskInboxLock(unittest.TestCase):
     def tmux(self, *args, socket=None, client=False):
         if args[0] == "send-keys":
             self.sent.append(args[-1])
-        return 0, self.pane if args[0] == "capture-pane" else ""
+        if args[0] != "capture-pane":
+            return 0, ""
+        return 0, self.pane() if callable(self.pane) else self.pane
 
     def ask(self):
         return watch.ask_inbox({}, QUESTION, PR, SHA, self.logs.append)
@@ -97,14 +111,36 @@ class AskInboxLock(unittest.TestCase):
                          [QUESTION[:9], "Enter", "/rename q", "Enter"])
         self.assertIn(f"asked the inbox seat: {QUESTION}", self.logs)
 
-    def test_the_question_is_never_typed_onto_a_composer_or_dialog_holding_text(self):
-        for kind, pane in (("draft", DRAFT), ("dialog", DIALOG)):
+    def test_the_question_is_never_typed_onto_text_or_a_dialog(self):
+        for kind, pane in HELD.items():
             with self.subTest(kind=kind), patch.object(watch.time, "sleep"):
                 del self.sent[:], self.logs[:]
                 self.pane = pane
                 self.assertEqual(self.ask(), 0)
                 self.assertEqual(self.sent, [])
                 self.assertIn("WARN could not type the question into the inbox seat", self.logs)
+
+    def test_the_question_still_in_its_composer_gets_its_second_enter(self):
+        def screen():
+            # this composer takes the question only on the second Enter
+            held = self.sent and self.sent.count("Enter") < 2
+            return IDLE + (" " + self.sent[0] if held else "")
+
+        self.pane = screen
+        with patch.object(watch.time, "sleep"):
+            self.assertEqual(self.ask(), 0)
+        self.assertEqual([sent[:9] for sent in self.sent], [QUESTION[:9], "Enter", "Enter"])
+        self.assertIn(f"asked the inbox seat: {QUESTION}", self.logs)
+
+    def test_an_owner_question_stops_it_and_an_earlier_merge_question_does_not(self):
+        with patch.object(watch.time, "sleep"):
+            notify.record("inbox", "needs", "Which branch should I use?")
+            self.assertEqual(self.ask(), 0)
+            self.assertEqual(self.sent, [])
+            notify.record("inbox", "needs", "PR #8 by bob: Fix the cli. Merge? yes/no",
+                          source=f"inbox:{PR[:-1]}8:{SHA}")
+            self.assertEqual(self.ask(), 0)
+        self.assertEqual([sent[:9] for sent in self.sent], [QUESTION[:9], "Enter"])
 
 
 if __name__ == "__main__":
