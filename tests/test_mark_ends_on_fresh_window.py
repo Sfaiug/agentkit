@@ -490,6 +490,30 @@ class FreshWindowEndsMark(unittest.TestCase):
         self.assertFalse(providers["alpha"]["exhausted"])
         self.assertIn("one", usage.pick_order(self.cfg, providers, ["one", "two"], quiet=True))
 
+    def test_a_refusal_written_after_a_credit_it_began_before_stays_lifted(self):
+        self.reset_adapter()
+        self.set_meters("alpha", self.old_window())
+        self.set_meters("beta", self.old_window(used=10))
+        until, spent, real = NOW + 5 * 86400, [], usage._patch
+
+        def delayed(provider, prov, account=None, **kw):
+            if kw.get("mark") and not spent:
+                # the refusal's process stalls before its write, and a credit goes meanwhile
+                self.now += 1
+                spent.append(usage.replenish(self.cfg, "alpha"))
+            return real(provider, prov, account, **kw)
+
+        with patch.object(usage, "_probe", side_effect=lambda *a, **kw: {
+                **self.fake_probe(*a, **kw), "resets": 1.0}):
+            usage.collect(self.cfg)
+            with patch.object(usage, "_patch", side_effect=delayed):
+                usage.mark_exhausted(self.cfg, "alpha", until)
+            self.assertEqual(spent, [(True, 0.0)])
+            providers = usage.collect(self.cfg)
+        self.assertNotIn("exhausted_until", providers["alpha"])
+        self.assertFalse(providers["alpha"]["exhausted"])
+        self.assertIn("one", usage.pick_order(self.cfg, providers, ["one", "two"], quiet=True))
+
     def test_records_written_while_a_probe_writes_keep_their_marks(self):
         self.two_accounts()
         until, cache = NOW + 5 * 86400, config.STATE / "usage.json"

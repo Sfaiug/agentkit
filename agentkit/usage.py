@@ -741,12 +741,16 @@ def _patch(provider, prov, account=None, *, mark=None, spent=None):
     fetched_at stays put for exactly the reason `collect` keeps it when it re-reads one
     provider: reading one must not stamp the others, which were not read, as newly measured.
     `mark` is a refusal's change instead of a reading: those fields go onto the record the
-    file holds, or onto `prov` where it holds none.  `spent` is a credit's (`_onto`).
+    file holds, or onto `prov` where it holds none -- unless a credit that record carries was
+    spent at or after the mark was made, which refused the week it replaced and which that
+    credit has lifted.  `spent` is a credit's (`_onto`).
     """
     def change(providers, now):
         old = _record(providers.get(provider))
         theirs = _record(old.get("accounts"))
         mine = old if account is None else _record(theirs.get(account))
+        if mark and (_number((mine or prov).get("reset_spent_at")) or 0) >= mark["exhausted_at"]:
+            return mine or prov
         record = {**(mine or prov), **mark} if mark else _onto(mine, prov, now, spent)
         providers[provider] = (record if account is None
                                else {**old, "accounts": {**theirs, account: record}})
