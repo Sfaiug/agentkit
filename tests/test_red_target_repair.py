@@ -307,6 +307,7 @@ class RedTargetRepair(unittest.TestCase):
         self.assertEqual((ended["state"], ended["repair_tip"]), ("blocked", tip))
         self.assertEqual(run.git(self.wt, "merge-base", "HEAD", "origin/main"), base)
         # its waiter stays parked on B, and one retried there starts no second repair
+        self.spawned.clear()
         waiter = self.parked(tip, name)
         with patch.object(run, "upstream_sha", return_value=tip):
             watch.resume_waiting(log=self.logs.append)
@@ -342,7 +343,7 @@ class RedTargetRepair(unittest.TestCase):
         with patch.object(run, "upstream_sha", return_value=tip):
             watch.resume_waiting(log=self.logs.append)
             self.assertEqual(self.spawned, [])
-            run.save_state(config.RUNS / name, {**repair, "state": "fail"})
+            run.save_state(config.RUNS / name, {**repair, "state": "pass", "merged": True})
             watch.resume_waiting(log=self.logs.append)
         self.assertEqual(self.spawned, [(waiter.name, ["resume", waiter.name])])
 
