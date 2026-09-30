@@ -2088,10 +2088,10 @@ def derived_heavy_limit(readings=None):
     """
     if readings is None:
         readings = host_readings()
-    quota = _reading(readings, "slice_cpu_quota")
-    if quota is not None:
+    cpu_quota = _reading(readings, "slice_cpu_quota")
+    if cpu_quota is not None:
         used = _reading(readings, "slice_cpu_used")
-        cpu_free = quota - used if used is not None else float(quota)
+        cpu_free = cpu_quota - used if used is not None else float(cpu_quota)
     else:
         cpus = _reading(readings, "cpus", "nproc")
         load = _reading(readings, "load", "load1", "load_1m")
@@ -8327,7 +8327,7 @@ def _slice_cpu_stat(slice_dir=None):
     """The slice's cpu.stat counters as {name: value}, or None where nothing answers.
 
     Carried for diagnosis -- throttled_usec and nr_throttled say whether the
-    slice has ever hit its quota -- not for admission: the counters are
+    slice has ever hit its CPU quota -- not for admission: the counters are
     cumulative since the slice's first process, so one snapshot cannot say
     whether the slice is saturated now. The pressure gate does not read them.
     """
@@ -8354,7 +8354,7 @@ def _slice_cpu_quota(cgroup=None):
 
     Read off the slice's own directory, which `orch.slice_cgroup` finds from the
     layout whether the caller runs inside the slice or beside it -- a status shell
-    outside reads the same quota a worker inside does.  `max` is no quota.
+    outside reads the same CPU quota a worker inside does.  `max` sets none.
     """
     try:
         parts = ((cgroup or orch.slice_cgroup()) / "cpu.max").read_text().split()
@@ -8459,18 +8459,18 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None):
         readings["unit_memory_raw_mb"] = raw
         readings["unit_memory_name"] = name
     try:
-        quota = _slice_cpu_quota()
+        cpu_quota = _slice_cpu_quota()
     except Exception:
-        quota = None
+        cpu_quota = None
     try:
-        cpu_used = _slice_cpu_used() if quota is not None else None
+        cpu_used = _slice_cpu_used() if cpu_quota is not None else None
     except Exception:
         cpu_used = None
     try:
         mem = _slice_memory()
     except Exception:
         mem = None
-    readings["slice_cpu_quota"] = quota
+    readings["slice_cpu_quota"] = cpu_quota
     readings["slice_cpu_used"] = cpu_used
     if mem is not None:
         readings["slice_memory_used_mb"], readings["slice_memory_high_mb"] = mem
