@@ -20,6 +20,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, run
 
 GUIDE = "docs/guide.md"
+NOTES = "docs/über.md"      # git quotes it unless asked not to
 LINES = "1\n2\n3\n4\n5\n"
 
 
@@ -39,7 +40,7 @@ def make_origin(root):
     run.git(root, "clone", str(remote), str(owner))
     run.git(owner, "config", "user.name", "fixture")
     run.git(owner, "config", "user.email", "fixture@localhost")
-    commit(owner, {GUIDE: LINES, "app.py": LINES}, "base")
+    commit(owner, {GUIDE: LINES, NOTES: LINES, "app.py": LINES}, "base")
     run.git(owner, "push", "origin", "main")
     return remote, owner
 
@@ -138,11 +139,19 @@ class DocsOnlyOverlapLands(unittest.TestCase):
     def rows(self):
         return [line.split() for line in self.counter.read_text().splitlines()]
 
+    def assert_untracked(self, lp, name):
+        self.assertTrue((lp.wt / name).exists(), f"{name} is gone")
+        self.assertEqual(run.git(lp.wt, "ls-files", name), "", f"{name} was committed")
+
     def test_docs_only_overlap_lands_after_the_done_when_without_a_reserved_lap(self):
         remote, owner = make_origin(self.root)
         lp = make_run(self.root, remote, "acme", self.cmds(),
-                      {GUIDE: "acme\n2\n3\n4\n5\n", "acme.py": "acme\n"})
-        self.assertTrue(self.land(lp, owner, {GUIDE: "1\n2\n3\n4\nfive\n"}))
+                      {GUIDE: "acme\n2\n3\n4\n5\n", NOTES: "acme\n2\n3\n4\n5\n",
+                       "acme.py": "acme\n"})
+        (lp.wt / "extra.py").write_text("unreviewed\n")
+        self.assertTrue(self.land(lp, owner, {GUIDE: "1\n2\n3\n4\nfive\n",
+                                              NOTES: "1\n2\n3\n4\nfive\n"}))
+        self.assert_untracked(lp, "extra.py")
         self.assertEqual(self.delivered, [True])
         self.assertEqual(self.pickups, [{"land_lap": 1}])
         head = run.git(lp.wt, "rev-parse", "HEAD")
@@ -159,7 +168,7 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         self.assertNotIn("review_pending", state)
         log = (lp.run_dir / "log.txt").read_text()
         self.assertIn("origin/main moved, overlapping this branch only in docs "
-                      "(docs/guide.md); landing after the done-when", log)
+                      "(docs/guide.md, docs/über.md); landing after the done-when", log)
         self.assertNotIn("verifying again holding the merge turn", log)
 
     def test_docs_only_overlap_whose_done_when_fails_does_not_land(self):
@@ -167,6 +176,7 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         lp = make_run(self.root, remote, "bravo",
                       self.cmds(f"! grep -q broken {GUIDE}"),
                       {GUIDE: "bravo\n2\n3\n4\n5\n", "bravo.py": "bravo\n"})
+        (lp.wt / "extra.py").write_text("unreviewed\n")
         head = run.git(lp.wt, "rev-parse", "HEAD")
         verified = lp.base_sha
         seen = {}
@@ -181,10 +191,19 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         self.assertEqual(self.pickups, [{"land_lap": 1}, {"land_lap": 2}])
         # the reserved lap starts from the verified commit, its review intact
         self.assertEqual(seen, {"head": head, "base": verified, "review": head})
+        self.assert_untracked(lp, "extra.py")
         self.assertEqual([row[0] for row in self.rows()].count("once"), 1)
         log = (lp.run_dir / "log.txt").read_text()
         self.assertIn("done-when after the rebase: FAILED", log)
         self.assertIn("verifying again holding the merge turn", log)
+
+    def test_docs_edit_already_on_the_target_is_not_delivered(self):
+        remote, owner = make_origin(self.root)
+        lp = make_run(self.root, remote, "delta", self.cmds(), {GUIDE: "delta\n2\n3\n4\n5\n"})
+        self.assertFalse(self.land(lp, owner, {GUIDE: "delta\n2\n3\n4\n5\n"}))
+        self.assertEqual(self.delivered, [])
+        self.assertTrue(run.read_state(lp.run_dir).get("on_target"))
+        self.assertIn("its work is already on main", (lp.run_dir / "log.txt").read_text())
 
     def test_code_overlap_takes_the_reserved_lap(self):
         remote, owner = make_origin(self.root)

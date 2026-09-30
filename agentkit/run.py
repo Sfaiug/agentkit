@@ -5868,9 +5868,10 @@ def disjoint_move(lp, upstream, verified, tip):
     """
     if git_out(lp.wt, "merge-base", "--is-ancestor", verified, tip)[0] != 0:
         return False
-    ours = git(lp.wt, "diff", "--no-renames", "--name-only", verified, "HEAD").splitlines()
-    theirs = git(lp.wt, "diff", "--no-renames", "--name-only", verified, tip).splitlines()
-    shared = sorted(set(ours) & set(theirs))
+    # -z: a quoted path (`"docs/\303\274ber.md"`) would not read as the file it names
+    ours = git(lp.wt, "diff", "--no-renames", "--name-only", "-z", verified, "HEAD").split("\0")
+    theirs = git(lp.wt, "diff", "--no-renames", "--name-only", "-z", verified, tip).split("\0")
+    shared = sorted((set(ours) & set(theirs)) - {""})
     if not all(path.endswith(".md") and "tests" not in path.split("/") for path in shared):
         return False
     how = how_to_integrate(lp)
@@ -5885,31 +5886,36 @@ def disjoint_move(lp, upstream, verified, tip):
     except Stopped:
         abort_stopped_integration(lp, how)
         raise
-    if rc == 0:
+    if rc != 0:
+        git_out(lp.wt, how, "--abort")
+    else:
         set_base(lp, tip)
-        if shared:
+        if not shared:
+            moved = git(lp.wt, "rev-list", "--count", f"{verified}..{tip}")
+            lp.log(f"--- merge: {upstream} moved {moved} commits, none touching this branch's "
+                   "files; landing on the verified checks")
+        elif git_out(lp.wt, "diff", "--quiet", tip, "HEAD")[0] == 0:
+            rc = 1      # the target already carries the work: the reserved lap says so
+        else:
             lp.log(f"--- merge: {upstream} moved, overlapping this branch only in docs "
                    f"({', '.join(shared)}); landing after the done-when")
             # the pending review's round, as `integrate` checks a clean rebase: the last
             # round keeps its own done-when log
-            old_rnd, lp.rnd = lp.rnd, lp.state["review_pending"]["round"]
-            lp.round_dir.mkdir(parents=True, exist_ok=True)
-            try:
-                ok, dw_log = verify_work(lp)
-            finally:
-                lp.rnd = old_rnd
+            dw_path = lp.run_dir / f"round-{lp.state['review_pending']['round']}" / "donewhen.log"
+            dw_path.parent.mkdir(parents=True, exist_ok=True)
+            identity = commit_identity(lp.wt)
+            ok, dw_log = run_done_when(lp.every, lp.wt, dw_path, lp.artifacts,
+                                       lp.done_when_limit, lp.log, silence=lp.turn_limit,
+                                       run_dir=lp.run_dir)
+            # pinned as `verify_work` pins, but committing no leftovers: what lands is the
+            # rebased commit the review is carried onto, and untracked files stay untracked
+            ok = (ok and commit_identity(lp.wt) == identity
+                  and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0)
             lp.log(f"done-when after the {how}: {'all passed' if ok else 'FAILED'}")
             if ok:
                 record_flakes(lp.state, dw_log)
             else:
-                # back on the verified commit: the reserved lap checks again and fixes it
-                git(lp.wt, "reset", "--hard", old_head)
-                lp.state["base_sha"] = verified
                 rc = 1
-        else:
-            moved = git(lp.wt, "rev-list", "--count", f"{verified}..{tip}")
-            lp.log(f"--- merge: {upstream} moved {moved} commits, none touching this branch's "
-                   "files; landing on the verified checks")
         if rc == 0:
             landed = commit_identity(lp.wt)
             kept["review"] = {**kept["review"], **landed,
@@ -5918,8 +5924,10 @@ def disjoint_move(lp, upstream, verified, tip):
             if (isinstance(carried, dict) and carried.get("outcome") == "passed"
                     and carried.get("sha") == old_head):
                 kept["final_check"] = {**carried, "sha": landed["head_sha"]}
-    else:
-        git_out(lp.wt, how, "--abort")
+        else:
+            # back on the verified commit: the reserved lap checks again and fixes it
+            git(lp.wt, "reset", "--hard", old_head)
+            lp.state["base_sha"] = verified
     lp.state.update(kept)
     lp.state.pop("review_pending", None)
     lp.save()
