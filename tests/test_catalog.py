@@ -257,8 +257,8 @@ class Catalog(unittest.TestCase):
             self.assertEqual(watch.doctor([]), 0)
         self.assertEqual(out.getvalue().splitlines(), [
             "slice test", "tick  lock free",
-            "effort  grok: grok-4.5 takes low medium high, not xhigh",
-            "effort  haiku: claude-haiku-4-5 takes none, not low"])
+            "effort  haiku: claude-haiku-4-5 takes none, not low",
+            "effort  grok: grok-4.5 takes low medium high, not xhigh"])
         self.assertEqual(path.read_text(), text, "flagged, never changed")
         # `none` is how a model that runs at no effort is configured
         path.write_text(default + haiku.format("none"))
