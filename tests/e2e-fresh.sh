@@ -273,8 +273,9 @@ if [ -z "$TOKEN" ]; then
 fi
 
 # the token the newcomer would have gotten from `gh auth login`, out of sight of `ps`, and the
-# host's harnesses, sourced after the login files like the token
-printf 'export GH_TOKEN=%s\nexport PATH="$PATH%s"\n' "$TOKEN" "$HOSTPATH" >"$WORK/ghenv"
+# host's harnesses, sourced after the login files like the token; both quoted, as a directory
+# may be named anything
+printf 'export GH_TOKEN=%q\nexport PATH="$PATH"%q\n' "$TOKEN" "$HOSTPATH" >"$WORK/ghenv"
 install -m 0600 "$WORK/ghenv" "$UH/.ak-e2e-env"
 rm -f -- "$WORK/ghenv"
 install -d -m 0755 "$UH/e2e"
@@ -632,7 +633,13 @@ EXP
   must "the menu did not run through to a supported harness prompt (xterm-256color)" test "$D1" = 0
   LIST=$(as 'ak orch list' 2>&1)
   must "ak orch list does not show the seat" grep -q '^atoll ' <<<"$LIST"
-  must "ak orch list does not show its models" awk -F'  +' '/^atoll /{ok = ($5 != "" && $5 != "—" && $6 != "" && $6 != "—")} END{exit !ok}' <<<"$LIST"
+  # The orchestrator is the picker's, which live quota chooses: the row it marked ● when Enter
+  # took it, whose title is the model's name capitalised.
+  PICKED=$(awk '/orch +exec +review/ {row = ""}
+                /●/ {t = $0; sub(/^[^[:alnum:]]+/, "", t); split(t, w, " "); row = tolower(w[1])}
+                /space choose/ {picked = row} END {print picked}' "$WORK/pty/menu1.txt")
+  must "ak orch list does not show the models the picker chose${PICKED:+ (orchestrator $PICKED)}" \
+    awk -F'  +' -v m="$PICKED" '/^atoll /{ok = (m != "" && tolower($5) == m && $6 != "" && $6 != "—")} END{exit !ok}' <<<"$LIST"
   SEAT=atoll
   # the same menu from a terminal whose terminfo this box has never seen
   cat >"$WORK/menu2.exp" <<EXP
