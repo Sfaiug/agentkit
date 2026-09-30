@@ -850,7 +850,7 @@ def poll_worker_token(state, now=None):
         try:
             mtime = (config.SECRETS / block["file"]).stat().st_mtime
             blank = not (config.SECRETS / block["file"]).read_text(encoding="utf-8").strip()
-        except OSError:
+        except (OSError, UnicodeDecodeError):   # a byte that is no text is no token either
             continue
         if blank:
             continue
@@ -891,7 +891,7 @@ def worker_token_note(now=None):
             mtime = (config.SECRETS / block["file"]).stat().st_mtime
             if not (config.SECRETS / block["file"]).read_text(encoding="utf-8").strip():
                 continue
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             continue
         at = time.time() if now is None else now
         exp = mtime + TOKEN_LIFE_DAYS * 86400
