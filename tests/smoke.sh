@@ -49,9 +49,9 @@ export AK_MAX_RUNS=0
 # takes the next, which its seed creates.  It waits only at that bound with every target in use.
 # The bound is the loop's own count, `heavy_suite_limit`, never a number of ours; 0 is no cap.
 # The pool is the repositories the account lists, never the lock files: /tmp forgets those, and
-# a leftover one names no repository.  A waiting suite lists it again every minute, since another
-# suite may have added a target.  The n-th target's lock is the first one's with `-n` before
-# `.lock`.
+# a leftover one names no repository.  A waiting suite lists it again every minute, and before it
+# takes a lock that came free, since another suite may have added or freed a target meanwhile.
+# The n-th target's lock is the first one's with `-n` before `.lock`.
 # A lock file is created world-readable and locked through a read-only descriptor, so suites
 # running as different accounts all take it.  $AK_SMOKE_LOCK and $AK_SMOKE_LOCK_WAIT override
 # the first file and the hour-long wait, for tests, which never queue behind the host's suites.
@@ -103,14 +103,19 @@ def targets():
             pool += 1
             yield n
 
-def take():
+def take(keep=True):
+    # The one place a target is chosen.  Not kept, the lock is given straight back: that only
+    # says one came free.
     for n in targets():
         fd = open_lock(path if n == 1 else "%s-%d.lock" % (stem, n))
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return n
         except OSError:
             os.close(fd)
+            continue
+        if not keep:
+            os.close(fd)
+        return n
     return None
 
 # Waiting for a target is bounded work, not a hung suite. Report that wait every
@@ -124,7 +129,10 @@ try:
     if taken is None:
         # No one file to queue on in the kernel, so try the pool every second until the wait
         # runs out.  A target freed between two tries stays free for the next one, unless
-        # another waiter takes it first -- which is what it was freed for.
+        # another waiter takes it first -- which is what it was freed for.  A holding suite
+        # chooses only on a fresh listing: a lock that came free ends its try, and it lists
+        # the pool again, so a target another suite added or freed meanwhile is taken, never
+        # passed over for a new one.  The probe lists nothing, so it takes at once.
         print("waiting", flush=True)
         deadline = time.monotonic() + wait
         done = threading.Event()
@@ -133,7 +141,10 @@ try:
         try:
             while taken is None and time.monotonic() < deadline:
                 time.sleep(max(0, min(1, deadline - time.monotonic())))
-                taken = take()
+                if not hold:
+                    taken = take()
+                elif take(keep=False):
+                    break
         finally:
             done.set()
             reporter.join()
@@ -182,7 +193,8 @@ smoke_lock_hold() {   # smoke_lock_hold <wait seconds>: 0 and $SMOKE_TARGET is t
   dir=$(mktemp -d "${TMPDIR:-/tmp}/ak-smoke-lock-XXXXXX") || return 75
   if ! mkfifo "$dir/status"; then rm -rf -- "$dir"; return 75; fi
   # Every try reads the bound and lists the pool anew -- the loop's capacity moves, and another
-  # suite may have added a target; both only read.  A listing that failed says nothing about
+  # suite may have added a target; both only read.  A try ends after a minute or as soon as a
+  # lock comes free, so a target is only ever chosen on this listing.  A listing that failed says nothing about
   # the pool, so that try takes only agentkit-smoke, found or made as it always was, and makes
   # no other target.
   while :; do
