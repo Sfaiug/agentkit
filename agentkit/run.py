@@ -29,7 +29,8 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import command_help, config, history, notify, orch, proc_snapshot, retention, usage, watch, worker
+from . import (command_help, config, history, notify, orch, proc_snapshot, retention, update,
+               usage, watch, worker)
 from .harness import load as harness_plugin
 
 DIFF_CAP = 300 * 1024
@@ -65,6 +66,7 @@ TRANSIENT_BACKOFF = (60, 300, 900, 1800, 3600)
 TRANSIENT_HOURLY = 3600
 MAX_REFILLS = 3               # usage-limit resets one turn may spend before handing over
 KILL_WINDOW = 60              # a second signal kill inside this many seconds parks the run
+SWAP_POLL = 10                # seconds between looks at a harness swap a failed turn waits out
 KILLED = {-15: "SIGTERM", -9: "SIGKILL"}   # worker exits by signal, as `subprocess` reports them
 # When a refusal says to come back: Codex prints `Try again at Oct 12th, 2026 11:39 PM` in this
 # machine's own timezone, and a 429 body carries the same moment as an ISO timestamp.  A clock
@@ -1551,7 +1553,10 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     own session and with no backoff.  Nothing to spend leaves `RanDry` for the caller, whose
     job is another provider, not another try here.
     An empty exit whose stderr says the harness never ran the turn leaves `CannotRun` the
-    same way, at once: another provider, or a run blocked on that line.
+    same way, at once: another provider, or a run blocked on that line.  Before either, a
+    failed exit, not a kill, that an install or revert of its harness overlapped
+    (`update.swap_end`) waits for that swap to end and starts again on its session: once per
+    swap, since the retry begins after it ended.
 
     A worker exit by signal is neither: it reads as the signal, resumes once at once, and on
     a second kill inside a minute raises `Killed` for the run to park on.
@@ -1575,7 +1580,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     # Every role (and retry) lives under <run>/round-N/<role> and inherits this audit log.
     env = {**run_child_env(), "AK_RUN_ROLE": "worker",
            "AK_RUN_LOG": str(out_dir.parent.parent / "log.txt")}
-    attempt, calls, refills, last_kill, account = 1, 0, 0, None, None
+    attempt, calls, refills, last_kill, account, began = 1, 0, 0, None, None, None
     handover_tried = False
 
     def turn(text, target, session):
@@ -1585,9 +1590,10 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         it, so a retry that outlived the sweep would otherwise run a whole turn no
         record wants anymore.
         """
-        nonlocal account
+        nonlocal account, began
         stop_check(out_dir.parent.parent)
         account = usage.account(cfg, entry["provider"])[0]
+        began = time.time()
         named = env if account is None else {**env, **config.account_env(account)}
         try:
             result = worker.call(cfg, name, text, workspace, target, role, session, env=named,
@@ -1649,6 +1655,17 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 log(f"WARN {role} {name} ended its turn with a command still in the background "
                     "again; carrying on with what it reported")
             target = finish
+        # A harness being installed or reverted under the turn had no command to run it, which
+        # reads as one that cannot run: that swap is waited out like a provider fault.
+        if not killed and code and not killed_word(code) and update.swap_end(
+                entry["harness"], began) is not None:
+            worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
+            log(f"WARN {role} {name} exited {code} while {entry['harness']} was being swapped; "
+                "starting again once that swap has ended"
+                + (f", resuming session {session}" if session else ""))
+            while (end := update.swap_end(entry["harness"], began) or 0) > (now := time.time()):
+                transient_wait(out_dir, min(SWAP_POLL, end - now))
+            continue
         # A harness that never ran the turn says so on stderr, and that outranks the refusal
         # words below: a 404 for a model it does not have reads `API Error` like a 500, and
         # Codex's missing model suggests `try a different model` like its capacity refusal.

@@ -61,7 +61,8 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
   seat. Offers `shaped`, `record`, `transition`. Used by run, orch, watch, menu. Leak:
   calls up into menu, run, watch and orch.
 - `update.py`: harness upgrades from each manifest's `[update]`, rollback, agentkit's own
-  update (`go_live`). Used by menu, orch, watch. Leak: `MuseSnapshot` knows Muse's layout.
+  update (`go_live`), when a harness was last swapped (`swap_end`). Used by menu, orch, run,
+  watch. Leak: `MuseSnapshot` knows Muse's layout.
 - `history.py`: SQLite `history.db` of runs and steps; duration and memory estimates. Used
   by run, menu, harness. Leaks: reads run.json directly; parses harness event logs.
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
