@@ -142,6 +142,11 @@ class Bar(Sandbox):
 class Writes(Sandbox):
     def setUp(self):
         super().setUp()
+        # a launch here is a top-level one behind the admission gate, whatever run the suite
+        # itself runs under: a nested or ungated run claims its slot at once, never `waiting`
+        self.stack.enter_context(patch.dict(os.environ, {
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0"}))
+        os.environ.pop("AK_MAX_RUNS", None)
         self.calls = []
         self.stack.enter_context(patch.object(
             orch, "tmux_out",

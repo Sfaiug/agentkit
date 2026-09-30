@@ -43,11 +43,12 @@ class Tallies(Sandbox):
             (config.CODE / name / ".git").mkdir(parents=True)
         self.seats = []
         # v5ay: a run under a live seat hands its ending back to that seat, so the one seat
-        # whose row names a failure of its own is a seat nobody is in any more.
+        # whose row names a failure of its own is a seat nobody is in any more.  herdr is
+        # mid-turn: a question on its screen would read `needs you` whatever its runs do (#8).
         for name, repo, live, since, gone in (
                 ("atoll-fix", "atoll", "at_prompt", NOW - 4 * DAY, False),
                 ("atoll-proxy", "atoll", "at_prompt", NOW - 3 * DAY, True),
-                ("herdr", "agentkit", "asking", NOW - 120, False),
+                ("herdr", "agentkit", "working", NOW - 120, False),
                 ("scribe", None, "at_prompt", NOW - 3600, False)):
             path = str(config.CODE / repo) if repo else str(self.root)
             self.seats.append({"name": name, "repo": path if repo else None, "path": path,

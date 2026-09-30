@@ -152,7 +152,8 @@ class AdmissionSliceCpu(unittest.TestCase):
             self.assertEqual(run.host_status_line(),
                              "host: 8 cpus · ak cpu 12% · 4 G free · "
                              "a run is admitted while ≥ 3 G free and "
-                             "ak cpu ≤ 40% · at most 1 run at once")
+                             "ak cpu ≤ 40% · at most 1 run at once\n"
+                             "heavy suites: 2 at once (derived)")
 
 
 if __name__ == "__main__":
