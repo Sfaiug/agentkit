@@ -214,7 +214,7 @@ finish
 
     def test_skipped_harness_browser_and_failed_run_prerequisite(self):
         skipped = between(SMOKE, "skip_spent()", "printf 'Create a file")
-        loop = between(SMOKE, 'ABSENT=0\nfor pair in "opus claude"', '# --- 4:')
+        loop = between(SMOKE, 'HARNESSES=("opus claude"', '# --- 4:')
         browser = between(SMOKE, '# 31d/31e: real calls', '# --- 32:')
         prerequisite = between(SMOKE, '# --- 4d:', '\nfi\n\n# --- 5:').rsplit('\nfi', 1)[0] + '\nfi\n'
         result = self.shell('spent_until() { echo "provider tomorrow"; }\n' + skipped + loop
@@ -224,7 +224,7 @@ finish
                             env={"AGENTKIT_ACCEPTANCE_REQUIRED": "1"})
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         # 31d/31e: no shared browser is a host's absence, counted as passed; the rest are not.
-        self.assertIn('2 passed, 0 failed, 11 skipped', result.stdout)
+        self.assertIn('2 passed, 0 failed, 14 skipped', result.stdout)
         self.assertIn('4d no dead orchestrator seat: prerequisite', result.stdout)
         self.assertIn('acceptance: INCOMPLETE', result.stdout)
         self.assertNotIn('PASS ', result.stdout)
