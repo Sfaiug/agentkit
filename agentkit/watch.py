@@ -4435,7 +4435,8 @@ def resume_waiting(dry_run=False, log=print, now=None):
     no verdict on the work: the branch tripped over main, and main keeps moving.
     The tick parks it `waiting` on its upstream at the sha a fetch reads now, and
     resumes it -- the command's own resume, detached, never waited on -- on the
-    first pass that reads another sha there.  A fetch that fails, or a ref that
+    first pass that reads another sha there, or, for a run parked on a red target,
+    that finds the run repairing it no longer open.  A fetch that fails, or a ref that
     will not parse, is not a move: the waiter keeps waiting, silently.  A
     worktree that is gone cannot be resumed at all, so that run becomes an
     interruption naming what is really wrong, the way a login run's does.  A
@@ -4506,12 +4507,17 @@ def resume_waiting(dry_run=False, log=print, now=None):
                         run_mod.save_state(run_dir, state)
                         log(f"{run_dir.name} waits on {ref} at {sha[:12]}")
                         continue
-                    if sha == waiting_on.get("sha"):
+                    repair = waiting_on.get("repair")
+                    if sha != waiting_on.get("sha"):
+                        why = f"{ref} moved ({(waiting_on.get('sha') or '')[:12]}..{sha[:12]})"
+                    elif repair and not run_mod.followup_open(
+                            run_mod.read_state(config.RUNS / repair) or {}):
+                        why = f"its repair {repair} ended"
+                    else:
                         continue  # main has not moved; the waiter keeps waiting, silently
                     state["waiting_resume_at"] = now
                     run_mod.save_state(run_dir, state)
                     decided = dict(state)
-                    moved = (waiting_on.get("sha") or "")[:12], sha[:12]
             else:
                 ref = run_mod.conflict_upstream(state)
                 if dry_run:
@@ -4545,7 +4551,7 @@ def resume_waiting(dry_run=False, log=print, now=None):
             except (config.Error, OSError) as exc:
                 log(f"WARN could not resume {run_dir.name}: {exc}")
                 continue
-            log(f"resumed {run_dir.name}: {ref} moved ({moved[0]}..{moved[1]})")
+            log(f"resumed {run_dir.name}: {why}")
         except run_mod.StopRequested:
             continue  # a stop landed mid-pass; the deliberate end stands, nothing to check
         except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
