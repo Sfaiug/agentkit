@@ -167,16 +167,16 @@ class Screen:
         return self.until(ready, f"a screen with {marker!r}")
 
     def picker(self, where=None, after=0):
-        return self.drawn("esc back", where, after)
+        return self.drawn("space choose", where, after)
 
     def menu(self, after=0):
-        return self.drawn("q leave", after=after)
+        return self.drawn("esc leave", after=after)
 
     def send(self, keys):
         os.write(self.master, keys)
 
     def leave(self):
-        self.send(b"q")
+        self.send(b"\x1b")
         self.case.assertEqual(self.proc.wait(15), 0, self.text()[-3000:])
 
 
@@ -197,7 +197,7 @@ class NewSessionScreen(unittest.TestCase):
         screen = Screen(self)
         screen.menu()
         screen.send(b"n")
-        screen.saw("Name (Enter: auto): ")
+        screen.saw("Name: ")
         screen.send(ENTER)
         lines = screen.picker()
         self.assertTrue(lines[0].startswith("agentkit · new session"), lines)
@@ -217,7 +217,7 @@ class NewSessionScreen(unittest.TestCase):
         screen = Screen(self)
         screen.menu()
         screen.send(b"n")
-        screen.saw("Name (Enter: auto): ")
+        screen.saw("Name: ")
         screen.send(ENTER)
         screen.picker()
         screen.send(DOWN)
@@ -234,7 +234,7 @@ class NewSessionScreen(unittest.TestCase):
         screen = Screen(self)
         screen.menu()
         screen.send(b"n")
-        screen.saw("Name (Enter: auto): ")
+        screen.saw("Name: ")
         screen.send(ENTER)
         screen.picker()
         screen.send(RIGHT + SPACE)             # Opus's executor mark
@@ -260,7 +260,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.menu()
         mark = len(screen.text())
         screen.send(b"n")
-        screen.saw("Name (Enter: auto): ")
+        screen.saw("Name: ")
         screen.send(ENTER)
         lines = screen.picker()
         opus = [row for row in lines if "Opus 5.5" in row]
@@ -278,7 +278,7 @@ class NewSessionScreen(unittest.TestCase):
         screen = Screen(self, providers=EVERYTHING_SPENT)
         screen.menu()
         screen.send(b"n")
-        screen.saw("Name (Enter: auto): ")
+        screen.saw("Name: ")
         screen.send(ENTER)
         lines = screen.picker()
         self.assertEqual([row for row in lines if "●" in row or "■" in row], [])
@@ -297,7 +297,7 @@ class NewSessionScreen(unittest.TestCase):
                         'model = "x"\neffort = "xhigh"\nprovider = "openai"\n')
         screen.menu()
         screen.send(b"n")
-        screen.saw("Name (Enter: auto): ")
+        screen.saw("Name: ")
         screen.send(ENTER)
         lines = screen.picker()
         self.assertEqual(len([line for line in lines if "Mmmmmmmmmmmm…" in line]), 1)
@@ -311,7 +311,7 @@ class NewSessionScreen(unittest.TestCase):
         screen = Screen(self)
         screen.menu()
         screen.send(b"n")
-        screen.saw("Name (Enter: auto): ")
+        screen.saw("Name: ")
         screen.send(ENTER)
         screen.picker()
         mark = len(screen.text())
@@ -324,7 +324,7 @@ class NewSessionScreen(unittest.TestCase):
         screen = Screen(self, providers=SPENT, dry_run=True)
         screen.menu()
         screen.send(b"n")
-        screen.saw("Name (Enter: auto): ")
+        screen.saw("Name: ")
         screen.send(ENTER)
         lines = screen.picker()
         self.assertTrue(lines[0].startswith("agentkit · new session"), lines)

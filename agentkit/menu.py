@@ -14,7 +14,7 @@ the moment it is pressed, and from a pipe it is a line.
       2  fix-api             fable   ● working     tasks ██░░░ 2/5
       3  web-portal          fable   ✓ done        hero swapped and published
 
-      ↑↓ move   ⏎ open   n new   x stop   c config   m models   i info   q leave
+      ↑↓ move   ⏎ open   n new   x stop   c config   m models   i info   esc leave
 
 `n` asks for a name, then shows the orchestrator and both roles with the defaults chosen already.
 Enter leaves naming to the orchestrator once it knows the work. The name is the row, the
@@ -73,7 +73,10 @@ then is still.  The sub-screens are not live: they are read once, like any other
 but a project's feature switches, which draw again within a second of their `list` landing.
 
 Seven keys: the numbers, `n`, `x`, `c` (models, providers, effort, discord, version),
-`m` (the highlighted seat's models), `i`, `q`.
+`m` (the highlighted seat's models), `i`, and Esc, which leaves, as it goes back from every
+screen and question under it; `q` is no key.  A question typed inside the menu is typed on its
+keys (`terminal.field`), so Esc cancels it at once.  From a pipe an empty line or the end of
+input leaves, or goes back.
 On a terminal one seat row is highlighted as well: ↑/↓, k/j and the wheel move it, Enter or a
 click opens a seat, and a click on the key line does what its key does (`loop`,
 `terminal.Keyboard`).  `x` is
@@ -94,7 +97,7 @@ it is drawn, so what a number opens never depends on the page that is up.
 `ak attach --overlay` is the same menu inside a seat, where `ak orch` binds it to `Ctrl-b m` as
 a tmux popup: a number switches this client to that session and `n` starts one and switches to
 it, both of which close the popup, `r` renames this session, `x` stops this session -- or,
-done, closes it at once -- and `q` closes the popup.  The popup offers those four keys and the
+done, closes it at once -- and Esc closes the popup.  The popup offers those four keys and the
 numbers; `c` and `i` live on the menu outside.
 
 On the server the menu is this process.  On a client -- a machine where install.sh recorded the
@@ -123,10 +126,10 @@ from pathlib import Path
 from . import command_help, config, history, motion, notify, orch, terminal, update, usage
 from .harness import load as harness_plugin
 
-KEYS = "n new   x stop   c config   i info   q leave"
+KEYS = "n new   x stop   c config   i info   esc leave"
 # With the keyboard the highlight turns the pages, so `m` opens the highlighted seat's models
 # instead of turning them; from a pipe `m` still pages, and KEYS stays the line menu's.
-TERMINAL_KEYS = "n new   x stop   c config   m models   i info   q leave"
+TERMINAL_KEYS = "n new   x stop   c config   m models   i info   esc leave"
 # What `i` says about the keys and the states, in the README's own words: the page and the
 # screen are one text, and tests/test_docs.py holds README.md to these lines.
 INFO_KEYS = ("1 2 3   open that session",
@@ -135,12 +138,12 @@ INFO_KEYS = ("1 2 3   open that session",
              "c       change the config",
              "m       change the session's models",
              "i       show info",
-             "q       leave")
+             "esc     leave")
 INFO_STATES = (("needs you", "it asked you something, or it cannot go on without you"),
                ("working",
                 "a run of its own is going, or a turn is, or a session it waits on works"),
                ("done", "it said so, and the row carries its summary"))
-OVERLAY_KEYS = "n start a session   r rename this session   x stop this session   q close"
+OVERLAY_KEYS = "n start a session   r rename this session   x stop this session   esc leave"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done
 PAGE_KEYS = "m more   k previous"   # added to the key line when the list runs to more pages
 LEAST = 3                # rows a page keeps; the usage block gives way before it holds fewer
@@ -171,7 +174,7 @@ USAGE = ("usage: ak [--client] [--overlay] [--dry-run]   "
 
 
 def read(prompt, default=None):
-    """One line, stripped; `default` at end of input, which is how a script says `q`.
+    """One line, stripped; `default` at end of input, which is how a script goes back.
 
     `terminal.readline` is where the line actually comes off stdin -- for every screen here
     and for the questions `orch` asks under them -- so the main screen's bounded wait and the
@@ -396,12 +399,12 @@ def wait_key(prompt, timeout=None, wake=None):
     if terminal.taken():
         return terminal.read_key(timeout, wake)
     if timeout is None:
-        return read(prompt, "q")
+        return read(prompt, "")
     try:
         keyboard = sys.stdin.fileno()
         terminal_input = sys.stdin.isatty()
     except (OSError, ValueError):
-        return read(prompt, "q")   # nothing to select on; the prompt has not been printed yet
+        return read(prompt, "")    # nothing to select on; the prompt has not been printed yet
     sys.stdout.write(prompt)
     sys.stdout.flush()
     try:
@@ -412,11 +415,11 @@ def wait_key(prompt, timeout=None, wake=None):
         else:
             waiting = terminal.wait_line(timeout, wake)
     except (OSError, ValueError, InterruptedError):
-        return read("", "q")       # the prompt is already on screen
+        return read("", "")        # the prompt is already on screen
     if not waiting:
         print()                    # the prompt this leaves behind belongs to the draw, not him
         return None
-    return read("", "q")
+    return read("", "")
 
 
 def moving(clock, wake=None, timeout=TICK, going=None):
@@ -455,8 +458,8 @@ def moving(clock, wake=None, timeout=TICK, going=None):
 
 
 class Back(Exception):
-    """Esc, `q`, the end of input or a click on `esc back`, read while a screen waited on what
-    it fetches (`waited`)."""
+    """Esc, the end of input or a click on `esc back`, read while a screen waited on what it
+    fetches (`waited`)."""
 
 
 class Fetch(threading.Thread):
@@ -489,8 +492,8 @@ def waited(work, title, body=list, keys="esc back", keyboard=None):
     A fetch that lands within a frame is simply had, and so is one with no keyboard to read, as
     it always was.  Over one that takes longer, on the keyboard a screen has -- or `keyboard`,
     taken for the wait -- the screen is drawn, and again after a resize, and its rule glides
-    once the fetch is past motion.WAIT (motion.fetching), on the clock's own frames.  Esc, `q`,
-    the end of input or a click on `esc back` raises Back, `work` left to finish on its own
+    once the fetch is past motion.WAIT (motion.fetching), on the clock's own frames.  Esc, the
+    end of input or a click on `esc back` raises Back, `work` left to finish on its own
     and its answer unused; any other key is let go.
     """
     fetch = Fetch(work)
@@ -504,8 +507,7 @@ def waited(work, title, body=list, keys="esc back", keyboard=None):
             clock = motion.fetching(motion.Clock(), fetch.began)
             key = moving(clock, timeout=TICK, going=fetch.is_alive)
             while key is not None:        # a key is read, and the rule glides on as it was
-                if (key.name in ("esc", "eof") or key.char in ("q", "Q")
-                        or key.name == "click" and any(
+                if (key.name in ("esc", "eof") or key.name == "click" and any(
                             (4 + len(lines) + number, item) == (key.row, "esc")
                             and first <= key.col <= last
                             for number, text in enumerate(terminal.key_line(keys))
@@ -519,11 +521,16 @@ def waited(work, title, body=list, keys="esc back", keyboard=None):
 
 
 def pause(*lines):
-    """Say something and, when someone is there to read it, wait until they have."""
+    """Say something and, when someone is there to read it, wait until they have: Esc or Enter,
+    read a key at a time on the menu's keyboard or, where the menu gave it back, on the keys
+    alone, so Esc goes back at once here too."""
     for line in lines:
         print(line)
     if sys.stdin.isatty() and sys.stdout.isatty():
-        read("q back ", "")
+        with closing(terminal.Keyboard(screen=False)) as keys:
+            if not terminal.taken():
+                keys.take()
+            read("esc back ", "")
 
 
 def seat_state(cfg, session, **facts):
@@ -1560,7 +1567,7 @@ def stop_session(found, dry_run):
     """`x` read a line at a time -- a pipe, a file: which seat, then one question, and nothing else.
 
     With the keyboard `x` is the highlighted seat's instead (`loop`, `close_seat`).  The seat is
-    picked by number or by name; `q`, Esc and an empty Enter go back
+    picked by number or by name; Esc and an empty Enter go back
     to the menu, as does anything but `y` to the one question. Stopping is the only
     thing that ends a seat: the conversation is saved, and the seat's number opens
     it again later. Its runs stop first, the same way `ak run stop` stops one, so
@@ -1570,7 +1577,7 @@ def stop_session(found, dry_run):
     if not found:
         pause("no session to stop")
         return
-    terminal.frame("stop", [], "q back")
+    terminal.frame("stop")
     choice = terminal.ask("Stop", found[0]["name"],
                           [session["name"] for session in found], read=read)
     if not choice:
@@ -1581,7 +1588,7 @@ def stop_session(found, dry_run):
         print(f"would stop {session['name']}")
         return
     terminal.frame("stop", terminal.wrap("The conversation is saved and the seat's number "
-                                           "reopens it later.", terminal.width()), "q back")
+                                           "reopens it later.", terminal.width()))
     if read(stop_question(session["name"]), "") != "y":
         return
     stop_session_runs(session["name"])
@@ -1592,7 +1599,7 @@ def rename_this_session(dry_run):
     """`r` in the overlay: rename the session this menu was opened from.
 
     `Name [<current>]:`, validated as `session_name`, against every taken name but its own;
-    `q` goes back.  The rename is `orch.rename`'s -- the tmux session, the record, every
+    Esc goes back.  The rename is `orch.rename`'s -- the tmux session, the record, every
     state file, its runs' records and the bar -- and afterwards this process answers to the
     new name too, because the popup lives in the renamed session.
     """
@@ -1600,7 +1607,7 @@ def rename_this_session(dry_run):
     if not current:
         pause("rename: this menu was not opened from a session")
         return
-    terminal.frame("rename", [], "q back")
+    terminal.frame("rename")
     name = orch.ask_name(set(orch.taken_names()) - {current}, current)
     if name is None or name is orch.BACK:
         return
@@ -1624,7 +1631,7 @@ def stop_this_session(dry_run):
         pause("stop: this menu was not opened from a session")
         return
     terminal.frame("stop", terminal.wrap("The conversation is saved and the seat's number "
-                                         "reopens it later.", terminal.width()), "q back")
+                                         "reopens it later.", terminal.width()))
     if dry_run:
         stop_session_runs(current, dry_run=True)
         print(f"would stop {current}")
@@ -1656,12 +1663,13 @@ def open_session(cfg, session, dry_run):
         pause(f"resume: {exc}")
 
 
-def new_session(cfg, dry_run):
-    """`n`: the name, then the orchestrator and both roles on one screen (`orch.pick`), or from
-    a pipe one question at a time; Esc or `q` goes back, nothing created. Enter at the name
-    leaves it for the orchestrator to choose, and a dry run only says what it would
-    start: it creates no session, so neither its record nor its harness's rulebook."""
-    terminal.frame("new session", [], "q back")
+def new_session(cfg, dry_run, keyboard=None):
+    """`n`: the name, then the orchestrator and both roles on one screen (`orch.pick`), both on
+    the menu's `keyboard`, or from a pipe one question at a time; Esc goes back, nothing
+    created. Enter at the name leaves it for the orchestrator to choose, and a dry run only
+    says what it would start: it creates no session, so neither its record nor its harness's
+    rulebook. The terminal is given back once all is chosen, for the seat to open on."""
+    terminal.frame("new session")
     if not cfg:
         return None               # no configuration means no models to offer
     name = orch.ask_name(orch.taken_names(), auto=True)
@@ -1669,13 +1677,18 @@ def new_session(cfg, dry_run):
         return None
     unnamed = name is None
     try:
-        with closing(terminal.Keyboard()) as keyboard:     # Esc read while the usage is asked
+        if keyboard is not None:    # the menu's own, given back below for the seat to open on
             providers = waited(lambda: usage.collect(cfg), "new session", keyboard=keyboard)
+        else:
+            with closing(terminal.Keyboard()) as own:     # Esc read while the usage is asked
+                providers = waited(lambda: usage.collect(cfg), "new session", keyboard=own)
     except Back:
         return None
     selected = orch.select(cfg, providers, prompting=True)
     if selected is orch.BACK:
         return None
+    if keyboard is not None:
+        keyboard.give()
     name = name or orch.unique_name("new", orch.taken_names())
     if dry_run:
         reviewers = selected[3] if len(selected) == 4 else cfg["defaults"].get("reviewers")
@@ -2364,8 +2377,8 @@ ADD_KEYS = {"choose": ("↑↓ move   ⏎ choose", "arrows move   enter choose")
 
 
 def _cancelled(answer):
-    """`q`, Esc or an arrow key at a question with nothing to ask again: out, writing nothing."""
-    return (answer is None or answer.lower() == "q" or terminal.is_esc(answer)
+    """Esc or an arrow key at a question with nothing to ask again: out, writing nothing."""
+    return (answer is None or terminal.is_esc(answer)
             or terminal.is_sequence(answer))
 
 
@@ -2622,7 +2635,7 @@ def model_body(cfg, name, at=None):
 @terminal.clicks_its_own
 def config_model(cfg, name):
     """`config · <name>`: one model's id and effort, and `Remove`, read with the matrix's
-    keys until Esc or `q`, each change saved and drawn at once.
+    keys until Esc, each change saved and drawn at once.
 
     ↑/↓, k/j and the wheel move between rows and ←/→ step the value on one: the id through
     its harness's catalog (config.catalog) and nothing else, the effort through the efforts
@@ -2657,7 +2670,7 @@ def config_model(cfg, name):
             act = ("enter" if here == "Remove"
                    else "left" if inside and key.col <= first + 1
                    else "right" if inside and key.col >= last - 1 else "")
-        if act in ("esc", "eof") or key.char in ("q", "Q"):
+        if act in ("esc", "eof"):
             return
         if terminal.step(key):
             here = MODEL_ROWS[min(max(MODEL_ROWS.index(here) + terminal.step(key), 0),
@@ -2670,7 +2683,7 @@ def config_model(cfg, name):
             def around():     # the screen around the question, drawn again on a resize
                 lines = [*model_body(cfg, name)[0], *(f"  {line}" for line in terminal.wrap(
                     REMOVE_ASK.format(name), terminal.layout_width() - 2))]
-                terminal.frame(title, [*lines, "", ""], "esc keep")
+                terminal.frame(title, [*lines, "", ""], "esc back")
                 return 3 + len(lines)
             if terminal.choose(["Keep", "Remove"], "Keep", around=around) == "Remove":
                 before = copy.deepcopy(cfg)
@@ -2698,7 +2711,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     whatever the height.  ↑/↓, k/j and the wheel move `here` through `rows`.  A click on a row
     makes it `here`, and one on a cell makes that the column, acting `enter` on the first
     `marks` columns and `less` or `more` on another's arrows; `column` is None where no cell was
-    clicked.  `act` is `back` for Esc, `q` or a click on `esc back`, None when the screen wants
+    clicked.  `act` is `back` for Esc or a click on `esc back`, None when the screen wants
     drawing again -- a resize, or `timeout` seconds with no key -- and the key's name otherwise.
     `fetched()` says since when the screen's content is being fetched, or None: while it is, the
     rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
@@ -2735,7 +2748,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
                 column = number
                 act = ("enter" if number < marks else "less" if key.col <= first + 1
                        else "more" if key.col >= last - 1 else "")
-    if act in ("esc", "eof") or key.char in ("q", "Q"):
+    if act in ("esc", "eof"):
         return "back", here, column, top
     if terminal.step(key) and rows:
         here = rows[min(max(rows.index(here) + terminal.step(key), 0), len(rows) - 1)]
@@ -2744,7 +2757,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
 
 @terminal.clicks_its_own
 def config_matrix(cfg, keyboard, version):
-    """The `c` screen read with the keys until Esc or `q`; the config as it left it.
+    """The `c` screen read with the keys until Esc; the config as it left it.
 
     ↑/↓, k/j and the wheel move between rows and ←/→ between columns, the effort's too.  Enter,
     space or a click flips a mark; Enter or space on an effort steps it up, from its highest
@@ -2754,12 +2767,11 @@ def config_matrix(cfg, keyboard, version):
     (config_model), and Esc there comes back to its row.  Enter or a click
     on `+ add a model` opens its screen (config_add), and a model added there is the row
     highlighted after it.  On `Providers` ←/→ move between `+ add` and `− remove`, and Enter or
-    a click on one runs it (config_add_provider, config_remove_provider); on `Discord` it gives
-    the terminal back for that row's step, which reads its lines as it always has, then takes it
-    again.  `Version` is read, and does nothing.  On a screen too short
-    for every row the part the highlight is on is shown, and what the last key could not do --
-    the last worker, a save or a catalog that failed -- has lines of its own under it, whatever
-    the height, until the next key.
+    a click on one runs it (config_add_provider, config_remove_provider); on `Discord` its two
+    secrets are typed on the same keys (config_discord).  `Version` is read, and does nothing.
+    On a screen too short for every row the part the highlight is on is shown, and what the
+    last key could not do -- the last worker, a save or a catalog that failed -- has lines of
+    its own under it, whatever the height, until the next key.
     """
     here, column, top, note = None, 0, 0, ""
     while True:
@@ -2790,14 +2802,12 @@ def config_matrix(cfg, keyboard, version):
                         else config_add_provider(cfg, keyboard))
         elif here[0] == "row":
             if here != VERSION and act in ("enter", "space"):
-                keyboard.give()       # the step reads lines, on the terminal as it was
                 config_discord()
                 try:
                     cfg = config.load()
                 except config.Error as exc:
                     pause(f"config: {exc}")
                     return cfg
-                keyboard.take()
         elif act in ("left", "right"):
             column = min(max(column + (1 if act == "right" else -1), -1), 3)
         elif act in ("enter", "space") and column < 0:
@@ -2900,7 +2910,7 @@ def config_add(cfg):
     one its harness was picked with.  ↑/↓, k/j and the wheel move, and Enter or a click picks
     a choice and opens the next step under it; Enter on an effort adds the model, named from
     its label (_short_name), and saves.  A model the config runs already is marked, and can be
-    added at another effort, never at one it runs it at.  Esc or `q` steps back one level, and
+    added at another effort, never at one it runs it at.  Esc steps back one level, and
     out from the harnesses.  Nothing is typed, so no harness, model or effort the catalog does
     not offer is ever written.  The new model is offered as orchestrator and as worker at
     once, and joins neither default until it is chosen there.
@@ -2945,7 +2955,7 @@ def config_add(cfg):
                 act = "esc"
         if act == "eof":
             return None
-        if act == "esc" or key.char in ("q", "Q"):
+        if act == "esc":
             if not picked:
                 return None
             picked.pop()
@@ -3036,7 +3046,7 @@ def config_add_provider(cfg, keyboard):
     effort or the nearest one it takes -- so a `usage_model` in that table names it.  It joins
     neither default until it is chosen there.  Where a model of that name is here already
     nothing is installed or added, since the table would name that model instead.  A verb that
-    fails adds nothing, and waits until what it said has been read.  Esc or `q` goes back with
+    fails adds nothing, and waits until what it said has been read.  Esc goes back with
     nothing done.  What to say under the matrix, or "".
     """
     shipped = config.shipped()
@@ -3125,7 +3135,7 @@ def config_remove_provider(cfg):
     def asked():
         lines = [f"  {line}" for line in terminal.wrap(ask.format(picked),
                                                       terminal.layout_width() - 2)]
-        terminal.frame(title, [*lines, "", ""], "esc keep")
+        terminal.frame(title, [*lines, "", ""], "esc back")
         return 3 + len(lines)
     if terminal.choose(["Keep", "Remove"], "Keep", around=asked) != "Remove":
         return ""
@@ -3145,9 +3155,10 @@ def config_discord():
     writes them.
 
     An empty answer keeps what is there, so one secret can be changed without retyping the
-    other; install.sh asks the same way, once, when there is someone to ask.
+    other; install.sh asks the same way, once, when there is someone to ask.  Esc at either
+    goes back with nothing written.
     """
-    terminal.frame("config · discord", [f"  {discord_value()}"], "q back")
+    terminal.frame("config · discord", [f"  {discord_value()}"])
     webhook = read("Webhook URL: ", "")
     if _cancelled(webhook):
         return
@@ -3289,7 +3300,7 @@ def show_session_models(name, dry_run=False, keyboard=None):
     a flip leaving no allowed pair is refused in one line under the rows, and so is a
     model whose harness is not installed or not logged in, or whose meter is spent. A dry
     run, and a menu with no keyboard to read -- a pipe -- draw it once and read nothing.
-    Esc, `q` or a click on `esc back` goes back.
+    Esc or a click on `esc back` goes back.
     """
     try:
         cfg = config.load()
@@ -3545,7 +3556,7 @@ def info_states():
 def show_info(dry_run=False):
     """`i`: one calm screen -- what agentkit is, the three states, the keys, the worker token's
     date and the build -- and nothing else.  It is read with the keys: it scrolls where it does
-    not fit, and Esc, `q` or a click on `esc back` go back.  A dry run draws it and goes on."""
+    not fit, and Esc or a click on `esc back` go back.  A dry run draws it and goes on."""
     from . import watch   # here, not at the top: the menu draws without the tick
     note = watch.worker_token_note()
     sections = (("States", info_states()), ("Keys", INFO_KEYS),
@@ -3575,10 +3586,11 @@ def pressed(key, drawn, found):
 
     Enter is the highlighted seat's number, and a click on any line of a seat is that seat's;
     on a project's heading either is that project's checkout, whose switches it opens.
-    A click on the key line is the key of the item under it, `⏎ open` being Enter; Esc and a
-    keyboard that is gone are `q`; a character is itself; anything else is "", which asks for
-    nothing.  `drawn` is the layout on the screen when the key was read, so a click lands where
-    he saw, and `found` the seats now, so a seat is opened by the number it has now.
+    A click on the key line is the key of the item under it, `⏎ open` being Enter; Esc, a click
+    on `esc leave` and a keyboard that is gone are ESC, which leaves; a character is itself;
+    anything else is "", which asks for nothing.  `drawn` is the layout on the screen when the
+    key was read, so a click lands where he saw, and `found` the seats now, so a seat is
+    opened by the number it has now.
     """
     numbers = {session["name"]: str(number) for number, session in enumerate(found, 1)}
 
@@ -3589,18 +3601,18 @@ def pressed(key, drawn, found):
             return opens(drawn["rows"][key.row])
         item = next((item for row, first, last, item in drawn["spans"]
                      if row == key.row and first <= key.col <= last), "")
-        if item not in ("⏎", "enter"):
+        if item not in ("⏎", "enter", "esc"):
             return item if len(item) == 1 else ""
-        key = terminal.Key("enter")
+        key = terminal.Key({"⏎": "enter"}.get(item, item))
     if key.name == "enter":
         return opens(drawn["cursor"])
     if key.name in ("esc", "eof"):
-        return "q"
+        return terminal.ESC
     return key.char if key.name == "char" else ""
 
 
 def loop(cfg, client=False, dry_run=False, overlay=False):
-    """The menu until `q` or end of input.
+    """The menu until Esc, or from a pipe until an empty line or the end of input.
 
     `overlay` is the menu as a tmux popup over a running seat, offering the four keys and
     the numbers.  A number and `n` both hand this client to a session, and the popup has
@@ -3636,9 +3648,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     kept for after, with the screen it was read on.  The highlight is the seat's name, so it
     stays on its seat whatever comes or goes above it.  A key that does nothing here is let
     go without a word, and every key that does something gives the terminal back before it
-    does it -- but `i`, `c`, `m` and `x`'s question, which are read with the keys on the
-    screen the menu has: `x` on a done seat closes it at once, and on any other asks `Keep`
-    or `Stop` under its row, Enter or a click answering and Esc keeping it.
+    does it -- but `i`, `c`, `m`, `n`, `r` and `x`'s question, which are read with the keys on
+    the screen the menu has: `x` on a done seat closes it at once, and on any other asks `Keep`
+    or `Stop` under its row, Enter or a click answering and Esc keeping it.  Esc, and a click
+    on `esc leave`, leaves; `q` is no key.
     """
     keys = OVERLAY_KEYS if overlay else KEYS
     actions = ("n", "x", "r") if overlay else ("n", "x", "c", "m", "i")
@@ -3710,15 +3723,13 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                         ahead = (more, drawn)     # read early: kept, with the screen it was read on
                 if key.isdecimal() and key.isascii() and 1 <= int(key) <= len(found):
                     cursor = found[int(key) - 1]["name"]   # and highlighted when he is back
-                elif key != "q" and key not in actions:
+                elif not terminal.is_esc(key) and key not in actions:
                     continue
-            if terminal.is_esc(key):
-                key = "q"         # Esc leaves the menu, the same as `q`
-            elif terminal.is_sequence(key):
+            if not key or terminal.is_esc(key):
+                return 0          # Esc leaves the menu; from a pipe an empty line or its end
+            if terminal.is_sequence(key):
                 continue          # an arrow key is neither Esc nor a key: draw again, silently
             key = key.lower()
-            if key == "q":
-                return 0
             seat = own if overlay else cursor
             if key == "x" and isinstance(seat, Path):
                 continue          # a heading is no seat to stop
@@ -3728,7 +3739,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                     cursor = seat
 
                     def around():     # the menu around the question, drawn again on a resize
-                        draw(cfg, found, "esc keep", page, cursor, drawn, own, ask=seat,
+                        draw(cfg, found, "esc back", page, cursor, drawn, own, ask=seat,
                              look=False, groups=groups, clock=clock)
                         return drawn["ask"]
                     if terminal.choose(["Keep", "Stop"], "Keep", around=around,
@@ -3737,7 +3748,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                 keyboard.give()
                 close_seat(seat, dry_run)
                 continue
-            if key not in ("i", "c", "m"):
+            if key not in ("i", "c", "m", "n", "r"):
                 keyboard.give()           # whatever the key opens has the terminal as it was
             if key.isdigit():
                 if 1 <= int(key) <= len(found):
@@ -3748,7 +3759,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                     pause(f"no session {key}")
             elif key == "n":
                 try:
-                    if new_session(cfg, dry_run) and overlay:
+                    if new_session(cfg, dry_run, keyboard) and overlay:
                         return 0
                 except config.Error as exc:
                     pause(f"new session: {exc}")

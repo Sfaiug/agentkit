@@ -285,7 +285,7 @@ class Rendering(Sandbox):
         notice = f"update: FAILED ({self.root}/.agentkit/tmp/update-20260910-140200.log)"
         with patch.object(terminal, "width", return_value=100), \
                 patch.object(menu.orch, "job_notices", return_value=[notice]), \
-                patch.object(menu, "read", return_value="q"), redirect_stdout(io.StringIO()) as out:
+                patch.object(menu, "read", return_value=""), redirect_stdout(io.StringIO()) as out:
             menu.loop(self.cfg, dry_run=True)
         self.assertIn("update: FAILED (~/.agentkit/tmp/update-20260910-140200.log)", out.getvalue())
         self.assertTrue(all(terminal.cells(line) <= 100 for line in out.getvalue().splitlines()))

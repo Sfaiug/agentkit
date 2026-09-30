@@ -159,10 +159,10 @@ class StatusBar(Sandbox):
     def test_overlay_lists_the_four_entries(self):
         self.assertEqual(menu.OVERLAY_KEYS,
                          "n start a session   r rename this session   "
-                         "x stop this session   q close")
+                         "x stop this session   esc leave")
         entries = menu.OVERLAY_KEYS.split("   ")
         self.assertEqual(entries, ["n start a session", "r rename this session",
-                                   "x stop this session", "q close"])
+                                   "x stop this session", "esc leave"])
         with patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
                 patch.object(watch, "live_state",
@@ -176,7 +176,7 @@ class StatusBar(Sandbox):
             self.assertNotIn(gone, screen)
 
     def test_overlay_r_renames_x_stops_and_c_is_not_a_key(self):
-        answers = iter(["r", "x", "c", "i", "q"])
+        answers = iter(["r", "x", "c", "i", ""])
         with patch.object(orch, "listing", return_value=[self.seat]), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "read", side_effect=lambda *_: next(answers)), \

@@ -1321,7 +1321,7 @@ def file_projectless(found, runs):
             session["repo"] = run.join_session_project(session["name"], states)
 
 
-BACK = object()  # `q` at a new-seat question: back to the menu, nothing created
+BACK = object()  # Esc at a new-seat question: back to the menu, nothing created
 
 
 def _seat_read(prompt):
@@ -2780,21 +2780,23 @@ def default_name(orchestrator, taken):
 
 
 def ask_name(taken, default=None, auto=False):
-    """`Name:` or `Name [default]:`, until there is one. `q` goes back.
+    """`Name:` or `Name [default]:`, until there is one. Esc goes back.
 
     A seat is what the user calls it: the menu row, the status bar, the Discord title and the
     file the selection lives in are all this one word, so nothing here invents it.  Enter takes
     the default; an empty answer with no default asks again, and so does a name another seat
     already has. End of input (a script, a Ctrl-D) is the way out: None, and the caller goes
     back where it came from. With `auto`, Enter and end of input answer None for an automatic
-    name; only `q` or Esc goes back.
+    name; only Esc goes back. Typed on the menu's keys, the answer Enter takes is in the field,
+    dim -- `auto`, or the default -- until a key replaces it.
     """
     if default:
         taken = taken - {old for old, target in config.session_aliases().items()
                          if target == default}
     prompt = "Name (Enter: auto): " if auto else f"Name{f' [{default}]' if default else ''}: "
     while True:
-        line = terminal.readline(prompt)
+        line = (terminal.field("Name: ", "auto" if auto else default or "") if terminal.taken()
+                else terminal.readline(prompt))
         if line is None:
             if not sys.stdout.isatty():
                 print()
@@ -2802,7 +2804,7 @@ def ask_name(taken, default=None, auto=False):
         raw = line.strip()
         if not sys.stdout.isatty():
             print()
-        if raw.lower() == "q" or raw == terminal.ESC:
+        if raw == terminal.ESC:
             return BACK
         if terminal.is_sequence(raw):
             continue
@@ -2818,7 +2820,7 @@ def ask_name(taken, default=None, auto=False):
 
 
 def prompt_orchestrator(cfg, default, providers, reason):
-    """Orchestrator first: a number or a model name. Enter takes the default; `q` goes back.
+    """Orchestrator first: a number or a model name. Enter takes the default; Esc goes back.
 
     Every model is a choice.  When `choose()` passed the default orchestrator over, its reason
     follows the bracket in its own words: the skipped models, or the whole WARN when every
@@ -3143,10 +3145,10 @@ def pick(cfg, providers, default):
     spent model is still a choice, only never a preselected one, so with every model spent
     nothing is chosen and Enter takes the highlight to the column that still wants a choice.
     ↑/↓, k/j and the wheel move through models, ←/→ through roles; space or a click chooses,
-    Enter starts from anywhere, Esc or `q` goes back. Each group keeps its last model.
+    Enter starts from anywhere, Esc goes back. Each group keeps its last model.
 
-    None where there is no terminal to take -- a pipe, a file, the smoke suite -- and the
-    caller asks its two questions a line at a time.
+    On the menu's keyboard where the menu has one; None where there is no terminal to take --
+    a pipe, a file, the smoke suite -- and the caller asks its two questions a line at a time.
     """
     from . import run
     names = config.offered(cfg)
@@ -3178,7 +3180,7 @@ def pick(cfg, providers, default):
 
             selected[role] = [min(pool, key=lambda name: (tier(name), fresh.index(name)))]
     with closing(terminal.Keyboard()) as keyboard:
-        if not keyboard.take():
+        if not (terminal.taken() or keyboard.take()):
             return None
         return _picking(cfg, providers, notes, selected)
 
@@ -3237,7 +3239,7 @@ def _picking(cfg, providers, notes, selected):
                 note = role_refusal(cfg, selected, providers)
                 if not note:
                     return selected["orchestrator"], selected["workers"], selected["reviewers"]
-        elif key.name in ("esc", "eof") or key.char in ("q", "Q"):
+        elif key.name in ("esc", "eof"):
             return BACK
 
 

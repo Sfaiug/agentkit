@@ -122,7 +122,7 @@ class Listings(Sandbox):
         self.assertFalse(hasattr(menu, "recover_run"))
         self.assertFalse(hasattr(menu, "watch_run"))
         self.assertNotIn("r runs", menu.KEYS)
-        answers = iter(["r", "q"])
+        answers = iter(["r", ""])
         with patch.object(orch, "listing", return_value=self.seats), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "read", side_effect=lambda *_: next(answers)), \

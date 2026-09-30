@@ -132,8 +132,8 @@ class UsageLeft(Sandbox):
                 self.providers["openai"]["resets"] = 0
                 self.providers["openai"]["meters"][0]["used"] = 40
                 self.cache()
-                return ""
-            return "q"
+                return "\x1b[A"          # an arrow: no key, only a draw
+            return "\x1b"
         # The wait is mocked beside the read: the real one selects on stdin, and a
         # stdin that never delivers EOF -- a backgrounded run's open pipe -- would redraw
         # into `out` every TICK forever, growing without bound instead of finishing.
@@ -141,7 +141,7 @@ class UsageLeft(Sandbox):
                 patch.object(menu.orch, "job_notices", return_value=[]), \
                 patch.object(menu, "read", side_effect=answer), \
                 patch.object(menu, "wait_key", side_effect=lambda prompt, timeout=None,
-                             wake=None: menu.read(prompt, "q")), \
+                             wake=None: menu.read(prompt, "")), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
         self.assertIn("69%", out.getvalue())
@@ -271,13 +271,13 @@ class UsageLeft(Sandbox):
                 patch.object(orch, "sessions", return_value=[{"name": "atoll-fix", "created": 9100}]), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "wait_key", side_effect=lambda prompt, timeout=None,
-                             wake=None: menu.read(prompt, "q")), \
+                             wake=None: menu.read(prompt, "")), \
                 patch.object(sys.stdin, "isatty", return_value=True):
             for first in (True, False):
                 out = io.StringIO()
                 with redirect_stdout(out), patch.object(out, "isatty", return_value=True), \
                         patch.object(menu, "read", side_effect=lambda prompt, default:
-                                     "" if prompt.startswith("Enter") else "q") as read:
+                                     "") as read:
                     self.assertEqual(menu.main([]), 0)
                 # The header carries no hash; split on it, not on the update notice.
                 before, screen = out.getvalue().split("agentkit ", 1)
@@ -286,7 +286,7 @@ class UsageLeft(Sandbox):
                     self.assertIn(warning, before)
                     self.assertEqual(before.count("Finished old-owned"), 0)
                     self.assertEqual([call.args[0] for call in read.call_args_list],
-                                     ["q back ", "> "])
+                                     ["esc back ", "> "])
                 else:
                     self.assertEqual(before, "")
                     self.assertEqual([call.args[0] for call in read.call_args_list], ["> "])

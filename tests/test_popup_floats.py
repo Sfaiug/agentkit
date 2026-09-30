@@ -413,7 +413,7 @@ class TheContent(unittest.TestCase):
         self.assertLess(popup.when(found.end()) - sent, 0.1)
         # still coming up after it: the key was pressed during the fade, and did not end it
         self.assertRegex(popup.text()[found.start():], r"\x1b\[\d+;1H\x1b\[38;2;")
-        os.write(popup.master, b"q")
+        os.write(popup.master, b"\x1b")
         self.assertEqual(popup.proc.wait(15), 0, popup.text()[-2000:])
 
     def test_padded_it_draws_a_row_and_a_column_in_and_reads_a_click_back(self):

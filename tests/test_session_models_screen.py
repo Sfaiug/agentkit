@@ -141,7 +141,7 @@ class Screen:
     def mark(self):
         return len(self.text())
 
-    def frame(self, where=None, keys="q leave", after=0):
+    def frame(self, where=None, keys="esc leave", after=0):
         """The lines of the last whole screen written over in place whose key line says
         `keys` (the menu's own by default), as the screen shows them; row 1 first."""
         def ready(text):
@@ -169,7 +169,7 @@ class Screen:
         self.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
 
     def leave(self):
-        self.send(b"q")
+        self.send(ESC)
         self.case.assertEqual(self.proc.wait(15), 0, self.text()[-3000:])
 
     def record(self, seat):
@@ -316,7 +316,7 @@ class SessionModels(Sandbox):
     def test_the_key_line_and_info_list_m_and_the_pipe_line_is_unchanged(self):
         self.assertIn("m models", menu.TERMINAL_KEYS)
         self.assertIn("m       change the session's models", menu.INFO_KEYS)
-        self.assertEqual(menu.KEYS, "n new   x stop   c config   i info   q leave")
+        self.assertEqual(menu.KEYS, "n new   x stop   c config   i info   esc leave")
 
 
 class SessionModelsScreen(unittest.TestCase):

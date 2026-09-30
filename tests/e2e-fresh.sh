@@ -618,7 +618,7 @@ elif doing d; then
   cat >"$WORK/menu1.exp" <<EXP
 expect 120 $MENU
 send n
-expect 60 Name \(Enter: auto\):
+expect 60 Name:
 send atoll\n
 expect 240 space choose
 send \n
@@ -626,7 +626,7 @@ expect 240 $PROMPT
 refute $NODIALOG
 send \x02d
 expect 120 $MENU
-send q\n
+send \x1b
 EXP
   drive menu1 xterm-256color ak
   D1=$?
@@ -649,7 +649,7 @@ expect 240 $PROMPT
 refute missing or unsuitable terminal
 send \x02d
 expect 120 $MENU
-send q\n
+send \x1b
 EXP
   drive menu2 xterm-ghostty ak
   D2=$?
@@ -676,7 +676,7 @@ if doing e; then
   # lands in the menu rather than in a shell.
   cat >"$WORK/phone.exp" <<EXP
 expect 120 $MENU
-send q\n
+send \x1b
 EXP
   # shellcheck disable=SC2086
   drive phone xterm-256color $FORCED
@@ -805,7 +805,7 @@ expect 60 Keep
 send j
 send \n
 expect 60 stopped atoll
-send q
+send \x1b
 EXP
   drive menu3 xterm-256color ak
   D3=$?

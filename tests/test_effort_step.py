@@ -96,7 +96,7 @@ class EffortStep(unittest.TestCase):
         self.assertLess(timed(screen, RIGHT, "‹ low ›"), 0.1)
         self.assertLess(timed(screen, RIGHT, "‹ high ›"), 0.1)
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "high")
-        screen.press(b"q", lambda lines: "opus" in highlighted(lines))     # back to the matrix
+        screen.press(b"\x1b", lambda lines: "opus" in highlighted(lines))  # back to the matrix
         screen.leave()
 
     def test_a_mimo_run_and_seat_at_each_effort_ask_opencode_for_it(self):

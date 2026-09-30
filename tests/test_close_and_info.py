@@ -89,7 +89,7 @@ class Menu:
                     "CLOSE_REPO": str(REPO), "CLOSE_SEATS": str(self.seats)})
         if own:
             env.update({"CLOSE_OVERLAY": "1", "AGENTKIT_SESSION": own})
-        self.leave_key = "q close" if own else "q leave"
+        self.leave_key = "esc leave"
         self.proc = subprocess.Popen([sys.executable, "-c", CHILD], stdin=self.slave,
                                      stdout=self.slave, stderr=self.slave, env=env,
                                      start_new_session=True)
@@ -184,7 +184,7 @@ class Menu:
         self.proc.send_signal(signal.SIGWINCH)
 
     def leave(self):
-        self.send(b"q")
+        self.send(ESC)
         self.case.assertEqual(self.proc.wait(15), 0, self.text()[-3000:])
 
 
@@ -210,7 +210,7 @@ class CloseAndInfo(unittest.TestCase):
         self.assertIn("beta", menu.highlighted(lines))      # needs you sorts first
         mark = menu.mark()
         menu.send(b"x")
-        asked = menu.frame(keys="esc keep", after=mark)
+        asked = menu.frame(keys="esc back", after=mark)
         row = next(number for number, line in enumerate(asked, 1) if "beta" in line)
         self.assertEqual(asked[row], "  Stop beta and everything it runs?")
         self.assertFalse(any(line.startswith("›") for line in asked), asked)
@@ -218,13 +218,13 @@ class CloseAndInfo(unittest.TestCase):
         self.assertEqual(top, row + 2)                      # the two lines under the question
         self.assertEqual(answers, ["› Keep", "  Stop"])     # Keep is where the highlight starts
         self.assertEqual(asked[top - 1:top + 1], ["", ""])
-        self.assertEqual(asked[-1].strip(), "esc keep")
+        self.assertEqual(asked[-1].strip(), "esc back")
         mark = menu.mark()
         menu.send(ESC)
         lines = menu.frame(after=mark)
         self.assertIn("beta", menu.highlighted(lines))
         menu.send(b"x")
-        menu.frame(keys="esc keep", after=mark)
+        menu.frame(keys="esc back", after=mark)
         mark = menu.mark()
         menu.send(ENTER)                                    # Enter on Keep keeps it as well
         menu.frame(after=mark)
@@ -289,7 +289,11 @@ class CloseAndInfo(unittest.TestCase):
         mark = menu.mark()
         menu.send(b"i")
         menu.frame(keys="esc back", after=mark)
-        menu.send(b"q")                           # `q` goes back, and does not leave the menu
+        mark = menu.mark()
+        menu.send(b"q")                           # `q` is no key here: the screen stays up
+        time.sleep(0.3)
+        self.assertNotIn("esc leave", menu.text()[mark:])
+        menu.send(ESC)
         menu.frame(after=mark)
         menu.leave()
         self.assertNotIn("<opened", menu.text())
@@ -335,7 +339,7 @@ class CloseAndInfo(unittest.TestCase):
         self.assertIn("x stop this session", "\n".join(lines))
         mark = menu.mark()
         menu.send(b"x")
-        asked = menu.frame(keys="esc keep", after=mark)
+        asked = menu.frame(keys="esc back", after=mark)
         row = next(number for number, line in enumerate(asked, 1) if "alpha" in line)
         self.assertEqual(asked[row], "  Stop alpha and everything it runs?")
         mark = menu.mark()
@@ -389,7 +393,7 @@ class CloseAndInfo(unittest.TestCase):
         before, _ = menu.choices(after=mark)
         mark = menu.mark()
         menu.resize(24, 40)                       # the question now wraps onto three lines
-        asked = menu.frame(lambda lines: len(lines[0]) == 40, keys="esc keep", after=mark)
+        asked = menu.frame(lambda lines: len(lines[0]) == 40, keys="esc back", after=mark)
         top, answers = menu.choices(after=mark)
         self.assertGreater(top, before)
         self.assertEqual(asked[top - 4:top - 1], ["  Stop", f"  {long}", "  and everything it runs?"])

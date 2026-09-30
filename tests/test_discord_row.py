@@ -102,7 +102,7 @@ class DiscordRow(unittest.TestCase):
         self.assertEqual(self.requests[0][0], "/api/webhooks/42/tokena1B2c3?wait=true")
         self.assertEqual(self.requests[0][1]["content"], f"<@{USER}>")
         self.assertEqual(self.row(), "@acme-owner · webhook …a1B2c3")
-        self.assertEqual(self.page("q"), ["@acme-owner · webhook …a1B2c3"])
+        self.assertEqual(self.page("\x1b"), ["@acme-owner · webhook …a1B2c3"])
         state = "".join(path.read_text() for path in config.STATE.rglob("*") if path.is_file())
         self.assertIn("acme-owner", state)
         self.assertNotIn("a1B2c3", state)            # none of the URL is kept, not even its tail

@@ -533,7 +533,7 @@ ESC = "\x1b"   # what Esc alone reads as: the single byte with nothing after it
 
 
 def is_esc(answer):
-    """A lone Esc reads as going back, the same as `q`."""
+    """A lone Esc reads as going back, on every screen and at every question."""
     return answer == ESC
 
 
@@ -546,13 +546,13 @@ def is_sequence(answer):
     return isinstance(answer, str) and answer.startswith(ESC) and answer != ESC
 
 
-def frame(name, body=(), keyline="q back", filled=0):
+def frame(name, body=(), keyline="esc back", filled=0):
     """One sub-screen in the shared frame: the landed docs/cli-design.md chrome,
     then the caller's prompt.
 
     Built on header_line, rule_line and key_line over layout_width -- never
     re-implemented per screen -- so a sub-screen keeps the menu's widths (capped
-    at 120) and its keys read exactly like the menu's, with `q back` first. The
+    at 120) and its keys read exactly like the menu's, with `esc back` last. The
     body sits between the rule and the blank line; the caller reads the prompt,
     so every screen ends the same way.  Over a screen read with the keys it is written over
     in place, in one write, the way the menu is, so moving through it never flickers.
@@ -606,8 +606,13 @@ def readline(prompt=""):
 
     A mouse report is never part of a line: one reaches a keyboard's line when the menu gave
     the terminal over in the middle of a click (`Keyboard.give`), however late it comes.
+
+    While a `Keyboard` has the terminal there are no lines: the answer is typed into `field`,
+    a key at a time.
     """
     global _HALF_TYPED
+    if taken():
+        return field(prompt)
     keyboard = _own_stdin()
     if keyboard is None:
         half, _HALF_TYPED = _HALF_TYPED.decode("utf-8", "replace"), b""
@@ -653,7 +658,7 @@ def wait_line(timeout, wake=None):
             return False
         byte = os.read(keyboard, 1)
         if not byte:
-            return True            # end of input, which is how a script says `q`
+            return True            # end of input, which is how a script goes back
         _HALF_TYPED += byte
     return True
 
@@ -710,8 +715,11 @@ class Keyboard:
     the menu reads it a line at a time, as it always has.
     """
 
-    def __init__(self):
+    def __init__(self, screen=True):
         self.fd = self.out = self.saved = None
+        # With `screen` off only the keys are taken: what is on the screen stays, and so does
+        # the cursor, which `give` shows again after a `field` hid it.
+        self.sequences = (TAKE, GIVE) if screen else ("", "\033[?25h")
         self.kept = {}           # the signal handlers `take` stood in for, for `give` to put back
         self.again = None        # a pipe a resize or a return from ^Z writes to: draw again
         try:
@@ -740,7 +748,7 @@ class Keyboard:
         attrs[3] &= ~(termios.ICANON | termios.ECHO)
         attrs[6][termios.VMIN], attrs[6][termios.VTIME] = 1, 0
         termios.tcsetattr(self.fd, termios.TCSADRAIN, attrs)
-        self._send(TAKE)
+        self._send(self.sequences[0])
         return True
 
     def give(self):
@@ -754,7 +762,7 @@ class Keyboard:
         global _TAKEN, _PRESSED
         if _TAKEN is not self:
             return
-        self._send(GIVE)
+        self._send(self.sequences[1])
         termios.tcsetattr(self.fd, termios.TCSADRAIN, self.saved)
         _TAKEN, _PRESSED = None, False
         for number, handler in self.kept.items():
@@ -1002,8 +1010,49 @@ def clicks_its_own(read):
 
 
 @clicks_its_own
+def field(prompt, placeholder=""):
+    """One answer typed a key at a time on a taken keyboard: `readline`'s while the menu has it.
+
+    What was typed on Enter; ESC the moment Esc is pressed, which every question reads as going
+    back with nothing saved; None for a keyboard that is gone.  Backspace takes the last
+    character back, and a key that types nothing is let go.  `placeholder` is the answer Enter
+    takes with nothing typed, shown dim where the answer goes until a key replaces it.  An answer
+    wider than the screen shows its end, so the line is drawn over in place and never wraps.
+    """
+    text = ""
+    sys.stdout.write("\033[?25h")        # the cursor, where the answer goes
+    try:
+        while True:
+            room = max(1, width() - cells(prompt) - 1)
+            # clipped by cells, as a wide character that wraps is drawn over wrong, and found from
+            # the end through what fits alone, as a paste is long and every key draws it again
+            end, used = len(text), 0
+            while end and used + cells(text[end - 1]) <= room:
+                end -= 1
+                used += cells(text[end])
+            shown = "" if text else cut(placeholder, room)
+            sys.stdout.write(f"\r{prompt}{text[end:]}{styled(shown, 'dim')}\033[K"
+                             + (f"\033[{cells(shown)}D" if shown else ""))
+            sys.stdout.flush()
+            key = read_key()
+            if key is None:
+                continue                 # a resize: drawn again at the new width
+            if key.name == "enter":
+                return text
+            if key.name in ("esc", "eof"):
+                return ESC if key.name == "esc" else None
+            if key.name == "backspace":
+                text = text[:-1]
+            elif key.name in ("char", "space"):
+                text += key.char or " "
+    finally:
+        sys.stdout.write("\r\n\033[?25l")
+        sys.stdout.flush()
+
+
+@clicks_its_own
 def choose(choices, default=None, several=False, around=None, wait=None):
-    """One of `choices` picked with the keys, or with `several` a list of them; None on Esc or `q`.
+    """One of `choices` picked with the keys, or with `several` a list of them; None on Esc.
 
     The list is drawn where the cursor is and drawn over in place as the highlight moves.
     ↑/↓, k/j and the wheel move it; Enter picks the highlighted choice, or with `several` the
@@ -1052,7 +1101,7 @@ def choose(choices, default=None, several=False, around=None, wait=None):
             marked ^= {choices[at]}
         elif key.name == "enter" and choices:
             return [choice for choice in choices if choice in marked] if several else choices[at]
-        elif key.name in ("esc", "eof") or key.char in ("q", "Q"):
+        elif key.name in ("esc", "eof"):
             return None
 
 
@@ -1064,8 +1113,8 @@ def scroll(name, body, keyline="esc back"):
     draw, so a resize wraps them anew and the rows a click is read against are the drawn ones.
     It is written over in place, the way the main menu is, and when the body runs past the
     screen ↑/↓, k/j and the wheel scroll it, the key line saying so; the height is budgeted
-    the menu's way, so the key line is never the part that goes.  Esc, `q` and a click on the
-    key line's `esc` go back.  With no keyboard taken -- a pipe, a file -- it is `frame`, and
+    the menu's way, so the key line is never the part that goes.  Esc and a click on the key
+    line's `esc` go back.  With no keyboard taken -- a pipe, a file -- it is `frame`, and
     reads nothing.
     """
     if not taken():
@@ -1094,7 +1143,7 @@ def scroll(name, body, keyline="esc back"):
             for row, first, last, item in spans)
         if step(key):
             at += step(key)
-        elif key.name in ("esc", "eof") or key.char in ("q", "Q") or clicked:
+        elif key.name in ("esc", "eof") or clicked:
             return
 
 
@@ -1111,8 +1160,8 @@ def ask(question, default, choices, read=None, *, zero=None, allow=None, suffix=
 
     The choices read `<number> <name>` joined by ` · `, wrapped where the screen
     is narrow, and the answer is a number or a name. A prompt that does not fit
-    wraps the same way, on a space, so the terminal never breaks a name. `q`,
-    Esc and the end of input
+    wraps the same way, on a space, so the terminal never breaks a name. Esc
+    and the end of input
     go back (None); an empty Enter reads back as "" so the caller decides what it
     means -- back on a sub-screen, the default on a new-seat question. Anything
     else is one dim `not a choice: ...` line and the question again with its
@@ -1156,7 +1205,7 @@ def ask(question, default, choices, read=None, *, zero=None, allow=None, suffix=
         for line in shown[:-1]:
             print(line)
         answer = read(shown[-1])
-        if answer is None or answer.lower() == "q" or is_esc(answer):
+        if answer is None or is_esc(answer):
             return None
         if answer == "":
             return ""

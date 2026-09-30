@@ -414,7 +414,7 @@ class V5oMenu(Sandbox):
         self.assertTrue(set(lines[1]) <= set("─"))
         self.assertEqual(len(lines[1]), terminal.layout_width(100))
         self.assertIn("n new", lines[-1])
-        self.assertIn("q leave", lines[-1])
+        self.assertIn("esc leave", lines[-1])
         for phrase in menu.KEYS.split("   "):
             self.assertIn(phrase, screen)
         self.assertNotIn("8599bf1", screen)
@@ -553,7 +553,7 @@ class V5oMenu(Sandbox):
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(menu.draw(self.cfg, []), (0, 1))
-        answers = iter(["m", "k", "q"])
+        answers = iter(["m", "k", ""])
         with patch.object(menu.orch, "listing", return_value=[]), \
                 patch.object(menu.orch, "job_notices", return_value=[]), \
                 patch.object(menu, "read", side_effect=lambda *_: next(answers)), \

@@ -85,7 +85,7 @@ SHIPPED = tomllib.loads((REPO / "config.default.toml").read_text())
 MATRIX, ADD, REMOVE = ("agentkit · config", "agentkit · config · add a provider",
                        "agentkit · config · remove a provider")
 KEYS = {"row": "  ↑↓←→ move   ⏎ open   esc back", "add": "  ↑↓ move   ⏎ add   esc back",
-        "choose": "  ↑↓ move   ⏎ choose   esc back", "ask": "  esc keep"}
+        "choose": "  ↑↓ move   ⏎ choose   esc back", "ask": "  esc back"}
 GIVE, TAKE = "\x1b[?1049l", "\x1b[?1049h"
 
 
@@ -274,7 +274,7 @@ class ProviderScreen(unittest.TestCase):
                 mock.patch.object(menu, "draw", return_value=(0, 1)), \
                 mock.patch.object(menu.orch, "listing", return_value=[]), \
                 mock.patch.object(menu.orch, "job_notices", return_value=[]), \
-                mock.patch.object(menu, "wait_key", side_effect=["c", "q"]), \
+                mock.patch.object(menu, "wait_key", side_effect=["c", ""]), \
                 mock.patch.object(menu, "read", return_value=""), \
                 mock.patch.object(menu, "show_config", return_value=left):
             self.assertEqual(menu.loop(before, dry_run=True), 0)

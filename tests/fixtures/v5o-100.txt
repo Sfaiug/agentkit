@@ -22,4 +22,4 @@ atoll
   1  atoll-job    fable  ● working    tasks ███░░░░░ 3/7
   2  atoll-solo   fable  ● working
 
-  n new   x stop   c config   i info   q leave
+  n new   x stop   c config   i info   esc leave
