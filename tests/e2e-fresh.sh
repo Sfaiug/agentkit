@@ -797,7 +797,7 @@ send x
 expect 60 Keep
 send j
 send \n
-expect 60 no sessions; n starts one
+expect 60 stopped atoll
 send q
 EXP
   drive menu3 xterm-256color ak
