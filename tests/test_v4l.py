@@ -247,7 +247,7 @@ class Babysitter(unittest.TestCase):
 
     def test_attach_during_meter_read_prevents_nudge_and_restored_stall(self):
         self.harness, self.provider = "codex", "openai"
-        self.tail = "usage limit reached\nGoal stalled"
+        self.tail = "■ usage limit reached\nGoal stalled"
         self.tick()
         watch.save_state(self.data)
         self.reset.side_effect = lambda *_: orch.seen_by_user("seat")
@@ -401,7 +401,7 @@ class Babysitter(unittest.TestCase):
     def test_long_quota_window_bypasses_hour_cutoff_and_resumes_once(self):
         for harness, provider, tail in (("muse", "meta", "429 quota exhausted"),
                                         ("claude", "anthropic", "rate limit reached"),
-                                        ("codex", "openai", "usage limit\nGoal stalled")):
+                                        ("codex", "openai", "■ usage limit\nGoal stalled")):
             with self.subTest(harness=harness):
                 self.data = watch.load_state()
                 self.harness, self.provider, self.tail = harness, provider, tail
@@ -465,7 +465,7 @@ class Babysitter(unittest.TestCase):
 
     def test_quota_policy_precedes_goal_resume_in_either_order(self):
         self.harness, self.provider = "codex", "openai"
-        for tail in ("usage limit reached\nGoal stalled", "Goal stalled\nrate limit reached"):
+        for tail in ("■ usage limit reached\nGoal stalled", "Goal stalled\nrate limit reached"):
             self.data = watch.load_state()
             self.tail = tail
             order = []
@@ -489,7 +489,7 @@ class Babysitter(unittest.TestCase):
 
     def test_dry_run_never_writes_or_calls_policy(self):
         self.harness, self.provider = "codex", "openai"
-        self.tail = "usage limit reached\nGoal stalled"
+        self.tail = "■ usage limit reached\nGoal stalled"
         self.tick(dry=True)
         self.tick(180, dry=True)
         self.assertTrue(any("would resume seat" in line for line in self.logs))

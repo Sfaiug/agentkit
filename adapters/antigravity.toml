@@ -113,6 +113,9 @@ refusals = ["RESOURCE_EXHAUSTED", "exhausted your quota", "Quota exhausted", "(c
   "(code 500)", "(code 502)", "(code 503)", "(code 504)", "Internal server error",
   "overloaded", "at capacity"]
 quotas = ["RESOURCE_EXHAUSTED", "exhausted your quota", "Quota exhausted", "(code 429)"]
+# `error_marks` begin the `⚠ <message>` line an `Error ID:` closes on a seat's screen, which is
+# read with it; a line above drawn any other way is not agy's.
+error_marks = ["⚠ "]
 # `outages` say the provider is down, and the turn is waited out even beside one of the
 # `faults`, which say the harness never ran it and hand it to another at once.  A worker turn
 # reads these, `refusals` and `quotas` only as whole words, in what the harness itself said,

@@ -1156,12 +1156,16 @@ def failed_on(harness, lines):
     """What a seat's error line says, read as a worker turn's failure is: (outcome, word).
 
     The last line is the error line.  One that names no failure of its own -- `Goal stalled`,
-    `Error ID: ...` -- is a trailer, read with the line it closes; nothing above is read, so a
-    word in the model's answer is never the provider's.
+    `Error ID: ...` -- is read with the line above it only where the harness drew that line as
+    its own error (`[stall] error_marks`); nothing else above is read, so a word in the model's
+    answer is never the provider's.
     """
     plugin = orch.harness_plugin(harness)
     found = plugin.failure(lines[-1]) if lines else (None, None)
-    return plugin.failure("\n".join(lines[-2:])) if found[0] is None and len(lines) > 1 else found
+    if found[0] is None and len(lines) > 1 and lines[-2].startswith(
+            _words(harness, "stall", "error_marks")):
+        return plugin.failure("\n".join(lines[-2:]))
+    return found
 
 
 def stalled_on(harness, tail, session, log):

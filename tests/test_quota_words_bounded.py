@@ -253,10 +253,16 @@ class SeatWordsBounded(unittest.TestCase):
         for harness, provider, pane in (
                 ("claude", "anthropic", f"● {answer}\n⎿ API Error: 500 Internal server error"),
                 ("codex", "openai", f"• {answer}\n■ Selected model is at capacity. "
-                                    "Please try a different model.")):
-            with self.subTest(harness=harness):
+                                    "Please try a different model."),
+                # an error line naming no failure of its own reads no answer above it either
+                ("opencode", "mimo", "Documented quota exhausted.\nError: connection closed"),
+                ("codex", "openai", "Documented quota exhausted.\nGoal stalled"),
+                ("antigravity", "google", "Documented quota exhausted.\nError ID: 4b2d-1")):
+            with self.subTest(harness=harness, pane=pane):
                 self.harness, self.provider, self.pane = harness, provider, pane
                 self.typed.clear()
+                self.reset.reset_mock()
+                self.window.reset_mock()
                 state = watch.load_state()
                 self.tick(state)
                 self.tick(state, watch.STALL_WAIT)
@@ -266,15 +272,21 @@ class SeatWordsBounded(unittest.TestCase):
                 self.assertNotIn("status", state["stalls"]["fix-api"])
                 self.assertEqual(self.typed, [watch.keystroke(harness, pane)])
                 self.assertEqual(self.marked, [])
-        # while the same words said by the harness on its own error line still wait on the window
-        self.pane, self.typed = "■ You've hit your usage limit.\nGoal stalled", []
-        self.reset.reset_mock()
-        state = watch.load_state()
-        self.tick(state)
-        self.tick(state, watch.STALL_WAIT)
-        self.reset.assert_called_once()
-        self.assertEqual(self.typed, [])
-        self.assertTrue(state["stalls"]["fix-api"]["status"].startswith("waiting until "))
+        # while the same words on the error line the harness drew still wait on the window
+        for harness, provider, pane in (
+                ("codex", "openai", "■ You've hit your usage limit.\nGoal stalled"),
+                ("antigravity", "google", "⚠ You have exhausted your quota on this model.\n"
+                                          "Error ID: 4b2d-1")):
+            with self.subTest(harness=harness, pane=pane):
+                self.harness, self.provider, self.pane, self.typed = harness, provider, pane, []
+                self.reset.reset_mock()
+                self.window.reset_mock()
+                state = watch.load_state()
+                self.tick(state)
+                self.tick(state, watch.STALL_WAIT)
+                self.window.assert_called_once()
+                self.assertEqual(self.typed, [])
+                self.assertTrue(state["stalls"]["fix-api"]["status"].startswith("waiting until "))
 
     def seat_account(self, harness, model, provider, pane):
         """One pass of the account policy over that seat, which runs on its only login."""
