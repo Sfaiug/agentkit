@@ -52,10 +52,16 @@ def open_lock(path):
 
 
 def probe(seconds, lock):
-    """`tests/smoke.sh --lock-probe <seconds>` on `lock`, bounded well past its own wait."""
+    """`tests/smoke.sh --lock-probe <seconds>` on `lock`, bounded well past its own wait.
+
+    The caller's config beside `lock` pins one heavy suite, so the pool is that one target.
+    """
+    home = Path(lock).parent / "home"
+    (home / ".agentkit").mkdir(parents=True, exist_ok=True)
+    (home / ".agentkit/config.toml").write_text("max_gates = 1\n")
     return subprocess.run(["bash", str(SMOKE), "--lock-probe", str(seconds)],
                           capture_output=True, text=True, timeout=seconds + 120,
-                          env={**os.environ, "AK_SMOKE_LOCK": lock})
+                          env={**os.environ, "AK_SMOKE_LOCK": lock, "HOME": str(home)})
 
 
 def lock_program(script):
@@ -64,14 +70,15 @@ def lock_program(script):
 
 
 def lock_argv(script, path, seconds):
-    """Both copies take the same file and wait; only smoke.sh's has a probe mode.
+    """Both copies take the same file and wait; only smoke.sh's has a probe mode, and a pool
+    of targets whose bound here is the one file.
 
     A parent of -1 is no live process, so e2e's copy -- which only ever holds -- falls straight
     out of its `while os.getppid() == parent` watch once it has reported, instead of standing
     there until this test does.
     """
     if script == SMOKE:
-        return [str(path), str(seconds), "probe", "-1"]
+        return [str(path), str(seconds), "probe", "-1", "1"]
     return [str(path), str(seconds), "-1"]
 
 
