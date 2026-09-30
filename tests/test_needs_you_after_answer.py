@@ -57,12 +57,12 @@ class NeedsYouAfterAnswer(unittest.TestCase):
                 "word": "needs you", "reason": reason, "since": 100}):
             self.assertEqual(notify.transition(SEAT, now=now, seat={"name": SEAT}), 0)
 
-    def ask(self, at, question, since=100):
+    def ask(self, at, question, since=100, event_id=None):
         """`ak notify needs` at `at`, with the seat's screen in `needs you` since `since`."""
         with patch.object(notify.time, "time", return_value=at), \
                 patch.object(watch, "_session_state", return_value={
                     "word": "needs you", "reason": question, "since": since}):
-            self.assertEqual(notify.shaped("needs", question, session=SEAT), 0)
+            self.assertEqual(notify.shaped("needs", question, session=SEAT, event_id=event_id), 0)
 
     def back_in_needs_you(self, reason):
         notify.record(SEAT, "needs", QUESTION, time=100)
@@ -129,6 +129,17 @@ class NeedsYouAfterAnswer(unittest.TestCase):
             for now in (300, 400, 500, 600):
                 self.tick(now, "Which port?")
         self.assertEqual(self.cards, [f"Needs you · {SEAT}: Which port?"])
+
+    def test_a_watcher_notice_after_an_upgrade_is_still_history(self):
+        notify.record(SEAT, "needs", QUESTION, time=100)
+        self.tick(100, QUESTION)
+        notify.answered(SEAT, 120)
+        # The watcher records a login that expired before this agentkit was installed at 150.
+        with patch.object(notify, "installed_at", return_value=150):
+            self.ask(220, "Login expired", event_id=f"auth:{SEAT}:claude:130")
+            for now in (300, 400, 500, 600):
+                self.tick(now, "Login expired")
+        self.assertEqual(self.cards, [])
 
     def test_a_late_card_for_a_retired_question_reads_answered(self):
         notify.record(SEAT, "needs", QUESTION, time=100)
