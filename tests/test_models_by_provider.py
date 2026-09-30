@@ -43,15 +43,16 @@ class ModelsByProvider(unittest.TestCase):
     def test_the_config_screen_lists_the_same_order(self):
         self.assertEqual(menu.config_models(cfg()), ORDER)
 
-    def test_the_new_session_and_models_screens_list_the_same_order(self):
+    def test_the_new_session_and_config_screens_list_the_same_order(self):
         config_ = cfg()
-        notes = {name: "" for name in config.offered(config_)}   # as both screens build them
+        notes = {name: "" for name in config.offered(config_)}   # as `n` builds them
         selected = {"orchestrator": "fable", "workers": ["fable"], "reviewers": ["astra"]}
         lines = orch.picker_lines(config_, notes, selected, "fable", 0, 40)[0]
-        body = menu.session_models_body(config_, selected, notes, "fable", 0)[0]
-        for drawn in (lines, body):
+        body = menu.config_body(config_, "fixture", ("model", "fable"), 0, selected)[0]
+        row = lambda cfg, name: f"{name} {cfg['models'][name]['harness']} "   # label, harness
+        for drawn, label in ((lines, orch.model_title), (body, row)):
             text = "\n".join(terminal.plain(line) for line in drawn)
-            places = [text.find(orch.model_title(config_, name)) for name in ORDER]
+            places = [text.find(label(config_, name)) for name in ORDER]
             self.assertTrue(all(place >= 0 for place in places), text)
             self.assertEqual(places, sorted(places), text)
 
