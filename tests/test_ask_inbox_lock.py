@@ -78,7 +78,7 @@ class AskInboxLock(unittest.TestCase):
         stack.enter_context(patch.object(orch, "ensure", return_value=False))
         stack.enter_context(patch.object(orch, "find", return_value={"name": "inbox"}))
         stack.enter_context(patch.object(watch, "seat_model", return_value=("claude", "anthropic")))
-        stack.enter_context(patch.object(notify, "shaped", return_value=0))
+        self.pinged = stack.enter_context(patch.object(notify, "shaped", return_value=0))
 
     def tmux(self, *args, socket=None, client=False):
         if args[0] == "send-keys":
@@ -130,9 +130,10 @@ class AskInboxLock(unittest.TestCase):
             with self.subTest(kind=kind), patch.object(watch.time, "sleep"):
                 del self.sent[:], self.logs[:]
                 self.pane = pane
-                self.assertEqual(self.ask(), 0)
+                self.assertNotEqual(self.ask(), 0)
                 self.assertEqual(self.sent, [])
                 self.assertIn("WARN could not type the question into the inbox seat", self.logs)
+                self.pinged.assert_not_called()     # nor is the user asked what the seat was not
 
     def test_an_empty_composer_takes_it_under_a_status_line_or_a_queued_message(self):
         for kind, pane in EMPTY.items():
@@ -157,7 +158,7 @@ class AskInboxLock(unittest.TestCase):
     def test_an_owner_question_stops_it_and_an_earlier_merge_question_does_not(self):
         with patch.object(watch.time, "sleep"):
             notify.record("inbox", "needs", "Which branch should I use?")
-            self.assertEqual(self.ask(), 0)
+            self.assertNotEqual(self.ask(), 0)
             self.assertEqual(self.sent, [])
             notify.record("inbox", "needs", "PR #8 by bob: Fix the cli. Merge? yes/no",
                           source=f"inbox:{PR[:-1]}8:{SHA}")

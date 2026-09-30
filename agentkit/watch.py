@@ -74,16 +74,20 @@ def inbox():
     return os.environ.get("AGENTKIT_INBOX_SESSION") or "inbox"
 
 
-def ask_inbox(cfg, question, url, sha, log):
-    """Put the question to the inbox seat, and to the user.
+def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
+    """Put the question to the inbox seat, and then to the user.  0 once both have it.
 
     The merge the seat is told to run is pinned to the commit that was reviewed: gh refuses
     `--match-head-commit` when the author has pushed since, so a yes can never merge code the
-    reviewer never saw.
+    reviewer never saw.  The user is pinged only after the seat took the question: their yes
+    goes to a seat that knows what it is for.  `typed` is told when it did, and `asked` says
+    an earlier try's did, so a retry of a failed ping never types the question twice.
     """
     # the seat by the name it goes by now: renamed once, `inbox` is a pointer at it, and the
     # question, the keys and the ping all have to land on the seat and not on the old name
     name = config.resolve_session(inbox())
+    if asked:
+        return notify.shaped("needs", question, session=name, event_id=f"inbox:{url}:{sha}")
     if orch.ensure(cfg, name, log):
         time.sleep(INBOX_WARMUP)     # the TUI has to be listening before it is typed into
     line = (f"{question} -- {url} at {sha[:12]}, reviewed by agentkit. The user was pinged with "
@@ -116,12 +120,13 @@ def ask_inbox(cfg, question, url, sha, log):
         return (_decided_state(held, harness, pane) in ("draft", "asking")
                 or bool(composer_draft(harness, pane)))
 
-    if type_checked(session, line, log, harness,
-                    guard=lambda: notify.session_lock(name), veto=veto):
-        log(f"asked the {name} seat: {question}")
-    else:
+    if not type_checked(session, line, log, harness,
+                        guard=lambda: notify.session_lock(name), veto=veto):
         log(f"WARN could not type the question into the {name} seat")
-    return notify.shaped("needs", question, session=name, event_id=f"inbox:{url}:{sha}")
+        return 1
+    log(f"asked the {name} seat: {question}")
+    typed()
+    return ask_inbox(cfg, question, url, sha, log, asked=True)
 
 
 # --- the tick ---------------------------------------------------------------
@@ -5508,10 +5513,16 @@ def main(argv):
                             # which path it is, so a seat that died since gets the orphan one.
                             if run.owes_ending(receipt):
                                 run.announce(receipt, run_dir, log)
+                            # A question the seat never took is typed again before the user
+                            # hears it; one it took whose ping failed is only pinged, and so is
+                            # one kept before `asked` was, whose typing nobody knows the end of.
                             question = receipt.get("pending_inbox")
-                            if question and notify.shaped("needs", question["question"],
-                                    session=config.resolve_session(inbox()),
-                                    event_id=f"inbox:{question['url']}:{question['sha']}") == 0:
+                            if question and ask_inbox(
+                                    config.load(), question["question"], question["url"],
+                                    question["sha"], log, asked=question.get("asked", True),
+                                    typed=lambda: run.mark_delivery(
+                                        run_dir, receipt, pending_inbox={**question, "asked": True})
+                                    ) == 0:
                                 # struck off the record as it stands, never off this copy of
                                 # it: the run's own loop can have handed the ending back while
                                 # the question was going out, and a whole save from here would

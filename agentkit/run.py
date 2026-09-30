@@ -13821,11 +13821,13 @@ def review_pr(cfg, run_dir, url, opts, log):
                 merge_own_pr(lp, url, head)
             else:
                 question = f"PR #{number} by {info['author']}: {info['title']}. Merge? yes/no"
-                if watch.ask_inbox(cfg, question, url, head, log) == 0:
+                pending = {"question": question, "url": url, "sha": head, "asked": False}
+                if watch.ask_inbox(cfg, question, url, head, log,
+                                   typed=lambda: pending.update(asked=True)) == 0:
                     state["merge_note"] = f"offered to the {watch.inbox()} session at {head[:12]}"
                 else:
-                    state["merge_note"] = "merge question notification requires retry"
-                    state["pending_inbox"] = {"question": question, "url": url, "sha": head}
+                    state["merge_note"] = "merge question requires retry"
+                    state["pending_inbox"] = pending
         else:
             if green:
                 why = "the PR head changed, closed, or could not be verified after the checks"
