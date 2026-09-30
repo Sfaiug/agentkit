@@ -24,7 +24,7 @@ class OneAgentkitCheckout(Sandbox):
         self.stack.enter_context(patch.dict(os.environ, {config.SESSION_ENV: "fix-api"}))
         config.save_session(self.cfg, "fix-api", "fable", ["opus"],
                             {"cwd": str(config.CODE), "repo": None})
-        self.own = self.clone(Path.home() / "agentkit", "https://github.com/Sfaiug/agentkit.git")
+        self.own = self.clone(Path.home() / "agentkit", "https://github.com/someone/agentkit.git")
         self.acme = self.clone(config.CODE / "acme", "git@github.com:someone/acme.git")
 
     def clone(self, path, origin):
@@ -35,15 +35,15 @@ class OneAgentkitCheckout(Sandbox):
 
     def test_review_finds_agentkits_own_checkout_and_clones_nothing(self):
         with patch.object(run, "gh", side_effect=AssertionError("cloned")):
-            self.assertEqual(run.checkout_for("Sfaiug/agentkit", print), self.own)
+            self.assertEqual(run.checkout_for("someone/agentkit", print), self.own)
             self.assertEqual(run.checkout_for("someone/acme", print), self.acme)
         self.assertFalse((config.CODE / "agentkit").exists())
 
     def test_a_second_clone_under_code_is_agentkits_own(self):
-        clone = self.clone(config.CODE / "agentkit", "https://github.com/Sfaiug/agentkit.git")
+        clone = self.clone(config.CODE / "agentkit", "https://github.com/someone/agentkit.git")
         (clone / "agentkit").mkdir()
         self.assertEqual([path for path in orch.checkouts() if path.name == "agentkit"], [self.own])
-        self.assertEqual(run.checkout_for("Sfaiug/agentkit", print), self.own)
+        self.assertEqual(run.checkout_for("someone/agentkit", print), self.own)
         for value in ("agentkit", str(clone)):
             with self.subTest(checkout=value), redirect_stdout(io.StringIO()):
                 self.assertEqual(orch.main(["project", value]), 0)
