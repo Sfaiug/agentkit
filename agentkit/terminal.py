@@ -5,6 +5,7 @@ import re
 import select
 import shutil
 import signal
+import subprocess
 import sys
 import termios
 import threading
@@ -15,7 +16,8 @@ from functools import lru_cache, wraps
 
 
 # glyph, ASCII glyph, Mocha RGB, eight-colour tone, emphasis. Words remain the contract
-# with the classifier; every presentation (including tmux formats) comes from this table.
+# with the classifier; every presentation (including tmux formats) comes from this table,
+# and its RGB is the palette on a dark background, the one ak takes when it cannot tell.
 # The three words a session reads, and the two presentation-only kinds the screens ask for
 # by name: `dim` for a note beside a row, `FAIL` for a verdict, which is no session state.
 STATE_STYLES = {
@@ -28,6 +30,13 @@ STATE_STYLES = {
     # for instead of a word, and the open circle is what says nobody has to act on it.
     "waiting": ("○", "o", "6c7086", "37", "2"),
 }
+# The same words on a light background (`sense`): Catppuccin Latte, its yellow and green
+# darkened until every one reads on white; the accent and the highlight's `›` are `working`'s.
+LIGHT = {"needs you": "9c6314", "working": "1e66f5", "done": "338022", "FAIL": "d20f39",
+         "dim": "6c6f85", "waiting": "6c6f85"}
+_RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
+_LIGHT = False     # its background is light (`sense`)
+_ANSWER = re.compile(rb"\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\)")   # its answer to OSC 11
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
@@ -64,7 +73,7 @@ def colour_depth():
     term = os.environ.get("TERM", "")
     if not sys.stdout.isatty() or not term or term == "dumb" or "NO_COLOR" in os.environ:
         return 0
-    if os.environ.get("COLORTERM", "").lower() in ("truecolor", "24bit"):
+    if os.environ.get("COLORTERM", "").lower() in ("truecolor", "24bit") or _RGB:
         return 24
     try:
         import curses
@@ -242,6 +251,7 @@ def styled(text, kind):
         # takes the nearest the terminal has, as a state's colour does
         _, _, rgb, tone, emphasis = (("", "", kind[1:], basic_colour(kind[1:]), "")
                                      if kind.startswith("#") else STATE_STYLES[word])
+        rgb = LIGHT.get(word, rgb) if _LIGHT else rgb
         code = ("38;2;" + ";".join(str(int(rgb[i:i + 2], 16)) for i in (0, 2, 4))
                 if depth == 24 else f"38;5;{xterm_colour(rgb)}" if depth == 256 else tone)
         if kind == "dim" and depth == 8:
@@ -555,7 +565,7 @@ class Key(namedtuple("Key", "name char col row", defaults=("", 0, 0))):
 TAKE = "\033[?1049h\033[?25l\033[?1000h\033[?1006h"
 GIVE = "\033[?1006l\033[?1000l\033[?25h\033[?1049l"
 _TAKEN = None      # the Keyboard that has the terminal now, or None
-_KEYED = b""       # what a keyboard sent past the key it was read for: a byte at most
+_KEYED = b""       # what a keyboard sent past the key it was read for, or while `sense` asked
 _PRESSED = False   # the left button went down and has not been read coming up
 _REPORT = re.compile(r"\x1b\[<\d+;\d+;\d+[Mm]")   # a mouse report, as mode 1006 sends one
 
@@ -674,6 +684,45 @@ class Keyboard:
             pass
 
 
+def sense():
+    """What the terminal is, asked once per menu start on a keyboard `Keyboard.take` has taken.
+
+    True colour where COLORTERM does not say so: inside tmux, when its client has the `RGB`
+    (or `Tc`) feature -- tmux and ssh both drop COLORTERM on the way in.  And whether the
+    background is light, from the terminal's answer to OSC 11 within a tenth of a second; no
+    answer by then is a dark one.  The answer is read here and never as a key: anything typed
+    while it was awaited is kept for `read_key`, and one that comes later is `_sequence`'s.
+    """
+    global _RGB, _LIGHT, _KEYED
+    features = ""
+    if os.environ.get("TMUX"):
+        try:
+            features = subprocess.run(["tmux", "display", "-p", "#{client_termfeatures}"],
+                                      stdin=subprocess.DEVNULL, capture_output=True,
+                                      text=True, timeout=1).stdout
+        except (OSError, subprocess.SubprocessError):
+            pass
+    _RGB = bool({"RGB", "Tc"} & set(features.strip().split(",")))
+    fd = sys.stdin.fileno()
+    os.write(sys.stdout.fileno(), b"\033]11;?\033\\")
+    heard, until = b"", time.monotonic() + 0.1
+    while not _ANSWER.search(heard):
+        left = until - time.monotonic()
+        if left <= 0 or not select.select([fd], [], [], left)[0]:
+            break
+        byte = os.read(fd, 1)
+        if not byte:
+            break
+        heard += byte
+    found = _ANSWER.search(heard)
+    _KEYED = (heard[:found.start()] + heard[found.end():] if found else heard) + _KEYED
+    colour = re.match(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)",
+                      found.group(1)) if found else None
+    red, green, blue = ([int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
+                        if colour else (0, 0, 0))
+    _LIGHT = 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5   # its luma, past half way
+
+
 def _byte(fd, wait=None):
     """The next byte the keyboard sent: one already read, else one sent within `wait` seconds."""
     global _KEYED
@@ -717,6 +766,8 @@ def read_key(timeout=None, wake=None):
         if key is None:            # the button went down: the click is when it comes up
             _PRESSED = True
             continue
+        if key.name == "answer":   # the terminal's, to `sense`, and no key at all
+            continue
         if key.name == "click":    # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
         return key
@@ -746,9 +797,18 @@ def _key(fd):
 
 
 def _sequence(fd):
-    """What an Esc starts: Esc itself, an arrow, a click, the wheel, or `other`."""
+    """What an Esc starts: Esc itself, an arrow, a click, the wheel, `other`, or the answer a
+    terminal gave `sense` too late for it to read."""
     global _KEYED
     kind = _byte(fd, 0.05)
+    if kind == b"]":               # read to its end, BEL or ST, so none of it is a key
+        body = b""
+        while not body.endswith((b"\x07", b"\x1b\\")):
+            byte = _byte(fd, 0.05)
+            if not byte:
+                break
+            body += byte
+        return Key("answer")
     if kind not in (b"[", b"O"):
         _KEYED = kind + _KEYED     # the next key's own byte, typed right after the Esc
         return Key("esc")

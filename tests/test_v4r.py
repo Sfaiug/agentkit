@@ -155,9 +155,9 @@ class UsageLeft(Sandbox):
                 patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
                 patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
             lines = menu.usage_lines(self.cfg, 100)
-            # each company's own colour, the nearest of eight here, and the empty cells dim
-            self.assertIn("\033[31m███\033[0m\033[2m░░░░░░░░░\033[0m", lines[1])
-            self.assertIn("\033[37m████████\033[0m\033[2m░░░░\033[0m", lines[5])
+            # the accent for 21% and 69% left, the nearest of eight here, and the empty cells dim
+            self.assertIn("\033[36m███\033[0m\033[2m░░░░░░░░░\033[0m", lines[1])
+            self.assertIn("\033[36m████████\033[0m\033[2m░░░░\033[0m", lines[5])
             self.assertIn("  \033[2m░░░░░░░░░░░░\033[0m  ", lines[3])
             plain = [terminal.plain(line) for line in lines]
             for env in ({"TERM": "dumb"}, {"TERM": "xterm-256color", "NO_COLOR": ""}, {}):
