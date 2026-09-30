@@ -104,6 +104,14 @@ def basic_colour(rgb):
     return str(30 + sum(1 << i for i in range(3) if int(rgb[2 * i:2 * i + 2], 16) >= 128))
 
 
+def faded(word, amount):
+    """`word`'s colour `amount` (0 to 1) of the way to the background, as `#RRGGBB` for `styled`."""
+    rgb = LIGHT.get(word, STATE_STYLES[word][2]) if _LIGHT else STATE_STYLES[word][2]
+    back = 255 if _LIGHT else 0
+    return "#" + "".join(f"{round(int(rgb[i:i + 2], 16) * (1 - amount) + back * amount):02x}"
+                         for i in (0, 2, 4))
+
+
 def tmux_state(option, colour=False):
     """A dynamic label for a plain-word tmux option; tmux adapts RGB to its client."""
     result = f"#{{{option}}}"
