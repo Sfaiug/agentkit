@@ -2,7 +2,7 @@
 
 `Ctrl-b m`'s popup has a rounded border in the dim colour with ` agentkit ` set into its top edge
 and, but on a phone, a column and a row of padding inside it, a line typed into it included; the
-pane behind it draws its text dim while it is up and has exactly its own style back once the last
+pane behind it draws its text dim while it is up and has exactly its own styles back once the last
 popup over it is down, however it comes down -- its menu ending, a crash, a kill, which is what
 its client going does to it too; and its content fades in on the motion clock, a key pressed
 meanwhile answered at once.
@@ -39,6 +39,9 @@ from agentkit import config, motion, orch, terminal
 
 DIM = f"fg=#{terminal.STATE_STYLES['dim'][2]}"
 OWN = "fg=red,bg=blue,bold"         # a style a pane may have of its own
+STYLES = ("window-style", "window-active-style")   # the active pane draws in the second's colour
+# a pane's own styles: none, one or the other, both empty
+OWNS = ({}, {"window-style": OWN}, {"window-active-style": OWN}, dict.fromkeys(STYLES, ""))
 
 # tmux as far as this test asks it: `-V`; `set`/`show` on the one pane's options; `wait-for`'s
 # locks; and `display-popup`, logged, its command run and waited for.  With no pane it answers
@@ -102,15 +105,16 @@ for command, *given in listed:
         sys.exit(1)
 """
 
-# The popup's command: says what style the pane under it has, what it was handed and who it is,
+# The popup's command: says what styles the pane under it has, what it was handed and who it is,
 # then ends the way STANDIN_END says -- or waits to be killed.
 STANDIN = r"""
 import json, os, subprocess, sys, time
-style = subprocess.run(["tmux", "show-options", "-pv", "window-style"],
-                       capture_output=True, text=True).stdout.strip()
+styles = {name: subprocess.run(["tmux", "show-options", "-pv", name],
+                               capture_output=True, text=True).stdout.strip()
+          for name in ("window-style", "window-active-style")}
 saw = os.environ["STANDIN_SAW"]
 with open(saw + ".part", "w") as out:
-    json.dump({"style": style, "padding": os.environ.get("AGENTKIT_PADDING"), "pid": os.getpid()},
+    json.dump({"styles": styles, "padding": os.environ.get("AGENTKIT_PADDING"), "pid": os.getpid()},
               out)
 os.replace(saw + ".part", saw)
 end = os.environ["STANDIN_END"]
@@ -284,26 +288,27 @@ class TheBinding(unittest.TestCase):
 class ThePaneBehind(unittest.TestCase):
     def test_opening_dims_it_and_closing_puts_its_own_style_back_however_the_popup_goes(self):
         tmux = FakeTmux(self)
-        for own in ({}, {"window-style": OWN}, {"window-style": ""}):   # none, its own, empty
+        for own in OWNS:
             tmux.pane.write_text(json.dumps(own))
             for small in (False, True):
                 for end in ("exit", "crash", "kill"):
                     with self.subTest(own=own, small=small, end=end):
                         seen = tmux.press(small, end)
-                        self.assertEqual(seen["style"], DIM)
+                        self.assertEqual(seen["styles"], dict.fromkeys(STYLES, DIM))
                         self.assertEqual(seen["padding"], None if small else "1")
                         self.assertEqual(tmux.options(), own)   # exactly: nothing more, nothing less
 
     def test_it_stays_dim_until_the_last_popup_over_it_is_down_however_they_race(self):
         tmux = FakeTmux(self)
-        for own in ({}, {"window-style": OWN}, {"window-style": ""}):
+        for own in OWNS:
             tmux.pane.write_text(json.dumps(own))
             with self.subTest(own=own, race="opened in the same instant"):
                 started = [tmux.start(end="kill"), tmux.start(small=True, end="kill")]
                 first, second = ((job, tmux.seen(saw)) for job, saw in started)
-                self.assertEqual(second[1]["style"], DIM)
+                self.assertEqual(second[1]["styles"], dict.fromkeys(STYLES, DIM))
                 tmux.down(*first, end="kill")
-                self.assertEqual(tmux.options()["window-style"], DIM)   # the second is still up
+                for name in STYLES:                             # the second is still up
+                    self.assertEqual(tmux.options()[name], DIM)
                 tmux.down(*second, end="kill")
                 self.assertEqual(tmux.options(), own)
             with self.subTest(own=own, race="closed in the same instant"):
