@@ -54,6 +54,7 @@ WORK=$(mktemp -d /tmp/ak-e2e-XXXXXX) || exit 2
 UH="$WORK/home"
 mkdir -p -- "$UH"
 SMOKE_REPO=""
+BORROWED=""   # every login and secret step c puts in the new HOME, for cleanup_logs to leave out
 # Step f's run is nobody's worker and nobody's seat either: a session that executes tasks
 # exports AK_RUN_ROLE=worker, and it may export AGENTKIT_SESSION, which would record this
 # gate's throwaway run against the owner's live seat.
@@ -237,10 +238,11 @@ sync_back() {
 cleanup_logs() {   # cleanup_logs <gate exit>: one archive of the latest failure, no tmp growth
   local rc=$1 archive staging=""
   if [ "$rc" != 0 ]; then
-    # Never retain the borrowed token or phone private key with the evidence.
+    # Never retain the borrowed token, logins, secrets or phone private key with the evidence;
+    # sync_back has already returned any login a harness renewed here.
     archive="$INVHOME/.agentkit/tmp/e2e-fresh-failure.tar.gz"
     if rm -f -- "$WORK/phone" "$WORK/phone.pub" "$WORK/ghenv" "$WORK/source.bundle" \
-         "$UH/.ak-e2e-env" &&
+         "$UH/.ak-e2e-env" $BORROWED &&
        mkdir -p -- "$(dirname -- "$archive")" &&
        staging=$(mktemp "$archive.XXXXXX") &&
        tar -czf "$staging" -C "$WORK" . &&
@@ -387,12 +389,13 @@ if true; then       # always: every step below needs the HOME to be logged in
   }
   lend() {   # lend <harness> <caller's file> <file under the new HOME>: 1 when absent
     there "$2" || return
-    LENT="$LENT$1 "
+    LENT="$LENT$1 " BORROWED="$BORROWED $UH/$3"
     install -d -m 0700 "$(dirname -- "$UH/$3")" && ln -s -- "$2" "$UH/$3" ||
       bad="$bad; $2 could not be linked into the new HOME"
   }
   copyin() {   # copyin <caller's file> <file under the new HOME>: 1 when absent
     there "$1" || return
+    BORROWED="$BORROWED $UH/$2"
     install -d -m 0700 "$(dirname -- "$UH/$2")" && install -m 0600 -- "$1" "$UH/$2" ||
       bad="$bad; $1 could not be copied into the new HOME"
   }
