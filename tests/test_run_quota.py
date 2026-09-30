@@ -166,7 +166,7 @@ class Quota(unittest.TestCase):
                 redirect_stderr(io.StringIO()):
             self.assertIsNone(run.handover_executor(state, self.cfg, "dry"))
         self.assertEqual(state["executor"], "opus")
-        self.assertIn("no other provider", state["executor_history"][0]["reason"])
+        self.assertNotIn("executor_history", state)
 
     def receipt(self, name, scratch=True):
         run_dir = config.RUNS / name
