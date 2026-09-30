@@ -48,6 +48,8 @@ class Sandbox(unittest.TestCase):
             "HOME": str(self.root), "NO_COLOR": "1", "LANG": "C.UTF-8",
             config.SESSION_ENV: SEAT, config.RUN_DIR_ENV: "", config.UNATTENDED_ENV: "",
             "AK_RUN_ROLE": "", "AK_RUN_LOG": "",
+            # a caller that is itself a run would make every launch here a refused worker's worker
+            "AK_RUN_DEPTH": "0", "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", config.ACCOUNT_ENV: "",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_DISCORD_USER_ID": "",
             "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "PYTHONDONTWRITEBYTECODE": "1", "GIT_CONFIG_NOSYSTEM": "1"}))

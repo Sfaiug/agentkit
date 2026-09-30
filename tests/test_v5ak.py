@@ -310,6 +310,9 @@ class Projects(Sandbox):
         # A full disk shortens the age to one day and would take the young run too: the
         # disk this machine happens to have is not the fixture's.
         self.stack.enter_context(patch.object(run, "disk_pressure", return_value=None))
+        # Nor are the host's processes and sockets: nothing else holds the fixture's files.
+        self.stack.enter_context(patch.object(retention, "process_dirs", return_value=[]))
+        self.stack.enter_context(patch.object(retention, "unix_sockets", return_value=set()))
         self.seat("atoll-fix", "atoll")
         old = self.record("old-throwaway", owner="smoke-seat",
                           repo=str(config.TMP / "smoke-repo"), state="fail",
