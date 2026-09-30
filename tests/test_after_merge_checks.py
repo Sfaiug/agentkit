@@ -59,7 +59,7 @@ def completed(name, conclusion, url=URL):
 
 class AfterMerge(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".after-merge-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-after-merge-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

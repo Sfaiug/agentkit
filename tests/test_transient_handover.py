@@ -16,7 +16,7 @@ from agentkit import config, run, usage  # noqa: E402
 
 class TransientHandover(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".transient-handover-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-transient-handover-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

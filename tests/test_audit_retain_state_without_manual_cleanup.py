@@ -30,7 +30,7 @@ DAY = 86400
 
 class RetainState(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".retention-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-retention-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         # Unlistable from creation: no reader of the checkout ever learns the fixture's name,
         # whose access times the snapshots compare. Cleanup restores the permission itself.

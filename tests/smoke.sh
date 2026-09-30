@@ -1178,7 +1178,7 @@ seat_state_check() {
   python3 "$REPO/tests/test_v4y.py" || rc=1
 
   # (g) a hook writes nothing for a worker, or for a call with no seat to write for
-  d=$(mktemp -d "$REPO/.seat-hook.XXXXXX") || return 1
+  d=$(mktemp -d "$REPO/.ak-test-seat-hook.XXXXXX") || return 1
   for env_args in "AGENTKIT_SESSION=seat AK_RUN_ROLE=worker" "AK_RUN_ROLE=orchestrator"; do
     # shellcheck disable=SC2086
     printf '{"hook_event_name":"Stop","session_id":"x"}' |
@@ -1390,7 +1390,7 @@ PY
 # lines the adapter builds, while the effort still goes through; a real id still gets its -m.
 codex_model_flag_check() {
   local d rc=0 model argv line
-  d=$(mktemp -d "${TMPDIR:-/tmp}/codex-mflag-XXXXXX") || return 1
+  d=$(mktemp -d "${TMPDIR:-/tmp}/.ak-test-codex-mflag-XXXXXX") || return 1
   mkdir -p -- "$d/bin" "$d/ws"
   cat >"$d/bin/codex" <<'SH'
 #!/usr/bin/env bash
@@ -1454,7 +1454,7 @@ if [ "${AGENTKIT_SMOKE_OFFLINE:-0}" = 1 ]; then
   # TMUX_TMPDIR, so use an explicit short socket path for its isolated pane fixtures.
   if [ -d "/proc/$$/cwd" ]; then
     export TMPDIR="/proc/$$/cwd"
-    SMOKE_TOOLS=$(mktemp -d "$REPO/.smoke-tools.XXXXXX") || exit 1
+    SMOKE_TOOLS=$(mktemp -d "$REPO/.ak-test-smoke-tools.XXXXXX") || exit 1
     trap 'rm -rf -- "$SMOKE_TOOLS"' EXIT
     AGENTKIT_SMOKE_TMUX=$(command -v tmux) || exit 1
     export AGENTKIT_SMOKE_TMUX

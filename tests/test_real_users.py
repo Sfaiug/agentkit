@@ -68,7 +68,7 @@ else:
 
 class RealUsers(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".real-users-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-real-users-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

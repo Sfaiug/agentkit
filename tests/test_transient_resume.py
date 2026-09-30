@@ -16,7 +16,7 @@ from agentkit import config, run, usage, watch  # noqa: E402
 
 class TransientResume(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix=".transient-resume-", dir=REPO)
+        self.tmp = tempfile.TemporaryDirectory(prefix=".ak-test-transient-resume-", dir=REPO)
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
         self.root = root

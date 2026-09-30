@@ -45,7 +45,7 @@ class Parked(unittest.TestCase):
     """One patched home, the shipped default config, fake providers, fake resumes."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".run-parked-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-run-parked-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

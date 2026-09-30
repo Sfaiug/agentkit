@@ -61,7 +61,7 @@ printf '{"code":401,"message":"unauthorized"}\\n401\\n'
 
 class MimoPlan(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".mimo-plan-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-mimo-plan-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.addCleanup(time.tzset)      # after the environment below is put back

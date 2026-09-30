@@ -17,7 +17,7 @@ from agentkit import config, run, usage, watch  # noqa: E402
 
 class RefusalTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix=".refusal-", dir=REPO)
+        self.tmp = tempfile.TemporaryDirectory(prefix=".ak-test-refusal-", dir=REPO)
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
         self.root = root

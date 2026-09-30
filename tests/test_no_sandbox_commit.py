@@ -14,7 +14,7 @@ from agentkit import run
 
 class NoSandboxCommit(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".no-sandbox-commit-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-no-sandbox-commit-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         env = patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull,
@@ -49,11 +49,11 @@ class NoSandboxCommit(unittest.TestCase):
 
     def test_sandbox_directory_is_not_committed(self):
         before = self.head()
-        self.write_sandbox(".acceptance-xyz", "stub/git", "stub/ssh")
-        self.write_sandbox(".phone-abc", "adapters/echo.sh")
+        self.write_sandbox(".ak-test-acceptance-xyz", "stub/git", "stub/ssh")
+        self.write_sandbox(".ak-test-phone-abc", "adapters/echo.sh")
         run.commit_leftovers(self.repo, self.logs.append, set())
         self.assertEqual(self.head(), before)
-        self.assertTrue((self.repo / ".acceptance-xyz" / "stub" / "git").exists())
+        self.assertTrue((self.repo / ".ak-test-acceptance-xyz" / "stub" / "git").exists())
 
     def test_ignored_file_is_not_committed(self):
         (self.repo / ".gitignore").write_text("*.log\n")
@@ -74,17 +74,18 @@ class NoSandboxCommit(unittest.TestCase):
                             for line in self.logs))
 
     def test_log_line_names_the_count(self):
-        self.write_sandbox(".acceptance-one", "a", "b")
-        self.write_sandbox(".acceptance-two", "c")
-        self.write_sandbox(".phone-three", "d")
-        self.write_sandbox(".smoke-four", "e")
+        self.write_sandbox(".ak-test-acceptance-one", "a", "b")
+        self.write_sandbox(".ak-test-acceptance-two", "c")
+        self.write_sandbox(".ak-test-phone-three", "d")
+        self.write_sandbox(".ak-test-smoke-four", "e")
         run.commit_leftovers(self.repo, self.logs.append, set())
         self.assertEqual(len(self.sandbox_lines()), 1)
         line = self.sandbox_lines()[0]
         self.assertIn("left 5 untracked sandbox files uncommitted", line)
-        for name in (".acceptance-one/a", ".acceptance-one/b", ".acceptance-two/c"):
+        for name in (".ak-test-acceptance-one/a", ".ak-test-acceptance-one/b",
+                     ".ak-test-acceptance-two/c"):
             self.assertIn(name, line)
-        self.assertNotIn(".phone-three/d", line)
+        self.assertNotIn(".ak-test-phone-three/d", line)
 
     def test_check_ignore_skips_a_listed_but_ignored_path(self):
         (self.repo / ".gitignore").write_text("*.log\n")
@@ -97,32 +98,32 @@ class NoSandboxCommit(unittest.TestCase):
         self.assertEqual(self.committed(), ["feature.py"])
 
     def test_sweep_removes_a_killed_tests_sandbox(self):
-        self.write_sandbox(".smoke-xyz", "stub/git")
+        self.write_sandbox(".ak-test-smoke-xyz", "stub/git")
         (self.repo / "feature.py").write_text("new = True\n")
         run.sweep_sandboxes(self.repo, self.logs.append)
-        self.assertFalse((self.repo / ".smoke-xyz").exists())
+        self.assertFalse((self.repo / ".ak-test-smoke-xyz").exists())
         self.assertTrue((self.repo / "feature.py").exists())
         self.assertTrue(any("removed test sandboxes" in line for line in self.logs))
 
     def test_ignored_sandbox_is_counted_in_the_log_line(self):
-        (self.repo / ".gitignore").write_text(".phone-*\n")
+        (self.repo / ".gitignore").write_text(".ak-test-phone-*\n")
         run.git(self.repo, "add", ".gitignore")
         run.git(self.repo, "commit", "-m", "ignore phone sandboxes")
         before = self.head()
-        self.write_sandbox(".phone-xyz", "stub/git", "stub/ssh")
+        self.write_sandbox(".ak-test-phone-xyz", "stub/git", "stub/ssh")
         run.commit_leftovers(self.repo, self.logs.append, set())
         self.assertEqual(self.head(), before)
         self.assertEqual(len(self.sandbox_lines()), 1)
         line = self.sandbox_lines()[0]
         self.assertIn("left 2 untracked sandbox files uncommitted", line)
-        self.assertIn(".phone-xyz/stub/git", line)
-        self.assertIn(".phone-xyz/stub/ssh", line)
+        self.assertIn(".ak-test-phone-xyz/stub/git", line)
+        self.assertIn(".ak-test-phone-xyz/stub/ssh", line)
 
     def test_ignored_sandbox_beside_real_work_commits_and_logs(self):
-        (self.repo / ".gitignore").write_text(".smoke-*\n")
+        (self.repo / ".gitignore").write_text(".ak-test-smoke-*\n")
         run.git(self.repo, "add", ".gitignore")
         run.git(self.repo, "commit", "-m", "ignore smoke sandboxes")
-        self.write_sandbox(".smoke-xyz", "stub/git")
+        self.write_sandbox(".ak-test-smoke-xyz", "stub/git")
         (self.repo / "feature.py").write_text("new = True\n")
         run.commit_leftovers(self.repo, self.logs.append, set())
         self.assertEqual(self.committed(), ["feature.py"])
@@ -130,11 +131,11 @@ class NoSandboxCommit(unittest.TestCase):
         self.assertIn("left 1 untracked sandbox files uncommitted", self.sandbox_lines()[0])
 
     def test_nested_sandbox_shaped_name_still_commits(self):
-        path = self.repo / "src" / ".phone-keep" / "note.txt"
+        path = self.repo / "src" / ".ak-test-keep" / "note.txt"
         path.parent.mkdir(parents=True)
         path.write_text("real work\n")
         run.commit_leftovers(self.repo, self.logs.append, set())
-        self.assertEqual(self.committed(), ["src/.phone-keep/note.txt"])
+        self.assertEqual(self.committed(), ["src/.ak-test-keep/note.txt"])
         self.assertEqual(self.sandbox_lines(), [])
 
 

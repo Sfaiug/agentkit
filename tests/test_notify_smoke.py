@@ -17,7 +17,7 @@ TMUX = os.environ.get("AGENTKIT_SMOKE_TMUX") or shutil.which("tmux")
 class NotificationSmoke(unittest.TestCase):
     def check_section(self, number):
         source = (REPO / "tests/smoke.sh").read_text()
-        with tempfile.TemporaryDirectory(prefix=".notify-smoke-", dir=REPO) as directory:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-notify-smoke-", dir=REPO) as directory:
             root = Path(directory)
             binaries, sockets = root / "bin", root / "sockets"
             binaries.mkdir()

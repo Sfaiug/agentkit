@@ -59,7 +59,7 @@ REFUSAL = ("a worker's worker may not start runs (depth 2); only the orchestrato
 
 class Slots(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5am-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5am-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

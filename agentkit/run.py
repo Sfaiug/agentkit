@@ -103,25 +103,11 @@ EVENT_OUTPUT = ("aggregated_output", "output", "stdout", "stderr", "command", "c
 JUNK = ("__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/",
         "node_modules/", ".DS_Store", "*.swp")
 # what the suites leave inside the checkout when a test is killed mid-way: every sandbox
-# tests/smoke.sh and the test_*.py files it runs create there (tests/acceptance.sh and
-# tests/e2e-fresh.sh only ever write under $WORK).  The leftover sweep never commits these
-# and the loop removes them before the next turn, whatever the repository's .gitignore says.
-SANDBOX_PREFIXES = (
-    ".acceptance-", ".auth-watch-", ".cards-", ".changed-checks-", ".codex-seat-",
-    ".command-help-", ".config-home-", ".deferred-checks-", ".deferred-result-",
-    ".gate-tolerance-", ".gate-turns-", ".handback-", ".lessons-", ".login-", ".macbridge-",
-    ".muse-probe-", ".no-sandbox-commit-", ".notify-", ".notify-smoke-",
-    ".one-provider-", ".one-rulebook-", ".phone-", ".pins-", ".recover-runs-", ".refusal-",
-    ".retention-", ".retry-notify-", ".review-contract-", ".review-gate-", ".rulebook-",
-    ".run-quota-", ".run-scope-", ".run-v5r-", ".seat-hook.", ".seat-state-",
-    ".session-state-", ".silence-", ".smoke-", ".stop-hook-", ".stop-nudge-",
-    ".task-size-", ".tick-health-", ".usage-banner-", ".usage-fresh-", ".usage-test-",
-    ".v4c-", ".v4l-", ".v4n-", ".v4z-no-history-", ".v5aa-", ".v5ab-", ".v5ac-",
-    ".v5ad-", ".v5ae-", ".v5af-", ".v5ah-", ".v5aj-", ".v5al-", ".v5am-", ".v5d-",
-    ".v5e-", ".v5e-list-", ".v5f-", ".v5l-", ".v5m-", ".v5p-", ".v5q-", ".v5w-",
-    ".v5x-", ".verify-integration-", ".resume-midturn-", "codex-mflag-", "phone-tmux-",
-    "v4l-tmux-",
-)
+# tests/smoke.sh and the test_*.py files create there is named under this one prefix, which
+# tests/test_leftover_staged_and_sandboxes.py holds every one of them to.  The leftover sweep
+# never commits these and the loop removes them before the next turn, whatever the
+# repository's .gitignore says.
+SANDBOX_PREFIX = ".ak-test-"
 MERGE_METHODS = {"squash": "--squash", "merge": "--merge", "rebase": "--rebase"}
 CHECKS_CAP = 60 * 60            # a check suite still running after an hour is not going to finish
 CHECKS_POLL = 10
@@ -2525,7 +2511,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
 def leftover_junk(path):
     """Match names, not targets: a dependency symlink is junk even when Git ignores only directories."""
     parts = path.rstrip("/").split("/")
-    return (parts[0].startswith(SANDBOX_PREFIXES)
+    return (parts[0].startswith(SANDBOX_PREFIX)
             or any(part in ("recovery.lock", "delivery.lock", "node_modules", "venv", ".venv")
                    for part in parts))
 
@@ -2540,10 +2526,15 @@ def commit_leftovers(wt, log, artifacts):
     Everything the done-when commands generated is left alone.  Committing that instead earns
     a FAIL on junk the next round's commands recreate, so the fixer can never get out of it.
 
-    Test sandboxes, run locks and dependency trees are left alone too, including symlinks
-    and staged paths, whatever the repository's .gitignore says.  Anything `git check-ignore`
-    would ignore stays out as well.  Ignored junk is listed back for the count below, since
+    Test sandboxes, run locks and dependency trees are left alone too, including symlinks,
+    whatever the repository's .gitignore says.  Anything `git check-ignore` would ignore
+    stays out as well.  Ignored junk is listed back for the count below, since
     `dirty_paths` never sees it.
+
+    The done-when only verifies a checkout clean at HEAD, so nothing left out may stay
+    staged: a staged `venv` would fail every round as a changed checkout.  It is unstaged,
+    and a staged deletion of junk (`git rm --cached venv`) is committed with the rest --
+    from the index, since `git commit -- venv` would add the link back from the worktree.
     """
     paths = [p for p in dirty_paths(wt) if p not in artifacts]
     real, sandbox = [], []
@@ -2554,15 +2545,24 @@ def commit_leftovers(wt, log, artifacts):
             sandbox.append(path)
         else:
             real.append(path)
+    status = git(wt, "diff", "--cached", "--name-status", "--no-renames", "-z", "HEAD",
+                 check=False).split("\0")
+    staged = dict(zip(status[1::2], status[::2]))
+    gone = sorted({p for p in sandbox if staged.get(p) == "D"})
+    unstage = sorted(set(staged) - set(real) - set(gone))
     sandbox = sorted(set(sandbox) | set(ignored_sandbox_paths(wt, artifacts)))
     if sandbox:
         log(f"left {len(sandbox)} untracked sandbox files uncommitted: "
             f"{', '.join(sandbox[:3])}")
-    if not real:
-        return
     try:
-        git(wt, "add", "--", *real)
-        git(wt, "commit", "-m", "wip: uncommitted executor changes", "--", *real)
+        if unstage:
+            git(wt, "reset", "-q", "--", *unstage)
+            log(f"unstaged {len(unstage)} files the executor staged: {', '.join(unstage[:3])}")
+        if not real and not gone:
+            return
+        if real:
+            git(wt, "add", "--", *real)
+        git(wt, "commit", "-m", "wip: uncommitted executor changes")
     except Stopped:
         # a git that stopped verifies nothing: the round ends on the stop, never on a review
         # of a diff the loop did not pin
@@ -2570,13 +2570,13 @@ def commit_leftovers(wt, log, artifacts):
     except config.Error as exc:
         log(f"WARN could not commit the executor's uncommitted changes: {exc}")
         return
-    log("WARN committed uncommitted executor changes: " + ", ".join(real))
+    log("WARN committed uncommitted executor changes: " + ", ".join(real + gone))
 
 
 def ignored_sandbox_paths(wt, artifacts):
     """Ignored sandbox files, run locks and dependencies: invisible to `dirty_paths`, still uncommitted.
 
-    Once the repository's .gitignore names the suite's sandbox prefixes, a killed test's
+    Once the repository's .gitignore names the suite's sandbox prefix, a killed test's
     sandbox never reaches the leftover sweep's classifier -- and without this listing its
     `left N ...` log line would never fire in a real checkout.  Collapsed directory
     entries are expanded to the files inside them, so the count is files, not sandboxes.
@@ -2607,11 +2607,11 @@ def sweep_sandboxes(wt, log):
 
     A test killed mid-way leaves its sandbox behind, and the next turn's executor would
     otherwise find stub binaries and fake adapters sitting in its checkout.  Only top-level
-    names under a suite sandbox prefix are touched; anything else is the work's own.
+    names under the suite sandbox prefix are touched; anything else is the work's own.
     """
     try:
         names = sorted(path.name for path in Path(wt).iterdir()
-                       if path.name.startswith(SANDBOX_PREFIXES))
+                       if path.name.startswith(SANDBOX_PREFIX))
     except OSError as exc:
         log(f"WARN could not list test sandboxes in {wt}: {exc}")
         return

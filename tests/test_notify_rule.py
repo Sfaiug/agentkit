@@ -44,7 +44,7 @@ true
 
 class Rule(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5d-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5d-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

@@ -58,7 +58,7 @@ else:
 
 class SameRules(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".same-rules-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-same-rules-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

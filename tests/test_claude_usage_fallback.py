@@ -70,7 +70,7 @@ cat "$FAKE/keychain.json"
 
 class UsageOneRequest(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".claude-usage-fallback-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-claude-usage-fallback-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.fake = self.root / "fake"

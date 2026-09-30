@@ -47,7 +47,7 @@ esac
 
 class InstallQuestion(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".install-question-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-install-question-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.adapters = self.root / "repo" / "adapters"

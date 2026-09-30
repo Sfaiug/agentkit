@@ -123,7 +123,7 @@ else:
 
 class MuseProbe(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".muse-probe-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-muse-probe-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

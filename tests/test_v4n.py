@@ -19,7 +19,7 @@ from agentkit.harness import codex as codex_plugin
 
 class Sandbox(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v4n-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v4n-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

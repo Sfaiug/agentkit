@@ -25,7 +25,7 @@ RUN_ID = "20260101-0900-flaky-fixture"
 
 class FlakyRerun(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".flaky-rerun-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-flaky-rerun-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

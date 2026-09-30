@@ -141,7 +141,7 @@ class Seat(unittest.TestCase):
     """A wrapped seat, run for real under a pty with a fake harness inside it."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5e-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5e-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -441,7 +441,7 @@ class Listing(unittest.TestCase):
     """`ak orch list --why` answers for every seat whether it compacts itself."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5e-list-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5e-list-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

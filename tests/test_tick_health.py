@@ -26,7 +26,7 @@ from agentkit import browser, config, notify, orch, run, usage, watch
 
 class TickHealth(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".tick-health-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-tick-health-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

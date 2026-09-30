@@ -72,7 +72,7 @@ else:
 
 class BudgetRuns(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5l-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5l-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

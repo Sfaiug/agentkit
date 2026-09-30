@@ -66,7 +66,7 @@ EVENTS_AUTH_ERROR = """\
 
 class OpenCode(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix=".opencode-", dir=REPO)
+        self.tmp = tempfile.TemporaryDirectory(prefix=".ak-test-opencode-", dir=REPO)
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.home = self.root / "home"

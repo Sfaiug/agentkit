@@ -32,7 +32,7 @@ class SeatStates(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         root = Path(self.stack.enter_context(tempfile.TemporaryDirectory(
-            prefix=".seat-state-", dir=config.REPO)))
+            prefix=".ak-test-seat-state-", dir=config.REPO)))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {

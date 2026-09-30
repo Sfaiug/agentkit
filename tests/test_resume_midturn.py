@@ -53,7 +53,7 @@ sys.exit(0)
 
 class ResumeMidturn(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".resume-midturn-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-resume-midturn-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

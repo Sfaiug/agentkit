@@ -27,7 +27,7 @@ from agentkit import config, notify, run, usage, watch
 
 class WorkerList(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".worker-list-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-worker-list-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

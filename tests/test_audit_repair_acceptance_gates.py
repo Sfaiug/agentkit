@@ -33,7 +33,7 @@ def between(text, start, end):
 
 class AcceptanceGates(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".acceptance-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-acceptance-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.bin = self.root / "bin"

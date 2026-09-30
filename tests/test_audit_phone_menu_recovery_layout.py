@@ -47,13 +47,13 @@ class Sandbox(unittest.TestCase):
     """Temporary state under the repo, private socket directories, fake adapters, no network."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".phone-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-phone-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.home = self.root / "home"
         # the socket directories are the system temp's: a unix socket path is capped near 108
         # bytes, which a worktree's path plus `tmux-<uid>/agentkit-test` is already past
-        sockets = tempfile.TemporaryDirectory(prefix="phone-tmux-")
+        sockets = tempfile.TemporaryDirectory(prefix=".ak-test-phone-tmux-")
         self.addCleanup(sockets.cleanup)
         self.seats_dir = Path(sockets.name) / "seats"
         self.phone_dir = Path(sockets.name) / "phone"

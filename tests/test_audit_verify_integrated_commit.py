@@ -74,7 +74,7 @@ sys.exit(code)
 
 class IntegratedCommit(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".verify-integration-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-verify-integration-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

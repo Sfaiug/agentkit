@@ -158,7 +158,7 @@ def probe():
 
 class CommandHelp(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".command-help-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-command-help-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         sockets = self.root / "sockets"

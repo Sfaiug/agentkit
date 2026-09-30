@@ -153,7 +153,7 @@ class Login(unittest.TestCase):
     """One HOME, fake adapters, a real git repository, and nothing that can reach a network."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".login-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-login-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

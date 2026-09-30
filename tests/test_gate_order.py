@@ -49,7 +49,7 @@ class Gate(threading.Thread):
 
 class GateOrder(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".gate-turns-order-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-gate-turns-order-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

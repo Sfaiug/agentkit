@@ -35,7 +35,7 @@ SEAT = "speed-check"    # the seat the fabricated running runs were launched fro
 
 class Sandbox(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5ad-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5ad-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

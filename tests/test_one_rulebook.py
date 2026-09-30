@@ -86,7 +86,7 @@ printf '%s\\n' '{"stream":{"kind":"session","id":"fake-sid"},' \\
 
 class OneRulebook(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".one-rulebook-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-one-rulebook-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.home = Path(tmp.name)
         self.state = self.home / ".agentkit/state"

@@ -74,7 +74,7 @@ esac
 
 class InstallFindsBinary(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".install-finds-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-install-finds-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.home = self.root / "home"

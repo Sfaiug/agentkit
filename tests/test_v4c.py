@@ -32,7 +32,7 @@ def reviewed():
 
 class Correctness(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix=".v4c-", dir=REPO)
+        self.tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v4c-", dir=REPO)
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.stack = contextlib.ExitStack()

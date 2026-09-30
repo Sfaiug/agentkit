@@ -21,7 +21,7 @@ from agentkit import config, menu, notify, orch, run, terminal, watch
 
 class InterruptedRuns(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".recover-runs-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-recover-runs-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

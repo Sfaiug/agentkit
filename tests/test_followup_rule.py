@@ -21,7 +21,7 @@ OTHER = "b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivi
 
 class FollowupRule(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".followup-rule-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-followup-rule-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

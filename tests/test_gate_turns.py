@@ -48,7 +48,7 @@ class Gate(threading.Thread):
 
 class GateTurns(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".gate-turns-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-gate-turns-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

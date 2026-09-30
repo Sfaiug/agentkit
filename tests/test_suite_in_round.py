@@ -56,7 +56,7 @@ def _reap(proc):
 
 class SuiteInRound(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".suite-round-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-suite-round-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
