@@ -3383,7 +3383,8 @@ def show_features(checkout, dry_run=False):
 
     The rows are the project's `list` as last answered (`switches`), asked again every TICK
     while the screen is open and drawn within STIR of landing, so the screen never waits on
-    it, and within a frame of landing while there are no rows yet, the rule gliding meanwhile.
+    it; while there are no rows yet the rule glides, where colour moves, and they are drawn
+    within a frame of landing.
     ↑/↓ move between features and ←/→ between `you` and `everyone`; Enter, space or a
     click flips a mark by calling the project's `set` at once, and draws the row it answers
     with.  What a `set` could not do is one dim line under the rows, the mark as it was, until
@@ -3393,7 +3394,7 @@ def show_features(checkout, dry_run=False):
     here, column, top, note = None, 0, 0, ""
     keys = FEATURES_KEYS[0 if terminal.utf8() else 1] + "   esc back"
 
-    def fetched():      # when the list the screen has no rows without was asked, till it lands
+    def fetched():      # when the list a screen with no rows waits on was asked, till it lands
         entry = _SWITCHES[str(checkout)]
         return entry["asked"] if entry["going"] and entry["rows"] is None else None
 
