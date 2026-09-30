@@ -35,6 +35,7 @@ from .harness import load as harness_plugin
 DIFF_CAP = 300 * 1024
 OUT_CAP = 20 * 1024
 LESSONS_CAP = 4 * 1024
+RULES_CAP = 8 * 1024
 # A worker that dies like this died on the provider, not on the task: it is retried, never scored.
 # Only a fault, never the account: a usage or rate limit names the account and hands the
 # round to another provider instead, through the manifests' own quota words.
@@ -481,6 +482,33 @@ def project_lessons(repo, state, log):
     return ("\n\n## Project lessons\n"
             "Facts earlier runs in this repository learned. Follow them; they are not part "
             f"of this task's scope.\n\n{text}")
+
+
+def repo_rules(wt, ref, log):
+    """The body of the repository's AGENTS.md at `ref`, for every worker prompt.
+
+    ak reads only its front matter itself, and a harness loads the body on its own terms
+    (some never, some only beside no file of their own), so without this each brand
+    worked to different rules.  Read at the base commit, never the checkout: the work
+    under review cannot rewrite the rules it is judged by.  A read that fails is no file.
+    """
+    if not ref:
+        return ""
+    try:
+        text = git(wt, "show", f"{ref}:AGENTS.md", check=False)
+    except Exception:
+        return ""
+    match = FRONT.match(text)
+    data = (text[match.end():] if match else text).strip().encode("utf-8")
+    if not data:
+        return ""
+    if len(data) > RULES_CAP:
+        log(f"AGENTS.md over {RULES_CAP // 1024} KB; truncated")
+    # Omit an incomplete UTF-8 character at the byte limit.
+    text = data[:RULES_CAP].decode("utf-8", errors="ignore")
+    return ("\n\n## Repository AGENTS.md\n"
+            "The repository's own instructions, as on the base commit. Where they differ "
+            f"from the rest of this prompt, the rest of this prompt wins.\n\n{text}\n")
 
 
 def done_when(body, path):
@@ -1177,7 +1205,7 @@ def transient_wait(out_dir, delay):
 
 def shell_foreground_note():
     """Keep long commands attached to the turn that must report their result."""
-    return ("Run long commands, the test suite included, in the foreground and wait for them; "
+    return ("Run long commands, tests included, in the foreground and wait for them; "
             "a turn that ends with a command still running in the background is not finished.")
 
 
@@ -3366,6 +3394,21 @@ def findings_section(text):
     return section[:end.start()] if end else section
 
 
+def without_followups(text):
+    """The reviewer's answer as its fixer gets it: everything but the `## Follow-ups` section.
+
+    Follow-ups predate the task and start runs of their own once this one merges; handed to
+    a fixer told to address every finding below, they become out-of-scope work.  Bounded
+    as `followups_in` reads the section.
+    """
+    heading = FOLLOWUPS.search(text or "")
+    if not heading:
+        return text
+    section = text[heading.end():]
+    end = re.search(rf"^#{{1,{len(heading.group(1))}}}[ \t]", section, re.M)
+    return text[:heading.start()] + (section[end.start():] if end else "")
+
+
 def followups_in(text):
     """The reviewer's `## Follow-ups` items, in order, markers stripped.
 
@@ -4006,7 +4049,8 @@ def rounds(lp, execv=None):
                     summary = execute(lp, "executor", lp.context, "executor")
                 else:
                     summary = execute(lp, "fixer",
-                                      f"{lp.context}\n\n## Reviewer findings to fix\n{lp.findings}",
+                                      f"{lp.context}\n\n## Reviewer findings to fix\n"
+                                      f"{without_followups(lp.findings)}",
                                       "executor")
             ok, dw_log = verify_work(lp)
             lp.log(f"done-when: {'all passed' if ok else 'FAILED'}")
@@ -4219,7 +4263,7 @@ def fix_after_failed_review(lp, upstream, how):
     """
     what = f"the {how} of {upstream}"
     while lp.rnd < lp.rounds:
-        fix = f"{lp.context}\n\n## Reviewer findings to fix\n{lp.findings}"
+        fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
         if (lp.state.get("review") or {}).get("done_when") is False:
             # the output the review was given, still in the round directory it ran in
             log_path = lp.round_dir / "donewhen.log"
@@ -5884,15 +5928,15 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     if not state.get("scratch"):
         cmds = with_suite(cmds, wt, target)
     every, once = group_commands(cmds)
-    body += project_lessons(repo, state, log)
+    body += project_lessons(repo, state, log) + repo_rules(wt, state.get("base_sha"), log)
     save_state(run_dir, state)
     context = (f"{where}\n\n{body}\n\n"
                f"{shell_foreground_note()}\n\n"
                f"Done-when commands, all must exit 0 (run them in {wt}):\n"
                + "\n".join(f"  $ {c}" for c in every))
     if once:
-        context += ("\nOnce, on your final commit before you hand over "
-                    "(the loop runs these once more before the merge):\n"
+        context += ("\nThe loop runs these once, in the final check on the commit about to "
+                    "ship; do not run them yourself:\n"
                     + "\n".join(f"  $ {c}" for c in once))
     if handed:
         # a handover on resume is the same handover as one mid-round, and the model taking over
@@ -12065,7 +12109,8 @@ def cmd_merge(argv):
     _, body, _ = parse_task(run_dir / "task.md")
     cmds = with_suite(done_when(body, run_dir / "task.md"), state["worktree"],
                       state.get("target") or state.get("base"))
-    body += project_lessons(state.get("repo") or None, state, log)
+    body += (project_lessons(state.get("repo") or None, state, log)
+             + repo_rules(state["worktree"], state.get("base_sha"), log))
     save_state(run_dir, state)  # the Loop measures its saves against the record it is handed
     lp = Loop(cfg, run_dir, state, {}, log, Path(state["worktree"]),
               body, cmds, f"Repo checkout: {state['worktree']}\n\n{body}", [])
@@ -12958,7 +13003,7 @@ def review_pr(cfg, run_dir, url, opts, log):
         print(launch_line(run_dir.name, title, None, reviewer,
                           self_review=bool(is_own and same_model(cfg, orchestrator,
                                                                  reviewer))))
-    body += project_lessons(repo, state, log)
+    body += project_lessons(repo, state, log) + repo_rules(wt, base_sha, log)
     save_state(run_dir, state)
     context = f"Repo checkout: {wt}\nBranch: {branch} (PR #{number} head, based on origin/{base})\n\n{body}"
     lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, context, spares)
