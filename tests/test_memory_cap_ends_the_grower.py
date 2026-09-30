@@ -11,6 +11,7 @@ from contextlib import ExitStack, redirect_stdout
 import io
 import os
 import shlex
+import subprocess
 import sys
 import tempfile
 import time
@@ -88,6 +89,32 @@ class EndsTheGrower(unittest.TestCase):
             _cap, props = run.run_scope_limits(ceiling_mb=10000)
         self.assertFalse(any(str(item).startswith("OOMPolicy") for item in props))
         self.assertIn("MemoryMax=4000M", props)
+
+    def test_the_version_is_the_managers_own_answer(self):
+        def asked(said):
+            orch._OOM_POLICY.clear()
+            calls = []
+
+            def systemctl(argv, **_kw):
+                calls.append(argv)
+                if isinstance(said, BaseException):
+                    raise said
+                return subprocess.CompletedProcess(argv, 0, said, "")
+            with patch.object(orch.subprocess, "run", side_effect=systemctl):
+                return orch.scope_oom_policy(), calls
+        self.addCleanup(orch._OOM_POLICY.clear)
+        with patch.object(orch, "user_manager", return_value=True):
+            for said, takes in (("257.13-1~deb13u1\n", True), ("253\n", True),
+                                ("252.3-2\n", False), ("", False),
+                                (OSError("no systemctl"), False),
+                                (subprocess.TimeoutExpired("systemctl", 30), False)):
+                answer, calls = asked(said)
+                self.assertEqual(answer, takes, said)
+                self.assertEqual(calls, [["systemctl", "--user", "show", "-p", "Version",
+                                          "--value"]])
+        # no manager to ask: nothing is started, and the scope keeps the default
+        with patch.object(orch, "user_manager", return_value=False):
+            self.assertEqual(asked("257\n"), (False, []))
 
     def test_the_first_two_kills_leave_the_run_going(self):
         logs = []

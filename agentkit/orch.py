@@ -343,29 +343,21 @@ def scope_oom_policy():
 
     An older systemd-run refuses the whole scope over it, and the run would start plainly,
     outside the slice and its cap; there a scope keeps the default, which stops it whole.
-    The version is the running manager's: the binary its own command line names, which is
-    the real one however it was started, names the libsystemd it links, tagged with the
-    version unless the build chose a tag of its own.  Read, not asked, for the reason
-    `user_manager` connects; only a tag that is not a version is asked of the manager.
-    Asked once per process.
+    The version is the running manager's own answer (`257.9-1~deb13u1` is 257), asked only
+    once `user_manager` has said there is one to ask, and once per process.  No answer
+    counts as too old: the scope then keeps the default, as every run's did before.
     """
     if "answer" not in _OOM_POLICY:
-        version, uid = 0, os.getuid()
+        version = 0
         try:
-            procs = (CGROUP_ROOT / "user.slice" / f"user-{uid}.slice" / f"user@{uid}.service"
-                     / "init.scope" / "cgroup.procs").read_text().split()
-            for pid in procs:   # the manager, and the (sd-pam) that waits beside it
-                argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
-                if b"--user" in argv:
-                    tag = re.search(rb"libsystemd-(?:shared|core)-(\d*)",
-                                    Path(os.fsdecode(argv[0])).read_bytes())
-                    said = (tag.group(1).decode() if tag and tag.group(1) else subprocess.run(
-                        ["systemctl", "--user", "show", "-p", "Version", "--value"],
-                        capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                        env=bus_env(), timeout=SLICE_WAIT).stdout)
-                    version = int(re.match(r"\s*(\d+)", said).group(1))
-                    break
-        except (OSError, subprocess.SubprocessError, AttributeError):
+            if user_manager():
+                said = subprocess.run(
+                    ["systemctl", "--user", "show", "-p", "Version", "--value"],
+                    capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                    env=bus_env(), timeout=SLICE_WAIT).stdout
+                found = re.match(r"\s*(\d+)", said)
+                version = int(found.group(1)) if found else 0
+        except (OSError, subprocess.SubprocessError):
             pass
         _OOM_POLICY["answer"] = version >= 253
     return _OOM_POLICY["answer"]
