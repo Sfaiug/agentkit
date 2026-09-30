@@ -342,10 +342,12 @@ popup, eases from `working`'s colour to a tone of it half way to the background
 and back every two seconds, every dot in the same phase; its word and everything
 else stand still. Every animation, this one and those after it, runs on one
 clock, `motion.Clock`, and no screen keeps a timer: a screen hands the clock the
-cells that move when it draws, and the menu's wait draws a frame only while
+cells that move when it draws, and each of the menu's waits -- for a key, for a
+second digit, for the stop question's answer -- draws a frame only while
 something animates and no key is waiting, at most twenty a second, rewriting only
-the cells that changed, so a key is still answered within 100 ms. Nothing moves
-off a terminal, under `NO_COLOR` or at eight colours: there the dot stands still.
+the cells that changed, so a key is still answered within 100 ms. A resize
+draws the whole screen again before another frame. Nothing moves off a
+terminal, under `NO_COLOR` or at eight colours: there the dot stands still.
 
 Helpers: `motion.Clock`, `motion.breathing`, `menu.moving`, `terminal.faded`.
 

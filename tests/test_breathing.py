@@ -3,9 +3,11 @@
 `menu.loop` on a scripted wait over a true-colour terminal with two working seats and one that
 needs you: between draws only the two working `●` are rewritten, each frame both in one colour,
 the colour easing between `working`'s and a dimmer tone of it; at most twenty frames a second;
-a key pressed mid-animation has its frame out within 100 ms.  From a pipe, under NO_COLOR and
-at eight colours the wait is the plain TICK and no frame is drawn.  Offline, in a throwaway
-HOME: the probe is never started and the keyboard is a stand-in.
+a key pressed mid-animation has its frame out within 100 ms; the dots breathe on through the
+wait for a second digit and under the stop question, and a resize as a frame falls due draws
+the whole screen instead.  From a pipe, under NO_COLOR and at eight colours the wait is the
+plain TICK and no frame is drawn.  Offline, in a throwaway HOME: the probe is never started,
+opening a seat is a line saying so, and the keyboard is a stand-in.
 """
 
 from contextlib import ExitStack, redirect_stdout
@@ -23,7 +25,9 @@ from agentkit import config, menu, motion, orch, terminal
 Key = terminal.Key
 TERMINAL = terminal.Keyboard       # the real one, for a stdin that is a pipe
 WORKING = (0x89, 0xb4, 0xfa)       # `working` on a dark background
-DOT = re.compile(r"\x1b\[(\d+);(\d+)H\x1b\[38;2;(\d+);(\d+);(\d+)m●\x1b\[0m")
+# one dot rewritten: its cell, its colour, and on the highlighted row the row's brightness too
+DOT = re.compile(r"\x1b\[(\d+);(\d+)H(?:\x1b\[1m)?\x1b\[38;2;(\d+);(\d+);(\d+)m●"
+                 r"\x1b\[0(?:;1m\x1b\[0)?m")
 WORDS = {"fix-api": "working", "tidy-docs": "working", "web-portal": "needs you"}
 
 
@@ -49,14 +53,14 @@ class Breathing(Sandbox):
             "COLORTERM": "truecolor"}))
         repo = config.CODE / "acme"
         (repo / ".git").mkdir(parents=True)
-        seats = [{"name": name, "repo": str(repo), "path": str(repo), "created": 0}
-                 for name in WORDS]
+        self.words = dict(WORDS)
 
         def row_state(cfg, session, look=True, **facts):
-            return {"word": WORDS[session["name"]], "reason": "", "since": None}
+            return {"word": self.words[session["name"]], "reason": "", "since": None}
 
         for target, name, fake in (
-                (orch, "listing", lambda: [dict(seat) for seat in seats]),
+                (orch, "listing", lambda: [{"name": name, "repo": str(repo), "path": str(repo),
+                                            "created": 0} for name in self.words]),
                 (menu, "run_records", list),
                 (menu, "seat_row_state", row_state),
                 (menu, "seat_progress", lambda name: (0, 0)),
@@ -64,8 +68,11 @@ class Breathing(Sandbox):
                 (menu.Live, "probe", lambda self, now=None: False),
                 (terminal, "Keyboard", Keyboard),
                 (terminal, "sense", lambda: None),     # a taken keyboard's, no real terminal's
-                (terminal, "width", lambda *args: 100)):
+                (terminal, "width", lambda *args: 100),
+                (menu, "open_session", lambda cfg, session, dry_run:
+                 print(f"<opened {session['name']}>"))):
             self.stack.enter_context(patch.object(target, name, fake))
+        self.addCleanup(setattr, terminal, "_ASKED", False)
 
     def run_menu(self, answer):
         """`menu.loop` with every wait answered by `answer(timeout)`; each wait's timeout, when it
@@ -87,9 +94,25 @@ class Breathing(Sandbox):
     def dots(self, screen):
         """Each working seat's `●` on a drawn screen: its row and its column, counted from 1."""
         lines = screen.partition("\033[H")[2].rpartition("\033[J")[0].split("\n")
-        return {(row, terminal.ANSI.sub("", line).index("●") + 1)
-                for row, line in enumerate(lines, 1) for name, word in WORDS.items()
-                if word == "working" and f" {name} " in terminal.ANSI.sub("", line)}
+        working = [name for name, word in self.words.items() if word == "working"]
+        return {(row, text.index("●") + 1)
+                for row, text in enumerate((terminal.ANSI.sub("", line) for line in lines), 1)
+                if "●" in text and any(f" {name} " in text for name in working)}
+
+    def assert_breathing(self, screen, waits):
+        """Each wait no longer than a frame, and what was written before each a frame of the dots
+        `screen` drew and nothing else, both dots in one colour; a frame at a turn of the breath,
+        where the colour has not moved, writes nothing."""
+        dots = self.dots(screen)
+        self.assertEqual(len(dots), 2, screen)
+        self.assertTrue(all(0 <= timeout <= motion.FRAME for timeout, _, _ in waits), waits)
+        frames = [written for _, _, written in waits if written]
+        self.assertTrue(frames)
+        for written in frames:
+            self.assertRegex(written, rf"^(?:{DOT.pattern})+$")
+            found = DOT.findall(written)
+            self.assertEqual({(int(r), int(c)) for r, c, *_ in found}, dots)
+            self.assertEqual(len({dot[2:] for dot in found}), 1, written)   # in one phase
 
     def test_only_the_working_dots_move_and_they_move_together(self):
         calls = iter(range(40))
@@ -143,6 +166,43 @@ class Breathing(Sandbox):
         screen = waits[-1][2]
         lit = [terminal.ANSI.sub("", line) for line in screen.split("\n") if "›" in line]
         self.assertIn(" fix-api ", lit[0])
+
+    def test_the_second_digit_and_the_stop_question_wait_breathing(self):
+        self.words.update({f"zz-{n}": "done" for n in range(7)})     # ten seats: `1` may be 1x
+        script = iter([Key("char", "1"), *[None] * 14, Key("char", "x"), *[None] * 6,
+                       Key("esc"), "q"])
+
+        def answer(timeout):
+            key = next(script)
+            if key is None:
+                time.sleep(timeout)          # nothing typed: the wait runs to its frame
+            return key
+        waits = self.run_menu(answer)
+        # `1` waits half a second for a second digit, the dots breathing, then opens seat 1
+        opened = next(n for n, (_, _, written) in enumerate(waits) if "<opened fix-api>" in written)
+        self.assertGreater(opened, 5)
+        self.assert_breathing(waits[0][2], waits[1:opened])
+        # `x` asks under the highlighted seat, and the dots breathe where that screen put them
+        asked = next(n for n, (_, _, written) in enumerate(waits)
+                     if "Stop fix-api and everything it runs?" in terminal.ANSI.sub("", written))
+        self.assertEqual(waits[asked + 7][2][:3], "\033[H")          # Esc kept it: the list
+        self.assertNotEqual(self.dots(waits[asked][2]), self.dots(waits[0][2]))
+        self.assert_breathing(waits[asked][2], waits[asked + 1:asked + 7])
+
+    def test_a_resize_as_a_frame_falls_due_draws_the_whole_screen(self):
+        script = iter([*[None] * 6, "resize", *[None] * 6, "q"])
+
+        def answer(timeout):
+            step = next(script)
+            time.sleep(timeout)
+            if step == "resize":
+                terminal._ASKED = True       # what `read_key` leaves when a resize ended it
+                return None
+            return step
+        waits = self.run_menu(answer)
+        self.assert_breathing(waits[0][2], waits[1:7])
+        self.assertEqual(waits[7][2][:3], "\033[H")      # drawn again, not a frame at old cells
+        self.assert_breathing(waits[7][2], waits[8:])
 
     def test_a_pipe_no_color_and_eight_colours_draw_no_frames(self):
         reader, writer = os.pipe()
