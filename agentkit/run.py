@@ -5769,7 +5769,7 @@ def merge_turn(lp, upstream, reserve=False):
             old, place = place, merge_turn_queue(path, rank, files)
             leave(old)
 
-    def waiting():
+    def waiting(at=None):
         nonlocal waited, step, retaking, retake_step
         if current is not None:
             if retaking:
@@ -5782,7 +5782,7 @@ def merge_turn(lp, upstream, reserve=False):
             save_state(lp.run_dir, lp.state)
             lp.log(f"--- merge: taking back the merge turn of {what}; "
                    "a borrower is landing on it")
-            retake_step = history.close_step(lp.state.get("run_id"), log=lp.log)
+            retake_step = history.close_step(lp.state.get("run_id"), at, log=lp.log)
             return
         if waited:
             return
@@ -5790,7 +5790,7 @@ def merge_turn(lp, upstream, reserve=False):
         lp.state["merge_turn"] = {"pid": os.getpid(), "of": what}
         save_state(lp.run_dir, lp.state)
         lp.log(f"--- merge: waiting for the merge turn of {what}; another run is landing on it")
-        step = history.close_step(lp.state.get("run_id"), log=lp.log)
+        step = history.close_step(lp.state.get("run_id"), at, log=lp.log)
 
     step = None
     retake_step = None
@@ -5801,8 +5801,11 @@ def merge_turn(lp, upstream, reserve=False):
                 try:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:
-                    waiting()          # before queueing: joining the queue is the wait's too
+                    # the wait began when the turn was found taken, but the place is
+                    # published first: the record's save can block, and others would pass
+                    taken = time.time()
                     queue()
+                    waiting(taken)
                     fcntl.flock(lock, fcntl.LOCK_EX)
                 blocker = merge_turn_blocker(
                     path, files, current.reservation.name if current is not None else None)
