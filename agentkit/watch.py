@@ -5250,7 +5250,9 @@ def after_merge_checks(state, dry_run, log, now=None):
                 if not episode and episodes.get(key) is episode:
                     episodes.pop(key, None)
                 pending = None
-            elif any(entry[6] == "passed" and entry[0] > finished for entry in statuses):
+            # As a told break: its own re-run going green ends it too.
+            elif any(entry[6] == "passed" and (entry[0] > finished or entry[4] == sha)
+                     for entry in statuses):
                 episodes.pop(key, None)
                 log(f"run {run_name}'s after-merge notice is over: {key} went green")
                 pending = None
