@@ -108,6 +108,15 @@ kill, a hang-up, `^\`, and `^Z`, which takes it again on `fg`), and before
 anything else takes it: a session, `ak update`, and every sub-screen that
 reads a line, as they always have. A resize draws again at once.
 
+The popup `Ctrl-b m` opens inside a session floats over it: a rounded border in
+the dim colour with ` agentkit ` set into its top edge, and a column and a row
+of padding inside it -- on a phone it keeps the whole screen, border and all,
+with no padding. While it is up the session behind it draws its own text dim
+(text a harness colours itself keeps its colour), and has its style back the
+moment the popup is down, however it comes down: its menu ending, a crash, a
+kill, its client going. A tmux older than 3.3 draws the plain popup and says
+nothing (`orch.tmux_conf`, `terminal.inset`).
+
 `x` is the highlighted seat's, or in the popup the popup's own seat's. A done
 seat it closes at once, with no question: `orch.cmd_stop` takes its runs,
 checkouts, conversation, state files and tmux session. Any other it asks about
@@ -362,8 +371,13 @@ menu is up moves: the first draw after opening, one after a resize and one back
 from another screen or a notice draw every value as it is (`motion.Clock.look`,
 `forget`).
 
+The popup's content fades in once, as it opens: from the background to its
+colours over 120 ms, on the same clock. Whatever is drawn in that time -- a
+key's draw, at once, or news -- comes up with it, and the popup closes at once,
+nothing fading out (`motion.Clock.rise`).
+
 Helpers: `motion.Clock`, `motion.breathing`, `motion.pulsing`, `motion.settling`,
-`motion.gliding`, `menu.moving`, `terminal.faded`.
+`motion.gliding`, `menu.moving`, `terminal.faded`, `terminal.fade`.
 
 ## Ages
 
