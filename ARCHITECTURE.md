@@ -48,7 +48,7 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
   env. Used by nearly everything. Leaks: the shell hooks rebuild seat file names.
 - `worker.py`: one headless turn: role preambles and the review gate text, the adapter `run`
   call, silence watchdog, process kills, auth check. Offers `call`, `kill_marked`,
-  `auth_ok`. Used by run, watch, usage, harness. Leak: a Claude-only shell timeout.
+  `auth_ok`. Used by run, watch, usage, menu, harness. Leak: a Claude-only shell timeout.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
   `usage.json`. Offers `collect`, `pick_order`, `mark_exhausted`, `render`. Used by run,
   orch, menu, watch, history. Leak: watch and the Muse plugin call its private helpers.
