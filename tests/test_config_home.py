@@ -12,6 +12,7 @@ own loop reads no version, so pressing a key for the menu can move no code anywh
 
 from contextlib import ExitStack
 import inspect
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -56,6 +57,11 @@ class ConfigHome(unittest.TestCase):
         patcher = patch.object(config, "HOME", self.home)
         patcher.start()
         self.addCleanup(patcher.stop)
+        # AK_MAX_RUNS outranks the file, and a worker or a suite may export it: the file is under test
+        patcher = patch.dict(os.environ)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("AK_MAX_RUNS", None)
 
     def test_load_reads_the_home_file(self):
         self.path.write_text(OWN)

@@ -122,6 +122,10 @@ class Limits(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "AK_RUN_ROLE": "", "AGENTKIT_DISCORD_WEBHOOK": "off",
+            # a worker running this file carries its own run's marker, and a gate that ends
+            # outside a run ends every process marked with the run it inherits
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0",
+            "AK_MAX_RUNS": "0",
             "AGENTKIT_TMUX_SOCKET": "agentkit-test", "TMUX_TMPDIR": str(sockets),
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
             "PYTHONDONTWRITEBYTECODE": "1", "LIMITS_FIXTURE": str(self.root)}))
