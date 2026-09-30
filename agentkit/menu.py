@@ -3036,9 +3036,11 @@ def config_add_provider(cfg, keyboard):
     them as the name it will get (`ChatGPT II`, config.account_label), another subscription
     of a provider the config has, which is only logged in and listed (_add_subscription); or,
     last, `Use <who>`, a login `− remove` left on disk (config.kept_logins) whose adapter's
-    `auth` still passes, put back with no login: a subscription into `accounts` under its old
-    name, a provider's usual login as that provider is added.  <who> is who that `auth` says
-    it is `; logged in as`, else the name the login's usage row had.
+    `auth` still passes, put back with no login: into its provider's `accounts` under its old
+    name, or, its provider gone too, with that provider as it ships, a subscription as its one
+    login.  <who> is who that `auth` says it is `; logged in as`, else the name the login's
+    usage row had; one several share is followed by that row, then by a number (`Use Muse II
+    (2)`), so every such login is listed, each as itself.
 
     A new provider's harness, the shipped default's for it, is installed when its program is
     nowhere to be found, then logged in: each its adapter's own verb, run as install.sh runs
@@ -3063,13 +3065,13 @@ def config_add_provider(cfg, keyboard):
         after = [*(config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]), os.urandom(3).hex()]
         more[config.account_label({"providers": {name: {"accounts": after}}}, name, after[-1],
                                   text)] = (name, after)
-    kept = {}
+    offers = []
     for name, account, label in config.kept_logins():
-        listed = config.accounts(cfg, name)
-        if account == config.DEFAULT_ACCOUNT and name in labels.values():
-            table, after = shipped, None
-        elif name in cfg["providers"] and account not in (config.DEFAULT_ACCOUNT, *listed):
-            table, after = cfg, [*(listed or [config.DEFAULT_ACCOUNT]), account]
+        listed = config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]
+        if name in labels.values():
+            table, after = shipped, None if account == config.DEFAULT_ACCOUNT else [account]
+        elif name in cfg["providers"] and account not in listed:
+            table, after = cfg, [*listed, account]
         else:
             continue       # it is in ak again, or has no provider to go back to
         try:
@@ -3079,7 +3081,16 @@ def config_add_provider(cfg, keyboard):
             continue
         if passed:
             who = re.search(r"; logged in as (.+)$", said)
-            kept[f"Use {who[1] if who else label}"] = (name, after)
+            offers.append((who[1] if who else "", label, (name, after)))
+    kept = {}
+    for who, label, offer in offers:
+        text = (f"Use {who} ({label})" if who and [other for other, _, _ in offers].count(who) > 1
+                else f"Use {who or label}")
+        shown, number = text, 1
+        while shown in kept:
+            number += 1
+            shown = f"{text} ({number})"
+        kept[shown] = offer
     keys = ADD_KEYS["add"][0 if terminal.utf8() else 1] + "   esc back"
 
     def around():     # the screen the list is drawn on, drawn again on a resize
@@ -3090,7 +3101,7 @@ def config_add_provider(cfg, keyboard):
     if picked is None:
         return ""
     name, after = {**more, **kept}.get(picked) or (labels[picked], None)
-    if after:
+    if name in cfg["providers"]:
         return _add_subscription(cfg, keyboard, name, after, picked,
                                  () if picked in kept else ("login",))
     try:
@@ -3113,6 +3124,8 @@ def config_add_provider(cfg, keyboard):
         return f"the {harness} catalog names no model; {picked} is not added"
     model, before = models[0], copy.deepcopy(cfg)
     cfg["providers"][name] = shipped["providers"][name]
+    if after:                   # a subscription it had, back as its one login
+        cfg["providers"][name]["accounts"] = after
     cfg["models"][first] = {
         "harness": harness, "model": model["id"],
         "effort": _nearest(shipped["models"][first].get("effort"), model["efforts"]),
@@ -3166,7 +3179,8 @@ def config_remove_provider(cfg):
     try:
         # first, so nothing leaves ak unrecorded; a removal that fails below leaves its login
         # in ak, and a login in ak is never offered
-        config.keep_login(name, account or config.DEFAULT_ACCOUNT, picked)
+        config.keep_login(name, account or config.DEFAULT_ACCOUNT, picked if account else
+                          config.account_label(cfg, name, config.DEFAULT_ACCOUNT, picked))
         if account is not None:
             cfg["providers"][name]["accounts"].remove(account)
         else:
