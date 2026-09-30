@@ -145,6 +145,41 @@ class EndsTheGrower(unittest.TestCase):
         self.assertFalse(self.never.exists())    # nothing ran after the third kill
         self.assertIn(SCOPE, self.stopped)       # the loop stopped its own scope last
 
+    def test_a_worker_the_cap_killed_resumes_until_the_third(self):
+        # The reviewer's case: the worker itself was the process that grew, twice. Two
+        # SIGKILLs inside a minute would park the run as someone's on purpose; the cap's
+        # kills resume instead, and its own count ends the run at the third.
+        calls, logs = [], []
+
+        def worker_call(cfg, name, text, workspace, target, role, session, **_kw):
+            calls.append(session)
+            Path(target).mkdir(parents=True, exist_ok=True)
+            if len(calls) <= kills:
+                self.events.write_text(f"oom {len(calls)}\noom_kill {len(calls)}\n")
+                return -9, "", "session-1", False
+            (Path(target) / "final.md").write_text("done\n")
+            return 0, "done", "session-1", False
+        out = self.run_dir / "round-1" / "executor"
+        for kills in (2, 3):
+            calls.clear()
+            self.events.write_text("oom 0\noom_kill 0\n")
+            run._OOM_SEEN.clear()
+            with patch.object(worker, "call", side_effect=worker_call):
+                if kills == 2:
+                    code, _text, _sid, _killed = run.call_retrying(
+                        config.load(), "opus", "fix-api", self.root, out, "executor", None,
+                        logs.append)
+                    self.assertEqual((code, len(calls)), (0, 3))
+                    self.assertEqual([line for line in logs if " hit " in line],
+                                     [HIT.format(1), HIT.format(2)])
+                    self.assertEqual(sum("at the memory cap; resuming" in line
+                                         for line in logs), 2)
+                else:
+                    with self.assertRaises(run.MemoryCapped):
+                        run.call_retrying(config.load(), "opus", "fix-api", self.root, out,
+                                          "executor", None, logs.append)
+                    self.assertEqual(len(calls), 3)
+
     def test_a_seat_scope_is_not_the_runs(self):
         # A run from a seat's shell sits in the seat's scope, whose kills are not the run's.
         (self.root / "own-cgroup").write_text(

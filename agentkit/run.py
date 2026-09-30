@@ -1547,7 +1547,9 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     same way, at once: another provider, or a run blocked on that line.
 
     A worker exit by signal is neither: it reads as the signal, resumes once at once, and on
-    a second kill inside a minute raises `Killed` for the run to park on.
+    a second kill inside a minute raises `Killed` for the run to park on.  A kill the run's
+    memory cap made -- the worker was the process that grew -- is no one's on purpose: it
+    resumes each time, and the cap's own count ends the run at the third.
 
     `handover`, when the turn loop gives one, is what a second transient failure in a row
     tries before its wait: called with the failure's detail, it moves the role to the next
@@ -1569,7 +1571,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     env = {**run_child_env(), "AK_RUN_ROLE": "worker",
            "AK_RUN_LOG": str(out_dir.parent.parent / "log.txt")}
     attempt, calls, refills, last_kill, account = 1, 0, 0, None, None
-    handover_tried = False
+    handover_tried, capped = False, False
 
     def turn(text, target, session):
         """One call, with a login failure taken aside before it costs a wait.
@@ -1578,7 +1580,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         it, so a retry that outlived the sweep would otherwise run a whole turn no
         record wants anymore.
         """
-        nonlocal account
+        nonlocal account, capped
         stop_check(out_dir.parent.parent)
         account = usage.account(cfg, entry["provider"])[0]
         named = env if account is None else {**env, **config.account_env(account)}
@@ -1591,7 +1593,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             expired.session = expired.session or session
             raise
         finally:
-            memory_cap_check(out_dir.parent.parent, log)   # however the turn ended
+            capped = memory_cap_check(out_dir.parent.parent, log)   # however the turn ended
         note_turn_meters(cfg, name, target, account)
         return result
 
@@ -1714,6 +1716,10 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             # inside the minute is somebody -- or something -- killing it on purpose,
             # and the run parks for a person instead of retrying into it.
             worker.kill_marked(env.get("AGENTKIT_RUN"), log=log)
+            if capped:
+                log(f"WARN {role} {name} {sig} at the memory cap; resuming"
+                    + (f", resuming session {session}" if session else ""))
+                continue
             now = time.time()
             if last_kill is not None and now - last_kill < KILL_WINDOW:
                 raise Killed(f"{role} {name} {sig} twice within a minute; "
@@ -8643,6 +8649,9 @@ class MemoryCapped(Exception):
 def memory_cap_check(run_dir, log):
     """Say each process the kernel ended at this run's cap, and end the run at the third.
 
+    True when this call found a kill the last one had not, so a caller can tell a death
+    the cap made from anyone else's.
+
     Called as each worker turn and each done-when command ends.  The count is read
     from the cgroup this loop runs in, and only when that is the run's own scope: a
     run from a seat's shell sits in the seat's, whose kills are not the run's.
@@ -8650,24 +8659,25 @@ def memory_cap_check(run_dir, log):
     state = (read_state(Path(run_dir)) if run_dir is not None else None) or {}
     scope, cap = state.get("scope"), state.get("memory_cap_mb")
     if type(cap) is not int or cap <= 0 or not scope_is_real(scope):
-        return
+        return False
     try:
         line = next(row for row in orch.OWN_CGROUP.read_text().splitlines()
                     if row.startswith("0::"))
     except (OSError, StopIteration):
-        return
+        return False
     cgroup = line[3:].strip().rstrip("/")
     if cgroup.rsplit("/", 1)[-1] not in _scope_units(scope):
-        return
+        return False
     kills = _oom_kill_count(cgroup)
     if kills <= _OOM_SEEN.get(scope, 0):
-        return
+        return False
     _OOM_SEEN[scope] = kills
     reason = memory_cap_line(cap)
     log(f"{reason.removeprefix('killed: ')} hit ({min(kills, MEMORY_CAP_KILLS)} of "
         f"{MEMORY_CAP_KILLS}): the process that grew was ended")
     if kills >= MEMORY_CAP_KILLS:
         raise MemoryCapped(reason)
+    return True
 
 
 def conclude_memory_cap(run_dir, state, reason, stop=True):
