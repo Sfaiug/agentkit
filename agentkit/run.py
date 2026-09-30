@@ -6338,13 +6338,25 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             wt = config.WORK / run_dir.name
             wt.mkdir(parents=True, exist_ok=True)
         else:
-            if receipt.get("followup"):
-                fetch(repo, "origin", "--prune", check=True)
+            # cut from the base as origin has it now: a local branch, or a tracking ref nothing
+            # has fetched lately, can stand merges behind, and a round spent there is spent on
+            # code that no longer exists.  Offline, the local ref is the best there is.
+            try:
+                code, out = fetch(repo, "origin", "--prune")
+            except Stopped as stop:
+                code, out = None, str(stop)
             base = meta.get("base") or default_base(repo, log)
             # where the PR goes: a run cut from `dev` can still be meant for `main`
             target = meta.get("target") or base
+            ref = base
+            if code != 0:
+                log(f"WARN git fetch origin failed; basing this run on the local {base}: "
+                    f"{out[-400:]}")
+            elif git(repo, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{base}",
+                     check=False):
+                ref = f"origin/{base}"
             # a branch name moves with the executor's commits, so pin the diff to the commit it names
-            base_sha = git(repo, "rev-parse", "--verify", f"{base}^{{commit}}")
+            base_sha = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
             from_branch = (meta.get("from") or "").strip()
             if from_branch and opts["--no-worktree"]:
                 raise config.Error(f"{task_path}: from: needs a worktree; "
