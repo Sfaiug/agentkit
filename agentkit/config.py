@@ -564,7 +564,7 @@ def efforts(harness, model=None, now=False, ask=True):
     it has in hand, for a draw.
     """
     if model is not None:
-        for entry in catalog_now(harness, ask) if now else catalog(harness):
+        for entry in catalog_now(harness, ask=ask) if now else catalog(harness):
             if entry["id"] == model and entry["efforts"]:
                 return list(entry["efforts"])
     block = manifest(harness).get("effort")
