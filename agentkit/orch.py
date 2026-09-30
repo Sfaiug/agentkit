@@ -3391,7 +3391,9 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     if conversation and not dry_run:
         extra["conversation"] = conversation
         extra["id_source"] = LAUNCHER
-    config.save_session(cfg, name, model, workers, extra)
+    record = config.save_session(cfg, name, model, workers, extra)
+    if not dry_run:
+        config.remember_defaults(record)
     # a name may be used again once its seat is gone, and this seat has said nothing yet: the
     # last message of the one before it is not this one's state, and a question it left
     # standing on Discord is closed rather than dropped with its card -- by a start, never by
@@ -3459,7 +3461,7 @@ def ensure(cfg, name, log=print, saved=False):
     if conversation:
         extra["conversation"] = conversation
         extra["id_source"] = LAUNCHER
-    config.save_session(cfg, name, model, workers, extra)
+    config.remember_defaults(config.save_session(cfg, name, model, workers, extra))
     from . import watch
     watch.forget(name, acknowledge=False)  # cron may reset a latch, never answer a question
     launch(name, model, seat_cwd(), cmd, conversation)
