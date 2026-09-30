@@ -232,19 +232,25 @@ class RedTargetRepair(unittest.TestCase):
 
     def test_one_repair_per_command_per_tip_however_it_ended(self):
         _, owner, self.wt = red.make_repos(self.root)
-        tip = run.git(owner, "rev-parse", "HEAD")
         self.red_run("first", "seat")
-        endings = {"failed": {"state": "fail", "verdict": "FAIL"},
-                   "passed unmerged": {"state": "pass", "verdict": "PASS"},
-                   # a receipt from before `question_tip`: its base is the tip it asked about
-                   "blocked, old receipt": {"state": "blocked", "verdict": "BLOCKED",
-                                            "error": QUESTION,
-                                            "blocked": f"## Blocked\n{QUESTION}"}}
-        for word, ending in endings.items():
+        # failed or passed unmerged as the loop records it: based on the tip it was queued
+        # at, the repair fetched the next red one (an executor's own rebase moves no base)
+        # and ended there; a blocked receipt from before `question_tip` has only its base
+        endings = {"failed": (True, {"state": "fail", "verdict": "FAIL"}),
+                   "passed unmerged": (True, {"state": "pass", "verdict": "PASS"}),
+                   "blocked, old receipt": (False, {"state": "blocked", "verdict": "BLOCKED",
+                                                    "error": QUESTION,
+                                                    "blocked": f"## Blocked\n{QUESTION}"})}
+        for word, (fetched, ending) in endings.items():
             with self.subTest(word):
                 name = self.prepared[-1][0]
                 repair = config.RUNS / name
-                run.save_state(repair, {**run.read_state(repair), **ending, "base_sha": tip,
+                lp, _, _ = red.make_loop(self.root / name, self.wt, ["true"])
+                lp.state["repair"] = run.read_state(repair)["repair"]
+                tip = self.move(owner) if fetched else lp.state["base_sha"]
+                run.save_state(repair, {**run.read_state(repair), **ending,
+                                        "base_sha": lp.state["base_sha"],
+                                        **(run.question_tip(lp) if fetched else {}),
                                         "finished_at": time.time()})
                 # its waiter stays parked on it while that tip stands ...
                 self.spawned.clear()

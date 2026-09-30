@@ -3725,8 +3725,8 @@ def repair_open(state, tip):
 
     The one answer to both "does this red get a repair" and "do its waiters retry": one
     repair per command per tip.  On its way it does, on any tip.  Ended, it holds the tip it
-    tried -- the one its question is about (`question_tip`), else the one its branch last
-    stood on (`base_sha`, all a receipt from before `question_tip` has) -- unless it merged,
+    tried -- the one it ended on (`question_tip`), else the one its branch last stood on
+    (`base_sha`, all a receipt from before `question_tip` has) -- unless it merged,
     which moved the target, or found the command passing there (`not needed`).  Failed,
     passed unmerged or blocked, another run of it on the same tip would only repeat it; a
     target that moved to a tip it never tried is a new red.
@@ -3738,11 +3738,12 @@ def repair_open(state, tip):
 
 
 def question_tip(lp):
-    """What a repair ending `blocked` records as the tip its question is about.
+    """What a repair records as it ends as the tip it tried: the one a question is about.
 
     The target as its checkout last fetched it: its start, its executor and its integration
     each fetch, and any of them can read a newer tip than the one it was queued at or based
-    on, so the newest it saw is the one its question can be about.
+    on -- an executor that rebases onto it moves no `base_sha` -- so the newest it saw is the
+    one it failed on, passed on or asks about.
     """
     if not lp.state.get("repair"):
         return {}
@@ -6596,7 +6597,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     except Dead as exc:
         log(f"ERROR {exc}")
         state.update({"state": "error", "verdict": "ERROR", "error": str(exc),
-                      "finished_at": time.time()})
+                      "finished_at": time.time(), **question_tip(lp)})
         park_error(run_dir, state)
         save_state(run_dir, state)
         write_result(run_dir, state, cmds, log, cfg)
@@ -6617,7 +6618,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
 
     # a parked run is no ending at all: `waiting` is the tick's, and its reason stands
     if state.get("state") != "waiting":
-        state["state"] = "pass" if review_pass(state, cfg) else "fail"
+        state.update(state="pass" if review_pass(state, cfg) else "fail", **question_tip(lp))
     # a finished run waits on nothing: a quota mark, a refusal's retry, an error's
     # retry, or the harness a login parked it on, all die here, so a later delivery
     # retry inherits none of them.
@@ -12902,8 +12903,7 @@ def cmd_merge(argv):
     except Blocked as exc:
         # a fixer here can say the task is wrong as readily as one in a round: the delivery
         # retry ends `blocked` with the section, and no later command picks it up
-        state.update(state="blocked", verdict="BLOCKED", error=str(exc), blocked=exc.section,
-                     **question_tip(lp))
+        state.update(state="blocked", verdict="BLOCKED", error=str(exc), blocked=exc.section)
         note(lp, str(exc), failed=True)
     except config.Error as exc:
         # a git or gh that stopped -- including the one that reads the PR -- must leave this
@@ -12922,6 +12922,8 @@ def cmd_merge(argv):
         sampler.stop()
         sampler.join(timeout=2)
         history.close_step(run_dir.name, log=log)
+    if state.get("state") in ENDED:
+        state.update(question_tip(lp))
     state["finished_at"] = time.time()
     save_state(run_dir, state)
     write_result(run_dir, state, cmds, log, cfg)
