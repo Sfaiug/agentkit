@@ -41,7 +41,7 @@ RULES = [
      "pattern": "rate[ _-]?limit|quota|capacity|overload|usage[ _-]?limit",
      "names": r"quota[_-]?dry|run-quota|(cpu|unit)[ _]?quota|usage[ -]limit (reset|credit)",
      "home": ("adapters/", "agentkit/harness/"),
-     "max": 71},
+     "max": 66},
     # run.json has one writer, so its keys and their transitions can be read in one file.
     # Called through the module (`run.save_state`); watch.py's own `save_state` writes the
     # watcher's state, not a run record.

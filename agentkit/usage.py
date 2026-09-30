@@ -121,8 +121,8 @@ def probe_refused(error):
     out with, so neither may be read as a logout, and neither is a reason to throw away the
     reading it could not replace.  Nothing prints these words: a row says the reading's
     age instead, and this answer only decides whether the probe asks `auth` and whether the
-    last reading stands.  A rate limit is read in the harness package's words, whole
-    (`harness.limited`): a `429` inside a longer number is none.
+    last reading stands.  A 429 is read in the harness package's words, whole
+    (`harness.limited`): one inside a longer number is none.
     """
     text = str(error or "")
     if limited(text):

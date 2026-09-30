@@ -1469,7 +1469,7 @@ def ran_dry(code, said, harness, refusal=False):
 
     Its words and not ours: they come from `[stall] quotas` in adapters/<harness>.toml, the
     same list the babysitter reads off a seat's screen, each a whole word (`Harness.failure`);
-    a rate limit among them parks a worker's account like any other.
+    a LIMITED one parks a worker's account as a SPENT one does.
     A non-zero exit is as required here as it is for `transient`, because a worker that exited
     0 said what it meant to say.  The scoped terminal refusal path may pass ``refusal`` for an
     exit-zero turn that never answered.

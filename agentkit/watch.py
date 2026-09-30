@@ -1157,7 +1157,7 @@ def failed_on(harness, lines):
 
     The last line is the error line.  One that names no failure of its own -- `Goal stalled`,
     `Error ID: ...` -- is a trailer, read with the line it closes; nothing above is read, so a
-    quota word in the model's answer is never the provider's.
+    word in the model's answer is never the provider's.
     """
     plugin = orch.harness_plugin(harness)
     found = plugin.failure(lines[-1]) if lines else (None, None)
@@ -1174,8 +1174,8 @@ def stalled_on(harness, tail, session, log):
             log(f"{session}: ignored {mark!r}; newer line {lines[-1]!r} is not known chrome")
         return None
     # Quota and goal text can coexist. The quota policy must run before goal resume.
-    outcome, quota = failed_on(harness, lines)
-    return (quota if outcome in (SPENT, LIMITED)
+    outcome, word = failed_on(harness, lines)
+    return (word if outcome in (SPENT, LIMITED)
             else next(mark for mark in stalls(harness) if says(lines[-1], mark)))
 
 
