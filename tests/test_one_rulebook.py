@@ -398,6 +398,17 @@ class OneRulebook(unittest.TestCase):
             self.assertTrue(path.is_file() and not path.is_symlink(), rel)
             self.assertEqual(path.read_text(), f"the user's own {rel}\n", rel)
 
+    def test_install_leaves_the_caller_s_grok_home_alone(self):
+        grok = self.home / "caller-grok"
+        (grok / "hooks").mkdir(parents=True)
+        (grok / "hooks/agentkit.json").write_text("the caller's own hooks\n")
+        home = self.home / "inheriting"
+        home.mkdir()
+        with patch.dict(os.environ, {"GROK_HOME": str(grok)}):
+            self.installed(home)
+        self.assertEqual([path.name for path in (grok / "hooks").iterdir()], ["agentkit.json"])
+        self.assertEqual((grok / "hooks/agentkit.json").read_text(), "the caller's own hooks\n")
+
     def adding_a_harness(self):
         """The adapter contract, from its heading to the next section's."""
         text = (REPO / "docs/guide.md").read_text()
