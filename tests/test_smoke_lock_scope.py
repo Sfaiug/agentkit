@@ -25,9 +25,8 @@ from agentkit import run
 
 SMOKE = (REPO / "tests/smoke.sh").read_text()
 E2E = (REPO / "tests/e2e-fresh.sh").read_text()
-HOST_LOCK = "SMOKE_LOCK=/tmp/agentkit-smoke-remote.lock"
 CHECK4 = SMOKE[SMOKE.index("# --- 4: ak run end to end"):SMOKE.index("# --- 5: notify")]
-LOCK_CODE = SMOKE[SMOKE.index(HOST_LOCK):SMOKE.index("# The test hook")]
+LOCK_CODE = SMOKE[SMOKE.index("\nSMOKE_LOCK=") + 1:SMOKE.index("# The test hook")]
 WAITING = "check 4: waiting for another suite's turn"
 
 # Stand-ins for what check 4 calls out to.  Each notes whether another process could take the
@@ -72,7 +71,7 @@ ak() {
 }
 '''
 DELIVERY = '''import fcntl, os, sys
-fd = os.open(os.environ["SMOKE_LOCK_FILE"], os.O_RDONLY)
+fd = os.open(os.environ["AK_SMOKE_LOCK"], os.O_RDONLY)
 try:
     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     state = "free"
@@ -98,10 +97,9 @@ class CheckFourAlone(unittest.TestCase):
         self.lock.touch(0o644)
         origin = self.root / "origin.git"
         subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
-        self.assertEqual(LOCK_CODE.count(HOST_LOCK), 1)
         script = "\n".join([
             "set -uo pipefail",
-            LOCK_CODE.replace(HOST_LOCK, f"SMOKE_LOCK={self.lock}"),
+            LOCK_CODE,
             f". {REPO}/tests/acceptance.sh",
             FAKES,
             'ok "3 a check before check 4"',
@@ -113,7 +111,7 @@ class CheckFourAlone(unittest.TestCase):
         self.script = self.root / "suite.sh"
         self.script.write_text(script)
         self.env = {**os.environ, "HOME": str(self.root / "home"), "WORK": str(self.work),
-                    "REPO": str(repo), "ORIGIN": str(origin), "SMOKE_LOCK_FILE": str(self.lock),
+                    "REPO": str(repo), "ORIGIN": str(origin), "AK_SMOKE_LOCK": str(self.lock),
                     "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
         for name in ("AGENTKIT_RUN", "AK_RUN_ROLE", "AGENTKIT_SESSION", "AK_NOTIFY_SINK_LOG"):
             self.env.pop(name, None)
@@ -210,9 +208,10 @@ class CheckFourAlone(unittest.TestCase):
                             SMOKE[SMOKE.rfind("\n", 0, at) + 1:SMOKE.find("\n", at)])
 
     def test_the_e2e_gate_locks_a_file_of_its_own(self):
-        lock = re.search(r"^SMOKE_LOCK=(\S+)$", E2E, re.M).group(1)
-        self.assertNotEqual(f"SMOKE_LOCK={lock}", HOST_LOCK)
-        self.assertIn("agentkit-e2e", lock)
+        smoke, e2e = (re.search(r"^SMOKE_LOCK=\S*?(/tmp/[\w.-]+)\}?$", text, re.M).group(1)
+                      for text in (SMOKE, E2E))
+        self.assertEqual(smoke, "/tmp/agentkit-smoke-remote.lock")
+        self.assertEqual(e2e, "/tmp/agentkit-e2e-remote.lock")
 
 
 class TwoSuitesApart(unittest.TestCase):

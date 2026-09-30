@@ -45,9 +45,9 @@ export AK_MAX_RUNS=0
 # alone takes this host-wide lock, from just before it seeds the remote until its delivery is
 # read, and every other check runs while another suite holds it.
 # The lock file is created world-readable and locked through a read-only descriptor, so suites
-# running as different accounts all take it.  $AK_SMOKE_LOCK_WAIT overrides the hour-long wait,
-# for tests.
-SMOKE_LOCK=/tmp/agentkit-smoke-remote.lock
+# running as different accounts all take it.  $AK_SMOKE_LOCK and $AK_SMOKE_LOCK_WAIT override
+# the file and the hour-long wait, for tests, which never queue behind the host's suites.
+SMOKE_LOCK=${AK_SMOKE_LOCK:-/tmp/agentkit-smoke-remote.lock}
 SMOKE_LOCK_WAIT=${AK_SMOKE_LOCK_WAIT:-3600}
 SMOKE_LOCK_WAITING="check 4: waiting for another suite's turn"
 SMOKE_LOCK_PID=""
