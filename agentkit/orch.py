@@ -75,19 +75,26 @@ POPUP_PADDING = 1                     # ... the column and row it leaves blank i
 DIM = f"fg=#{terminal.STATE_STYLES['dim'][2]}"   # its border, and the session behind it
 FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, hands it variables
 # What `Ctrl-b m` runs in the background for a popup that floats (`tmux_conf`), `p` the pane it
-# opens over: the first popup over it keeps the pane's own style, every one counts itself in,
-# the pane draws dim, the popup is held until it is down, and the last one down puts the style
-# the pane had back -- none, or its own, exactly.  It ends in `true` whatever failed (a pane
-# stopped under it), because tmux shows a job that ends otherwise over the pane.
-FLOAT = ('o() { tmux show-options -pqv -t "$p" "$1"; }; n=$(o @ak_floats); '
-         '[ -n "$n" ] || tmux set-option -p -t "$p" @ak_was "$(o window-style)"; '
+# opens over: the first popup over it keeps the style the pane has of its own, if it has one
+# (`h`), every one counts itself in, the pane draws dim, the popup is held until it is down, and
+# the last one down puts back exactly what the pane had.  Each step holds the pane's own tmux
+# lock, so two popups over one pane never count, keep or put back over each other, and every
+# lock is let go by a command of its own, which a command failing before it cannot skip.  It
+# ends in `true` whatever failed (a pane stopped under it), because tmux shows a job that ends
+# otherwise over the pane.
+FLOAT = ('o() { tmux show-options -pqv -t "$p" "$1"; }; '
+         'h() { [ -n "$(tmux show-options -pq -t "$p" "$1")" ]; }; '
+         'l() { tmux wait-for "$1" "ak-float$p"; }; l -L; n=$(o @ak_floats); '
+         'if [ -z "$n" ] && h window-style; then '
+         'tmux set-option -p -t "$p" @ak_was "$(o window-style)"; fi; '
          'tmux set-option -p -t "$p" @ak_floats $((${n:-0} + 1)) \\; '
-         'set-option -p -t "$p" window-style %(dim)s; '
-         'tmux %(popup)s -c "$c" -t "$p" %(command)s; n=$(o @ak_floats) was=$(o @ak_was); '
+         'set-option -p -t "$p" window-style %(dim)s; l -U; '
+         'tmux %(popup)s -c "$c" -t "$p" %(command)s; l -L; n=$(o @ak_floats); '
          'if [ "${n:-1}" -gt 1 ]; then tmux set-option -p -t "$p" @ak_floats $((n - 1)); '
-         'else tmux set-option -pu -t "$p" @ak_floats \\; set-option -pu -t "$p" @ak_was; '
-         'if [ -n "$was" ]; then tmux set-option -p -t "$p" window-style "$was"; '
-         'else tmux set-option -pu -t "$p" window-style; fi; fi; true')
+         'elif h @ak_was; then tmux set-option -p -t "$p" window-style "$(o @ak_was)" \\; '
+         'set-option -pu -t "$p" @ak_was \\; set-option -pu -t "$p" @ak_floats; '
+         'else tmux set-option -pu -t "$p" window-style \\; set-option -pu -t "$p" @ak_floats; '
+         'fi; l -U; true')
 SMALL_CLIENT = "#{||:#{e|<:#{client_width},60},#{e|<:#{client_height},25}}"
 HINT = "Ctrl-b m  menu"   # the right half of every seat's status bar: the one key
 CLOSE_HINT = "Ctrl-b m  x close"   # ... and of a done one's, which that menu's `x` closes at once
