@@ -1,6 +1,7 @@
 """agentkit: a fetch that meets another fetch on the same ref goes again, never ends a passed run.
 
-Offline: a throwaway bare `origin` and a passed run's clone of it under a temp dir, with a
+Offline: a throwaway bare `origin` and a passed run's clone of it in the system temp dir
+(never the checkout, where an interrupted run's fake `git` could be committed), with a
 temporary HOME. A fake `git` first on PATH answers the run's first fetches the way the
 loser of two fetches racing for `refs/remotes/origin/main` hears it, and hands every other
 call to the real git. The landing is the real one; the PR steps after the push are stubs.
@@ -24,11 +25,15 @@ URL = "https://github.com/acme/widget/pull/7"
 LOCKED = ("error: cannot lock ref 'refs/remotes/origin/main': is at 1111111 but expected 2222222\n"
           " ! 2222222..3333333  main       -> origin/main  (unable to update local ref)")
 UNREACHABLE = "fatal: unable to access 'https://github.com/acme/widget/': Could not resolve host"
+# a stale name in the way of one ref beside a lost race on another: no retry writes it
+STALE = (LOCKED + "\nerror: cannot lock ref 'refs/remotes/origin/topic': "
+         "'refs/remotes/origin/topic/child' exists; cannot create 'refs/remotes/origin/topic'")
 ALWAYS = 10 ** 6
 FAKE_GIT = """#!/bin/sh
 if [ "$1" = -C ] && [ "$3" = fetch ]; then
     echo fetch >> "$FRR_FETCHES"
     if [ $(wc -l < "$FRR_FETCHES") -le "$FRR_FAILS" ]; then
+        sleep "$FRR_DELAY"
         printf '%s\\n' "$FRR_ANSWER" >&2
         exit 1
     fi
@@ -40,7 +45,7 @@ exec {git} "$@"
 class FetchRefRace(unittest.TestCase):
     def setUp(self):
         real_git = shutil.which("git")
-        tmp = tempfile.TemporaryDirectory(prefix=".fetch-ref-race-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix="fetch-ref-race-")
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         stack = ExitStack()
@@ -60,6 +65,7 @@ class FetchRefRace(unittest.TestCase):
             "AK_RUN_ROLE": "", "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "FRR_FETCHES": str(self.fetches), "FRR_FAILS": "0", "FRR_ANSWER": "",
+            "FRR_DELAY": "0",
             "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}))
         stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -122,9 +128,10 @@ class FetchRefRace(unittest.TestCase):
         run.save_state(run_dir, state)
         return run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context", [])
 
-    def land(self, fails, answer):
-        """Land the run while its first `fails` fetches answer `answer` and fail."""
-        os.environ.update(FRR_FAILS=str(fails), FRR_ANSWER=answer)
+    def land(self, fails, answer, delay=0):
+        """Land the run while its first `fails` fetches answer `answer` after `delay` seconds."""
+        self.fetches.unlink(missing_ok=True)
+        os.environ.update(FRR_FAILS=str(fails), FRR_ANSWER=answer, FRR_DELAY=str(delay))
         return run.merge(self.lp)
 
     def attempts(self):
@@ -139,16 +146,22 @@ class FetchRefRace(unittest.TestCase):
         self.assertGreater(self.attempts(), 2)
 
     def test_any_other_fetch_failure_is_reported_as_before(self):
-        self.assertFalse(self.land(ALWAYS, UNREACHABLE))
-        self.assertEqual(self.attempts(), 1)
-        self.assertEqual(self.lp.state["merge_note"], f"git fetch origin failed: {UNREACHABLE}")
-        self.assertTrue(self.lp.state["merge_failed"])
+        for answer in (UNREACHABLE, STALE):
+            with self.subTest(answer=answer):
+                self.assertFalse(self.land(ALWAYS, answer))
+                self.assertEqual(self.attempts(), 1)
+                self.assertEqual(self.lp.state["merge_note"],
+                                 " ".join(f"git fetch origin failed: {answer}".split()))
+                self.assertTrue(self.lp.state["merge_failed"])
         self.merges.assert_not_called()
 
     def test_a_ref_lock_outlasting_the_git_limit_is_reported_not_retried_forever(self):
-        with patch.object(run, "TOOL_CAP", 3):
-            self.assertFalse(self.land(ALWAYS, LOCKED))
-        self.assertGreater(self.attempts(), 1)
+        # each lost race answers after 1.5s: the second try is cut at the 2s limit, not given 2s
+        started = time.monotonic()
+        with patch.object(run, "TOOL_CAP", 2):
+            self.assertFalse(self.land(ALWAYS, LOCKED, delay=1.5))
+        self.assertLess(time.monotonic() - started, 2.5)
+        self.assertEqual(self.attempts(), 2)
         self.assertTrue(self.lp.state["merge_note"].startswith(
             "git fetch origin failed: error: cannot lock ref 'refs/remotes/origin/main'"))
         self.assertTrue(self.lp.state["merge_failed"])

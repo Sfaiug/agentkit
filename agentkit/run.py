@@ -138,8 +138,10 @@ BASE_BRANCH_MODIFIED = re.compile(r"Base branch was modified", re.I)
 GITHUB_5XX = re.compile(r"status code: 5\d\d|HTTP 5\d\d|Bad Gateway|Gateway Timeout|"
                         r"Service Unavailable|couldn't respond to your request in time", re.I)
 MERGE_RETRIES = 3      # how often either is re-fetched, re-checked and tried again
-# a fetch that lost the ref it updates to another process's fetch -- see `fetch`
-REF_LOCKED = re.compile(r"cannot lock ref|unable to update local ref", re.I)
+# a fetch that lost the ref it updates to another process: the ref moved under it, or git's
+# lock on it is held -- not a ref no retry can write, such as a stale name in its way; see `fetch`
+REF_LOCKED = re.compile(r"cannot lock ref '[^']*': (?:is at \w+ but expected \w+|"
+                        r"Unable to create '[^']*': File exists)")
 # what git and gh say when the prompt they wanted was refused; each is a stop, never a wait
 PROMPTED = re.compile(r"terminal prompts disabled|could not read (?:Username|Password)|"
                       r"prompts (?:are )?disabled|askpass", re.I)
@@ -425,13 +427,13 @@ def git(repo, *args, check=True):
     return out.strip()
 
 
-def git_out(repo, *args):
+def git_out(repo, *args, timeout=None):
     """(exit code, output) -- for the steps whose failure is a result to report, not an exception.
 
     A stop is never a result: a timeout, or a prompt it was refused, raises Stopped, so no
     caller can route it into conflict handling or read it as an ordinary non-zero exit.
     """
-    code, out, err = tool_run(["git", "-C", str(repo), *args])
+    code, out, err = tool_run(["git", "-C", str(repo), *args], timeout=timeout)
     if stopped(code, err):
         raise Stopped(f"git {' '.join(args)} stopped in {repo}: {(out + err).strip()}")
     return code, (out + err).strip()
@@ -443,13 +445,19 @@ def fetch(repo, *args, check=False):
     Every run's worktree shares one repository's refs, so two runs fetching at once race for
     the same remote-tracking ref and the loser's fetch fails on git's ref lock.  That lock
     already put the two in order: the loser goes again at once, until it goes through or
-    TOOL_CAP is spent, so a passed run is never handed back over another run's fetch.
+    TOOL_CAP, counted from its first try, is spent, so a passed run is never handed back over
+    another run's fetch.  Any other ref it could not write fails the fetch at once as before.
     """
     deadline = time.monotonic() + TOOL_CAP
-    while True:
-        code, out = git_out(repo, "fetch", *args)
-        if code == 0 or not REF_LOCKED.search(out) or time.monotonic() >= deadline:
-            break
+    code, out = git_out(repo, "fetch", *args)
+    while (code != 0 and time.monotonic() < deadline
+           and 0 < len(REF_LOCKED.findall(out)) == out.count("cannot lock ref")):
+        try:
+            code, out = git_out(repo, "fetch", *args, timeout=deadline - time.monotonic())
+        except Stopped:
+            if time.monotonic() < deadline:
+                raise       # refused a prompt, which no retry answers
+            break           # the limit ran out mid-try: the lock it kept losing is the answer
     if check and code != 0:
         raise config.Error(f"git fetch {' '.join(args)} failed in {repo}: {out}")
     return code, out

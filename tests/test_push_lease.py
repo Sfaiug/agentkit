@@ -60,8 +60,8 @@ class PushLease(unittest.TestCase):
         self.assertTrue(run.integrate(lp, "origin/main"))
         real = run.git_out
 
-        def stopped_after(cwd, *args):
-            answer = real(cwd, *args)
+        def stopped_after(cwd, *args, **kw):
+            answer = real(cwd, *args, **kw)
             if args[0] == "push":
                 raise run.Stopped("killed after origin took the push")
             return answer
@@ -116,12 +116,12 @@ class PushLease(unittest.TestCase):
         self.assertTrue(run.integrate(lp, "origin/main"))
         real = run.git_out
 
-        def racing(cwd, *args):
+        def racing(cwd, *args, **kw):
             if args[0] == "push":
                 # another run pushes the name, and a fetch in another worktree records it
                 self.take()
                 real(cwd, "fetch", "origin")
-            return real(cwd, *args)
+            return real(cwd, *args, **kw)
 
         with patch.object(run, "git_out", side_effect=racing):
             self.refused(lp)
