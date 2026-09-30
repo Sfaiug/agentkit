@@ -41,8 +41,9 @@ def offline(case):
 
     The sink posts nowhere and outranks any webhook, so a finished run cannot reach the
     owner's Discord; an inherited run directory would make a launch adopt the caller's run;
-    the sandbox's `agentkit-test` server is shared by every test that names it; and the one
-    live process is this one, under an identity no /proc read gave.
+    the sandbox's `agentkit-test` server is shared by every test that names it; the one
+    live process is this one, under an identity no /proc read gave; and the host's disk is
+    never full, or a launch collects by scanning the host's processes and sockets.
     """
     case.stack.enter_context(patch.dict(os.environ, {
         "AK_NOTIFY_SINK": "off", "AGENTKIT_DISCORD_WEBHOOK": "",
@@ -50,6 +51,7 @@ def offline(case):
     case.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
     case.stack.enter_context(patch.object(run, "process_identity", side_effect=lambda pid, **_kw: (
         {"boot": "fixture-boot", "ticks": 1, "started_at": 1.0} if pid == os.getpid() else None)))
+    case.stack.enter_context(patch.object(run, "disk_pressure", return_value=None))
 
 
 class Bar(Sandbox):
