@@ -4297,9 +4297,9 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
     lp.save()
     ok, dw_log = verify_work(lp)
     lp.log(f"done-when after the {how}: {'all passed' if ok else 'FAILED'}")
-    if not ok and target_fails(lp, upstream, dw_log):
-        return park_waiting(lp, f"{upstream} itself fails: {first_failure(dw_log)}",
-                            upstream, tip)
+    said = "" if ok else target_fails(lp, upstream, dw_log)
+    if said:
+        return park_waiting(lp, f"{upstream} itself fails: {said}", upstream, tip)
     # as after the final check: the rounds' history is the rounds' to write, and a gate that
     # passed before the merge began leaves this one nothing to be the same as -- and a
     # conflict round is no task round, so nothing of it enters that history either
@@ -4477,10 +4477,10 @@ def integrate(lp, upstream):
                                 lp.lap_every_sha = new_identity["head_sha"]
                         else:
                             drop_reserved_turn()    # the lap failed; the probe runs unheld
-                            if target_fails(lp, upstream, dw_log):
+                            said = target_fails(lp, upstream, dw_log)
+                            if said:
                                 return park_waiting(
-                                    lp, f"{upstream} itself fails: {first_failure(dw_log)}",
-                                    upstream, tip)
+                                    lp, f"{upstream} itself fails: {said}", upstream, tip)
                             if not lp.state.get("review_pending"):
                                 pending_review(lp, f"Re-review after the {how} of {upstream}.")
                             with released_gate_turn():
@@ -5007,7 +5007,8 @@ def _branch_only_path(wt, cmd, head, tip):
 
 
 def target_fails(lp, upstream, dw_log):
-    """Whether the landing check's first failing command fails on the target's own tip too.
+    """What the landing check's first failing command says on the target's own tip, when it
+    fails there too; "" when it does not.
 
     Runs land in parallel, and one whose target moved only under other files lands on its
     earlier checks without running them on the combined commit -- so the target can be red
@@ -5015,13 +5016,14 @@ def target_fails(lp, upstream, dw_log):
     the branch's to fix: the first failing command runs once, detached on the tip in this
     worktree, and a failure there parks the run `waiting` on the target instead of spending
     fixer rounds editing code its task never touched.  A pass means the branch broke it, and
-    the fixer rounds run as today.
+    the fixer rounds run as today.  The failure is the probe's own, in `first_failure`'s
+    words: a suite can fail on the target at another check than it did on the branch.
 
     A command naming a path the branch head has and the tip lacks is never probed: on the
     target the missing file alone would fail it, so the fixer rounds run as today and the
     log names the file the target lacks.
 
-    False when the check names no failing command, when the tree is dirty, and when the tip
+    "" when the check names no failing command, when the tree is dirty, and when the tip
     cannot be resolved or checked out: all of those leave the tree alone and run the fixer
     rounds as today.  A stop propagates, after the worktree is put back on the branch head,
     clean.  A probe of a `# once` command takes a heavy-suite turn; any other probe runs
@@ -5029,7 +5031,7 @@ def target_fails(lp, upstream, dw_log):
     """
     failed = failing_checks(dw_log)
     if not failed:
-        return False
+        return ""
     cmd = failed[0][0]
     try:
         tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
@@ -5037,14 +5039,14 @@ def target_fails(lp, upstream, dw_log):
     except Stopped:
         raise
     except config.Error:
-        return False
+        return ""
     if git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0:
-        return False
+        return ""
     missing = _branch_only_path(lp.wt, cmd, head, tip)
     if missing is not None:
         lp.log(f"--- merge: `{cmd}` names {missing}, which {upstream} lacks; "
                "no probe, the fixer runs")
-        return False
+        return ""
     branch = git(lp.wt, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     stop_check(lp.run_dir)
     before = set(dirty_paths(lp.wt))
@@ -5056,7 +5058,7 @@ def target_fails(lp, upstream, dw_log):
             detached = True     # may have switched mid-apply; put it back below
             raise
         if rc != 0:
-            return False
+            return ""
         detached = True
         lp.log(f"--- merge: `{cmd}` failed; probing it once on {upstream} ({tip[:12]})")
         probe_log = lp.run_dir / "target-probe.log"
@@ -5065,13 +5067,19 @@ def target_fails(lp, upstream, dw_log):
             with probe_log.open("ab") as progress:
                 progress.write(f"$ {cmd} (on {upstream} {tip})\n".encode())
                 progress.flush()
+                start = progress.tell()
                 code, _, killed = worker.limited(
                     ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
                     activity=probe_log, output=progress, stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=run_child_env())
         # as after a gate: a command that exited may still have left processes behind
         worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
-        return bool(killed or code != 0)
+        if not (killed or code != 0):
+            return ""
+        with probe_log.open("rb") as said:
+            said.seek(start)
+            output = said.read().decode(errors="replace")
+        return first_failure(f"$ {cmd}\n[exit {code}]\n{output}")
     finally:
         if detached:
             # the tree was clean when it was put aside, so every tracked edit and every
@@ -5185,9 +5193,10 @@ def final_check(lp, upstream):
         lp.state["final_check"] = {"outcome": "failed", "sha": sha, "line": failing}
         save_state(lp.run_dir, lp.state)
         drop_reserved_turn()    # the lap failed; the probe runs unheld
-        if target_fails(lp, upstream, text):
+        said = target_fails(lp, upstream, text)
+        if said:
             return park_waiting(
-                lp, f"{upstream} itself fails: {failing}", upstream,
+                lp, f"{upstream} itself fails: {said}", upstream,
                 git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False) or None)
         if fixed >= CONFLICT_ROUNDS:
             return park_waiting(
