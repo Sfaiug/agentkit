@@ -197,9 +197,12 @@ class ModelScreen(unittest.TestCase):
         before = screen.path.read_bytes()
         mark = len(screen.text())
         asked = screen.press(ENTER, lambda lines: lines[-1].strip() == "esc back")
-        self.assertIn("  Remove opus from the config?", asked)
+        at = asked.index("  Remove opus from the config?")
+        self.assertEqual(asked[at - 1:at + 2], ["", "  Remove opus from the config?",
+                                                "  Nothing new starts on it; + add a model "
+                                                "brings it back."])
         self.assertFalse(any(line.startswith("›") for line in asked), asked)
-        self.assertEqual(choices(screen, mark), ["› Keep", "  Remove"])
+        self.assertEqual(choices(screen, mark), ["› ✓ Keep", "  ✗ Remove"])
         lines = screen.press(ENTER, lambda lines: lines[-1] == KEYS["remove"])   # Enter keeps
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(ENTER, lambda lines: lines[-1].strip() == "esc back")

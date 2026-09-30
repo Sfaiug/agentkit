@@ -604,7 +604,7 @@ class Phone(Sandbox):
     def stop_answered(self, phone):
         """`Stop` picked on the question `x` asks under a row: Down onto it, then Enter."""
         phone.keys("Down")
-        phone.wait(lambda screen: any(re.fullmatch(r"[›>] Stop", line.strip())
+        phone.wait(lambda screen: any(re.fullmatch(r"[›>] [✗x] Stop", line.strip())
                                       for line in Terminal.inside(screen)), "Stop highlighted")
         phone.keys("Enter")
 
