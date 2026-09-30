@@ -119,7 +119,7 @@ class Breathing(Sandbox):
 
         def answer(timeout):
             if next(calls) == 39:
-                return "q"
+                return ""
             time.sleep(timeout)             # nothing typed: the wait runs to its frame
             return None
         waits = self.run_menu(answer)
@@ -149,7 +149,7 @@ class Breathing(Sandbox):
         self.assertEqual([motion.breath(at) for at in (0, 1, 2)], [0, 1, 0])
 
     def test_a_key_mid_animation_is_answered_within_100_ms(self):
-        script = iter([None] * 5 + [Key("down"), Key("char", "q")])
+        script = iter([None] * 5 + [Key("down"), Key("esc")])
         pressed = {}
 
         def answer(timeout):
@@ -170,7 +170,7 @@ class Breathing(Sandbox):
     def test_the_second_digit_and_the_stop_question_wait_breathing(self):
         self.words.update({f"zz-{n}": "done" for n in range(7)})     # ten seats: `1` may be 1x
         script = iter([Key("char", "1"), *[None] * 4, "resize", *[None] * 10, Key("char", "x"),
-                       *[None] * 6, Key("esc"), "q"])
+                       *[None] * 6, Key("esc"), ""])
 
         def answer(timeout):
             key = next(script)
@@ -196,7 +196,7 @@ class Breathing(Sandbox):
         self.assert_breathing(waits[asked][2], waits[asked + 1:asked + 7])
 
     def test_a_resize_as_a_frame_falls_due_draws_the_whole_screen(self):
-        script = iter([*[None] * 6, "resize", *[None] * 6, "q"])
+        script = iter([*[None] * 6, "resize", *[None] * 6, ""])
 
         def answer(timeout):
             step = next(script)
@@ -225,7 +225,7 @@ class Breathing(Sandbox):
             with self.subTest(still), ExitStack() as stack:
                 for each in patches:
                     stack.enter_context(each)
-                script = iter([None, "q"])
+                script = iter([None, ""])
                 waits = self.run_menu(lambda timeout: next(script))
                 self.assertEqual([timeout for timeout, _, _ in waits], [menu.TICK] * 2)
                 for _, _, written in waits:
