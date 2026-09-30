@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, harness, run, usage  # noqa: E402
+from agentkit import config, harness, orch, run, usage, watch  # noqa: E402
 
 # Every harness's adapter: `auth` answers yes, and `run` plays the next row of plan.json, the
 # last row again once it is the only one left, ending by the row's signal where it names one.
@@ -192,6 +192,116 @@ class QuotaWordsBounded(unittest.TestCase):
         with self.assertRaises(run.Killed):
             self.turn("astra", {"signal": 15, "final.md": "API Error: request interrupted"})
         self.sleep.assert_not_called()
+
+
+class SeatWordsBounded(unittest.TestCase):
+    """A seat's pane is read by the same reader: its error line, whole words, never the answer."""
+
+    def setUp(self):
+        QuotaWordsBounded.setUp(self)     # the same temporary HOME and fake usage layer
+        self.now = 1_800_000_000
+        self.stack.enter_context(patch.object(watch.time, "time", lambda: self.now))
+        self.seat = {"name": "fix-api"}
+        self.stack.enter_context(patch.object(orch, "sessions", lambda: [self.seat]))
+        self.harness, self.provider, self.pane = "claude", "anthropic", ""
+        self.stack.enter_context(patch.object(watch, "seat_model",
+                                              lambda *_: (self.harness, self.provider)))
+        self.stack.enter_context(patch.object(watch, "pane_text", lambda _: self.pane))
+        self.typed = []
+        self.stack.enter_context(patch.object(
+            watch, "type_into", side_effect=lambda _, keys, *a, **k: self.typed.append(keys) or True))
+        self.stack.enter_context(patch.object(watch.notify, "shaped", return_value=0))
+        self.reset = self.stack.enter_context(patch.object(watch, "spend_reset"))
+        self.window = self.stack.enter_context(
+            patch.object(watch, "window_ends", side_effect=lambda *_: self.now + 7200))
+
+    def tick(self, state, seconds=0, cfg=None):
+        self.now += seconds
+        watch.health({} if cfg is None else cfg, state, False, self.lines.append)
+
+    def test_a_429_inside_a_longer_number_on_a_seat_s_error_line_is_no_quota(self):
+        # Muse and OpenCode both list `429` as a stall signature and as a spent window.
+        for harness, error in (("muse", "◆ model failed: request req_84290 reset after 15290 "
+                                        "bytes (after 10 provider attempts)"),
+                               ("opencode", "Error: request req_84290 failed after 45290ms")):
+            with self.subTest(harness=harness):
+                self.assertIn("429", stall(harness)["signatures"])
+                self.assertIn("429", stall(harness)["quotas"])
+                pane = f"Reading the next file\n{error}\n"
+                mark = watch.stalled_on(harness, watch.pane_tail(pane), "fix-api", self.lines.append)
+                self.assertNotIn(mark, watch.quotas(harness))
+                entry = {}
+                watch.observe(entry, pane, harness, self.now)
+                self.assertEqual(entry["stall_line"], "" if mark is None else error)
+        # and a stalled seat whose only 429 is inside a number is typed at, never waited out
+        self.harness, self.provider, self.pane = "opencode", "mimo", error
+        state = watch.load_state()
+        self.tick(state)
+        self.tick(state, watch.STALL_WAIT)
+        self.assertEqual(self.typed, ["continue"])
+        self.reset.assert_not_called()
+        self.window.assert_not_called()
+
+    def test_a_quota_word_in_the_answer_above_an_unrelated_error_parks_nothing(self):
+        answer = ("Taught the retry to read usage limit reached and 429 Too Many Requests "
+                  "as a spent window.")
+        for harness, provider, pane in (
+                ("claude", "anthropic", f"● {answer}\n⎿ API Error: 500 Internal server error"),
+                ("codex", "openai", f"• {answer}\n■ Selected model is at capacity. "
+                                    "Please try a different model.")):
+            with self.subTest(harness=harness):
+                self.harness, self.provider, self.pane = harness, provider, pane
+                self.typed.clear()
+                state = watch.load_state()
+                self.tick(state)
+                self.tick(state, watch.STALL_WAIT)
+                # no reset is spent and no window waited on: the error is typed at, as any other
+                self.reset.assert_not_called()
+                self.window.assert_not_called()
+                self.assertNotIn("status", state["stalls"]["fix-api"])
+                self.assertEqual(self.typed, [watch.keystroke(harness, pane)])
+                self.assertEqual(self.marked, [])
+        # while the same words said by the harness on its own error line still wait on the window
+        self.pane, self.typed = "■ You've hit your usage limit.\nGoal stalled", []
+        self.reset.reset_mock()
+        state = watch.load_state()
+        self.tick(state)
+        self.tick(state, watch.STALL_WAIT)
+        self.reset.assert_called_once()
+        self.assertEqual(self.typed, [])
+        self.assertTrue(state["stalls"]["fix-api"]["status"].startswith("waiting until "))
+
+    def seat_account(self, harness, model, provider, pane):
+        """One pass of the account policy over that seat, which runs on its only login."""
+        config.save_session(self.cfg, "fix-api", model, [model], {"cwd": str(self.work)})
+        self.harness, self.provider, self.pane = harness, provider, pane
+        collected = {provider: {"provider": provider, "meters": [], "resets": 0}}
+        with patch.object(usage, "collect", return_value=collected), \
+                patch.object(watch, "boot_id", return_value="boot"):
+            return watch.seat_account(self.cfg, self.seat, harness, provider, pane, False,
+                                      self.lines.append)
+
+    def test_a_bare_rate_limit_is_still_retried_in_place(self):
+        for harness, model, provider, pane in (
+                ("claude", "opus", "anthropic", "⎿ API Error: 429 rate limit"),
+                ("codex", "astra", "openai",
+                 "■ exceeded retry limit, last status: 429 Too Many Requests")):
+            with self.subTest(harness=harness):
+                self.typed.clear()
+                watch.seat_write("fix-api", usage_refusal=None, usage_wait=None)
+                self.assertTrue(self.seat_account(harness, model, provider, pane))
+                self.now += watch.STALL_WAIT
+                self.assertTrue(self.seat_account(harness, model, provider, pane))
+                self.assertEqual(self.typed, [watch.keystroke(harness, pane)])
+                self.assertEqual(self.marked, [])
+        # a spent window on the same line parks the account it ran on
+        watch.seat_write("fix-api", usage_refusal=None, usage_wait=None)
+        pane = "⎿ API Error: 429 Usage limit reached"
+        self.seat_account("claude", "opus", "anthropic", pane)
+        self.now += watch.STALL_WAIT
+        self.seat_account("claude", "opus", "anthropic", pane)
+        self.assertEqual([call[1] for call in self.marked], ["anthropic"])
+
 
 if __name__ == "__main__":
     unittest.main()
