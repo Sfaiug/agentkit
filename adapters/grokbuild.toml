@@ -136,11 +136,6 @@ refusals = ["rate limit", "Rate limited", "quota exceeded", "too many requests",
 quotas = ["rate limit", "Rate limited", "quota exceeded", "too many requests", "429",
   "402", "Payment Required", "usage balance exhausted", "usage limit",
   "insufficient_quota", "insufficient quota", "payment required"]
-# `outages` say the provider is down, and the turn is waited out even beside one of the
-# `faults`, which say the harness never ran it and hand it to another at once.  A worker turn
-# reads these, `refusals` and `quotas` only as whole words, in what the harness itself said,
-# beside the words no harness owns (`STALL` in agentkit/harness/__init__.py).
-outages = ["The service is busy"]
 
 # Its login screen, in its own words: the session token in ~/.grok/auth.json went stale.
 [auth]

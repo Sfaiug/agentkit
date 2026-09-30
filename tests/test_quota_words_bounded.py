@@ -141,8 +141,8 @@ class QuotaWordsBounded(unittest.TestCase):
             self.turn("astra", {"code": 1, "stderr.log": f"{line}\n"})
         self.assertIn(line, str(broken.exception))
         self.sleep.assert_not_called()
-        # ... unless the provider was down beside it, in its own manifest's words: waited out
-        self.assertIn("Can't reach the API server", stall("claude")["outages"])
+        # ... unless the provider was down beside it, which is waited out on the same session
+        self.assertIn("Can't reach the API server", harness.STALL["outages"])
         self.sleep.side_effect = None
         code, text, session, _ = self.turn(
             "opus", {"code": 1, "stderr.log": "error: unknown option '--effort'\n"
@@ -151,7 +151,7 @@ class QuotaWordsBounded(unittest.TestCase):
         self.assertIn("Done.", text)
         self.assertEqual(self.sleep.call_args_list, [((60,),)])
         # and an outage the harness put where the answer belongs is waited out as before
-        self.assertIn("HTTP 5##", harness.STALL["outages"])
+        self.assertIn("HTTP~5##", harness.STALL["outages"])
         self.sleep.reset_mock()
         code, text, _, _ = self.turn("astra", {"code": 1, "final.md": "HTTP 520 upstream"}, DONE)
         self.assertEqual(code, 0)
@@ -164,16 +164,24 @@ class QuotaWordsBounded(unittest.TestCase):
         for model, stderr in (("opus", "Error: model claude-acme does not exist"),
                               ("astra", "Error: model gpt-acme not found"),
                               ("astra", "Error: model gpt-acme is not supported"),
+                              ("astra", "Error: modelnot_found"), ("astra", "model_notfound"),
                               ("opus", "Error: authentication_required"),
+                              ("opus", "Please /login"), ("opus", "Please run /log in"),
+                              ("astra", "invalid-api_key"), ("astra", "invalid x-api_key"),
                               ("opus", "error: unknown option '--effort'\nrequest count: 500"),
                               ("astra", "error: unknown option '--effort'\nrequest count: 529")):
             with self.subTest(stderr=stderr), self.assertRaises(run.CannotRun):
                 self.turn(model, {"code": 1, "stderr.log": stderr})
         self.sleep.assert_not_called()
-        # a warning that something else was not found is no fault: the empty turn is waited out
+        # a warning that something else was not found is no fault, and an outage in any of its
+        # spellings outranks one that is: the empty turn is waited out
         self.sleep.side_effect = None
         for stderr in ("warning: cached response was not found\nstream disconnected",
-                       "warning: cache directory does not exist\nstream disconnected"):
+                       "warning: cache directory does not exist\nstream disconnected",
+                       'warning: optional tool is not installed\n{"status":503}',
+                       'warning: optional tool is not installed\n{"status": 503}',
+                       "warning: optional tool is not installed\nHTTP: 503",
+                       "warning: optional tool is not installed\nAPI Error:503"):
             with self.subTest(stderr=stderr):
                 self.sleep.reset_mock()
                 code, _, _, _ = self.turn("astra", {"code": 1, "stderr.log": stderr}, DONE)
