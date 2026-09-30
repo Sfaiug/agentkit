@@ -38,7 +38,7 @@ class RedTargetRepair(unittest.TestCase):
                                    "state": "queued", "slot_waiting": True,
                                    **({"first": True} if opts.get("--first") else {})})
 
-    def spawn(self, run_dir, argv, expected=None):
+    def spawn(self, run_dir, argv, expected=None, park_as=False):
         self.spawned.append((run_dir.name, argv))
         return 0
 
