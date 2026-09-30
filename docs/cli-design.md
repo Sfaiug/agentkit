@@ -107,7 +107,7 @@ once. A resize in that half second does not cut it short, and any other key
 read in it is kept for after the seat -- a click with the screen it was made
 on. Esc, or a click on `esc leave`, leaves. A key that does nothing here is let go without a
 word. The key line is the example below -- `j/k move   enter open` leads it
-without UTF-8 -- and never offers `m` or `k` for pages.
+without UTF-8 -- and never offers `j` or `k` for pages.
 
 The menu draws on the alternate screen with the cursor hidden, going home and
 writing over the last draw line by line in one write, so it never flickers.
@@ -144,7 +144,7 @@ seat's tmux bar reads `Ctrl-b m  x close` on its right half.
 
 A stdin that is no terminal -- a pipe, a file, the smoke suite -- keeps the
 line menu: a key and Enter, and the key line
-`n new   x stop   c config   i info   esc leave`, with `m more   k previous`
+`n new   x stop   c config   i info   esc leave`, with `j more   k previous`
 joined on only while the list runs to more than one page; anything else typed
 answers `not a key: '<key>'`, `q` included. An empty line or the end of input
 leaves, as Esc does. There `x` asks `Stop [name]:` and `[y/N]`, and on every
@@ -268,7 +268,7 @@ split across pages; rows keep their global numbers. The heading says which
 page is up (`your projects 2/3`), and in compact mode the page is never the
 part that is cut. On a terminal the page up is the one the highlight is on,
 and there is no overview page, since the highlight is never on it; in a pipe
-`m` and `k` turn the pages.
+`j` and `k` turn the pages.
 
 ## Usage rows
 
