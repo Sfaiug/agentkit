@@ -1048,7 +1048,9 @@ def review_pass(state, cfg):
     if state.get("repo") and not all(evidence.get(key) for key in ("head_sha", "tree_sha")):
         return False
     if (evidence.get("returncode") != 0 or evidence.get("verdict") != "PASS"
-            or evidence.get("done_when") is not True
+            # a reviewed PR whose repository declares no suite ran nothing: None, not True
+            or not (evidence.get("done_when") is True
+                    or (state.get("review_pr") and evidence.get("done_when", False) is None))
             or evidence.get("executor") != state.get("executor")
             or not evidence.get("reviewer") or evidence["reviewer"] != state.get("reviewer")
             or not evidence.get("reviewer_provider")):
@@ -4284,7 +4286,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         verdict = "FAIL"
         overridden = f"the reviewer said PASS but {killed_word(code) or f'exited {code}'}"
         lp.log(f"WARN {overridden}; overriding to FAIL")
-    if not ok and verdict == "PASS":
+    if ok is False and verdict == "PASS":
         verdict = "FAIL"
         overridden = "the reviewer said PASS while done-when is failing"
         lp.log(f"WARN {overridden}; overriding to FAIL")
@@ -7117,8 +7119,10 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
     parts += ["", "## Done-when", "```", "\n".join(result_done_when(cmds, state)), "```", ""]
     parts += [final_check_line(state, cmds), ""]
     for entry in state["round_summaries"]:
-        parts += [f"## Round {entry['round']} ({entry['verdict']}, done-when "
-                  f"{'passed' if entry['done_when'] else 'failed'})", "", entry["summary"], ""]
+        dw = {True: "done-when passed", False: "done-when failed"}.get(
+            entry["done_when"], "done-when not run")
+        parts += [f"## Round {entry['round']} ({entry['verdict']}, {dw})", "",
+                  entry["summary"], ""]
     if state.get("error"):
         parts += ["## Why this run stopped", "", state["error"], ""]
     if state["verdict"] != "PASS" and state["findings"]:
@@ -13728,7 +13732,7 @@ def review_pr(cfg, run_dir, url, opts, log):
                                    run_dir=lp.run_dir)
         log(f"tests ({tests}): {'passed' if ok else 'FAILED'}")
     else:
-        ok, dw_log = True, "(AGENTS.md declares no `tests:` command; nothing was run)"
+        ok, dw_log = None, "(AGENTS.md declares no `tests:` command; nothing was run)"
         log("tests: AGENTS.md declares none")
     if is_own:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. "
