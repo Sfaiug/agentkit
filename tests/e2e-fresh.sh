@@ -239,7 +239,8 @@ cleanup_logs() {   # cleanup_logs <gate exit>: one archive of the latest failure
   if [ "$rc" != 0 ]; then
     # Never retain the borrowed token or phone private key with the evidence.
     archive="$INVHOME/.agentkit/tmp/e2e-fresh-failure.tar.gz"
-    if rm -f -- "$WORK/phone" "$WORK/phone.pub" "$WORK/ghenv" "$WORK/source.bundle" &&
+    if rm -f -- "$WORK/phone" "$WORK/phone.pub" "$WORK/ghenv" "$WORK/source.bundle" \
+         "$UH/.ak-e2e-env" &&
        mkdir -p -- "$(dirname -- "$archive")" &&
        staging=$(mktemp "$archive.XXXXXX") &&
        tar -czf "$staging" -C "$WORK" . &&
