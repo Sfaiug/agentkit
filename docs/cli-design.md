@@ -136,10 +136,12 @@ plain popup and says nothing (`orch.tmux_conf`, `terminal.inset`).
 seat it closes at once, with no question: `orch.cmd_stop` takes its runs,
 checkouts, conversation, state files and tmux session. Any other it asks about
 on the question card (Questions), under that seat's row, the rows below moving
-down: `Stop <name> and everything it runs?`, then how many runs stop with it and
-that its conversation cannot be reopened; the key line reads `esc back` while
-it asks. The key line says `x close` while a done seat is highlighted (in
-the popup, while its own seat is done) and `x stop` otherwise, and a done
+down: `Stop <name> and everything it runs?`, then how many runs stop with it
+and that the conversation stays and can be reopened; the key line reads `esc
+back` while it asks. The runs are counted off the draw, so the card is up at
+once: `Its runs stop` until the number lands. The key line says `x close` while
+a done seat is highlighted (in the popup, while its own seat is done) and
+`x stop` otherwise, and a done
 seat's tmux bar reads `Ctrl-b m  x close` on its right half.
 
 A stdin that is no terminal -- a pipe, a file, the smoke suite -- keeps the
@@ -179,7 +181,7 @@ Helpers: `terminal.confirm`, `terminal.choose`.
 
 Example:
 `  Stop fix-api and everything it runs?`
-`  2 runs stop with it, and its conversation cannot be reopened.`
+`  2 runs stop with it; the conversation stays and can be reopened.`
 `› ✓ Keep`
 `  ✗ Stop`.
 

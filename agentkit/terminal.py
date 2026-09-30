@@ -1115,14 +1115,16 @@ def confirm(question, meaning, answer, around, wait=None):
     blank line: `✓ Keep` first and highlighted, then `✗ <answer>` in the warn colour, read as
     `choose` reads them, so Enter or a click answers.  `around(card)` draws the screen it is
     asked on with the card's lines where they go and returns the row the first one landed on, or
-    None when there is none any more; it is called again on a resize, the card wrapped anew.
+    None when there is none any more; it is called again on a resize, the card wrapped anew, and
+    whenever `wait` answers None: a `meaning` that is a function is asked again on each draw.
     """
     keep, act = f"{glyph('done')} Keep", f"{glyph('FAIL')} {answer}"
 
     def drawn():
         room = layout_width() - 2
         card = ["", *(f"  {line}" for line in wrap(question, room)),
-                *(styled(f"  {line}", "dim") for line in wrap(meaning, room)), "", "", ""]
+                *(styled(f"  {line}", "dim") for line in wrap(
+                    meaning() if callable(meaning) else meaning, room)), "", "", ""]
         top = around(card)
         return top and top + len(card) - 3     # the choices' rows, the two before the last
     return choose([keep, act], keep, around=drawn, wait=wait, warn=act) == act
