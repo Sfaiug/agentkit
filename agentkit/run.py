@@ -613,6 +613,18 @@ def first_command(cmd):
     return cmd
 
 
+def declared_suite(wt, target=None):
+    """The `tests:` suite: the checkout's own declaration wins; a checkout branched before
+    the repository declared one, or one that edits it away, reads the target branch as
+    fetched instead (`origin/<target>`).
+    """
+    suite = declared(wt, "tests")
+    if not suite and target:
+        ref = target if target.startswith("origin/") else f"origin/{target}"
+        suite = declared_at(wt, ref, "tests")
+    return suite
+
+
 def with_suite(cmds, wt, target=None):
     """The done-when commands plus the declared `tests:` suite as a `# once` line.
 
@@ -622,14 +634,9 @@ def with_suite(cmds, wt, target=None):
     the same command is that line, so it runs once, not twice;
     so is a line that is the suite's bare first command, without its output plumbing,
     whitespace aside.  A line already marked `# once` keeps today's meaning: only one
-    identical to the suite is that line.  The checkout's own declaration wins; a checkout
-    branched before the repository declared one reads the target branch as fetched
-    instead (`origin/<target>`).
+    identical to the suite is that line.
     """
-    suite = declared(wt, "tests")
-    if not suite and target:
-        ref = target if target.startswith("origin/") else f"origin/{target}"
-        suite = declared_at(wt, ref, "tests")
+    suite = declared_suite(wt, target)
     if not suite:
         return cmds
     targets = {" ".join(suite.split())}
@@ -13397,7 +13404,7 @@ def review_pr(cfg, run_dir, url, opts, log):
         wt, branch = Path(prior["worktree"]), prior["branch"]
     else:
         wt, branch = make_worktree(repo, run_dir.name, f"pr-{number}", head)
-    tests = declared(wt, "tests")
+    tests = declared_suite(wt, base)
     cmds = [tests] if tests else []
     title = f"Review PR #{number}: {info['title']}"
     if is_own:
