@@ -415,10 +415,17 @@ def answered(session, at):
     The hook owns this fact. Keep it on the notice so a later peer prompt or a rename
     cannot reopen it. The background look checks the pane and waits for this lock; card
     delivery stays with the tick. Watcher alerts end through their own recovery rules.
+    With no question notice standing, the needs you only the screen said -- a dialog, a
+    waiting prompt -- is what was answered, and its card keeps the answer.
     """
     with session_lock(session) as session:
         previous = last(session)
-        if not previous or previous["kind"] != "needs" or previous.get("watcher") is True:
+        if previous and previous.get("watcher") is True:
+            return
+        if not previous or previous["kind"] != "needs":
+            card = _card_read(session)
+            if card.get("word") == "needs you":
+                _card_write(session, {**card, "answered_at": at})
             return
         previous["answered_at"] = at
         if resolved(previous):
@@ -962,8 +969,9 @@ def needs_transition(session, card, answer, now, seat=None):
     in it is asking him anything.
     """
     declared = last(session, include_seen=True)
-    answered_here = (declared and resolved(declared)
-                     and (declared.get("answered_at") or 0) > card["since"])
+    answered_at = max(card.get("answered_at") or 0, (declared.get("answered_at") or 0)
+                      if declared and resolved(declared) else 0)
+    answered_here = answered_at > card["since"]
     if _attached(session, card["since"], seat) or answered_here:
         if not card.get("closed") or card.get("open_needs") or answered_here:
             if card.get("sent"):
@@ -977,7 +985,7 @@ def needs_transition(session, card, answer, now, seat=None):
                 # is an episode of its own, though no tick saw the seat work in between.  Its
                 # minute counts from now; it began after the answer, which an upgrade since
                 # makes history.
-                card = {"word": "needs you", "since": now, "began": declared["answered_at"],
+                card = {"word": "needs you", "since": now, "began": answered_at,
                         "episode": secrets.token_hex(16), "sent": False, "open_needs": []}
             _card_write(session, card)
         return 0
