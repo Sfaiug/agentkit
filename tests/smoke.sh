@@ -2402,6 +2402,8 @@ esac
 # --- 6g: a detached run is really in its own scope -------------------------
 # This is the one live check for the run wrapper: a scope must accept the weights and the
 # loop's pid must be under its throwaway unit, rather than under the seat that launched it.
+# The unit is a scope from inside the user manager and a service from outside it (a cron
+# tick, an ssh session's tmux): `orch.can_scope` says which this suite's caller gets.
 case "$SLICE_STATE" in
   initializing|starting|running|degraded|maintenance|stopping)
     SCOPE_HOME="$WORK/scope-home"
@@ -2431,7 +2433,8 @@ try:
                               properties=("-p", "CPUWeight=40", "-p", "IOWeight=40"),
                               nice=True, placement=placement)
     cgroup = Path(f"/proc/{pid}/cgroup").read_text()
-    assert f"{unit}.scope" in cgroup, (pid, cgroup, placement)
+    kind = "scope" if orch.can_scope() else "service"
+    assert f"{unit}.{kind}" in cgroup, (pid, cgroup, placement)
     deadline = time.monotonic() + 5
     while not child_file.exists() and time.monotonic() < deadline:
         time.sleep(.05)
