@@ -274,6 +274,27 @@ class RedTargetRepair(unittest.TestCase):
                 self.assertEqual(moved["waiting_on"], {"ref": "origin/main", "sha": tip,
                                                        "repair": self.prepared[-1][0]})
 
+    def test_a_repair_holds_only_the_tip_its_branch_stood_on(self):
+        _, owner, self.wt = red.make_repos(self.root)
+        self.red_run("first", "seat")
+        name = self.prepared[0][0]
+        repair = config.RUNS / name
+        lp, _, _ = red.make_loop(self.root / "repair", self.wt, ["true"])
+        lp.state["repair"] = run.read_state(repair)["repair"]
+        # another checkout's fetch moves the shared ref; the repair's branch stays on its base
+        head = run.git(self.wt, "rev-parse", "HEAD")
+        tip = self.move(owner)
+        run.git(self.wt, "reset", "--hard", head)
+        run.save_state(repair, {**run.read_state(repair), "state": "fail", "verdict": "FAIL",
+                                "base_sha": lp.state["base_sha"], **run.question_tip(lp)})
+        self.assertEqual(run.read_state(repair)["question_tip"], lp.state["base_sha"])
+        # so the tip it never tried gets its first repair
+        run.git(self.wt, "rebase", "origin/main")
+        later = self.red_run("later", "seat")
+        self.assertEqual(len(self.prepared), 2)
+        self.assertEqual(later["waiting_on"],
+                         {"ref": "origin/main", "sha": tip, "repair": self.prepared[1][0]})
+
     def test_a_repair_whose_launch_raised_but_stayed_queued_is_still_waited_on(self):
         _, owner, self.wt = red.make_repos(self.root)
         tip = run.git(owner, "rev-parse", "HEAD")
