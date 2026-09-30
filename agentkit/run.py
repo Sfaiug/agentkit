@@ -6681,18 +6681,28 @@ class Record(dict):
         self.written = copy.deepcopy(dict(self))
 
 
+class Unreadable(OSError):
+    """`record` found no run.json it could read, and wrote nothing: the caller skips the run."""
+
+
 @contextmanager
 def record(run_dir):
     """The one way to change a record that exists: read, change and write it under one lock.
 
     Yields the record as it stands under `recovery_lock`, the lock every save and a stop hold;
     the caller changes keys (a key popped is removed) and a clean exit writes once, if anything
-    changed.  An exception writes nothing.  One block per run at a time: a second one inside
-    would read the record without the first one's changes, and write over them.
+    changed.  An exception writes nothing.  A run.json that is missing or cannot be read raises
+    `Unreadable` before the block runs: nobody can tell what it held, so nothing is written
+    over it -- not a copy read before the lock, and not a record of only the changed keys.
+    One block per run at a time: a second one inside would read the record without the first
+    one's changes, and write over them.
     """
     run_dir = Path(run_dir)
     with recovery_lock(run_dir):
-        current = Record(run_dir, read_state(run_dir) or {})
+        loaded = read_state(run_dir)
+        if loaded is None:
+            raise Unreadable("run.json cannot be read")
+        current = Record(run_dir, loaded)
         yield current
         current.flush()
 
