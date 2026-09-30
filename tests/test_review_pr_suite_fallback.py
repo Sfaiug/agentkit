@@ -22,7 +22,7 @@ SUITE = "test -f AGENTS.md"
 
 class ReviewPrSuiteFallback(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".review-pr-suite-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-review-pr-suite-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
