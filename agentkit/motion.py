@@ -5,12 +5,11 @@ a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles f
 that changed value glides to it, an effort's bar a step filled rises into place and a step onto
 a model's highest effort sends a light through its word; a popup's content fades in once, as it
 opens; the rule under a screen's header glides while its content is fetched -- and every motion
-runs on this same clock
-(docs/cli-design.md, Motion).  A screen says which cells animate and how when it draws
-(`Clock.start`), asking first which of its values are news (`Clock.look`); the wait loop asks
-how long until the next frame (`Clock.wait`) and what to write then (`Clock.frame`).  No screen
-keeps a timer: time, easing and the running animations live here, and cells animated alike are
-in one phase because each reads one clock.
+runs on this same clock (docs/cli-design.md, Motion).  A screen says which cells animate and how
+when it draws (`Clock.start`), asking first which of its values are news (`Clock.look`); the
+wait loop asks how long until the next frame (`Clock.wait`) and what to write then
+(`Clock.frame`).  No screen keeps a timer: time, easing and the running animations live here,
+and cells animated alike are in one phase because each reads one clock.
 """
 
 import math

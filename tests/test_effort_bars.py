@@ -23,7 +23,7 @@ from test_config_matrix import DOWN, ENTER, EFFORT_KEYS, RIGHT, UP, Screen, row
 from agentkit import motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
-BAR = re.compile(r"(\x1b\[[0-9;]*m)?[▁▂▃▄▅▆▇█]")
+BAR = re.compile(rf"(\x1b\[[0-9;]*m)?[{terminal.SIGNAL}]")
 LIT = "38;"     # a colour of its own: a dim bar's, or the light's on a letter
 
 
@@ -50,11 +50,11 @@ def moved(screen, keys):
         time.sleep(0.02)
         if len(screen.text()) != size:
             size, quiet = len(screen.text()), time.monotonic()
-    parts = PLACE.split(screen.text()[mark:])
-    return [(int(at), int(column), terminal.ANSI.sub("", text), text)
-            for at, column, text in ((at, column, text.split("\x1b[H")[0])
-                                     for at, column, text in zip(parts[1::3], parts[2::3],
-                                                                 parts[3::3]))]
+    parts, cells = PLACE.split(screen.text()[mark:]), []
+    for at, column, text in zip(parts[1::3], parts[2::3], parts[3::3]):
+        text = text.split("\x1b[H")[0]            # a whole draw after it is no frame's
+        cells.append((int(at), int(column), terminal.ANSI.sub("", text), text))
+    return cells
 
 
 def places(lines, name):
