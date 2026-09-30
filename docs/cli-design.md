@@ -13,6 +13,13 @@ line, the key line, and the prompt `> ` wherever a line is read; the main menu,
 `c` and `i` on a terminal read keys, and end at their key line. The commit hash is not in
 the header.
 
+The rule is ak's one progress indicator, and otherwise just a line. When `ak`
+updates itself at start the frame says `agentkit · updating` and the rule fills
+from the left in the accent colour as each of fetch, pull and install begins, and
+wholly once they are done; the filled part is drawn heavy (`━`), so it reads
+where there is no colour. A screen whose content is still being fetched has a
+segment glide along it (Motion). No other screen draws a bar for either.
+
 Helpers: `terminal.header_line`, `terminal.rule_line`, `terminal.key_line`,
 `terminal.layout_width`.
 
@@ -376,8 +383,15 @@ colours over 120 ms, on the same clock. Whatever is drawn in that time -- a
 key's draw, at once, or news -- comes up with it, and the popup closes at once,
 nothing fading out (`motion.Clock.rise`).
 
+A screen whose content is still being fetched after 150 ms -- a project's feature
+switches before their first `list` lands -- has a bright segment eight cells long
+glide along its rule, in from the left and out at the right every 1.2 s, until it
+lands; the screen then draws what came within a frame, its rule still. A fetch
+shorter than that shows nothing, and keys are read as ever while it glides
+(`motion.fetching`, `menu.matrix_key`).
+
 Helpers: `motion.Clock`, `motion.breathing`, `motion.pulsing`, `motion.settling`,
-`motion.gliding`, `menu.moving`, `terminal.faded`, `terminal.fade`.
+`motion.gliding`, `motion.fetching`, `menu.moving`, `terminal.faded`, `terminal.fade`.
 
 ## Ages
 
