@@ -151,7 +151,7 @@ class NewsMotion(Sandbox):
             if not steps:
                 last.setdefault("at", (len(waits) - 1, time.monotonic()))
                 if timeout > motion.FRAME or time.monotonic() - last["at"][1] > after:
-                    return "q"
+                    return ""
                 time.sleep(timeout)
                 return None
             step = steps.pop(0)
