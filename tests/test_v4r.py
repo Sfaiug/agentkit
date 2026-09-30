@@ -155,9 +155,9 @@ class UsageLeft(Sandbox):
                 patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
                 patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
             lines = menu.usage_lines(self.cfg, 100)
-            # the accent for 21% and 69% left, the nearest of eight here, and the empty cells dim
-            self.assertIn("\033[36m███\033[0m\033[2m░░░░░░░░░\033[0m", lines[1])
-            self.assertIn("\033[36m████████\033[0m\033[2m░░░░\033[0m", lines[5])
+            # each company's own colour, the nearest of eight here: Claude red, ChatGPT white
+            self.assertIn("\033[31m███\033[0m\033[2m░░░░░░░░░\033[0m", lines[1])
+            self.assertIn("\033[37m████████\033[0m\033[2m░░░░\033[0m", lines[6])
             self.assertIn("  \033[2m░░░░░░░░░░░░\033[0m  ", lines[3])
             plain = [terminal.plain(line) for line in lines]
             for env in ({"TERM": "dumb"}, {"TERM": "xterm-256color", "NO_COLOR": ""}, {}):
@@ -194,7 +194,7 @@ class UsageLeft(Sandbox):
             self.providers["meta"] = prov
             self.cache()
             lines = menu.usage_lines(self.cfg, 100)
-            self.assertIn("69%", lines[5])
+            self.assertIn("69%", lines[6])
             self.assertTrue(lines[3].endswith(tail), lines)
 
     def test_provider_names_come_from_config_and_bar_uses_tightest_week(self):
@@ -220,7 +220,7 @@ class UsageLeft(Sandbox):
         self.cache()
         lines = menu.usage_lines(self.cfg, 100)
         self.assertIn("0% left · resets Sun 00:00 · Fable 47%", lines[1])
-        self.assertIn("0% left · resets Sun 00:00", lines[5])
+        self.assertIn("0% left · resets Sun 00:00", lines[6])
         self.assertNotIn("+2 resets", "\n".join(lines))
         self.assertNotIn("█", "\n".join(lines))
 
