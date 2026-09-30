@@ -370,18 +370,6 @@ smoke_home() {
   export PATH="$PATH:$SMOKE_CALLER_HOME/.local/bin:$SMOKE_CALLER_HOME/.npm-global/bin:${GROK_BIN_DIR:-$SMOKE_CALLER_HOME/.grok/bin}:$SMOKE_CALLER_HOME/.opencode/bin"
   # Those binaries still belong to the caller; the sandbox must not auto-update them.
   export DISABLE_AUTOUPDATER=1 MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0 OPENCODE_DISABLE_AUTOUPDATE=1
-  # The harnesses installed here whose login worker.auth_ok confirms, as it does before a
-  # turn: the one harness with its login the suite needs (check 3).  A failed, silent or late
-  # answer confirms nothing, and a settings file with no key in it is no login.
-  SMOKE_LOGINS=$(PYTHONPATH="$REPO" python3 - <<'PY'
-import shutil
-from agentkit import worker
-for harness, binary in (("claude", "claude"), ("codex", "codex"), ("muse", "muse"),
-                        ("grokbuild", "grok"), ("opencode", "opencode"), ("antigravity", "agy")):
-    if shutil.which(binary) and worker.auth_ok(harness)[0]:
-        print(harness)
-PY
-)
   # Muse's paid probe keeps its own age. Copy its raw readings, not usage.json's
   # provider selection from the caller's config, and never write back into the host cache.
   for path in usage-meta.json usage-meta-probe.json; do

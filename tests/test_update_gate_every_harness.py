@@ -78,9 +78,7 @@ class EveryHarness(unittest.TestCase):
                "REPO": str(REPO), "SMOKE_CALLER_HOME": str(self.root / "caller"),
                "AGENTKIT_ADAPTER_DIR": str(self.adapters), "FIXTURE": str(self.fixture),
                "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1", "AGENTKIT_DISCORD_WEBHOOK": "off",
-               "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
-               # what smoke_home records for every harness here with its login
-               "SMOKE_LOGINS": " ".join(h for h, a in auth.items() if a.startswith("0 "))}
+               "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
         result = subprocess.run([str(self.bin / "bash"), "-c", "set -uo pipefail\n" + CHECK],
                                 env=env, text=True, capture_output=True, timeout=300)
         self.assertNotIn("a harness binary was run", result.stderr)

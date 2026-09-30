@@ -139,47 +139,6 @@ class OpenGates(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(os.path.lexists(home / '.codex/auth.json'))
 
-    def test_smoke_counts_only_logins_its_adapters_confirm(self):
-        setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
-        # A lapsed Grok key its refresh token renews: the real adapter's yes on the linked login.
-        login = {'id': {'key': 'k', 'expires_at': '2000-01-01T00:00:00Z', 'refresh_token': 'r'}}
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
-            root = Path(tmp)
-            caller, home, binaries, adapters = (root / 'caller', root / 'work/home',
-                                                root / 'bin', root / 'adapters')
-            (caller / '.grok').mkdir(parents=True)
-            (caller / '.grok/auth.json').write_text(json.dumps(login))
-            # OpenCode's settings with no key in them, and nothing in its auth store, are no login.
-            (caller / '.config/opencode').mkdir(parents=True)
-            (caller / '.config/opencode/opencode.json').write_text('{"theme": "dark"}')
-            binaries.mkdir()
-            adapters.mkdir()
-            for name in ('grok', 'codex', 'claude', 'muse', 'opencode'):
-                (binaries / name).write_text('#!/bin/sh\nexit 97\n')
-                (binaries / name).chmod(0o755)
-            # An answer with no line, no answer at all, or none within worker.auth_ok's bound
-            # confirms nothing.
-            for harness, body in (('grokbuild', f'exec {REPO}/adapters/grokbuild.sh "$@"'),
-                                  ('opencode', f'exec {REPO}/adapters/opencode.sh "$@"'),
-                                  ('codex', 'exit 0'), ('claude', 'echo fixture; exit 2'),
-                                  ('muse', 'exec sleep 60'),
-                                  ('antigravity', 'exit 1')):
-                (adapters / f'{harness}.sh').write_text(f'#!/bin/bash\n{body}\n')
-                (adapters / f'{harness}.sh').chmod(0o755)
-            script = ('set -eu\n' + setup + '\nsmoke_home\n'
-                      'printf "SMOKE_LOGINS=[%s]\\n" "$SMOKE_LOGINS"\n')
-            env = {name: value for name, value in os.environ.items()
-                   if name not in ('XAI_API_KEY', 'GROK_HOME')}
-            result = subprocess.run(['bash', '-c', script],
-                                    env={**env, 'HOME': str(caller), 'REPO': str(REPO),
-                                         'WORK': str(root / 'work'),
-                                         'PATH': f'{binaries}:/usr/bin:/bin',
-                                         'AGENTKIT_ADAPTER_DIR': str(adapters)},
-                                    text=True, capture_output=True, timeout=50)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn('SMOKE_LOGINS=[grokbuild]', result.stdout)
-            self.assertEqual((home / '.grok/auth.json').resolve(), caller / '.grok/auth.json')
-
     def test_gates_merge_back_only_valid_renamed_logins_whole(self):
         setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
         sync_back = FRESH[FRESH.index('sync_back() {'):FRESH.index('\ncleanup_logs()')]
@@ -574,20 +533,6 @@ ak() { printf '%s\\n' "$ROW"; }
             self.assertIn(f'NOT CHECKED  {line} is not installed', result.stdout)
         self.assertIn('FAIL  3: no harness here is installed with its login', result.stdout)
         self.assertIn('0 passed, 1 failed, 0 skipped', result.stdout)
-        # A login smoke_home's adapters confirmed is no real call: it never stands in for one.
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
-            binaries = Path(tmp) / 'bin'
-            binaries.mkdir()
-            (binaries / 'python3').symlink_to(sys.executable)
-            result = subprocess.run(['/bin/bash', '-c', '. "$REPO/tests/acceptance.sh"\n'
-                                     'ak() { return 1; }\nSMOKE_LOGINS=" grokbuild"\n'
-                                     + helpers + check + '\nfinish'],
-                                    env={**os.environ, 'HOME': tmp, 'WORK': tmp,
-                                         'REPO': str(REPO), 'PATH': str(binaries),
-                                         'AGENTKIT_ADAPTER_DIR': ''},
-                                    text=True, capture_output=True, timeout=30)
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn('FAIL  3: no harness here is installed with its login', result.stdout)
 
     def test_fresh_borrows_what_this_host_has_and_needs_one_harness(self):
         callers = FRESH[FRESH.index('caller_config=${XDG_CONFIG_HOME'):FRESH.index('\nTS=$(date')]
