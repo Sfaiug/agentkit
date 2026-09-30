@@ -1049,7 +1049,7 @@ def _draft_text(raw, plain, composer):
     if found and found.group(2).strip():
         if composer is not None and composer.fullmatch(plain):
             return ""
-        return " ".join(found.group(2).split())[:160]
+        return " ".join(found.group(2).split())
     return ""
 
 
@@ -1280,7 +1280,7 @@ def screen_state(harness, tail):
             if rule["id"] == "prompt.draft":
                 draft = _draft_text(raws[at], region[at], chrome["composer"])
                 if draft:
-                    return rule["state"], rule["id"], draft
+                    return rule["state"], rule["id"], draft[:160]
             elif _suggestion_line(raws[at], region[at]):
                 return rule["state"], rule["id"], region[at][:160]
             continue
