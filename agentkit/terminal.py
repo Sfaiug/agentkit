@@ -594,8 +594,11 @@ class Keyboard:
     the menu reads it a line at a time, as it always has.
     """
 
-    def __init__(self):
+    def __init__(self, screen=True):
         self.fd = self.out = self.saved = None
+        # With `screen` off only the keys are taken: what is on the screen stays, and so does
+        # the cursor, which `give` shows again after a `field` hid it.
+        self.sequences = (TAKE, GIVE) if screen else ("", "\033[?25h")
         self.kept = {}           # the signal handlers `take` stood in for, for `give` to put back
         self.again = None        # a pipe a resize or a return from ^Z writes to: draw again
         try:
@@ -624,7 +627,7 @@ class Keyboard:
         attrs[3] &= ~(termios.ICANON | termios.ECHO)
         attrs[6][termios.VMIN], attrs[6][termios.VTIME] = 1, 0
         termios.tcsetattr(self.fd, termios.TCSADRAIN, attrs)
-        self._send(TAKE)
+        self._send(self.sequences[0])
         return True
 
     def give(self):
@@ -638,7 +641,7 @@ class Keyboard:
         global _TAKEN, _PRESSED
         if _TAKEN is not self:
             return
-        self._send(GIVE)
+        self._send(self.sequences[1])
         termios.tcsetattr(self.fd, termios.TCSADRAIN, self.saved)
         _TAKEN, _PRESSED = None, False
         for number, handler in self.kept.items():
