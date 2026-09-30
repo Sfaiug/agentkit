@@ -704,6 +704,30 @@ class HandBack(Sandbox):
         self.tick()
         self.assertEqual(len(self.typed), 1)
 
+    def test_a_merge_question_the_inbox_did_not_take_is_typed_again_before_the_user_hears(self):
+        question, url, sha = "Merge PR #9?", "https://github.com/o/r/pull/9", "abc"
+        pending = {"question": question, "url": url, "sha": sha}
+        card = ("needs", question, {"session": watch.inbox(), "event_id": f"inbox:{url}:{sha}"})
+        self.sent = False       # the inbox seat does not take it, so the user is not asked
+        self.assertNotEqual(watch.ask_inbox(self.cfg, question, url, sha, self.logs.append), 0)
+        self.assertEqual(self.cards, [])
+        directory = self.ended("run-33", reported=True, pending_inbox=pending)
+        self.sent = True        # the tick types it again, and only then asks the user
+        self.tick()
+        self.assertEqual([seat for seat, text in self.typed if question in text],
+                         [watch.inbox()] * 2)
+        self.assertEqual(self.cards, [card])
+        self.assertNotIn("pending_inbox", run.read_state(directory))
+        # typed, but the ping failed: the next tick only pings, and never types it again
+        run.save_state(directory, {**run.read_state(directory), "pending_inbox": pending})
+        with patch.object(notify, "shaped", return_value=1):
+            self.tick()
+        self.assertTrue(run.read_state(directory)["pending_inbox"]["asked"])
+        self.tick()
+        self.assertEqual(len(self.typed), 3)
+        self.assertEqual(self.cards, [card] * 2)
+        self.assertNotIn("pending_inbox", run.read_state(directory))
+
     def test_the_runs_list_marking_an_ending_seen_cannot_undo_a_hand_back(self):
         directory = self.failed("run-32")
         stale = run.read_state(directory)            # what a draw minutes ago is holding
