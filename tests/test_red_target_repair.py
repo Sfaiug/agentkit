@@ -16,6 +16,8 @@ import test_red_target as red
 from agentkit import config, run, watch
 
 FAILS = "echo 'FAIL 49 harness names 306 > 305'; exit 1"
+QUESTION = "Should main keep 306 harness names or drop one?"
+SPAWN_BG = run.spawn_bg
 
 
 class RedTargetRepair(unittest.TestCase):
@@ -61,7 +63,7 @@ class RedTargetRepair(unittest.TestCase):
         self.assertEqual(self.spawned, [(name, [str(config.RUNS / name / "task.md")])])
         self.assertEqual(first["waiting_on"], {"ref": "origin/main", "sha": tip, "repair": name})
         repair = run.read_state(config.RUNS / name)
-        self.assertEqual(repair["repair"], {"target": "main", "command": FAILS})
+        self.assertEqual(repair["repair"], {"target": "main", "command": FAILS, "sha": tip})
         self.assertEqual(repair["launched_session"], "seat")
         self.assertTrue(repair["first"])
         task = (config.RUNS / name / "task.md").read_text()
@@ -77,7 +79,7 @@ class RedTargetRepair(unittest.TestCase):
         self.assertEqual(len(self.prepared), 2)
         self.assertEqual(third["waiting_on"]["repair"], self.prepared[1][0])
         self.assertEqual(run.read_state(config.RUNS / self.prepared[1][0])["repair"],
-                         {"target": "main", "command": "false"})
+                         {"target": "main", "command": "false", "sha": tip})
         # a repair that ended guards nothing: the next run on the same red starts another
         run.save_state(config.RUNS / name, {**repair, "state": "not_needed",
                                             "not_needed": "passes now"})
@@ -139,27 +141,103 @@ class RedTargetRepair(unittest.TestCase):
             watch.resume_waiting(log=self.logs.append)
             self.assertEqual(self.spawned, [(run_dir.name, ["resume", run_dir.name])])
 
-    def test_the_repair_notifies_nobody(self):
+    def test_a_repair_tells_its_seat_only_what_needs_somebody(self):
         run_dir = config.RUNS / "20260930-0202-repair"
         run_dir.mkdir(parents=True)
-        state = {"run_id": run_dir.name, "state": "fail", "verdict": "FAIL",
-                 "launched_session": "seat", "started_at": time.time() - 60,
-                 "finished_at": time.time(), "repair": {"target": "main", "command": "false"},
-                 "followup": {"run": "parked", "text": "`false` fails", "place": "`false`"}}
-        run.save_state(run_dir, state)
-        for live in (True, False):
-            @contextmanager
-            def world(session):
-                yield live
-            with self.subTest(live=live), \
-                    patch.object(run, "launcher_world", world), \
-                    patch.object(run, "hand_back") as hand_back, \
-                    patch.object(watch, "revive") as revive, \
-                    patch.object(run.notify, "shaped") as shaped:
-                run.announce(dict(state), run_dir, self.logs.append)
-                hand_back.assert_not_called()
-                revive.assert_not_called()
-                shaped.assert_not_called()
+        base = {"run_id": run_dir.name, "launched_session": "seat",
+                "started_at": time.time() - 60, "finished_at": time.time(),
+                "repair": {"target": "main", "command": "false", "sha": "0" * 40},
+                "followup": {"run": "parked", "text": "`false` fails", "place": "`false`"}}
+        endings = {"merged": {"state": "pass", "verdict": "PASS", "merged": True},
+                   "not needed": {"state": "not_needed", "not_needed": "passes now"},
+                   "blocked": {"state": "blocked", "verdict": "BLOCKED", "error": QUESTION,
+                               "blocked": f"## Blocked\n{QUESTION}"},
+                   "failed": {"state": "fail", "verdict": "FAIL"}}
+        for word, ending in endings.items():
+            for live in (True, False):
+                state = {**base, **ending}
+                run.save_state(run_dir, state)
+
+                @contextmanager
+                def world(session):
+                    yield live
+                with self.subTest(word, live=live), \
+                        patch.object(run, "launcher_world", world), \
+                        patch.object(run, "hand_back") as hand_back, \
+                        patch.object(watch, "revive", return_value=None) as revive, \
+                        patch.object(run.notify, "shaped") as shaped:
+                    run.announce(dict(state), run_dir, self.logs.append)
+                    told = word in ("blocked", "failed")
+                    self.assertEqual(hand_back.called, told and live)
+                    self.assertEqual(revive.called, told and not live)
+                    shaped.assert_not_called()
+
+    def test_a_blocked_repair_asks_its_seat_and_holds_its_command_until_the_target_moves(self):
+        _, owner, self.wt = red.make_repos(self.root)
+        tip = run.git(owner, "rev-parse", "HEAD")
+        self.red_run("first", "seat")
+        name = self.prepared[0][0]
+        repair = config.RUNS / name
+        blocked = {**run.read_state(repair), "state": "blocked", "verdict": "BLOCKED",
+                   "error": QUESTION, "blocked": f"## Blocked\n{QUESTION}",
+                   "started_at": time.time() - 60, "finished_at": time.time()}
+        run.save_state(repair, blocked)
+
+        @contextmanager
+        def world(session):
+            yield True
+        with patch.object(run, "launcher_world", world), \
+                patch.object(run, "hand_back") as hand_back:
+            run.announce(dict(blocked), repair, self.logs.append)
+        hand_back.assert_called_once()
+        self.assertEqual(hand_back.call_args.args[0]["error"], QUESTION)
+        # its waiter, retried on the unchanged tip, waits on the same question
+        again = self.red_run("first", "seat")
+        self.assertEqual(len(self.prepared), 1)
+        self.assertEqual(again["waiting_on"], {"ref": "origin/main", "sha": tip, "repair": name})
+        # and the tick leaves it parked there until the target moves
+        self.spawned.clear()
+        waiter = self.parked(tip, name)
+        with patch.object(run, "upstream_sha", return_value=tip):
+            watch.resume_waiting(log=self.logs.append)
+        self.assertEqual(self.spawned, [])
+        # a target that moved is a new question: the next run on its red repairs it again
+        (owner / "more.txt").write_text("more\n")
+        run.git(owner, "add", ".")
+        run.git(owner, "commit", "-m", "more")
+        run.git(owner, "push", "origin", "main")
+        moved = run.git(owner, "rev-parse", "HEAD")
+        run.git(self.wt, "fetch", "origin")
+        run.git(self.wt, "rebase", "origin/main")
+        with patch.object(run, "upstream_sha", return_value=moved):
+            watch.resume_waiting(log=self.logs.append)
+        self.assertEqual(self.spawned[:1], [(waiter.name, ["resume", waiter.name])])
+        later = self.red_run("later", "seat")
+        self.assertEqual(len(self.prepared), 2)
+        self.assertEqual(later["waiting_on"],
+                         {"ref": "origin/main", "sha": moved, "repair": self.prepared[1][0]})
+
+    def test_a_repair_whose_launch_raised_but_stayed_queued_is_still_waited_on(self):
+        _, owner, self.wt = red.make_repos(self.root)
+        tip = run.git(owner, "rev-parse", "HEAD")
+        with patch.object(run, "spawn_bg", SPAWN_BG), \
+                patch.object(run.orch, "start_in_slice", side_effect=OSError("no user bus")):
+            first = self.red_run("first", "seat")
+        name = self.prepared[0][0]
+        repair = run.read_state(config.RUNS / name)
+        self.assertEqual((repair["state"], repair["slot_waiting"]), ("queued", True))
+        self.assertIn("no user bus", repair["launch_error"])
+        self.assertEqual(first["waiting_on"], {"ref": "origin/main", "sha": tip, "repair": name})
+        # the queued receipt is the repair: the next run on the same red parks on it too
+        self.assertEqual(self.red_run("second", "other")["waiting_on"]["repair"], name)
+        self.assertEqual(len(self.prepared), 1)
+        waiter = self.parked(tip, name)
+        with patch.object(run, "upstream_sha", return_value=tip):
+            watch.resume_waiting(log=self.logs.append)
+            self.assertEqual(self.spawned, [])
+            run.save_state(config.RUNS / name, {**repair, "state": "fail"})
+            watch.resume_waiting(log=self.logs.append)
+        self.assertEqual(self.spawned, [(waiter.name, ["resume", waiter.name])])
 
 
 if __name__ == "__main__":
