@@ -968,9 +968,10 @@ def needs_transition(session, card, answer, now, seat=None):
     `ak orch stop` or a pause script: its row says so and its number reopens it, and nobody
     in it is asking him anything.
     """
-    declared = last(session, include_seen=True)
-    answered_at = max(card.get("answered_at") or 0, (declared.get("answered_at") or 0)
-                      if declared and resolved(declared) else 0)
+    declared = last(session, include_seen=True) or {}
+    # A newer notice carries the answer to the one it replaced (`shaped`).
+    answered_at = max(card.get("answered_at") or 0, declared.get("earlier_answer_at") or 0,
+                      (declared.get("answered_at") or 0) if resolved(declared) else 0)
     answered_here = answered_at > card["since"]
     if _attached(session, card["since"], seat) or answered_here:
         if not card.get("closed") or card.get("open_needs") or answered_here:
@@ -984,8 +985,10 @@ def needs_transition(session, card, answer, now, seat=None):
                 # still read now came after it -- a dialog, or the seat waiting again -- and
                 # is an episode of its own, though no tick saw the seat work in between.  Its
                 # minute counts from now; it began after the answer, which an upgrade since
-                # makes history.
-                card = {"word": "needs you", "since": now, "began": answered_at,
+                # makes history, and after a newer `ak notify` asking again, which is never
+                # history; a watcher's notice is dated by the word, as in `shaped`.
+                card = {"word": "needs you", "since": now, "began": max(
+                            answered_at, 0 if declared.get("source") else declared.get("time", 0)),
                         "episode": secrets.token_hex(16), "sent": False, "open_needs": []}
             _card_write(session, card)
         return 0
@@ -1206,6 +1209,11 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                 extra = {"source": event_id, "pr": pr,
                          "watcher": str(event_id or "").startswith(("auth:", "stuck:", "stall:")),
                          "open_needs": previous.get("open_needs", []) if previous else []}
+                earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))
+                if earlier:
+                    # The answer ends its card's episode at the next tick; the newer notice
+                    # carries it there, in a field of its own: it answered only the one replaced.
+                    extra["earlier_answer_at"] = earlier
                 if kind == "done":
                     extra["runs"] = [directory.name for directory, state in menu.run_records()
                                      if run.launched_session(state) == name and
