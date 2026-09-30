@@ -2253,9 +2253,12 @@ def composer_draft(harness, pane):
         return next((row for row in range(at + 1, len(rows)) if chrome_line(chrome, rows[row])),
                     len(rows))
 
-    at = next((at for at in range(len(rows) - 1, -1, -1)
-               if re.match(r"(?:│\s*)?[❯›⟩]", rows[at]) and (not chrome["ruled"] or (
-                   end(at) < len(rows) and re.fullmatch(RULE, rows[end(at)])))), None)
+    marked = [at for at in range(len(rows) - 1, -1, -1) if re.match(r"(?:│\s*)?[❯›⟩]", rows[at])]
+    if chrome["ruled"]:
+        # A pane's bottom row stands in where no composer has its own rule under it.
+        closed = [at for at in marked if end(at) < len(rows) and re.fullmatch(RULE, rows[end(at)])]
+        marked = closed or [at for at in marked if at + 1 == len(rows)]
+    at = next(iter(marked), None)
     if at is None:
         return None
     boxed = rows[at].startswith("│") and rows[at].endswith("│")
