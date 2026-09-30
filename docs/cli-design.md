@@ -74,7 +74,9 @@ business.
 
 ## Keys
 
-Six keys and nothing else: the numbers, `n`, `x`, `c`, `i`, `q`.
+Six keys and nothing else: the numbers, `n`, `x`, `c`, `i`, Esc. Esc is the one way
+back on every screen and at every question under the menu, and on the main
+screen it leaves; `q` is no key anywhere, and at a question it is a letter.
 
 On a terminal the main menu has the keyboard and reads it a key at a time
 (cbreak): a key acts the moment it is pressed, with no Enter, and no redraw
@@ -96,17 +98,22 @@ A digit opens that seat; a second digit within half a second makes two digits
 (`1` `2` is seat 12), and a digit no two-digit seat starts with opens at
 once. A resize in that half second does not cut it short, and any other key
 read in it is kept for after the seat -- a click with the screen it was made
-on. Esc leaves, like `q`. A key that does nothing here is let go without a
+on. Esc, or a click on `esc leave`, leaves. A key that does nothing here is let go without a
 word. The key line is the example below -- `j/k move   enter open` leads it
 without UTF-8 -- and never offers `m` or `k` for pages.
 
 The menu draws on the alternate screen with the cursor hidden, going home and
 writing over the last draw line by line in one write, so it never flickers.
 It gives the terminal back exactly -- the very termios attributes it found,
-the main screen, the cursor, clicks off -- on `q`, on any exit or signal (a
+the main screen, the cursor, clicks off -- on Esc, on any exit or signal (a
 kill, a hang-up, `^\`, and `^Z`, which takes it again on `fg`), and before
 anything else takes it: a session, `ak update`, and every sub-screen that
-reads a line, as they always have. A resize draws again at once.
+reads a line. A question typed inside the menu -- the name `n` and `r` ask,
+the Discord secrets -- is no line: it is typed on the menu's keys
+(`terminal.field`), Enter answering, Backspace editing and Esc going back at
+once with nothing saved; an answer Enter takes with nothing typed (`auto`,
+the current name) is in the field, dim, until a key replaces it. A resize
+draws again at once.
 
 `x` is the highlighted seat's, or in the popup the popup's own seat's. A done
 seat it closes at once, with no question: `orch.cmd_stop` takes its runs,
@@ -120,11 +127,11 @@ seat's tmux bar reads `Ctrl-b m  x close` on its right half.
 
 A stdin that is no terminal -- a pipe, a file, the smoke suite -- keeps the
 line menu: a key and Enter, and the key line
-`n new   x stop   c config   i info   q leave`, with `m more   k previous`
+`n new   x stop   c config   i info   esc leave`, with `m more   k previous`
 joined on only while the list runs to more than one page; anything else typed
-answers `not a key: '<key>'`. There `x` asks `Stop [name]:` and `[y/N]`, and
-on every sub-screen that reads a line `q`, `Esc` and an empty Enter all go one
-level back.
+answers `not a key: '<key>'`, `q` included. An empty line or the end of input
+leaves, as Esc does. There `x` asks `Stop [name]:` and `[y/N]`, and on every
+sub-screen that reads a line `Esc` and an empty Enter go one level back.
 
 Helpers: `terminal.Keyboard`, `terminal.read_key` and `terminal.Key` (named
 keys: arrows, enter, esc, backspace, tab, space, a character, a click at a
@@ -135,7 +142,7 @@ on a resize, where a click on a choice picks it). The main menu and the
 new-session screen use them. A click belongs to the screen it began on: a button down on the menu and
 up on the question or on `i`, or the other way round, is no click.
 
-Example: `↑↓ move   ⏎ open   n new   x stop   c config   i info   q leave`.
+Example: `↑↓ move   ⏎ open   n new   x stop   c config   i info   esc leave`.
 
 ## The config and info screens
 
@@ -159,10 +166,10 @@ and `Version` (the commit and its date; read, with no action). Enter
 or a click on `+ add a model` opens `config · add a model`: `harness`, then
 `model`, then `effort`, each a list opening under the one chosen above it, a
 chosen one kept as one line; Enter on the effort adds the model and highlights
-its row, Esc steps back one list. On `Discord` Enter or a click gives the
-terminal back for its step and its lines. The key
+its row, Esc steps back one list. On `Discord` Enter or a click asks its two
+secrets on the same keys. The key
 line names what the keys do on the cell at hand (`⏎ mark`, `⏎ effort`,
-`⏎ open`) and ends `esc back`; Esc, `q` or a click on it returns. A
+`⏎ open`) and ends `esc back`; Esc or a click on it returns. A
 screen too short shows the part the highlight is on. From a pipe, and in a dry
 run, it is drawn once. ← from the marks reaches the label, and Enter or a click
 there opens `config · <label>`: `model id`, `effort` and `Reviews its own
@@ -175,7 +182,7 @@ label on a phone. Esc returns to the matrix on that model's row.
 token's date and the build, and nothing else. Two-column lines wrap under their
 text on a phone, and a resize wraps them anew. It is written over the menu's screen and read with the keys:
 when it does not fit, ↑/↓, k/j and the wheel scroll it and the key line leads
-with `↑↓ scroll`; Esc, `q` or a click on `esc back` returns. From a pipe it is
+with `↑↓ scroll`; Esc or a click on `esc back` returns. From a pipe it is
 drawn once and the menu goes on.
 
 Helpers: `terminal.frame` (written over in place while a keyboard has the
@@ -183,7 +190,7 @@ screen), `terminal.scroll`, `terminal.hang`, `terminal.state_text`.
 
 ## The new-session screen
 
-`n` is `agentkit · new session`. First it asks `Name (Enter: auto):`, then reads the keys:
+`n` is `agentkit · new session`. First it asks `Name:`, `auto` dim in the field, then reads the keys:
 `Orchestrator`, then `Workers`, titles in the accent style,
 every model once under each -- `●`/`○` for the one orchestrator, `■`/`□` for
 the workers -- with its harness and effort dim beside it, the names no wider than a third of the
@@ -192,8 +199,8 @@ a spent model reads dim with `spent · resets <day HH:MM>`, on a line of its own
 where the row does not fit, and is never chosen for him. ↑/↓, k/j and the wheel move one
 highlight through both lists and scroll them on a short screen; space or a click chooses, Enter
 starts from anywhere -- or, with every model spent and a list still empty, takes the highlight to
-it -- Esc or `q` goes back, and the last worker stays chosen. At the Name question, a taken
-name asks again and `q` goes back. Enter leaves `new`, then `new-2`, unnamed until its
+it -- Esc goes back, and the last worker stays chosen. At the Name question, a taken
+name asks again and Esc goes back. Enter leaves `new`, then `new-2`, unnamed until its
 orchestrator knows the job and gives it the shortest name, at most three words, with
 `ak orch rename --auto <name>`. Once named, `--auto` changes nothing, prints the current name and exits 0;
 plain `ak orch rename` still renames. A seat can take back its own former name; another seat's
