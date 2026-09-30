@@ -4564,8 +4564,8 @@ def resume_waiting(dry_run=False, log=print, now=None):
                     repair = waiting_on.get("repair")
                     if sha != waiting_on.get("sha"):
                         why = f"{ref} moved ({(waiting_on.get('sha') or '')[:12]}..{sha[:12]})"
-                    elif repair and not run_mod.followup_open(
-                            run_mod.read_state(config.RUNS / repair) or {}):
+                    elif repair and not run_mod.repair_open(
+                            run_mod.read_state(config.RUNS / repair) or {}, sha):
                         why = f"its repair {repair} ended"
                     else:
                         continue  # main has not moved; the waiter keeps waiting, silently

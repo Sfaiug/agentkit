@@ -3643,20 +3643,36 @@ def followup_open(state):
                 and tick_resumes(state)))
 
 
+def repair_open(state, tip):
+    """Whether this repair run still holds its command on the target at `tip`.
+
+    On its way it does; so does one that ended `blocked` on a question about that same tip,
+    which is the owner's to answer and nobody's to ask again.  A target that moved since is
+    a new question.
+    """
+    return followup_open(state) or (state.get("state") == "blocked"
+                                    and (state.get("repair") or {}).get("sha") == tip)
+
+
 def open_followup(state, text, repair=None):
     """The open run already fixing `text`, or None.
 
     A follow-up is the same site in the same repository from the same seat.  A `repair` is
-    the same repository, target and command from any seat: the target is everybody's.
+    the same repository, target and command from any seat, open at the tip it names: the
+    target is everybody's.
     """
     for directory in run_dirs():
         other = read_state(directory) or {}
+        mine = other.get("repair") or {}
         if (other.get("run_id") != state.get("run_id") and other.get("followup")
                 and other.get("repo") == state.get("repo")
-                and other.get("repair") == repair
-                and (repair or (launched_session(other) == launched_session(state)
-                                and other["followup"]["place"] == followup_place(text)))
-                and followup_open(other)):
+                and (repair and mine.get("target") == repair["target"]
+                     and mine.get("command") == repair["command"]
+                     and repair_open(other, repair["sha"])
+                     or not repair and not mine
+                     and launched_session(other) == launched_session(state)
+                     and other["followup"]["place"] == followup_place(text)
+                     and followup_open(other))):
             return directory.name
     return None
 
@@ -3668,11 +3684,12 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
     or backlog: this ending alone gets to launch its list.
 
     A target failing a check on its own tip starts one the same way, before any merge:
-    `repair` is what `target_fails` saw -- the `command`, its done-when `check` line, and
-    `text` naming the tip and what the command printed there -- and its run, launched ahead
-    of the queue, makes the target pass that command again.  Its guard is an open repair of
-    the same repository, target and command instead of a receipt.  Returns the repair's
-    run, started or already open, or None when none is.
+    `repair` is what `target_fails` saw -- the `command`, its done-when `check` line, the
+    tip's `sha`, and `text` naming the tip and what the command printed there -- and its
+    run, launched ahead of the queue, makes the target pass that command again.  Its guard
+    is an open repair of the same repository, target and command instead of a receipt.
+    Returns the repair's run, started, already open, or left queued by a launch that
+    raised, or None when none is.
     """
     session = launched_session(state)
     if (not (repair or state.get("merged") and state.get("followups")) or not session
@@ -3692,7 +3709,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
         cfg = report_config(cfg)
         repo = main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
-        key = repair and {"target": target, "command": repair["command"]}
+        key = repair and {"target": target, "command": repair["command"], "sha": repair["sha"]}
         for item in [repair["text"]] if repair else state["followups"]:
             source = {**state, "repo": str(repo)}
             opened = open_followup(source, item, key)
@@ -3765,6 +3782,11 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                 return None
             except (config.Error, OSError) as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
+                if repair:
+                    # a launch that raised can leave its receipt queued for a slot, and the
+                    # tick starts that: it is the repair all the same
+                    return directory.name if repair_open(read_state(directory) or {},
+                                                         key["sha"]) else None
                 continue
             if repair:
                 return directory.name
@@ -5409,9 +5431,10 @@ def target_fails(lp, upstream, dw_log):
     words: a suite can fail on the target at another check than it did on the branch.
 
     Nobody else repairs a red target: the first run to find it starts one repair run on it,
-    ahead of the queue, and every run parked on the same red waits for that run to end as
-    well as for the next merge (`lp.repair`, which `park_waiting` records).  The repair run
-    itself is never probed on the command it repairs: its fixer rounds are the repair.
+    ahead of the queue, and every run parked on the same red waits for that run to let go of
+    it (`repair_open`) as well as for the next merge (`lp.repair`, which `park_waiting`
+    records).  The repair run itself is never probed on the command it repairs: its fixer
+    rounds are the repair.
 
     A command naming a path the branch head has and the tip lacks is never probed: on the
     target the missing file alone would fail it, so the fixer rounds run as today and the
@@ -5514,7 +5537,7 @@ def target_fails(lp, upstream, dw_log):
     printed = "\n".join("    " + line for line in output[-OUT_CAP:].splitlines())
     try:
         lp.repair = start_followups(lp.state, lp.run_dir, lp.log, lp.cfg, repair={
-            "command": cmd, "check": f"{cmd}  # once" if heavy_probe else cmd,
+            "command": cmd, "check": f"{cmd}  # once" if heavy_probe else cmd, "sha": tip,
             "text": f"`{cmd}` fails on {upstream} at {tip}, the target's own tip, whichever "
                     f"branch runs it. What it printed there:\n\n{printed}"})
     except StopRequested:
@@ -7730,11 +7753,13 @@ def announce(state, run_dir, log, cfg=None):
     run ended and that the next step is its own -- because the ending is the orchestrator's and
     never the owner's.  A run launched from no seat at all -- by hand, over ssh, from cron,
     from a test -- has nobody to hand back to and nobody to ping: its result is on the terminal
-    it was started from and in `ak run status`; the repair a red target started is the same,
-    whichever seat's run found it red.  Only an orphan speaks to the owner, and first
-    to its own seat: the seat is reopened on its saved conversation and told to continue, and
-    the owner hears only when that fails -- or when there is no seat to reopen, one `ak orch
-    stop` ended or one nothing is left of, which is asked of them as before.
+    it was started from and in `ak run status`.  The repair a red target started belongs to
+    the seat whose run found it red, and tells it only what needs somebody: a merge or a
+    `not needed` is routine, and the runs parked on it retry by themselves.  Only an orphan
+    speaks to the owner, and first to its own seat: the seat is reopened on its saved
+    conversation and told to continue, and the owner hears only when that fails -- or when
+    there is no seat to reopen, one `ak orch stop` ended or one nothing is left of, which is
+    asked of them as before.
 
     A run that reached a final state is an ending whatever else its record carries: a resume
     leaves `recovery_pending` behind it, and that is not unfinished work -- there is nothing
@@ -7762,7 +7787,8 @@ def announce(state, run_dir, log, cfg=None):
         return
     if state.get("state") not in ENDED:
         return
-    if not session or state.get("repair"):
+    if not session or state.get("repair") and (state.get("merged")
+                                               or state.get("state") == "not_needed"):
         return
     with launcher_world(session) as live:
         if live:
