@@ -1024,8 +1024,11 @@ def field(prompt, placeholder=""):
     try:
         while True:
             room = max(1, width() - cells(prompt) - 1)
-            shown = placeholder[:room] if not text else ""
-            sys.stdout.write(f"\r{prompt}{text[-room:]}{styled(shown, 'dim')}\033[K"
+            end = text           # clipped by cells: a wide character that wraps is drawn over wrong
+            while cells(end) > room:
+                end = end[1:]
+            shown = "" if text else cut(placeholder, room)
+            sys.stdout.write(f"\r{prompt}{end}{styled(shown, 'dim')}\033[K"
                              + (f"\033[{cells(shown)}D" if shown else ""))
             sys.stdout.flush()
             key = read_key()

@@ -143,7 +143,7 @@ INFO_STATES = (("needs you", "it asked you something, or it cannot go on without
                ("working",
                 "a run of its own is going, or a turn is, or a session it waits on works"),
                ("done", "it said so, and the row carries its summary"))
-OVERLAY_KEYS = "n start a session   r rename this session   x stop this session   esc close"
+OVERLAY_KEYS = "n start a session   r rename this session   x stop this session   esc leave"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done
 PAGE_KEYS = "m more   k previous"   # added to the key line when the list runs to more pages
 LEAST = 3                # rows a page keeps; the usage block gives way before it holds fewer
@@ -2681,7 +2681,7 @@ def config_model(cfg, name):
             def around():     # the screen around the question, drawn again on a resize
                 lines = [*model_body(cfg, name)[0], *(f"  {line}" for line in terminal.wrap(
                     REMOVE_ASK.format(name), terminal.layout_width() - 2))]
-                terminal.frame(title, [*lines, "", ""], "esc keep")
+                terminal.frame(title, [*lines, "", ""], "esc back")
                 return 3 + len(lines)
             if terminal.choose(["Keep", "Remove"], "Keep", around=around) == "Remove":
                 before = copy.deepcopy(cfg)
@@ -3133,7 +3133,7 @@ def config_remove_provider(cfg):
     def asked():
         lines = [f"  {line}" for line in terminal.wrap(ask.format(picked),
                                                       terminal.layout_width() - 2)]
-        terminal.frame(title, [*lines, "", ""], "esc keep")
+        terminal.frame(title, [*lines, "", ""], "esc back")
         return 3 + len(lines)
     if terminal.choose(["Keep", "Remove"], "Keep", around=asked) != "Remove":
         return ""
@@ -3737,7 +3737,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                     cursor = seat
 
                     def around():     # the menu around the question, drawn again on a resize
-                        draw(cfg, found, "esc keep", page, cursor, drawn, own, ask=seat,
+                        draw(cfg, found, "esc back", page, cursor, drawn, own, ask=seat,
                              look=False, groups=groups, clock=clock)
                         return drawn["ask"]
                     if terminal.choose(["Keep", "Stop"], "Keep", around=around,
