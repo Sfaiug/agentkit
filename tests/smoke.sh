@@ -1969,10 +1969,14 @@ for pair in "${HARNESSES[@]}"; do
     A="${AGENTKIT_ADAPTER_DIR:-$REPO/adapters}/$H.sh"
     "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M" >"$WORK/$M.log" 2>&1
     CALLRC=$?
-    if [ "$CALLRC" = 0 ] && grep -q '[^[:space:]]' "$WORK/o-$M/final.md" 2>/dev/null; then
+    # A turn that wrote its harness's logout words never reached the model, whatever it
+    # exited with or answered beside them: judged by the scan a worker's turn is judged by.
+    LOGOUT=$(PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import worker
+print(worker.auth_scanner(sys.argv[1])(sys.argv[2]) or "")' "$H" "$WORK/o-$M")
+    if [ "$CALLRC" = 0 ] && [ -z "$LOGOUT" ] && grep -q '[^[:space:]]' "$WORK/o-$M/final.md" 2>/dev/null; then
       ok "3c $M ($H): $1 at $2 answered a one-word prompt"
     else
-      no "3c $M ($H): $1 at $2 gave no answer"
+      no "3c $M ($H): $1 at $2 gave no answer${LOGOUT:+: $LOGOUT}"
       diagnose "$CALLRC" "$WORK/$M.log" "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M"
       diagnose "$CALLRC" "$WORK/o-$M/stderr.log" "$H"
     fi

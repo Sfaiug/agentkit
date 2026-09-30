@@ -40,6 +40,7 @@ case $1 in
   auth) read -r rc line <"$S.auth"; echo "$line"; exit "$rc" ;;
   run) printf '%s\\n' "${*:2:2}" >>"$S.runs"; cat "$5" >>"$S.prompts"; mkdir -p "$6"
        read -r rc answer <"$S.turn"; printf '%b' "$answer" >"$6/final.md"
+       cat "$S.said" >"$6/stderr.log" 2>/dev/null
        echo fixture-session >"$6/session_id"; exit "$rc" ;;
 esac
 exit 97
@@ -63,14 +64,16 @@ class EveryHarness(unittest.TestCase):
             (self.adapters / f"{harness}.sh").write_text(ADAPTER)
             (self.adapters / f"{harness}.sh").chmod(0o755)
 
-    def gate(self, auth, turns=None):
-        """Check 3 where `auth` names each installed harness's answer, "<exit> <line>"."""
+    def gate(self, auth, turns=None, said=None):
+        """Check 3 where `auth` names each installed harness's answer, "<exit> <line>", and
+        `said` what a harness wrote to its diagnostics during its turn."""
         for harness, answer in auth.items():
             stub = self.bin / BINARIES[harness]
             stub.write_text('#!/bin/sh\necho "a harness binary was run: $0" >&2\nexit 97\n')
             stub.chmod(0o755)
             (self.fixture / f"{harness}.auth").write_text(answer + "\n")
             (self.fixture / f"{harness}.turn").write_text((turns or {}).get(harness, "0 Hello") + "\n")
+            (self.fixture / f"{harness}.said").write_text((said or {}).get(harness, ""))
         for runs in self.fixture.glob("*.runs"):
             runs.unlink()
         work = tempfile.mkdtemp(prefix="work-", dir=self.root)
@@ -117,6 +120,18 @@ class EveryHarness(unittest.TestCase):
                     result = self.gate(LOGGED_IN, {harness: turn})
                     self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                     self.assertRegex(result.stdout, rf"FAIL  3c \w+ \({harness}\): .* gave no answer")
+                    self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
+
+    def test_a_turn_that_says_it_is_logged_out_fails_the_gate(self):
+        # An answer and exit 0 beside the harness's own logout words, as a worker's turn is
+        # judged: that turn never reached the model.
+        for harness in REST:
+            for words in tomllib.loads((REPO / f"adapters/{harness}.toml").read_text())["auth"]["signatures"]:
+                with self.subTest(harness=harness, said=words):
+                    result = self.gate(LOGGED_IN, said={harness: f"error: {words}\n"})
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertRegex(result.stdout, rf"FAIL  3c \w+ \({harness}\): .* gave no "
+                                     rf"answer: {re.escape(words)}")
                     self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
 
     def test_a_harness_with_no_login_is_not_checked_never_passed(self):
