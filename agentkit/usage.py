@@ -630,15 +630,22 @@ def _gate_flags(providers, now, cfg):
 _WRITES = itertools.count()   # a temporary name of each writer's own; see `_store`
 
 
-def _store(cache, fetched_at, providers, reset_checked_at=None):
+def _store(cache, fetched_at, providers, reset_checked_at=None, since=None):
     """Replace the snapshot atomically, through a temporary file nobody else is writing.
 
     The tick, every menu's probe thread and every `ak usage` write this one file, and a probe
     now writes its own answer here the moment it has it, so two writers sharing one temporary
     name is how a rename comes to find it gone.  Each write takes a name of its own instead, and
     takes it away again, so a writer that dies mid-way leaves nothing behind either.
+
+    A read takes a probe per provider and account, and a worker refused meanwhile has marked
+    its provider or account in the file this write replaces.  A mark made at or after `since`,
+    when the writer began reading, is one it never saw and so never lifted: it is kept, and
+    ends as every mark does (`_gate_flags`), never because a read was under way.
     """
     config.ensure_dirs()
+    if since is not None:
+        providers = _later_marks(cache, providers, since)
     tmp = cache.with_suffix(f".tmp-{os.getpid()}-{next(_WRITES)}")
     try:
         tmp.write_text(json.dumps({"fetched_at": fetched_at, "providers": providers,
@@ -647,6 +654,35 @@ def _store(cache, fetched_at, providers, reset_checked_at=None):
         tmp.replace(cache)
     finally:
         tmp.unlink(missing_ok=True)
+
+
+def _later_marks(cache, providers, since):
+    """`providers`, keeping each mark the snapshot on disk gained at or after `since`."""
+    try:
+        disk = json.loads(cache.read_text(encoding="utf-8"))["providers"]
+    except (OSError, ValueError, TypeError, KeyError):
+        return providers
+    if not isinstance(disk, dict):
+        return providers
+
+    def kept(old, new):
+        at = _number(old.get("exhausted_at")) if isinstance(old, dict) else None
+        mine = _number(new.get("exhausted_at")) if isinstance(new, dict) else None
+        if at is None or at < since or not isinstance(new, dict) or (mine or 0) >= at:
+            return new
+        return {**new, **{key: old[key] for key in ("exhausted_until", "exhausted_at",
+                                                    "exhausted_ends") if key in old}}
+
+    out = {}
+    for name, new in providers.items():
+        old = disk.get(name) if isinstance(disk.get(name), dict) else {}
+        new = kept(old, new)
+        if isinstance(new, dict) and isinstance(new.get("accounts"), dict):
+            theirs = old.get("accounts") if isinstance(old.get("accounts"), dict) else {}
+            new = {**new, "accounts": {account: kept(theirs.get(account), record)
+                                       for account, record in new["accounts"].items()}}
+        out[name] = new
+    return out
 
 
 def _patch(provider, prov, now, account=None):
@@ -672,7 +708,7 @@ def _patch(provider, prov, now, account=None):
     fetched, checked = _number(blob.get("fetched_at")), _number(blob.get("reset_checked_at"))
     try:
         _store(cache, 0.0 if fetched is None else fetched, providers,
-               0.0 if checked is None else checked)
+               0.0 if checked is None else checked, since=now)
     except OSError:
         pass                 # a cache that cannot be written costs a re-probe, nothing more
 
@@ -789,7 +825,7 @@ def collect(cfg, *, refresh=False):
                 if rolled or missing or due:
                     # fetched_at stays put: re-reading one provider must not extend the cache
                     # over the others, which were not re-read
-                    _store(cache, blob["fetched_at"], providers, checked)
+                    _store(cache, blob["fetched_at"], providers, checked, since=now)
                 return Readings(_gate_flags(providers, now, cfg))
         except (OSError, ValueError, TypeError, KeyError):
             pass
@@ -800,7 +836,7 @@ def collect(cfg, *, refresh=False):
                            _without_past(_probe_gently(cfg, name), now, "the adapter"), now)
         providers[name] = _maybe_reset(cfg, name, prov, now) if not refresh and due else prov
     providers = _gate_flags(providers, now, cfg)
-    _store(cache, now, providers, now if not refresh and due else (checked or 0))
+    _store(cache, now, providers, now if not refresh and due else (checked or 0), since=now)
     return Readings(providers)
 
 
