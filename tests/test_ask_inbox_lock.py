@@ -32,13 +32,27 @@ def fixture(kind):
     return (FIX / f"claude-{kind}-pane.txt").read_text(encoding="utf-8", errors="replace")
 
 
+def above_footer(pane, *rows):
+    lines = pane.splitlines()
+    return "\n".join(lines[:-1] + list(rows) + lines[-1:])
+
+
+WORKING = fixture("working").replace("\n❯\xa0\n", "\n❯\xa0Owner's unsent message\n")
 HELD = {
     "draft": fixture("draft"),
     "dialog": fixture("dialog"),
     # the owner's text under a turn in flight: the screen reads `working`, not `draft`
-    "working": fixture("working").replace("\n❯\xa0\n", "\n❯\xa0Owner's unsent message\n"),
+    "working": WORKING,
+    # ... and under a status line of the user's own that starts with a prompt mark
+    "status": above_footer(WORKING, "❯", "? for shortcuts"),
     # an empty prompt row with the owner's text on the row under it reads `at_prompt`
     "continued": fixture("prompt").replace("\n❯\xa0\n", "\n❯\xa0\n  the rest of my line\n"),
+}
+# an empty composer, whatever is drawn under its rule
+EMPTY = {
+    "status": above_footer(fixture("prompt"), "❯ acme main*"),
+    "inbound": fixture("prompt") + "\n" + next(
+        row for row in fixture("question-with-message").splitlines() if "Message from" in row),
 }
 
 
@@ -119,6 +133,14 @@ class AskInboxLock(unittest.TestCase):
                 self.assertEqual(self.ask(), 0)
                 self.assertEqual(self.sent, [])
                 self.assertIn("WARN could not type the question into the inbox seat", self.logs)
+
+    def test_an_empty_composer_takes_it_under_a_status_line_or_a_queued_message(self):
+        for kind, pane in EMPTY.items():
+            with self.subTest(kind=kind), patch.object(watch.time, "sleep"):
+                del self.sent[:], self.logs[:]
+                self.pane = pane
+                self.assertEqual(self.ask(), 0)
+                self.assertEqual([sent[:9] for sent in self.sent], [QUESTION[:9], "Enter"])
 
     def test_the_question_still_in_its_composer_gets_its_second_enter(self):
         def screen():

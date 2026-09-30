@@ -1207,6 +1207,16 @@ def hook_state(harness, fact):
     return None, "", "", None
 
 
+def _screen_rows(harness, tail):
+    """(raw, plain) non-blank rows of that tail, without the harness's queued inbound messages."""
+    # A queued inbound message is below the active UI, not part of its dialog or composer.
+    inbound = _pattern((config.manifest(harness).get("screen") or {}).get("inbound"),
+                       f"adapters/{harness}.toml")
+    raw_lines = [line.rstrip() for line in tail.splitlines() if strip_sgr(line).strip()
+                 and not (inbound and inbound.fullmatch(strip_sgr(line).strip()))]
+    return raw_lines, [strip_sgr(line).strip() for line in raw_lines]
+
+
 def screen_state(harness, tail):
     """(state, rule id, evidence line) of the first adapter rule that matches, else (None, "", "").
 
@@ -1225,12 +1235,7 @@ def screen_state(harness, tail):
     one, while whatever the harness draws between its composer and its footer, a user's
     status line, never hides it or reads as it, even where it starts with a prompt mark.
     """
-    # A queued inbound message is below the active UI, not part of its dialog or composer.
-    inbound = _pattern((config.manifest(harness).get("screen") or {}).get("inbound"),
-                       f"adapters/{harness}.toml")
-    raw_lines = [line.rstrip() for line in tail.splitlines() if strip_sgr(line).strip()
-                 and not (inbound and inbound.fullmatch(strip_sgr(line).strip()))]
-    lines = [strip_sgr(line).strip() for line in raw_lines]
+    raw_lines, lines = _screen_rows(harness, tail)
     if not lines:
         return None, "", ""
     chrome = screen(harness)
@@ -2234,24 +2239,30 @@ def follow_title(session, log=lambda _: None):
 
 
 def composer_draft(harness, pane):
-    """The whole composer's text without whitespace, "" when empty, None with no prompt row."""
-    rows = pane_tail(pane).splitlines()
+    """The composer's whole text without whitespace, "" when empty, None where none is found.
+
+    Read on any turn, from its prompt row down to the chrome under it: a wrap or a newline
+    puts text on the rows below.  Found the way the draft rule finds it: a queued inbound
+    message is no row of it, and where the harness rules its composer only a prompt row that
+    rule closes is one -- a user's status line under the rule never is, whatever its mark.
+    """
+    chrome = screen(harness)
+    raws, rows = _screen_rows(harness, pane_tail(pane))
+
+    def end(at):
+        return next((row for row in range(at + 1, len(rows)) if chrome_line(chrome, rows[row])),
+                    len(rows))
+
     at = next((at for at in range(len(rows) - 1, -1, -1)
-               if re.match(r"(?:│\s*)?[❯›⟩]", strip_sgr(rows[at]).strip())), None)
+               if re.match(r"(?:│\s*)?[❯›⟩]", rows[at]) and (not chrome["ruled"] or (
+                   end(at) < len(rows) and re.fullmatch(RULE, rows[end(at)])))), None)
     if at is None:
         return None
-    chrome = screen(harness)
-    plain = strip_sgr(rows[at]).strip()
-    boxed = plain.startswith("│") and plain.endswith("│")
+    boxed = rows[at].startswith("│") and rows[at].endswith("│")
     # A boxed composer's edges are chrome, including on continuation rows.
-    parts = [_draft_text(rows[at], plain[:-1].rstrip() if boxed else plain,
+    parts = [_draft_text(raws[at], rows[at][:-1].rstrip() if boxed else rows[at],
                          chrome["composer"])]
-    # A wrap can split a line. Read the whole composer, without its footer, so text
-    # on a continuation row counts as much as text on the prompt row.
-    for raw in rows[at + 1:]:
-        plain = strip_sgr(raw).strip()
-        if chrome_line(chrome, plain):
-            break
+    for raw, plain in zip(raws[at + 1:end(at)], rows[at + 1:end(at)]):
         if not has_dim(raw):
             if boxed and plain.startswith("│") and plain.endswith("│"):
                 plain = plain[1:-1].strip()
