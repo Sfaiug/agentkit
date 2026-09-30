@@ -66,9 +66,10 @@ reading younger than `usage.PROBE_EVERY` is fresh, so the probe asks an adapter 
 minute -- the cadence is the host's and not this screen's -- and never blocks a keypress or a
 draw; Muse's adapter keeps its own ten-minute cache, because its probe is a billed request.
 Those ten seconds hold whatever stdin is, a script's half-written line included, and a key typed
-during a draw is read by the next wait.  The sub-screens are not live: they
-are read once, like any other question -- but a project's feature switches, which draw again
-within a second of their `list` landing.
+during a draw is read by the next wait.  At rest one thing moves: on a terminal of 256 colours or
+more each working seat's `●` breathes, all in one phase, on `motion`'s clock (`moving`).  The
+sub-screens are not live: they are read once, like any other question -- but a project's feature
+switches, which draw again within a second of their `list` landing.
 
 Seven keys: the numbers, `n`, `x`, `c` (models, providers, effort, discord, version),
 `m` (the highlighted seat's models), `i`, `q`.
@@ -118,7 +119,7 @@ import time
 from contextlib import closing, redirect_stdout
 from pathlib import Path
 
-from . import command_help, config, history, notify, orch, terminal, update, usage
+from . import command_help, config, history, motion, notify, orch, terminal, update, usage
 from .harness import load as harness_plugin
 
 KEYS = "n new   x stop   c config   i info   q leave"
@@ -411,6 +412,29 @@ def wait_key(prompt, timeout=None, wake=None):
         print()                    # the prompt this leaves behind belongs to the draw, not him
         return None
     return read("", "q")
+
+
+def moving(clock, wake=None, timeout=TICK):
+    """`wait_key` on the main screen, its digit wait and its stop question: `timeout` seconds at
+    most, and each of `clock`'s frames drawn while something moves and no key is waiting.
+
+    Only a wait that ran to its frame draws one.  One that ended before it -- on news or a
+    resize -- or on a resize just as its frame fell due returns None, its cells forgotten, since
+    a resize moves them all and the screen is the caller's to draw again.
+    """
+    until = time.monotonic() + timeout
+    terminal.asked_again()          # a draw asked for before the one just made is answered
+    while True:
+        due = clock.wait()
+        key = wait_key("> ", timeout if due is None else
+                       max(0, min(due, until - time.monotonic())), wake)
+        if key is not None or due is None or time.monotonic() >= until:
+            return key
+        if clock.wait() > 0 or terminal.asked_again():
+            clock.clear()
+            return None
+        sys.stdout.write(clock.frame())
+        sys.stdout.flush()
 
 
 def pause(*lines):
@@ -1121,7 +1145,7 @@ def v5o_format_seats(infos, term_width, widths=None):
 
 
 def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=None, look=True,
-         records=None, groups=None):
+         records=None, groups=None, clock=None):
     """The menu at rest, and (page, pages) as drawn.
 
     The frame is the header (`agentkit` at the left, the clock at the right),
@@ -1150,6 +1174,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     `look` is whether the seats are looked at for this draw or drawn as recorded, and
     `records` the run records it is drawn from, read here when they are not handed in;
     `groups`, `v5o_groups`' answer already in hand, is drawn as it is, and nothing is read.
+
+    `clock`, the menu's `motion.Clock`, is handed each working seat's `●` to breathe while the
+    menu has the keyboard, and the dots go out in the draw's own write at the clock's phase, so
+    no dot jumps when the screen is drawn over.
     """
     owned = drawn is not None
     if (not owned and sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
@@ -1270,10 +1298,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         page = next((number for number, lines in enumerate(pages)
                      if any(name == cursor for _, name in lines)), page)
     # The layout is min(terminal width, 120); beyond that the margin grows, never the text.
-    clock = time.strftime("%H:%M")
     out = []
     if not compact:
-        out += [terminal.header_line("", clock, width), terminal.rule_line(width)]
+        out += [terminal.header_line("", time.strftime("%H:%M"), width),
+                terminal.rule_line(width)]
     if meters:
         if not compact:
             out.append("")
@@ -1310,13 +1338,17 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         body = body[:at] + [(line, None) for line in asked] + body[at:]
     else:
         at = 0
+    dot, dots = terminal.state_text("working"), []    # each working seat's `●`, and its light
     for line, name in body:
         # while a question is up its first answer carries the mark, and the seat only its light;
         # a heading is flush left, so its mark goes in front of it
+        lit = owned and name is not None and name == cursor
         out.append(terminal.highlight(("  " if isinstance(name, Path) else "") + line,
-                                      mark=name != above and not at)
-                   if owned and name is not None and name == cursor else line)
+                                      mark=name != above and not at) if lit else line)
         above = name
+        text = terminal.ANSI.sub("", line)
+        if words.get(name) == "working" and dot in text:
+            dots.append(((len(out), terminal.cells(text[:text.index(dot)]) + 1), lit))
     if not compact:
         out.append("")
     keys_top = len(out)
@@ -1324,9 +1356,15 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     if not owned:
         print("\n".join(out))
         return page, (len(pages) if ordered else 1)
+    moved = ""
+    if clock is not None:
+        clock.clear()
+        for cell, lit in dots:
+            clock.start([cell], motion.breathing(terminal.state_glyph("working"), "working", lit))
+        moved = clock.frame()
     # Home and write over, each line cleared past its end and the screen below the last: one
     # write, so no draw ever shows a blank screen or a half-drawn one.
-    sys.stdout.write("\033[H" + "".join(f"\033[K{line}\n" for line in out) + "\033[J")
+    sys.stdout.write("\033[H" + "".join(f"\033[K{line}\n" for line in out) + "\033[J" + moved)
     sys.stdout.flush()
     drawn.update(order=order, cursor=cursor, words=words,
                  ask=top + at + len(asked) - 1 if at else None,
@@ -3397,6 +3435,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     seat's capture holds up a read or a draw.  The first draw's meters are the cache's, and
     the probe that follows it runs in a thread and asks for one more draw when it lands.
     Nothing here waits on an adapter, and a key typed during a draw is read by the next wait.
+    Between draws the working seats' dots breathe, a frame whenever the clock says one is due
+    and no key is waiting (`moving`), so a key is read within a frame of being pressed.
 
     On a terminal the menu has the keyboard (`terminal.Keyboard`) and there are no lines: a
     key acts the moment it is pressed.  One seat row is highlighted; ↑/↓, k/j and the wheel
@@ -3414,6 +3454,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     actions = ("n", "x", "r") if overlay else ("n", "x", "c", "m", "i")
     page, cursor, ahead, look = 0, None, None, False
     last = [[], None]                     # what the last read left: the seats and their groups
+    clock = motion.Clock()                # what moves between draws: the working seats' dots
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
         if keyboard.take():
             terminal.sense()              # true colour and the background, once, before a draw
@@ -3431,13 +3472,13 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
             listed = keys if drawn is None else \
                 f"{move_keys()}   {TERMINAL_KEYS if not overlay else keys}"
             page, pages = draw(cfg, found, listed, page, cursor, drawn, own, look=False,
-                               groups=groups)
+                               groups=groups, clock=clock)
             cursor = drawn["cursor"] if drawn else cursor   # the seat he sees highlighted
             live.probe()                  # after the draw, never before it: the cache is enough
             if ahead is not None:
                 (key, shown), ahead = ahead, None
             else:
-                key, shown = wait_key("> ", TICK, live.reader), drawn
+                key, shown = moving(clock, live.reader), drawn
             if key is None:
                 # the wait ended on the clock, which looks again, or on news already written down
                 look = not live.drain()
@@ -3462,7 +3503,11 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                     # 1 then 2 within half a second is seat 12, whatever asks for a draw between
                     more, until = None, time.monotonic() + 0.5
                     while more is None and time.monotonic() < until:
-                        more = wait_key("", until - time.monotonic())
+                        more = moving(clock, timeout=until - time.monotonic())
+                        if more is None and time.monotonic() < until:
+                            # a resize: drawn anew, so the dots breathe on where they now are
+                            page, pages = draw(cfg, found, listed, page, cursor, drawn, own,
+                                               look=False, groups=groups, clock=clock)
                     if isinstance(more, terminal.Key) and "0" <= more.char[:1] <= "9":
                         key += more.char
                     elif more is not None:
@@ -3488,9 +3533,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
 
                     def around():     # the menu around the question, drawn again on a resize
                         draw(cfg, found, "esc keep", page, cursor, drawn, own, ask=seat,
-                             look=False, groups=groups)
+                             look=False, groups=groups, clock=clock)
                         return drawn["ask"]
-                    if terminal.choose(["Keep", "Stop"], "Keep", around=around) != "Stop":
+                    if terminal.choose(["Keep", "Stop"], "Keep", around=around,
+                                       wait=lambda: moving(clock)) != "Stop":
                         continue
                 keyboard.give()
                 close_seat(seat, dry_run)
