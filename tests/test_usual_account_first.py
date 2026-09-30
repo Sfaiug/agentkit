@@ -76,14 +76,16 @@ class UsualAccountFirst(unittest.TestCase):
         transcript.write_text('{"message":"unfinished task"}\n')
         self.meters(40, 0)
 
-    def meters(self, first, second):
+    def meters(self, first, second, third=None):
         def reading(used, reset):
             return {"provider": "anthropic", "resets": 0, "meters": [usage._normalized({
                 "name": "weekly_all", "used": used, "resets_at": reset,
                 "window_secs": 604800}, self.now)]}
         first = reading(first, self.now + 86400)
         second = reading(second, self.now + 3600)
-        anthropic = {**first, "accounts": {"default": first, "second": second}}
+        anthropic = {**first, "accounts": {"default": first, "second": second,
+                                           **({"third": reading(third, self.now + 3600)}
+                                              if third is not None else {})}}
         providers = {"anthropic": anthropic, "openai": {"resets": 0, "meters": []}}
         (config.STATE / "usage.json").write_text(json.dumps({
             "fetched_at": self.now, "reset_checked_at": self.now, "providers": providers}))
@@ -137,6 +139,61 @@ class UsualAccountFirst(unittest.TestCase):
         self.assertIn(CONVERSATION, self.commands[0])
         self.assertIn("AGENTKIT_ACCOUNT=", self.commands[0])
         self.assertEqual(self.typed, [])
+
+    def seat_account(self, account, listed='"default", "second"'):
+        path = config.HOME / "config.toml"
+        path.write_text(path.read_text().replace(
+            'accounts = ["default", "second"]', f'seat_account = "{account}"\naccounts = [{listed}]'))
+        self.cfg = config.load()
+
+    def test_new_seats_open_on_the_named_seat_account_while_it_has_room(self):
+        self.seat_account("second")
+        self.meters(0, 40)
+        with patch.object(orch, "start"):
+            orch.create(self.cfg, "new-api", self.root,
+                        selection=(usage.collect(self.cfg), ("opus", "chosen", ["astra"])))
+        record = config.session_records()["new-api"]
+        self.assertEqual((record["account"], record.get("home_account")), ("second", "second"))
+        # A model switch to this provider opens its seat anew, on the same account.
+        config.save_session(self.cfg, "fix-ui", "astra", ["astra"], {
+            "cwd": str(self.root), "created": self.now - 60})
+        with patch.object(config, "harness_binary", return_value="/bin/true"), \
+                patch.object(orch, "launch"):
+            self.assertEqual(orch.switch_orchestrator(self.cfg, "fix-ui", "opus"), "")
+        record = config.session_records()["fix-ui"]
+        self.assertEqual((record["account"], record.get("home_account")), ("second", "second"))
+        # So does the seat a question to the owner opens by itself.
+        with patch.object(orch, "launch"):
+            self.assertTrue(orch.ensure(self.cfg, "inbox-api", log=self.logs.append))
+        record = config.session_records()["inbox-api"]
+        self.assertEqual((record.get("account"), record.get("home_account")), ("second", "second"))
+        self.meters(0, 100)
+        with patch.object(orch, "start"):
+            orch.create(self.cfg, "spill-api", self.root,
+                        selection=(usage.collect(self.cfg), ("opus", "chosen", ["astra"])))
+        record = config.session_records()["spill-api"]
+        self.assertEqual((record["account"], record.get("home_account")), ("default", "default"))
+
+    def test_an_idle_seat_comes_back_to_the_account_it_opened_on(self):
+        self.seat_account("second")
+        self.meters(0, 20)
+        # A record that names no home opened on the usual login, and stays there.
+        self.tick()
+        self.assertEqual(config.session_records()[NAME]["account"], "default")
+        self.assertEqual(self.commands, [])
+        config.update_session(NAME, home_account="second")
+        self.tick()
+        self.assertEqual(config.session_records()[NAME]["account"], "second")
+        self.assertEqual(len(self.commands), 1)
+        self.assertIn(CONVERSATION, self.commands[0])
+
+    def test_a_spent_seat_moves_to_its_own_home_before_the_named_seat_account(self):
+        self.seat_account("second", '"default", "second", "third"')
+        config.update_session(NAME, account="third")
+        self.meters(40, 0, 100)
+        self.tick()
+        self.assertEqual(config.session_records()[NAME]["account"], "default")
+        self.assertEqual(len(self.commands), 1)
 
     def test_worker_turn_prefers_another_account_and_falls_back_to_the_usual(self):
         self.meters(40, 0)
