@@ -1725,15 +1725,17 @@ else:
         print(why)
         # Only an explicitly absent credential justifies skipping. An existing but
         # empty, unreadable, malformed or expired credential must still fail the gate.
-        # OpenCode's settings file that parses and holds no key is no login; one that is
-        # empty or no longer parses may have held one, and is broken.
+        # OpenCode's settings file that parses and holds no apiKey anywhere is no login; one
+        # that is empty or no longer parses may have held one, and an apiKey the adapter did
+        # not take (blank, or not a string) is a broken one.
         missing = re.match(r"^\S+: no (OAuth credentials in |provider key in )?(.+?)"
                            r"(?: and no CLAUDE_CODE_OAUTH_TOKEN| and none saved)?; run ", why)
-        settings = False
+        settings, keys = False, set()
         if missing and missing[1] == "provider key in ":
             try:
                 with open(missing[2]) as fh:
-                    settings = isinstance(json.load(fh), dict)
+                    settings = isinstance(json.load(fh, object_hook=lambda o: keys.update(o) or o),
+                                          dict) and "apiKey" not in keys
             except (OSError, ValueError):
                 pass
         token = manifest.get("worker_token", {}).get("file")

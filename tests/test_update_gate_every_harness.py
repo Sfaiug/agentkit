@@ -151,10 +151,13 @@ class EveryHarness(unittest.TestCase):
 
     def test_a_broken_opencode_settings_file_still_fails(self):
         # Settings that parse and hold no key are no login; a file that is empty or no longer
-        # parses may have held one, and fails as every broken saved login does.
+        # parses may have held one, and one holding a key the adapter would not take (not a
+        # string, or blank) holds a broken one: each fails as every broken saved login does.
         settings = self.home / ".config/opencode/opencode.json"
         settings.parent.mkdir(parents=True)
-        for text in ('{"provider": {"mimo": {"apiKey": "k', ""):
+        for text in ('{"provider": {"mimo": {"apiKey": "k', "",
+                     '{"provider": {"mimo": {"apiKey": 123}}}',
+                     '{"provider": {"mimo": {"options": {"apiKey": ""}}}}'):
             with self.subTest(settings=text):
                 settings.write_text(text)
                 result = self.gate({**LOGGED_IN, "opencode": f"1 opencode: no provider key in "
