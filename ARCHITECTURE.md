@@ -36,7 +36,8 @@ and its `max` counts only go down.
   (`quotas`, `stalls`, `auth_expiry`), seat state (`session_state`, `waiting_on`), typing
   into and reviving seats, resuming runs, PR scanning, `doctor`. Used by run, orch, menu,
   notify, update, usage, worker and both hooks. Leaks: run.json writes (the stall ladder and
-  freeze marks through `run.record`, the resume passes whole), run states (`GOING`).
+  freeze marks through `run.record`, the resume passes but for a launch that never starts,
+  which `run.spawn_bg` puts back), run states (`GOING`).
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename`. Used by menu, watch, run, notify, usage, update.

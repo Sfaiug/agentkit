@@ -41,7 +41,7 @@ RULES = [
      "flags": (),
      "pattern": r"\.save_state\(",
      "home": ("agentkit/run.py",),
-     "max": 28},
+     "max": 21},
     # A seat's files are named once, so a rename, a forget or a new store moves them all.
     {"name": "per-seat state file names",
      "flags": (),

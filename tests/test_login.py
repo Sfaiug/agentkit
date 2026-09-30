@@ -224,7 +224,7 @@ class Login(unittest.TestCase):
             (path / "security").chmod(0o755)
         return {"PATH": f"{path}:{os.environ['PATH']}"}
 
-    def adopted(self, run_dir, argv, expected=None):
+    def adopted(self, run_dir, argv, expected=None, park_as=False):
         """What `spawn_bg` leaves on disk: the receipt queued for the child it started."""
         state = run.read_state(run_dir)
         run.save_state(run_dir, {**state, "state": "queued", "slot_waiting": True,
@@ -498,7 +498,7 @@ class Login(unittest.TestCase):
         self.assertEqual(logs, [])
         self.log_out(False)
         launched = []
-        with patch.object(run, "spawn_bg", side_effect=lambda d, argv, expected=None:
+        with patch.object(run, "spawn_bg", side_effect=lambda d, argv, expected=None, park_as=False:
                           launched.append((d.name, argv)) or 0):
             watch.resume_waiting_login(log=logs.append)
         self.assertEqual(launched, [(directory.name, ["resume", directory.name])])
@@ -635,7 +635,7 @@ class Login(unittest.TestCase):
         # window was timed against a launch this outage already ended
         self.log_out(False)
         launched = []
-        with patch.object(run, "spawn_bg", side_effect=lambda d, argv, expected=None:
+        with patch.object(run, "spawn_bg", side_effect=lambda d, argv, expected=None, park_as=False:
                           launched.append(d.name) or 0):
             watch.resume_waiting_login(log=logs.append)
         self.assertEqual(launched, [directory.name])

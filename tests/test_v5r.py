@@ -92,7 +92,7 @@ class ExhaustedResume(unittest.TestCase):
     def test_v5r_tick_resumes_exhausted_run_when_window_refills(self):
         run_dir = self.receipt("20260916-1200-refill", executor="astra")
         calls = []
-        with patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None:
+        with patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None, park_as=False:
                           calls.append((d, a, expected)) or 0):
             watch.resume_exhausted(self.cfg, self.providers(), log=self.log, now=self.now)
         self.assertEqual(len(calls), 1)
@@ -106,7 +106,7 @@ class ExhaustedResume(unittest.TestCase):
     def test_v5r_tick_hands_over_a_saved_executor_that_is_still_dry(self):
         run_dir = self.receipt("20260916-1201-handover", executor="opus")
         calls = []
-        with patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None:
+        with patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None, park_as=False:
                           calls.append((d, a, expected)) or 0):
             watch.resume_exhausted(self.cfg, self.providers(), log=self.log, now=self.now)
         self.assertEqual(len(calls), 1)
@@ -238,7 +238,7 @@ class ExhaustedResume(unittest.TestCase):
         run.save_state(run_dir, state)
         providers = self.providers(openai_used=10, anthropic_used=100, meta_used=5)
         calls = []
-        with patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None:
+        with patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None, park_as=False:
                           calls.append((d, a, expected)) or 0):
             watch.resume_exhausted(self.cfg, providers, log=self.log, now=self.now)
         self.assertEqual(len(calls), 1)

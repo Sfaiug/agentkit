@@ -11631,7 +11631,13 @@ def queued(run_dir):
         return False
 
 
-def spawn_bg(run_dir, argv, expected=None):
+def spawn_bg(run_dir, argv, expected=None, park_as=False):
+    """Start `ak run <argv>` detached, from the record it reads under the recovery lock.
+
+    `park_as` is for a pass that parked the run itself and stamped its own retry: a launch
+    that never starts puts that record back as read, inside the same hold that wrote the
+    launch, so a write landing after the hold is never taken for this failure and undone.
+    """
     log_path = run_dir / "log.txt"
     env = dict(os.environ, **{config.RUN_DIR_ENV: str(run_dir)})
     child = [sys.executable, str(config.REPO / "bin" / "ak"), "run"] + [a for a in argv if a != "--bg"]
@@ -11699,7 +11705,9 @@ def spawn_bg(run_dir, argv, expected=None):
             update_scope_line(run_dir, state)
         except (OSError, config.Error) as exc:
             reason = f"Could not launch the run: {exc}"
-            if (previous.get("reservation_pending") and
+            if park_as:
+                state = previous
+            elif (previous.get("reservation_pending") and
                     previous.get("pid") == os.getpid()):
                 state = interrupt(previous, reason)
             elif previous.get("slot_waiting"):

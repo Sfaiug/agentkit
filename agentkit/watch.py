@@ -4125,8 +4125,8 @@ def resume_waiting_login(dry_run=False, log=print, now=None):
                     log(f"would resume {run_dir.name}: {harness} can authenticate again")
                     continue
                 # the stamp lands before the child owns the run: spawn_bg only adopts a
-                # record that still reads exactly like this one, and a launch that never
-                # started is retried on a later tick rather than written after the fact.
+                # record that still reads exactly like this one, and puts it back when the
+                # launch never starts: retried on a later tick, never written after the fact.
                 # `login_back_at` said the wait was over before the pacing above could skip
                 # this pass, so nothing goes on telling the owner to log in to something he
                 # already has, whatever happens to the launch now.
@@ -4135,23 +4135,9 @@ def resume_waiting_login(dry_run=False, log=print, now=None):
                 decided = dict(state)
             try:
                 with redirect_stdout(io.StringIO()):
-                    run_mod.spawn_bg(run_dir, ["resume", run_dir.name], expected=decided)
+                    run_mod.spawn_bg(run_dir, ["resume", run_dir.name], expected=decided,
+                                     park_as=True)
             except (config.Error, OSError) as exc:
-                with run_mod.recovery_lock(run_dir):
-                    state = run_mod.read_state(run_dir) or {}
-                    if state.get("state") == "interrupted" and state.get("recovery_pending"):
-                        # spawn_bg's own parking of a launch that never started: the run goes
-                        # back where it was, throttled, retried, silent -- but with the login
-                        # still marked back, because it is, and the row says so.
-                        state.update(state="waiting_login", login_resume_at=now,
-                                     login_back_at=now)
-                        for key in ("recovery_pending", "interruption_reason", "interrupted_at"):
-                            state.pop(key, None)
-                        run_mod.save_state(run_dir, state)
-                    elif state.get("state") == "waiting_login":
-                        state["login_resume_at"] = state["login_back_at"] = now
-                        run_mod.save_state(run_dir, state)
-                    # else somebody else owns it now; their record stands untouched.
                 log(f"WARN could not resume {run_dir.name}: {exc}")
                 continue
             log(f"resumed {run_dir.name}: the {harness} login is back")
@@ -4332,24 +4318,9 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                 decided = dict(state)
             try:
                 with redirect_stdout(io.StringIO()):
-                    run_mod.spawn_bg(run_dir, ["resume", run_dir.name], expected=decided)
+                    run_mod.spawn_bg(run_dir, ["resume", run_dir.name], expected=decided,
+                                     park_as=True)
             except (config.Error, OSError) as exc:
-                with run_mod.recovery_lock(run_dir):
-                    state = run_mod.read_state(run_dir) or {}
-                    if state.get("state") == "interrupted" and state.get("recovery_pending"):
-                        # spawn_bg's own parking of a launch that never started: the run is
-                        # still exhausted for its original reason, throttled, retried, silent.
-                        state.update(state="exhausted", exhausted_resume_at=now)
-                        for key in ("recovery_pending", "interruption_reason",
-                                    "interrupted_at"):
-                            state.pop(key, None)
-                        run_mod.save_state(run_dir, state)
-                    elif state.get("state") == "exhausted":
-                        # somebody else moved it and moved it back, or the receipt never
-                        # landed: throttle the retry without touching their record.
-                        state["exhausted_resume_at"] = now
-                        run_mod.save_state(run_dir, state)
-                    # else somebody else owns it now; their record stands untouched.
                 log(f"WARN could not resume {run_dir.name}: {exc}")
                 continue
             log(f"resumed {run_dir.name}: {why}")
@@ -4442,21 +4413,9 @@ def resume_errored(dry_run=False, log=print, now=None):
                 decided = dict(state)
             try:
                 with redirect_stdout(io.StringIO()):
-                    run_mod.spawn_bg(run_dir, ["resume", run_dir.name], expected=decided)
+                    run_mod.spawn_bg(run_dir, ["resume", run_dir.name], expected=decided,
+                                     park_as=True)
             except (config.Error, OSError) as exc:
-                with run_mod.recovery_lock(run_dir):
-                    state = run_mod.read_state(run_dir) or {}
-                    if state.get("state") == "interrupted" and state.get("recovery_pending"):
-                        # spawn_bg's own parking of a launch that never started: the run is
-                        # still in error for its original reason, and the stamps it kept
-                        # pace the retry -- the rung this launch consumed stays consumed.
-                        state.update(state="error")
-                        for key in ("recovery_pending", "interruption_reason",
-                                    "interrupted_at"):
-                            state.pop(key, None)
-                        run_mod.save_state(run_dir, state)
-                    # else somebody else owns it now, or their record already paces the
-                    # retry; either way their record stands untouched.
                 log(f"WARN could not resume {run_dir.name}: {exc}")
                 continue
             log(f"resumed {run_dir.name}: error retry {decided.get('error_retries')}")
@@ -4581,24 +4540,9 @@ def resume_waiting(dry_run=False, log=print, now=None):
                 continue
             try:
                 with redirect_stdout(io.StringIO()):
-                    run_mod.spawn_bg(run_dir, ["resume", run_dir.name], expected=decided)
+                    run_mod.spawn_bg(run_dir, ["resume", run_dir.name], expected=decided,
+                                     park_as=True)
             except (config.Error, OSError) as exc:
-                with run_mod.recovery_lock(run_dir):
-                    state = run_mod.read_state(run_dir) or {}
-                    if state.get("state") == "interrupted" and state.get("recovery_pending"):
-                        # spawn_bg's own parking of a launch that never started: the run is
-                        # still waiting on its upstream, throttled, retried, silent.
-                        state.update(state="waiting", waiting_resume_at=now)
-                        for key in ("recovery_pending", "interruption_reason",
-                                    "interrupted_at"):
-                            state.pop(key, None)
-                        run_mod.save_state(run_dir, state)
-                    elif state.get("state") == "waiting":
-                        # somebody else moved it and moved it back, or the receipt never
-                        # landed: throttle the retry without touching their record.
-                        state["waiting_resume_at"] = now
-                        run_mod.save_state(run_dir, state)
-                    # else somebody else owns it now; their record stands untouched.
                 log(f"WARN could not resume {run_dir.name}: {exc}")
                 continue
             log(f"resumed {run_dir.name}: {ref} moved ({moved[0]}..{moved[1]})")
