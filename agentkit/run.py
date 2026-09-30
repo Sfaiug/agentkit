@@ -840,8 +840,18 @@ def ready_order(cfg, providers, workers=None, log=None, **kwargs):
 
 
 def refuse_unready(cfg, providers, name):
-    """A model named outright whose harness cannot run here is refused, in one sentence."""
+    """A model named outright whose harness cannot run here is refused, in one sentence.
+
+    Not on an answer an install or revert of that harness overlapped: its command was missing
+    then, so the swap is waited out and the harness asked again, as a failed turn's is.
+    """
     why = usage.unready(cfg, name, providers)
+    harness = config.model(cfg, name)["harness"]
+    if why and update.swap_end(harness, providers.asked_at, time.time()):
+        while (end := update.swap_end(harness, providers.asked_at, time.time()) or 0) > (
+                now := time.time()):
+            time.sleep(min(SWAP_POLL, end - now))
+        why = usage.harness_unready(harness)
     if why:
         raise config.Error(f"{name} cannot run here: {why}")
 
