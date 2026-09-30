@@ -286,6 +286,71 @@ class FreshWindowEndsMark(unittest.TestCase):
             self.assertTrue(accounts["second"]["exhausted"])
             self.assertEqual(usage.account(self.cfg, "alpha"), ("first", True))
 
+    def test_an_account_marked_during_its_rollover_read_stays_marked(self):
+        self.cfg["providers"]["alpha"]["accounts"] = ["first", "second"]
+        self.set_meters("alpha", [{"name": "session", "used": 40, "resets_at": NOW + 100,
+                                   "window_secs": usage.SESSION_SECS}, *self.old_window()],
+                        account="first")
+        self.set_meters("alpha", self.old_window(), account="second")
+        self.set_meters("beta", self.old_window(used=10))
+        until = NOW + 5 * 86400
+        refused = []
+
+        def probe(cfg, provider, now, account=None):
+            if account == "second" and self.now > NOW and not refused:
+                # `first` refuses a worker while the read its own session rolling over
+                # began is still asking `second`: that worker's process marks it.  Its
+                # read finds the snapshot fresh, so it asks no adapter.
+                cache = config.STATE / "usage.json"
+                with patch.object(usage, "collect", side_effect=lambda cfg: usage.Readings(
+                        json.loads(cache.read_text())["providers"])):
+                    refused.append(usage.mark_exhausted(self.cfg, "alpha", until,
+                                                        account="first"))
+            return self.fake_probe(cfg, provider, now, account)
+
+        with patch.object(usage, "_probe", side_effect=probe):
+            self.assertEqual(usage.collect(self.cfg)["alpha"]["account"], "first")
+            self.now = NOW + usage.PROBE_EVERY + 41
+            self.set_meters("alpha", self.old_window(), account="first")
+            usage.collect(self.cfg)
+            self.assertEqual(refused, [until])
+            providers = usage.collect(self.cfg)
+            self.assertEqual(providers["alpha"]["accounts"]["first"]["exhausted_until"], until)
+            self.assertTrue(providers["alpha"]["accounts"]["first"]["exhausted"])
+            stored = json.loads((config.STATE / "usage.json").read_text())
+            self.assertEqual(stored["providers"]["alpha"]["accounts"]["first"]["exhausted_until"],
+                             until)
+            self.assertEqual(usage.account(self.cfg, "alpha"), ("second", True))
+
+    def test_a_credit_spent_after_a_mark_made_during_its_read_lifts_it(self):
+        adapters = self.root / "adapters"
+        adapters.mkdir()
+        (adapters / "fake.toml").write_text("[usage]\nreset = true\n")
+        self.stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}))
+        self.set_meters("alpha", self.old_window())
+        self.set_meters("beta", self.old_window(used=10))
+        marked = []
+
+        def probe(cfg, provider, now, account=None):
+            if provider == "alpha" and self.now > NOW and not marked:
+                # alpha refuses another worker while the refused one's replenish is asking it
+                cache = config.STATE / "usage.json"
+                with patch.object(usage, "collect", side_effect=lambda cfg: usage.Readings(
+                        json.loads(cache.read_text())["providers"])):
+                    marked.append(usage.mark_exhausted(self.cfg, "alpha", NOW + 5 * 86400))
+            return {**self.fake_probe(cfg, provider, now, account), "resets": 1.0}
+
+        with patch.object(usage, "_probe", side_effect=probe), \
+                patch.object(usage, "_adapter_json", side_effect=lambda harness, verb, *_a, **_kw:
+                             {"code": "reset", "available": 0} if verb == "reset" else None):
+            usage.collect(self.cfg)
+            self.now = NOW + usage.PROBE_EVERY + 1
+            self.assertEqual(usage.replenish(self.cfg, "alpha"), (True, 0.0))
+            self.assertEqual(marked, [NOW + 5 * 86400])
+            providers = usage.collect(self.cfg)
+            self.assertNotIn("exhausted_until", providers["alpha"])
+            self.assertFalse(providers["alpha"]["exhausted"])
+
 
 if __name__ == "__main__":
     unittest.main()
