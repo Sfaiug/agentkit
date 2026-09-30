@@ -228,6 +228,37 @@ class TargetPool(unittest.TestCase):
         self.finish(proc, work)
         self.assertFalse([c for c in self.changed(work) if c.startswith("repo create")])
 
+    def test_the_bound_is_read_again_at_every_try(self):
+        # the reviewer's case: a bound that falls while a suite waits makes no target past it,
+        # and one that rises lets the waiting suite make the next
+        self.bound(2)
+        self.existing("agentkit-smoke")
+        first = self.hold(1)
+        second = self.hold(2)
+        proc, work = self.suite("falling")
+        self.until(lambda: WAITING in self.out(work), "waited", work)
+        self.bound(1)
+        time.sleep(3.5)                        # three listings at the new bound
+        fcntl.flock(second, fcntl.LOCK_UN)
+        time.sleep(2.5)
+        self.assertIsNone(proc.poll(), self.out(work))
+        self.assertEqual(self.changed(work), [], self.out(work))
+        fcntl.flock(first, fcntl.LOCK_UN)
+        self.assertEqual(self.target(work), "agentkit-smoke")
+        self.finish(proc, work)
+
+    def test_a_rising_bound_lets_a_waiting_suite_make_the_next(self):
+        self.bound(1)
+        self.existing("agentkit-smoke")
+        self.hold(1)
+        proc, work = self.suite("rising")
+        self.until(lambda: WAITING in self.out(work), "waited", work)
+        self.bound(2)
+        self.assertEqual(self.target(work), "agentkit-smoke-2")
+        self.finish(proc, work)
+        self.assertEqual([c for c in self.changed(work) if c.startswith("repo create")],
+                         ["repo create caller/agentkit-smoke-2 --private"])
+
     def test_a_waiting_suite_takes_a_target_another_suite_added(self):
         # another suite, admitted at a larger bound, makes the second target while this one waits
         self.bound(1)

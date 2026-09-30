@@ -178,14 +178,15 @@ smoke_targets() {   # the numbers of the targets the account has, agentkit-smoke
 }
 smoke_lock_hold() {   # smoke_lock_hold <wait seconds>: 0 and $SMOKE_TARGET is this suite's, or 75
   local dir line status=busy bound pool have try end=$((SECONDS + $1))
-  bound=$(smoke_pool_bound)
   SMOKE_LOGIN=$(gh api user --jq .login 2>"$WORK/smoke-login.err" || true)
   dir=$(mktemp -d "${TMPDIR:-/tmp}/ak-smoke-lock-XXXXXX") || return 75
   if ! mkfifo "$dir/status"; then rm -rf -- "$dir"; return 75; fi
-  # Every try lists the pool anew, for a target another suite added; listing only reads.  A
-  # listing that failed says nothing about the pool, so that try takes only agentkit-smoke,
-  # found or made as it always was, and makes no other target.
+  # Every try reads the bound and lists the pool anew -- the loop's capacity moves, and another
+  # suite may have added a target; both only read.  A listing that failed says nothing about
+  # the pool, so that try takes only agentkit-smoke, found or made as it always was, and makes
+  # no other target.
   while :; do
+    bound=$(smoke_pool_bound)
     if have=$(smoke_targets); then pool=$bound; else have=1, pool=1; fi
     try=$((end - SECONDS)); [ "$try" -le "$SMOKE_LOCK_LIST" ] || try=$SMOKE_LOCK_LIST
     python3 -c "$SMOKE_LOCK_PY" "$SMOKE_LOCK" "$try" hold $$ "$pool" "$have" >"$dir/status" &
@@ -5536,6 +5537,12 @@ if lifecycle_check v4l >"$WORK/v4l.log" 2>&1; then
   ok "36 exact stall timing, attach races, quota windows, real Claude stream and narrow runs"
 else
   no "36 v4l regressions"; tail -30 "$WORK/v4l.log"
+fi
+if { python3 "$REPO/tests/test_smoke_target_pool.py" &&
+     python3 "$REPO/tests/test_smoke_lock_scope.py"; } >"$WORK/smoke-targets.log" 2>&1; then
+  ok "4e smoke targets: two suites take two, the next is made below the bound read at each try, the bound waits, a failed listing makes none, a killed holder frees its own"
+else
+  no "4e smoke targets"; tail -30 "$WORK/smoke-targets.log"
 fi
 if python3 "$REPO/tests/test_v4n.py" >"$WORK/v4n.log" 2>&1; then
   ok "37 readable menus at 40/80/100 columns, run reporting, Codex resume and launch/cache edges"
