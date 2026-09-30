@@ -262,7 +262,7 @@ class Pages(Sandbox):
                     else:
                         start = len(seen) + 1
                         self.assertEqual(numbers, set(range(start, min(12, start + size - 1) + 1)))
-                    for key in ("m more", "k previous"):    # on one key line, or on two
+                    for key in ("j more", "k previous"):    # on one key line, or on two
                         self.assertEqual(any(key in line for line in lines), pages > 1, key)
                     heading = next(line for line in lines if "your projects" in line)
                     if pages > 1:
@@ -280,12 +280,12 @@ class Pages(Sandbox):
         lines, drawn = self.draw(self.seats(3), 40, 24)
         self.assertEqual(drawn, (0, 1))
         self.assertIn("your projects · 3 need you", lines)
-        self.assertNotIn("m more", "\n".join(lines))
+        self.assertNotIn("j more", "\n".join(lines))
         self.assertEqual(self.draw(self.seats(3), 40, 24, page=7)[1], (0, 1))
 
     def test_the_loop_turns_pages_and_answers_a_number_from_any_page(self):
         seats = self.seats(12)
-        answers = iter(["m", "k", "m", "m", "m", "12", "3", "x", "11", "y", ""])
+        answers = iter(["j", "k", "j", "j", "j", "12", "3", "x", "11", "y", ""])
         opened, stopped = [], []
         # short enough to page: the loop turns whole seat blocks and answers a
         # number from whichever page is up
@@ -585,7 +585,7 @@ class Phone(Sandbox):
             seen |= self.numbers(lines)
             heading = next(line for line in lines if "your projects" in line).strip()
             self.assertRegex(heading, r"your projects( · .*?)? \d+/\d+$")
-            self.assertNotIn("m more", "\n".join(lines))
+            self.assertNotIn("j more", "\n".join(lines))
             if heading not in headings:
                 headings.append(heading)
             if self.marked(lines) == of:
@@ -675,8 +675,8 @@ class Phone(Sandbox):
         phone.until("Name: auto", prompt="Name: auto")
         phone.keys("Enter")
         phone.until("agentkit · new session", prompt="esc back")
-        phone.keys("Enter")
-        phone.until("new-2 · opus", "Ctrl-b m  menu", absent=["esc leave"])
+        phone.keys("Enter")                  # what the last creation was given: astra
+        phone.until("new-2 · astra", "Ctrl-b m  menu", absent=["esc leave"])
         phone.settled()
         self.assertTrue(self.has_seat("new-2"))
         phone.keys("C-b", "m")
@@ -687,7 +687,7 @@ class Phone(Sandbox):
         phone.keys("C-b", "m")
         phone.until("esc leave", "1  new-2", prompt="esc leave")
         phone.press("1")
-        phone.until("new-2 · opus", absent=["esc leave"])
+        phone.until("new-2 · astra", absent=["esc leave"])
         phone.settled()
         phone.keys("C-b", "m")
         phone.until("esc leave", prompt="esc leave")
@@ -717,7 +717,7 @@ class Phone(Sandbox):
             self.whole_page(screen, width, height)
             self.assertEqual(self.numbers(screen), set(range(1, 13)))
         self.assertEqual(self.marked(screen), 11)
-        self.assertNotIn("m more", "\n".join(screen))
+        self.assertNotIn("j more", "\n".join(screen))
         # a number is answered from whichever page is up: 12 opens the twelfth seat, its two
         # digits inside half a second, and its bar says the row's own words; past the width the
         # left half is cut, with one ellipsis, where it would reach the one key
@@ -746,7 +746,7 @@ class Phone(Sandbox):
         screen = full(screen)
         if not narrow:
             self.assertEqual(self.numbers(screen), set(range(1, 13)))
-            self.assertNotIn("m more", "\n".join(screen))
+            self.assertNotIn("j more", "\n".join(screen))
         # the popup over a seat holds fewer rows still, and pages them the same way
         phone.press("11")                    # phone-audit, eleventh by name
         phone.until(STAND_IN, "phone-audit · astra")
@@ -773,7 +773,7 @@ class Phone(Sandbox):
         phone.resize(100, 30)
         screen = phone.redraw("12  zz-very-long-session-", "esc leave")
         self.whole_page(screen, 100, 30)
-        self.assertNotIn("m more", "\n".join(screen))
+        self.assertNotIn("j more", "\n".join(screen))
         phone.resize(40, 12)
         screen = phone.redraw("your projects", "/")
         # held short the frame goes compact: heading, rows, keys and prompt only

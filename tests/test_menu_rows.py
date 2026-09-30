@@ -180,7 +180,7 @@ class MenuRows(Sandbox):
         self.assertEqual(pages[1], 1)
         for phrase in ("n new", "x stop", "c config", "i info", "esc leave"):
             self.assertIn(phrase, screen)
-        for gone in ("p preview", "b browser", "r runs", "m more", "k previous"):
+        for gone in ("p preview", "b browser", "r runs", "j more", "k previous"):
             self.assertNotIn(gone, screen)
         # Two pages: paging appears, and only then.
         self.seats = []
@@ -188,7 +188,7 @@ class MenuRows(Sandbox):
             self.seat(f"seat-{n:02d}", "atoll", live="working")
         screen, pages = self.draw(100, 10)
         self.assertGreater(pages[1], 1)
-        self.assertIn("m more", screen)
+        self.assertIn("j more", screen)
         self.assertIn("k previous", screen)
 
     def test_removed_keys_answer_not_a_key(self):

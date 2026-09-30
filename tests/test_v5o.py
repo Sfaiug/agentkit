@@ -553,7 +553,7 @@ class V5oMenu(Sandbox):
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(menu.draw(self.cfg, []), (0, 1))
-        answers = iter(["m", "k", ""])
+        answers = iter(["j", "k", ""])
         with patch.object(menu.orch, "listing", return_value=[]), \
                 patch.object(menu.orch, "job_notices", return_value=[]), \
                 patch.object(menu, "read", side_effect=lambda *_: next(answers)), \
@@ -561,7 +561,7 @@ class V5oMenu(Sandbox):
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
-        self.assertIn("not a key: 'm'", out.getvalue())
+        self.assertIn("not a key: 'j'", out.getvalue())
         self.assertIn("not a key: 'k'", out.getvalue())
 
     def test_v5o_t_width_helpers_default_to_the_terminal(self):
