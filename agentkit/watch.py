@@ -2653,8 +2653,9 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
 
     Every `continue` is a new turn, so the hook's two blocks a turn cannot be counted here: a
     seat is nudged at most PARKED_NUDGES times for the same parked run, and the next stop
-    stands, as the hook's third does.  The count starts again for a run that has not had its
-    nudges, and for every run once the seat has a newer notice, answered or not.
+    stands, as the hook's third does.  A run keeps its count when it is resumed and parks again,
+    so runs taking turns buy no more; only a newer notice for the seat, answered or not, starts
+    every count again.
 
     The episode is `turn_began` and the output that turn stopped on, both of them stop_marks'
     to say, so a footer that repainted is the same episode and the same words after another
@@ -2717,7 +2718,8 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
             nudged = kept["runs"]
         if all(nudged.get(run, 0) >= PARKED_NUDGES for run in parked):
             return      # it has had its nudges for every run parked: this stop stands
-        nudged = {"notice": since, "runs": {run: nudged.get(run, 0) + 1 for run in parked}}
+        nudged = {"notice": since,
+                  "runs": {**nudged, **{run: nudged.get(run, 0) + 1 for run in parked}}}
     if not parked and waiting_on(name, records):
         return          # it ended its turn on `ak wait`, and that session is working
     if not parked and notice and notice["kind"] == "done" and done_holds(

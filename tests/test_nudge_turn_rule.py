@@ -197,14 +197,22 @@ class NudgeTurnRule(Sandbox):
                 self.assertEqual(self.judged(2), (False, []))
                 self.stopped()
                 self.assertEqual(self.tick(), [])       # and every stop after it stands too
-                # a different run parks, and then the owner is asked and answers: a new notice
+                # the first is resumed and a different run parks, which is nudged for twice
+                self.receipt(PARKED, SEAT, "running")
                 self.receipt(LATER, SEAT, "stalled", error="no output for 20 minutes")
-                for then in (lambda: None, lambda: notify.record(
-                        SEAT, "needs", "Resume both?", answered_at=time.time() + 1)):
-                    then()
-                    for typed in (["continue"], ["continue"], []):
-                        self.stopped()
-                        self.assertEqual(self.tick(), typed)
+                for typed in (["continue"], ["continue"], []):
+                    self.stopped()
+                    self.assertEqual(self.tick(), typed)
+                # the first parks again: it has had its nudges, and swapping them buys no more
+                self.receipt(LATER, SEAT, "running")
+                self.receipt(PARKED, SEAT, "interrupted", recovery_pending=True)
+                self.stopped()
+                self.assertEqual(self.tick(), [])
+                # the owner is asked and answers: a new notice, and the count starts again
+                notify.record(SEAT, "needs", "Resume it?", answered_at=time.time() + 1)
+                for typed in (["continue"], ["continue"], []):
+                    self.stopped()
+                    self.assertEqual(self.tick(), typed)
 
 
 if __name__ == "__main__":
