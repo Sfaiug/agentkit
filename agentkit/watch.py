@@ -98,7 +98,15 @@ def ask_inbox(cfg, question, url, sha, log):
         harness, _ = seat_model(cfg, name)
     except (config.Error, OSError):
         harness = None
-    if type_checked(session, line, log, harness):
+
+    def veto(held):
+        # Read under the seat lock the other senders type under: a draft in the composer or a
+        # dialog on screen would go out with the question as one garbled prompt.  No owner-
+        # question veto: the notice standing there is the last merge question, ours.
+        return _decided_state(held, harness, pane_text(session)) in ("draft", "asking")
+
+    if type_checked(session, line, log, harness,
+                    guard=lambda: notify.session_lock(name), veto=veto):
         log(f"asked the {name} seat: {question}")
     else:
         log(f"WARN could not type the question into the {name} seat")
