@@ -53,6 +53,7 @@ SLICE = "agentkit.slice"   # the user systemd slice every agent process is start
 SEATS_SLICE = "agentkit-seats.slice"  # interactive sessions keep the default weight
 RUNS_SLICE = "agentkit-runs.slice"    # detached runs are deliberately below sessions
 OWN_CGROUP = Path("/proc/self/cgroup")   # ... and where this process says which cgroup holds it
+PROC = Path("/proc")                     # ... and where the user manager says what it runs
 CGROUP_ROOT = Path("/sys/fs/cgroup")     # ... where that cgroup, and the slice, say what they hold
 NO_SLICE = "no slice (no user systemd manager)"   # ... on a host that has no manager to ask
 SLICE_WAIT = 30            # how long `systemd-run` has to say whether it took a unit
@@ -343,20 +344,34 @@ def scope_oom_policy():
 
     An older systemd-run refuses the whole scope over it, and the run would start plainly,
     outside the slice and its cap; there a scope keeps the default, which stops it whole.
-    The version is the running manager's own answer (`257.9-1~deb13u1` is 257), asked only
-    once `user_manager` has said there is one to ask, and once per process.  No answer
-    counts as too old: the scope then keeps the default, as every run's did before.
+    The version is the running user manager's.  Its binary names the library it links,
+    `libsystemd-shared-257.so`, and a tag of bare digits is the version, read without
+    starting anything: this is on the way into every launch, as `user_manager` is.  A
+    build that tagged the library otherwise (`1-acme`) is asked, `systemctl --user show
+    -p Version`.  No answer counts as too old.  Asked once per process, and only when
+    `user_manager` found a manager to ask.
     """
     if "answer" not in _OOM_POLICY:
-        version = 0
+        version, uid = 0, os.getuid()
         try:
             if user_manager():
-                said = subprocess.run(
-                    ["systemctl", "--user", "show", "-p", "Version", "--value"],
-                    capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                    env=bus_env(), timeout=SLICE_WAIT).stdout
-                found = re.match(r"\s*(\d+)", said)
-                version = int(found.group(1)) if found else 0
+                procs = (CGROUP_ROOT / "user.slice" / f"user-{uid}.slice" / f"user@{uid}.service"
+                         / "init.scope" / "cgroup.procs").read_text().split()
+                for pid in procs:   # the manager, and the (sd-pam) that waits beside it
+                    argv = (PROC / pid / "cmdline").read_bytes().split(b"\0")
+                    if b"--user" not in argv:
+                        continue
+                    tag = re.search(rb"libsystemd-(?:shared|core)-([^/\0]+?)\.so",
+                                    Path(os.fsdecode(argv[0])).read_bytes())
+                    said = tag.group(1).decode() if tag and tag.group(1).isdigit() else ""
+                    if not said:
+                        said = subprocess.run(
+                            ["systemctl", "--user", "show", "-p", "Version", "--value"],
+                            capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                            env=bus_env(), timeout=SLICE_WAIT).stdout
+                    found = re.match(r"\s*(\d+)", said)
+                    version = int(found.group(1)) if found else 0
+                    break
         except (OSError, subprocess.SubprocessError):
             pass
         _OOM_POLICY["answer"] = version >= 253

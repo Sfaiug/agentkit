@@ -90,31 +90,42 @@ class EndsTheGrower(unittest.TestCase):
         self.assertFalse(any(str(item).startswith("OOMPolicy") for item in props))
         self.assertIn("MemoryMax=4000M", props)
 
-    def test_the_version_is_the_managers_own_answer(self):
-        def asked(said):
+    def test_the_version_is_the_managers_own(self):
+        # A fake manager: its cgroup lists it beside (sd-pam), its cmdline names its binary,
+        # and the binary names the libsystemd it links, as a real one does.
+        uid = os.getuid()
+        procs = (self.root / "cgroup" / "user.slice" / f"user-{uid}.slice" / f"user@{uid}.service"
+                 / "init.scope" / "cgroup.procs")
+        procs.parent.mkdir(parents=True)
+        procs.write_text("11\n12\n")
+        binary = self.root / "systemd"
+        for pid, argv in (("11", b"(sd-pam)\0"), ("12", bytes(binary) + b"\0--user\0")):
+            (self.root / "proc" / pid).mkdir(parents=True)
+            (self.root / "proc" / pid / "cmdline").write_bytes(argv)
+        self.stack.enter_context(patch.object(orch, "PROC", self.root / "proc"))
+        self.addCleanup(orch._OOM_POLICY.clear)
+
+        def asked(tag, manager_says=None, manager=True):
             orch._OOM_POLICY.clear()
+            binary.write_bytes(b"\x7fELF..." + f"libsystemd-shared-{tag}.so".encode() + b"\0...")
             calls = []
 
             def systemctl(argv, **_kw):
                 calls.append(argv)
-                if isinstance(said, BaseException):
-                    raise said
-                return subprocess.CompletedProcess(argv, 0, said, "")
-            with patch.object(orch.subprocess, "run", side_effect=systemctl):
-                return orch.scope_oom_policy(), calls
-        self.addCleanup(orch._OOM_POLICY.clear)
-        with patch.object(orch, "user_manager", return_value=True):
-            for said, takes in (("257.13-1~deb13u1\n", True), ("253\n", True),
-                                ("252.3-2\n", False), ("", False),
-                                (OSError("no systemctl"), False),
-                                (subprocess.TimeoutExpired("systemctl", 30), False)):
-                answer, calls = asked(said)
-                self.assertEqual(answer, takes, said)
-                self.assertEqual(calls, [["systemctl", "--user", "show", "-p", "Version",
-                                          "--value"]])
-        # no manager to ask: nothing is started, and the scope keeps the default
-        with patch.object(orch, "user_manager", return_value=False):
-            self.assertEqual(asked("257\n"), (False, []))
+                return subprocess.CompletedProcess(argv, 0, manager_says, "")
+            with patch.object(orch, "user_manager", return_value=manager), \
+                    patch.object(orch.subprocess, "run", side_effect=systemctl):
+                return orch.scope_oom_policy(), len(calls)
+        # a tag of bare digits is the version, read without starting anything
+        self.assertEqual(asked("257"), (True, 0))
+        self.assertEqual(asked("253"), (True, 0))
+        self.assertEqual(asked("252"), (False, 0))
+        # a tag of the build's own is no version: the manager is asked
+        self.assertEqual(asked("1-acme", "257.13-1~deb13u1\n"), (True, 1))
+        self.assertEqual(asked("20260930-acme", "252\n"), (False, 1))
+        self.assertEqual(asked("1-acme", ""), (False, 1))
+        # no manager to ask: nothing is read or started, and the scope keeps the default
+        self.assertEqual(asked("257", manager=False), (False, 0))
 
     def test_the_first_two_kills_leave_the_run_going(self):
         logs = []
