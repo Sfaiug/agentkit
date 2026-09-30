@@ -3261,7 +3261,10 @@ def session_mark(cfg, name, selected, model, column, providers):
         if not note:
             selected["orchestrator"] = model
         return note
-    changed, note = orch.role_mark(cfg, selected, model, column, providers)
+    try:
+        changed, note = orch.role_mark(cfg, selected, model, column, providers)
+    except config.Error as exc:     # the record names a model removed on this screen
+        return str(exc)
     if note:
         return note
     try:
