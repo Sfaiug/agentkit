@@ -148,6 +148,8 @@ sys.exit(1)
         self.reviews(PASS)
         self.stack.enter_context(redirect_stdout(io.StringIO()))
         # Deterministic pick order: executor, reviewer, one spare on a third provider.
+        # A test with no spare leaves the executor out as well: its own model reviews
+        # as the last choice.
         self.order = [self.executor, self.reviewer, self.spare]
         self.stack.enter_context(patch.object(usage, "pick_order", side_effect=lambda cfg, *a, **k: list(self.order)))
 
@@ -238,7 +240,7 @@ sys.exit(1)
         self.assertNotIn("retrying in", self.log(directory))
 
     def test_v5aj_unfinished_then_silent_is_gone_without_a_third_call(self):
-        self.order = [self.executor, self.reviewer]
+        self.order = [self.reviewer]
         first = {"text": NO_VERDICT, "stderr": "Background tasks still running\n",
                  "session": "sess-1"}
         self.reviews(first, NO_VERDICT)
@@ -272,7 +274,7 @@ sys.exit(1)
         self.assertIn(f"reviewer-{self.spare}", outs)
 
     def test_v5aj_two_no_verdicts_no_spare_exhausted_and_resumable(self):
-        self.order = [self.executor, self.reviewer]
+        self.order = [self.reviewer]
         self.reviews(NO_VERDICT, NO_VERDICT, PASS)
         code, directory, state = self.launch(rounds=1)
         self.assertEqual(code, 1, self.log(directory))
@@ -427,7 +429,7 @@ sys.exit(1)
         # while reaping, so the absence of backoff is pinned on the log
         self.assertNotIn("retrying in", self.log(directory))
         quota = {"code": 1, "text": "You have hit your usage limit\n"}
-        self.order = [self.executor, self.reviewer]
+        self.order = [self.reviewer]
         (self.root / "calls.jsonl").unlink()
         self.reviews(quota)
         with patch.object(run.time, "sleep"):
