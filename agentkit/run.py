@@ -1711,10 +1711,12 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             raise CannotRun(name, fault)
         # Some adapters exit zero after streaming turn.failed; that event still refused
         # the turn. On a successful exit only failure events speak, never answer text.
-        # A spent window, a refusal or an outage, each in the harness's own whole words.
+        # A spent window, a refusal or an outage, each in the harness's own whole words.  A
+        # kill by signal reads as the signal whatever else was said, unless the window is spent.
         said = harness_said(target, text, entry["harness"], failures_only=code == 0)
         outcome, mark = harness_plugin(entry["harness"]).failure(said)
-        if outcome:
+        sig = killed_word(code) if not killed else None
+        if outcome == SPENT or (outcome and not sig):
             # The attempt is refused and its children are not the next one's: whatever
             # the dead turn left behind dies before the refill retry, the handover,
             # or the transient wait.
@@ -1762,7 +1764,6 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                       + time.strftime("%Y-%m-%d %H:%M", time.localtime(until)))
             log(f"WARN {role} {name} refused: {message}{parked}")
             raise RanDry(name, quota, code, text, session, until, message, True)
-        sig = killed_word(code) if not killed else None
         if sig:
             # The worker died by signal, not on the provider and not on the task: it
             # resumes once, at once, on the session it left behind.  A second kill

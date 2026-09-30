@@ -35,18 +35,29 @@ UPDATE = {"version": None, "upgrade": None, "revert": None, "latest": None, "env
 USAGE = {"capture": False, "strips_timestamp": False, "reset": False, "none": False,
          "probe_every": None}
 # `[stall]`: the words no one harness owns, read for every harness beside its manifest's own:
-# HTTP's, the shell's, a command line's and a login's, which any harness may pass on.
-STALL = {"refusals": ("API Error",),
+# HTTP's, the shell's, a command line's, a login's and a model name's, which any harness may
+# pass on.  An outage's status code counts only beside HTTP, a status or an API error.
+STALL = {"refusals": ("API Error", "529", "unexpected status"),
          "outages": ("overloaded", "at capacity", "Internal server error", "Bad Gateway",
-                     "Gateway Timeout", "Service unavailable"),
+                     "Gateway Timeout", "Service unavailable", "idle timeout", "HTTP 5##",
+                     "status 5##", "status: 5##", "status=5##", "API Error 5##",
+                     "API Error: 5##"),
          "faults": ("command not found", "Argument list too long", "not installed",
-                    "unknown option", "unknown flag", "unknown shorthand flag",
-                    "unknown argument", "unknown arguments", "unknown command",
-                    "unrecognized option", "unrecognized argument", "unrecognized arguments",
-                    "unexpected argument", "invalid option", "unknown model", "invalid model",
-                    "model not found", "not logged in", "please log in", "please login",
-                    "unauthorized", "unauthorised", "authentication failed",
-                    "authentication required", "authentication error", "invalid api key")}
+                    "unknown flag", "unknown flags", "unknown shorthand flag",
+                    "unknown option", "unknown options", "unknown argument",
+                    "unknown arguments", "unknown command", "unknown model",
+                    "unrecognized option", "unrecognized options", "unrecognized argument",
+                    "unrecognized arguments", "unexpected argument", "unexpected arguments",
+                    "invalid option", "invalid model", "model … not found",
+                    "model … not exist", "model … not supported", "model_not_found",
+                    "modelnotfound", "ModelNotFoundError", "not logged in", "please log in",
+                    "please login", "please run log in", "please run login",
+                    "unauthorized", "unauthorised",
+                    "authentication failed", "authentication_failed",
+                    "authentication required", "authentication_required",
+                    "authentication error", "authentication_error", "invalid api key",
+                    "invalid api-key", "invalid apikey", "invalid_api_key", "invalid-api-key",
+                    "invalid x-api-key")}
 # What a failed turn's own output says, as `Harness.failure` reads it: the account's window is
 # spent, the provider declined the turn or is down, or the harness never ran the turn at all.
 SPENT, REFUSAL, OUTAGE, FAULT = "spent", "refusal", "outage", "fault"
@@ -56,10 +67,20 @@ _LOADED = {}
 
 def says(text, word):
     """Does `text` say `word` on its own: never inside a longer word, nor its digits inside a
-    longer number -- a request id, a byte count, a duration?"""
-    head = r"(?<!\w)(?<!\d\.)" if re.match(r"\w", word) else ""
-    tail = r"(?!\w)(?!\.\d)" if re.search(r"\w$", word) else ""
-    return bool(word) and re.search(head + re.escape(word) + tail, text, re.I) is not None
+    longer number -- a request id, a byte count, a duration?
+
+    A `#` in a word is any one digit (`HTTP 5##`), and `…` joins parts that each stand on
+    their own, in that order on one line, at most 80 characters apart (`model … not found`).
+    """
+    parts = [part.strip() for part in word.split("…")]
+    if not all(parts):
+        return False
+    pattern = ".{0,80}".join(
+        (r"(?<!\w)(?<!\d\.)" if re.match(r"[\w#]", part) else "")
+        + re.escape(part).replace(r"\#", r"\d")
+        + (r"(?!\w)(?!\.\d)" if re.search(r"[\w#]$", part) else "")
+        for part in parts)
+    return re.search(pattern, text, re.I) is not None
 
 
 def _module(name):

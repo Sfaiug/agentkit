@@ -110,11 +110,6 @@ refusals = ["429", "quota exhausted", "usage limit reached",
             "overloaded", "529", "at capacity", "model stream idle timeout"]
 quotas = ["429", "quota exhausted", "usage limit reached", "usage limit", "rate limit",
           "insufficient_quota", "insufficient quota", "payment required"]
-# `outages` say the provider is down, and the turn is waited out even beside one of the
-# `faults`, which say the harness never ran it and hand it to another at once.  A worker turn
-# reads these, `refusals` and `quotas` only as whole words, in what the harness itself said,
-# beside the words no harness owns (`STALL` in agentkit/harness/__init__.py).
-outages = ["idle timeout", "500", "502", "503", "504", "529"]
 # `terminal` is the event log's terminal record kind: the stream ends with `run_terminal`,
 # which is what adapters/muse.sh reads final.md out of, failure or not.
 terminal = "run_terminal"

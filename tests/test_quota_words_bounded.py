@@ -2,9 +2,10 @@
 
 A `429` or `529` inside a longer number -- a request id, a byte count -- is no refusal, and a
 quota word in the model's own answer parks nothing and waits for nothing.  The words the loop
-used to keep itself now live in each adapter manifest's `[stall]`, and still hand a turn over
-or wait it out as before.  Fake adapters answer from a plan file, the manifests are the
-repository's own, and HOME is temporary: no model, meter or real process is reached.
+used to keep itself now live in the harness package and each adapter manifest's `[stall]`, and
+still hand a turn over or wait it out as before.  Fake adapters answer from a plan file, the
+manifests are the repository's own, and HOME is temporary: no model, meter or real process is
+reached.
 """
 
 from contextlib import ExitStack
@@ -20,11 +21,11 @@ from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, usage  # noqa: E402
+from agentkit import config, harness, run, usage  # noqa: E402
 
 # Every harness's adapter: `auth` answers yes, and `run` plays the next row of plan.json, the
-# last row again once it is the only one left.
-ADAPTER = '''import json, pathlib, sys
+# last row again once it is the only one left, ending by the row's signal where it names one.
+ADAPTER = '''import json, os, pathlib, sys
 if sys.argv[1] == "auth":
     print("fake login")
     sys.exit(0)
@@ -38,6 +39,8 @@ out = pathlib.Path(sys.argv[6])
 for name in ("final.md", "stderr.log", "events.jsonl"):
     (out / name).write_text(row.get(name, ""))
 (out / "session_id").write_text("s1")
+if row.get("signal"):
+    os.kill(os.getpid(), row["signal"])
 sys.exit(row.get("code", 0))
 '''
 DONE = {"code": 0, "final.md": "## Summary\nDone.\n"}
@@ -130,15 +133,15 @@ class QuotaWordsBounded(unittest.TestCase):
         self.assertEqual((code, text), (1, answer))
         self.sleep.assert_not_called()
 
-    def test_a_word_moved_into_a_manifest_still_hands_over_or_waits(self):
-        # a harness that never ran the turn hands it over at once, in its own manifest's words
+    def test_a_word_moved_out_of_the_loop_still_hands_over_or_waits(self):
+        # a harness that never ran the turn hands it over at once, in the words no harness owns
         line = "The model gpt-nonexistent was not found. Try a different model."
-        self.assertIn("was not found", stall("codex")["faults"])
+        self.assertIn("model … not found", harness.STALL["faults"])
         with self.assertRaises(run.CannotRun) as broken:
             self.turn("astra", {"code": 1, "stderr.log": f"{line}\n"})
         self.assertIn(line, str(broken.exception))
         self.sleep.assert_not_called()
-        # ... unless the provider was down beside it, which is waited out on the same session
+        # ... unless the provider was down beside it, in its own manifest's words: waited out
         self.assertIn("Can't reach the API server", stall("claude")["outages"])
         self.sleep.side_effect = None
         code, text, session, _ = self.turn(
@@ -148,15 +151,39 @@ class QuotaWordsBounded(unittest.TestCase):
         self.assertIn("Done.", text)
         self.assertEqual(self.sleep.call_args_list, [((60,),)])
         # and an outage the harness put where the answer belongs is waited out as before
-        self.assertIn("idle timeout", stall("codex")["outages"])
+        self.assertIn("HTTP 5##", harness.STALL["outages"])
         self.sleep.reset_mock()
-        code, text, _, _ = self.turn(
-            "astra", {"code": 1, "final.md": "stream disconnected: idle timeout waiting for SSE"},
-            DONE)
+        code, text, _, _ = self.turn("astra", {"code": 1, "final.md": "HTTP 520 upstream"}, DONE)
         self.assertEqual(code, 0)
         self.assertEqual(self.sleep.call_args_list, [((60,),)])
         self.assertEqual(self.marked, [])
 
+    def test_what_the_loop_read_before_it_reads_the_same(self):
+        # a model the harness does not know, or a refused login, hands over whatever the model
+        # is called -- and a status number with no HTTP beside it never waits one out
+        for model, stderr in (("opus", "Error: model claude-acme does not exist"),
+                              ("astra", "Error: model gpt-acme not found"),
+                              ("astra", "Error: model gpt-acme is not supported"),
+                              ("opus", "Error: authentication_required"),
+                              ("opus", "error: unknown option '--effort'\nrequest count: 500"),
+                              ("astra", "error: unknown option '--effort'\nrequest count: 529")):
+            with self.subTest(stderr=stderr), self.assertRaises(run.CannotRun):
+                self.turn(model, {"code": 1, "stderr.log": stderr})
+        self.sleep.assert_not_called()
+        # a warning that something else was not found is no fault: the empty turn is waited out
+        self.sleep.side_effect = None
+        for stderr in ("warning: cached response was not found\nstream disconnected",
+                       "warning: cache directory does not exist\nstream disconnected"):
+            with self.subTest(stderr=stderr):
+                self.sleep.reset_mock()
+                code, _, _, _ = self.turn("astra", {"code": 1, "stderr.log": stderr}, DONE)
+                self.assertEqual((code, self.sleep.call_args_list), (0, [((60,),)]))
+        # a kill by signal takes its own road, whatever the harness said before it
+        self.sleep.reset_mock(side_effect=True)
+        self.sleep.side_effect = AssertionError("waited")
+        with self.assertRaises(run.Killed):
+            self.turn("astra", {"signal": 15, "final.md": "API Error: request interrupted"})
+        self.sleep.assert_not_called()
 
 if __name__ == "__main__":
     unittest.main()
