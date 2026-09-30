@@ -330,11 +330,11 @@ def load():
     the shipped default answers for the models, and the home file still answers for max_runs.
 
     Every model is offered as orchestrator and as worker; `[defaults]` names the orchestrator
-    and the workers a new seat starts with, the last created seat's (remember_defaults).  A
-    file from before it said that with two tier lists, and reads as what they meant outside a
-    session: the first of A orchestrating for B without it.  Nothing writes it back until the
-    config is next saved, which then writes `[defaults]` and the top-level `pace_margin` in
-    their place.
+    and the workers a new seat starts with, the last created seat's (remember_defaults): a
+    model removed since is passed over here, and stays in the file.  A file from before it said
+    that with two tier lists, and reads as what they meant outside a session: the first of A
+    orchestrating for B without it.  Nothing writes it back until the config is next saved,
+    which then writes `[defaults]` and the top-level `pace_margin` in their place.
     """
     tables = ("defaults", "tiers", "models", "providers")
     path = HOME / CONFIG_NAME
@@ -361,25 +361,25 @@ def load():
     defaults = cfg.setdefault("defaults", {})
     if not isinstance(defaults, dict):
         raise Error(f"{path}: [defaults] must be a table")
-    # A default nobody named is the first model, the same answer remove_provider() gives a
-    # default it empties, so a seat can still start with Enter.
-    if defaults.setdefault("orchestrator", names[0]) not in names:
-        raise Error(f"{path}: [defaults].orchestrator must be one of {', '.join(names)} "
+    if not isinstance(defaults.setdefault("orchestrator", names[0]), str):
+        raise Error(f"{path}: [defaults].orchestrator must be a model name "
                     f"(got {defaults['orchestrator']!r})")
     workers = defaults.setdefault("workers", [])
-    if (not isinstance(workers, list) or any(name not in names for name in workers)
+    if (not isinstance(workers, list) or any(not isinstance(name, str) for name in workers)
             or len(set(workers)) != len(workers)):
-        raise Error(f"{path}: [defaults].workers must list distinct models of "
-                    f"{', '.join(names)} (got {workers!r})")
-    if not workers:
-        defaults["workers"] = [names[0]]
+        raise Error(f"{path}: [defaults].workers must list distinct model names "
+                    f"(got {workers!r})")
     if "reviewers" in defaults:
         reviewers = defaults["reviewers"]
         if (not isinstance(reviewers, list) or not reviewers
-                or any(name not in names for name in reviewers)
+                or any(not isinstance(name, str) for name in reviewers)
                 or len(set(reviewers)) != len(reviewers)):
-            raise Error(f"{path}: [defaults].reviewers must list distinct models of "
-                        f"{', '.join(names)} (got {reviewers!r})")
+            raise Error(f"{path}: [defaults].reviewers must list distinct model names "
+                        f"(got {reviewers!r})")
+    # Only a creation writes [defaults], so one may name a model removed since: passed over
+    # here, as a default nobody named is, and the first model takes a place it empties, so a
+    # seat can still start with Enter.
+    _fall_back(defaults, names)
     for name, entry in cfg["providers"].items():
         listed = entry.get("accounts", []) if isinstance(entry, dict) else []
         # each name is a path component: the adapters keep that account's login under it
@@ -409,12 +409,12 @@ def offered(cfg):
 
 
 def remove_provider(cfg, name):
-    """Take one provider out of `cfg`: its table, its models, and their places in [defaults].
+    """Take one provider out of `cfg`: its table and its models.
 
-    A default this leaves empty falls back to the first model still offered, so a new seat
-    still starts with Enter.  The last provider cannot go, since a config with no model has
-    nothing to start a seat on.  Its usage row goes with its table: the menu and `ak usage`
-    list, and probe, only the providers the config has.  The caller saves.
+    [defaults] stays as the last creation left it, and load() passes over the models gone from
+    it.  The last provider cannot go, since a config with no model has nothing to start a seat
+    on.  Its usage row goes with its table: the menu and `ak usage` list, and probe, only the
+    providers the config has.  The caller saves.
     """
     if name not in cfg["providers"]:
         raise Error(f"no provider {name!r}; the config has {', '.join(cfg['providers'])}")
@@ -425,16 +425,14 @@ def remove_provider(cfg, name):
     for model in [model for model, entry in cfg["models"].items()
                   if isinstance(entry, dict) and entry.get("provider") == name]:
         del cfg["models"][model]
-    _fall_back(cfg["defaults"], left)
     return cfg
 
 
 def remove_model(cfg, name):
-    """Take one model out of `cfg`, and out of [defaults], the way remove_provider takes one
-    provider's: a default this leaves empty falls back to the first model still offered, and
-    the last model cannot go.  Its provider stays, settings and all, so another of its models
-    can be added; a `usage_model` naming it goes, and that usage call falls to the provider's
-    first model.  The caller saves.
+    """Take one model out of `cfg`, the way remove_provider takes one provider's: [defaults]
+    stays, and the last model cannot go.  Its provider stays, settings and all, so another of
+    its models can be added; a `usage_model` naming it goes, and that usage call falls to the
+    provider's first model.  The caller saves.
     """
     left = [model for model in offered(cfg) if model != name]
     if not left:
@@ -442,7 +440,6 @@ def remove_model(cfg, name):
     provider = cfg["providers"][cfg["models"].pop(name)["provider"]]
     if provider.get("usage_model") == name:
         del provider["usage_model"]
-    _fall_back(cfg["defaults"], left)
     return cfg
 
 
@@ -467,7 +464,7 @@ def shipped():
 
 
 def _fall_back(defaults, left):
-    """[defaults] kept to the models `left`: one it empties takes the first of them."""
+    """[defaults] kept to the models `left`, in memory: one it empties takes the first."""
     if defaults.get("orchestrator") not in left:
         defaults["orchestrator"] = left[0]
     defaults["workers"] = [model for model in defaults.get("workers") or []
@@ -675,7 +672,7 @@ def dump(cfg):
     return "\n\n".join("\n".join(chunk) for chunk in chunks) + "\n"
 
 
-def save(cfg):
+def save(cfg, defaults=None):
     """Write the config back to ~/.agentkit/config.toml, atomically.
 
     The standard library parses TOML but does not write it, so this is the small writer for
@@ -683,10 +680,18 @@ def save(cfg):
     value unchanged.  The text is built whole before anything is touched, then moved into
     place, so a value that will not write leaves the file it found behind.  The file keeps
     the 0600 install.sh gave it: a replace inherits the temp file's mode, not the old one's.
+    `[defaults]` is written as `defaults`, a creation's (remember_defaults), and otherwise as
+    the file has it, whatever `cfg` holds: a menu open for hours holds an older one, and a
+    model removed since is only passed over in memory (load).
     """
-    text = dump(cfg)
-    ensure_dirs()
     path = HOME / CONFIG_NAME
+    if defaults is None:
+        try:
+            defaults = (_read_toml(path) or {}).get("defaults")
+        except Error:
+            defaults = None       # nothing readable to keep: `cfg`'s are written
+    text = dump(cfg if defaults is None else {**cfg, "defaults": defaults})
+    ensure_dirs()
     tmp = path.with_suffix(".tmp")
     tmp.write_text(text)
     os.chmod(tmp, 0o600)
@@ -875,20 +880,14 @@ def save_session(cfg, name, orchestrator, workers, extra=None):
     return selection
 
 
-def remember_defaults(cfg, record):
-    """[defaults] as the seat just created was given, in `cfg` and in the file: what the next
-    `n` starts from, and the only thing that writes them.  The file is read again first, so a
-    config a menu has held for hours never writes back over a change made since, and one
-    that no longer offers a model of the record keeps its defaults, as a failed write does."""
-    cfg["defaults"] = {key: record[key] for key in _DEFAULTS_ORDER if key in record}
+def remember_defaults(record):
+    """[defaults] as the seat just created was given: what the next `n` starts from, and the
+    one write of them (save).  The file is read again first, so nothing changed in it since
+    is written back over; a failed write keeps the ones before."""
     try:
-        saved = load()
-        if {record["orchestrator"], *record["workers"],
-                *record.get("reviewers", ())} <= set(offered(saved)):
-            saved["defaults"] = cfg["defaults"]
-            save(saved)
+        save(load(), {key: record[key] for key in _DEFAULTS_ORDER if key in record})
     except (Error, OSError):
-        pass    # the seat is made all the same; the next `n` here still starts from it
+        pass    # the seat is made all the same
 
 
 def update_session(name, **fields):
