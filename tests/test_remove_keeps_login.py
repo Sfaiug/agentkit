@@ -125,6 +125,52 @@ class RemoveKeepsLogin(unittest.TestCase):
         self.assertEqual(rows(home), ["Claude", "ChatGPT"])
         screen.leave()
 
+    def test_a_subscription_whose_provider_went_after_it_comes_back_with_that_provider(self):
+        screen = Screen(self, child=CHILD, text=SEVERAL)
+        home = screen.path.parent.parent
+        logged_in(home, "claude", "a1", "al@acme.test")
+        logged_in(home, "claude", "default")                         # it says nobody
+        open_providers(screen)
+        remove(screen, 1, 4)                                         # Claude II
+        remove(screen, 0, 3)                                         # Claude, whole
+        _, offered = pick(screen, ENTER, ADD, 8)
+        # the usual login by the row it had beside another: `Claude I`
+        self.assertEqual(offered[-2:], ["  Use al@acme.test", "  Use Claude I"])
+        screen.press(DOWN * 6 + ENTER, lambda lines: title(lines) == MATRIX and "Claude" in lines)
+        self.assertEqual(screen.saved()["providers"]["anthropic"],
+                         {**SHIPPED["providers"]["anthropic"], "accounts": ["a1"]})
+        self.assertCountEqual(rows(home), ["Claude", "ChatGPT"])
+        _, offered = pick(screen, ENTER, ADD, 7)
+        self.assertEqual(offered[-1], "  Use Claude I")
+        screen.press(DOWN * 6 + ENTER, lambda lines: title(lines) == MATRIX)
+        self.assertEqual(screen.saved()["providers"]["anthropic"]["accounts"], ["a1", "default"])
+        self.assertEqual(verbs(home, "login"), [])
+        screen.leave()
+
+    def test_logins_that_share_a_name_are_each_offered_as_themselves(self):
+        claude = CLAUDE.replace('mode = "subscription"',
+                                'mode = "subscription"\naccounts = ["default", "a1", "b2", "d4"]')
+        codex = CODEX.replace('mode = "subscription"',
+                              'mode = "subscription"\naccounts = ["default", "c3"]')
+        screen = Screen(self, child=CHILD, text=claude + codex)
+        home = screen.path.parent.parent
+        for harness, account, who in (("claude", "a1", ""), ("claude", "b2", ""),
+                                      ("claude", "d4", "bo@acme.test"),
+                                      ("codex", "c3", "bo@acme.test")):
+            logged_in(home, harness, account, who)
+        open_providers(screen)
+        for down, count in ((1, 6), (1, 5), (1, 4)):                 # Claude II, three times
+            remove(screen, down, count)
+        remove(screen, 2, 3)                                         # ChatGPT II
+        _, offered = pick(screen, ENTER, ADD, 10)
+        self.assertEqual(offered[-4:], ["  Use Claude II", "  Use Claude II (2)",
+                                        "  Use bo@acme.test (Claude II)",
+                                        "  Use bo@acme.test (ChatGPT II)"])
+        screen.press(DOWN * 7 + ENTER, lambda lines: title(lines) == MATRIX)
+        self.assertEqual(screen.saved()["providers"]["anthropic"]["accounts"], ["default", "b2"])
+        self.assertEqual(verbs(home, "login"), [])
+        screen.leave()
+
     def test_a_kept_login_whose_auth_fails_is_not_offered(self):
         screen = Screen(self, child=CHILD, text=SEVERAL)
         home = screen.path.parent.parent
