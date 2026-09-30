@@ -82,6 +82,9 @@ footer = [
   '(?:⏵⏵\s*)?bypass permissions on(?:\s*\(shift\+tab to cycle\))?(?:\s*·\s*\d+\s+\w+)?(?:\s+[◯○]?\s*\d+% context left)?',
   '\d+% context left(?:\s*·\s*\? for shortcuts)?',
 ]
+# its composer always has its own rule under it: a prompt-marked line right on the footer is a
+# user's status line, never the composer, even with no composer drawn, as under a picker
+ruled = true
 
 # Read in file order, first match wins: the dialog before the spinner, the spinner before the
 # prompt, because the composer is still drawn while a turn runs.

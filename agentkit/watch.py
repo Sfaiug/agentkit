@@ -570,6 +570,7 @@ def screen(harness):
     footer = "|".join(f"(?:{part})" for part in block.get("footer") or ())
     built = {"composer": _pattern(block.get("composer"), path),
              "footer": _pattern(f"(?:{footer})$" if footer else None, path, re.I),
+             "ruled": bool(block.get("ruled")),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
     return built
@@ -1228,12 +1229,15 @@ def screen_state(harness, tail):
                 # what the harness draws between them, a user's status line, is not the draft
                 # even where it starts with a prompt mark, over a line that reads like chrome:
                 # a line without a rule under it, a composer drawn right on the footer, counts
-                # only under no composer with its own rule.
+                # only under no composer with its own rule, and never where the manifest says
+                # its composer always has one.
                 marked = [index for index in marked if index + 1 == len(region)
                           or (chrome_line(chrome, region[index + 1])
                               and chrome_line(chrome, region[-1]))]
                 marked = [index for index in marked if index + 1 < len(region)
-                          and re.fullmatch(RULE, region[index + 1])] or marked
+                          and re.fullmatch(RULE, region[index + 1])] or [
+                              index for index in marked
+                              if index + 1 == len(region) or not chrome["ruled"]]
             at = next(iter(marked), None)
             if at is None:
                 continue
