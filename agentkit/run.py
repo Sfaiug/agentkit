@@ -4786,12 +4786,15 @@ def target_disjoint_from_branch(wt, base, head_before, tip):
     parent, so the round's checks still verify the rebased commit.  Anything git
     cannot compare is overlapping: the checks run again.
     """
-    try:
-        ours = git(wt, "diff", "--no-renames", "--name-only", base, head_before).splitlines()
-        theirs = git(wt, "diff", "--no-renames", "--name-only", base, tip).splitlines()
-    except (Stopped, config.Error):
-        return False
-    return not (set(ours) & set(theirs))
+    sides = []
+    for end in (head_before, tip):
+        # `git()` strips whitespace, and with it the space a first name can start with
+        code, out, _ = tool_run(["git", "-C", str(wt), "diff", "--no-renames",
+                                 "--name-only", "-z", base, end])
+        if code != 0:
+            return False
+        sides.append(set(out.split("\0")) - {""})
+    return not (sides[0] & sides[1])
 
 
 def integrate(lp, upstream):
