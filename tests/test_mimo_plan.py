@@ -200,7 +200,10 @@ class MimoPlan(unittest.TestCase):
         adapter = str(REPO / "adapters/opencode.sh")
         subprocess.run([adapter, "run", "mimo/mimo-v2.6-pro", "high", str(ws), str(prompt),
                         str(self.root / "out")], env=env, capture_output=True, timeout=60)
-        self.assertEqual(log.read_text(), "run 1 1 unset\n")
+        verb, off, off_too, content = log.read_text().rstrip("\n").split(" ", 3)
+        self.assertEqual((verb, off, off_too), ("run", "1", "1"))
+        # never the seat's own document: a MiMo run is handed its thinking variants alone
+        self.assertEqual(list(json.loads(content)), ["provider"])
         # the seat's command line is run by whoever opens the pane, so it says so itself
         proc = subprocess.run([adapter, "interactive", "mimo/mimo-v2.6-pro", "high"], env=env,
                               capture_output=True, text=True, timeout=60)

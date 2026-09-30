@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 import tomllib
 from pathlib import Path
@@ -48,6 +49,7 @@ DEFAULT_CONFIG_NAME = "config.default.toml"   # ... whose shipped default instal
 EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")   # the effort words for a
                                # harness whose adapter manifest names none of its own
 CATALOG_TTL = 60               # seconds a harness's model list is reused before it is asked again
+CATALOG_NOW = 0.05             # seconds catalog_now waits on catalog() before the answer it has
 
 
 class Error(Exception):
@@ -504,7 +506,8 @@ def catalog(harness):
         return cached[1]
     try:
         proc = subprocess.run([str(adapter(harness)), "models"], capture_output=True, timeout=15,
-                              encoding="utf-8", errors="replace", env=child_env())
+                              stdin=subprocess.DEVNULL, encoding="utf-8", errors="replace",
+                              env=child_env())
         out = proc.stdout if proc.returncode == 0 else ""
     except (Error, OSError, subprocess.TimeoutExpired):
         out = ""
@@ -515,16 +518,44 @@ def catalog(harness):
     return models
 
 
-def efforts(harness, model=None):
+_ASKING, _ANSWERED = {}, {}      # catalog_now's: the thread asking catalog(), what it last said
+
+
+def catalog_now(harness):
+    """catalog() for a key that is drawn at once: its answer if it comes within CATALOG_NOW
+    seconds, as a cached one does, else the last one it gave, else the manifest's table.
+
+    A listing asks the harness itself and can take fifteen seconds, so it goes on in the
+    background and the next key reads it.  Only a step on the `c` screen reads this way;
+    `ak doctor`, a model id's step and `add a model` wait for catalog() as before.
+    """
+    asking = _ASKING.get(harness)
+    if asking is None or not asking.is_alive():
+        asking = _ASKING[harness] = threading.Thread(target=_ask_catalog, args=(harness,),
+                                                     daemon=True)
+        asking.start()
+    asking.join(CATALOG_NOW)
+    return _ANSWERED[harness] if harness in _ANSWERED else catalog_table(harness)
+
+
+def _ask_catalog(harness):
+    try:
+        _ANSWERED[harness] = catalog(harness)
+    except Error:
+        pass            # catalog_now falls back to the table, which says the same error
+
+
+def efforts(harness, model=None, now=False):
     """That harness's effort words, in the order the `c` screen cycles them -- or that model's.
 
     Given a model its catalog says the efforts of, those are the answer -- `none` alone for one
     that runs at no effort.  Otherwise `[effort] levels` in its adapter manifest is the
     vocabulary; a harness that names none -- a fourth one, or the echo fixture -- takes the
-    fixed list, which holds every word the shipped defaults use.
+    fixed list, which holds every word the shipped defaults use.  `now` reads the catalog
+    through catalog_now, for a key that cannot wait on a listing.
     """
     if model is not None:
-        for entry in catalog(harness):
+        for entry in (catalog_now if now else catalog)(harness):
             if entry["id"] == model and entry["efforts"]:
                 return list(entry["efforts"])
     block = manifest(harness).get("effort")

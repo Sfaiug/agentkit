@@ -73,6 +73,21 @@ store_key() {
   return 1
 }
 
+# MiMo's API has one reasoning control, `thinking` on or off, and it is on by default.  OpenCode
+# 2.0.14 names no variant for it and fails a turn handed a variant the model does not define
+# (`Variant unavailable`); a `thinking` option in the model's `options`, or in a variant's own
+# keys, never reaches the request, while a variant's `extraBody` is sent as it is.  So a
+# `mimo/` model takes two efforts, each a variant of this layered config document -- which
+# merges into the owner's own provider and writes nothing -- `none` with thinking off and
+# `high` with it on.  Any other model is handed its own variants.
+mimo_variants() {  # <model>: the document for a MiMo model, nothing for another
+  case $1 in mimo/*) ;; *) return 0 ;; esac
+  m=${1#mimo/}
+  printf '{"provider":{"mimo":{"models":{"%s":{"variants":{%s,%s}}}}}}' "${m%%#*}" \
+    '"none":{"extraBody":{"thinking":{"type":"disabled"}}}' \
+    '"high":{"extraBody":{"thinking":{"type":"enabled"}}}'
+}
+
 case "$cmd" in
 run)
   [ $# -ge 5 ] || { echo "opencode.sh run needs <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]" >&2; exit 2; }
@@ -83,10 +98,13 @@ run)
   command -v opencode >/dev/null || { echo "opencode.sh: opencode is not installed" >&2; exit 2; }
   cd -- "$ws" || { echo "opencode.sh: no such workspace: $ws" >&2; exit 2; }
   # The effort is OpenCode's model variant: `provider/model#variant` is the `-m` spelling, and
-  # a model already carrying one keeps its own.  `none` is a model that runs at no effort --
-  # MiMo, whose provider defines no variants -- and is handed bare, as adapters/antigravity.sh
-  # hands it.
-  case $model:$effort in *#*|*:none) tagged=$model;; *) tagged="$model#$effort";; esac
+  # a model already carrying one keeps its own.  `none` is a model that runs at no effort and
+  # is handed bare, as adapters/antigravity.sh hands it -- except MiMo's, which is a variant
+  # like its `high` (mimo_variants).
+  tagged="$model#$effort"
+  case $model:$effort in *#*) tagged=$model;; mimo/*) ;; *:none) tagged=$model;; esac
+  variants=$(mimo_variants "$model")
+  [ -n "$variants" ] && export OPENCODE_CONFIG_CONTENT="$variants"
   # The session is titled for the run it belongs to: <run>/round-N/<role> reads as
   # `<run-id>/<role>` in `opencode session list`, anything else as its own directory.
   title=$(basename -- "$out")
@@ -176,10 +194,11 @@ interactive)
   # rules it was asked for is worse than one that does not open.
   rb=$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}") || {
     echo "opencode.sh interactive: no rulebook for this seat" >&2; exit 2; }
-  case $1:$2 in *#*|*:none) tagged=$1;; *) tagged="$1#$2";; esac   # bare at `none`, as `run` hands it
-  content=$(python3 - "$rb" "$tagged" "$REPO/hooks/opencode-seat" <<'PYEOF'
+  tagged="$1#$2"   # as `run` hands it, and with MiMo's variants beside it
+  case $1:$2 in *#*) tagged=$1;; mimo/*) ;; *:none) tagged=$1;; esac
+  content=$(python3 - "$rb" "$tagged" "$REPO/hooks/opencode-seat" "$(mimo_variants "$1")" <<'PYEOF'
 import json, sys
-rulebook, tagged, plugin = sys.argv[1], sys.argv[2], sys.argv[3]
+rulebook, tagged, plugin, variants = sys.argv[1:5]
 try:
     with open(rulebook, encoding="utf-8") as fh:
         system = fh.read()
@@ -187,7 +206,7 @@ except OSError as exc:
     sys.exit(f"cannot read this seat's rulebook {rulebook}: {exc}")
 print(json.dumps({"model": tagged,
                   "agents": {"build": {"system": system}},
-                  "plugins": [plugin]}))
+                  "plugins": [plugin], **json.loads(variants or "{}")}))
 PYEOF
 ) || { echo "opencode.sh interactive: no rulebook for this seat" >&2; exit 2; }
   rules=$(printf 'OPENCODE_CONFIG_CONTENT=%q ' "$content")

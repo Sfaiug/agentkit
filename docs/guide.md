@@ -269,7 +269,7 @@ reporting count and space freed. The tick takes a leftover merged tree only if c
 ## The config file
 
 `~/.agentkit/config.toml` is copied from the checkout's `config.default.toml` by the first `install.sh` and never
-overwritten. The menu's `c` screen changes it at once: `orch` (`●`), `exec` and `review` (`■`) are the `[defaults]`, `‹ xhigh ›` a model's `effort`. Each group keeps one model and only a flip no run could start from is refused. Omitted reviewers show the worker marks until the first mark flipped writes separate lists.
+overwritten. The menu's `c` screen changes it at once: `orch` (`●`), `exec` and `review` (`■`) are the `[defaults]`, `‹ xhigh ›` a model's `effort`. An effort step is drawn at once from the catalog in hand; a harness's model list still being fetched counts from the next step. Each group keeps one model and only a flip no run could start from is refused. Omitted reviewers show the worker marks until the first mark flipped writes separate lists.
 A model's own screen sets its `model` from the harness's catalog (the effort following to one it lists) and its `effort`;
 `Remove` asks first, keeps the last model and the model's `[providers.*]` table even when it was that company's last. The shipped `opus` model uses Opus 5.5 (`claude-opus-5-5`). The keys:
 
@@ -279,7 +279,7 @@ A model's own screen sets its `model` from the harness's catalog (the effort fol
 - `pace_margin` (10): the picker's pay-as-you-go margin above. `[defaults]`: `orchestrator`, `workers`, optional `reviewers`; an older
   file's `[tiers]` reads as the first of `A` over `B` without it, and `c` writes `[defaults]` on its next save.
 - `[models.<name>]`: `harness`, `model`, `effort` (one that model takes, per `adapters/<h>.sh models`, or `none`), `provider`,
-  `meter` (a meter of its provider that gates only this model).
+  `meter` (a meter of its provider that gates only this model). MiMo's `none` turns its thinking off and `high` leaves it on.
 - `[providers.<name>]`: `mode` (`subscription` or `payg`). MiMo's comes from the global OpenCode `opencode.json`: a
   plain `https://` token-plan URL is a subscription, and anything else -- another host or scheme, a backslash or user
   part, a substitution, `OPENCODE_CONFIG`, a file not plain JSON -- is payg. OpenCode runs with project config off, so
