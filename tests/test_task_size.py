@@ -319,7 +319,8 @@ class Sandbox(unittest.TestCase):
                 patch.object(run, "make_worktree", return_value=(wt, "b")), \
                 patch.object(run, "history_start", side_effect=stop):
             with self.assertRaisesRegex(RuntimeError, "stop after history_start"):
-                run.review_pr({}, run_dir, "https://github.com/o/r/pull/1",
+                # config.load always fills [defaults]; review_pr reads it since #71
+                run.review_pr({"defaults": {"workers": []}}, run_dir, "https://github.com/o/r/pull/1",
                                {"--review": None}, lambda message: None)
         self.assertGreater(seen["task_words"], 0)
         self.assertEqual(seen["task_points"], 0)
