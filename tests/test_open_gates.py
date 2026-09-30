@@ -851,7 +851,7 @@ python3() {
     def test_remote_reset_to_seed_before_run(self):
         for name, script in (("smoke.sh", SMOKE), ("e2e-fresh.sh", FRESH)):
             with self.subTest(gate=name):
-                start = script.index('_LOGIN=$(gh api user')
+                start = script.index('SMOKE_REPO="$')   # the remote named, its target taken
                 setup = script[start:script.index('cat >"$WORK/task.md"', start)]
                 git = r'git(?: -C "\$CLONE")? '
                 self.assertRegex(setup, git + r'reset --hard "\$\(' + git
@@ -882,13 +882,12 @@ python3() {
             run("git", "-C", "legacy", "add", "README.md")
             run("git", "-C", "legacy", "commit", "-qm", "seed")
             run("git", "-C", "legacy", "push", "-q", "origin", "main", "HEAD:ak/leftover")
-            start = SMOKE.index('SMOKE_LOGIN=$(gh api user')
+            start = SMOKE.index('SMOKE_REPO="$')
             setup = SMOKE[start:SMOKE.index('cat >"$WORK/task.md"', start)]
             fake = '''set -uo pipefail
-SMOKE_TARGET=agentkit-smoke
+SMOKE_LOGIN=caller SMOKE_TARGET=agentkit-smoke
 gh() {
   case "$*" in
-    'api user --jq .login') echo caller ;;
     'repo view caller/agentkit-smoke') test -d "$WORK/origin.git" ;;
     "repo clone caller/agentkit-smoke "*) git clone -q "$WORK/origin.git" "$4" ;;
     *) echo "unexpected gh command: $*" >&2; return 97 ;;
