@@ -438,7 +438,7 @@ def guard(event, args):
 sys.addaudithook(guard)
 ''')
             config_path = caller / '.agentkit/config.toml'
-            for index, content in enumerate((shipped.replace('model = "default"', 'model = "pinned"')
+            for index, content in enumerate((re.sub(r'(\[models\.astra\][^\[]*?model = )"[^"]*"', r'\1"pinned"', shipped)
                                              .replace('workers = ["opus", "astra"]',
                                                       'workers = ["astra"]'), 'not valid TOML')):
                 with self.subTest(config=content[:30]):

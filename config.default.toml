@@ -44,8 +44,8 @@ provider = "anthropic"
 
 [models.astra]
 harness = "codex"
-model = "default"         # `default` means "let Codex choose": the adapter passes no -m.
-                          # Any id `codex debug models` lists runs here too, as its -m.
+model = "gpt-6-astra"     # passed as -m. `default` would pass none and so run whatever the
+                          # login's own Codex app last picked; any id `codex debug models` lists fits.
 effort = "xhigh"
 provider = "openai"
 
