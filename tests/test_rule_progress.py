@@ -8,8 +8,9 @@ its rule on the clock's frames however fast keys come, and goes back on a click 
 the model-id step and `add a model`, waiting on a catalog at 80 columns, are laid out again at
 40: every line fits, and a click on the `esc back` drawn goes back.
 
-The update runs in-process against a temporary HOME, every command it would run answered by a
-fake `subprocess.run`, so no checkout moves.  The glide runs a project's feature switches screen
+The update's own process (`update.detached`) runs in-process against a temporary HOME, every
+command it would run answered by a fake `subprocess.run`, so no checkout moves, and what it told
+is what a client's `ak` reads from it before it hops.  The glide runs a project's feature switches screen
 in a child process on a pty of its own, the project's `list` and `set` a fake that sleeps as
 long as the test says, and so do the wait and a catalog, over a config built in the child;
 nothing reaches a real project, seat or the owner's ~/.agentkit, and the only process signalled
@@ -35,7 +36,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, motion, terminal, update  # noqa: E402
+from agentkit import config, macbridge, menu, motion, terminal, update  # noqa: E402
 
 # The child: the real feature switches screen and key reader, opened RULE_OPENS times, over a
 # `list` that takes RULE_LIST seconds, asked again every RULE_TICK, and `set`s that take each of
@@ -196,19 +197,34 @@ class RuleProgress(unittest.TestCase):
     def test_a_start_update_fills_the_rule_under_its_header_word(self):
         home = tempfile.TemporaryDirectory(prefix="rule-progress-")
         self.addCleanup(home.cleanup)
-        ran, out = [], io.StringIO()
+        ran, told, out = [], [], io.StringIO()
 
         def run(cmd, **kwargs):
             ran.append(cmd[3] if cmd[0] == "git" else Path(cmd[0]).name)
             return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        class Child:            # the update's own process (update.start_agentkit), as it told
+            def __enter__(self):
+                self.stdout = io.StringIO("".join(told))
+                return self
+
+            def __exit__(self, *exc):
+                pass
 
         with patch.dict(os.environ, {"HOME": home.name, "COLUMNS": "60"}), \
                 patch.object(update, "agentkit_dir", return_value=config.REPO), \
                 patch.object(update, "left_as_is", return_value=""), \
                 patch.object(update, "behind", return_value=True), \
                 patch.object(update, "agentkit_version", return_value="abc1234 · 2026-09-30"), \
-                patch.object(update.subprocess, "run", run), redirect_stdout(out):
-            menu.update_first()
+                patch.object(update, "start_agentkit", Child), \
+                patch.object(config, "server_alias", return_value="acme-server"), \
+                patch.object(menu, "client", return_value=0), \
+                patch.object(macbridge, "start_background"), redirect_stdout(out):
+            with patch.object(update.subprocess, "run", run), \
+                    patch.object(update.os, "write",
+                                 lambda fd, data: told.append(data.decode()) or len(data)):
+                self.assertEqual(update.detached(), 0)
+            self.assertEqual(menu.main([]), 0)          # a client's `ak`, before it hops
         self.assertEqual(ran, ["fetch", "pull", "install.sh"])
         lines = out.getvalue().splitlines()
         frames = [(lines[n - 1], line) for n, line in enumerate(lines) if set(line) <= set("━─")
