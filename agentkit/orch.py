@@ -147,8 +147,9 @@ def for_seat(name):
 def account_order(cfg, model, readings):
     """Rank the configured subscriptions by this seat's model, never another model's cap.
 
-    The usual login first while it has room for this model, the rest by room: a seat
-    lives where its owner follows it, and only spills over when that one is spent.
+    The provider's `seat_account` (else the usual login) first while it has room for this
+    model, the rest by room: a seat opens where its owner follows it, and only spills over
+    when that one is spent.
     """
     provider = config.model(cfg, model)["provider"]
 
@@ -158,10 +159,10 @@ def account_order(cfg, model, readings):
         return usage.model_exhausted(cfg, model, providers)[0], unknown is not None, -amount
     accounts = config.accounts(cfg, provider) or list(readings)
     ordered = sorted((a for a in accounts if a in readings), key=rank)
-    usual = config.DEFAULT_ACCOUNT
-    if usual in ordered and not usage.model_exhausted(
-            cfg, model, {provider: readings[usual]})[0]:
-        ordered = [usual, *(a for a in ordered if a != usual)]
+    first = (cfg["providers"].get(provider) or {}).get("seat_account", config.DEFAULT_ACCOUNT)
+    if first in ordered and not usage.model_exhausted(
+            cfg, model, {provider: readings[first]})[0]:
+        ordered = [first, *(a for a in ordered if a != first)]
     return ordered
 
 
@@ -3010,8 +3011,11 @@ def switch_orchestrator(cfg, name, model, providers=None):
         except OSError:
             pass    # the note below already says the restart failed
         return _one_line(exc)
+    # Another provider's seat opens anew, and its home is the account it opened on.
+    moved = config.model(cfg, model)["provider"] != config.model(cfg, old_model)["provider"]
     try:
-        config.update_session(name, orchestrator=model, account=account)
+        config.update_session(name, orchestrator=model, account=account,
+                              **({"home_account": account} if moved else {}))
     except OSError as exc:
         return f"session: {_one_line(exc)}"
     harness_plugin(old_harness).forget(record)
@@ -3254,7 +3258,7 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     # conversation it owns, written down before it starts wherever its harness can be told one.
     # Not for a dry run: a conversation nothing ever opened is nobody's to be resumed into.
     extra = {"cwd": str(cwd), "repo": str(repo) if repo else None, "created": time.time(),
-             "account": account}
+             "account": account, "home_account": account}
     if len(selected) == 4:
         extra["reviewers"] = selected[3]
     if unnamed:

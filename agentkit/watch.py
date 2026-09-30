@@ -2724,10 +2724,10 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
 def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     """Keep a seat on its model's usable subscriptions, preserving its live conversation.
 
-    Seats live on the usual login while it has room, and an idle one comes home once it
-    has room again. Without a proven conversation id the running pane is the only copy:
-    wait for its own account, then continue in place. A closed pane is never a request
-    to start a turn.
+    A seat's home is the account it opened on (the usual login for a record that names
+    none), and an idle one comes home once it has room again. Without a proven conversation
+    id the running pane is the only copy: wait for its own account, then continue in place.
+    A closed pane is never a request to start a turn.
     """
     name = session["name"]
     record = config.session_records().get(name)
@@ -2778,15 +2778,15 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     elif not refusal and observed and not observed.get("handled") and not dry_run:
         seat_write(name, usage_refusal=None)
     if not waiting and not refusal and not spent(current):
-        usual = config.DEFAULT_ACCOUNT
-        if (accounts and current != usual and usual in readings and not spent(usual)
+        home = record.get("home_account") or config.DEFAULT_ACCOUNT
+        if (accounts and current != home and home in readings and not spent(home)
                 and live.get("state") == "at_prompt"
                 and not _turn_in_flight(harness, live)[0]
                 and orch.resumable(record)):
             if dry_run:
-                log(f"would move {name} back to {usual}")
+                log(f"would move {name} back to {home}")
                 return True
-            if orch.harness_plugin(harness).seat_auth(usual)[0] is not True:
+            if orch.harness_plugin(harness).seat_auth(home)[0] is not True:
                 return False
             with state_lock():
                 current_seat = orch.find(name)
@@ -2796,7 +2796,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                         or pane_text(current_seat) != pane):
                     return True
                 try:
-                    orch.resume(cfg, name, log=log, hand_over=False, account=usual)
+                    orch.resume(cfg, name, log=log, hand_over=False, account=home)
                 except (config.Error, OSError) as exc:
                     log(f"WARN {name}: {provider} account reopen failed: {exc}")
                     return True
