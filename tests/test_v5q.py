@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, orch, retention, run, worker
+from agentkit import config, history, notify, orch, retention, run, worker
 
 ADAPTER = '''import json, os, pathlib, sys, time
 root = pathlib.Path(os.environ["V5Q_FIXTURE"])
@@ -101,11 +101,19 @@ sys.exit(1)
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         # the host's disk, processes and sockets are not the fixture's: every run asks
-        # about the disk and sweeps for its marker, and gc reads the process inventory
+        # about the disk, sweeps for its marker and samples its process tree's memory,
+        # and gc reads the process inventory; anything else scanning /proc fails the test
         self.stack.enter_context(patch.object(run, "disk_pressure", return_value=None))
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
+        self.stack.enter_context(patch.object(history, "sample_rss", return_value=None))
         self.stack.enter_context(patch.object(retention, "process_dirs", return_value=[]))
         self.stack.enter_context(patch.object(retention, "unix_sockets", return_value=set()))
+        real_iterdir = Path.iterdir
+
+        def iterdir(path):
+            assert path != Path("/proc"), "real /proc inventory reached"
+            return real_iterdir(path)
+        self.stack.enter_context(patch.object(Path, "iterdir", iterdir))
         config.ensure_dirs()
         system_tmp = self.root / "system-tmp"
         system_tmp.mkdir(exist_ok=True)
