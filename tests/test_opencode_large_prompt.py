@@ -117,16 +117,16 @@ class LargePrompt(unittest.TestCase):
         self.assertLess(len(argv), 20000)
         self.assertNotIn(body[:500], argv)
 
-    def test_a_2_kib_prompt_goes_as_the_message(self):
+    def test_a_2_kib_prompt_is_attached_the_same_way(self):
         head, tail = "SMALL-PROMPT-START\n", "\nSMALL-PROMPT-END"
         body = head + "y" * (2 * 1024 - len(head) - len(tail)) + tail
         self.assertEqual(len(body.encode()), 2 * 1024)
         proc, _ = self.adapter_run(body)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         argv = self.argv.read_text()
-        self.assertNotIn("--file", argv)
-        self.assertIn(body, argv)
-        self.assertFalse(self.got.exists() and self.got.stat().st_size)
+        self.assertIn("--file", argv)
+        self.assertEqual(self.got.read_bytes(), body.encode())
+        self.assertNotIn(body, argv)
 
     def worker(self, answers):
         """A fake worker.call playing `answers` back: (code, text, session, stderr) each."""

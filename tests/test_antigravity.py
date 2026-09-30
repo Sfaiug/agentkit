@@ -144,13 +144,14 @@ class Antigravity(unittest.TestCase):
         self.assertEqual((out / "session_id").read_text(),
                          "0bd34666-b7d8-46e9-a8ba-f6e916cd0374")
         argv = self.argv_log.read_text()
-        for flag in ("-p You are the executor.", "--output-format stream-json",
+        for flag in ("--output-format stream-json",
                      "--dangerously-skip-permissions", "--print-timeout 0",
                      "--disable-slash-commands", "--model gemini-3.8-flash", "--effort high"):
             self.assertIn(flag, argv)
         self.assertNotIn("--conversation", argv)
-        # a logged-out agy waits for a pasted code: the loop's stdin never reaches it
-        self.assertEqual(stdin.read_text(), "")
+        self.assertNotIn("-p", argv.split())
+        # the prompt comes down stdin, and the loop's own stdin never reaches agy
+        self.assertEqual(stdin.read_text(), "You are the executor.\n\nReply with the word done.")
         # a model agy runs at no effort, configured `none`, is handed no --effort
         self.argv_log.write_text("")
         prompt = self.root / "prompt.md"
@@ -401,7 +402,8 @@ class Antigravity(unittest.TestCase):
         self.assertEqual(words[words.index("--conversation") + 1], "c-two")
         # `--version` reads no login; the turn is agy on that login's own directory
         calls = self.argv_log.read_text()
-        self.assertTrue(calls.startswith("--version\n--app_data_dir=antigravity-cli-second -p "))
+        self.assertTrue(calls.startswith(
+            "--version\n--app_data_dir=antigravity-cli-second --output-format "), calls)
         self.assertIn(" --conversation c-two\n", calls)
         self.assertEqual(env_log.read_text().splitlines(), ["disabled:|"] * 2)
         # A conversation begun on either account is in the store both read, the usual one's.

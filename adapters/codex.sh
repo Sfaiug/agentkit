@@ -100,7 +100,9 @@ run)
   # left off entirely and codex runs its own -- see the note above the `interactive` printf.
   case $model in ""|default) ;; *) set -- "$@" -m "$model" ;; esac
   if [ -n "$ACCOUNT" ]; then home || exit 2; set -- "$@" -c "$STORE"; fi
-  codex "$@" -c model_reasoning_effort="$effort" \
+  # project_doc_max_bytes=0 keeps the repository's AGENTS.md out of the turn (`codex debug
+  # prompt-input` shows it gone): a worker's rules are the ones ak's prompt carries.
+  codex "$@" -c model_reasoning_effort="$effort" -c project_doc_max_bytes=0 \
       --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --json \
       -o "$out/final.md" <"$pf" >"$out/events.jsonl" 2>"$out/stderr.log"
   rc=$?

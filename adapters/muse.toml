@@ -1,6 +1,7 @@
 # adapters/muse.toml -- everything agentkit reads off a Muse Code seat's screen.  Paired with
 # adapters/muse.sh; the format is the adapter contract in docs/guide.md, "Adding a harness".
 # Verified against Muse Code 1.2.1 (and the 1.0.3/1.1.1 captures); see tests/fixtures/README.md.
+# A worker turn still loads Muse's own personal rules and the trusted workspace's: Muse 1.4.1 drops the latter only with the trust its delegation needs.
 version = 1
 
 # How `ak update` moves this harness.  `upgrade` is the launcher's own install path, the one

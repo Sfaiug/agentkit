@@ -2,6 +2,7 @@
 # who has the authority to say what that seat is doing.  Paired with adapters/antigravity.sh;
 # the format is the adapter contract in docs/guide.md, "Adding a harness".
 # Verified against agy 1.2.9; see tests/fixtures/README.md for the captures.
+# A worker turn still loads GEMINI.md, AGENTS.md and rules/ of the workspace and of agy's global root: agy 1.2.13 has no switch for them.
 version = 1
 
 # How `ak update` moves this harness: `agy update` takes the latest release and no version,

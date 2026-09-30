@@ -94,8 +94,8 @@ class RunCommand(GrokSandbox):
         proc = self.adapter("run", "grok-4.7", "xhigh", str(ws), str(prompt), str(out))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         args = self.grok_args()
-        # -p carries the prompt text; the shell's $() eats its trailing newline, as usual
-        self.assertEqual(args[0:2], ["-p", "Reply with the single word ok."])
+        # the prompt is read from its file, never handed as one argument
+        self.assertEqual(args[0:2], ["--prompt-file", str(prompt)])
         self.assertEqual(args[2:9], ["--model", "grok-4.7", "--reasoning-effort", "xhigh",
                                     "--always-approve", "--output-format",
                                     "streaming-messages-json"])

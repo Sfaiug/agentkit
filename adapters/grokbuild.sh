@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Grok Build adapter.  run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]
-#                     -> `grok -p` headless: --model/--reasoning-effort/--always-approve and
+#                     -> `grok --prompt-file` headless: --model/--reasoning-effort/--always-approve and
 #                        --output-format streaming-messages-json, --resume to continue a
 #                        conversation and --session-id with a fresh uuid to start one; writes
 #                        final.md, session_id, stderr.log and events.jsonl, and exits the
@@ -98,7 +98,14 @@ run)
   else set -- --session-id "$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null \
     || python3 -c 'import uuid; print(uuid.uuid4())')"; fi
   cd -- "$ws" || exit 2
-  grok -p "$(cat -- "$pf")" --model "$model" --reasoning-effort "$effort" --always-approve \
+  # The prompt is read from its file, never handed as `-p <text>`: Linux refuses one argument
+  # over 128 KiB, and a reviewer's prompt runs to three times that.  The instruction files grok
+  # reads for Claude and Cursor -- CLAUDE.md under .claude, their rules and skills -- are
+  # switched off, so a worker's rules are the ones ak's prompt carries (`grok inspect` shows
+  # each cell OFF (env)); what no switch reaches is said in adapters/grokbuild.toml.
+  GROK_CLAUDE_AGENTS_ENABLED=false GROK_CLAUDE_RULES_ENABLED=false GROK_CLAUDE_SKILLS_ENABLED=false \
+  GROK_CURSOR_RULES_ENABLED=false GROK_CURSOR_SKILLS_ENABLED=false \
+  grok --prompt-file "$pf" --model "$model" --reasoning-effort "$effort" --always-approve \
     --output-format streaming-messages-json "$@" >"$out/events.jsonl" 2>"$out/stderr.log"
   rc=$?
   # slurp: the terminal `result` event is one JSON object per line, so take the last one's
