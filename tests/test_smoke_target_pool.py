@@ -71,11 +71,13 @@ class TargetPool(unittest.TestCase):
             path.mkdir(parents=True)
         (repo / "tests/verify_delivery.py").write_text("")
         (repo / "agentkit").symlink_to(REPO / "agentkit")
-        # a waiting suite lists the pool every second here, not every minute
+        # a waiting suite lists the pool every second here, not every minute -- but in the
+        # production script, which keeps the minute
         lock_code = LOCK_CODE.replace("\nSMOKE_LOCK_LIST=60 ", "\nSMOKE_LOCK_LIST=1 ")
         self.assertNotEqual(lock_code, LOCK_CODE)
-        self.script = self.root / "suite.sh"
-        self.script.write_text("\n".join(["set -uo pipefail", lock_code,
+        self.script, self.production = self.root / "suite.sh", self.root / "production.sh"
+        for script, code in ((self.script, lock_code), (self.production, LOCK_CODE)):
+            script.write_text("\n".join(["set -uo pipefail", code,
                                           f". {REPO}/tests/acceptance.sh", FAKES, CHECK4,
                                           "finish"]))
         self.env = {**os.environ, "REPO": str(repo), "ACCOUNT": str(self.account),
@@ -104,11 +106,11 @@ class TargetPool(unittest.TestCase):
         fcntl.flock(fd, fcntl.LOCK_EX)
         return fd
 
-    def suite(self, name, wait=60, **env):
+    def suite(self, name, wait=60, script=None, **env):
         work = self.root / name
         (work / "home").mkdir(parents=True)
         with (work / "out").open("w") as out:
-            proc = subprocess.Popen(["bash", str(self.script)], stdout=out,
+            proc = subprocess.Popen(["bash", str(script or self.script)], stdout=out,
                                     stderr=subprocess.STDOUT, start_new_session=True,
                                     env={**self.env, "WORK": str(work), "HOME": str(work / "home"),
                                          "AK_SMOKE_LOCK_WAIT": str(wait), **env})
@@ -271,6 +273,29 @@ class TargetPool(unittest.TestCase):
         fcntl.flock(maker, fcntl.LOCK_UN)
         self.assertEqual(self.target(work), "agentkit-smoke-2")
         self.finish(proc, work)
+        self.assertFalse([c for c in self.changed(work) if c.startswith("repo create")])
+
+    def test_a_lock_that_comes_free_sends_a_waiting_suite_to_a_fresh_listing(self):
+        # the reviewer's case, at the production interval: bound 2, only the first target
+        # exists, and the first and second locks are held.  The bound rises to 3, another suite
+        # makes the third target and finishes, the bound returns to 2 and the second lock comes
+        # free: the waiter lists the pool again and takes the third, never making the second
+        self.bound(2)
+        self.existing("agentkit-smoke")
+        self.hold(1)
+        second = self.hold(2)
+        proc, work = self.suite("waiting", script=self.production)
+        self.until(lambda: WAITING in self.out(work), "waited", work)
+        self.bound(3)
+        maker, maker_work = self.suite("maker", script=self.production)
+        self.assertEqual(self.target(maker_work), "agentkit-smoke-3")
+        self.finish(maker, maker_work)
+        self.bound(2)
+        fcntl.flock(second, fcntl.LOCK_UN)
+        self.assertEqual(self.target(work), "agentkit-smoke-3")
+        self.finish(proc, work)
+        self.assertEqual(sorted(p.name for p in self.account.iterdir()),
+                         ["agentkit-smoke-3.git", "agentkit-smoke.git"])
         self.assertFalse([c for c in self.changed(work) if c.startswith("repo create")])
 
     def test_a_killed_holder_frees_its_target(self):
