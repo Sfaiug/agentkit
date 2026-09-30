@@ -1185,7 +1185,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     menu has the keyboard, and the news since the draw before: a `!` that turned `needs you`
     pulses, a `✓` that turned `done` settles and a usage or tasks bar that moved glides.  Their
     first frame goes out in the draw's own write, at the clock's phase, so nothing jumps when
-    the screen is drawn over.
+    the screen is drawn over.  The popup's first draw is handed to it whole, to fade in.
     """
     owned = drawn is not None
     if (not owned and sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
@@ -1380,9 +1380,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     if not owned:
         print("\n".join(out))
         return page, (len(pages) if ordered else 1)
-    moved = ""
+    moved, rising = "", False
     if clock is not None:
         clock.clear()
+        rising = clock.rise(out)
         news = clock.look({key: shown for key, shown, _, _, _ in moves})
         for key, shown, cell, lit, colour in moves:
             since, before = news.get(key, (None, None))
@@ -1401,8 +1402,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                     clock.start([(cell[0], cell[1] + n)], animation, until)
         moved = clock.frame()
     # Home and write over, each line cleared past its end and the screen below the last: one
-    # write, so no draw ever shows a blank screen or a half-drawn one.
-    sys.stdout.write("\033[H" + "".join(f"\033[K{line}\n" for line in out) + "\033[J" + moved)
+    # write, so no draw ever shows a blank screen or a half-drawn one.  Lines that rise are
+    # the frame's to write, from the background up, and never first as they are.
+    sys.stdout.write("\033[H" + ("" if rising else "".join(f"\033[K{line}\n" for line in out))
+                     + "\033[J" + moved)
     sys.stdout.flush()
     drawn.update(order=order, cursor=cursor, words=words,
                  ask=top + at + len(asked) - 1 if at else None,
@@ -3476,7 +3479,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     Between draws the working seats' dots breathe, and what changed since the draw before moves
     once, a frame whenever the clock says one is due and no key is waiting (`moving`), so a key
     is read within a frame of being pressed.  A key that opens another screen, a notice and a
-    resize have the clock forget what it saw, so the menu after them replays nothing.
+    resize have the clock forget what it saw, so the menu after them replays nothing.  The
+    popup's first draw fades in on that clock, and a key pressed while it does is answered as
+    at any other time, its draw as it is; the popup closes the moment its menu ends.
 
     On a terminal the menu has the keyboard (`terminal.Keyboard`) and there are no lines: a
     key acts the moment it is pressed.  One seat row is highlighted; ↑/↓, k/j and the wheel
@@ -3494,7 +3499,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     actions = ("n", "x", "r") if overlay else ("n", "x", "c", "m", "i")
     page, cursor, ahead, look = 0, None, None, False
     last = [[], None]                     # what the last read left: the seats and their groups
-    clock = motion.Clock()                # what moves between draws: the dots, and news
+    clock = motion.Clock(fade=overlay)    # what moves between draws: the dots, news, and
+                                          # the popup's first draw coming up
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
         if keyboard.take():
             terminal.sense()              # true colour and the background, once, before a draw
@@ -3681,6 +3687,8 @@ def main(argv):
         if arg not in flags:
             raise config.Error(f"{USAGE}  (got {arg!r})")
         flags[arg] = True
+    if flags["--overlay"]:
+        terminal.pad()                    # inside the border, what the popup asks to be left
     if not (flags["--dry-run"] or flags["--overlay"]):
         update_first()
     if not flags["--dry-run"]:

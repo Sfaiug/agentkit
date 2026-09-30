@@ -2,8 +2,8 @@
 
 At rest one thing moves, a working session's `●` breathing; news moves once and is then still --
 a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright, a bar
-that changed value glides to it -- and every motion runs on this same clock (docs/cli-design.md,
-Motion).  A screen says which cells animate and how when it draws (`Clock.start`), asking first
+that changed value glides to it -- and a popup's content fades in once, as it opens -- and every
+motion runs on this same clock (docs/cli-design.md, Motion).  A screen says which cells animate and how when it draws (`Clock.start`), asking first
 which of its values are news (`Clock.look`); the wait loop asks how long until the next frame
 (`Clock.wait`) and what to write then (`Clock.frame`).  No screen keeps a timer: time, easing
 and the running animations live here, and cells animated alike are in one phase because each
@@ -24,6 +24,7 @@ GLIDE = 0.3         # ... a bar takes from its old value to its new one
 LIT = 0.3           # ... a task bar's newly filled block stays lit after the glide
 SWEEP = 0.4         # ... the light takes across a bar that reached full, after the glide
 BRIGHTER = 0.5      # how lit news is: half way from its colour to the foreground
+FADE = 0.12         # seconds a popup's content takes to come up out of the background
 PARTS = "▏▎▍▌▋▊▉"   # a bar's cell one to seven eighths full, as a glide passes through it
 
 
@@ -110,13 +111,15 @@ class Clock:
     """The running animations, each cell's, what was last written in each, and what the draws
     showed that may be news."""
 
-    def __init__(self):
+    def __init__(self, fade=False):
         self.cells = {}     # (row, column), counted from 1 -> its animation, a time to its text,
                             # and the time it is still from, or None for as long as it is drawn
         self.shown = {}     # (row, column) -> the text last written there
         self.last = None    # when the last frame was made
         self.seen = None    # key -> what the last draw showed, and since when and in place of
                             # what when that was news; None when no draw is to be compared with
+        self.fade = fade    # the next draw fades in (`rise`): a popup's first
+        self.rising = None  # ... its lines, top down, and when they began to, while they do
 
     def look(self, values):
         """Which of `values` -- key -> what a draw shows for it -- are news, each key -> (since
@@ -144,9 +147,20 @@ class Clock:
         if terminal.colour_depth() > 8 and (until is None or until > time.monotonic()):
             self.cells.update(dict.fromkeys(cells, (animation, until)))
 
+    def rise(self, lines):
+        """Whether `lines`, a draw's screen top down, come up out of the background, the frames
+        writing them over the next FADE seconds and nothing else until they are up: only the
+        first draw of a clock made to `fade`, and only where colour can move.  A draw before
+        they are up -- a key's, at once -- is written as it is (`clear`).
+        """
+        if self.fade and terminal.colour_depth() > 8:
+            self.rising = (lines, time.monotonic())
+        self.fade = False
+        return self.rising is not None
+
     def clear(self):
         """Nothing animates and nothing is shown: a draw has written every cell over."""
-        self.cells, self.shown = {}, {}
+        self.cells, self.shown, self.rising = {}, {}, None
 
     def forget(self):
         """Nothing seen: the next draw's values are drawn as they are, no news in them."""
@@ -154,14 +168,23 @@ class Clock:
 
     def wait(self):
         """Seconds until the next frame is due, or None while nothing animates."""
-        if not self.cells:
+        if not self.cells and not self.rising:
             return None
         return 0 if self.last is None else max(0, self.last + FRAME - time.monotonic())
 
     def frame(self):
-        """What to write now: each cell whose text moved since it was last written, no other."""
+        """What to write now: the lines still rising, or each cell whose text moved since it
+        was last written, no other."""
         now = self.last = time.monotonic()
         out = ""
+        if self.rising:
+            lines, began = self.rising
+            amount = 1 - eased((now - began) / FADE)
+            out = "".join(f"\033[{row};1H{terminal.fade(line, amount)}"
+                          for row, line in enumerate(lines, 1))
+            if amount > 0:
+                return out
+            self.rising, self.shown = None, {}      # up, as drawn: every cell is written over it
         for (row, column), (animation, until) in list(self.cells.items()):
             text = animation(now)
             if self.shown.get((row, column)) != text:
