@@ -40,8 +40,8 @@ nobody has acknowledged) whenever there are any, otherwise `<n> merged` over the
 days; a seat that has launched nothing says `no runs yet`.
 
 The title is `agentkit` and the clock, and says nothing about the machine or the build;
-drawing the menu calls git for nothing at all, and opening it only to ask origin whether
-~/agentkit is behind, which updates it first (update_first).  A usage row is one
+drawing the menu calls git for nothing at all, and opening it only to ask origin, behind the
+first draw, whether ~/agentkit is behind, which updates it (update_first).  A usage row is one
 account's *shared* weekly meter -- the one every model of it draws on: a provider that lists
 `accounts` has one row per account in config order, numbered in roman numerals (`Claude I`,
 `Claude II`), each from its own reading, and a provider without them keeps its
@@ -108,7 +108,6 @@ key uses.
 
 import colorsys
 import copy
-import io
 import json
 import os
 import re
@@ -120,7 +119,7 @@ import subprocess
 import sys
 import threading
 import time
-from contextlib import closing, redirect_stdout
+from contextlib import closing
 from pathlib import Path
 
 from . import command_help, config, history, motion, notify, orch, terminal, update, usage
@@ -197,12 +196,17 @@ class Live:
     the following tick.  Every open menu on the box shares one cadence with the tick and with
     `ak usage` -- `usage.PROBE_EVERY` -- so a second seat's screen costs no adapter request at
     all; Muse's adapter keeps its own ten-minute cache besides.  The same pipe is how a seat's
-    word moving anywhere asks for a draw, and how a read landing does: see `watch`.
+    word moving anywhere asks for a draw, and how a read landing does: see `watch`; and how
+    `main`'s start-up work does, `start`, run behind the first draw: see `begin`.
     """
 
-    def __init__(self, cfg, every=None):
+    def __init__(self, cfg, every=None, start=None):
         self.cfg = cfg
         self.every = usage.PROBE_EVERY if every is None else every
+        self.start, self.starting = start, None   # the start-up steps, and their thread once begun
+        self.said = []                   # what they said, for the menu to show as it lands
+        self.filled = None               # how far the start update has got, while it runs
+        self.moved = False               # ... and that it moved agentkit: the menu opens again
         self.started = None          # when the probe now running was started, or None
         self.began = None            # ... and when, on the clock motion reads (`asking`)
         self.thread = None
@@ -221,13 +225,15 @@ class Live:
 
         The lock is the whole point: a descriptor closed while a finished probe is writing
         could already be somebody else's file, and a byte in the wrong file is worse than a
-        draw nobody asked for.
+        draw nobody asked for.  `main`'s menu, the one handed start-up work, is its process's
+        last act: leaving it waits on no thread, and what is still going ends with the process.
+        Any other goes on in its caller, so it waits for the read and the look still going.
         """
         self.done.set()
         self.asked.set()                 # the watcher out of its wait, to see it is done
-        if self.watcher is not None:
+        if self.watcher is not None and self.start is None:
             self.watcher.join(TICK)      # first: a read still going may start a look
-        if self.looker is not None:
+        if self.looker is not None and self.start is None:
             self.looker.join(TICK)       # nothing a pass still going reads is taken away under it
         with self.lock:
             for fd in (self.reader, self.writer):
@@ -256,6 +262,45 @@ class Live:
         self.thread = threading.Thread(target=self._work, daemon=True)
         self.thread.start()
         return True
+
+    def begin(self):
+        """Start `start`'s steps, once, in order, in a thread of their own, so no step holds a
+        draw or a key.
+
+        Each is handed this Live: what it logs (`log`) is a notice the menu shows as it lands,
+        and the start update fills the rule as it goes (`updating`).  A step that answers True
+        has moved agentkit, and the steps after it are the new code's to run: the menu opens
+        again on it (`reopen`).
+        """
+        if self.start and self.starting is None:
+            self.starting = threading.Thread(target=self._begin, daemon=True)
+            self.starting.start()
+
+    def _begin(self):
+        for step in self.start:
+            try:
+                moved = bool(step(self))
+            except Exception as exc:     # behind the screen, a notice is the only way it is heard
+                self.log(f"WARN {exc}")
+                moved = False
+            self.moved, self.filled = moved, None
+            self._wake()
+            if moved:
+                return
+
+    def log(self, message):
+        """A start-up step's line: shown on the menu as it lands."""
+        self.said.append(message)
+        self._wake()
+
+    def heard(self):
+        """What the start-up steps said since last asked, once."""
+        return [self.said.pop(0) for _ in range(len(self.said))]
+
+    def updating(self, done, total):
+        """The start update's `progress` (update_first): the rule filled to it, drawn now."""
+        self.filled = done / total
+        self._wake()
 
     def asking(self):
         """When the probe now going began, on motion's clock, or None while none is."""
@@ -1234,7 +1279,7 @@ def v5o_format_seats(infos, term_width, widths=None):
 
 
 def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=None, look=True,
-         records=None, groups=None, clock=None):
+         records=None, groups=None, clock=None, filled=None):
     """The menu at rest, and (page, pages) as drawn.
 
     The frame is the header (`agentkit` at the left, the clock at the right),
@@ -1270,6 +1315,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     first frame goes out in the draw's own write, at the clock's phase, so nothing jumps when
     the screen is drawn over.  While a popup's content fades in, the whole screen is handed to
     it, to come up out of the background (`motion.Clock.rise`).
+
+    `filled` is how far `ak`'s own update has got while it runs (update_first): the header says
+    `updating` and the rule under it fills to it.
     """
     owned = drawn is not None
     if (not owned and sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
@@ -1395,8 +1443,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # cell, highlighted, a bar's colour); a bar's news is its value, which rounding can hide
     moves = []
     if not compact:
-        out += [terminal.header_line("", time.strftime("%H:%M"), width),
-                terminal.rule_line(width)]
+        out += [terminal.header_line("" if filled is None else "updating",
+                                     time.strftime("%H:%M"), width),
+                terminal.rule_line(width, filled or 0)]
     if meters:
         if not compact:
             out.append("")
@@ -3611,7 +3660,7 @@ def pressed(key, drawn, found):
     return key.char if key.name == "char" else ""
 
 
-def loop(cfg, client=False, dry_run=False, overlay=False):
+def loop(cfg, client=False, dry_run=False, overlay=False, start=None):
     """The menu until Esc, or from a pipe until an empty line or the end of input.
 
     `overlay` is the menu as a tmux popup over a running seat, offering the four keys and
@@ -3652,36 +3701,46 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     the screen the menu has: `x` on a done seat closes it at once, and on any other asks `Keep`
     or `Stop` under its row, Enter or a click answering and Esc keeping it.  Esc, and a click
     on `esc leave`, leaves; `q` is no key.
+
+    `start` is `main`'s start-up work, begun behind the first draw (`Live.begin`): what it says
+    is shown as it lands, like a job's notice, and once the start update has moved agentkit
+    the menu opens again on the new code, on the seat it had highlighted (`reopen`).  Leaving
+    this menu waits on none of it, nor on any read still going (`Live.close`).
     """
     keys = OVERLAY_KEYS if overlay else KEYS
     actions = ("n", "x", "r") if overlay else ("n", "x", "c", "m", "i")
-    page, cursor, ahead, look = 0, None, None, False
+    at = os.environ.pop(REOPENED, "")
+    page, cursor, ahead, look = 0, Path(at) if os.path.isabs(at) else at or None, None, False
     last = [[], None]                     # what the last read left: the seats and their groups
     clock = motion.Clock(fade=overlay)    # what moves between draws: the dots, news, and
                                           # the popup's first draw coming up
-    with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
+    with closing(Live(cfg, start=start)) as live, closing(terminal.Keyboard()) as keyboard:
         if keyboard.take():
             terminal.sense()              # true colour and the background, once, before a draw
         live.watch(last)                  # read and looked at once, before the first draw
         while True:
             if look:
                 live.ask(look=True)       # read and looked at again, off the draw
-            messages = orch.job_notices()
+            messages = orch.job_notices() + live.heard()
             if messages:
                 keyboard.give()           # a notice waits for its Enter, like any sub-screen
                 show_notices(messages)
                 clock.forget()            # and the menu it comes back to replays nothing
-            found, groups = last          # after any notice: what changed under it is drawn as is
+            if live.moved:
+                keyboard.give()
+                reopen(cursor)
+            found, groups, filled = *last, live.filled   # after any notice: drawn as it is
             drawn = {} if keyboard.take() else None
             own = config.current_session() if overlay else None
             listed = keys if drawn is None else \
                 f"{move_keys()}   {TERMINAL_KEYS if not overlay else keys}"
             page, pages = draw(cfg, found, listed, page, cursor, drawn, own, look=False,
-                               groups=groups, clock=clock)
+                               groups=groups, clock=clock, filled=filled)
             cursor = drawn["cursor"] if drawn else cursor   # the seat he sees highlighted
             live.probe()                  # after the draw, never before it: the cache is enough
+            live.begin()                  # ... and so is the start-up work
             asking = live.asking()        # once: the probe may land between two asks
-            if asking is not None and drawn and drawn["rule"]:
+            if asking is not None and drawn and drawn["rule"] and filled is None:
                 motion.fetching(clock, asking)            # the rule glides while it is asked
             if ahead is not None:
                 (key, shown), ahead = ahead, None
@@ -3799,34 +3858,45 @@ def client(alias, dry_run):
 
 
 UPDATE_TAIL = 10   # how many of a failed start-up update's last lines `ak` shows
+REOPENED = "AK_MENU_AT"   # the seat highlighted when an update opened the menu again (`reopen`)
 
 
-def update_first():
-    """`ak` opens on the latest agentkit: when origin's main has moved past ~/agentkit, the menu's
-    frame says `agentkit · updating` and fills the rule under it through update_agentkit's
-    steps, then the menu starts again on the new code.
+def update_first(log, progress):
+    """`ak` opens on the latest agentkit: when origin's main has moved past ~/agentkit,
+    update_agentkit fast-forwards and reinstalls it in a process of its own
+    (update.start_agentkit), so leaving `ak` never stops it half-way.  `progress(done, total)`
+    hears of each step, for the frame to say `agentkit · updating` and fill the rule under it,
+    and `log` of what a step that failed said.  True when ~/agentkit moved, even where
+    install.sh then failed: `ak` starts again on the new code (`reopen`).
 
     Only the checkout this runs from moves, as with the tick (update.go_live), so a worktree's
     `bin/ak` -- a test's above all -- never moves the live one under it.  One somebody works in,
     dirty or off main, is left as it is, and so is one whose origin does not answer within
-    update.START_WAIT: the menu opens as it is.  A step that fails says why before it opens.
+    update.START_WAIT.
     """
     if (update.agentkit_dir().resolve() != config.REPO or update.left_as_is()
             or not update.behind()):
-        return
-    before, screen, said = update.agentkit_version(), sys.stdout, io.StringIO()
+        return False
+    before, said = update.agentkit_version(), []
+    with update.start_agentkit() as proc:
+        for line in proc.stdout:
+            step = None if said else re.fullmatch(r"(\d+) (\d+)\n?", line)
+            if step:
+                progress(int(step[1]), int(step[2]))
+            else:
+                said.append(line.rstrip("\n"))
+    for line in said[-UPDATE_TAIL:]:
+        log(line)
+    return update.agentkit_version() != before
 
-    def draw(done, total):
-        with redirect_stdout(screen):
-            terminal.frame("updating", (), "", done / total)
 
-    with redirect_stdout(said):
-        failed = update.update_agentkit(draw)
-    if failed:
-        pause(*said.getvalue().splitlines()[-UPDATE_TAIL:])
-    if update.agentkit_version() != before:     # moved, even where install.sh then failed
-        sys.stdout.flush()
-        os.execv(sys.executable, [sys.executable, *sys.argv])
+def reopen(cursor=None):
+    """`ak` started again in place, on the code an update just moved in: the menu on `cursor`,
+    the seat it had highlighted."""
+    sys.stdout.flush()
+    if cursor is not None:
+        os.environ[REOPENED] = str(cursor)
+    os.execv(sys.executable, [sys.executable, *sys.argv])
 
 
 def main(argv):
@@ -3835,8 +3905,9 @@ def main(argv):
     A popup is opened over tmux sessions that are here, so it neither hops to the server the
     way a client's menu does nor runs the maintenance that a menu opening a seat runs: reaping
     runs and retiring seats over a session the user is sitting in is not what `Ctrl-b m` was
-    pressed for.  Nor does it wait on origin to update agentkit first: a client's `ak` and the
-    server's `ak --client` behind it each do (update_first).
+    pressed for.  Nor does it look at origin to update agentkit: a client's `ak` and the
+    server's `ak --client` behind it each do (update_first).  The menu runs its start-up work
+    behind its first draw (`loop`); a client has no menu here, so it updates before it hops.
     """
     if command_help.show("attach", argv):
         return 0
@@ -3845,21 +3916,30 @@ def main(argv):
         if arg not in flags:
             raise config.Error(f"{USAGE}  (got {arg!r})")
         flags[arg] = True
-    if flags["--overlay"]:
+    dry_run, overlay = flags["--dry-run"], flags["--overlay"]
+    if overlay:
         terminal.inset()                  # inside the border, what the popup asks to be left
-    if not (flags["--dry-run"] or flags["--overlay"]):
-        update_first()
-    if not flags["--dry-run"]:
-        from . import macbridge
-        macbridge.start_background()
+    from . import macbridge, watch
     alias = config.server_alias()
-    if alias and not (flags["--client"] or flags["--overlay"]):
-        return client(alias, flags["--dry-run"])
-    from . import watch
-    messages = []
-    watch.resume_after_boot(config.load(), dry_run=flags["--dry-run"], log=messages.append)
-    if not (flags["--dry-run"] or flags["--overlay"]):
+    if alias and not (flags["--client"] or overlay):
+        if not dry_run:
+            said = []
+            moved = update_first(said.append, lambda done, total: terminal.frame(
+                "updating", (), "", done / total))
+            if said:
+                pause(*said)
+            if moved:
+                reopen()
+            macbridge.start_background()
+        return client(alias, dry_run)
+    steps = []
+    if not (dry_run or overlay):
+        steps.append(lambda live: update_first(live.log, live.updating))
+    if not dry_run:
+        steps.append(lambda live: macbridge.start_background())
+    steps.append(lambda live: watch.resume_after_boot(config.load(), dry_run=dry_run,
+                                                      log=live.log))
+    if not (dry_run or overlay):
         # what `ak orch` does on the way into a seat: gc, and the runs nobody was told about
-        orch.maintenance(messages.append)
-    show_notices(messages)
-    return loop(config.load(), flags["--client"], flags["--dry-run"], flags["--overlay"])
+        steps.append(lambda live: orch.maintenance(live.log))
+    return loop(config.load(), flags["--client"], dry_run, overlay, start=steps)

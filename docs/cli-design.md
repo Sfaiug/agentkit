@@ -14,10 +14,10 @@ line, the key line, and the prompt `> ` wherever a line is read; the main menu,
 the header.
 
 The rule is ak's one progress indicator, and otherwise just a line. When `ak`
-updates itself at start the frame says `agentkit · updating` and the rule fills
+updates itself at start the menu says `agentkit · updating` and the rule fills
 from the left in the accent colour as each of fetch, pull and install begins, and
-wholly once they are done; the filled part is drawn heavy (`━`), so it reads
-where there is no colour. A screen whose content is still being fetched has a
+wholly once they are done, while every key still answers; the filled part is drawn
+heavy (`━`), so it reads where there is no colour. A screen whose content is still being fetched has a
 segment glide along it (Motion). No other screen draws a bar for either.
 
 Helpers: `terminal.header_line`, `terminal.rule_line`, `terminal.key_line`,
@@ -83,7 +83,12 @@ business.
 
 Six keys and nothing else: the numbers, `n`, `x`, `c`, `i`, Esc. Esc is the one way
 back on every screen and at every question under the menu, and on the main
-screen it leaves; `q` is no key anywhere, and at a question it is a letter.
+screen it leaves at once, whatever is still going behind it; `q` is no key
+anywhere, and at a question it is a letter. The menu is drawn at once from what
+is cached: its start-up work -- the update, the Mac bridge, seats resumed after a
+reboot, maintenance -- runs behind the first draw, and what it says is a notice
+shown as it lands. An update that moved agentkit opens the menu again on the new
+code, the same seat highlighted.
 
 On a terminal the main menu has the keyboard and reads it a key at a time
 (cbreak): a key acts the moment it is pressed, with no Enter, and no redraw
