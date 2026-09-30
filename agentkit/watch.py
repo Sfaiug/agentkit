@@ -5519,8 +5519,9 @@ def main(argv):
                             if question and ask_inbox(
                                     config.load(), question["question"], question["url"],
                                     question["sha"], log, asked=question.get("asked", False),
-                                    typed=lambda: run.mark_delivery(run_dir, receipt, pending_inbox={
-                                        **question, "asked": True})) == 0:
+                                    typed=lambda: run.mark_delivery(
+                                        run_dir, receipt, pending_inbox={**question, "asked": True})
+                                    ) == 0:
                                 # struck off the record as it stands, never off this copy of
                                 # it: the run's own loop can have handed the ending back while
                                 # the question was going out, and a whole save from here would
