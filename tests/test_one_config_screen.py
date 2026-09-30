@@ -194,9 +194,9 @@ class Menu:
         os.write(self.master, keys)
         return self.screen(where, after=mark)
 
-    def picker(self, where=None):
+    def picker(self, where=None, after=0):
         return self.screen(lambda lines: any("space choose" in line for line in lines)
-                           and (where is None or where(lines)))
+                           and (where is None or where(lines)), after)
 
     def record(self, name="fix-api"):
         return json.loads((self.home / ".agentkit/state" / f"session-{name}.json").read_text())
@@ -298,10 +298,12 @@ class OneConfigScreen(unittest.TestCase):
         self.assertEqual({key: record[key] for key in chosen}, chosen)
         self.assertEqual(menu.defaults(), chosen)         # written by the creation
         menu.screen(after=mark)
+        mark = len(menu.text())
         os.write(menu.master, b"n")
         menu.saw("Name: ", after=mark)
         os.write(menu.master, ENTER)
-        lines = menu.picker(lambda lines: "Astra" in highlighted(lines))
+        lines = menu.picker(after=mark)
+        self.assertIn("Astra", highlighted(lines))
         rows = {line.lstrip("› ").split()[0]: marks(line) for line in lines if marks(line)}
         self.assertEqual((rows["Astra"], rows["Fable"], rows["Opus"]), ("●■■", "○■□", "○■■"))
         menu.press(ESC)
