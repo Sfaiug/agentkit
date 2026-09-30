@@ -552,8 +552,8 @@ ak() { printf '%s\\n' "$ROW"; }
                     self.assertNotIn('SKIP ', result.stdout)
 
     def test_smoke_needs_one_harness_with_its_login(self):
-        # None of the three check 3 calls is here: each skips by name, as not on this host,
-        # and the suite still fails, because it made no real call at all.
+        # None of the harnesses check 3 calls is here: each is named as not checked, never
+        # counted as passed, and the suite fails, because it made no real call at all.
         start = SMOKE.index('model_unavailable()')
         helpers = SMOKE[start:SMOKE.index('U="$WORK/usage.json"', start)]
         check = SMOKE[SMOKE.index('# --- 3:'):SMOKE.index('# --- 4:')]
@@ -568,12 +568,13 @@ ak() { printf '%s\\n' "$ROW"; }
                                          'AGENTKIT_ADAPTER_DIR': ''},
                                     text=True, capture_output=True, timeout=30)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        for model, harness in (('opus', 'claude'), ('astra', 'codex'), ('spark', 'muse')):
-            self.assertIn(f'SKIP  3b: required model {model} is not on this host: '
-                          f'{harness} is not installed', result.stdout)
+        for line in ('3a/3b opus (claude): claude', '3a/3b astra (codex): codex',
+                     '3a/3b spark (muse): muse', '3c grok (grokbuild): grok',
+                     '3c gemini (antigravity): agy', '3c mimo (opencode): opencode'):
+            self.assertIn(f'NOT CHECKED  {line} is not installed', result.stdout)
         self.assertIn('FAIL  3: no harness here is installed with its login', result.stdout)
-        self.assertIn('6 passed, 1 failed, 0 skipped', result.stdout)
-        # A login smoke_home's adapters confirmed is that one harness, called here or not.
+        self.assertIn('0 passed, 1 failed, 0 skipped', result.stdout)
+        # A login smoke_home's adapters confirmed is no real call: it never stands in for one.
         with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
             binaries = Path(tmp) / 'bin'
             binaries.mkdir()
@@ -585,8 +586,8 @@ ak() { printf '%s\\n' "$ROW"; }
                                          'REPO': str(REPO), 'PATH': str(binaries),
                                          'AGENTKIT_ADAPTER_DIR': ''},
                                     text=True, capture_output=True, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('6 passed, 0 failed, 0 skipped', result.stdout)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('FAIL  3: no harness here is installed with its login', result.stdout)
 
     def test_fresh_borrows_what_this_host_has_and_needs_one_harness(self):
         callers = FRESH[FRESH.index('caller_config=${XDG_CONFIG_HOME'):FRESH.index('\nTS=$(date')]
