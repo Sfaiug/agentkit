@@ -14,19 +14,29 @@ import io
 import os
 from pathlib import Path
 import sys
+import time
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
+import test_close_and_info
 from test_close_and_info import ESC, Menu
-from agentkit import menu, terminal
+from agentkit import menu, run, terminal
 
 Key = terminal.Key
 QUESTION = "Stop fix-api and everything it runs?"
-MEANS = "2 runs stop with it, and its conversation cannot be reopened."
-NONE = "No runs stop with it, and its conversation cannot be reopened."   # a seat with no runs
+MEANS = "2 runs stop with it; the conversation stays and can be reopened."
+NONE = "No runs stop with it; the conversation stays and can be reopened."   # a seat with no runs
+# The child's count of a seat's runs, slow: the card is up before it lands.
+SLOW = """
+import time
+def session_runs(name):
+    time.sleep(1.5)
+    return ["one", "two", "three"]
+menu.session_runs = session_runs
+"""
 CFG = {"defaults": {"orchestrator": "opus", "workers": ["opus"]},
        "providers": {"anthropic": {"mode": "subscription"}, "openai": {"mode": "subscription"}},
        "models": {"opus": {"harness": "claude", "model": "claude-opus-5", "effort": "xhigh",
@@ -66,7 +76,7 @@ class QuestionCard(unittest.TestCase):
         _, card, out = ask([Key("esc")], cols=40)
         self.assertEqual([terminal.ANSI.sub("", line) for line in card],
                          ["", "  Stop fix-api and everything it runs?",
-                          "  2 runs stop with it, and its", "  conversation cannot be reopened.",
+                          "  2 runs stop with it; the conversation", "  stays and can be reopened.",
                           "", "", ""])
         self.assertIn("\x1b[9;1H\r", out)
 
@@ -101,6 +111,42 @@ class QuestionCard(unittest.TestCase):
                 self.assertNotIn(menu.STOP_ASK.format("alpha"), lines)
                 shown.leave()
                 self.assertNotIn("<stopped", shown.text())
+
+    def test_the_card_is_up_before_its_runs_are_counted(self):
+        with patch.object(test_close_and_info, "CHILD", test_close_and_info.CHILD.replace(
+                "orch.cmd_stop = cmd_stop\n", "orch.cmd_stop = cmd_stop\n" + SLOW)):
+            shown = Menu(self, {"alpha": "working"})
+        shown.frame()
+        mark, pressed = shown.mark(), time.monotonic()
+        shown.send(b"x")
+        asked = shown.frame(keys="esc back", after=mark)
+        self.assertLess(time.monotonic() - pressed, 1.0)     # the count takes 1.5 s
+        self.assertIn("  Its runs stop with it; the conversation stays and can be reopened.", asked)
+        shown.frame(lambda lines: "  3 runs stop with it; the conversation stays and can be "
+                                  "reopened." in lines, keys="esc back", after=mark)
+        mark = shown.mark()
+        shown.send(ESC)
+        shown.frame(after=mark)
+        shown.leave()
+        self.assertNotIn("<stopped", shown.text())
+
+    def test_the_count_is_the_runs_a_stop_stops(self):
+        # what run.cmd_stop takes: a run not ended, and an `error` still waiting on its owner
+        states = {"going": {"state": "running"}, "queued": {"state": "queued"},
+                  "acknowledged": {"state": "interrupted", "recovery_acknowledged_at": 1},
+                  "retried": {"state": "error", "recovery_pending": True},
+                  "errored": {"state": "error"},
+                  "failed": {"state": "fail", "recovery_pending": True},
+                  "passed": {"state": "pass"}, "elsewhere": {"state": "running", "seat": "tidy"}}
+        with patch.object(run, "run_dirs", return_value=[Path(name) for name in states]), \
+                patch.object(run, "read_state", side_effect=lambda path: states[path.name]), \
+                patch.object(run, "launched_session",
+                             side_effect=lambda state: state.get("seat", "fix-api")):
+            counted = [path.name for path in menu.session_runs("fix-api")]
+        self.assertEqual(counted, ["going", "queued", "acknowledged", "retried"])
+        self.assertEqual([menu.stop_means(runs) for runs in (None, 0, 1, 4)], [
+            f"{start} with it; the conversation stays and can be reopened." for start in
+            ("Its runs stop", "No runs stop", "1 run stops", "4 runs stop")])
 
     def test_every_caller_asks_on_the_one_card(self):
         # the popup's own seat, asked under its own row

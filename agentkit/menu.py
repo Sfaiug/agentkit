@@ -1523,7 +1523,9 @@ def stop_session_runs(name, dry_run=False):
 
 
 def session_runs(name):
-    """Every unfinished run that seat launched: what stops with it."""
+    """Every run that seat launched which stopping it stops: what `run.cmd_stop` takes -- each
+    one not ended, as `orch.cmd_stop` stops them too, and an `error` still waiting on its
+    owner, which the tick would retry."""
     from . import run as run_mod
     try:
         dirs = run_mod.run_dirs()
@@ -1533,19 +1535,22 @@ def session_runs(name):
     for run_dir in dirs:
         try:
             state = run_mod.read_state(run_dir)
-            if state and run_mod.launched_session(state) == name and run_mod.unfinished(state):
+            word = state and state.get("state")
+            if (state and run_mod.launched_session(state) == name
+                    and (word not in run_mod.ENDED
+                         or word == "error" and run_mod.unfinished(state))):
                 found.append(run_dir)
         except (OSError, ValueError, config.Error):
             continue
     return found
 
 
-def stop_means(name):
-    """What `Stop` means on the card `x` asks on: the runs that stop with the seat, and that
-    `orch.cmd_stop` takes the conversation with it."""
-    runs = len(session_runs(name))
-    stop = "No runs stop" if not runs else "1 run stops" if runs == 1 else f"{runs} runs stop"
-    return f"{stop} with it, and its conversation cannot be reopened."
+def stop_means(runs):
+    """What `Stop` means on the card `x` asks on: `runs`, how many runs stop with the seat, or
+    None while they are counted, and that the conversation stays."""
+    stop = ("Its runs stop" if runs is None else "No runs stop" if not runs
+            else "1 run stops" if runs == 1 else f"{runs} runs stop")
+    return f"{stop} with it; the conversation stays and can be reopened."
 
 
 def stop_question(name):
@@ -3700,12 +3705,22 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                 if drawn["words"][seat] != "done":
                     cursor = seat
 
+                    # its runs are counted off the draw, so the card is up at once whatever
+                    # the disk; one counted within a frame is simply had, a later one drawn in
+                    runs, counted = Fetch(lambda: len(session_runs(seat))), [False]
+                    runs.join(motion.FRAME)
+
+                    def means():
+                        counted[0] = not runs.is_alive()
+                        return stop_means(runs.got.get("answer"))
+
                     def around(card):     # the menu around the card, drawn again on a resize
                         draw(cfg, found, "esc back", page, cursor, drawn, own, ask=(seat, card),
                              look=False, groups=groups, clock=clock)
                         return drawn["ask"]
-                    if not terminal.confirm(STOP_ASK.format(seat), stop_means(seat), "Stop",
-                                            around, wait=lambda: moving(clock)):
+                    if not terminal.confirm(
+                            STOP_ASK.format(seat), means, "Stop", around, wait=lambda: moving(
+                                clock, going=None if counted[0] else runs.is_alive)):
                         continue
                 keyboard.give()
                 close_seat(seat, dry_run)
