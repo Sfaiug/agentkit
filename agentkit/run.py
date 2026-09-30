@@ -14455,11 +14455,16 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
         return 1 if any(task["state"] in JOB_UNDELIVERED for task in job["tasks"]) else 0
     job["finished_at"] = time.time()
     save()
-    failed = [task for task in job["tasks"] if task["state"] in JOB_UNDELIVERED]
+    undelivered = [task for task in job["tasks"] if task["state"] in JOB_UNDELIVERED]
+    # a task the owner stopped was ended on purpose: it delivered nothing, yet needs nobody
+    failed = [task for task in undelivered if task["state"] != "stopped"]
+    stopped = len(undelivered) - len(failed)
     seat = job.get("seat")
     if failed:
         findings = next((task.get("findings") or "" for task in failed if task.get("findings")), "")
-        text = f"job {job['job_id']}: {len(failed)} task(s) need you" + (f": {findings[:200]}" if findings else "")
+        text = (f"job {job['job_id']}: {len(failed)} task(s) need you"
+                + (f", {stopped} stopped" if stopped else "")
+                + (f": {findings[:200]}" if findings else ""))
         for task in failed:
             if task.get("findings"):
                 log(f"{task['name']} findings:\n{task['findings']}")
@@ -14495,7 +14500,8 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
                 return 1
             job["card_sent"] = {"kind": "needs", "at": job["finished_at"]}
     else:
-        text = f"job {job['job_id']}: all {len(job['tasks'])} tasks finished"
+        text = (f"job {job['job_id']}: {stopped} task(s) stopped, nobody is needed" if stopped
+                else f"job {job['job_id']}: all {len(job['tasks'])} tasks finished")
         log(f"job {job['job_id']}: Done")
         if not seat:
             log("no seat launched this job, so nothing is sent; "
@@ -14510,7 +14516,7 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
         job["card_sent"] = {"kind": "done", "at": job["finished_at"]}
     save()
     orch.stop_scope(job.get("scope"), log, wait=False)
-    return 1 if failed else 0
+    return 1 if undelivered else 0
 
 
 def spawn_job_bg(job_dir, relaunch=None):
