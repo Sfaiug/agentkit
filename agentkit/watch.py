@@ -5119,7 +5119,7 @@ def after_merge_checks(state, dry_run, log, now=None):
 
     Each merge commit younger than three hours is read the way the loop reads a PR's:
     its latest check runs from `gh`.  Only the newest commit with a failed check is
-    handed back, and only once -- a `passed` commit newer than the break ends it, and a
+    handed back, and only once -- that commit or a newer one `passed` ends it, and a
     `gh` that could not say, for the merge commit or for a newer commit's checks, waits
     a tick rather than saying anything on half an answer.  A line whose Enter did not
     land keeps its composer mark, as a finished run's does, so the next tick enters it
@@ -5194,7 +5194,8 @@ def after_merge_checks(state, dry_run, log, now=None):
             shas = [entry[4] for entry in statuses]
             if notified in shas:
                 at = max(i for i, sha in enumerate(shas) if sha == notified)
-                if any(entry[6] == "passed" for entry in statuses[at + 1:]):
+                # Its own re-run going green ends it too, so a later break gets told.
+                if any(entry[6] == "passed" for entry in statuses[at:]):
                     episodes.pop(key, None)
                     notified = None
                 else:
