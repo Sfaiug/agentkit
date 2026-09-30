@@ -18,4 +18,4 @@ atoll
   2  atoll-solo   fable  ● working
 
   n new   x stop   c config   i info
-  q leave
+  esc leave

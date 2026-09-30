@@ -25,4 +25,4 @@ newsletter-tool
     waiting for you
 
   n new   x stop   c config   i info
-  q leave
+  esc leave
