@@ -3706,9 +3706,10 @@ def start_followups(state, run_dir, log, cfg=None):
                 (directory / "task.md").write_text(task)
                 (directory / "log.txt").touch()
                 # A fix run is a new launch: the session's lists now, the discovering
-                # run's only for a seat with no record of its own.
+                # run's only for a seat with no record of its own.  The record is checked
+                # against the config now: the discovering run's may predate a model it names.
                 try:
-                    lists = config.load_session(cfg, session, required=False) or state
+                    lists = config.load_session(config.load(), session, required=False) or state
                 except config.Error:
                     lists = state
                 save_state(directory, {"followup": {"run": run_dir.name, "text": item,

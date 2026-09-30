@@ -189,9 +189,12 @@ class FollowupRuns(unittest.TestCase):
     def test_fix_run_takes_session_current_lists_and_discovering_ones_only_without_a_record(self):
         directory, state = self.source("lists", reviewers=[self.executor])
         config.update_session("seat", workers=[self.reviewer], reviewers=[self.reviewer])
+        # The discovering run loaded its config before the session's new model was added.
+        stale = {**self.cfg, "models": {name: entry for name, entry in self.cfg["models"].items()
+                                        if name != self.reviewer}}
         with patch.dict(os.environ, {"AGENTKIT_SESSION": "seat"}):
-            child = self.start(directory, state)[0]
-        receipt = run.read_state(child)
+            run.start_followups(state, directory, self.logs.append, stale)
+        receipt = run.read_state(config.RUNS / state["followup_runs"][0])
         self.assertEqual(receipt["workers"], [self.reviewer])
         self.assertEqual(receipt["reviewers"], [self.reviewer])
         parent = run.read_state(directory)
