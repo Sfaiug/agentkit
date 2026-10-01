@@ -232,7 +232,7 @@ class MainMenu(unittest.TestCase):
                 keys = next(row for row, line in enumerate(lines, 1) if "↑↓ move" in line)
                 grid = played(child.text(), 16)
                 places = [(at(grid, "n new"), TIPS["n new"]),
-                          (at(grid, "fix-api"), TIPS["session"].format(name=name))]
+                          (at(grid, "›"), TIPS["session"].format(name=name))]
                 for place, sentence in places:
                     with self.subTest(sentence=sentence):
                         child.send(move(*place))
@@ -390,7 +390,7 @@ class ConfigScreen(Sandbox):
 
         for cols, rows in ((cols, rows) for cols in (26, 30, 40) for rows in (12, 16)):
             for item, sentence in (("↑↓←→ move", TIPS["↑↓ move"]),
-                                   ("Opus", menu.model_tip("opus", self.cfg["models"]["opus"]))):
+                                   ("›", menu.model_tip("opus", self.cfg["models"]["opus"]))):
                 with self.subTest(cols=cols, rows=rows, item=item), \
                         patch.object(terminal, "height", return_value=rows), \
                         patch.object(terminal.time, "strftime", return_value="14:06"):
