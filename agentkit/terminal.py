@@ -736,9 +736,10 @@ def away():
 
 
 def unseen():
-    """Whether the key read last was pressed while the keys' highlight was not drawn (`away`): a
-    key acting on what it is on then only brings it back -- Enter and space, typed or clicked on
-    the key line, which `read_key` answers as a draw, and a screen's own, such as the menu's `x`."""
+    """Whether the key read last was pressed while the keys' highlight was not drawn (`away`), and
+    is no click on a row, which names its own: a key acting on what the highlight is on then only
+    brings it back -- Enter and space, typed or clicked on the key line, which `read_key` answers
+    as a draw, and a screen's own, such as the menu's `x`."""
     return _UNSEEN
 
 
@@ -986,9 +987,9 @@ def read_key(timeout=None, wake=None):
         _POINTER, _AWAY = key, under(key, _SPOTS).what is None and any(
             what is not None for what, _ in _SPOTS.values())
         return key
-    _UNSEEN, _AWAY = _AWAY, False
-    _POINTER = key if key.name == "click" and not _UNSEEN else None
     spot = under(key, _SPOTS) if key.name == "click" else Spot()
+    _UNSEEN, _AWAY = _AWAY and spot.what is None, False     # a click on a row names its own
+    _POINTER = key if key.name == "click" and not _UNSEEN else None
     if _UNSEEN and (key.name in ("enter", "space") or spot.what is None
                     and spot.cell in ("⏎", "enter", "space")):
         _ASKED = True
