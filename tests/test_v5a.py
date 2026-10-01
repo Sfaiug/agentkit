@@ -326,7 +326,8 @@ class DesktopAndBoot(Sandbox):
     def test_menu_reports_each_recovered_seat_once_before_maintenance(self):
         self.boot_fixture()
         with patch.object(config, "server_alias", return_value=None), \
-                patch("agentkit.macbridge.start_background"), patch.object(menu, "loop", side_effect=lambda cfg, *flags, start: start.begin() or 0), \
+                patch("agentkit.macbridge.start_background"), \
+                patch.object(menu, "loop", side_effect=lambda cfg, *flags, start: start.begin() or 0), \
                 patch.object(menu, "show_notices") as notices:
             menu.main(["--overlay"])
             self.assertEqual(notices.call_args.args[0],

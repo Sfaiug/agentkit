@@ -40,8 +40,8 @@ nobody has acknowledged) whenever there are any, otherwise `<n> merged` over the
 days; a seat that has launched nothing says `no runs yet`.
 
 The title is `agentkit` and the clock, and says nothing about the machine or the build;
-drawing the menu calls git for nothing at all, and opening it only to ask origin, behind the
-first draw, whether ~/agentkit is behind, which updates it (update_first).  A usage row is one
+drawing the menu calls git for nothing at all, and opening it only to ask origin whether
+~/agentkit is behind, which updates it (update_first, run as `Start` says).  A usage row is one
 account's *shared* weekly meter -- the one every model of it draws on: a provider that lists
 `accounts` has one row per account in config order, numbered in roman numerals (`Claude I`,
 `Claude II`), each from its own reading, and a provider without them keeps its
@@ -3796,6 +3796,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, start=None):
         while True:
             if look:
                 live.ask(look=True)       # read and looked at again, off the draw
+            begun.opening(cursor)         # back on the menu: a notice under it is never left
             messages = orch.job_notices() + begun.heard()
             if messages:
                 keyboard.give()           # a notice waits for its Enter, like any sub-screen
@@ -3810,7 +3811,6 @@ def loop(cfg, client=False, dry_run=False, overlay=False, start=None):
             page, pages = draw(cfg, found, listed, page, cursor, drawn, own, look=False,
                                groups=groups, clock=clock, filled=filled)
             cursor = drawn["cursor"] if drawn else cursor   # the seat he sees highlighted
-            begun.opening(cursor)
             if moved:
                 raise Reopen              # the whole rule drawn: on the new code now, here
             if again and drawn is not None:
@@ -4007,7 +4007,7 @@ def main(argv):
         return client(alias, dry_run)
     steps = []
     if not (dry_run or overlay):
-        steps.append(Start.update)        # first: once it moves agentkit, the rest is the new code's
+        steps.append(Start.update)        # first: once it moves agentkit, the rest is new code's
     if not dry_run:
         steps.append(lambda begun: macbridge.start_background())
     steps.append(lambda begun: watch.resume_after_boot(config.load(), dry_run=dry_run,

@@ -84,11 +84,13 @@ business.
 Six keys and nothing else: the numbers, `n`, `x`, `c`, `i`, Esc. Esc is the one way
 back on every screen and at every question under the menu, and on the main
 screen it leaves at once, whatever is still going behind it; `q` is no key
-anywhere, and at a question it is a letter. The menu is drawn at once from what
-is cached: its start-up work -- the update, the Mac bridge, seats resumed after a
-reboot, maintenance -- runs behind the first draw, and what it says is a notice
-shown as it lands. An update that moved agentkit opens the menu again on the new
-code, the same seat highlighted.
+anywhere, and at a question it is a letter. On a terminal the menu is drawn at
+once from what is cached: its start-up work -- the update, the Mac bridge, seats
+resumed after a reboot, maintenance -- runs behind the first draw, in a process of
+its own that goes on to its end whatever the menu does, and what it says is a
+notice shown as it lands. An update that moved agentkit opens the menu again on
+the new code, on the screen and the seat it was on. From a pipe the start-up work
+runs first, its notices above the menu.
 
 On a terminal the main menu has the keyboard and reads it a key at a time
 (cbreak): a key acts the moment it is pressed, with no Enter, and no redraw
