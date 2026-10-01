@@ -14,13 +14,17 @@ cells a frame writes are read back from where it places the cursor.  Nothing her
 writes the owner's ~/.agentkit, and the only process signalled is the test's own child.
 """
 
+import os
+from pathlib import Path
 import re
+import shutil
+import tempfile
 import time
 import unittest
 from unittest.mock import patch
 
 from test_config_matrix import DOWN, ENTER, EFFORT_KEYS, RIGHT, UP, Screen, row
-from agentkit import menu, motion, terminal
+from agentkit import config, menu, motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
 BAR = re.compile(rf"(\x1b\[[0-9;]*m)?[{terminal.SIGNAL}]")
@@ -170,6 +174,20 @@ class EffortBars(unittest.TestCase):
             self.assertEqual(until, 10.6)
             for t, lit in ((0.1, [0]), (0.3, [1]), (0.5, [2]), (0.65, [])):
                 self.assertEqual(shone(shimmer(10.0 + t)), lit)
+
+    def test_the_bars_count_the_catalog_last_listed_whoever_asked(self):
+        # a harness of the test's own, whose listing says its one model runs at no effort
+        adapters = Path(tempfile.mkdtemp(prefix="effort-bars-"))
+        self.addCleanup(shutil.rmtree, adapters)
+        (adapters / "acme.sh").write_text("#!/usr/bin/env bash\n"
+                                          "printf 'acme-fast\\tAcme Fast\\tnone\\n'\n")
+        (adapters / "acme.sh").chmod(0o755)
+        (adapters / "acme.toml").write_text('[effort]\nlevels = ["low", "medium", "high"]\n')
+        entry = {"harness": "acme", "model": "acme-fast"}
+        with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}):
+            self.assertEqual(menu.effort_levels(entry), ["low", "medium", "high"])  # unlisted
+            config.catalog("acme")                      # as `add a model` asks it
+            self.assertEqual(menu.effort_levels(entry), ["none"])
 
     def test_a_wide_word_shimmers_whole_from_its_first_cell(self):
         with patch.object(terminal, "colour_depth", return_value=256):
