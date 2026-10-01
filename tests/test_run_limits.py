@@ -925,6 +925,53 @@ class Limits(unittest.TestCase):
         self.assertEqual(run.git(conflict, "rev-parse", "HEAD"), tip)
         self.assertTrue(any("aborted the stopped rebase" in line for line in logged))
 
+    def test_v5f_a_timeout_leaving_git_state_never_reaches_a_conflict_fixer(self):
+        self.repo()
+        base = run.git(self.work, "rev-parse", "HEAD")
+        run.git(self.work, "checkout", "-b", "ak/fix-api")
+        (self.work / "README.md").write_text("branch intent\n")
+        run.git(self.work, "commit", "-am", "branch intent")
+        head = run.git(self.work, "rev-parse", "HEAD")
+        run.git(self.work, "checkout", "main")
+        (self.work / "README.md").write_text("target intent\n")
+        run.git(self.work, "commit", "-am", "target intent")
+        run.git(self.work, "push", "origin", "main")
+        run.git(self.work, "checkout", "ak/fix-api")
+        real = subprocess.run
+
+        for how in ("rebase", "merge"):
+            with self.subTest(how=how):
+                directory, state = self.stopped_run(f"fix-api-{how}", state="running",
+                    branch="ak/fix-api", base_sha=base,
+                    merge_method="merge" if how == "merge" else "squash")
+                logged, calls = [], []
+                lp = run.Loop(self.cfg, directory, state, {}, logged.append, self.work,
+                              "", [], "", [])
+
+                def timeout_after_state(cmd, **kwargs):
+                    proc = real(cmd, **kwargs)
+                    if cmd[:4] == ["git", "-C", str(self.work), how] and "--abort" not in cmd:
+                        calls.append(cmd)
+                        if len(calls) == 1:
+                            # Real Git leaves its operation unfinished; the missing answer is fake.
+                            self.assertTrue(run.in_progress(self.work, how))
+                            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+                    return proc
+
+                try:
+                    with patch.object(run.subprocess, "run", side_effect=timeout_after_state), \
+                            patch.object(run, "resolve_conflicts",
+                                         side_effect=AssertionError("timeout reached conflict fixer")):
+                        with self.assertRaisesRegex(run.Stopped, "was killed after"):
+                            run.integrate(lp, "origin/main")
+                    self.assertEqual(len(calls), 1)
+                    self.assertFalse(run.in_progress(self.work, how))
+                    self.assertEqual(run.git(self.work, "rev-parse", "HEAD"), head)
+                    self.assertEqual((self.work / "README.md").read_text(), "branch intent\n")
+                    self.assertTrue(any(f"aborted the stopped {how}" in line for line in logged))
+                finally:
+                    run.git_out(self.work, how, "--abort")
+
     def test_v5f_a_stopped_fetch_and_a_stopped_push_take_the_same_path(self):
         self.repo()
         (self.root / "delivery").write_text("unset")

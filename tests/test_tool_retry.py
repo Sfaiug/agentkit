@@ -106,6 +106,24 @@ class ToolRetry(unittest.TestCase):
                 attempt.assert_called_once()
                 pause.assert_not_called()
 
+    def test_a_checkout_change_is_not_repeated_after_a_timeout(self):
+        for args in (["rebase", "main"], ["merge", "main"], ["commit", "-am", "fix-api"],
+                     ["clone", "origin", "acme"], ["worktree", "add", "acme"],
+                     ["-c", "core.editor=true", "rebase", "--continue"]):
+            for prefix in (["git"], ["git", "-C", "acme"]):
+                cmd = prefix + args
+                with self.subTest(cmd=cmd), \
+                        patch.object(run.subprocess, "run", side_effect=[
+                            subprocess.TimeoutExpired(cmd, 3),
+                            subprocess.CompletedProcess(cmd, 128, "", "already in progress")
+                        ]) as attempt, patch.object(run.time, "sleep") as pause:
+                    code, _, err = run.tool_run(cmd, timeout=3)
+                    self.assertIsNone(code)
+                    self.assertIn("was killed after 3s", err)
+                    self.assertNotIn("both attempts", err)
+                    attempt.assert_called_once()
+                    pause.assert_not_called()
+
     def test_a_pass_with_stopped_delivery_names_its_merge_command(self):
         cmd = COMMANDS[0]
         for answer in (subprocess.TimeoutExpired(cmd, 3),
