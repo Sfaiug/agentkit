@@ -134,7 +134,7 @@ class RoleMarks(Sandbox):
         self.assertEqual([terminal.plain(matrix[line]).split()[0]
                           for line, (hit, _) in places.items() if hit[0] == "model"], names)
         headings = [[terminal.plain(line) for line in body
-                     if line and not terminal.plain(line).startswith(" ")]
+                     if line and not terminal.ANSI.sub("", line).startswith(" ")]
                     for body in (picker, matrix)]
         self.assertEqual(headings[0], headings[1])
         self.assertEqual(headings[0], ["Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo",

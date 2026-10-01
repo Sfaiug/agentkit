@@ -59,7 +59,7 @@ class NewSession(Sandbox):
                 redirect_stdout(io.StringIO()) as out:
             self.assertIs(orch.ask_name({"fix-api"}, auto=True, screen="new session"), orch.BACK)
         last = out.getvalue().split("\x1b[H")[-1].split("\x1b[J")[0]
-        lines = [terminal.plain(line) for line in last.splitlines()]
+        lines = [terminal.ANSI.sub("", line) for line in last.splitlines()]
         self.assertEqual(lines[2], "  Name: auto")
         self.assertIn("a session named fix-api is already there; pick another name",
                       " ".join(line.strip() for line in lines[3:-2]))
