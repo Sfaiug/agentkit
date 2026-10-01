@@ -5657,6 +5657,12 @@ else
 fi
 
 # --- result ----------------------------------------------------------------
+if { python3 "$REPO/tests/test_task_file.py" && python3 "$REPO/tests/test_task_size.py" &&
+     python3 "$REPO/tests/test_unknown_front_matter_key.py"; } >"$WORK/task-file.log" 2>&1; then
+  ok "51 task files: parsing, size and unknown keys refused before receipts"
+else
+  no "51 task files"; tail -30 "$WORK/task-file.log"
+fi
 if python3 "$REPO/tests/test_files_scope.py" >"$WORK/files-scope.log" 2>&1; then
   ok "50 task files scope: branch paths, leftovers, rebase, fixer and PASS override"
 else
@@ -5684,6 +5690,7 @@ else
   no "49a merge suite trailer"; tail -30 "$WORK/merge-trailer.log"
 fi
 if { python3 "$REPO/tests/test_regression_fails_before.py" &&
+     python3 "$REPO/tests/test_probe_resume.py" &&
      python3 "$REPO/tests/test_followup_runs.py" && python3 "$REPO/tests/test_red_target.py" &&
      python3 "$REPO/tests/test_review_gate.py" && python3 "$REPO/tests/test_changed_checks.py"; } >"$WORK/regression-base.log" 2>&1; then
   ok "50 fix runs: regression fails on base and passes on HEAD, changed checks reach review, probes restore the branch"

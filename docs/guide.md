@@ -69,6 +69,7 @@ dependency, repeatable). A check ending in `# once` runs alongside the review on
 its absence from the reviewer's input by design. The full suite a repository names as `tests:` in its `AGENTS.md` front matter is such a check in every run
 there, from the target branch where the checkout predates it, and a done-when line with the same command runs once with it, so a task lists only the checks for its change.
 `files:` (repeatable, comma-separated Git pathspecs) limits the branch's own changed paths after rebasing; an unmatched path fails the gate with `outside files: <paths>`, goes to the fixer and overrides reviewer PASS. Without it there is no limit.
+An unknown task front-matter key refuses launch before any receipt, naming it and the accepted keys in one line. Retired `done_when_minutes`, `turn_hours` and `stall_minutes` keys stay accepted with a warning.
 A command that fails runs once more at once, within the same ceiling, and passes if the re-run does: the output keeps the lines the failed run printed that its passing re-run did not, at most 20 (its last lines when the re-run repeated them all), under `flaky:`, which joins the run's follow-ups as evidence.
 The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt, up to 4 KB; past
 that, the run's hand-back names the file and asks the orchestrator to tighten it. Every prompt also carries the body of the repository's `AGENTS.md` as on the base commit, front matter removed, up to 8 KB. A worker's harness loads no instruction file of its own where it has a switch for that; its adapter's manifest says in one line what no switch reaches.
@@ -97,7 +98,7 @@ number limit; everything else is omitted everywhere. A fixer is handed the revie
 passing review's list, plus checks that passed only on re-run with their `flaky:` evidence. Earlier reviews' items
 are discarded. Nothing reads or writes `~/.agentkit/followups/`; existing files and archives are left alone.
 On merge each follow-up starts an ordinary run of the same session, with the executors and reviewers the session's record holds at that moment (the discovering run's if the session has no record), and a fresh checkout of the merged target. Its task is the defect and evidence. An open fix at the same site in that session prevents a duplicate. There is no setting or backlog.
-The executor first checks the current target and other open runs. A defect already gone or being fixed ends `not needed: <why>` (optionally under `## Summary`): done, no PR, checks or review. Otherwise it adds a regression test, shows failure before and success after, and writes the run's `regression.sh` to invoke it. After done-when passes, the loop runs it detached on the base commit with changed tests overlaid; a pass there fails the gate. A successful base failure is recorded once per run, and the checkout returns to the branch head, clean. An owner-only decision ends `## Blocked` with the question.
+The executor first checks the current target and other open runs. A defect already gone or being fixed ends `not needed: <why>` (optionally under `## Summary`): done, no PR, checks or review. Otherwise it adds a regression test, shows failure before and success after, and writes the run's `regression.sh` to invoke it. After done-when passes, the loop runs it detached on the base commit with changed tests overlaid; a pass there fails the gate. A successful base failure is recorded once per run, and the checkout returns to the branch head, clean. Every probe records its original checkout first; after a crash, the resumed run restores it before verifying or building. An owner-only decision ends `## Blocked` with the question.
 The merged run's ending names its fix runs. The session stays working until they end; stopping or closing it stops them. Their follow-ups start runs the same way. Runs without a session, scratch runs and reviews of other people's PRs start none.
 A FAIL starts a fix round: the fixer fixes every undisputed finding, or lists a finding and evidence that it is wrong under `## Disputed` in its summary.
 Re-review rules on each dispute first, upheld or dropped, and says why. Three rounds is the budget: at the third FAIL the run ends
@@ -111,7 +112,7 @@ queued for the turn, which goes to `--first` runs first and then in the order th
 dead holder's turn passes on. A failed integration, conflict or final-check review gets a fixer with the whole review
 (and a failing done-when's output) while rounds are left, and at the budget ends `fail` with its findings, or with why
 the loop overrode a PASS. A clean rebase's failing done-when gets landing fixers before any reviewer; once it passes,
-re-review runs at the current round without recording a task round. An unreachable target parks a pending landing review as a retryable error; an exhausted conflict fixer keeps its pending review at the current round even when the task budget is spent. A base-branch merge race re-fetches, rechecks the PR head and target, verifies and pushes
+landing re-review runs at the current round even when the budget is spent. A PASS lands without recording a task round; fixing a FAIL's findings spends one while any remain. An unreachable target parks a pending landing review as a retryable error; an exhausted conflict fixer keeps its pending review at the current round. A base-branch merge race re-fetches, rechecks the PR head and target, verifies and pushes
 changes and retries three times with growing waits before parking. Without push rights it forks, opens the PR upstream
 and ends `PASS, not merged: waiting for the maintainer`, exiting 0; the tick follows the PR and hands the decision to the seat. `--no-merge` stops at the verdict. Other ended `merged: no` runs name their reason and exit 1.
 Before each round and each landing lap's verify, a run whose installed agentkit moved replaces itself in place with
@@ -206,8 +207,9 @@ refusal parks the provider until it refills (spending a Codex reset first when h
 
 `ak watch` runs every three minutes from cron on the server, under a lock so ticks never overlap, writing
 `~/.agentkit/tmp/watch.log` and rolling it at 5 MB. Each tick: retries the notification outbox; reads every seat's
-screen and asks each harness's `auth` verb where a login looks gone; types `continue` into a seat that has shown its
-harness's own stall words for three quiet minutes, at most every three minutes, and after an hour of that asks you once;
+last error from its harness's own record of the conversation (Claude's transcript, Codex's rollout), off its screen
+where it keeps none, and asks each harness's `auth` verb where a login looks gone; types `continue` into a seat stopped
+on its harness's own stall words for three quiet minutes, at most every three minutes, and after an hour of that asks you once;
 resumes, relaunches and brings back what Resumption says; types hand-backs waiting on a busy seat; types `<session> is now <word>: <reason>. Decide the next step.` once into a seat whose `ak wait <session>` names a session that has stopped, at the seat's next quiet prompt, which ends that wait for good; closes idle browser
 tabs; reviews others' PRs on repos this account owns and follows its own PRs on repos it does not; and once a day asks
 the worker-token verb and schedules collection. A logged-out `gh` costs only the two GitHub passes. `ak watch --dry-run`

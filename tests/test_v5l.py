@@ -467,10 +467,10 @@ sys.exit(1)
         self.assertNotIn("extended", after)
         self.assertEqual(len(after["round_summaries"]), 3)
 
-    # --- an aborted integration leaves nothing pending --------------------
+    # --- an aborted integration keeps its landing review pending -----------
 
-    def test_v5l_an_aborted_conflict_leaves_no_pending_review_for_the_resume(self):
-        """`integrate` records the pending re-review before git rewrites HEAD; an abort undoes it."""
+    def test_v5l_an_aborted_conflict_keeps_landing_review_for_the_resume(self):
+        """An abort leaves landing pending at the current round, even with the budget spent."""
         for rnd, why in ((2, "with the round budget spent"), (1, "with a round left")):
             with self.subTest(why=why):
                 self.reviews(PASS)
@@ -488,7 +488,8 @@ sys.exit(1)
                     self.assertFalse(run.resolve_conflicts(lp, "origin/main", "conflicted", "rebase"))
                 self.assertIn(("rebase", "--abort"), calls)
                 after = run.read_state(directory)
-                self.assertNotIn("review_pending", after)
+                self.assertEqual(after["review_pending"]["round"], rnd)
+                self.assertIs(after["review_pending"]["record"], False)
                 # what the abandoned integration invalidated stays invalidated, and the
                 # spent budget is no cap on a conflict round: the run parks `waiting`
                 # with the reason rather than ending FAIL
