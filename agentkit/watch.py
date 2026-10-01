@@ -935,9 +935,6 @@ def worker_token_note(now=None):
 
 
 LIVE = ("asking", "working", "at_prompt", "draft")   # the states a live seat can be caught in
-# ... and the three words every screen says about a session, whatever those facts are:
-# it works until it is done or it is blocked on him.  `session_state` decides which.
-WORDS = ("working", "needs you", "done")
 GOING = ("queued", "running", "waiting", "exhausted", "stalled",
          "waiting_login")                       # a run that resumes itself
 TURN_SECS = 3 * 3600   # age of a seat fact worth checking; never a worker turn cap

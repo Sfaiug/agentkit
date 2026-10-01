@@ -122,9 +122,6 @@ INTERPRETERS = (
      ("--require", "--import", "--loader", "--experimental-loader", "--conditions",
       "--input-type", "--title", "--inspect-port", "--env-file"), "ep", ("--eval", "--print")),
 )
-# a finished run nobody has been told about yet; `interrupted` is here because a run the loop
-# was thrown out of is exactly the kind nothing else will ever mention
-REPORTABLE = ("pass", "fail", "error", "blocked", "exhausted", "interrupted")
 _VERSIONS = {}             # installed harness builds, asked for once and only to name a refusal
 _MANAGER = {}              # whether this host has a user systemd manager, asked once
 _OOM_POLICY = {}           # whether its scopes take OOMPolicy=continue, asked once too,

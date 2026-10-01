@@ -69,11 +69,6 @@ MCP_HOST = "localhost"               # loopback only, like the CDP it attaches t
 MCP_PORT = 8931
 MCP_URL = f"http://{MCP_HOST}:{MCP_PORT}/mcp"
 MCP_UNIT = "browser-bridge-mcp.service"
-# Harnesses that can reach an MCP server by URL are registered to the shared server above.
-# Claude Code (`type = "http"`) and Codex (`url = ...`) both speak streamable HTTP, verified
-# against claude 2.1.280 and codex 0.153.4; anything else keeps a per-session stdio command.
-URL_CAPABLE = frozenset({"claude", "codex"})
-
 CLAUDE_CONFIG = Path.home() / ".claude.json"             # user scope lives at the top level
 CODEX_CONFIG = Path.home() / ".codex" / "config.toml"
 BEGIN = "# --- agentkit browser bridge: managed by `ak browser mcp-register` ---"

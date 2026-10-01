@@ -147,7 +147,6 @@ try:
     SLOT_POLL = float(os.environ.get("AK_SLOT_POLL", "30"))
 except ValueError:
     SLOT_POLL = 30
-MIN_FREE_MB = history.MIN_FREE_MB
 _RUN_CONTEXT = threading.local()  # job threads export their own depth and slot owner
 _DELIVERY_HELD = threading.local()   # the delivery locks this thread is already inside
 _RECOVERY_HELD = threading.local()   # the recovery locks this thread is already inside
@@ -8765,11 +8764,6 @@ def host_status_line():
     return f"{first}\n{heavy}"
 
 
-def memory_requirement(repo):
-    """Compatibility estimate retained; host readings now decide admission."""
-    return history.memory_requirement(repo, MIN_FREE_MB)
-
-
 def slot_counts(state):
     """Live slot owners, and top-level receipts ahead of this one (including dead waiters).
 
@@ -13306,9 +13300,6 @@ def reviewer_transport_dead(error):
     will not unstick it -- so only this half resumes a run outside a job.
     """
     return "API/transport errors" in (error or "")
-
-
-HELP = command_help.render("run")
 
 
 def main(argv):

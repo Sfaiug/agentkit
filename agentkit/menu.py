@@ -113,19 +113,17 @@ key uses.
 
 import colorsys
 import copy
-import io
 import json
 import os
 import re
 import select
 import shlex
-import shutil
 import signal
 import subprocess
 import sys
 import threading
 import time
-from contextlib import closing, redirect_stdout
+from contextlib import closing
 from pathlib import Path
 
 from . import command_help, config, history, motion, notify, orch, terminal, update, usage, worker
@@ -139,7 +137,6 @@ LEAST = 3                # rows a page keeps; the usage block gives way before i
 # The whole vocabulary, worst first: a rollup of seats says the one that wants him.
 # `watch.session_state` is what decides which of the three a seat is.
 STATE_ORDER = ("needs you", "working", "done")
-RUNS_RECENT = 6 * 3600   # how long a finished run stays recent for `ak run status`
 # Each company's own colour, for its name on the `c` screen and its usage bar and row's place: a
 # provider's `colour` key in config.toml wins, and a provider named in neither is the accent.
 COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3",

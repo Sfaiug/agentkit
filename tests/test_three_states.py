@@ -359,7 +359,6 @@ class ThreeStates(Sandbox):
 
     def test_k_one_function_decides_and_the_table_holds_three_words(self):
         self.assertEqual(list(terminal.STATES), ["working", "needs you", "done"])
-        self.assertEqual(watch.WORDS, ("working", "needs you", "done"))
         for word, (mark, colour) in terminal.STATES.items():
             self.assertEqual(terminal.state_text(word), f"{mark} {word}")
             self.assertEqual(terminal.state_colour(word), colour)

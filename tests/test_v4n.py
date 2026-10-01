@@ -86,7 +86,7 @@ class Sandbox(unittest.TestCase):
 class RunReporting(Sandbox):
     def test_menu_draw_leaves_endings_unreported_for_the_orchestrator(self):
         visible = self.ended("visible")
-        old = self.ended("old", finished_at=10000 - menu.RUNS_RECENT - 1)
+        old = self.ended("old", finished_at=10000 - 86400)
         smoke = self.ended("smoke-ignored")
         with redirect_stdout(io.StringIO()):
             menu.draw(self.cfg, [])

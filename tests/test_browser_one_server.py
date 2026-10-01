@@ -90,7 +90,6 @@ class OneServer(unittest.TestCase):
         return 0, ""
 
     def test_url_harnesses_register_the_shared_server(self):
-        self.assertEqual(browser.URL_CAPABLE, frozenset({"claude", "codex"}))
         output = io.StringIO()
         with redirect_stdout(output):
             self.assertEqual(browser.mcp_register([]), 0)

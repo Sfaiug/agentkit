@@ -392,14 +392,13 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(history.get("r1")["reviewer_tokens"], 850)
         self.assertIsNone(history.get("r1")["executor_tokens"])
 
-    def test_memory_estimate_feeds_slot_requirement(self):
+    def test_memory_estimate_uses_peak_rss(self):
         now = time.time()
         for n, rss in enumerate((100, 200, 300, 400, 500)):
             history.start_run(str(n), repo="project", started_at=now - 10)
             history.finish_run(str(n), started_at=now - 10, finished_at=now,
                                peak_rss_mb=rss)
         self.assertEqual(history.estimate_memory_mb("project"), 500)
-        self.assertEqual(history.memory_requirement("project", 100), 600)
 
     def test_picker_keeps_budget_ties_in_list_order_for_every_role(self):
         entry = {"harness": "x", "model": "x", "effort": "x", "meter": None}
