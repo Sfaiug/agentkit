@@ -51,6 +51,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         run.git(self.owner, "push", "origin", "main")
         self.tip = run.git(self.owner, "rev-parse", "HEAD")
         self.events = []
+        self.verdicts = iter(["PASS"])
         self.fix_after = 1
         self.fixes = 0
         self.stack.enter_context(patch.object(run, "target_fails", return_value=False))
@@ -74,7 +75,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
     def fixer(self, lp, role, text, name, **_kw):
         self.assertEqual(role, "fixer")
         self.assertIn("shared file needs fixed.txt", text)
-        self.assertEqual(lp.state["review_pending"]["round"], 3)
+        self.assertEqual(lp.state["review_pending"]["round"], self.history[-1]["round"])
         self.assertIs(lp.state["review_pending"]["record"], False)
         self.events.append(("fixer", lp.rnd))
         self.fixes += 1
@@ -87,7 +88,9 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.assertEqual(role, "reviewer")
         self.assertEqual(self.events[-1], ("gate", True), "reviewed a failing gate")
         self.events.append(("reviewer", out.parent.name))
-        answer = "VERDICT: PASS\n\n## Findings\n- none\n"
+        verdict = next(self.verdicts)
+        finding = "- base.txt:1 - the fix skips a check\n" if verdict == "FAIL" else "- none\n"
+        answer = f"VERDICT: {verdict}\n\n## Findings\n{finding}"
         out.mkdir(parents=True)
         (out / "final.md").write_text(answer)
         return 0, answer, session, False
@@ -142,6 +145,29 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
             run.rounds(resumed)
         self.assertEqual(resumed.state["round_summaries"], self.history)
         self.assertTrue(run.current_review(resumed))
+
+    def test_a_real_review_failure_spends_only_the_next_task_fix_round(self):
+        self.history = self.history[:1]
+        self.lp.state["round_summaries"] = copy.deepcopy(self.history)
+        self.lp.rnd = 1
+        self.lp.save()
+        self.verdicts = iter(["FAIL", "PASS"])
+
+        def fixer(lp, role, text, name, **_kw):
+            if name == "rerun-fixer":
+                return self.fixer(lp, role, text, name)
+            self.assertEqual(name, "executor")
+            self.assertIn("base.txt:1 - the fix skips a check", text)
+            self.events.append(("task-fixer", lp.rnd))
+            return "## Summary\nFixed the review findings."
+
+        with patch.object(run, "execute", side_effect=fixer):
+            self.assertTrue(run.integrate(self.lp, "origin/main"))
+        self.assertEqual(self.events, [("gate", False), ("fixer", 1), ("gate", True),
+                                       ("reviewer", "round-1"), ("task-fixer", 2),
+                                       ("gate", True), ("reviewer", "round-2")])
+        self.assertEqual([entry["round"] for entry in self.lp.state["round_summaries"]], [1, 2])
+        self.assertTrue(run.current_review(self.lp))
 
 
 if __name__ == "__main__":

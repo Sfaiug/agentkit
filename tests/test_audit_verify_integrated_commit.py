@@ -373,24 +373,15 @@ sys.exit(0 if ok else 1)
         self.assert_bound(state, 2)
         self.assert_no_delivery()
 
-    def test_budget_exhaustion_invalidates_pass_and_resumes_only_with_more_rounds(self):
-        # v5ac: a clean rebase keeps the review; a failing done-when after it binds the budget.
+    def test_spent_budget_still_allows_three_landing_fixers(self):
         self.plan = {"target": {"limit": "11"}}
         code, state = self.launch(rounds=1)
         self.assertEqual(code, 1)
-        self.assertEqual(state["state"], "exhausted")
+        self.assert_waiting_rerun(state)
         self.assertIsNone(state["verdict"])
         self.assertIsNone(state["review"])
-        self.assertEqual(state["review_pending"]["round"], 2)
         self.assertEqual(state["rounds"], 1)
-        self.assertIn("--rounds 2", (self.directory / "result.md").read_text())
-        self.assert_no_delivery()
-        self.assertEqual(run.cmd_resume([self.directory.name]), 1)
-        self.assertEqual(len(self.events("tests")), 2)
-        self.assertEqual(run.cmd_resume([self.directory.name, "--rounds", "2"]), 1)
-        self.assertEqual(run.read_state(self.directory)["verdict"], "FAIL")
-        self.assertEqual([e["ok"] for e in self.events("tests")], [True, False, False])
-        self.assertEqual(len(self.events("review")), 2)
+        self.assertNotIn("--rounds", (self.directory / "result.md").read_text())
         self.assertEqual(len(self.events("executor")), 1)
         self.assert_no_delivery()
 
@@ -423,8 +414,7 @@ sys.exit(0 if ok else 1)
         self.merge_mode = "success"
         code, state = self.retry()
         self.assertEqual(code, 1)
-        self.assertEqual(state["verdict"], "FAIL")
-        self.assert_bound(state, 2)
+        self.assert_waiting_rerun(state)
         self.assertEqual(len(self.events("push")), 1)
         self.assertEqual(len(self.events("merge")), 1)
 
