@@ -4463,8 +4463,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                              ) if verdict == "PASS" else []
     if verdict == "PASS":
         record_flakes(lp.state, dw_log)
-        # Landing re-reviews cannot replace the task head used to probe a red target.
-        if record and not lp.state.get("landing"):
+        # A landing re-review with a pending suite keeps the task's probe base.
+        if not getattr(lp, "once", ()) or (record and not lp.state.get("landing")):
             passed_head = validation.get("head_sha")
     passed = {"passed_head_sha": passed_head} if passed_head else {}
     if record:
