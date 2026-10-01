@@ -120,6 +120,52 @@ class FromRunTakesTheTarget(unittest.TestCase):
                 self.git(lp.wt, "merge-base", "--is-ancestor", fresh, "HEAD")
                 self.assertEqual((lp.wt / "fixed.txt").read_text(), "dev fix\n")
                 self.assertTrue(any("merged origin/dev" in line for line in self.logs))
+                self.assertEqual(lp.base_sha, fresh)
+                self.assertEqual(run.read_state(lp.run_dir)["base_sha"], fresh)
+                self.assertEqual(self.git(lp.wt, "diff", "--name-only",
+                                          f"{lp.base_sha}...HEAD"), "carried.txt")
+                lp.files = ["carried.txt"]
+                self.assertEqual(run.files_scope(lp), "")
+
+    def test_without_origin_the_local_target_is_taken_in(self):
+        self.git(self.repo, "remote", "remove", "origin")
+        fresh = self.commit(self.repo, "fixed.txt", "local target fix\n")
+        lp = self.start()
+        self.assertEqual((lp.wt / "fixed.txt").read_text(), "local target fix\n")
+        self.assertEqual(lp.base_sha, fresh)
+        self.assertEqual(self.git(self.repo, "rev-parse", "ak/previous"), self.previous)
+        self.assertTrue(any("merged local main" in line for line in self.logs), self.logs)
+
+    def test_a_target_only_the_local_repo_has_is_taken_in(self):
+        self.git(self.repo, "checkout", "-qb", "release")
+        fresh = self.commit(self.repo, "fixed.txt", "local release fix\n")
+        self.git(self.repo, "checkout", "-q", "main")
+        for target in ("release", "origin/release", "refs/heads/release",
+                       "refs/remotes/origin/release"):
+            with self.subTest(target=target):
+                lp = self.start(target)
+                self.assertEqual((lp.wt / "fixed.txt").read_text(), "local release fix\n")
+                self.assertEqual(lp.base_sha, fresh)
+                self.assertTrue(any("merged local release" in line for line in self.logs),
+                                self.logs)
+
+    def test_an_unavailable_target_is_left_for_landing(self):
+        lp = self.start("release")
+        self.assertEqual(self.git(lp.wt, "rev-parse", "HEAD"), self.previous)
+        self.assertEqual(lp.base_sha, self.base)
+        self.assertEqual(self.git(lp.wt, "status", "--porcelain"), "")
+        self.assertTrue(any("origin/release" in line and "unavailable" in line
+                            and "landing" in line for line in self.logs), self.logs)
+
+    def test_the_targets_test_changes_are_not_the_runs_changes(self):
+        self.git(self.origin, "checkout", "-qb", "dev")
+        (self.origin / "tests").mkdir()
+        fresh = self.commit(self.origin, "tests/test_target.py", "# target test\n")
+        lp = self.start("dev")
+        self.assertEqual(run.changed_test_paths(lp), [])
+        self.assertEqual(lp.base_sha, fresh)
+        lp.files = ["carried.txt"]
+        self.assertEqual(run.files_scope(lp), "")
 
     def test_a_conflict_is_aborted_and_round_one_keeps_the_saved_branch(self):
         self.git(self.repo, "checkout", "-q", "ak/previous")
@@ -147,6 +193,7 @@ class FromRunTakesTheTarget(unittest.TestCase):
                 patch.object(run, "git_out", wraps=run.git_out) as commands:
             resumed = self.start(prior=run.read_state(lp.run_dir))
         self.assertEqual(self.git(resumed.wt, "rev-parse", "HEAD"), head)
+        self.assertEqual(resumed.base_sha, lp.base_sha)
         self.assertFalse((resumed.wt / "later.txt").exists())
         self.assertFalse(any(call.args[1] == "merge" for call in commands.call_args_list))
         self.assertTrue(any("resuming at round" in line for line in self.logs), self.logs)
