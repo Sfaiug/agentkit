@@ -25,7 +25,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job as jobs, orch, run, worker
+from agentkit import host, config, job as jobs, orch, run, worker
 
 
 # The allocator refuses to touch a page unless its own cgroup is the throwaway
@@ -271,7 +271,7 @@ class MemoryCap(unittest.TestCase):
                 del live[pid]
 
         boxes = {}
-        with patch.object(orch, "OWN_CGROUP", cgroup), \
+        with patch.object(host, "OWN_CGROUP", cgroup), \
                 patch.object(orch, "start_in_slice", side_effect=place), \
                 patch.object(orch, "stop_scope", side_effect=lambda scope, log=None, wait=False:
                              self.stopped.append((scope, wait)) or True), \

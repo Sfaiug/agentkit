@@ -1,6 +1,6 @@
 # agentkit architecture
 
-Each module: what it hides, offers and who uses it. Leaks are named;
+Each module: its knowledge, API and callers. Leaks are named;
 `tests/test_boundaries.py` counts them.
 
 ## What matters most
@@ -14,7 +14,7 @@ Each module: what it hides, offers and who uses it. Leaks are named;
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
   words still leak into some twenty files.
-- `run.py` (13.8k lines) holds most of the run side.
+- `run.py` (13.5k lines) holds most of the run side.
 
 ## Entry points
 
@@ -24,14 +24,13 @@ Each module: what it hides, offers and who uses it. Leaks are named;
 
 ## agentkit/
 
-- `run.py`: the run loop. Hides staffing, turns, the done-when gate, review rounds, landing,
-  hand-back, run.json and its stop-safe write, provider failures, slots, host admission,
-  worktrees. Offers `main`, `save_state`/`read_state`, `record` (locked read-change-write,
-  preserving unreadable records), `going`, `pick_models`. Used by watch (~60 functions),
-  job, gc, orch, menu, notify, usage, worker, retention and a hook.
-- `gc.py`: what may go: seat files, compact stamps, temp entries, worktrees, runs and jobs;
-  planner, sweep, schedule and `cmd_gc`. Asks each harness's `tmp_rule` for temp ownership
-  and live sessions; retention deletes. Used by bin/ak, run, menu, watch and retention.
+- `run.py`: staffing, turns, gates, review, landing, hand-back, run.json's stop-safe write,
+  provider failures, slots, admission and worktrees. Offers `main`, `save_state`/`read_state`,
+  `record` (locked updates preserving unreadable records), `going`, `pick_models`. Used by
+  watch, job, gc, orch, menu, notify, usage, worker, retention and a hook.
+- `gc.py`: plans and schedules removal of seats, stamps, temps, worktrees, runs and jobs.
+  Asks each harness's `tmp_rule` for temp ownership and live sessions; retention deletes.
+  Used by bin/ak, run, menu, watch and retention; offers `cmd_gc`.
 - `task.py`: the task file's front matter, done-when groups, size and round refusals; for
   run and job.
 - `job.py`: several task files as one job. Hides the receipt (`job.json`), the scheduler,
@@ -52,8 +51,8 @@ Each module: what it hides, offers and who uses it. Leaks are named;
 - `config.py`: every `~/.agentkit` path, config.toml, models, providers, accounts, adapter
   scripts and manifests, seat records, their rename chain and file names (`SEAT_FILES`), child
   env. Used by nearly everything.
-- `worker.py`: headless turns: role preambles, review gate, adapter calls, silence watchdog,
-  auth, process markers and cleanup. Offers `turn`, `call`, `kill_marked`, `auth_ok`.
+- `worker.py`: headless turns, preambles, review gate, adapters, silence, auth and process
+  cleanup. Offers `turn`, `call`, `kill_marked`, `auth_ok`.
   Used by run, watch, usage, menu, harness. Leak: Claude shell timeout.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
   `usage.json`. Offers `collect`, `pick_order`, `mark_exhausted`, `render`. Used by run,
@@ -65,8 +64,8 @@ Each module: what it hides, offers and who uses it. Leaks are named;
 - `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
   Offers `shaped`, `record`, `transition`. Used by run, job, orch, watch, menu. Leak: calls
   up into menu, run, watch and orch.
-- `update.py`: harness upgrades per manifest `[update]`, rollback, agentkit's own
-  update (`go_live`). Used by menu, orch, run, watch. Leak: `MuseSnapshot` knows Muse's layout.
+- `update.py`: manifest `[update]` upgrades, rollback and agentkit's update (`go_live`).
+  Used by menu, orch, run, watch. Leak: `MuseSnapshot` knows Muse's layout.
 - `history.py`: SQLite `history.db` of runs and steps; duration and memory estimates. Used
   by run, menu, harness. Leaks: reads run.json directly; parses harness event logs.
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
@@ -80,6 +79,8 @@ Each module: what it hides, offers and who uses it. Leaks are named;
   watch. Leak: registers its MCP per harness by name.
 - `macbridge.py`: `ak fetch` of Mac files: request, inbox, heartbeat, launchd agent. Used
   by bin/ak, menu, install.sh.
+- `host.py`: host memory, load, CPUs and process/cgroup counters; reads only, no agentkit
+  imports. Used by config, orch, run, job and watch.
 - `proc_snapshot.py`: read-only /proc inventory; no agentkit imports, so it runs under sudo.
   Used by gc.
 - `__init__.py`: empty.

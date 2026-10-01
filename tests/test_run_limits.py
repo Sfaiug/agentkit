@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, notify, orch, run, usage, watch, worker
+from agentkit import host, config, gc, notify, orch, run, usage, watch, worker
 from agentkit import task as taskfile
 
 URL = "https://github.com/fixture/repo/pull/7"
@@ -153,7 +153,7 @@ class Limits(unittest.TestCase):
         self.stack.enter_context(patch.object(gc, "schedule_gc"))
         # the retry backoff is minutes long and has nothing to do with what is under test here
         self.sleep = self.stack.enter_context(patch.object(run.time, "sleep"))
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         self.plan({})

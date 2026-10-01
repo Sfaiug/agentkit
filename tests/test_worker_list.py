@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, run, usage, watch
+from agentkit import host, config, notify, run, usage, watch
 
 
 class WorkerList(unittest.TestCase):
@@ -45,7 +45,7 @@ class WorkerList(unittest.TestCase):
             "AGENTKIT_DISCORD_WEBHOOK": "off", "PYTHONDONTWRITEBYTECODE": "1"}))
         # the park test drives a whole run: what the host reads must not decide whether
         # its launch is admitted, or a loaded machine parks the test instead of the run
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         # the process doing a pick may speak for a wider seat than the run's own list
@@ -373,7 +373,7 @@ class WorkerList(unittest.TestCase):
         with patch.object(usage, "collect",
                           return_value=usage.Readings(self.providers(a=50, c=0))), \
                 patch.object(run, "process_active", return_value=True), \
-                patch.object(watch, "frozen_cgroup", return_value=None), \
+                patch.object(host, "frozen_cgroup", return_value=None), \
                 patch.object(watch, "stall_clock", return_value=0), \
                 patch.object(watch, "step_for_run",
                              return_value=("worker", "executor turn", 4243, ["claude"])), \

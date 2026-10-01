@@ -40,7 +40,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import browser, command_help, config, gc, notify, orch, update, usage, worker
+from . import browser, command_help, config, gc, host, notify, orch, update, usage, worker
 from .harness import LIMITED, SPENT, says
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
@@ -3522,34 +3522,6 @@ def health(cfg, state, dry_run, log):
 # after STALL_KILL_WAIT, resume is a detached Popen with no wait, typing and the one card
 # carry their own timeouts -- and a pass that dies leaves the next one to act.
 STALL_KILL_WAIT = 20      # TERM, then KILL after this many seconds; the next tick finishes
-# Where a process says which cgroup holds it; where that cgroup says whether it is held is
-# the same filesystem the slice is read from.  A host that freezes its agents rather than
-# killing them leaves them silent by definition.
-PROC = Path("/proc")
-
-
-def frozen_cgroup(pid):
-    """The cgroup freezing that process, or None: its own, or any one above it.
-
-    A host under guard rails of its own freezes work rather than losing it, and a frozen run
-    writes nothing -- which is exactly what the stall rules below read as a run that stopped.
-    This is what tells the two apart, and it is a read of two files, never a subprocess: the
-    tick may not hang on a host already in trouble.
-    """
-    try:
-        path = PROC / str(pid) / "cgroup"
-        line = next(row for row in path.read_text().splitlines() if row.startswith("0::"))
-    except (OSError, ValueError, TypeError, StopIteration):
-        return None
-    parts = [part for part in line[3:].split("/") if part]
-    for depth in range(len(parts), -1, -1):
-        held = orch.CGROUP_ROOT.joinpath(*parts[:depth]) / "cgroup.freeze"
-        try:
-            if held.read_text().strip() == "1":
-                return str(held.parent)
-        except OSError:
-            continue
-    return None
 
 
 def stall_clock(run_dir, state):
@@ -4228,7 +4200,7 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
             # ends between two ticks is still the host's, and a clock that only stopped once a
             # run looked stalled would have counted it.  Only the run's own process is asked --
             # a pid the kernel has handed to somebody else says nothing about this run.
-            frozen = (frozen_cgroup(state.get("pid")) if run_mod.process_active(state)
+            frozen = (host.frozen_cgroup(state.get("pid")) if run_mod.process_active(state)
                       else None)
             if frozen or state.get("frozen_since"):
                 # The stall rules never act on a run the host is holding, and the silence a

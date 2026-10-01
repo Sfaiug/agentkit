@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, run, worker
+from agentkit import host, config, orch, run, worker
 
 SCOPE = "agentkit-run-20260930-2300-acme"
 CGROUP = ("user.slice/user-1000.slice/user@1000.service/agentkit-test.slice/"
@@ -113,8 +113,8 @@ class Loop(Sandbox):
         self.events = self.root / "cgroup" / CGROUP / "memory.events"
         self.events.parent.mkdir(parents=True)
         self.kills(0)
-        self.stack.enter_context(patch.object(orch, "OWN_CGROUP", own))
-        self.stack.enter_context(patch.object(orch, "CGROUP_ROOT", self.root / "cgroup"))
+        self.stack.enter_context(patch.object(host, "OWN_CGROUP", own))
+        self.stack.enter_context(patch.object(host, "CGROUP_ROOT", self.root / "cgroup"))
         self.stack.enter_context(patch.object(worker, "kill_marked", return_value=True))
         os.environ.pop(run.OOM_LOGGED, None)    # the sandbox's patch.dict puts it back
         self.run_dir = config.RUNS / "20260930-2300-acme"
@@ -186,9 +186,9 @@ class Loop(Sandbox):
         after_exec = (
             "import sys\nfrom pathlib import Path\n"
             f"sys.path.insert(0, {str(REPO)!r})\n"
-            "from agentkit import orch, run\n"
-            f"orch.OWN_CGROUP = Path({str(self.root / 'own-cgroup')!r})\n"
-            f"orch.CGROUP_ROOT = Path({str(self.root / 'cgroup')!r})\n"
+            "from agentkit import host, orch, run\n"
+            f"host.OWN_CGROUP = Path({str(self.root / 'own-cgroup')!r})\n"
+            f"host.CGROUP_ROOT = Path({str(self.root / 'cgroup')!r})\n"
             f"run.memory_cap_note(Path({str(self.run_dir)!r}), print)\n")
         for count, said in ((1, ""), (2, HIT + "\n")):
             self.kills(count)

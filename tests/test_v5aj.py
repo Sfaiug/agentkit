@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, run, usage, worker
+from agentkit import host, config, notify, run, usage, worker
 
 NO_VERDICT_PROMPT = ("Your previous turn ended without a verdict. Review the diff now and end "
                      "your answer with VERDICT: PASS or VERDICT: FAIL. Do not start commands you "
@@ -125,7 +125,7 @@ sys.exit(1)
         self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         self.stack.enter_context(patch.object(run, "SLOT_POLL", .01))

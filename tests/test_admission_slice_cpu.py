@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run  # noqa: E402
+from agentkit import host, config, run  # noqa: E402
 
 READINGS = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000,
@@ -127,11 +127,11 @@ class AdmissionSliceCpu(unittest.TestCase):
         (slice_dir / "cpu.pressure").write_text(
             "some avg10=24.01 avg60=32.25 avg300=41.39 total=115793455101\n"
             "full avg10=2.73 avg60=3.79 avg300=5.51 total=30965092215\n")
-        self.assertEqual(run._slice_cpu_pressure(slice_dir), 24.01)
+        self.assertEqual(host._slice_cpu_pressure(slice_dir), 24.01)
         (slice_dir / "cpu.pressure").unlink()
-        self.assertIsNone(run._slice_cpu_pressure(slice_dir))
+        self.assertIsNone(host._slice_cpu_pressure(slice_dir))
         (slice_dir / "cpu.pressure").write_text("some avg10=banana\n")
-        self.assertIsNone(run._slice_cpu_pressure(slice_dir))
+        self.assertIsNone(host._slice_cpu_pressure(slice_dir))
 
     def test_slice_stat_exposes_counters(self):
         slice_dir = self.root / "agentkit.slice"
@@ -140,12 +140,12 @@ class AdmissionSliceCpu(unittest.TestCase):
             "usage_usec 1878241940777\nuser_usec 1337642420232\n"
             "system_usec 540599520545\nnr_periods 5378937\n"
             "nr_throttled 290683\nthrottled_usec 1831801260\n")
-        self.assertEqual(run._slice_cpu_stat(slice_dir), {
+        self.assertEqual(host._slice_cpu_stat(slice_dir), {
             "usage_usec": 1878241940777, "user_usec": 1337642420232,
             "system_usec": 540599520545, "nr_periods": 5378937,
             "nr_throttled": 290683, "throttled_usec": 1831801260})
         (slice_dir / "cpu.stat").unlink()
-        self.assertIsNone(run._slice_cpu_stat(slice_dir))
+        self.assertIsNone(host._slice_cpu_stat(slice_dir))
 
     def test_host_line_names_slice_cpu_gate(self):
         readings = {**READINGS, "slice_cpu_pressure": 12}

@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, worker
+from agentkit import host, config, run, worker
 
 
 def commit(cwd, name, message):
@@ -100,7 +100,7 @@ class LandTipAtTurn(unittest.TestCase):
         os.environ.pop("AK_MAX_RUNS", None)
         self.stack.enter_context(patch.object(run, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         config.ensure_dirs()

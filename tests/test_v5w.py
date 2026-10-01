@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, call, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, run, worker
+from agentkit import host, config, notify, run, worker
 
 # The words the task pins, quoted here so the tests fail if the loop rewords them.
 HEADER = ("Run long commands, tests included, in the foreground and wait for them; "
@@ -128,7 +128,7 @@ sys.exit(1)
         # These adapters start no background commands; process discovery is covered by its
         # own fixture, so this prompt regression never reads the host's process table.
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         self.stack.enter_context(patch.object(run, "SLOT_POLL", .01))

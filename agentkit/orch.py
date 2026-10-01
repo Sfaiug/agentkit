@@ -41,7 +41,7 @@ from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import command_help, config, motion, retention, terminal, update, usage
+from . import command_help, config, host, motion, retention, terminal, update, usage
 from .harness import LAUNCHER, load as harness_plugin
 
 MARK = "@ak_orch"          # the tmux session option that says agentkit opened this seat
@@ -54,8 +54,6 @@ JOBS = "-jobs"             # appended to it: the server the background jobs run 
 SLICE = "agentkit.slice"   # the user systemd slice every agent process is started inside
 SEATS_SLICE = "agentkit-seats.slice"  # interactive sessions keep the default weight
 RUNS_SLICE = "agentkit-runs.slice"    # detached runs are deliberately below sessions
-OWN_CGROUP = Path("/proc/self/cgroup")   # ... and where this process says which cgroup holds it
-CGROUP_ROOT = Path("/sys/fs/cgroup")     # ... where that cgroup, and the slice, say what they hold
 NO_SLICE = "no slice (no user systemd manager)"   # ... on a host that has no manager to ask
 SLICE_WAIT = 30            # how long `systemd-run` has to say whether it took a unit
 NO_SUCH_UNIT = 5           # what `systemctl` answers about a unit it was never given
@@ -394,10 +392,7 @@ def can_scope():
     it, however reachable the manager is.  Work detached from there goes in as a service
     instead, which the manager starts inside the slice to begin with.
     """
-    try:
-        return f"user@{os.getuid()}.service" in OWN_CGROUP.read_text()
-    except OSError:
-        return False
+    return host.cgroup_contains(f"user@{os.getuid()}.service")
 
 
 def in_slice(argv, unit, socket=None, env=None, target_slice=None, properties=()):
@@ -723,11 +718,10 @@ def slice_cgroup():
     """
     service = f"user@{os.getuid()}.service"
     try:
-        line = next(row for row in OWN_CGROUP.read_text().splitlines() if row.startswith("0::"))
-        parts = [part for part in line[3:].split("/") if part]
-        root = CGROUP_ROOT.joinpath(*parts[:parts.index(service) + 1])
-    except (OSError, ValueError, StopIteration):
-        root = CGROUP_ROOT / "user.slice" / f"user-{os.getuid()}.slice" / service
+        parts = [part for part in (host.process_cgroup() or "").split("/") if part]
+        root = host.cgroup_path().joinpath(*parts[:parts.index(service) + 1])
+    except ValueError:
+        root = host.cgroup_path() / "user.slice" / f"user-{os.getuid()}.slice" / service
     pieces = slice_name().removesuffix(".slice").split("-")
     return root.joinpath(*[f"{'-'.join(pieces[:depth + 1])}.slice"
                            for depth in range(len(pieces))])
@@ -736,7 +730,7 @@ def slice_cgroup():
 def slice_ceiling():
     """The task ceiling the drop-ins set, or None where nothing sets one.
 
-    `pids.max` comes into being with the slice's first process, and the ceiling is real before
+    The live task ceiling appears with the slice's first process, and is real before
     that: it is in the drop-in `install.sh` wrote, or in the one `systemctl --user
     set-property` persists beside it.  The last file to name it wins, which is how systemd
     reads them too.
@@ -754,18 +748,6 @@ def slice_ceiling():
                 if key.strip() == "TasksMax" and value.strip().isdigit():
                     found = int(value.strip())
     return found
-
-
-def _mem_total_mb(meminfo=None):
-    """MemTotal in mebibytes, from `meminfo` or `/proc/meminfo`."""
-    path = Path(meminfo) if meminfo else Path("/proc/meminfo")
-    try:
-        for line in path.read_text().splitlines():
-            if line.startswith("MemTotal:"):
-                return int(line.split()[1]) // 1024
-    except (OSError, ValueError, IndexError):
-        return None
-    return None
 
 
 def memory_spec_mb(text, mem_total_mb=None):
@@ -820,7 +802,7 @@ def slice_memory_max_mb(mem_total_mb=None, meminfo=None):
                     found = None
                     continue
                 if text.endswith("%") and total is None:
-                    total = _mem_total_mb(meminfo)
+                    total = host._mem_total_mb(meminfo)
                 parsed = memory_spec_mb(text, total)
                 if parsed is not None:
                     found = parsed
@@ -834,14 +816,7 @@ def slice_tasks():
     ceiling is whatever its drop-ins ask for -- and one nobody gave a ceiling says `max`,
     which is not a number and is not reported as one.
     """
-    numbers = []
-    for name in ("pids.current", "pids.max"):
-        try:
-            value = (slice_cgroup() / name).read_text().strip()
-        except OSError:
-            value = ""
-        numbers.append(int(value) if value.isdigit() else None)
-    current, ceiling = numbers
+    current, ceiling = host.cgroup_tasks(slice_cgroup())
     return (0 if current is None and ceiling is None else current,
             ceiling if ceiling is not None else slice_ceiling())
 
