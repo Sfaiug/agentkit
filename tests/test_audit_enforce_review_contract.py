@@ -23,7 +23,7 @@ class ReviewContract(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
-        # Concurrent copies can share run ids; fixture cleanup must not sweep their workers.
+        # Fixture refusals must not sweep host workers or stop real scopes.
         self.stack.enter_context(patch.object(run.worker, "kill_marked", return_value=True))
         self.stack.enter_context(patch.object(run.orch, "stop_scope"))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
@@ -100,7 +100,8 @@ sys.exit(row["code"])
 ''')
         self.respond({})
         self.task = self.root / "task.md"
-        self.task.write_text("---\nrepo: none\nrounds: 1\n---\n# Review contract\n\n"
+        # Distinct markers keep an older copy's cleanup from reaching these workers too.
+        self.task.write_text(f"---\nrepo: none\nrounds: 1\n---\n# Review contract {self.root.name}\n\n"
                              "## Done when\n```bash\ntest -f deliverable\n```\n")
         self.stack.enter_context(redirect_stdout(io.StringIO()))
 
