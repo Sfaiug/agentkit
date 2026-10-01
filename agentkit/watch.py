@@ -104,6 +104,10 @@ def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
         harness = None
 
     composed = []
+    # an earlier try's Enter failed and left this very question in the composer: only its
+    # Enter is owed, and that draft is ours, not one the question would be typed onto
+    ours = re.sub(r"\s+", "", line)
+    stuck = composer_draft(harness, pane_text(session)) == ours
 
     def veto(held):
         # Under the seat lock the other senders type under, with their owner-question veto --
@@ -117,10 +121,12 @@ def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
             return False
         composed.append(True)
         pane = pane_text(session)
-        return (_decided_state(held, harness, pane) in ("draft", "asking")
-                or bool(composer_draft(harness, pane)))
+        state, draft = _decided_state(held, harness, pane), composer_draft(harness, pane)
+        if stuck:
+            return state == "asking" or draft != ours
+        return state in ("draft", "asking") or bool(draft)
 
-    if not type_checked(session, line, log, harness,
+    if not type_checked(session, line, log, harness, pending=stuck,
                         guard=lambda: notify.session_lock(name), veto=veto):
         log(f"WARN could not type the question into the {name} seat")
         return 1
@@ -1043,7 +1049,7 @@ def _draft_text(raw, plain, composer):
     if found and found.group(2).strip():
         if composer is not None and composer.fullmatch(plain):
             return ""
-        return " ".join(found.group(2).split())[:160]
+        return " ".join(found.group(2).split())
     return ""
 
 
@@ -1274,7 +1280,7 @@ def screen_state(harness, tail):
             if rule["id"] == "prompt.draft":
                 draft = _draft_text(raws[at], region[at], chrome["composer"])
                 if draft:
-                    return rule["state"], rule["id"], draft
+                    return rule["state"], rule["id"], draft[:160]
             elif _suggestion_line(raws[at], region[at]):
                 return rule["state"], rule["id"], region[at][:160]
             continue
@@ -2094,7 +2100,9 @@ def _pane_sent(session, harness, pane, text):
     if state == "asking":
         # A dialog owns the screen: the line landed, and no Enter goes into it blind.
         return True
-    return not _holds_text(pane, text)
+    # ... and read whole as well: a long line wraps up past the bottom rows `_holds_text` reads
+    return not (_holds_text(pane, text)
+                or re.sub(r"\s+", "", text) in (composer_draft(harness, pane) or ""))
 
 
 def _wait_sent(session, harness, text):
@@ -2137,10 +2145,11 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     """Type one line with a gap before Enter, and confirm it left the composer's line.
 
     Text, a KEY_GAP pause, then Enter; within SENT_WAIT the typed text has to be gone
-    from the bottom region. A working seat can still hold unsent text. A dialog counts as
-    landed, never as a reason for another Enter.  Still held: one more Enter and one
-    more wait.  Still held after that, log and return False, leaving the composer
-    alone.  Where the seat paints no composer at all, a delivered send counts as sent.
+    from the bottom region and the whole composer. A working seat can still hold unsent
+    text. A dialog counts as landed, never as a reason for another Enter.  Still held:
+    one more Enter and one more wait.  Still held after that, log and return False,
+    leaving the composer alone.  Where the seat paints no composer at all, a delivered
+    send counts as sent.
     `guard` covers text, gap and first Enter, with `veto` read once before typing, so
     another sender cannot join the line and a later veto cannot strand it. Confirmation
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
@@ -2156,8 +2165,9 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             harness, _ = seat_model(config.load(), name)
         except (config.Error, OSError):
             harness = None
-    confirm = False
-    if harness is not None:
+    # a line left pending was read in its composer, whatever chrome is drawn around it
+    confirm = pending
+    if harness is not None and not confirm:
         try:
             pattern = screen(harness).get("composer")
         except config.Error:

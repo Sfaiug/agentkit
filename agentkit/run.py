@@ -840,8 +840,18 @@ def ready_order(cfg, providers, workers=None, log=None, **kwargs):
 
 
 def refuse_unready(cfg, providers, name):
-    """A model named outright whose harness cannot run here is refused, in one sentence."""
+    """A model named outright whose harness cannot run here is refused, in one sentence.
+
+    Not on an answer an install or revert of that harness overlapped: its command was missing
+    then, so the swap is waited out and the harness asked again, as a failed turn's is.
+    """
     why = usage.unready(cfg, name, providers)
+    harness = config.model(cfg, name)["harness"]
+    if why and update.swap_end(harness, providers.asked_at, time.time()):
+        while (end := update.swap_end(harness, providers.asked_at, time.time()) or 0) > (
+                now := time.time()):
+            time.sleep(min(SWAP_POLL, end - now))
+        why = usage.harness_unready(harness)
     if why:
         raise config.Error(f"{name} cannot run here: {why}")
 
@@ -4786,12 +4796,15 @@ def target_disjoint_from_branch(wt, base, head_before, tip):
     parent, so the round's checks still verify the rebased commit.  Anything git
     cannot compare is overlapping: the checks run again.
     """
-    try:
-        ours = git(wt, "diff", "--no-renames", "--name-only", base, head_before).splitlines()
-        theirs = git(wt, "diff", "--no-renames", "--name-only", base, tip).splitlines()
-    except (Stopped, config.Error):
-        return False
-    return not (set(ours) & set(theirs))
+    sides = []
+    for end in (head_before, tip):
+        # `git()` strips whitespace, and with it the space a first name can start with
+        code, out, _ = tool_run(["git", "-C", str(wt), "diff", "--no-renames",
+                                 "--name-only", "-z", base, end])
+        if code != 0:
+            return False
+        sides.append(set(out.split("\0")) - {""})
+    return not (sides[0] & sides[1])
 
 
 def integrate(lp, upstream):
@@ -6338,13 +6351,27 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             wt = config.WORK / run_dir.name
             wt.mkdir(parents=True, exist_ok=True)
         else:
-            if receipt.get("followup"):
-                fetch(repo, "origin", "--prune", check=True)
+            # cut from the base as origin has it now: a local branch, or a tracking ref nothing
+            # has fetched lately, can stand merges behind, and a round spent there is spent on
+            # code that no longer exists.  Offline, the local ref is the best there is.
+            try:
+                code, out = fetch(repo, "origin", "--prune")
+            except Stopped as stop:
+                code, out = None, str(stop)
             base = meta.get("base") or default_base(repo, log)
             # where the PR goes: a run cut from `dev` can still be meant for `main`
             target = meta.get("target") or base
+            ref = base
+            if code != 0:
+                log(f"WARN git fetch origin failed; basing this run on the local {base}: "
+                    f"{out[-400:]}")
+            elif git_out(repo, "show-ref", "--verify", "--quiet", f"refs/heads/{base}",
+                         f"refs/remotes/origin/{base}")[0] == 0:
+                # only a local branch gives way to origin's, named in full: `origin/main` could
+                # be a tag, and a base already on origin could be a branch called `origin/main`
+                ref = f"refs/remotes/origin/{base}"
             # a branch name moves with the executor's commits, so pin the diff to the commit it names
-            base_sha = git(repo, "rev-parse", "--verify", f"{base}^{{commit}}")
+            base_sha = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
             from_branch = (meta.get("from") or "").strip()
             if from_branch and opts["--no-worktree"]:
                 raise config.Error(f"{task_path}: from: needs a worktree; "
@@ -8626,10 +8653,20 @@ def frozen_runs(state):
     return frozen
 
 
+def slot_line(running, ahead, limit, first=False):
+    """The count wait's sentence: "ahead" is only the runs queued before this one.
+
+    Running runs are no queue, so a full limit says so by itself; a `first` run
+    skips the count cap and waits only on the queue.
+    """
+    if limit and running >= limit and not first:
+        return f"waiting for a slot · limit full ({running} running) · {ahead} ahead"
+    return f"waiting for a slot · {ahead} ahead"
+
+
 def slot_note(state):
-    running, ahead = slot_counts(state)
-    shown = ahead if state.get("first") else running + ahead
-    return state.get("slot_wait_reason") or f"waiting for a slot · {shown} ahead"
+    return state.get("slot_wait_reason") or slot_line(
+        *slot_counts(state), config.max_runs(), state.get("first"))
 
 
 def _unit_memory(readings):
@@ -8720,8 +8757,7 @@ def claim_slot(state, limit, readings=None):
     is_first = bool(state.get("first"))
     if ahead or (limit and running >= limit and not is_first):
         state["slot_waited"] = True
-        shown = ahead if is_first else running + ahead
-        state["slot_wait_reason"] = f"waiting for a slot · {shown} ahead"
+        state["slot_wait_reason"] = slot_line(running, ahead, limit, is_first)
         state["slot_wait_kind"] = "count"
         state["slot_healthy_polls"] = 0
         return False
