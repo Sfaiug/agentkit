@@ -135,6 +135,33 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.assert_no_round(resumed)
         self.assertTrue(run.read_state(self.run_dir)["merged"])
 
+    def test_changed_checkout_resume_does_not_integrate_a_no_merge_run(self):
+        self.lp.state["round_summaries"] = self.lp.state["round_summaries"][:1]
+        self.lp.rnd = 1
+        self.lp.state.update(no_merge=True, merge_method="rebase")
+        self.lp.opts["--no-merge"] = True
+        self.lp.save()
+        (self.wt / "changed.txt").write_text("changed after review\n")
+        run.git(self.wt, "add", ".")
+        run.git(self.wt, "commit", "-m", "change reviewed checkout")
+        head = run.git(self.wt, "rev-parse", "HEAD")
+        with patch.object(run, "run_done_when", side_effect=run.Exhausted("check interrupted")):
+            with self.assertRaisesRegex(run.Exhausted, "check interrupted"):
+                run.rounds(self.lp)
+        saved = run.read_state(self.run_dir)
+        resumed = run.Loop(self.cfg, self.run_dir, saved, self.lp.opts, self.lp.log, self.wt,
+                           "body", ["true"], "context", [])
+        with patch.object(run, "integrate", wraps=run.integrate) as integrate:
+            run.rounds(resumed)
+        integrate.assert_not_called()
+        self.assertEqual(run.git(self.wt, "rev-parse", "HEAD"), head)
+        self.assertFalse(run.integrated(self.wt, self.tip))
+        self.assertEqual(saved["round_summaries"][-1]["round"], 2)
+        self.assertEqual(self.events, [("reviewer", "round-2")])
+        self.assertTrue(run.current_review(resumed))
+        self.assertTrue(saved["no_merge"])
+        self.assertFalse(saved["merged"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
