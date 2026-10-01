@@ -534,10 +534,19 @@ class ReviewerEdits(unittest.TestCase):
                         self.git("branch", "-D", "probe")
 
     def test_conflicted_indexes_are_archived_and_reset_before_the_next_turn(self):
-        self.git("switch", "-qc", "other", "HEAD~1")
+        base = self.git("rev-parse", "HEAD~1")
+        self.git("switch", "-qc", "other", base)
         (self.wt / "tracked.txt").write_text("other work\n")
-        self.git("commit", "-qam", "other work")
+        (self.wt / "binary.bin").write_bytes(b"\x00theirs\xff")
+        self.git("add", "tracked.txt", "binary.bin")
+        self.git("commit", "-qm", "other work")
         self.git("switch", "-q", "ak/fix-api")
+        (self.wt / "binary.bin").write_bytes(b"\x00ours\xff")
+        self.git("add", "binary.bin")
+        self.git("commit", "-qm", "executor binary")
+        self.head = self.git("rev-parse", "HEAD")
+        (self.root / "head").write_text(self.head)
+        self.lp.validation = run.commit_identity(self.wt)
         real_call, real_changes = worker.call, run.reviewer_changes
 
         def unstaged(cfg, name, body, workspace, out, role, session, **kwargs):
@@ -560,8 +569,8 @@ class ReviewerEdits(unittest.TestCase):
                 (["rebase", "other"], []),
                 (["cherry-pick", "other"], []),
                 (["stash", "pop", "--quiet"], [
-                    ["checkout", "-q", "--detach", "HEAD~1"],
-                    ["restore", "--source=other", "--", "tracked.txt"],
+                    ["checkout", "-q", "--detach", base],
+                    ["restore", "--source=other", "--", "tracked.txt", "binary.bin"],
                     ["stash", "push", "-qm", "probe"],
                     ["checkout", "-q", "ak/fix-api"]])):
             with self.subTest(command=command[0]):
@@ -578,6 +587,11 @@ class ReviewerEdits(unittest.TestCase):
                 for content in ("<<<<<<<", "other work", "+index edit", "+working edit"):
                     self.assertIn(content, saved)
                 self.assertIn("# unmerged index", saved)
+                self.assertIn("GIT binary patch", saved)
+                if command[0] != "rebase":
+                    for stage in ("2", "3"):
+                        section = saved.split(f"# unmerged stage {stage}\n", 1)[1]
+                        self.assertIn("GIT binary patch", section.split("# unmerged stage", 1)[0])
                 self.assertTrue(any("WARN" in line and "tracked.txt" in line
                                     for line in self.logs), self.logs)
                 self.assertEqual(json.loads((self.root / "responses.json").read_text()), [])

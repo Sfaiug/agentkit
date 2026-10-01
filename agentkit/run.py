@@ -1811,6 +1811,19 @@ def reviewer_changes(wt, out_dir, log):
                     unmerged = git(wt, "ls-files", "--unmerged")
                     if unmerged:
                         saved.write("# unmerged index\n# " + unmerged.replace("\n", "\n# ") + "\n")
+                        # Unmerged blobs can differ from the worktree, especially binary files.
+                        entries = [entry.split("\t", 1) for entry in git(
+                            wt, "ls-files", "--unmerged", "-z").split("\0") if entry]
+                        empty = git(wt, "mktree")
+                        for stage in ("1", "2", "3"):
+                            git(wt, "read-tree", "--empty", env=index)
+                            for info, name in entries:
+                                mode, blob, entry_stage = info.split()
+                                if entry_stage == stage:
+                                    git(wt, "update-index", "--add", "--cacheinfo", mode, blob,
+                                        name, env=index)
+                            save_diff(f"unmerged stage {stage}", empty,
+                                      git(wt, "write-tree", env=index))
                 if branch:
                     git(wt, "symbolic-ref", "HEAD", branch)
                 else:
