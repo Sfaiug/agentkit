@@ -33,7 +33,7 @@ BINARIES = {"claude": "claude", "codex": "codex", "muse": "muse", "grokbuild": "
 # (model, harness, model id, effort)
 REST = ("grokbuild", "antigravity", "opencode")
 LOGGED_IN = {harness: "0 fixture: logged in" for harness in REST}
-SMALLEST = re.findall(r'"(\w+) (\w+) (\S+) (\w+)"', between("# --- 3:", "# --- 4:"))
+SMALLEST = re.findall(r'"(\w+) (\w+) (\S+) (\w+)"', between("HARNESSES=(", "ABSENT=0"))
 # the word check 3 asks those turns to reply with
 WORD = "PONG"
 
