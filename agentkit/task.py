@@ -17,8 +17,8 @@ ONCE_MARKER = re.compile(r"#\s*once\s*$")
 def front_matter(path):
     """(pairs, body): each front-matter `key: value` in file order, and the text after it.
 
-    A key may repeat, so `after:` keeps every line; a `#` starts a comment.  A line that is
-    not `key: value`, or a front matter with no closing line, is the task's error.
+    A key may repeat, so `after:` and `files:` keep every line; a `#` starts a comment.
+    A line that is not `key: value`, or front matter with no closing line, is the task's error.
     """
     text = path.read_text()
     match = re.match(r"^---\n(.*?)\n---\n?(.*)$", text, re.S)
@@ -49,6 +49,12 @@ def task_afters(path):
     a comma-separated line names several. Blank values are ignored.
     """
     return [part.strip() for key, value in front_matter(path)[0] if key == AFTER_KEY
+            for part in value.split(",") if part.strip()]
+
+
+def task_files(path):
+    """Allowed Git pathspecs from repeatable, comma-separated `files:` lines."""
+    return [part.strip() for key, value in front_matter(path)[0] if key == "files"
             for part in value.split(",") if part.strip()]
 
 
