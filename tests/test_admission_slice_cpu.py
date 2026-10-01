@@ -36,6 +36,7 @@ class AdmissionSliceCpu(unittest.TestCase):
         self.addCleanup(self.stack.close)
         # no config.toml here, so max_load is unpinned unless the test writes one
         self.stack.enter_context(patch.object(config, "HOME", self.root))
+        self.stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
         self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1",
                                                          "AK_MIN_FREE_MB": "3072"}))
         os.environ.pop("AK_MAX_LOAD", None)
