@@ -1721,6 +1721,25 @@ def _heavy_max_existing():
         return -1
 
 
+def _heavy_running():
+    """Count held turns, including high slots left by a larger limit.
+
+    Slot files persist after their suites finish; only a lock still held counts.
+    Probe existing files without creating any, so status never grows the pool.
+    """
+    held = 0
+    for index in range(_heavy_max_existing() + 1):
+        try:
+            with gate_lock(None, index).open("r") as slot:
+                try:
+                    fcntl.flock(slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    held += 1
+        except OSError:
+            pass
+    return held
+
+
 def _first_landing_wait(run_dir):
     """This run's first landing wait, or None when it never waited to land.
 
@@ -1920,7 +1939,7 @@ class _MergeHold:
                 _MERGE_HELD.hold = None
 
 
-def derived_heavy_limit(readings=None, running=0):
+def derived_heavy_limit(readings=None, running=None):
     """Running suites plus how many more the live headroom fits; at least one.
 
     The slice's idle cores over one suite's 0.7, and its free memory over 0.4 GB,
@@ -1932,6 +1951,8 @@ def derived_heavy_limit(readings=None, running=0):
     unreadable gate fails open to the other resource, and to one suite where
     neither answers.
     """
+    if running is None:
+        running = _heavy_running()
     if readings is None:
         readings = host_readings()
     cpu_quota = _reading(readings, "slice_cpu_quota")
@@ -1967,7 +1988,7 @@ def derived_heavy_limit(readings=None, running=0):
     return max(1, running + max(0, min(candidates)))
 
 
-def heavy_suite_limit(readings=None, running=0):
+def heavy_suite_limit(readings=None, running=None):
     """(limit, pinned): the heavy-suite turns in force; 0 means no cap.
 
     An explicit `max_gates` pins the host-wide count; otherwise it is derived
