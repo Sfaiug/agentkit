@@ -172,7 +172,7 @@ class SuiteInRound(unittest.TestCase):
         directory, state = self.launch("scratch-once", ["true", "false  # once"],
                                        scratch=True)
         self.assertEqual(state["verdict"], "FAIL", self.logs)
-        self.assertEqual(self.gates, [("donewhen.log", ["true", "false"])])
+        self.assertEqual(self.gates, [("donewhen.log", ["true", "false"])] * 2)
         self.assertFalse(state["round_summaries"][0]["done_when"])
         self.assertNotIn("final_check", state)
         self.assertNotIn("run once at landing", "\n".join(body for _, body in self.prompts))

@@ -3492,8 +3492,8 @@ def regression_fails_before(lp):
 def verify_work(lp, cmds=None):
     """Pin done-when to a commit before running commands, including leftover executor edits.
 
-    Runs `cmds`, or the run's per-round commands when none are given.  A `# once` line
-    never runs here; it runs at landing through `final_check`.
+    Runs `cmds`, or the run's per-round commands when none are given. Checks deferred
+    to landing run through `final_check`.
     """
     if cmds is None:
         cmds = lp.every
