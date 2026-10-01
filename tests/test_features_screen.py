@@ -217,7 +217,8 @@ class FeaturesScreen(unittest.TestCase):
         self.assertEqual(highlighted(lines), "› ACME · 3 hidden features")   # a row to land on
         self.assertNotIn("no sessions", "\n".join(lines))
         menu.opened()
-        lines = menu.press(ESC, MENU)
+        # Returning can draw the menu before its feature count arrives.
+        lines = menu.press(ESC, MENU, has("ACME · 3 hidden features"))
         self.assertEqual(highlighted(lines), "› ACME · 3 hidden features")
         menu.leave()
 
@@ -243,7 +244,7 @@ class FeaturesScreen(unittest.TestCase):
                               ([FEATURES[0], FEATURES[2]], "ACME · 1 hidden feature")):
             menu = Menu(self, features=rows)
             menu.opened()                                 # the list has landed
-            lines = menu.press(ESC, MENU)
+            lines = menu.press(ESC, MENU, lambda lines: highlighted(lines) == f"› {heading}")
             self.assertEqual(highlighted(lines), f"› {heading}")
             menu.leave()
 
@@ -270,7 +271,7 @@ class FeaturesScreen(unittest.TestCase):
         os.write(menu.master, f"\x1b[<0;{column};{number}M\x1b[<0;{column};{number}m".encode())
         menu.frame(SCREEN, lambda lines: marks(lines, "Beta search") == ["●", "●"], after=mark)
         self.assertIn("set beta everyone on", menu.calls())
-        lines = menu.press(ESC, MENU)
+        lines = menu.press(ESC, MENU, has("ACME · 1 hidden feature"))
         self.assertEqual(highlighted(lines), "› ACME · 1 hidden feature")
         menu.leave()
 

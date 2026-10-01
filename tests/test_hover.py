@@ -60,7 +60,11 @@ def played(text, rows=40):
             if token == "\r":
                 col = 1
             elif token == "\n":                  # the terminal's own \r\n
-                row, col = row + 1, 1
+                if row == rows:
+                    grid = {number - 1: line for number, line in grid.items() if number > 1}
+                else:
+                    row += 1
+                col = 1
             else:
                 line = grid.setdefault(row, [])
                 line += [Cell(" ", False, False)] * (col - 1 - len(line))

@@ -395,7 +395,6 @@ class Matrix(unittest.TestCase):
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
         self.assertEqual(lines[2].split(), ["orch", "exec", "review", "effort"])
-        self.assertIn("add a model", "\n".join(lines))
         # what a key could not do has lines of its own, however little room the rows leave
         lines = screen.press(DOWN + RIGHT + ENTER,
                              lambda lines: "exec needs" in "\n".join(lines))
@@ -404,6 +403,10 @@ class Matrix(unittest.TestCase):
         lines = screen.press(DOWN * 10, lambda lines: highlighted(lines).startswith("› Version"))
         self.assertLessEqual(len(lines), 23)
         self.assertNotIn("exec needs", "\n".join(lines))   # until the next key
+        # The lower rows scroll into view to leave room for explanations.
+        lines = screen.press(UP * 3, lambda lines: "add a model" in "\n".join(lines))
+        self.assertEqual(highlighted(lines), "› + add a model")
+        self.assertLessEqual(len(lines), 23)
         screen.leave()
 
 

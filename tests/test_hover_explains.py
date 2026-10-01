@@ -13,6 +13,7 @@ Nothing here reads the owner's ~/.agentkit, starts a session or reaches a provid
 process signalled is the test's own child.
 """
 
+import io
 import json
 import os
 from pathlib import Path
@@ -59,14 +60,14 @@ sys.exit(menu.loop(config.load()))
 """
 SEATS = {"fix-api": "needs you", "web-portal": "done"}
 USAGE = re.compile(r"  Claude · 68% left · resets \w{3} \d\d:\d\d \(in 4 d 4 h\) · "
-                   r"slower than time")
+                   r"lasts at this pace")
 
 
-def menu_child(case):
+def menu_child(case, **size):
     """The main menu in a child on a pty, in true colour: `test_close_and_info.Menu`'s."""
     with patch.object(test_close_and_info, "CHILD", CHILD), \
             patch.dict(os.environ, {"COLORTERM": "truecolor"}):
-        return test_close_and_info.Menu(case, SEATS)
+        return test_close_and_info.Menu(case, SEATS, **size)
 
 
 def explains(case, child, places, keys):
@@ -92,7 +93,191 @@ def keyline(text):
     return keys_of(played(text))
 
 
+def explanation(grid, row):
+    """The whole sentence from the first key row, rejoining its wrapped lines."""
+    return " ".join(line.strip() for line in texts(grid)[row - 1:] if line)
+
+
+class UsagePace(unittest.TestCase):
+    def test_the_pace_says_whether_the_allowance_lasts_the_week(self):
+        now, week = 1_800_000_000, 7 * 86400
+        for used, words in ((42, "runs out early at this pace"), (32, "lasts at this pace"),
+                            (40, "on pace")):
+            with self.subTest(used=used):
+                prov = {"meters": [{"name": "weekly", "used": used, "window_secs": week,
+                                    "resets_at": now + 0.6 * week}]}
+                with patch.object(menu, "usage_rows", return_value=[("acme", "Acme II", prov)]):
+                    sentence, pace = menu.usage_tip({"models": {}}, 1, now)
+                self.assertTrue(sentence.endswith(" · " + words), sentence)
+                self.assertIn(f"{100 - used}% left", sentence)
+                self.assertAlmostEqual(pace, 0.6)
+
+
+class Wrapping(unittest.TestCase):
+    def test_key_line_contains_only_keys_and_key_height_reserves_the_explanations(self):
+        for cols in (26, 30, 40):
+            for keys, first in (("↑↓←→ move   ⏎ open", "  ↑↓←→ move   ⏎ open"),
+                                ("arrows move   enter open", "  arrows move   enter open")):
+                expected = [first + "   esc back"] if cols == 40 else [first, "  esc back"]
+                for taken in (False, True):
+                    with self.subTest(cols=cols, keys=keys, taken=taken), \
+                            patch.object(terminal, "taken", return_value=taken), \
+                            patch.object(terminal, "colour_depth", return_value=0):
+                        text = keys + "   esc back"
+                        self.assertEqual(terminal.key_line(text, cols), expected)
+                        height = terminal.key_height(text, term_width=cols)
+                        if taken:
+                            self.assertGreater(height, len(expected))
+                            self.assertGreater(terminal.key_height(text, {0: "a long row " * 20}, cols),
+                                               height)
+                        else:
+                            self.assertEqual(height, len(expected))
+
+    def test_full_lists_leave_room_for_the_whole_explanation_without_scrolling(self):
+        body = [f"  model-{number:02}" for number in range(40)]
+        long = "model-00: " + " ".join(["a complete explanation"] * 7)
+        cases = (("add", "⏎ add", TIPS["⏎ add"]),
+                 ("matrix", "↑↓←→ move", TIPS["↑↓ move"]),
+                 ("row", "model-00", long))
+        for cols, rows in ((cols, rows) for cols in (26, 30, 40) for rows in (16, 24)):
+            for kind, item, sentence in cases:
+                with self.subTest(cols=cols, rows=rows, screen=kind):
+                    out, before, step, restored = io.StringIO(), [], 0, False
+
+                    def read(*_args, **_kw):
+                        nonlocal step, restored
+                        if restored:
+                            return terminal.Key("esc")
+                        if kind == "add" and step < 2:
+                            step += 1
+                            return terminal.Key("enter")
+                        grid = played(out.getvalue(), rows)
+                        keys = terminal._KEYS
+                        if not before:
+                            before[:] = texts(grid)
+                            terminal._POINTER = terminal.Key("point", "", *at(grid, item))
+                            return terminal._POINTER
+                        if terminal._POINTER is not None:
+                            self.assertEqual(texts(grid)[:keys - 1], before[:keys - 1])
+                            self.assertEqual(explanation(grid, keys), sentence)
+                            self.assertTrue(texts(grid)[0].startswith("agentkit · config"))
+                            terminal._POINTER = None
+                            return terminal.Key("point", "", 1, 2)
+                        self.assertEqual(texts(grid)[:len(before)], before)
+                        self.assertFalse(any(texts(grid)[len(before):]))
+                        restored = True
+                        return terminal.Key("esc")
+
+                    def matrix():
+                        keys = "↑↓←→ move   ⏎ mark   esc back"
+                        places = {number: (number, []) for number in range(len(body))}
+                        top = 0
+                        while True:
+                            act, _, _, top = menu.matrix_key(
+                                "config", body, places, list(range(len(body))), 0, top, "", keys,
+                                tips={(0, None): long} if kind == "row" else None)
+                            if act == "back":
+                                return
+
+                    choices = [(number, (f"model-{number:02}",)) for number in range(40)]
+                    with patch.object(sys, "stdout", out), \
+                            patch.dict(os.environ, {"LC_ALL": "C.UTF-8"}), \
+                            patch.object(terminal.time, "strftime", return_value="14:06"), \
+                            patch.object(terminal, "width", return_value=cols), \
+                            patch.object(terminal, "height", return_value=rows), \
+                            patch.object(terminal, "colour_depth", return_value=0), \
+                            patch.object(terminal, "taken", return_value=True), \
+                            patch.object(terminal, "read_key", side_effect=read), \
+                            patch.multiple(terminal, _POINTER=None, _SPOTS={}, _POINTED=terminal.Spot(),
+                                           _SHOWN=[], _PAINTED=[], _TIPS={}, _KEYS=None), \
+                            patch.object(menu, "_add_choices", return_value=choices):
+                        menu.config_add({}) if kind == "add" else matrix()
+
+    def test_relighting_adds_and_clears_wrapped_lines_without_moving_the_rows_above(self):
+        lines = ["agentkit", "a rule", "  a row", "", "  s solo   esc back"]
+        spots = {3: ("row", []), **terminal.key_spots(lines[-1:], 5)}
+        sentence = TIPS["n new"]
+        out = io.StringIO()
+        with patch.object(sys, "stdout", out), patch.object(terminal, "width", return_value=40), \
+                patch.object(terminal, "colour_depth", return_value=0), \
+                patch.multiple(terminal, _POINTER=None, _SPOTS={}, _POINTED=terminal.Spot(),
+                               _SHOWN=[], _PAINTED=[], _TIPS={}, _KEYS=None):
+            terminal.show(lines, spots, {("row", None): sentence}, 5)
+            terminal._POINTER = terminal.Key("point", "", 3, 3)
+            terminal.relight()
+            grid = played(out.getvalue())
+            wrapped = texts(grid)
+            self.assertEqual(wrapped[:4], lines[:4])
+            self.assertEqual(explanation(grid, 5), sentence)
+            self.assertGreater(len(wrapped), len(lines))
+            self.assertTrue(all(terminal.cells(line) <= 40 for line in wrapped))
+            self.assertNotIn("…", "\n".join(wrapped))
+            terminal._POINTER = terminal.Key("point", "", 3, 5)
+            terminal.relight()
+            self.assertEqual(explanation(played(out.getvalue()), 5), TIPS["s solo"])
+            terminal._POINTER = None
+            terminal.relight()
+            self.assertEqual([line for line in texts(played(out.getvalue())) if line],
+                             [line for line in lines if line])
+
+
 class MainMenu(unittest.TestCase):
+    def test_a_full_main_menu_does_not_scroll_under_key_or_long_session_explanations(self):
+        name = "fix-api-00-" + "full-name-" * 12
+        seats = {name: "needs you", **{f"fix-api-{n:02}": "needs you" for n in range(1, 40)}}
+        for cols in (26, 30, 40):
+            with self.subTest(cols=cols), patch.dict(SEATS, seats, clear=True):
+                child = menu_child(self, cols=cols, rows=16)
+                lines = child.frame()
+                before = texts(played(child.text(), 16))
+                keys = next(row for row, line in enumerate(lines, 1) if "↑↓ move" in line)
+                grid = played(child.text(), 16)
+                places = [(at(grid, "n new"), TIPS["n new"]),
+                          (at(grid, "›"), TIPS["session"].format(name=name))]
+                for place, sentence in places:
+                    with self.subTest(sentence=sentence):
+                        child.send(move(*place))
+                        child.until(lambda text: explanation(played(text, 16), keys).replace(" ", "")
+                                    == sentence.replace(" ", ""), "the whole explanation on a full page")
+                        shown = texts(played(child.text(), 16))
+                        self.assertEqual([line.replace("›", " ") for line in shown[:keys - 1]],
+                                         [line.replace("›", " ") for line in before[:keys - 1]])
+                        self.assertLess(len(shown), 16, shown)
+                        self.assertTrue(all(terminal.cells(line) <= cols for line in shown), shown)
+                        child.send(move(1, 1))
+                        child.until(lambda text: [line.replace("›", " ")
+                                                  for line in texts(played(text, 16))]
+                                    == [line.replace("›", " ") for line in before],
+                                    "the keys back without extra lines")
+                child.leave()
+
+    def test_the_whole_usage_and_key_explanations_fit_forty_columns(self):
+        child = menu_child(self, cols=40, rows=24)
+        lines = child.frame()
+        row = next(number for number, line in enumerate(lines, 1) if line.startswith("  Claude"))
+        keys = next(number for number, line in enumerate(lines, 1) if "↑↓ move" in line)
+        places = [(5, row, USAGE),
+                  (lines[keys - 1].index("n new") + 1, keys, "  " + TIPS["n new"])]
+        for column, point_row, sentence in places:
+            with self.subTest(sentence=str(sentence)):
+                child.send(move(column, point_row))
+
+                def ready(text):
+                    said = "  " + explanation(played(text), keys)
+                    return sentence.fullmatch(said) if isinstance(sentence, re.Pattern) else said == sentence
+
+                child.until(ready, "the whole wrapped explanation")
+                shown = texts(played(child.text()))
+                self.assertTrue(all(terminal.cells(line) <= 40 for line in shown), shown)
+                self.assertLess(len(shown), 24, shown)
+                self.assertNotIn("…", "\n".join(shown[keys - 1:]))
+                self.assertTrue(shown[row - 1].startswith("  Claude"))
+                self.assertEqual(shown.index("acme"), lines.index("acme"))
+                child.send(move(1, 2))
+                child.until(lambda text: texts(played(text))[keys - 1:len(lines)] == lines[keys - 1:]
+                            and not any(texts(played(text))[len(lines):]), "the keys back without extra lines")
+        child.leave()
+
     def test_each_thing_on_the_main_screen_says_what_it_is_and_the_keys_come_back(self):
         child = menu_child(self)
         lines = child.frame()
@@ -160,7 +345,7 @@ class MainMenu(unittest.TestCase):
                 {"name": "weekly", "used": 42, "window_secs": week,
                  "resets_at": now + 0.6 * week}]}}}))
         child.until(lambda text: "58% left" in keyline(text), "the moved reading's sentence")
-        self.assertTrue(keyline(child.text()).endswith("· faster than time"))
+        self.assertTrue(keyline(child.text()).endswith("· runs out early at this pace"))
         time.sleep(motion.GLIDE + 0.3)                        # the glide is over
         shown = "".join(cell.char for cell in played(child.text())[row][bar.start():bar.end()])
         self.assertEqual(shown, "███████│░░░░")
@@ -198,6 +383,31 @@ class ConfigScreen(Sandbox):
             return run(lambda: menu.config_matrix(self.cfg, None, "abc1234", "fix-api",
                                                   self.selected, {}), *(keys or [ESC]))[1]
 
+    def test_a_full_new_session_list_does_not_scroll_under_a_wrapped_explanation(self):
+        notes = {name: "" for name in config.offered(self.cfg)}
+
+        def picking():
+            return orch._picking(self.cfg, {}, notes, dict(self.selected))
+
+        for cols, rows in ((cols, rows) for cols in (26, 30, 40) for rows in (12, 16)):
+            for item, sentence in (("↑↓←→ move", TIPS["↑↓ move"]),
+                                   ("›", menu.model_tip("opus", self.cfg["models"]["opus"]))):
+                with self.subTest(cols=cols, rows=rows, item=item), \
+                        patch.object(terminal, "height", return_value=rows), \
+                        patch.object(terminal.time, "strftime", return_value="14:06"):
+                    first = run(picking, ESC, cols=cols, rows=rows)[1][0]
+                    point = at(first, item)
+                    keys = at(first, "↑↓←→ move")[1]
+                    screens = run(picking, move(*point), move(1, 2), ESC,
+                                  cols=cols, rows=rows)[1]
+                    before, hovering, left = (texts(screen) for screen in screens[:3])
+                    self.assertEqual([line.replace("›", " ") for line in hovering[:keys - 1]],
+                                     [line.replace("›", " ") for line in before[:keys - 1]])
+                    self.assertEqual(explanation(screens[1], keys), sentence)
+                    self.assertTrue(hovering[0].startswith("agentkit · new"))
+                    self.assertEqual([line.replace("›", " ") for line in left],
+                                     [line.replace("›", " ") for line in before])
+
     def test_a_model_its_marks_its_effort_and_a_provider_say_what_they_are(self):
         first = self.matrix()[0]
         label = at(first, "astra")
@@ -214,7 +424,8 @@ class ConfigScreen(Sandbox):
         for place, sentence in said.items():
             with self.subTest(sentence=sentence):
                 screens = self.matrix(move(*place), move(1, 1), ESC)
-                self.assertEqual(keys_of(screens[1]), "  " + terminal.cut(sentence, 98))
+                self.assertEqual(explanation(screens[1], texts(screens[0]).index(keys_of(screens[0])) + 1),
+                                 sentence)
                 self.assertRegex(keys_of(screens[2]), r"^  ↑↓(←→)? move   ⏎ \w+   esc back$")
 
     def test_a_models_own_screen_the_new_session_screen_and_a_list_say_what_they_hold(self):
@@ -222,7 +433,8 @@ class ConfigScreen(Sandbox):
             for place, sentence in places:
                 with self.subTest(sentence=sentence):
                     screens = run(screen, move(*place), move(1, 1), ESC)[1]
-                    self.assertEqual(keys_of(screens[1]), "  " + terminal.cut(sentence, 98))
+                    self.assertEqual(explanation(screens[1], texts(screens[0]).index(keys_of(screens[0])) + 1),
+                                     sentence)
                     self.assertTrue(keys_of(screens[2]).endswith("esc back"))
 
         def own():

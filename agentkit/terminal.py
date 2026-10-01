@@ -13,6 +13,7 @@ import time
 import unicodedata
 from collections import namedtuple
 from functools import lru_cache, wraps
+from itertools import zip_longest
 
 from . import motion
 
@@ -518,7 +519,7 @@ TIPS = {
     "project": "{name}: the project the sessions under it work in, those needing you first",
     "switches": "{name}: Enter or a click opens the switches of its hidden features",
     "unread": "{name}: no week to draw, {why}; the bar comes with the first reading of one",
-    "faster": "faster than time", "slower": "slower than time", "even": "as fast as time",
+    "faster": "runs out early at this pace", "slower": "lasts at this pace", "even": "on pace",
     "model": "{name}: {model} through {harness}, at {effort} effort",
     "model id": "model id: what {harness} is asked to run, one its catalog lists",
     "orch": "orch: the model the session's orchestrator runs on, one only",
@@ -563,6 +564,18 @@ def key_line(text, term_width=None):
     if line:
         lines.append(line)
     return ["  " + line for line in lines]
+
+
+def key_height(text, tips=None, term_width=None):
+    """Rows to reserve for keys and wrapped explanations on a taken keyboard."""
+    rows = len(key_line(text, term_width))
+    if not taken():
+        return rows
+    sentences = [TIPS.get(f"{UTF8_KEYS.get(key, key)} {word}", "")
+                 for key, word in key_parts(text)]
+    return max([rows,
+                *(len(wrap(sentence, layout_width(term_width) - 2))
+                  for sentence in [*sentences, *(tips or {}).values()] if sentence)])
 
 
 def progress_bar(done, total, narrow=False):
@@ -1185,10 +1198,9 @@ def lit(lines, spots, tips=None, keys=None):
     `tips` are what the key line says in place of the keys while the pointer rests on something
     that means more than its label, {(what, cell): one sentence} (TIPS), a row's own (what,
     None) said of a cell of it with none of its own; a key-line item says its own (TIPS) on
-    every screen.  The sentence goes on the key line's own rows, from the screen's row `keys`
-    down, cut to the layout with one ellipsis and the rows under it blank, until the pointer
-    leaves it.  What only explains -- a cell that is a tuple -- is not lit, nor a key-line item
-    whose sentence stands in its place.
+    every screen.  The sentence wraps at words from the screen's row `keys` down, leaving the
+    rows above in place, until the pointer leaves it.  What only explains -- a cell that is a
+    tuple -- is not lit, nor a key-line item whose sentence stands in its place.
     """
     global _SPOTS, _POINTED, _SHOWN, _PAINTED, _TIPS, _KEYS
     _SPOTS, _POINTED, _TIPS, _KEYS = spots, pointer_spot(spots), tips or {}, keys
@@ -1200,8 +1212,7 @@ def lit(lines, spots, tips=None, keys=None):
             _POINTED.first - 1:_POINTED.last].partition(" ")
         tip = TIPS.get(f"{UTF8_KEYS.get(key, key)} {word}")
     if tip and keys:
-        lines = [*lines[:keys - 1], "  " + cut(tip, layout_width() - 2),
-                 *[""] * (len(lines) - keys)]
+        lines = lines[:keys - 1] + ["  " + line for line in wrap(tip, layout_width() - 2)]
     _PAINTED = lines
     depth = colour_depth()
     if (_POINTED.cell is None or isinstance(_POINTED.cell, tuple) or tip and _POINTED.what is None
@@ -1254,9 +1265,10 @@ def relight(spots=None, tips=None):
     left where it was: what a question typed on that screen (`field`) draws over it, or a list
     asked on it (`choose`), its own `spots` and `tips` read with the screen's."""
     before = _PAINTED
-    rows = "".join(f"\033[{row};1H\033[K{line}" for row, (line, was) in enumerate(zip(
+    # A wrapped sentence adds rows; leaving it must clear them too.
+    rows = "".join(f"\033[{row};1H\033[K{line}" for row, (line, was) in enumerate(zip_longest(
         lit(_SHOWN, _SPOTS, _TIPS, _KEYS) if spots is None else lit(_SHOWN, spots, tips, _KEYS),
-        before), 1) if line != was)
+        before, fillvalue=""), 1) if line != was)
     if rows:
         sys.stdout.write(f"\0337{rows}\0338")
         sys.stdout.flush()
