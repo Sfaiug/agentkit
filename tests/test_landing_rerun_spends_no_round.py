@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import config, run, usage
 from test_merge_step import make_loop, make_repos
 
 
@@ -43,7 +43,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         run.git(self.wt, "fetch", "origin")
         run.git(self.wt, "rebase", "origin/main")
         self.commit(self.wt, "base.txt", "branch\n2\n3\n4\n5\n")
-        self.lp, self.run_dir, _ = make_loop(self.root, self.wt, rounds=3, spent=3)
+        self.lp, self.run_dir, _ = make_loop(config.RUNS, self.wt, rounds=3, spent=3)
         self.lp.state["done_when_failure"] = {"every": []}
         self.lp.save()
         self.history = copy.deepcopy(self.lp.state["round_summaries"])
@@ -66,8 +66,9 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
 
     def gate(self, cmds, wt, out, *args, **_kw):
         out.parent.mkdir(parents=True, exist_ok=True)
-        self.assertEqual((Path(wt) / "base.txt").read_text(), "branch\n2\n3\n4\ntarget\n")
-        ok = (Path(wt) / "fixed.txt").exists()
+        text = (Path(wt) / "base.txt").read_text()
+        self.assertIn(text, ("branch\n2\n3\n4\ntarget\n", "branch\n2\n3\n4\ngreen\n"))
+        ok = text.endswith("green\n") or (Path(wt) / "fixed.txt").exists()
         self.events.append(("gate", ok))
         return ok, ("$ check\n[exit 0]\n" if ok else
                     "$ check\n[exit 1]\nshared file needs fixed.txt\n")
@@ -131,6 +132,57 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.assertEqual(state["waiting_on"], {"ref": "origin/main", "sha": self.tip})
         self.assertIn("3 fixer rounds", state["merge_note"])
         self.assertIn("shared file needs fixed.txt", state["merge_note"])
+
+    def assert_parked_resume(self, spent):
+        self.history = self.history[:spent]
+        self.lp.state["round_summaries"] = copy.deepcopy(self.history)
+        self.lp.rnd = spent
+        self.lp.save()
+        self.fix_after = run.CONFLICT_ROUNDS + 1
+        self.assertFalse(run.integrate(self.lp, "origin/main"))
+        self.assertEqual(self.fixes, run.CONFLICT_ROUNDS)
+        self.assertFalse(run.current_review(self.lp))
+        before = len(self.events)
+        self.commit(self.owner, "base.txt", "1\n2\n3\n4\ngreen\n")
+        run.git(self.owner, "push", "origin", "main")
+        tip = run.git(self.owner, "rev-parse", "HEAD")
+        (self.run_dir / "task.md").write_text(
+            f"---\nrepo: {self.wt}\nbase: origin/main\nrounds: 3\n---\n"
+            "# Landing rerun\n\n## Done when\n```bash\ntrue\n```\n")
+        binaries = self.root / "bin"
+        binaries.mkdir()
+        tmux = binaries / "tmux"
+        tmux.write_text("#!/bin/sh\nexit 1\n")
+        tmux.chmod(0o755)
+
+        def deliver(lp):
+            self.assertTrue(run.current_review(lp))
+            self.assertTrue(run.integrated(lp.wt, tip))
+            lp.state["merged"] = True
+
+        with patch.dict(os.environ, {"PATH": f"{binaries}:{os.environ['PATH']}",
+                                     "AGENTKIT_DISCORD_WEBHOOK": "off"}), \
+                patch.object(usage, "collect", return_value={}), \
+                patch.object(usage, "pick_order", return_value=["opus", "astra"]), \
+                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(run.notify, "shaped", side_effect=AssertionError("notification")), \
+                patch.object(run, "merge", side_effect=deliver):
+            self.assertEqual(run.cmd_resume([self.run_dir.name]), 0)
+        state = run.read_state(self.run_dir)
+        self.assertEqual(self.events[before:], [("gate", True), ("reviewer", f"round-{spent}")])
+        self.assertEqual(state["round_summaries"], self.history)
+        self.assertEqual(state["rounds"], 3)
+        self.assertEqual(state["done_when_failure"], {"every": []})
+        self.assertEqual(state["state"], "pass")
+        self.assertTrue(state["merged"])
+        self.assertEqual(state["review"]["head_sha"], run.git(self.wt, "rev-parse", "HEAD"))
+        self.assertNotIn("round budget", (self.run_dir / "log.txt").read_text())
+
+    def test_parked_retry_rebases_before_review_at_the_spent_budget(self):
+        self.assert_parked_resume(spent=3)
+
+    def test_parked_retry_rebases_before_review_with_rounds_left(self):
+        self.assert_parked_resume(spent=1)
 
     def test_interrupted_landing_review_resumes_at_the_same_round(self):
         with patch.object(run, "call_retrying", side_effect=run.Exhausted("review interrupted")):
