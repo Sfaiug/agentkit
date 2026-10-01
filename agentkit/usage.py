@@ -939,8 +939,8 @@ def harness_unready(harness):
 
 
 def replenish(cfg, provider, depleted=True, account=None):
-    """Read this provider's meters again -- or that account's of it -- and spend a usage-limit
-    reset if it holds one.
+    """Read this provider's meters again -- or that account's of it -- and spend a
+    usage-limit reset if it holds one.
 
     The moment of need: a worker has just been refused, and that refusal is proof the window
     is spent whatever the cached used% said.  So the five-minute due clock and the 90%
