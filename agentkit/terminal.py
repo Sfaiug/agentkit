@@ -529,6 +529,21 @@ def progress_bar(done, total, narrow=False):
     return f"{bar} {done}/{total}"
 
 
+SIGNAL = "▁▂▃▄▅▆▇█"   # a bar of an effort's strength one to eight eighths high
+
+
+def signal(count, filled):
+    """An effort's strength beside its word, a cell a level: `count` bars rising to a full one
+    (`▂▃▅▆█` for five), the first `filled` of them in the foreground and the rest dim, or blank
+    where nothing can dim them; without UTF-8 only the filled ones, `|` each."""
+    if not utf8():
+        return ["|"] * filled
+    dim = colour_depth()
+    bars = [SIGNAL[max(0, round(8 * (n + 1) / count) - 1)] for n in range(count)]
+    return [bar if n < filled else styled(bar, "dim") if dim else " "
+            for n, bar in enumerate(bars)]
+
+
 ESC = "\x1b"   # what Esc alone reads as: the single byte with nothing after it
 
 
