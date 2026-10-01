@@ -4238,7 +4238,7 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
         return {"returncode": code, "output": output, "killed": killed}
     finally:
         try:
-            worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
+            worker.kill_marked(run_child_env().get(worker.RUN_MARKER), log=lp.log)
         finally:
             if not lp.scratch:
                 restore_probe_checkout(lp, head, branch, before, f"proof on {revision}")
