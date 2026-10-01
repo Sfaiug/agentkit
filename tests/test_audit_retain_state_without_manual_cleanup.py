@@ -197,10 +197,10 @@ if not review:
             self.skipTest("root reads a directory it has no permission for")
         # Git, grep or a parallel test list the checkout with ordinary reads, also while
         # setUp builds the fixture; the snapshots compare access times, so none may reach it.
-        others, seen, mkdir = set(REPO.glob(".retention-*")), set(), os.mkdir
+        others, seen, mkdir = set(REPO.glob(".ak-test-retention-*")), set(), os.mkdir
         def reader(*args, **kwargs):
             mkdir(*args, **kwargs)
-            for top in set(REPO.glob(".retention-*")) - others:
+            for top in set(REPO.glob(".ak-test-retention-*")) - others:
                 seen.update(directory for directory, _, _ in os.walk(top))
         with patch.object(os, "mkdir", reader):
             self.setUp()
