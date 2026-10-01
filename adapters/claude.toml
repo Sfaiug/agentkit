@@ -81,6 +81,8 @@ footer = [
   '\? for shortcuts',
   '(?:⏵⏵\s*)?bypass permissions on(?:\s*\(shift\+tab to cycle\))?(?:\s*·\s*\d+\s+\w+)?(?:\s+[◯○]?\s*\d+% context left)?',
   '\d+% context left(?:\s*·\s*\? for shortcuts)?',
+  # a narrow pane cuts the mode line wherever its width ends, with or without an ellipsis
+  '⏵⏵\s*bypass\b.*',
 ]
 # its composer always has its own rule under it: a prompt-marked line right on the footer is a
 # user's status line, never the composer, even with no composer drawn, as under a picker
