@@ -13732,7 +13732,14 @@ def wait_for_own_pr(cfg, run_dir, url, state, log):
     while True:
         stop_check(run_dir)
         tell_own_pr_round(cfg, run_dir, state, log)
-        info = pr_view(url)
+        try:
+            info = pr_view(url)
+        except Stopped:
+            raise
+        except config.Error as exc:
+            log(f"WARN cannot check the PR head; retrying: {exc}")
+            time.sleep(SLOT_POLL)
+            continue
         if info.get("state") != "OPEN":
             state.update(state="fail", error=f"{url} is {info.get('state', '?')}; review ended",
                          finished_at=time.time())

@@ -230,6 +230,22 @@ class OwnPrRounds(unittest.TestCase):
         self.assertEqual(sends, [None, {"fixture": "typed"}])
         self.assertEqual(len(self.notices), 1)
 
+    def test_failed_github_read_keeps_waiting_for_the_next_head(self):
+        reads = 0
+
+        def unavailable(url):
+            nonlocal reads
+            reads += 1
+            if reads == 2:
+                raise config.Error("fixture: GitHub unavailable")
+            return dict(self.pr)
+
+        with patch.object(run, "pr_view", side_effect=unavailable):
+            state = self.review(["FAIL", "PASS"])
+        self.assertTrue(state["merged"])
+        self.assertEqual(len(self.prompts), 2)
+        self.assertEqual(len(self.notices), 1)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
