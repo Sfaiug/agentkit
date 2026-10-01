@@ -4992,7 +4992,7 @@ def push(lp):
         message = re.sub(r"(?m)^Suite-Passed-Tree:.*\n?", "", old).rstrip()
         body = merge_body(lp, head)
         if body:
-            message += "\n\n" + body[-1]
+            message = add_suite_trailer(lp, message, body[-1])
         if message != old.rstrip():
             git(lp.wt, "-c", f"core.hooksPath={os.devnull}", "commit", "--amend", "--only",
                 "-m", message)
@@ -5292,13 +5292,38 @@ def fork_and_pr(lp, target_branch, upstream_repo, permission):
     return note(lp, "waiting for the maintainer")
 
 
-def merge_body(lp, head):
+def add_suite_trailer(lp, message, trailer):
+    # Keep existing attribution in the trailer block Git and GitHub recognize.
+    path = lp.run_dir / "merge-body.txt"
+    path.write_text(message)
+    return git(lp.wt, "interpret-trailers", "--no-divider", "--where", "end",
+               "--if-exists", "replace", "--trailer", trailer, str(path))
+
+
+def merge_body(lp, head, url=None):
     checked = lp.state.get("final_check") or {}
     suite = declared_suite(lp.wt, lp.target)
     if (suite and checked.get("suite") == suite and checked.get("outcome") == "passed"
             and checked.get("sha") == head and checked.get("tree_sha")
             and checked["tree_sha"] == git(lp.wt, "rev-parse", f"{head}^{{tree}}")):
-        return ["--body", f"Suite-Passed-Tree: {checked['tree_sha']}"]
+        body = f"Suite-Passed-Tree: {checked['tree_sha']}"
+        if url:
+            # An explicit body replaces GitHub's defaults, including co-author credit.
+            owner, name, number = PR_PARTS.match(url).groups()
+            default, why = gh_json(
+                lp.run_dir, "api", "graphql", "-f",
+                "query=query($owner:String!,$name:String!,$number:Int!,$method:PullRequestMergeMethod!){"
+                "repository(owner:$owner,name:$name){pullRequest(number:$number){"
+                "viewerMergeBodyText(mergeType:$method)}}}",
+                "-f", f"owner={owner}", "-f", f"name={name}", "-F", f"number={number}",
+                "-f", f"method={(lp.state.get('merge_method') or 'squash').upper()}",
+                "-q", ".data.repository.pullRequest.viewerMergeBodyText | tojson")
+            if not isinstance(default, str):
+                note(lp, f"could not read the merge commit body for {url}: "
+                         f"{why or 'GitHub returned no body text'}", failed=True)
+                return None
+            body = add_suite_trailer(lp, default, body)
+        return ["--body", body]
     return []
 
 
@@ -5322,7 +5347,9 @@ def do_merge(lp, url, upstream):
             if lp.state["review"].get("head_sha") != lp.state["delivery_sha"]:
                 return note(lp, "the delivery SHA is not the tested and reviewed commit", failed=True)
             if ready:
-                body = [] if method == "rebase" else merge_body(lp, lp.state["delivery_sha"])
+                body = [] if method == "rebase" else merge_body(lp, lp.state["delivery_sha"], url)
+                if body is None:
+                    return False
                 rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method], "--delete-branch",
                              "--match-head-commit", lp.state["delivery_sha"], *body)
             if rc == 0 or stopped(rc, out):
@@ -13751,8 +13778,11 @@ def merge_own_pr(lp, url, head):
     lp.write()
     with merge_turn(lp, upstream):
         for attempt in range(1, MERGE_RETRIES + 2):
+            body = merge_body(lp, head, url)
+            if body is None:
+                return False
             rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method],
-                         "--delete-branch", "--match-head-commit", head, *merge_body(lp, head))
+                         "--delete-branch", "--match-head-commit", head, *body)
             if rc == 0:
                 lp.state["merged"] = True
                 lp.write()
@@ -14018,14 +14048,15 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, context, spares)
     lp.rnd += 1
     lp.round_dir.mkdir(parents=True, exist_ok=True)
+    state.pop("final_check", None)
     if cmds:
         clean = git_out(wt, "diff", "--quiet", "HEAD")[0] == 0
         ok, dw_log = verify_work(lp)
         evidence = (suite_evidence(lp, cmds, lp.validation)
                     if clean and git_out(wt, "diff", "--quiet", "HEAD")[0] == 0 else {})
-        state["final_check"] = {"outcome": "passed" if ok else "failed",
-                                "sha": lp.validation["head_sha"], "where": "round", "round": 1,
-                                **evidence}
+        if is_own and ok and evidence:
+            state["final_check"] = {"outcome": "passed", "sha": lp.validation["head_sha"],
+                                    "where": "round", "round": 1, **evidence}
         log(f"tests ({tests}): {'passed' if ok else 'FAILED'}")
     else:
         ok, dw_log = None, "(AGENTS.md declares no `tests:` command; nothing was run)"

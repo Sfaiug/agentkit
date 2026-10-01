@@ -4,6 +4,7 @@ Offline: real git commits and merges in an acme sandbox; GitHub and models are f
 """
 
 from contextlib import ExitStack, nullcontext
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -72,11 +73,23 @@ class MergeTrailer(unittest.TestCase):
         return ok, text
 
     def gh(self, cwd, *args, **_kw):
+        if args[:2] == ("api", "graphql"):
+            query = next(arg for arg in args if arg.startswith("query="))
+            self.assertIn("viewerMergeBodyText(mergeType:$method)", query)
+            for field in ("owner=acme", "name=widget", "number=7"):
+                self.assertIn(field, args)
+            method = next(arg.removeprefix("method=").lower()
+                          for arg in args if arg.startswith("method="))
+            self.assertIn(method, ("squash", "merge"))
+            self.assertIn(".data.repository.pullRequest.viewerMergeBodyText | tojson", args)
+            return 0, json.dumps(self.default_body(method))
         self.assertEqual(args[:2], ("pr", "merge"))
         self.calls.append(args)
         head = args[args.index("--match-head-commit") + 1]
         self.assertEqual(head, self.git("rev-parse", "ak/fix-api"))
-        body = args[args.index("--body") + 1] if "--body" in args else ""
+        method = "merge" if "--merge" in args else "squash"
+        body = (args[args.index("--body") + 1] if "--body" in args
+                else self.default_body(method))
         if "--body-file" in args:
             body = Path(args[args.index("--body-file") + 1]).read_text()
         self.git("checkout", "-q", "main")
@@ -90,12 +103,17 @@ class MergeTrailer(unittest.TestCase):
             self.git("commit", "-q", "-m", "Fix API\n\n" + body)
         return 0, "merged"
 
+    def default_body(self, method):
+        if method == "merge":
+            return "Fix API\n\nThe PR's explanation.\n\nCo-authored-by: Acme <acme@localhost>"
+        return self.git("log", f"{self.base}..ak/fix-api", "--format=%B")
+
     def loop(self, suite=SUITE, method="squash", once=None):
         self.git("update-ref", "refs/heads/main", self.base)
         self.git("reset", "--hard", self.base)
         (self.repo / "AGENTS.md").write_text(f"---\ntests: {suite}\n---\n" if suite else "# acme\n")
         (self.repo / "work.txt").write_text("work\n")
-        self.commit("Fix API\n\nKeep this explanation.")
+        self.commit("Fix API\n\nKeep this explanation.\n\nCo-authored-by: Acme <acme@localhost>")
         head, tree = self.git("rev-parse", "HEAD"), self.git("rev-parse", "HEAD^{tree}")
         state = {"run_id": self.directory.name, "title": "Fix API", "state": "running",
                  "verdict": "PASS", "executor": "opus", "reviewer": "astra",
@@ -127,10 +145,18 @@ class MergeTrailer(unittest.TestCase):
 
     def test_squash_after_passing_final_check_names_checked_tree(self):
         lp = self.loop()
+        (self.repo / "work.txt").write_text("more work\n")
+        self.commit("Follow up\n\nKeep the second explanation.")
+        lp.state["review"].update(run.commit_identity(self.repo))
+        lp.state["delivery_sha"] = self.git("rev-parse", "HEAD")
+        default = self.default_body("squash")
         tree = self.git("rev-parse", "HEAD^{tree}")
         self.assertTrue(run.final_check(lp, "origin/main"))
         message = self.land(lp)
         self.assertIn(f"\nSuite-Passed-Tree: {tree}", message)
+        self.assertIn(default + "\nSuite-Passed-Tree:", message)
+        self.assertEqual(self.git("log", "-1", "--format=%(trailers:key=Co-authored-by)"),
+                         "Co-authored-by: Acme <acme@localhost>")
         self.assertEqual(self.git("rev-parse", "HEAD^{tree}"), tree)
 
     def test_merge_and_rebase_name_checked_tree(self):
@@ -138,6 +164,7 @@ class MergeTrailer(unittest.TestCase):
             with self.subTest(method=method):
                 self.git("checkout", "-q", "ak/fix-api")
                 lp = self.loop(method=method)
+                default = self.default_body(method)
                 tree = self.git("rev-parse", "HEAD^{tree}")
                 self.assertTrue(run.final_check(lp, "origin/main"))
                 message = self.land(lp)
@@ -145,6 +172,23 @@ class MergeTrailer(unittest.TestCase):
                 self.assertEqual(self.git("rev-parse", "HEAD^{tree}"), tree)
                 if method == "rebase":
                     self.assertIn("Keep this explanation.", message)
+                else:
+                    self.assertIn(default + "\nSuite-Passed-Tree:", message)
+                self.assertEqual(self.git("log", "-1", "--format=%(trailers:key=Co-authored-by)"),
+                                 "Co-authored-by: Acme <acme@localhost>")
+
+    def test_unavailable_default_body_leaves_the_pr_open(self):
+        lp = self.loop()
+        self.assertTrue(run.final_check(lp, "origin/main"))
+
+        def gh(cwd, *args, **_kw):
+            if args[:2] == ("api", "graphql"):
+                return 1, "fixture: body unavailable"
+            return self.gh(cwd, *args, **_kw)
+
+        with patch.object(run, "gh", side_effect=gh):
+            self.assertFalse(run.do_merge(lp, URL, "origin/main"))
+        self.assertEqual(self.calls, [])
 
     def test_without_declared_suite_has_no_trailer_even_with_once_check(self):
         for method, once in (("squash", None), ("squash", "true"), ("rebase", "true")):
@@ -190,47 +234,66 @@ class MergeTrailer(unittest.TestCase):
         lp.state["delivery_sha"] = self.git("rev-parse", "HEAD")
         self.assertNotIn("Suite-Passed-Tree:", self.land(lp))
 
-    def own_pr(self, suite):
+    def review_pr(self, suite, own=True):
         lp = self.loop(suite=suite)
         head, tree = self.git("rev-parse", "HEAD"), self.git("rev-parse", "HEAD^{tree}")
-        lp.state.update(head_sha=head, own_pr=True, own_orchestrator="opus")
+        lp.state.update(head_sha=head, own_pr=own, own_orchestrator="opus" if own else None)
         lp.save()
         info = {"state": "OPEN", "headRefOid": head, "baseRefName": "main",
                 "title": "Fix API", "author": "acme", "body": "Fix the API"}
 
-        def review(loop, summary, ok, dw_log, **_kw):
-            self.assertIs(ok, True if suite else None)
-            loop.state["review"] = {**lp.state["review"], "executor": None,
-                                    "executor_provider": None, "done_when": ok}
-            loop.state["verdict"] = "PASS"
-            return "PASS"
+        original_json = run.gh_json
+
+        def gh_json(cwd, *args, **_kw):
+            return (info, "") if args[:2] == ("pr", "view") else original_json(cwd, *args, **_kw)
 
         with ExitStack() as mocks:
             for name, value in (("pr_view", info), ("launch_session", "fix-api"),
-                                ("own_pr_orchestrator", (True, "opus")),
+                                ("own_pr_orchestrator", (own, "opus" if own else None)),
                                 ("checkout_for", self.repo), ("disk_pressure", False),
                                 ("fetch", (0, "")), ("make_worktree", (self.repo, "ak/fix-api")),
                                 ("collect_usage", {}), ("post_review", True),
-                                ("checks", (True, "")), ("gh_json", (info, "")),
+                                ("checks", (True, "")),
                                 ("join_session_project", None), ("project_lessons", "")):
                 mocks.enter_context(patch.object(run, name, return_value=value))
-            mocks.enter_context(patch.object(run, "review", side_effect=review))
+            mocks.enter_context(patch.object(run, "gh_json", side_effect=gh_json))
+            mocks.enter_context(patch.object(run, "call_retrying", return_value=(
+                0, "VERDICT: PASS\n## Findings\n- none", "fixture-session", False)))
             state = run.review_pr(self.cfg, self.directory, URL,
                                   {"--review": "astra"}, lambda line: None)
-        self.assertTrue(state["merged"])
-        return tree
+        return state, tree
 
     def test_own_pr_pass_names_the_suite_tree(self):
-        tree = self.own_pr(SUITE)
-        self.assertIn(f"\nSuite-Passed-Tree: {tree}", self.git("log", "-1", "--format=%B"))
+        state, tree = self.review_pr(SUITE)
+        self.assertTrue(state["merged"])
+        message = self.git("log", "-1", "--format=%B")
+        self.assertIn(f"\nSuite-Passed-Tree: {tree}", message)
+        self.assertIn(self.default_body("squash") + "\nSuite-Passed-Tree:", message)
+        self.assertEqual(self.git("log", "-1", "--format=%(trailers:key=Co-authored-by)"),
+                         "Co-authored-by: Acme <acme@localhost>")
 
     def test_own_pr_without_suite_has_no_trailer(self):
-        self.own_pr(None)
+        state, _ = self.review_pr(None)
+        self.assertTrue(state["merged"])
         self.assertNotIn("Suite-Passed-Tree:", self.git("log", "-1", "--format=%B"))
 
     def test_own_pr_suite_on_dirty_files_does_not_certify_the_commit(self):
-        self.own_pr("printf 'changed\\n' > work.txt")
+        state, _ = self.review_pr("printf 'changed\\n' > work.txt")
+        self.assertTrue(state["merged"])
         self.assertNotIn("Suite-Passed-Tree:", self.git("log", "-1", "--format=%B"))
+
+    def test_failed_pr_reviews_do_not_name_a_nonexistent_once_log(self):
+        for own in (True, False):
+            with self.subTest(own=own):
+                state, _ = self.review_pr("false", own=own)
+                self.assertEqual(state["state"], "fail")
+                self.assertFalse(state["merged"])
+                self.assertNotIn("final_check", state)
+                self.assertNotIn("once.log", run.handback_line(state, self.directory, self.cfg))
+                self.assertTrue((self.directory / "round-1/donewhen.log").exists())
+                self.assertFalse((self.directory / "round-1/once.log").exists())
+                result = (self.directory / "result.md").read_text()
+                self.assertIn("final check: none (no once-commands)", result)
 
 
 if __name__ == "__main__":
