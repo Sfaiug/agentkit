@@ -26,6 +26,7 @@ from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import host, config, notify, orch, run, usage, watch
 
 WEEK = 604800
@@ -402,6 +403,7 @@ class Quota(unittest.TestCase):
             return type("Proc", (), {"pid": 12345, "poll": lambda self: None})()
 
         with patch.object(run.subprocess, "Popen", side_effect=fake_popen), \
+                patch.object(orch, "user_manager", return_value=False), \
                 patch.object(orch, "scope_oom_policy", return_value=False), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.cmd_resume([run_dir.name, "--bg"]), 0)
@@ -486,7 +488,7 @@ class QuotaDry(unittest.TestCase):
     # --- fixture plumbing -----------------------------------------------------------------
 
     def script(self, path, body):
-        path.write_text(f"#!{sys.executable}\n{body}")
+        path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
 
     def plan(self, responses):

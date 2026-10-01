@@ -24,6 +24,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import host, config, gc, menu, notify, orch, run, terminal, usage, watch
 
 SEAT = "seat-v5m"          # the seat every one of these runs is launched from
@@ -51,7 +52,9 @@ if role == "reviewer":
     seen = sum(1 for line in (root / "calls.jsonl").read_text().splitlines()
                if json.loads(line)["role"] == "reviewer")
     word = verdicts[seen - 1] if seen <= len(verdicts) else verdicts[-1]
-    text = f"VERDICT: {word}\\n\\n## Findings\\n- deliverable.txt:1 - say it again - the task asks"
+    text = f"VERDICT: {word}"
+    if word == "FAIL":
+        text += "\\n\\n## Findings\\n- deliverable.txt:1 - say it again - the task asks"
 else:
     (workspace / "deliverable.txt").write_text(role + "\\n")
     text = f"## Summary\\nThe {role} wrote the deliverable."
@@ -92,7 +95,7 @@ class Sandbox(unittest.TestCase):
         self.cfg = config.load()
         for harness in {m["harness"] for m in self.cfg["models"].values()}:
             path = self.adapters / f"{harness}.sh"
-            path.write_text(f"#!{sys.executable}\n{ADAPTER}")
+            path.write_text(f"#!{sys.executable}\n{scripted(ADAPTER)}")
             path.chmod(0o755)
         # the seat lookup, without a tmux server: only SEAT is up
         self.live = {SEAT}

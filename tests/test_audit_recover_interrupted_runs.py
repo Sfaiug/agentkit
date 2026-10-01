@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import config, gc, job as jobs, menu, notify, orch, run, terminal, watch
 
 
@@ -55,8 +56,10 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
 assert os.environ["TMUX_TMPDIR"].startswith(os.environ["RECOVERY_FIXTURE"])
 sys.exit(1)
 ''')
-        for executable in ("gh", "claude", "codex", "muse"):
+        for executable in ("gh", "claude", "codex", "muse", "systemctl", "systemd-run"):
             self.script(self.bin / executable, 'raise AssertionError("external call forbidden")\n')
+        # Waiting for a systemd launcher does not wait for the recovery worker it starts.
+        self.stack.enter_context(patch.object(orch, "user_manager", return_value=False))
         self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord call")))
         self.notified = self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
@@ -110,7 +113,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         self.addCleanup(self.finish_children)
 
     def script(self, path, body):
-        path.write_text(f"#!{sys.executable}\n{body}")
+        path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
 
     def finish_children(self):

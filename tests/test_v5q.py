@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import host, config, gc, history, job as jobs, notify, orch, retention, run, worker
 
 ADAPTER = '''import json, os, pathlib, sys, time
@@ -129,7 +130,7 @@ sys.exit(1)
         self.reviews(PASS)
 
     def script(self, path, body):
-        path.write_text(f"#!{sys.executable}\n{body}")
+        path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
 
     def reviews(self, *answers):
@@ -945,6 +946,7 @@ sys.exit(1)
             return FakeChild()
 
         with patch.object(stdlib_subprocess, "Popen", side_effect=fake_popen), \
+                patch.object(orch, "user_manager", return_value=False), \
                 patch.object(orch, "scope_oom_policy", return_value=False):
             out = io.StringIO()
             with redirect_stdout(out):

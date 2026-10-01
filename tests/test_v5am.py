@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import host, config, job as jobs, menu, notify, orch, run, watch
 
 ADAPTER = r'''import json, os, pathlib, sys, time
@@ -111,7 +112,7 @@ class Slots(unittest.TestCase):
         self.addCleanup(self.cleanup_processes)
 
     def script(self, path, body):
-        path.write_text(f"#!{sys.executable}\n{body}")
+        path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
 
     def cleanup_processes(self):

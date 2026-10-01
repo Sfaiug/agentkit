@@ -26,6 +26,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 SLEEP = time.sleep                  # the real one, kept where a fixture needs to wait
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import host, config, gc, job as jobs, menu, notify, orch, run, terminal, usage, watch, worker
 
 # A fake harness, in the two shapes a turn can take: one that authenticates and answers, and
@@ -196,7 +197,7 @@ class Login(unittest.TestCase):
 
     def adapter(self, harness, text):
         path = self.adapters / f"{harness}.sh"
-        path.write_text(text.replace("__STATE__", str(self.fixture)).replace("__H__", harness))
+        path.write_text(scripted(text.replace("__STATE__", str(self.fixture)).replace("__H__", harness)))
         path.chmod(0o755)
         return path
 

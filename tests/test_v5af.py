@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import host, config, gc, run, task, usage
 
 URL = "https://github.com/fixture/repo/pull/1"
@@ -132,7 +133,7 @@ class V5af(unittest.TestCase):
         self.stack.enter_context(redirect_stdout(io.StringIO()))
 
     def script(self, path, text):
-        path.write_text(f"#!{sys.executable}\n{text}")
+        path.write_text(f"#!{sys.executable}\n{scripted(text)}")
         path.chmod(0o755)
 
     def identity(self, cwd):

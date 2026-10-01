@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import host, config, run
 
 
@@ -144,7 +145,7 @@ class V5aa(unittest.TestCase):
         return 0, answer, session, False
 
     def script(self, path, text):
-        path.write_text(f"#!{sys.executable}\n{text}")
+        path.write_text(f"#!{sys.executable}\n{scripted(text)}")
         path.chmod(0o755)
 
     def log_text(self, run_dir):

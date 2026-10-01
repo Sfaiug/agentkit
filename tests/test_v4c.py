@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import config, orch, run, usage, watch
 
 URL = "https://github.com/me/repo/pull/7"
@@ -565,7 +566,7 @@ sys.exit(item.get("rc", 0))
         adapters.mkdir()
         for harness in ("claude", "codex", "muse"):
             path = adapters / f"{harness}.sh"
-            path.write_text('''#!/bin/sh
+            path.write_text(scripted('''#!/bin/sh
 if [ "$1" = usage ]; then echo '{"meters":[],"error":"offline"}'; exit 0; fi
 mkdir -p "$6"
 printf '%s\\n' "$V4C_SECRET" >"$6/env-seen"
@@ -573,7 +574,7 @@ case "$0" in
   */claude.sh) printf '%s\\n' "$V4C_SECRET" >"$4/delivered"; echo '## Summary' >"$6/final.md" ;;
   *) printf 'VERDICT: PASS\\n\\n## Findings\\n- none\\n' >"$6/final.md" ;;
 esac
-''')
+'''))
             path.chmod(0o755)
         # No notification transport or real tmux server is needed for a worker run.
         tmux = self.bin / "tmux"

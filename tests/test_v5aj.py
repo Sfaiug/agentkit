@@ -12,11 +12,13 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import host, config, notify, run, usage, worker
 
-NO_VERDICT_PROMPT = ("Your previous turn ended without a verdict. Review the diff now and end "
-                     "your answer with VERDICT: PASS or VERDICT: FAIL. Do not start commands you "
-                     "will not wait for in this turn.")
+NO_VERDICT_PROMPT = ("Your previous turn ended without ak hand-in done. Review the diff now, "
+                     "hand in any remaining findings or follow-ups with ak hand-in, then run "
+                     "ak hand-in done. Earlier records have been carried into this turn. "
+                     "Do not start commands you will not wait for in this turn.")
 NO_VERDICT = "All checks passed. No issues found.\n"
 PASS = "VERDICT: PASS\n\n## Findings\n- none\n"
 FAIL = "VERDICT: FAIL\n\n## Findings\n- file.py:1 - issue - why it matters\n"
@@ -154,7 +156,7 @@ sys.exit(1)
         self.stack.enter_context(patch.object(usage, "pick_order", side_effect=lambda cfg, *a, **k: list(self.order)))
 
     def script(self, path, body):
-        path.write_text(f"#!{sys.executable}\n{body}")
+        path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
 
     def reviews(self, *answers):
@@ -343,7 +345,7 @@ sys.exit(1)
         self.assertEqual(len(after["round_summaries"]), 1)
         self.assertIsNone(after.get("verdict"))
         self.assertEqual(after.get("review_pending", {}).get("round"), 2)
-        self.assertIn(NO_VERDICT.strip().splitlines()[0], after.get("findings", ""))
+        self.assertEqual(after.get("findings", ""), "")
         # The same commit re-reviews with no executor turn once the reviewer answers.
         self.reviews(PASS)
         with patch.object(run, "execute", side_effect=AssertionError("no executor turn")):

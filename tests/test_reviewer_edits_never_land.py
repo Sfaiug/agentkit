@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import config, run, worker
 
 
@@ -95,7 +96,7 @@ class ReviewerEdits(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}))
         for harness in {entry["harness"] for entry in cfg["models"].values()}:
             adapter = adapters / f"{harness}.sh"
-            adapter.write_text(f"#!{sys.executable}\n{ADAPTER}")
+            adapter.write_text(f"#!{sys.executable}\n{scripted(ADAPTER)}")
             adapter.chmod(0o755)
         self.stack.enter_context(patch.object(worker, "auth_ok", return_value=(True, "")))
         self.stack.enter_context(patch.object(worker, "kill_marked"))

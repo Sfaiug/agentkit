@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import host, config, gc, notify, run, usage, worker
 
 
@@ -108,7 +109,7 @@ sys.exit(1)
         self.stack.enter_context(redirect_stdout(io.StringIO()))
 
     def script(self, path, body):
-        path.write_text(f"#!{sys.executable}\n{body}")
+        path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
 
     def reviews(self, *answers):

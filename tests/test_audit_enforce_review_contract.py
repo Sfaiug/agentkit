@@ -13,6 +13,7 @@ from unittest.mock import call, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import host, config, run, usage
 
 
@@ -106,7 +107,7 @@ sys.exit(row["code"])
         self.stack.enter_context(redirect_stdout(io.StringIO()))
 
     def script(self, path, body):
-        path.write_text(f"#!{sys.executable}\n{body}")
+        path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
 
     def available(self, *providers):
@@ -186,7 +187,7 @@ sys.exit(row["code"])
         self.assertEqual(state["verdict"], "FAIL")
         self.assertEqual(state["review"]["returncode"], 1)
         self.assert_undelivered(state)
-        self.assertIn("partial review", state["findings"])
+        self.assertEqual(state["findings"], "VERDICT: PASS")
         self.assertEqual((directory / "round-1/reviewer/final.md").read_text(),
                          "VERDICT: PASS\npartial review")
         self.assertEqual((directory / "round-1/reviewer/stderr.log").read_text(), "diagnostic for astra")

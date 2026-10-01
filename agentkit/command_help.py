@@ -8,6 +8,8 @@ NOTIFY_DONE = ('ak notify done "SUMMARY" [--pr URL] '
                '[--session NAME] [--dry-run]')
 NOTIFY_USAGE = (f"usage: {NOTIFY_NEEDS}\n       {NOTIFY_DONE}\n"
                 "       ak notify --check")
+HAND_IN_FINDING = 'ak hand-in finding PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES)'
+HAND_IN_FOLLOWUP = 'ak hand-in follow-up PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES) --before PROOF'
 
 # Each entry is (usage, description, example). Model selections remain in config.toml;
 # MODEL in usage/examples stands for one of that file's keys.
@@ -16,6 +18,22 @@ COMMANDS = {
               "ak usage --json"),
     "worker": (WORKER_USAGE, "Run one headless model turn from a task or prompt file.",
                "ak worker MODEL task.md --role reviewer"),
+    "hand-in": (f"usage: {HAND_IN_FINDING}\n       {HAND_IN_FOLLOWUP}\n       ak hand-in done",
+                "Hand in checked review records from a worker turn.\n"
+                "The loop names AK_HAND_IN; outside a turn this command is refused.\n"
+                "Paths and lines must exist in the checkout; a quote must occur in that file.\n"
+                "--run executes in the checkout and records bounded output excerpts and the exit status.\n"
+                "--before proves a follow-up existed before the task.\n"
+                "done completes the review: any blocking finding means FAIL, otherwise PASS.",
+                'ak hand-in finding api.py:12 "Wrong result" "Breaks callers" --quote "return None"'),
+    "hand-in finding": (f"usage: {HAND_IN_FINDING}",
+                        "Hand in a blocking finding with command or quoted evidence.",
+                        'ak hand-in finding api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py"'),
+    "hand-in follow-up": (f"usage: {HAND_IN_FOLLOWUP}",
+                          "Hand in a proven defect that existed before the task; it cannot fail this review.",
+                          'ak hand-in follow-up api.py:12 "Wrong result" "Breaks callers" --quote "return None" --before "base abc123 has the same defect"'),
+    "hand-in done": ("usage: ak hand-in done", "Complete this review and derive its verdict.",
+                     "ak hand-in done"),
     "run": ("""usage: ak run TASK [TASK ...] [--rounds N] [--exec MODEL] [--review MODEL]
               [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N]
        ak run --review-pr URL [--review MODEL] [--first] [--no-merge] [--bg]
@@ -135,12 +153,13 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
 # `ak --help` is one screen: the menu, then the commands an orchestrator uses, one line
 # each, and under one dim `internal:` line the ones the toolkit runs for itself.
 ORCHESTRATOR = ("run", "notify", "wait", "usage", "browser", "fetch")
-INTERNAL = ("orch", "worker", "watch", "update", "macbridge", "attach", "doctor")
+INTERNAL = ("orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor")
 
 PURPOSES = {
     "run": "execute a task file to a merged PR",
     "orch": "open a seat",
     "worker": "run one headless model turn from a task or prompt file",
+    "hand-in": "hand in checked review records from a worker turn",
     "attach": "the menu",
     "usage": "show provider usage and worker pick order",
     "browser": "inspect the shared browser, sign in, register MCP tools, or install the stack",

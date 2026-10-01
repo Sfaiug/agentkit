@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, call, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import host, config, notify, run, worker
 
 # The words the task pins, quoted here so the tests fail if the loop rewords them.
@@ -146,7 +147,7 @@ sys.exit(1)
         self.stack.enter_context(redirect_stdout(io.StringIO()))
 
     def script(self, path, body):
-        path.write_text(f"#!{sys.executable}\n{body}")
+        path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
 
     def exec_plan(self, *steps):

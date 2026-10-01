@@ -54,6 +54,8 @@ Each module: its knowledge, API and callers. Leaks are named;
 - `worker.py`: headless turns, preambles, review gate, adapters, silence, auth and process
   cleanup. Offers `turn`, `call`, `kill_marked`, `auth_ok`.
   Used by run, watch, usage, menu, harness. Leak: Claude shell timeout.
+- `hand_in.py`: `ak hand-in` checks locations and bounded evidence, appends review records and
+  derives PASS/FAIL on done. Worker names the channel; run reads it on every harness.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
   `usage.json`. Offers `collect`, `pick_order`, `mark_exhausted`, `render`. Used by run,
   orch, menu, watch, history. Leak: watch and the Muse plugin call its private helpers.
@@ -115,18 +117,18 @@ Each module: its knowledge, API and callers. Leaks are named;
 Planned, one task each; none of it is true today.
 
 Run side, out of `run.py`:
-- `record`: sole owner of run.json: keys, stop-safe write, transition table.
-- `turn`: one model turn, branching on the harness's `failure` and login words.
-- `staffing`: who executes and reviews, from budgets.
-- `gate`: done-when commands, heavy-suite turns, host admission.
-- `prompts`: role preambles and the review contract.
-- `rounds`: the loop, ~150 lines calling the rest.
+- `record`: run.json and transitions.
+- `turn`: model calls and harness failures.
+- `staffing`: executor and reviewer budgets.
+- `gate`: commands, suite turns, admission.
+- `prompts`: preambles and review contract.
+- `rounds`: loop calling the rest.
 - `land`: PR, checks, merge.
-- `handback`: telling the seat and the user, once.
+- `handback`: seat and user notices.
 
 Session side:
-- a session store keyed by an immutable id: a rename is one field.
-- one folder per harness (adapter, manifest, plugin, hooks), hooks parsed in Python.
+- session store: immutable ids, rename as a field.
+- a folder per harness: adapter, manifest, plugin, hooks parsed in Python.
 - `pane`: tmux capture, typing and sockets.
-- `status`: a pure function of hook facts, screen and notices to the three states.
-- `care`: the tick's passes (resume, revive, nudge, recover) as a list.
+- `status`: hook facts, screen and notices to the three states.
+- `care`: tick passes (resume, revive, nudge, recover).

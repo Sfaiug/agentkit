@@ -186,7 +186,9 @@ class Antigravity(unittest.TestCase):
         self.assertIsNone(history.event_tokens(out / "events.jsonl"))
         # and the record declares itself the failure the loop reads its refusal words off
         record = json.loads((out / "events.jsonl").read_text())
-        self.assertTrue(run.is_failure(record) and run.refusal_event(record))
+        self.assertTrue(run.is_failure(record))
+        self.assertEqual(run.failures(json.dumps(record), watch.terminal("antigravity"), handed_in=True),
+                         [json.dumps(run.without_output(record))])
 
     def test_a_killed_turn_keeps_its_conversation(self):
         # killed before agy wrote session_id: the retry continues the id the stream opened with

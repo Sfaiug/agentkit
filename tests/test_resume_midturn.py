@@ -20,10 +20,10 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import config, notify, orch, run, watch
 
-ADAPTER = """#!{python}
-import json, os, sys
+ADAPTER = """import json, os, sys
 from pathlib import Path
 record = Path(os.environ["RESUME_FIXTURE"]) / "calls.jsonl"
 if len(sys.argv) < 2:
@@ -62,7 +62,7 @@ class ResumeMidturn(unittest.TestCase):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         adapters = self.root / "adapters"
         adapters.mkdir()
-        script = ADAPTER.format(python=sys.executable)
+        script = f"#!{sys.executable}\n{scripted(ADAPTER.format())}"
         for harness in ("claude", "codex", "muse"):
             path = adapters / f"{harness}.sh"
             path.write_text(script)
