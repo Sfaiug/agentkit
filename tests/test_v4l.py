@@ -864,6 +864,7 @@ esac
             for why, default, selected, skip in (
                     ("default spent, another login has room", record(100), record(10), True),
                     ("default has room, another login spent", record(10), record(100), False),
+                    ("default meter lags its refusal", record(99), record(85), False),
                     ("default not measured", None, record(100), False),
                     ("default window already reset", record(100, time.time() - 1), record(10), False),
                     ("default refused below its meter cap",
@@ -889,6 +890,103 @@ esac
                     else:
                         self.assertIn("ATTEMPT", result.stdout)
                         self.assertNotIn("SKIP", result.stdout)
+                    self.assertEqual((host / "usage.json").read_text(), cache)
+
+    def test_smoke_handles_a_live_refusal_below_the_cached_cap(self):
+        source = (REPO / "tests/smoke.sh").read_text()
+        newrepo = source[source.index("newrepo()"):source.index('echo "workdir:')]
+        calls = source[source.index("# --- 3:"):source.index("# --- 4:")]
+        mcp = source[source.index("# 31d/31e:"):source.index("# --- 32:")]
+        # Every live entry point is a shell fake. The stream checker returns the
+        # worker's exit, or a fixture assertion failure after a successful turn.
+        fakes = r'''
+python3() {
+  case "$*" in
+    *check_claude_stream.py*) shift 2; "$@"; local rc=$?
+                            [ "$rc" != 0 ] || rc=${CHECKER_RC:-0}; return "$rc" ;;
+    *urllib.request*|*socket.create_connection*) return 0 ;;
+    *) "$PYTHON_BIN" "$@" ;;
+  esac
+}
+model_unavailable() { [ "$1" = opus ] || echo 'fixture harness is not installed'; }
+skip_unavailable() { return 1; }
+ak() {
+  case "$1" in
+    usage) cat "$WORK/sandbox.json" ;;
+    browser) return 0 ;;
+    worker)
+      local out='' workspace='' resumed=0 rc text
+      shift 3
+      while [ $# != 0 ]; do
+        case "$1" in
+          --out) out=$2; shift 2 ;;
+          --workspace) workspace=$2; shift 2 ;;
+          --session) resumed=1; shift 2 ;;
+          *) return 97 ;;
+        esac
+      done
+      echo "worker-$resumed" >>"$WORK/calls"
+      if [ "$resumed" = 0 ]; then rc=$FIRST_RC text=$FIRST_TEXT
+      else rc=$RESUME_RC text=$RESUME_TEXT; fi
+      mkdir -p "$out"
+      printf '%s\n' "$text" >"$out/final.md"
+      printf '%s\n' "${WARNING:-}" >"$out/stderr.log"
+      echo fixture-session >"$out/session_id"
+      [ "$rc" != 0 ] || printf 'hello\n' >"$workspace/hello.txt"
+      return "$rc" ;;
+    *) return 97 ;;
+  esac
+}
+claude() { echo mcp >>"$WORK/calls"; echo "$MCP_TEXT"; return "$MCP_RC"; }
+codex() { echo BROWSER_TABS=1; }
+'''
+        script = ('set -uo pipefail\n. "$REPO/tests/acceptance.sh"\n' + fakes +
+                  newrepo + calls + mcp + '\nfinish\n')
+        notice = "You've hit your weekly limit · resets Oct 2, 2pm (Europe/Berlin)"
+        with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
+            root = Path(directory)
+            host = root / "caller/.agentkit/state"
+            host.mkdir(parents=True)
+            meter = {"meters": [{"name": "weekly_all", "used": 99,
+                                  "resets_at": time.time() + 86400, "exhausted": False}]}
+            cached = {"providers": {"anthropic": {
+                "meters": [{**meter["meters"][0], "used": 85}], "account": "second",
+                "accounts": {"default": meter}}}}
+            cache = json.dumps(cached)
+            (host / "usage.json").write_text(cache)
+            base = {**os.environ, "HOME": directory, "REPO": str(REPO),
+                    "SMOKE_CALLER_HOME": str(root / "caller"), "PYTHON_BIN": sys.executable,
+                    "PYTHONDONTWRITEBYTECODE": "1", "AGENTKIT_ACCEPTANCE_REQUIRED": "0",
+                    "FIRST_RC": "0", "FIRST_TEXT": "DONE", "RESUME_RC": "0",
+                    "RESUME_TEXT": "hello.txt", "MCP_RC": "0",
+                    "MCP_TEXT": "BROWSER_TABS=1 DESKTOP=ok"}
+            for name, env, expected, skipped, fail in (
+                    ("create", {"FIRST_RC": "1", "FIRST_TEXT": notice},
+                     ["worker-0"], ["3a", "3b", "31d"], False),
+                    ("resume", {"RESUME_RC": "1", "RESUME_TEXT": notice},
+                     ["worker-0", "worker-1"], ["3b", "31d"], False),
+                    ("mcp", {"MCP_RC": "1", "MCP_TEXT": notice},
+                     ["worker-0", "worker-1", "mcp"], ["31d"], False),
+                    ("fault", {"FIRST_RC": "1", "FIRST_TEXT": "API Error: HTTP 503"},
+                     ["worker-0", "worker-1", "mcp"], [], True),
+                    ("warning", {"WARNING": notice},
+                     ["worker-0", "worker-1", "mcp"], [], False),
+                    ("stream assertion", {"WARNING": notice, "CHECKER_RC": "1"},
+                     ["worker-0", "worker-1", "mcp"], [], True)):
+                with self.subTest(name=name):
+                    work = root / name
+                    work.mkdir()
+                    (work / "sandbox.json").write_text(json.dumps({
+                        "providers": {"anthropic": {"meters": []}}}))
+                    result = subprocess.run(["bash", "-c", script], cwd=work,
+                                            env={**base, **env, "WORK": str(work)},
+                                            text=True, capture_output=True, timeout=30)
+                    self.assertEqual(result.returncode, 1 if fail else 0,
+                                     result.stdout + result.stderr)
+                    for label in ("3a", "3b", "31d"):
+                        self.assertEqual(f"SKIP  {label}:" in result.stdout, label in skipped,
+                                         result.stdout)
+                    self.assertEqual((work / "calls").read_text().splitlines(), expected)
                     self.assertEqual((host / "usage.json").read_text(), cache)
 
 
