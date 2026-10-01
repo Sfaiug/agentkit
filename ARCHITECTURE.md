@@ -25,7 +25,7 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 
 - `run.py`: staffing, turns, gates, review, landing, hand-back, provider failures, slots,
   admission and worktrees. Offers `main`, `going`, `pick_models`. For watch, job, gc, orch,
-  menu, notify, usage, worker, retention and a hook.
+  menu, notify, usage, worker and a hook.
 - `record.py`: run.json reads, stop-safe writes, recovery locks, defaults, folders and writer
   identity. Offers `read_state`, `save_state`, `record`, `stop_check`, `process_active`,
   `writing`. For run, job, menu, orch, watch, gc, retention, history and worker.
