@@ -3316,14 +3316,22 @@ def join_suite(lp):
                  compare=getattr(lp, "suite_compare", True))
 
 
+def passed_review_head(state):
+    """The last reviewed head whose checks passed, before landing reviews skip the suite."""
+    reviewed = state.get("review") or {}
+    passed_head = ((state.get("review_pending") or {}).get("passed_head_sha")
+                   or reviewed.get("passed_head_sha"))
+    if not passed_head and reviewed.get("verdict") == "PASS" and reviewed.get("done_when"):
+        passed_head = reviewed.get("rebased_from") or reviewed.get("head_sha")
+    return passed_head or next((entry.get("passed_head_sha") or entry.get("head_sha")
+        for entry in reversed(state.get("round_summaries") or [])
+        if entry.get("verdict") == "PASS" and entry.get("done_when") and entry.get("head_sha")), None)
+
+
 def pending_review(lp, reason):
     """Invalidate before integration can be delivered, without granting extra task rounds."""
     entries = lp.state["round_summaries"]
-    reviewed = lp.state.get("review") or {}
-    # A landing review may have no round row; keep its head before invalidating it.
-    passed_head = ((reviewed.get("rebased_from") or reviewed.get("head_sha"))
-                   if reviewed.get("verdict") == "PASS" and reviewed.get("done_when")
-                   else (lp.state.get("review_pending") or {}).get("passed_head_sha"))
+    passed_head = passed_review_head(lp.state)
     lp.state.update(verdict=None, review=None,
                     review_pending={"round": lp.rnd + 1,
                                     "summary": entries[-1]["summary"] if entries else "",
@@ -3877,8 +3885,10 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     `resolve_conflicts`.  The verdict is recorded either way, because delivery is decided
     on it.
     """
+    passed_head = passed_review_head(lp.state)
     lp.state.update(verdict=None, review=None,
-                    review_pending={"round": lp.rnd, "summary": summary})
+                    review_pending={"round": lp.rnd, "summary": summary,
+                                    **({"passed_head_sha": passed_head} if passed_head else {})})
     if not record:
         lp.state["review_pending"]["record"] = False
     if hasattr(lp, "step"):
@@ -4142,16 +4152,23 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         record_flakes(lp.state, dw_log)
         if getattr(lp, "once_log", ""):
             record_flakes(lp.state, lp.once_log)
+        checked = lp.state.get("final_check") or {}
+        # Landing re-reviews pass only the every-commands; they cannot move the suite's base.
+        if (not getattr(lp, "once", ()) or
+                (not lp.state.get("landing") and checked.get("outcome") == "passed"
+                 and checked.get("sha") == validation.get("head_sha"))):
+            passed_head = validation.get("head_sha")
+    passed = {"passed_head_sha": passed_head} if passed_head else {}
     if record:
         lp.state["round_summaries"].append(
             {"round": lp.rnd, "verdict": verdict, "done_when": ok,
              "finding_count": finding_count(text),
-             "summary": summary.strip()[-4000:], **validation})
+             "summary": summary.strip()[-4000:], **validation, **passed})
     lp.log(f"round {lp.rnd} verdict: {verdict}")
     lp.state["verdict"] = verdict
     lp.state["review"] = {"executor": lp.executor, "executor_provider": exec_provider,
                           "reviewer": lp.reviewer, "reviewer_provider": review_provider,
-                          "returncode": code, "verdict": verdict, "done_when": ok, **validation,
+                          "returncode": code, "verdict": verdict, "done_when": ok, **validation, **passed,
                           **({"overridden": overridden} if overridden else {})}
     lp.state.pop("review_pending", None)
     lp.save()
@@ -4736,6 +4753,7 @@ def integrate(lp, upstream):
                            "this branch's files, landing on the round's checks")
                     lp.state["review"] = {**saved, "head_sha": new_identity["head_sha"],
                                           "tree_sha": new_identity["tree_sha"],
+                                          "passed_head_sha": passed_review_head(lp.state),
                                           "rebased_from": old_head,
                                           "patch_id": patch_id(lp.wt, tip)}
                     lp.state["verdict"] = saved_verdict
@@ -4788,6 +4806,7 @@ def integrate(lp, upstream):
                                        "done-when passed again, review kept")
                                 lp.state["review"] = {**saved, "head_sha": new_identity["head_sha"],
                                                       "tree_sha": new_identity["tree_sha"],
+                                                      "passed_head_sha": passed_review_head(lp.state),
                                                       "rebased_from": old_head,
                                                       "patch_id": patch_id(lp.wt, tip)}
                                 lp.state["verdict"] = saved_verdict
@@ -5465,13 +5484,7 @@ def target_fails(lp, upstream, dw_log):
     code, output, killed = result
     if not (killed or code != 0):
         return ""
-    reviewed = lp.state.get("review") or {}
-    passed_head = ((reviewed.get("rebased_from") or reviewed.get("head_sha"))
-                   if reviewed.get("verdict") == "PASS" and reviewed.get("done_when") else None)
-    passed_head = passed_head or (lp.state.get("review_pending") or {}).get("passed_head_sha")
-    passed_head = passed_head or next((entry.get("head_sha")
-        for entry in reversed(lp.state.get("round_summaries") or [])
-        if entry.get("verdict") == "PASS" and entry.get("done_when") and entry.get("head_sha")), None)
+    passed_head = passed_review_head(lp.state)
     if not passed_head:
         return ""
     try:
@@ -5593,6 +5606,8 @@ def final_check(lp, upstream):
         if ok:
             lp.log("final check: all passed")
             lp.state["final_check"] = {"outcome": "passed", "sha": sha, "where": "landing"}
+            if current_review(lp):
+                lp.state["review"]["passed_head_sha"] = sha
             record_flakes(lp.state, text)
             lp.write()
             return True
@@ -5622,6 +5637,7 @@ def final_check(lp, upstream):
         # never as a task round, and never as a run with its budget spent and nothing pending
         lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
                                       "reason": "Re-review after the final check.",
+                                      "passed_head_sha": passed_review_head(lp.state),
                                       "record": False}
         lp.save()
         with released_gate_turn():
@@ -5792,6 +5808,7 @@ def disjoint_move(lp, upstream, verified, tip):
         if rc == 0:
             landed = commit_identity(lp.wt)
             kept["review"] = {**kept["review"], **landed,
+                              "passed_head_sha": passed_review_head(lp.state),
                               "rebased_from": old_head, "patch_id": patch_id(lp.wt, tip)}
             carried = lp.state.get("final_check")
             if (isinstance(carried, dict) and carried.get("outcome") == "passed"

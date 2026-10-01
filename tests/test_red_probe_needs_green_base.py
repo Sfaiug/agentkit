@@ -119,6 +119,7 @@ class GreenBase(unittest.TestCase):
 
         def fix(lp, role, text, name, **_kw):
             self.turns.append(name)
+            lp.round_dir.mkdir(parents=True, exist_ok=True)
             path = "breakage" if len(self.turns) == 1 else "poison"
             (wt / path).unlink()
             run.git(wt, "add", "-A")
@@ -145,6 +146,7 @@ class GreenBase(unittest.TestCase):
 
         def fix(lp, role, text, name, **_kw):
             self.turns.append(name)
+            lp.round_dir.mkdir(parents=True, exist_ok=True)
             path = "breakage" if name == "executor" else "poison"
             (wt / path).unlink()
             run.git(wt, "add", "-A")
@@ -161,14 +163,33 @@ class GreenBase(unittest.TestCase):
         self.assertNotEqual(run.read_state(lp.run_dir)["state"], "waiting")
         self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
 
+    def test_a_resumed_landing_review_keeps_the_old_base_for_the_final_check(self):
+        lp, owner, base, lines, _ = self.branch_unittest(self.root)
+        wt, run_dir = lp.wt, lp.run_dir
+        tip = self.move_target(owner, wt)
+        self.integrate(lp, tip)
+        lp = run.Loop(lp.cfg, run_dir, run.read_state(run_dir), {}, lp.log, wt,
+                      "body", lp.cmds, "context", [])
+        self.assertEqual(run.resume_review(lp), "PASS")
+        self.assertTrue(run.final_check(lp, "origin/main"))
+        self.assertEqual(self.turns, ["final-fixer"])
+        self.repair.assert_not_called()
+        self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))
+        self.assertNotEqual(run.read_state(run_dir)["state"], "waiting")
+        self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
+
     def test_a_check_green_on_the_old_base_and_red_on_the_tip_still_parks(self):
         _, owner, wt = red.make_repos(self.root)
         cmd = "test ! -f breakage"
         lp, run_dir, _ = red.make_loop(self.root, wt, ["true", f"{cmd}  # once"])
         base = run.git(wt, "merge-base", "HEAD", "origin/main")
         self.assertTrue(run.run_done_when([cmd], wt, run_dir / "before.log", set())[0])
+        self.move_target(owner, wt)
+        self.assertTrue(run.integrate(lp, "origin/main"))
+        (owner / "poison").touch()
         tip = self.move_target(owner, wt)
-        head = self.integrate(lp, tip)
+        self.assertTrue(run.integrate(lp, "origin/main"))
+        head = run.git(wt, "rev-parse", "HEAD")
 
         self.assertFalse(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, [])
@@ -201,9 +222,12 @@ class GreenBase(unittest.TestCase):
         (wt / "breakage").unlink()
         run.git(wt, "add", "-A")
         run.git(wt, "commit", "-m", "fix breakage")
-        self.assertTrue(run.run_done_when([cmd], wt, run_dir / "before.log", set())[0])
-        # Landing reviews replace review without appending to round_summaries.
-        lp.state["review"].update(run.commit_identity(wt))
+        lp.state["landing"] = True
+        ok, text = run.verify_work(lp)
+        self.assertTrue(ok)
+        # A landing review skips the suite; only the final check advances its green head.
+        self.assertEqual(run.review(lp, "Fixed breakage.", ok, text, record=False), "PASS")
+        self.assertTrue(run.final_check(lp, "origin/main"))
         return lp, owner, base, lines, cmd
 
     def test_a_landing_review_without_a_round_row_keeps_its_old_base(self):
