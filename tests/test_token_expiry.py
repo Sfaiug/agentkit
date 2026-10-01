@@ -9,8 +9,7 @@ Offline throughout: a temporary HOME, a fake token file with a chosen mtime, and
 no real secrets directory anywhere.
 """
 
-from contextlib import ExitStack, redirect_stdout
-import io
+from contextlib import ExitStack
 import os
 from pathlib import Path
 import subprocess
@@ -188,14 +187,14 @@ class TokenExpiry(unittest.TestCase):
             watch.poll_worker_token(state, now=start + watch.TOKEN_POLL_EVERY)
             self.assertEqual(asked.call_count, 2)
 
-    def test_the_info_screen_shows_the_expiry_date(self):
-        # the config screen's Discord row says connected or not, and nothing about the token
+    def test_the_config_screen_says_the_expiry_date_of_its_provider(self):
+        # the pointer on Claude in Providers says it; its Discord row says nothing about it
         mtime = self.write_token(300)
         when = time.strftime("%Y-%m-%d", time.localtime(mtime + 365 * 86400))
-        with redirect_stdout(io.StringIO()) as out:
-            menu.show_info(dry_run=True)
-        screen = out.getvalue()
-        self.assertIn(f"claude worker token expires {when}", screen)
+        tips = menu.config_tips(config.load(), watch.worker_token_note())
+        self.assertEqual(tips[menu.PROVIDERS, ("account", "anthropic")],
+                         f"Claude: its worker token expires {when} (in 65 days)")
+        self.assertNotIn("worker token", tips[menu.PROVIDERS, ("account", "openai")])
 
 
 if __name__ == "__main__":

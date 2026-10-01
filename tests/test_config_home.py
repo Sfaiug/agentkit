@@ -175,12 +175,10 @@ class ConfigHome(unittest.TestCase):
             text = Path(module.__file__).read_text()
             self.assertNotIn("pull", text, module.__name__)
             self.assertNotIn("orch.refresh", text, module.__name__)
-        # menu.installed() is read in exactly one place: the `i` screen, the one
-        # screen allowed to ask git what build this is
+        # no screen asks git what build this is but `c`'s Version row, once a visit
         self.assertEqual([path.name for path in (REPO / "agentkit").rglob("*.py")
-                          if "installed(" in path.read_text()], ["menu.py"])
-        self.assertEqual(Path(menu.__file__).read_text().count("installed("), 2)
-        self.assertIn("installed()", inspect.getsource(menu.show_info))
+                          if "installed(" in path.read_text()], [])
+        self.assertIn("agentkit_version()", inspect.getsource(menu.show_config))
 
 
 if __name__ == "__main__":

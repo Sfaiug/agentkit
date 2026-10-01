@@ -23,6 +23,9 @@ class ReviewContract(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        # Fixture refusals must not sweep host workers or stop real scopes.
+        self.stack.enter_context(patch.object(run.worker, "kill_marked", return_value=True))
+        self.stack.enter_context(patch.object(run.orch, "stop_scope"))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         sockets = self.root / "sockets"
@@ -31,6 +34,7 @@ class ReviewContract(unittest.TestCase):
             # No inherited run marker: a sweep outside a run context would otherwise take the
             # caller's processes -- the worker running this test -- for the fixture run's own.
             "HOME": str(self.root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "", "AGENTKIT_RUN": "",
+            "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "PYTHONDONTWRITEBYTECODE": "1",
             # a top-level launch, whoever runs this: a run's own done-when is depth 1, which
@@ -96,7 +100,8 @@ sys.exit(row["code"])
 ''')
         self.respond({})
         self.task = self.root / "task.md"
-        self.task.write_text("---\nrepo: none\nrounds: 1\n---\n# Review contract\n\n"
+        # Distinct markers keep an older copy's cleanup from reaching these workers too.
+        self.task.write_text(f"---\nrepo: none\nrounds: 1\n---\n# Review contract {self.root.name}\n\n"
                              "## Done when\n```bash\ntest -f deliverable\n```\n")
         self.stack.enter_context(redirect_stdout(io.StringIO()))
 

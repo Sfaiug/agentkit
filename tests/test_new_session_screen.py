@@ -167,7 +167,8 @@ class Screen:
         return self.until(ready, f"a screen with {marker!r}")
 
     def picker(self, where=None, after=0):
-        return self.drawn("space choose", where, after)
+        # its heading, as its key line says what the pointer rests on after a click
+        return self.drawn("orch  exec  review", where, after)
 
     def menu(self, after=0):
         return self.drawn("esc leave", after=after)

@@ -1,4 +1,4 @@
-"""The menu is projects, their sessions by state, and six keys; offline.
+"""The menu is projects, their sessions by state, and five keys; offline.
 
 Fake checkouts, seats, run records and plan files, the real renderer. Nothing
 touches a harness, tmux or the owner's own ~/.agentkit.
@@ -174,13 +174,13 @@ class MenuRows(Sandbox):
         self.assertIn("hero swapped and published", row)
         self.assertNotIn("Second line", row)
 
-    def test_key_line_has_exactly_six_keys(self):
+    def test_key_line_has_exactly_five_keys(self):
         self.seat("only-seat", "atoll", live="working")
         screen, pages = self.draw(100, 30)
         self.assertEqual(pages[1], 1)
-        for phrase in ("n new", "x stop", "c config", "i info", "esc leave"):
+        for phrase in ("n new", "x stop", "c config", "esc leave"):
             self.assertIn(phrase, screen)
-        for gone in ("p preview", "b browser", "r runs", "j more", "k previous"):
+        for gone in ("i info", "p preview", "b browser", "r runs", "j more", "k previous"):
             self.assertNotIn(gone, screen)
         # Two pages: paging appears, and only then.
         self.seats = []
@@ -207,12 +207,6 @@ class MenuRows(Sandbox):
         for key in ("r", "p", "b", "s", "u"):
             self.assertIn(f"not a key: {key!r}", screen)
 
-    def test_info_screen_first_line(self):
-        with redirect_stdout(io.StringIO()) as out:
-            menu.show_info(dry_run=True)
-        screen = out.getvalue()
-        self.assertIn("agentkit: you talk to one orchestrator; it works until it is done or it needs you.",
-                      screen)
 
 
 if __name__ == "__main__":

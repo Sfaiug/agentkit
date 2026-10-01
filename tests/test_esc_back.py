@@ -68,8 +68,7 @@ def timed(module, name):
 
 for module, name in ((menu, "config_matrix"), (menu, "config_model"), (menu, "config_add"),
                      (menu, "config_add_provider"), (menu, "config_remove_provider"),
-                     (menu, "config_discord"),
-                     (menu, "show_info"), (menu, "show_features"), (menu, "new_session"),
+                     (menu, "config_discord"), (menu, "show_features"), (menu, "new_session"),
                      (menu, "rename_this_session"), (menu, "pause"), (terminal, "choose")):
     timed(module, name)
 code = menu.loop(cfg, overlay=os.environ.get("ESC_OVERLAY") == "1")
@@ -226,8 +225,6 @@ class EscBack(unittest.TestCase):
     def test_every_screen_under_the_menu_goes_back_on_esc_and_never_on_q(self):
         menu_ = Menu(self)
         menu_.highlight("alpha")
-        menu_.send(b"i")
-        menu_.back("show_info", title("info"))
         menu_.send(b"x")                                  # alpha is working: asked under its row
         menu_.back("choose", lambda lines: lines[-1].strip() == "esc back")
         self.assertNotIn("<stopped", menu_.text())
