@@ -347,6 +347,32 @@ class SeatWordsBounded(unittest.TestCase):
         pane = "■ Selected model is at capacity. Please try a different model.\nGoal stalled"
         self.assertFalse(self.seat_account("codex", "astra", "openai", pane))
 
+    def test_a_quota_word_in_the_model_s_last_answer_parks_nothing(self):
+        # As Claude 2.1.286 draws them, captured with attributes: the same `●` begins the
+        # model's answer and its own notice, and only the notice's words are in a colour.
+        dot = "\x1b[38;5;231m\x1b[49m●\x1b[39m "
+        for pane in (f"{dot}Added handling for Usage limit reached.",
+                     f"{dot}Done.\n  Added handling for Usage limit reached."):
+            with self.subTest(pane=pane):
+                watch.seat_write("fix-api", usage_refusal=None, usage_wait=None)
+                self.seat_account("claude", "opus", "anthropic", pane)
+                self.now += watch.STALL_WAIT
+                self.seat_account("claude", "opus", "anthropic", pane)
+                self.assertEqual(self.marked, [])
+                state = watch.load_state()
+                self.tick(state)
+                self.tick(state, watch.STALL_WAIT)
+                self.reset.assert_not_called()
+                self.window.assert_not_called()
+                self.assertNotIn("fix-api", state["stalls"])
+        # while the notice it draws in colour still parks the account it ran on
+        pane = "\x1b[38;5;220m\x1b[49m●\x1b[39m \x1b[38;5;220mAPI Error: 429 Usage limit reached"
+        watch.seat_write("fix-api", usage_refusal=None, usage_wait=None)
+        self.seat_account("claude", "opus", "anthropic", pane)
+        self.now += watch.STALL_WAIT
+        self.seat_account("claude", "opus", "anthropic", pane)
+        self.assertEqual([call[1] for call in self.marked], ["anthropic"])
+
 
 if __name__ == "__main__":
     unittest.main()
