@@ -2581,6 +2581,10 @@ class Loop:
     def __init__(self, cfg, run_dir, state, opts, log, wt, body, cmds, context, spares):
         self.cfg, self.run_dir, self.state, self.opts, self.log = cfg, run_dir, state, opts, log
         self.wt, self.body, self.cmds, self.context = wt, body, cmds, context
+        path = run_dir / "task.md"
+        self.files = taskfile.task_files(path) if path.is_file() else []
+        if self.files:
+            self.context += "\n\nfiles: " + ", ".join(self.files)
         # the per-round commands and the ones that run alongside the review; without a
         # `# once` line the two are the list and the empty one
         self.every, self.once = taskfile.group_commands(cmds)
@@ -2994,7 +2998,8 @@ def settled_gate(lp):
         lp.validation = {"head_sha": pinned.group(1), "tree_sha": pinned.group(2)}
     elif not lp.scratch:
         return None
-    return (passed == len(lp.every)) if lp.every else passed == total, text
+    ok = (passed == len(lp.every)) if lp.every else passed == total
+    return ok and not files_scope(lp), text
 
 
 def continuation(lp):
@@ -3188,6 +3193,25 @@ def current_review(lp):
                              for k, v in commit_identity(lp.wt).items())
 
 
+def files_scope(lp):
+    """A gate failure for paths outside the task's Git pathspecs, else an empty string."""
+    specs = getattr(lp, "files", ())
+    if not specs or lp.scratch or lp.state.get("review_pr"):
+        return ""
+    cmd = ["git", "-C", str(lp.wt), "diff", "--name-only", "--no-renames", "-z",
+           f"{lp.base_sha}...HEAD"]
+    paths = []
+    for suffix in ([], ["--", *specs]):
+        # git() strips whitespace, which can be part of the first path's name.
+        code, out, err = tool_run(cmd + suffix)
+        if code != 0:
+            raise (Stopped if stopped(code, err) else config.Error)(
+                f"files: git diff failed in {lp.wt}: {err.strip()}")
+        paths.append(set(out.split("\0")) - {""})
+    outside = sorted(paths[0] - paths[1])
+    return "outside files: " + ", ".join(outside) if outside else ""
+
+
 def verify_work(lp, cmds=None):
     """Pin done-when to a commit before running commands, including leftover executor edits.
 
@@ -3198,8 +3222,10 @@ def verify_work(lp, cmds=None):
     if cmds is None:
         cmds = lp.every
     lp.step("done-when")
+    scope = ""
     if not lp.scratch and not lp.state.get("review_pr"):
         commit_leftovers(lp.wt, lp.log, lp.artifacts)
+        scope = files_scope(lp)
     lp.validation = {} if lp.scratch else commit_identity(lp.wt)
     clean = lp.scratch or lp.state.get("review_pr") or git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
     ok, text = run_done_when(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
@@ -3210,6 +3236,9 @@ def verify_work(lp, cmds=None):
             git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
         ok = False
         text += "\n\nCheckout changed during done-when; these commands do not verify the pinned commit."
+    if scope:
+        ok = False
+        text += "\n\n" + scope
     if lp.validation:
         text = (f"Commit: {lp.validation['head_sha']}\nTree: {lp.validation['tree_sha']}\n\n"
                 + text)

@@ -145,6 +145,7 @@ class FilesScope(unittest.TestCase):
         def execute(lp, role, text, name, **_kw):
             lp.round_dir.mkdir(exist_ok=True)
             if role == "executor":
+                self.assertIn("files: src/", text)
                 self.write("src/api.py", "changed\n")
                 self.write("notes.txt", "outside\n")
             else:
