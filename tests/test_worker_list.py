@@ -56,7 +56,7 @@ class WorkerList(unittest.TestCase):
         # test logs one out; no real adapter is ever asked from here
         self.why = {}
         self.stack.enter_context(patch.object(usage, "harness_unready",
-                                              side_effect=lambda harness: self.why.get(harness)))
+                                              side_effect=lambda harness, **_kw: self.why.get(harness)))
         config.ensure_dirs()
         self.cfg = {"defaults": {"orchestrator": "seat",
                                  "workers": ["alpha", "beta", "gamma", "delta"]},
