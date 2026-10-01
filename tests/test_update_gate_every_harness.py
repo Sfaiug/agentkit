@@ -34,19 +34,13 @@ BINARIES = {"claude": "claude", "codex": "codex", "muse": "muse", "grokbuild": "
 REST = ("grokbuild", "antigravity", "opencode")
 LOGGED_IN = {harness: "0 fixture: logged in" for harness in REST}
 SMALLEST = re.findall(r'"(\w+) (\w+) (\S+) (\w+)"', between("# --- 3:", "# --- 4:"))
-# each harness's event log for a turn that answered, and for one that said it failed
-ANSWERED = {"grokbuild": '{"type":"result","subtype":"success","is_error":false,"result":"Hello"}\n',
-            "opencode": '{"type":"text","part":{"type":"text","text":"Hello"}}\n',
-            "antigravity": '{"event":"result","result":{"status":"SUCCESS","response":"Hello"}}\n'}
+# the word check 3 asks those turns to reply with
+WORD = "PONG"
 
 
-def failed(harness, message):
-    return {"grokbuild": '{"type":"result","subtype":"error_during_execution","is_error":true,'
-                         f'"result":"Request failed: {message}"}}\n',
-            "opencode": ANSWERED["opencode"] + '{"type":"error","error":{"type":"provider.unknown",'
-                        f'"message":"{message}","status":503}}}}\n',
-            "antigravity": '{"event":"result","result":{"status":"ERROR","response":"Hello",'
-                           f'"error":"{message}"}}}}\n'}[harness]
+def text(part):
+    """One text part of an OpenCode message, as its event log streams it."""
+    return '{"type":"text","part":{"type":"text","messageID":"msg_1","text":"%s"}}\n' % part
 
 
 # A turn for a named account is refused, as OpenCode's adapter refuses one.
@@ -91,10 +85,9 @@ class EveryHarness(unittest.TestCase):
             stub.write_text('#!/bin/sh\necho "a harness binary was run: $0" >&2\nexit 97\n')
             stub.chmod(0o755)
             (self.fixture / f"{harness}.auth").write_text(answer + "\n")
-            (self.fixture / f"{harness}.turn").write_text((turns or {}).get(harness, "0 Hello") + "\n")
+            (self.fixture / f"{harness}.turn").write_text((turns or {}).get(harness, f"0 {WORD}") + "\n")
             (self.fixture / f"{harness}.said").write_text((said or {}).get(harness, ""))
-            (self.fixture / f"{harness}.events").write_text(
-                (events or {}).get(harness, ANSWERED.get(harness, "")))
+            (self.fixture / f"{harness}.events").write_text((events or {}).get(harness, ""))
         for runs in self.fixture.glob("*.runs"):
             runs.unlink()
         work = tempfile.mkdtemp(prefix="work-", dir=self.root)
@@ -121,10 +114,10 @@ class EveryHarness(unittest.TestCase):
         for model, harness, model_id, effort in SMALLEST:
             with self.subTest(harness=harness):
                 self.assertIn(f"PASS  3c {model} ({harness}): {model_id} at {effort} "
-                              "answered a one-word prompt", result.stdout)
+                              f"replied {WORD}", result.stdout)
                 self.assertEqual(self.turns(harness), [f"{model_id} {effort}"])
                 prompt = (self.fixture / f"{harness}.prompts").read_text()
-                self.assertEqual(len(prompt.split()), 1, prompt)
+                self.assertRegex(prompt, rf"\b{WORD}\b")
                 # a model the harness runs, at the lowest effort it offers that model
                 catalog = tomllib.loads((REPO / f"adapters/{harness}.toml").read_text())["catalog"]
                 self.assertEqual(catalog[model_id]["efforts"][0], effort)
@@ -134,49 +127,44 @@ class EveryHarness(unittest.TestCase):
         self.assertIn("3 passed, 0 failed, 0 skipped", result.stdout)
 
     def test_a_turn_that_fails_fails_the_gate(self):
-        # an error with an answer, a success with none or only a blank line, and neither
+        # an error with the word, a success with nothing, a blank line or text without the
+        # word, and an error with nothing
         for harness in REST:
-            for turn in ("1 Hello", "0 ", "0 \\n", "1 "):
+            for turn in (f"1 {WORD}", "0 ", "0 \\n", "0 Hello", "1 "):
                 with self.subTest(harness=harness, turn=turn):
                     result = self.gate(LOGGED_IN, {harness: turn})
                     self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                    self.assertRegex(result.stdout, rf"FAIL  3c \w+ \({harness}\): .* gave no answer")
+                    self.assertRegex(result.stdout,
+                                     rf"FAIL  3c \w+ \({harness}\): .* did not reply {WORD}")
                     self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
 
-    def test_a_turn_that_says_it_is_logged_out_fails_the_gate(self):
-        # An answer and exit 0 beside the harness's own logout words, as a worker's turn is
-        # judged: that turn never reached the model.
-        for harness in REST:
-            for words in tomllib.loads((REPO / f"adapters/{harness}.toml").read_text())["auth"]["signatures"]:
-                with self.subTest(harness=harness, said=words):
-                    result = self.gate(LOGGED_IN, said={harness: f"error: {words}\n"})
-                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                    self.assertRegex(result.stdout, rf"FAIL  3c \w+ \({harness}\): .* gave no "
-                                     rf"answer: {re.escape(words)}")
-                    self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
+    def test_an_opencode_turn_cut_short_fails_the_gate(self):
+        # OpenCode exits 0 on a turn its provider ended: no text or partial text, an error
+        # record in its event log, and the adapter's copy of that error in stderr.log.
+        error = '{"type":"error","error":{"message":"503 Service Unavailable","status":503}}\n'
+        for partial in ("", "Sure"):
+            with self.subTest(partial=partial):
+                result = self.gate(LOGGED_IN, {"opencode": f"0 {partial}"},
+                                   said={"opencode": "503 Service Unavailable\n"},
+                                   events={"opencode": (text(partial) if partial else "") + error})
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("FAIL  3c mimo (opencode): mimo/mimo-v2.6-flash at none did not "
+                              f"reply {WORD}: final.md = {partial}\n", result.stdout)
+                self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
 
-    def test_a_turn_whose_events_say_it_failed_fails_the_gate(self):
-        # Exit 0 and an answer, beside a record in its event log saying the turn failed: one
-        # short, and one longer than any tail of the log would hold whole.
-        for harness in REST:
-            for message in ("503 Service Unavailable", "503 " + "x" * 25000):
-                with self.subTest(harness=harness, size=len(message)):
-                    result = self.gate(LOGGED_IN, events={harness: failed(harness, message)})
-                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                    self.assertRegex(result.stdout, rf"FAIL  3c \w+ \({harness}\): .* gave no "
-                                     r"answer: \{.*(ERROR|error)")
-                    self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
-
-    def test_a_failure_the_turn_got_past_passes_the_gate(self):
-        # A tool server that never started, and a stream error retried, before the answer.
-        for before in ('{"type":"system","subtype":"init","mcp_servers":'
-                       '[{"name":"acme","status":"failed"}]}\n',
-                       '{"type":"stream_error","error":{"message":"429 Too Many Requests; '
-                       'retrying"}}\n'):
-            with self.subTest(before=before):
-                result = self.gate(LOGGED_IN, events={"grokbuild": before + ANSWERED["grokbuild"]})
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertIn("3 passed, 0 failed, 0 skipped", result.stdout)
+    def test_an_opencode_answer_in_parts_after_a_warning_passes_the_gate(self):
+        # A stream error the turn recovered from, then one message in two text parts, which
+        # the adapter joins into final.md, then a step that finished.
+        events = ('{"type":"stream_error","error":{"message":"429 Too Many Requests; retrying"}}\n'
+                  + text(WORD) + text("How can I help?")
+                  + '{"type":"step_finish","part":{"type":"step-finish","messageID":"msg_1",'
+                    '"reason":"stop"}}\n')
+        result = self.gate(LOGGED_IN, {"opencode": f"0 {WORD}\\nHow can I help?\\n"},
+                           events={"opencode": events})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"PASS  3c mimo (opencode): mimo/mimo-v2.6-flash at none replied {WORD}",
+                      result.stdout)
+        self.assertIn("3 passed, 0 failed, 0 skipped", result.stdout)
 
     def test_a_named_account_in_the_callers_environment_never_reaches_a_turn(self):
         # The turn runs on the login worker.auth_ok asked about, which no named account turns.

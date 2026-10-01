@@ -1884,9 +1884,11 @@ fi
 # Every harness here with its login makes a real call, since `ak update` upgrades each one
 # and this is its gate: Claude, Codex and Muse write a file and resume the session (3a/3b);
 # the rest make the smallest turn they allow (3c): the cheapest model their catalog lists
-# at its lowest effort, a one-word prompt that needs no tool, through the adapter with the
-# flags a worker's turn gets, since those are what an upgrade breaks.  An answer holding
-# nothing but blanks is no answer: an adapter writes a newline when the harness said nothing.
+# at its lowest effort, asked for a fixed word that needs no tool, through the adapter with
+# the flags a worker's turn gets, since those are what an upgrade breaks.  The adapter's own
+# verdict judges it: exit 0 and the word in final.md, which holds the model's text alone.  No
+# error words are read: a warning the turn recovered from passes, and a turn cut short -- no
+# text, or partial text without the word -- fails whatever it exited with.
 # A missing harness or login is reported as not checked: never a pass, and never a skip
 # that holds the gate.  Broken saved logins still fail.  One harness installed with its
 # login is what the suite needs, and with none here it fails rather than skipping everything.
@@ -1946,7 +1948,8 @@ skip_spent() {   # skip_spent <check labels> <required models...>
 printf 'Create a file hello.txt containing exactly: hello\nThen reply with only the word DONE.\n' \
   >"$WORK/p-make.txt"
 printf 'What file did you just create? Answer with the filename only.\n' >"$WORK/p-ask.txt"
-printf 'Hi\n' >"$WORK/p-word.txt"
+WORD=PONG
+printf 'Reply with only the word %s.\n' "$WORD" >"$WORK/p-word.txt"
 HARNESSES=("opus claude" "astra codex" "spark muse" "grok grokbuild grok-4.7-build-fast low"
            "gemini antigravity gemini-3.8-flash low" "mimo opencode mimo/mimo-v2.6-flash none")
 ABSENT=0
@@ -1977,47 +1980,10 @@ for pair in "${HARNESSES[@]}"; do
 os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
       "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M" >"$WORK/$M.log" 2>&1
     CALLRC=$?
-    # A turn that wrote its harness's logout words never reached the model, and one whose
-    # event log holds a record saying it failed (Grok's is_error result, OpenCode's error
-    # event) did not answer, whatever it exited with or answered beside them: judged by the
-    # scan and the records a worker's turn is judged by.  The log is read whole, so a long
-    # record is never cut, and from the last record that carried the answer: a failure before
-    # it -- a retried stream error, a tool server that never started -- is one the turn got past.
-    FAILED=$(PYTHONPATH="$REPO" python3 - "$H" "$WORK/o-$M" <<'PY'
-import json, sys
-from pathlib import Path
-from agentkit import run, worker
-out = Path(sys.argv[2])
-
-def read(name):
-    try:
-        return (out / name).read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
-
-def strings(node):
-    if isinstance(node, dict):
-        node = list(node.values())
-    if isinstance(node, list):
-        return [text for item in node for text in strings(item)]
-    return [node.strip()] if isinstance(node, str) else []
-
-def carries(line, answer):
-    try:
-        return answer in strings(json.loads(line))
-    except ValueError:
-        return False
-
-lines, answer = read("events.jsonl").splitlines(), read("final.md").strip()
-last = max((i for i, line in enumerate(lines) if answer and carries(line, answer)), default=0)
-print(worker.auth_scanner(sys.argv[1])(out)
-      or next(iter(run.failures("\n".join(lines[last:]), None)), ""))
-PY
-)
-    if [ "$CALLRC" = 0 ] && [ -z "$FAILED" ] && grep -q '[^[:space:]]' "$WORK/o-$M/final.md" 2>/dev/null; then
-      ok "3c $M ($H): $1 at $2 answered a one-word prompt"
+    if [ "$CALLRC" = 0 ] && grep -qiwF "$WORD" "$WORK/o-$M/final.md" 2>/dev/null; then
+      ok "3c $M ($H): $1 at $2 replied $WORD"
     else
-      no "3c $M ($H): $1 at $2 gave no answer${FAILED:+: $FAILED}"
+      no "3c $M ($H): $1 at $2 did not reply $WORD: final.md = $(head -c 120 "$WORK/o-$M/final.md" 2>/dev/null)"
       diagnose "$CALLRC" "$WORK/$M.log" "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M"
       diagnose "$CALLRC" "$WORK/o-$M/stderr.log" "$H"
     fi
