@@ -1444,7 +1444,7 @@ slot_queue_check() {
   python3 "$REPO/tests/test_v5am.py" -v \
     Slots.test_v5am_status_menu_and_seat_bar_say_waiting \
     Slots.test_v5am_child_shares_parent_slot_and_exports_next_depth || return 1
-  printf '%s\n' 'ok: max_runs=1 waits (ak run status says waiting for a slot · 1 ahead), then starts; depth-1 tests share the parent slot'
+  printf '%s\n' 'ok: max_runs=1 waits (ak run status says waiting for a slot · limit full (1 running) · 0 ahead), then starts; depth-1 tests share the parent slot'
 }
 # Run the offline regressions without entering the live acceptance gates below.
 if [ "${AGENTKIT_SMOKE_OFFLINE:-0}" = 1 ]; then
@@ -5886,7 +5886,7 @@ else
 fi
 
 if slot_queue_check >"$WORK/v5am.log" 2>&1; then
-  ok "47 max_runs=1: ak run status says waiting for a slot · 1 ahead for the queued fake run, which starts when the first ends; depth-1 tests share the parent slot"
+  ok "47 max_runs=1: ak run status says waiting for a slot · limit full (1 running) · 0 ahead for the queued fake run, which starts when the first ends; depth-1 tests share the parent slot"
 else
   no "47 host run queue"; cat "$WORK/v5am.log"
 fi

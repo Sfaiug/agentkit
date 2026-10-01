@@ -8664,10 +8664,20 @@ def frozen_runs(state):
     return frozen
 
 
+def slot_line(running, ahead, limit, first=False):
+    """The count wait's sentence: "ahead" is only the runs queued before this one.
+
+    Running runs are no queue, so a full limit says so by itself; a `first` run
+    skips the count cap and waits only on the queue.
+    """
+    if limit and running >= limit and not first:
+        return f"waiting for a slot · limit full ({running} running) · {ahead} ahead"
+    return f"waiting for a slot · {ahead} ahead"
+
+
 def slot_note(state):
-    running, ahead = slot_counts(state)
-    shown = ahead if state.get("first") else running + ahead
-    return state.get("slot_wait_reason") or f"waiting for a slot · {shown} ahead"
+    return state.get("slot_wait_reason") or slot_line(
+        *slot_counts(state), config.max_runs(), state.get("first"))
 
 
 def _unit_memory(readings):
@@ -8758,8 +8768,7 @@ def claim_slot(state, limit, readings=None):
     is_first = bool(state.get("first"))
     if ahead or (limit and running >= limit and not is_first):
         state["slot_waited"] = True
-        shown = ahead if is_first else running + ahead
-        state["slot_wait_reason"] = f"waiting for a slot · {shown} ahead"
+        state["slot_wait_reason"] = slot_line(running, ahead, limit, is_first)
         state["slot_wait_kind"] = "count"
         state["slot_healthy_polls"] = 0
         return False
