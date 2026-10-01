@@ -1,4 +1,4 @@
-"""Timeouts get one more try; a stop says why and names the command that carries on.
+"""Remote timeouts get one more try; checkout edits stop for recovery before another call.
 
 Offline: subprocess.run raises fake timeouts or returns canned answers; sleep is recorded.
 """
@@ -13,7 +13,11 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, run
 
-COMMANDS = (["git", "fetch", "origin", "--prune"], ["gh", "api", "user"])
+COMMANDS = (["git", "fetch", "origin", "--prune"], ["gh", "api", "user"],
+            ["git", "push", "origin", "fix-api"], ["git", "ls-remote", "origin"],
+            ["git", "-C", "acme", "fetch", "origin", "--prune"],
+            ["git", "-C", "acme", "push", "origin", "fix-api"],
+            ["git", "-C", "acme", "ls-remote", "origin"])
 REFUSED = "fatal: could not read Username: terminal prompts disabled"
 CFG = {"providers": {"acme": {}, "other": {}}, "models": {
     "build": {"harness": "fake", "model": "build", "effort": "low", "provider": "acme"},
@@ -79,7 +83,8 @@ class ToolRetry(unittest.TestCase):
                 self.assertNotIn("resume", err)
 
     def test_a_refused_prompt_is_not_retried_even_after_a_timeout(self):
-        for cmd, refusal in zip(COMMANDS, (REFUSED, "gh: prompts are disabled")):
+        for cmd in COMMANDS:
+            refusal = "gh: prompts are disabled" if cmd[0] == "gh" else REFUSED
             for timed_out in (False, True):
                 with self.subTest(cmd=cmd, timed_out=timed_out):
                     answers = ([subprocess.TimeoutExpired(cmd, 3)] if timed_out else [])

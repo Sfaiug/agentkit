@@ -197,11 +197,14 @@ def tool_env():
 def tool_run(cmd, cwd=None, timeout=None, env=None):
     """(exit code, stdout, stderr) for every git and gh call this module makes.
 
-    A timeout gets one retry: prompts are disabled, so the wait is on the network. The code
-    is None after both attempts time out. A refused prompt gets credential advice, no retry;
-    the run's outcome decides which command carries on.
+    Git's fetch, push and ls-remote, and gh get one timeout retry. Other calls stop so their
+    callers can recover any unfinished checkout edits. The code is None on timeout;
+    a refused prompt gets credential advice, no retry. The run's outcome names the next command.
     """
     timeout = TOOL_CAP if timeout is None else timeout
+    # Repeating checkout edits can turn a timeout into an "already in progress" failure.
+    args = cmd[3:] if len(cmd) > 1 and cmd[0] == "git" and cmd[1] == "-C" else cmd[1:]
+    retry = cmd[0] == "gh" or (cmd[0] == "git" and args and args[0] in ("fetch", "push", "ls-remote"))
     for attempt in range(2):
         try:
             proc = subprocess.run(cmd, cwd=None if cwd is None else str(cwd), capture_output=True,
@@ -209,9 +212,10 @@ def tool_run(cmd, cwd=None, timeout=None, env=None):
                                   timeout=timeout, env={**tool_env(), **(env or {})})
             break
         except subprocess.TimeoutExpired:
-            if attempt:
-                return None, "", (f"`{' '.join(cmd[:3])}` was killed after {timeout:g}s "
-                                  "on both attempts: the remote did not answer")
+            if attempt or not retry:
+                tries = " on both attempts" if attempt else ""
+                return None, "", (f"`{' '.join(cmd[:3])}` was killed after {timeout:g}s{tries}: "
+                                  "the remote did not answer")
             time.sleep(1)
     err = proc.stderr
     if proc.returncode != 0 and PROMPTED.search(proc.stdout + err):
