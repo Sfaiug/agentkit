@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from . import command_help, config
@@ -634,6 +635,33 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     return code, text, session, killed
 
 
+def turn(cfg, model_name, body, workspace, out_dir, role="executor", session=None, env=None,
+         limit=None, log=None):
+    """One call and its cleanup; the fifth result says whether it left processes running."""
+    # Let call apply harness defaults over inheritance; pass only explicit overrides.
+    env = dict(env or {})
+    # A turn ends independently of the suite and the loop's helpers, even on a plain host.
+    run_id = env.get(RUN_MARKER) or os.environ.get(RUN_MARKER) or "worker"
+    marker = f"{run_id}/turn-{uuid.uuid4().hex}"
+    env[RUN_MARKER] = marker
+    log = log or (lambda message: print(message, file=sys.stderr))
+    try:
+        result = call(cfg, model_name, body, workspace, out_dir, role, session, env=env,
+                      limit=limit)
+    finally:
+        left = marked_pids(marker, exact=True)
+        for pid in left:
+            try:
+                command = (Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace")
+                           .replace("\0", " ").strip())
+            except OSError:
+                command = "command unavailable"
+            log(f"{role} {model_name} left process {pid}: {command}; stopping it")
+        if left:
+            kill_marked(marker, log=log, exact=True)
+    return (*result, bool(left))
+
+
 def main(argv):
     if command_help.show("worker", argv):
         return 0
@@ -666,8 +694,8 @@ def main(argv):
     out = Path(opts["--out"]).expanduser() if opts["--out"] else config.TMP / f"worker-{model_name}-{task.stem}"
     cfg = config.load()
     try:
-        code, _, _, _ = call(cfg, model_name, task.read_text(), workspace, out, opts["--role"],
-                             opts["--session"])
+        code, _, _, _, _ = turn(cfg, model_name, task.read_text(), workspace, out, opts["--role"],
+                                opts["--session"])
     except LoginExpired as expired:
         # one turn on its own has no run to park: say what is wrong and what fixes it
         raise config.Error(str(expired)) from None
