@@ -39,21 +39,29 @@ class GreenBase(unittest.TestCase):
         run.set_base(lp, tip)
         return run.git(lp.wt, "rev-parse", "HEAD")
 
-    def test_a_branch_only_unittest_module_runs_the_fixer_instead_of_parking(self):
-        _, owner, wt = red.make_repos(self.root)
+    def branch_unittest(self, root, every="true"):
+        _, owner, wt = red.make_repos(root)
         (wt / "tests").mkdir()
         (wt / "tests/__init__.py").touch()
         (wt / "tests/test_new.py").write_text(
             "from pathlib import Path\nimport unittest\n\n"
             "class New(unittest.TestCase):\n"
             "    def test_no_breakage(self):\n"
-            "        self.assertFalse(Path('breakage').exists())\n")
+            "        self.assertFalse(Path('breakage').exists())\n"
+            "    def test_no_poison(self):\n"
+            "        self.assertFalse(Path('poison').exists())\n")
         run.git(wt, "add", ".")
         run.git(wt, "commit", "-m", "branch unittest module")
         cmd = "python3 -m unittest tests.test_new"
-        lp, run_dir, lines = red.make_loop(self.root, wt, ["true", f"{cmd}  # once"])
+        lp, run_dir, lines = red.make_loop(root, wt, [every, f"{cmd}  # once"])
         base = run.git(wt, "merge-base", "HEAD", "origin/main")
         self.assertTrue(run.run_done_when([cmd], wt, run_dir / "before.log", set())[0])
+        lp.state["landing"] = True
+        return lp, owner, base, lines, cmd
+
+    def test_a_branch_only_unittest_module_runs_the_fixer_instead_of_parking(self):
+        lp, owner, base, lines, cmd = self.branch_unittest(self.root)
+        wt, run_dir = lp.wt, lp.run_dir
         tip = self.move_target(owner, wt)
         self.integrate(lp, tip)
 
@@ -66,6 +74,91 @@ class GreenBase(unittest.TestCase):
         self.assertEqual(probes.count(f"$ {cmd} (on "), 2)
         self.assertIn(tip, probes)
         self.assertIn(base, probes)
+        self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
+
+    def test_conflict_reviews_keep_the_old_base_for_the_final_check(self):
+        for how in ("rebase", "merge"):
+            with self.subTest(how=how):
+                root = self.root / how
+                root.mkdir()
+                lp, owner, base, lines, cmd = self.branch_unittest(root)
+                wt = lp.wt
+                lp.state["merge_method"] = "merge" if how == "merge" else "squash"
+                (owner / "work.txt").write_text("target intent\n")
+                self.move_target(owner, wt)
+                self.turns.clear()
+
+                def fix(lp, role, text, name, **_kw):
+                    if not run.in_progress(wt, how):
+                        return self.fixer(lp, role, text, name)
+                    self.turns.append(name)
+                    lp.round_dir.mkdir(parents=True, exist_ok=True)
+                    (wt / "work.txt").write_text("both intents\n")
+                    run.git(wt, "add", "work.txt")
+                    if how == "rebase":
+                        run.git(wt, "-c", "core.editor=true", "rebase", "--continue")
+                    else:
+                        run.git(wt, "commit", "-m", "resolve conflict")
+                    return "## Summary\nResolved the conflict."
+
+                with patch.object(run, "execute", side_effect=fix):
+                    self.assertTrue(run.integrate(lp, "origin/main"))
+                    self.assertTrue(run.final_check(lp, "origin/main"))
+                self.assertEqual(self.turns, [f"{how}-fixer", "final-fixer"])
+                self.repair.assert_not_called()
+                self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))
+                self.assertNotEqual(run.read_state(lp.run_dir)["state"], "waiting")
+                self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
+
+    def test_a_second_final_check_lap_keeps_the_same_old_base(self):
+        lp, owner, base, lines, cmd = self.branch_unittest(self.root)
+        wt = lp.wt
+        (owner / "poison").touch()
+        tip = self.move_target(owner, wt)
+        self.integrate(lp, tip)
+
+        def fix(lp, role, text, name, **_kw):
+            self.turns.append(name)
+            path = "breakage" if len(self.turns) == 1 else "poison"
+            (wt / path).unlink()
+            run.git(wt, "add", "-A")
+            run.git(wt, "commit", "-m", f"fix {path}")
+            return f"## Summary\nFixed {path}."
+
+        with patch.object(run, "execute", side_effect=fix):
+            self.assertTrue(run.final_check(lp, "origin/main"))
+        self.assertEqual(self.turns, ["final-fixer", "final-fixer"])
+        self.repair.assert_not_called()
+        self.assertEqual("\n".join(lines).count(
+            f"fails on {base[:12]} too: needs this branch"), 2)
+        probes = (lp.run_dir / "target-probe.log").read_text()
+        self.assertEqual(probes.count(f"$ {cmd} (on old base {base})"), 2)
+        self.assertNotEqual(run.read_state(lp.run_dir)["state"], "waiting")
+        self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
+
+    def test_a_failed_rebase_gate_keeps_the_old_base_after_its_fixer_review(self):
+        lp, owner, base, lines, _ = self.branch_unittest(
+            self.root, every="python3 -m unittest tests.test_new.New.test_no_breakage")
+        wt = lp.wt
+        (owner / "poison").touch()
+        self.move_target(owner, wt)
+
+        def fix(lp, role, text, name, **_kw):
+            self.turns.append(name)
+            path = "breakage" if name == "executor" else "poison"
+            (wt / path).unlink()
+            run.git(wt, "add", "-A")
+            run.git(wt, "commit", "-m", f"fix {path}")
+            return f"## Summary\nFixed {path}."
+
+        with patch.object(run, "execute", side_effect=fix):
+            self.assertTrue(run.integrate(lp, "origin/main"))
+            self.assertTrue(run.final_check(lp, "origin/main"))
+        self.assertEqual(self.turns, ["executor", "final-fixer"])
+        self.repair.assert_not_called()
+        self.assertEqual("\n".join(lines).count(
+            f"fails on {base[:12]} too: needs this branch"), 2)
+        self.assertNotEqual(run.read_state(lp.run_dir)["state"], "waiting")
         self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
 
     def test_a_check_green_on_the_old_base_and_red_on_the_tip_still_parks(self):
