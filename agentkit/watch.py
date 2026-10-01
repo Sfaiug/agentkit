@@ -3689,7 +3689,7 @@ def stop_run_scope(state, log=lambda _: None):
     run_id = state.get("run_id") if isinstance(state, dict) else None
     stopped = bool(scope) and orch.stop_scope(scope, log)
     if run_id:
-        worker.kill_marked(run_id, log=log)
+        worker.kill_marked(worker.run_marker(run_id), log=log)
     return stopped
 
 

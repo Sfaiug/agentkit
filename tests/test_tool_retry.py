@@ -62,7 +62,8 @@ class ToolRetry(unittest.TestCase):
                     self.assertEqual(kwargs["cwd"], "acme")
                     self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
                     self.assertEqual(kwargs["env"], {"ACME": "kept", "EXTRA": "kept",
-                                     "AGENTKIT_RUN": "fix-api", "GIT_TERMINAL_PROMPT": "0",
+                                     "AGENTKIT_RUN": str(config.RUNS / "fix-api"),
+                                     "GIT_TERMINAL_PROMPT": "0",
                                      "GH_PROMPT_DISABLED": "1"})
 
     def test_two_timeouts_stop_with_a_network_reason(self):

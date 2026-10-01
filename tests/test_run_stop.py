@@ -10,6 +10,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -20,7 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
-from agentkit import config, job as jobs, menu, orch, run
+from agentkit import config, job as jobs, menu, orch, run, worker
 from agentkit import task as taskfile
 
 
@@ -80,7 +81,8 @@ class RunStop(Sandbox):
         loop = subprocess.Popen(["bash", "-c", "sleep 30 & wait"])
         marked = subprocess.Popen(
             ["sleep", "30"],
-            env={**os.environ, "AK_PARENT_RUN": run_id})
+            env={**os.environ, "AK_PARENT_RUN": run_id,
+                 worker.RUN_MARKER: worker.run_marker(run_id)})
         self.addCleanup(self.reap, loop)
         self.addCleanup(self.reap, marked)
         time.sleep(0.3)  # the shell has its sleep by now
@@ -283,7 +285,8 @@ class RunStop(Sandbox):
         run_a, run_b = "20260101-0900-stop-job-a", "20260101-0900-stop-job-b"
         scheduler = subprocess.Popen(
             ["bash", "-c",
-             f"AK_PARENT_RUN={run_a} sleep 30 & AK_PARENT_RUN={run_b} sleep 30 & wait"],
+             f"{worker.RUN_MARKER}={shlex.quote(worker.run_marker(run_a))} sleep 30 & "
+             f"{worker.RUN_MARKER}={shlex.quote(worker.run_marker(run_b))} sleep 30 & wait"],
             stderr=subprocess.DEVNULL)
         self.addCleanup(self.reap, scheduler)
         time.sleep(0.5)  # both marked sleeps are children of the scheduler by now
@@ -348,7 +351,8 @@ class RunStop(Sandbox):
         run_a, run_b = "20260101-0900-stop-pre-a", "20260101-0900-stop-pre-b"
         scheduler = subprocess.Popen(
             ["bash", "-c",
-             f"AK_PARENT_RUN={run_a} sleep 30 & AK_PARENT_RUN={run_b} sleep 30 & wait"],
+             f"{worker.RUN_MARKER}={shlex.quote(worker.run_marker(run_a))} sleep 30 & "
+             f"{worker.RUN_MARKER}={shlex.quote(worker.run_marker(run_b))} sleep 30 & wait"],
             stderr=subprocess.DEVNULL)
         self.addCleanup(self.reap, scheduler)
         time.sleep(0.5)
