@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import host, config, gc, job as jobs, run, usage
 
 URL = "https://github.com/fixture/repo/pull/1"
@@ -110,7 +111,7 @@ class V5ac(unittest.TestCase):
         adapters = self.root / "adapters"
         adapters.mkdir()
         for harness in {m["harness"] for m in self.cfg["models"].values()}:
-            self.script(adapters / f"{harness}.sh", ADAPTER)
+            self.script(adapters / f"{harness}.sh", scripted(ADAPTER))
         self.stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}))
         verify = self.root / "verify.py"
         verify.write_text(SUPPORT + '''import sys
