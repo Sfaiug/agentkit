@@ -66,6 +66,16 @@ class LandingReviewSpendsNoRound(Sandbox):
         run.pending_review(self.lp, "Re-review after the merge of origin/main.")
         run.git(self.wt, "merge", "--no-edit", self.tip)
 
+    def legacy_merge(self, spent=3):
+        self.pending_merge(spent)
+        # Before landing reviews stopped spending rounds, this was the saved receipt.
+        self.lp.state["review_pending"]["round"] = spent + 1
+        self.lp.state["review_pending"].pop("record")
+        self.lp.save()
+        saved = run.read_state(self.run_dir)
+        return run.Loop(self.cfg, self.run_dir, saved, {}, self.lp.log, self.wt,
+                        "body", ["true"], "context", [])
+
     def land(self, lp=None):
         lp = lp or self.lp
 
@@ -134,6 +144,37 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.assertEqual(self.events, [("reviewer", "round-3")])
         self.assert_no_round(resumed)
         self.assertTrue(run.read_state(self.run_dir)["merged"])
+
+    def test_legacy_landing_review_resumes_at_the_budget_and_lands(self):
+        resumed = self.legacy_merge()
+        run.rounds(resumed)
+        self.assertTrue(self.land(resumed))
+        self.assertEqual(self.events, [("reviewer", "round-3")])
+        self.assert_no_round(resumed)
+        self.assertTrue(run.read_state(self.run_dir)["merged"])
+
+    def test_legacy_landing_review_below_the_budget_spends_only_the_fixer_round(self):
+        resumed = self.legacy_merge(spent=1)
+        self.verdicts = iter(["FAIL", "PASS"])
+        run.rounds(resumed)
+        self.assertTrue(self.land(resumed))
+        self.assertEqual(self.events, [("reviewer", "round-1"), ("fixer", 2),
+                                       ("reviewer", "round-2")])
+        state = run.read_state(self.run_dir)
+        self.assertEqual([entry["round"] for entry in state["round_summaries"]], [1, 2])
+        self.assertEqual(state["round_summaries"][:1], self.history)
+        self.assertTrue(state["merged"])
+
+    def test_legacy_landing_review_fail_at_the_budget_keeps_its_findings(self):
+        resumed = self.legacy_merge()
+        self.verdicts = iter(["FAIL"])
+        run.rounds(resumed)
+        self.assertEqual(self.events, [("reviewer", "round-3")])
+        self.assert_no_round(resumed)
+        state = run.read_state(self.run_dir)
+        self.assertEqual(state["review"]["verdict"], "FAIL")
+        self.assertIn("base.txt:1 - the merged tree breaks", state["findings"])
+        self.assertFalse(state["merged"])
 
     def test_changed_checkout_resume_does_not_integrate_a_no_merge_run(self):
         self.lp.state["round_summaries"] = self.lp.state["round_summaries"][:1]

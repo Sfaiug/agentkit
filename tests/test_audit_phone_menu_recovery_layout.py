@@ -32,6 +32,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, run, terminal
+from test_v4n import menu_input
 
 REAL_TMUX = shutil.which("tmux")
 SOCKET = "agentkit-test"
@@ -288,15 +289,12 @@ class Pages(Sandbox):
 
     def test_the_loop_turns_pages_and_answers_a_number_from_any_page(self):
         seats = self.seats(12)
-        answers = iter(["j", "k", "j", "j", "j", "12", "3", "x", "11", "y", ""])
         opened, stopped = [], []
         # short enough to page: the loop turns whole seat blocks and answers a
         # number from whichever page is up
         with patch.object(menu.orch, "listing", return_value=seats), \
                 patch.object(menu.orch, "job_notices", return_value=[]), \
-                patch.object(menu, "read", side_effect=lambda *_: next(answers)), \
-                patch.object(menu, "wait_key", side_effect=lambda prompt,
-                             timeout=None, wake=None: next(answers)), \
+                menu_input(side_effect=["j", "k", "j", "j", "j", "12", "3", "x", "11", "y", ""]), \
                 patch.object(menu, "open_session", side_effect=lambda cfg, s, dry: opened.append(s["name"])), \
                 patch.object(menu.orch, "cmd_stop", side_effect=lambda argv: stopped.append(argv[0])), \
                 patch.object(terminal, "width", return_value=40), \
@@ -318,13 +316,10 @@ class Pages(Sandbox):
         self.assertFalse(hasattr(menu, "runs"))
         self.assertFalse(hasattr(menu, "watch_run"))
         self.assertNotIn("r runs", menu.KEYS)
-        answers = iter(["r", ""])
         with patch.object(menu.orch, "listing", return_value=[]), \
                 patch.object(menu.orch, "job_notices", return_value=[]), \
                 patch.object(menu, "draw", return_value=(0, 1)), \
-                patch.object(menu, "read", side_effect=lambda *_: next(answers)), \
-                patch.object(menu, "wait_key", side_effect=lambda prompt, timeout=None,
-                             wake=None: menu.read(prompt, "")), \
+                menu_input(side_effect=["r", ""]), \
                 patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:

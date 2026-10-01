@@ -20,6 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, run, terminal
+from test_v4n import menu_input
 
 
 SEATS = [{"name": "atoll-fix"}, {"name": "parser"}]
@@ -61,7 +62,7 @@ class Back(unittest.TestCase):
         with patch.object(orch, "listing", return_value=[]), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "draw", return_value=(0, 1)), \
-                patch.object(menu, "read", side_effect=["\x1b[A", ""]) as read, \
+                menu_input(side_effect=["\x1b[A", ""]) as read, \
                 redirect_stdout(out):
             self.assertEqual(menu.loop({}), 0)
         self.assertEqual(read.call_count, 2)
@@ -71,7 +72,7 @@ class Back(unittest.TestCase):
         with patch.object(orch, "listing", return_value=[]), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "draw", return_value=(0, 1)), \
-                patch.object(menu, "read", side_effect=["\x1b"]) as read, \
+                menu_input(side_effect=["\x1b"]) as read, \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(menu.loop({}), 0)
         self.assertEqual(read.call_count, 1)
