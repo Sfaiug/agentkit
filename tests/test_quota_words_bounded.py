@@ -334,6 +334,19 @@ class SeatWordsBounded(unittest.TestCase):
                 self.seat_account(harness, model, provider, pane)
                 self.assertEqual([call[1] for call in self.marked], [provider])
 
+    def test_a_bare_trailer_s_refusal_is_dated_and_told_apart_by_its_error_line(self):
+        # a deadline the host slept through is retried in place, never parked again
+        self.marked.clear()
+        watch.seat_write("fix-api", usage_refusal=None, usage_wait=None)
+        pane = "■ You've hit your usage limit. Try again at 2027-01-15 07:00Z\nGoal stalled"
+        self.seat_account("codex", "astra", "openai", pane)
+        self.now += watch.STALL_WAIT
+        self.assertTrue(self.seat_account("codex", "astra", "openai", pane))
+        self.assertEqual((self.marked, self.typed), ([], ["/goal resume"]))
+        # and a later, different error over the same trailer is not that handled refusal
+        pane = "■ Selected model is at capacity. Please try a different model.\nGoal stalled"
+        self.assertFalse(self.seat_account("codex", "astra", "openai", pane))
+
 
 if __name__ == "__main__":
     unittest.main()
