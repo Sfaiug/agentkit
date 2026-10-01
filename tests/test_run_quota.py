@@ -383,11 +383,10 @@ class Quota(unittest.TestCase):
                          [("astra", "opus", "dry")])
 
     def test_quota_words_must_stand_on_their_own(self):
-        self.assertEqual(run.worker_dry(self.cfg, "astra", "API Error: rate limit exceeded"),
-                         "rate limit")
-        self.assertIsNone(run.worker_dry(self.cfg, "spark", "wrote 4294967296 bytes in 12s"))
-        self.assertIsNone(run.worker_dry(self.cfg, "astra", ""))
-        self.assertIsNone(run.worker_dry(self.cfg, "astra", "all green"))
+        self.assertEqual(run.ran_dry(1, "API Error: rate limit exceeded", "codex"), "rate limit")
+        self.assertIsNone(run.ran_dry(1, "wrote 4294967296 bytes in 12s", "muse"))
+        self.assertIsNone(run.ran_dry(1, "", "codex"))
+        self.assertIsNone(run.ran_dry(1, "all green", "codex"))
 
     def test_quota_exhausted_run_resumes_through_the_command(self):
         run_dir, _ = self.receipt("20260916-1201-quota-resume")

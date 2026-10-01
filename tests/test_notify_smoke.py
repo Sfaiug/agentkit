@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 TMUX = os.environ.get("AGENTKIT_SMOKE_TMUX") or shutil.which("tmux")
@@ -108,6 +109,15 @@ verdict() { [ "$NFAIL" = 0 ] && ok "$1"; }
 
     def test_e2e_step_g_notification_json_and_terminal_previews(self):
         self.check_section("g")
+
+    def test_check_21_passes_under_an_outer_suites_diversion(self):
+        # Run inside a running suite, the section inherits that suite's diversion log; its
+        # own `finish` reads only what this section diverted.
+        with tempfile.TemporaryDirectory(prefix=".notify-smoke-outer-", dir=REPO) as outer:
+            log = Path(outer) / "notify-diversions.log"
+            log.write_text("an outer suite's diversion\n")
+            with patch.dict(os.environ, {"AK_NOTIFY_SINK_LOG": str(log)}):
+                self.check_section(21)
 
 
 if __name__ == "__main__":

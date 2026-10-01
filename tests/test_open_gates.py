@@ -591,6 +591,16 @@ ak() { printf '%s\\n' "$ROW"; }
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('6 passed, 0 failed, 0 skipped', result.stdout)
 
+    def test_gates_pass_or_fail_on_their_own_under_an_outer_suites_diversion(self):
+        # Run inside a running suite, each check inherits that suite's diversion log; its own
+        # `finish` reads only what this check diverted.
+        with tempfile.TemporaryDirectory(prefix=".open-gates-outer-", dir=REPO) as outer:
+            log = Path(outer) / 'notify-diversions.log'
+            log.write_text("an outer suite's diversion\n")
+            with patch.dict(os.environ, {'AK_NOTIFY_SINK_LOG': str(log)}):
+                self.test_smoke_needs_one_harness_with_its_login()
+                self.test_smoke_keeps_webhook_get_check_without_posting()
+
     def test_fresh_borrows_what_this_host_has_and_needs_one_harness(self):
         callers = FRESH[FRESH.index('caller_config=${XDG_CONFIG_HOME'):FRESH.index('\nTS=$(date')]
         block = FRESH[FRESH.index('  # Each login is linked, file by file'):

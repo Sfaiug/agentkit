@@ -190,7 +190,8 @@ sys.exit(row["code"])
                          [call(run.SLOT_POLL)])
 
     def test_bounded_transient_retry_can_succeed_without_losing_diagnostics(self):
-        self.respond({"astra": [{"code": 1, "text": "HTTP 503\nVERDICT: PASS"},
+        # the outage is what the harness said: a verdict beside it would make it the answer's
+        self.respond({"astra": [{"code": 1, "text": "HTTP 503"},
                                  {"code": 0, "text": "VERDICT: PASS"}]})
         code, directory, state = self.launch("--exec", "opus", "--review", "astra")
         self.assertEqual(code, 0)

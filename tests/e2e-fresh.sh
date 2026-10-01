@@ -196,9 +196,6 @@ smoke_lock_drop() {
 }
 
 . "$REPO/tests/acceptance.sh"
-# The log `finish` fails on: a diverted notification inside the throwaway HOME still turns
-# this gate red through it.
-: >"$AK_NOTIFY_SINK_LOG"
 bad="" ASSERTION=0
 must() {   # must "<what should hold>" <command...>
   local what=$1; shift

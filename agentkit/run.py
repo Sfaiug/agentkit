@@ -32,34 +32,12 @@ from urllib.parse import quote, urlsplit
 
 from . import (command_help, config, history, notify, orch, proc_snapshot, retention, update,
                usage, watch, worker)
-from .harness import load as harness_plugin
+from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 DIFF_CAP = 300 * 1024
 OUT_CAP = 20 * 1024
 LESSONS_CAP = 4 * 1024
 RULES_CAP = 8 * 1024
-# A worker that dies like this died on the provider, not on the task: it is retried, never scored.
-# Only a fault, never the account: a usage or rate limit names the account and hands the
-# round to another provider instead, through the manifests' own quota words.
-TRANSIENT = re.compile(r"API Error|HTTP 5\d\d|Overloaded|Internal server error|"
-                       r"Gateway Timeout|unexpected status|overloaded|529|at capacity|"
-                       r"model stream idle timeout|Service unavailable|The service is busy|"
-                       r"Can't reach the API server", re.I)
-# What a harness says on stderr when it never ran the turn at all: it is not installed, it does
-# not know a flag or the model it was given, or its login was refused.  No wait changes any of
-# these, so an exit that left final.md empty and says one of them is no transient answer.
-HARNESS_FAULT = re.compile(r"not installed|command not found|unknown (?:shorthand )?flag|"
-                           r"unknown (?:option|argument|command|model)|unrecognized "
-                           r"(?:option|argument)|unexpected argument|invalid (?:option|model)|"
-                           r"model\b.{0,80}\b(?:not found|not exist|not supported)|"
-                           r"model_?not_?found|not logged in|please (?:run )?/?log ?in|"
-                           r"unauthori[sz]ed|authentication[ _](?:failed|required|error)|"
-                           r"invalid[ _-](?:x-)?api[ _-]?key", re.I)
-# ...unless the same stderr says the provider is down: a 5xx, an overload or a capacity refusal
-# is waited out, whatever else the harness said on the way.
-OUTAGE = re.compile(r"(?:API Error|HTTP|status)\W{0,3}5\d\d|overloaded|at capacity|"
-                    r"Internal server error|Bad Gateway|Gateway Timeout|Service unavailable|"
-                    r"The service is busy|idle timeout|Can't reach the API server", re.I)
 # A transient answer is what a person answers by typing `continue`: the same worker session
 # again, after 1, 5, 15, 30 and 60 minutes, then hourly, indefinitely.  The run stays
 # `running` throughout, so its session reads `working`, and never ends in `error` for one.
@@ -295,25 +273,6 @@ def stall_summary(state):
         return ""
     step = (stalls[-1].get("step") or "").strip()
     return f"stalled {len(stalls)}× ({step}), recovered" if step else f"stalled {len(stalls)}×, recovered"
-
-
-def worker_dry(cfg, name, text):
-    """The harness's own quota word in a failed turn's text, or None.
-
-    A refusal is what the harness itself said -- its manifest's quota words -- not what
-    the work printed: an empty text says nothing at all, and a bare number glued into
-    a bigger one (a line count, a byte count, a diff hunk) is not the harness refusing
-    anything, so every word must stand on its own. The caller ensures only a non-zero
-    turn can be one; a turn that exited 0 said what it meant to say.
-    """
-    if not text or not text.strip():
-        return None
-    try:
-        words = watch.quotas(config.model(cfg, name)["harness"])
-    except (config.Error, OSError, ValueError):
-        return None
-    return next((word for word in words
-                 if re.search(r"\b" + re.escape(word) + r"\b", text, re.IGNORECASE)), None)
 
 
 def collect_usage(cfg):
@@ -1212,21 +1171,22 @@ def transient(code, text):
     Only a non-zero exit qualifies: a worker that exited 0 said what it meant to say, however
     much of an API error it quotes back while saying it.  A kill is not one either: it reads
     as the signal, through `killed_word`, and takes its own road.  An empty final.md gets
-    here only once `cannot_run` has found no harness fault on stderr.
+    here only once `cannot_run` has found no harness fault on stderr.  Anything else the
+    harness said is for its own words to read (`Harness.failure`), and `call_retrying` asked
+    them first; a final.md the model answered in says nothing here.
     """
     if code == 0 or killed_word(code):
         return None
-    if not text.strip():
-        return f"exited {code} with an empty final.md"
-    hit = TRANSIENT.search(text)
-    return f"exited {code} on {hit.group(0)!r}" if hit else None
+    return f"exited {code} with an empty final.md" if not text.strip() else None
 
 
-def cannot_run(code, text, stderr, out_dir=None):
+def cannot_run(code, text, stderr, out_dir=None, harness=None):
     """The stderr line saying this harness never ran the turn at all, or None.
 
     Only for a non-zero exit, not a kill, that left final.md empty: whatever answered is an
-    answer, and a kill takes its own road.  Never beside an OUTAGE line, which is waited out.
+    answer, and a kill takes its own road.  The line holds one of the harness's `faults`
+    words (`Harness.failure`), and no outage word stands anywhere beside it: that is waited
+    out instead.
     `opencode.sh: opencode is not installed` is the case -- it was retried like a 500,
     hourly, for as long as nobody installed it.
 
@@ -1241,10 +1201,11 @@ def cannot_run(code, text, stderr, out_dir=None):
         line = next((" ".join(line.split()) for line in stderr.splitlines() if line.strip()),
                      "")
         return line or f"exited {code} with an empty event stream"
-    if OUTAGE.search(stderr):
+    outcome, word = harness_plugin(harness).failure(stderr, ran=False)
+    if outcome != FAULT:
         return None
-    return next((" ".join(line.split()) for line in stderr.splitlines()
-                 if HARNESS_FAULT.search(line)), None)
+    return next((" ".join(line.split()) for line in stderr.splitlines() if says(line, word)),
+                None)
 
 
 def transient_wait(out_dir, delay):
@@ -1494,14 +1455,16 @@ def ran_dry(code, said, harness, refusal=False):
     """The harness's own word for a spent provider window in this exit, or None.
 
     Its words and not ours: they come from `[stall] quotas` in adapters/<harness>.toml, the
-    same list the babysitter reads off a seat's screen.  A non-zero exit is as required here as
-    it is for `transient`, because a worker that exited 0 said what it meant to say.  The scoped
-    terminal refusal path may pass ``refusal`` for an exit-zero turn that never answered.
+    same list the babysitter reads off a seat's screen, each a whole word (`Harness.failure`);
+    a LIMITED one parks a worker's account as a SPENT one does.
+    A non-zero exit is as required here as it is for `transient`, because a worker that exited
+    0 said what it meant to say.  The scoped terminal refusal path may pass ``refusal`` for an
+    exit-zero turn that never answered.
     """
     if code == 0 and not refusal:
         return None
-    low = said.lower()
-    return next((mark for mark in watch.quotas(harness) if mark.lower() in low), None)
+    outcome, word = harness_plugin(harness).failure(said)
+    return word if outcome in (SPENT, LIMITED) else None
 
 
 def try_again_at(said):
@@ -1729,24 +1692,26 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         # Codex's missing model suggests `try a different model` like its capacity refusal.
         # Not a wait: the caller hands the work over, or the run is blocked on this line.
         fault = None if killed else cannot_run(
-            code, text, tail(target / "stderr.log"), target)
+            code, text, tail(target / "stderr.log"), target, entry["harness"])
         if fault:
             worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
             log(f"WARN {role} {name} cannot run: {fault}")
             raise CannotRun(name, fault)
         # Some adapters exit zero after streaming turn.failed; that event still refused
         # the turn. On a successful exit only failure events speak, never answer text.
+        # A spent window, a refusal or an outage, each in the harness's own whole words.  A
+        # kill by signal reads as the signal whatever else was said, unless the window is spent.
         said = harness_said(target, text, entry["harness"], failures_only=code == 0)
-        mark = next((word for word in watch.refusals(entry["harness"])
-                     if word.lower() in said.lower()), None)
-        if mark:
+        outcome, mark = harness_plugin(entry["harness"]).failure(said)
+        sig = killed_word(code) if not killed else None
+        if outcome in (SPENT, LIMITED) or (outcome and not sig):
             # The attempt is refused and its children are not the next one's: whatever
             # the dead turn left behind dies before the refill retry, the handover,
             # or the transient wait.
             worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
             quota = ran_dry(code, said, entry["harness"],
                             refusal=code == 0 and bool(said))
-            lines = [line for line in said.splitlines() if mark.lower() in line.lower()]
+            lines = [line for line in said.splitlines() if says(line, mark)]
             message = lines[0] if lines else said or mark
             try:
                 parsed = record_text(json.loads(message))
@@ -1787,7 +1752,6 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                       + time.strftime("%Y-%m-%d %H:%M", time.localtime(until)))
             log(f"WARN {role} {name} refused: {message}{parked}")
             raise RanDry(name, quota, code, text, session, until, message, True)
-        sig = killed_word(code) if not killed else None
         if sig:
             # The worker died by signal, not on the provider and not on the task: it
             # resumes once, at once, on the session it left behind.  A second kill
@@ -1805,12 +1769,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         why = (f"emitted no event for {orch.span(limit)} and was killed with everything it "
                f"spawned (session {session or 'not recorded'})" if killed else transient(code, text))
         if not why:
-            # quota the event layer missed is `worker_dry`'s to find, which hands the work to
-            # another model: an account with room of the same provider takes it first
-            dry = worker_dry(cfg, name, text) if code != 0 and account is not None else None
-            if dry and next_account(try_again_at(text), f"ran dry on {dry!r}"):
-                worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
-                continue
+            # a quota word left only in the model's answer is the answer talking, not the
+            # provider: it parks no account and hands nothing over
             return code, text, session, False
         # The attempt failed and its children are not the next one's: whatever the dead
         # turn left behind dies before the retry, so a retry never inherits them.
@@ -2115,10 +2075,10 @@ def derived_heavy_limit(readings=None):
     """
     if readings is None:
         readings = host_readings()
-    quota = _reading(readings, "slice_cpu_quota")
-    if quota is not None:
+    cpu_quota = _reading(readings, "slice_cpu_quota")
+    if cpu_quota is not None:
         used = _reading(readings, "slice_cpu_used")
-        cpu_free = quota - used if used is not None else float(quota)
+        cpu_free = cpu_quota - used if used is not None else float(cpu_quota)
     else:
         cpus = _reading(readings, "cpus", "nproc")
         load = _reading(readings, "load", "load1", "load_1m")
@@ -3348,24 +3308,12 @@ def execute(lp, role, text, name):
             lp.log(f"WARN {role} {killed_word(code) or f'exited {code}'}; "
                    f"see {out / 'stderr.log'}")
         lp.save()
-        mark = worker_dry(lp.cfg, lp.executor, summary) if code != 0 else None
-        if mark is None:
-            section = blocked_section(summary)
-            if section:
-                raise Blocked(blocked_reason(section), section)
-            if code == 0:
-                followup_not_needed(lp, summary)
-            return summary
-        # quota the event layer missed still hands over, straight to the other provider:
-        # the reset policy and the provider's other accounts already had their moment in
-        # call_retrying and found nothing.
-        before = lp.executor
-        new = hand_executor(lp, "ran dry", f"ran dry on {mark!r}", dry)
-        if new is None:
-            raise QuotaDry(f"{role} {before} ran dry on {mark!r} and no other provider "
-                           f"can execute; resume when a meter refills. See {out}*/stderr.log")
-        body = f"{HANDOVER.format(before=before)}\n\n{text}"
-        out = free_dir(lp, f"{name}-{lp.executor}")
+        section = blocked_section(summary)
+        if section:
+            raise Blocked(blocked_reason(section), section)
+        if code == 0:
+            followup_not_needed(lp, summary)
+        return summary
 
 
 def commit_identity(wt):
@@ -6364,23 +6312,29 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         else:
             # cut from the base as origin has it now: a local branch, or a tracking ref nothing
             # has fetched lately, can stand merges behind, and a round spent there is spent on
-            # code that no longer exists.  Offline, the local ref is the best there is.
+            # code that no longer exists.  Offline, or for a base origin has no branch of, the
+            # local ref is the best there is.  Every branch, not only those the clone's own
+            # refspec follows (--single-branch follows one): the base, the target whose suite
+            # the run reads and origin's default can each be any of them.
             try:
-                code, out = fetch(repo, "origin", "--prune")
+                code, out = fetch(repo, "origin", "--prune", "+refs/heads/*:refs/remotes/origin/*")
             except Stopped as stop:
                 code, out = None, str(stop)
-            base = meta.get("base") or default_base(repo, log)
-            # where the PR goes: a run cut from `dev` can still be meant for `main`
-            target = meta.get("target") or base
-            ref = base
+            spelled = meta.get("base") or default_base(repo, log)
+            # where the PR goes: a run cut from `dev` can still be meant for `main`.  Every later
+            # step reads both as `<b>` or `origin/<b>`, so a full ref name is kept as the latter
+            base, target = (re.sub(r"^refs/(heads|remotes/origin)/", "origin/", spelling)
+                            for spelling in (spelled, meta.get("target") or spelled))
+            name = base.removeprefix("origin/")
+            # the tracking ref named in full, as `origin/main` could be a tag
+            ref = f"refs/remotes/origin/{name}"
+            if code == 0 and git_out(repo, "show-ref", "--verify", "--quiet", ref)[0] != 0:
+                code, out = 1, f"origin has no branch {name}"
             if code != 0:
-                log(f"WARN git fetch origin failed; basing this run on the local {base}: "
-                    f"{out[-400:]}")
-            elif git_out(repo, "show-ref", "--verify", "--quiet", f"refs/heads/{base}",
-                         f"refs/remotes/origin/{base}")[0] == 0:
-                # only a local branch gives way to origin's, named in full: `origin/main` could
-                # be a tag, and a base already on origin could be a branch called `origin/main`
-                ref = f"refs/remotes/origin/{base}"
+                # git's reason is its first line; the rest is advice
+                log(f"WARN could not fetch {name} from origin; basing this run on the local "
+                    f"{spelled}: {out.partition(chr(10))[0]}")
+                ref = spelled
             # a branch name moves with the executor's commits, so pin the diff to the commit it names
             base_sha = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
             from_branch = (meta.get("from") or "").strip()
@@ -8384,7 +8338,7 @@ def _slice_cpu_stat(slice_dir=None):
     """The slice's cpu.stat counters as {name: value}, or None where nothing answers.
 
     Carried for diagnosis -- throttled_usec and nr_throttled say whether the
-    slice has ever hit its quota -- not for admission: the counters are
+    slice has ever hit its CPU quota -- not for admission: the counters are
     cumulative since the slice's first process, so one snapshot cannot say
     whether the slice is saturated now. The pressure gate does not read them.
     """
@@ -8411,7 +8365,7 @@ def _slice_cpu_quota(cgroup=None):
 
     Read off the slice's own directory, which `orch.slice_cgroup` finds from the
     layout whether the caller runs inside the slice or beside it -- a status shell
-    outside reads the same quota a worker inside does.  `max` is no quota.
+    outside reads the same CPU quota a worker inside does.  `max` sets none.
     """
     try:
         parts = ((cgroup or orch.slice_cgroup()) / "cpu.max").read_text().split()
@@ -8516,18 +8470,18 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None):
         readings["unit_memory_raw_mb"] = raw
         readings["unit_memory_name"] = name
     try:
-        quota = _slice_cpu_quota()
+        cpu_quota = _slice_cpu_quota()
     except Exception:
-        quota = None
+        cpu_quota = None
     try:
-        cpu_used = _slice_cpu_used() if quota is not None else None
+        cpu_used = _slice_cpu_used() if cpu_quota is not None else None
     except Exception:
         cpu_used = None
     try:
         mem = _slice_memory()
     except Exception:
         mem = None
-    readings["slice_cpu_quota"] = quota
+    readings["slice_cpu_quota"] = cpu_quota
     readings["slice_cpu_used"] = cpu_used
     if mem is not None:
         readings["slice_memory_used_mb"], readings["slice_memory_high_mb"] = mem
