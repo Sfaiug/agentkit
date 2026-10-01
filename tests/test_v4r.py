@@ -254,44 +254,50 @@ class UsageLeft(Sandbox):
                 patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
             self.assertTrue(menu.usage_lines(self.cfg, 40)[0].startswith("\033[2m"))
 
-    def test_startup_pauses_for_warnings_and_never_for_receipts_before_drawing_once(self):
+    def test_startup_pauses_for_warnings_and_never_for_receipts_after_drawing_once(self):
         # A live seat's ending is that seat's to report, so the menu opens on the seats
         directory = self.ended("old-owned", owner="atoll-fix", finished_at=10000 - 8 * 3600)
         self.assertIn(directory, [path for path, _ in menu.run_records()])
         warning = "WARN could not check the runs: the run directory is unreadable"
         updates = [["agentkit: reaped a loop whose process was gone", warning], []]
-        real_maintenance = orch.maintenance
+        real_maintenance, tidied = orch.maintenance, threading.Event()
         def maintenance(log):
             for message in updates.pop(0):
                 log(message)
             real_maintenance(log)
+            tidied.set()
+
+        def wait_key(prompt, timeout=None, wake=None):
+            if tidied.is_set():
+                return menu.read(prompt, "")
+            self.assertTrue(tidied.wait(10))   # maintenance runs behind the first frame
+            return None
         with patch.object(macbridge, "start_background"), \
                 patch.object(config, "server_alias", return_value=None), \
                 patch.object(orch, "maintenance", side_effect=maintenance), \
                 patch.object(orch, "sessions", return_value=[{"name": "atoll-fix", "created": 9100}]), \
                 patch.object(orch, "job_notices", return_value=[]), \
-                patch.object(menu, "wait_key", side_effect=lambda prompt, timeout=None,
-                             wake=None: menu.read(prompt, "")), \
+                patch.object(menu, "wait_key", side_effect=wait_key), \
                 patch.object(sys.stdin, "isatty", return_value=True):
             for first in (True, False):
                 out = io.StringIO()
+                tidied.clear()
                 with redirect_stdout(out), patch.object(out, "isatty", return_value=True), \
                         patch.object(menu, "read", side_effect=lambda prompt, default:
                                      "") as read:
                     self.assertEqual(menu.main([]), 0)
                 # The header carries no hash; split on it, not on the update notice.
                 before, screen = out.getvalue().split("agentkit ", 1)
+                self.assertEqual(before, "")       # the menu's first frame, before any notice
                 if first:
-                    self.assertIn("agentkit: reaped a loop whose process was gone", before)
-                    self.assertIn(warning, before)
-                    self.assertEqual(before.count("Finished old-owned"), 0)
+                    self.assertIn("agentkit: reaped a loop whose process was gone", screen)
+                    self.assertIn(warning, screen)
                     self.assertEqual([call.args[0] for call in read.call_args_list],
                                      ["esc back ", "> "])
                 else:
-                    self.assertEqual(before, "")
+                    self.assertNotIn(warning, screen)
                     self.assertEqual([call.args[0] for call in read.call_args_list], ["> "])
                 self.assertNotIn("Finished old-owned", screen)
-                self.assertNotIn(warning, screen)
                 self.assertFalse(run.read_state(directory)["reported"])
 
     def test_notice_pause_wraps_complete_messages_on_a_phone(self):

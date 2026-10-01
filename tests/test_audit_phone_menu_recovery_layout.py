@@ -324,6 +324,8 @@ class Pages(Sandbox):
                 patch.object(menu.orch, "job_notices", return_value=[]), \
                 patch.object(menu, "draw", return_value=(0, 1)), \
                 patch.object(menu, "read", side_effect=lambda *_: next(answers)), \
+                patch.object(menu, "wait_key", side_effect=lambda prompt, timeout=None,
+                             wake=None: menu.read(prompt, "")), \
                 patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:
