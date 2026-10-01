@@ -1274,9 +1274,9 @@ def harness_said(out_dir, text, harness, failures_only=False):
     echo = first.split('"')[0].split("\\")[0].strip()
     echo = echo if len(echo) >= ECHO else ""
     submitted = hand_in.read(out_dir / hand_in.FILE)
-    # Records establish the worker's answer without exposing their evidence as diagnostics.
+    # Successful turns with a record file use it even when the model forgot to hand in anything.
     # An unfinished, failed call may still contain a real provider error in its final text.
-    handed_in = submitted is not None and (submitted.done or (failures_only and bool(submitted.records)))
+    handed_in = submitted is not None and (submitted.done or failures_only)
     if failures_only and not handed_in and answered(text):
         return ""
     terminal = watch.terminal(harness)
