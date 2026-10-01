@@ -1680,6 +1680,24 @@ def reviewer_checkout(wt, out_dir, log):
         return
     checkout = Path(out_dir).parent / "review-checkout"
     checkout.parent.mkdir(parents=True, exist_ok=True)
+
+    def copy_files(source, destination):
+        destination.mkdir(exist_ok=True)
+        with os.scandir(source) as entries:
+            for entry in entries:
+                if source == wt and (entry.name == ".git" or entry.name.startswith(SANDBOX_PREFIX)):
+                    continue
+                target = destination / entry.name
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        copy_files(Path(entry.path), target)
+                    else:
+                        shutil.copy2(entry.path, target, follow_symlinks=False)
+                except FileNotFoundError:
+                    # The live suite can remove listed files or directories before copying.
+                    pass
+        shutil.copystat(source, destination)
+
     with ExitStack() as stack:
         if checkout.exists():
             shutil.rmtree(checkout)
@@ -1687,11 +1705,11 @@ def reviewer_checkout(wt, out_dir, log):
         # A mirror keeps the source's base refs but owns its refs and index; a linked
         # worktree would still let a reviewer move the task branch through shared refs.
         git(wt, "clone", "--quiet", "--shared", "--mirror", str(wt), str(checkout / ".git"))
+        # Keep the copied refs without a mirror push destination back into the source.
+        git(checkout, "config", "--remove-section", "remote.origin")
         git(checkout, "config", "core.bare", "false")
         git(checkout, "read-tree", git(wt, "write-tree"))
-        shutil.copytree(wt, checkout, symlinks=True, dirs_exist_ok=True,
-                        ignore=lambda directory, names: [n for n in names if n == ".git"
-                            or n.startswith(SANDBOX_PREFIX)] if Path(directory) == wt else [])
+        copy_files(wt, checkout)
         for key in ("user.name", "user.email"):
             value = git(wt, "config", "--get", key, check=False)
             if value:

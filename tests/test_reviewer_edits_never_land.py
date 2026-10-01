@@ -55,6 +55,10 @@ if row.get("commit"):
     git("commit", "-q", "-m", "reviewer commit")
 if row.get("empty_commit"):
     git("commit", "-q", "--allow-empty", "-m", "reviewer empty commit")
+if row.get("push"):
+    pushed = subprocess.run(["git", "-C", str(wt), "push"], capture_output=True, text=True)
+    (out / "push.json").write_text(json.dumps({"code": pushed.returncode,
+                                              "stderr": pushed.stderr}))
 (out / "final.md").write_text(row.get("text", "VERDICT: PASS"))
 (out / "stderr.log").write_text(row.get("stderr", ""))
 (out / "session_id").write_text("fixture-session")
@@ -282,6 +286,77 @@ class ReviewerEdits(unittest.TestCase):
 
     def test_live_suite_files_survive_the_extra_verdict_ask(self):
         self.suite_files_case(True)
+
+    def test_suite_files_disappearing_during_copy_do_not_abort_review(self):
+        build = self.wt / "build"
+        build.mkdir()
+        (build / "input.o").write_text("existing build input\n")
+        with (self.wt / ".git/info/exclude").open("a") as excluded:
+            excluded.write("\nbuild/\n")
+        real_call = worker.call
+
+        def check_input(cfg, name, body, workspace, out, role, session, **kwargs):
+            self.assertEqual((Path(workspace) / "build/input.o").read_text(),
+                             "existing build input\n")
+            return real_call(cfg, name, body, workspace, out, role, session, **kwargs)
+
+        for directory in (False, True):
+            with self.subTest(directory=directory):
+                transient = build / "transient"
+                if directory:
+                    transient.mkdir()
+                    (transient / "output.o").touch()
+                    real_scandir = os.scandir
+
+                    def vanished(path):
+                        if not isinstance(path, int) and Path(path) == transient:
+                            (transient / "output.o").unlink()
+                            transient.rmdir()
+                        return real_scandir(path)
+
+                    deleting = patch.object(os, "scandir", side_effect=vanished)
+                else:
+                    transient.touch()
+                    real_copyfile = run.shutil.copyfile
+
+                    def vanished(src, dst, *args, **kwargs):
+                        if Path(src) == transient:
+                            transient.unlink()
+                        return real_copyfile(src, dst, *args, **kwargs)
+
+                    deleting = patch.object(run.shutil, "copyfile", side_effect=vanished)
+                with deleting, patch.object(worker, "call", side_effect=check_input):
+                    self.assertEqual(self.review({}), "PASS")
+                self.assertFalse(transient.exists())
+                self.assert_restored()
+                self.assertFalse(self.archive.exists())
+                self.assertFalse(any("WARN" in line for line in self.logs), self.logs)
+
+    def test_plain_reviewer_push_cannot_change_shared_refs(self):
+        base = self.git("rev-parse", "HEAD~1")
+        self.git("branch", "ak/landed", base)
+        self.git("update-ref", "refs/remotes/origin/main", base)
+        real_call = worker.call
+        expected = {}
+
+        def another_run(cfg, name, body, workspace, out, role, session, **kwargs):
+            self.assertEqual(run.git(workspace, "rev-parse", "refs/remotes/origin/main"), base)
+            self.git("branch", "ak/new-run")
+            self.git("update-ref", "refs/remotes/origin/main", self.head)
+            expected["refs"] = self.git("for-each-ref", "--format=%(refname) %(objectname)")
+            return real_call(cfg, name, body, workspace, out, role, session, **kwargs)
+
+        with patch.object(worker, "call", side_effect=another_run):
+            self.assertEqual(self.review({
+                "git": [["switch", "-q", "-c", "review-probe"],
+                        ["branch", "-D", "ak/landed"]],
+                "files": {"probe.txt": "reviewer commit\n"}, "commit": True, "push": True}), "PASS")
+        self.assertEqual(self.git("for-each-ref", "--format=%(refname) %(objectname)"),
+                         expected["refs"], "the reviewer's push changed shared refs")
+        pushed = json.loads((self.lp.dir("reviewer") / "push.json").read_text())
+        self.assertNotEqual(pushed["code"], 0, pushed["stderr"])
+        self.assert_restored()
+        self.assertIn("+reviewer commit", self.archive.read_text())
 
     def test_branch_switches_and_detached_head_do_not_reach_the_fixer(self):
         real_changes = run.reviewer_changes
