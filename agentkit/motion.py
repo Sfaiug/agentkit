@@ -164,20 +164,23 @@ def toggled(mark, width, kind, bright, column):
     `kind` -- moves on a screen's clock once it is news: one set or cleared fills or empties
     through its half (`□ ▣ ■`, `○ ◉ ●`) in TOGGLE seconds, two frames; one whose change was
     refused, news that changed nothing (`Clock.touch`), nudges a cell left, right, left and back
-    in SHAKE seconds.  `bright` is the highlighted row.  A function of the clock, the screen
-    row, when the news came and the mark before it."""
+    in SHAKE seconds.  `bright` is the highlighted row, and the pointer's cell is lit as the draw
+    lit it (terminal.pointed).  A function of the clock, the screen row, when the news came and
+    the mark before it."""
     def start(clock, row, since, before):
+        def drawn(text, first):     # as a draw shows it from column `first`
+            return terminal.pointed(row, first,
+                                    terminal.highlight(text, mark=False) if bright else text)
         if before == mark:
             def at(now):
                 shift = (-1, 1, -1, 0)[min(3, int(4 * (now - since) / SHAKE))]
-                text = " " * (1 + shift) + terminal.toggle(mark, width, kind) + " " * (1 - shift)
-                return terminal.highlight(text, mark=False) if bright else text
+                return drawn(" " * (1 + shift) + terminal.toggle(mark, width, kind)
+                             + " " * (1 - shift), column - 1)
             clock.start([(row, column - 1)], at, since + SHAKE)
         elif before in HALF and mark in HALF:
             def at(now):
-                text = terminal.toggle(HALF[mark] if now - since < TOGGLE / 2 else mark, width,
-                                       kind)
-                return terminal.highlight(text, mark=False) if bright else text
+                return drawn(terminal.toggle(HALF[mark] if now - since < TOGGLE / 2 else mark,
+                                             width, kind), column)
             clock.start([(row, column)], at, since + TOGGLE)
     return start
 
@@ -185,12 +188,15 @@ def toggled(mark, width, kind, bright, column):
 def glowing(line):
     """How a row just added moves on a screen's clock, `line` as the draw wrote it: its cells on
     a soft glow of the accent that fades into the background in GLOW seconds, and then as
-    drawn.  A function of the clock, the screen row, when it was added and what it was before."""
+    drawn, the pointer's cell lit (terminal.pointed).  A function of the clock, the screen row,
+    when it was added and what it was before."""
     def start(clock, row, since, _):
+        lit = terminal.pointed(row, 1, line)
+
         def at(now):
             x = eased((now - since) / GLOW)
             rgb = terminal.faded("accent", GLOWING + (1 - GLOWING) * x)[1:]
-            return line if x >= 1 else terminal.backed(line, rgb, 1, terminal.cells(line))
+            return lit if x >= 1 else terminal.backed(lit, rgb, 1, terminal.cells(lit))
         clock.start([(row, 1)], at, since + GLOW)
     return start
 

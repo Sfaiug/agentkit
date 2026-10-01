@@ -5,8 +5,9 @@ On the `c` screen, the `n` screen and a project's feature switches a mark goes `
 `○ ◉ ●` over two frames, 80 ms, and back the same way, saved at the key; one ak refuses nudges
 a cell left, right, left and back over 240 ms, the reason under the rows and nothing saved; a
 model just added comes back highlighted on a soft glow that fades over a second into the
-highlight.  All of it is on the menu's one clock, and a key during it is answered within 100 ms
-and ends it on its last frame.
+highlight.  All of it is on the menu's one clock, beside the rule gliding while a project's
+switches are asked, and the cell a click lit stays lit through it; a key during it is answered
+within 100 ms and ends it on its last frame.
 
 Each screen runs in a child on a pty of its own through the harness of its own test --
 tests/test_config_matrix.py's `c` on the seat `fix-api`, tests/test_new_session_screen.py's
@@ -31,6 +32,8 @@ from agentkit import motion, terminal
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
 MARKS = "●○■□◉▣—"
 BACK = re.compile(r"\x1b\[[0-9;]*48;2;(\d+);(\d+);(\d+)m")   # a background, in true colour
+# the background the pointer lights a cell on, at 256 colours, on the dark one a pty answers with
+LIT = f"48;5;{terminal.xterm_colour(terminal.POINTED[False])}m"
 
 
 def moved(screen, keys, wait=1.0):
@@ -55,6 +58,19 @@ def shifts(cells, number, column):
     """How far each frame on screen row `number` put its mark from `column`, where it is drawn."""
     return [first + next(at for at, char in enumerate(text) if char in MARKS) - column
             for at, first, text, _ in cells if at == number]
+
+
+def click(column, number):
+    """The left button down and up at `column` on screen row `number`, as mode 1006 reports it."""
+    return f"\x1b[<0;{column};{number}M\x1b[<0;{column};{number}m".encode()
+
+
+def lit_through(case, cells, number):
+    """The last frame on screen row `number` shows the clicked cell as the draw did: in the
+    pointer's light, the keys' reverse given way to it."""
+    last = [written for at, _, _, written in cells if at == number][-1]
+    case.assertIn(LIT, last)
+    case.assertNotIn("\x1b[7m", last)
 
 
 def mark_column(line, number):
@@ -125,21 +141,22 @@ class ConfigScreen(unittest.TestCase):
         self.assertEqual(glyphs(cells, number), ["▣", "■"])
         self.assertEqual({at for at, _, _, _ in cells}, {number})
         self.assertEqual(screen.record()["workers"], ["opus", "astra", "fable"])
-        cells = moved(screen, ENTER)
+        cells = moved(screen, click(column, number))
         self.assertEqual(glyphs(cells, number), ["▣", "□"])
         self.assertEqual(shifts(cells, number, column), [0, 0])     # in place, no nudge
+        lit_through(self, cells, number)
         self.assertEqual(screen.record()["workers"], ["opus", "astra"])
         screen.leave()
 
     def test_the_last_executor_refused_shakes_and_nothing_is_saved(self):
         screen = Screen(self, workers=["opus"])
-        number, line = row(screen.press(DOWN + RIGHT, lambda lines: highlighted(lines)
-                                        .startswith("› opus")), "opus")
+        number, line = row(screen.frame(), "opus")
         before = screen.record()
-        cells = moved(screen, ENTER)
+        cells = moved(screen, click(mark_column(line, 1), number))
         self.assertIn("  exec needs one model", screen.frame())
         self.assertEqual(glyphs(cells, number), ["■"] * 4)
         self.assertEqual(shifts(cells, number, mark_column(line, 1)), [-1, 1, -1, 0])
+        lit_through(self, cells, number)
         self.assertEqual(screen.record(), before)
         screen.leave()
 
@@ -191,11 +208,12 @@ class NewSessionScreen(unittest.TestCase):
 
     def test_a_mark_empties_when_cleared_and_fills_when_set(self):
         screen, lines = self.picker()
-        number, _ = numbered(lines, "Opus")
+        number, line = numbered(lines, "Opus")
         cells = moved(screen, new_session.SPACE)
         self.assertEqual(glyphs(cells, number), ["▣", "□"])
-        cells = moved(screen, new_session.SPACE)
+        cells = moved(screen, click(mark_column(line, 1), number))
         self.assertEqual(glyphs(cells, number), ["▣", "■"])
+        lit_through(self, cells, number)
         screen.send(ENTER)
         screen.saw("<created new opus astra,opus opus,astra>")
         screen.leave()
@@ -203,13 +221,12 @@ class NewSessionScreen(unittest.TestCase):
     def test_the_last_executor_refused_shakes_and_stays_chosen(self):
         screen, lines = self.picker()
         screen.send(new_session.SPACE)                  # Opus off: Astra is the last one
-        screen.picker(lambda lines: new_session.marks(highlighted(lines)) == "●□■")
-        screen.send(DOWN)
-        lines = screen.picker(lambda lines: "Astra" in highlighted(lines))
+        lines = screen.picker(lambda lines: new_session.marks(highlighted(lines)) == "●□■")
         number, line = numbered(lines, "Astra")
-        cells = moved(screen, new_session.SPACE)
+        cells = moved(screen, click(mark_column(line, 1), number))
         self.assertIn("exec needs one model", "\n".join(screen.picker()))
         self.assertEqual(shifts(cells, number, mark_column(line, 1)), [-1, 1, -1, 0])
+        lit_through(self, cells, number)
         self.assertEqual(new_session.marks(highlighted(screen.picker())), "○■■")
         screen.send(ENTER)
         screen.saw("<created new opus astra opus,astra>")
@@ -233,12 +250,34 @@ class FeaturesScreen(unittest.TestCase):
         number, line = numbered(menu.opened(), "Dark mode")
         (menu.fake / "refuse").write_text("only the owner may switch dark\n")
         before = (menu.fake / "features.json").read_text()
-        cells = moved(menu, ENTER, wait=1.5)
+        cells = moved(menu, click(mark_column(line, 0), number), wait=1.5)
         self.assertIn("  only the owner may switch dark",
                       menu.frame(features.SCREEN, features.has("only the owner")))
         self.assertEqual(shifts(cells, number, mark_column(line, 0)), [-1, 1, -1, 0])
+        lit_through(self, cells, number)
         self.assertEqual((menu.fake / "features.json").read_text(), before)
         self.assertEqual(json.loads(before)[0]["you"], False)
+        menu.leave(screen=True)
+
+    def test_a_switch_moves_on_while_its_list_is_asked(self):
+        # the list asked again every second and three in answering: one is nearly always going,
+        # its rule gliding, while a `set` answers
+        with patch.object(features, "CHILD", features.CHILD.replace(
+                "sys.exit(", "menu.TICK = 1.0\nsys.exit(")):
+            menu = features.Menu(self)
+        number, line = numbered(menu.opened(), "Dark mode")
+        (menu.fake / "slow").write_text("3")
+
+        def asked():        # a list just asked, three seconds from answering
+            started = menu.calls().count("list")
+            menu.until(lambda: menu.calls().count("list") > started, "a list asked")
+        asked()
+        cells = moved(menu, ENTER)
+        self.assertEqual(glyphs(cells, number), ["◉", "●"])
+        (menu.fake / "refuse").write_text("only the owner may switch dark\n")
+        asked()
+        cells = moved(menu, ENTER)
+        self.assertEqual(shifts(cells, number, mark_column(line, 0)), [-1, 1, -1, 0])
         menu.leave(screen=True)
 
 
