@@ -207,8 +207,9 @@ refusal parks the provider until it refills (spending a Codex reset first when h
 
 `ak watch` runs every three minutes from cron on the server, under a lock so ticks never overlap, writing
 `~/.agentkit/tmp/watch.log` and rolling it at 5 MB. Each tick: retries the notification outbox; reads every seat's
-screen and asks each harness's `auth` verb where a login looks gone; types `continue` into a seat that has shown its
-harness's own stall words for three quiet minutes, at most every three minutes, and after an hour of that asks you once;
+last error from its harness's own record of the conversation (Claude's transcript, Codex's rollout), off its screen
+where it keeps none, and asks each harness's `auth` verb where a login looks gone; types `continue` into a seat stopped
+on its harness's own stall words for three quiet minutes, at most every three minutes, and after an hour of that asks you once;
 resumes, relaunches and brings back what Resumption says; types hand-backs waiting on a busy seat; types `<session> is now <word>: <reason>. Decide the next step.` once into a seat whose `ak wait <session>` names a session that has stopped, at the seat's next quiet prompt, which ends that wait for good; closes idle browser
 tabs; reviews others' PRs on repos this account owns and follows its own PRs on repos it does not; and once a day asks
 the worker-token verb and schedules collection. A logged-out `gh` costs only the two GitHub passes. `ak watch --dry-run`

@@ -97,6 +97,28 @@ def transcript(record, cwd, conversation):
     return path if isinstance(path, str) and path else None
 
 
+def error(record, cwd, conversation):
+    """The error Codex recorded as the end of that thread's last turn, or None.
+
+    A turn that failed ends in a `task_complete` event whose `error` holds the message the seat
+    showed; a `task_started` after it is a newer prompt.  The last item of a turn still in
+    flight says the same, and spares reading the whole turn back to its start.
+    """
+    from . import last_entry
+
+    def turn(entry):
+        payload = entry.get("payload")
+        return entry.get("type") == "response_item" or (
+            entry.get("type") == "event_msg" and isinstance(payload, dict)
+            and payload.get("type") in ("task_started", "task_complete"))
+    path = transcript(record, cwd, conversation)
+    entry = path and last_entry(path, turn)
+    payload = entry.get("payload") if entry and entry.get("type") == "event_msg" else None
+    failed = payload.get("error") if payload and payload.get("type") == "task_complete" else None
+    message = failed.get("message") if isinstance(failed, dict) else None
+    return message.strip() or None if isinstance(message, str) else None
+
+
 def forget(record):
     """Local cleanup always completes; a failed enrollment DELETE is retried later.
 
