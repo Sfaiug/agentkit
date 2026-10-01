@@ -55,7 +55,7 @@ with (root / "calls.jsonl").open("a") as fh:
 
 class AfterFromPass(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".after-from-pass-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-after-from-pass-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

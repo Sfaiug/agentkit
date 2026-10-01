@@ -24,7 +24,7 @@ from test_merge_step import make_loop, make_repos
 
 class PushLease(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".push-lease-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-push-lease-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         stack = ExitStack()

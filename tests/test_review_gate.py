@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, run, worker
+from agentkit import config, notify, run, task, worker
 
 
 def fail(count, note="pattern"):
@@ -73,7 +73,7 @@ else:
 
 class ReviewGate(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".review-gate-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-review-gate-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -283,7 +283,7 @@ sys.exit(1)
 
     def test_task_template_defaults_to_three_rounds(self):
         path = REPO / "templates" / "task.md"
-        meta, _, _ = run.parse_task(path)
+        meta, _, _ = task.parse_task(path)
         self.assertEqual(int(meta.get("rounds") or 3), 3)
         self.assertIn("`rounds` defaults to 3", path.read_text())
 

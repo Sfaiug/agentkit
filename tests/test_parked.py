@@ -45,7 +45,7 @@ class Parked(unittest.TestCase):
     """One patched home, the shipped default config, fake providers, fake resumes."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".run-parked-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-run-parked-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -731,12 +731,18 @@ class Parked(unittest.TestCase):
                         expected = watch.session_state("seat", self.now, records=[], **facts)
                         found = watch.session_state("seat", self.now, records=records,
                                                     index=index, **facts)
-                        self.assertEqual(found, expected)
-                        self.assertEqual(found["word"], word)
+                        if "finished_at" in extra and word != "working":
+                            # only its age turned it away: nobody told him, so it is his
+                            self.assertEqual(found["reason"], f"run {directory.name} "
+                                             f"waits to merge: {CONFLICT_NOTE}")
+                            self.assertEqual(found["word"], "needs you")
+                        else:
+                            self.assertEqual(found, expected)
+                            self.assertEqual(found["word"], word)
                         self.assertFalse(menu.v5o_needs_look(state, now=self.now))
                         self.assertTrue(all(counts == (0, 0, 0) for counts in
                                             run.seat_tallies([state], now=self.now).values()))
-                        if word != "needs you":
+                        if found["word"] != "needs you":
                             for at in (self.now, self.now + 120):
                                 self.assertEqual(watch.notify.transition(
                                     "seat", found, now=at, seat={"name": "seat"}), 0)
@@ -809,7 +815,8 @@ class Parked(unittest.TestCase):
                     token_out={}, previous={})
                 self.assertEqual(found["word"], "needs you")
                 self.assertEqual(found["reason"], run.parked_line(state, now=self.now)
-                                 if word == "error" else "waiting for you")
+                                 if word == "error" else f"run {directory.name} waits to "
+                                 f"merge: {run.handback_reason(state)}")
                 self.assertEqual(menu.v5o_needs_look(state, now=self.now), word == "error")
                 run.save_state(directory, {**state, "finished_at": self.now - run.GC_AGE - 1})
                 with redirect_stdout(io.StringIO()) as out:

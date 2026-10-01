@@ -59,7 +59,7 @@ REFUSAL = ("a worker's worker may not start runs (depth 2); only the orchestrato
 
 class Slots(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5am-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5am-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -86,6 +86,10 @@ class Slots(unittest.TestCase):
                                              "load": 1, "cpus": 8,
                                              "unit_memory_current_mb": 100,
                                              "unit_memory_high_mb": 1000})}))
+        # A caller's AK_MIN_FREE_MB or AK_MAX_LOAD, judged against the fixed readings here,
+        # can keep every slot shut for good.
+        for var in ("AK_MIN_FREE_MB", "AK_MAX_LOAD"):
+            os.environ.pop(var, None)
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
@@ -388,17 +392,17 @@ class Slots(unittest.TestCase):
         with redirect_stdout(out):
             self.assertEqual(run.cmd_status(["--plain"]), 0)
         self.assertIn("waiting", out.getvalue())
-        self.assertIn("waiting for a slot · 1 ahead", out.getvalue())
+        self.assertIn("waiting for a slot · limit full (1 running) · 0 ahead", out.getvalue())
         self.assertNotIn("offers recovery", out.getvalue())
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(run.cmd_status([]), 0)
-        self.assertIn("waiting for a slot · 1 ahead", out.getvalue())
+        self.assertIn("waiting for a slot · limit full (1 running) · 0 ahead", out.getvalue())
         self.assertEqual(menu.run_cells(1, directory, state)[-1], "working")
         screen = "\n".join(line for block in menu.run_blocks([(directory, state)], 100, 30)
                            for line in block)
         self.assertIn("● waiting", screen)
-        self.assertNotIn("waiting for a slot · 1 ahead", screen)
+        self.assertNotIn("waiting for a slot · limit full (1 running) · 0 ahead", screen)
         self.assertNotIn("offers resume", screen)
         self.assertNotIn("needs you", screen)
         self.assertFalse(menu.v5o_needs_look(state))
@@ -563,7 +567,7 @@ usage._store, pathlib.Path.replace = publish, rename
         self.start(self.task("two"), "--anyway", "--exec", self.executor,
                    "--review", self.reviewer)
         _, queued = self.receipt("two", "queued")
-        self.assertEqual(run.slot_note(queued), "waiting for a slot · 1 ahead")
+        self.assertEqual(run.slot_note(queued), "waiting for a slot · limit full (1 running) · 0 ahead")
         self.release(first)
         self.started("two")
         self.finish_all()

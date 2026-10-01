@@ -208,7 +208,9 @@ class NewSession(Sandbox):
         with patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "checkout_for", return_value=checkout), \
                 patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "git", return_value="f" * 40), \
+                patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "make_worktree", return_value=(self.root / "review", "ak/pr-7")), \
                 patch.object(run, "exclude_junk"), \
                 patch.object(run, "collect_usage", side_effect=Picked), \
@@ -244,9 +246,9 @@ class NewSession(Sandbox):
         for raw in ("2", "opus"):
             name = f"single-{raw}"
             with self.subTest(raw=raw), self.answers(["", raw]), \
-                    redirect_stdout(io.StringIO()):
+                    redirect_stdout(io.StringIO()) as out:
                 self.assertEqual(orch.main([name, "--dry-run"]), 0)
-            self.assertEqual(config.load_session(self.cfg, name)["workers"], ["opus"])
+            self.assertIn("\nworkers opus\n", out.getvalue())
 
     def test_picker_uses_the_saved_worker_set(self):
         self.assertEqual(self.new(["", "astra", "2,4"]), "new")

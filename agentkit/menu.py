@@ -124,7 +124,7 @@ import time
 from contextlib import closing, redirect_stdout
 from pathlib import Path
 
-from . import command_help, config, history, motion, notify, orch, terminal, update, usage
+from . import command_help, config, history, motion, notify, orch, terminal, update, usage, worker
 from .harness import load as harness_plugin
 
 KEYS = "n new   x stop   c config   i info   esc leave"
@@ -1577,11 +1577,11 @@ def stop_session(found, dry_run):
 
     With the keyboard `x` is the highlighted seat's instead (`loop`, `close_seat`).  The seat is
     picked by number or by name; Esc and an empty Enter go back
-    to the menu, as does anything but `y` to the one question. Stopping is the only
-    thing that ends a seat: the conversation is saved, and the seat's number opens
-    it again later. Its runs stop first, the same way `ak run stop` stops one, so
-    none is left to read as an accident afterwards. `ak orch stop` then removes
-    the checkouts, the state files and the tabs.
+    to the menu, as does anything but `y` to the one question, which says, as the
+    keyboard's card does, that nothing reopens the seat afterwards. Its runs stop
+    first, the same way `ak run stop` stops one, so none is left to read as an
+    accident afterwards. `ak orch stop` then removes the checkouts, the state files
+    and the tabs.
     """
     if not found:
         pause("no session to stop")
@@ -1596,8 +1596,7 @@ def stop_session(found, dry_run):
         stop_session_runs(session["name"], dry_run=True)
         print(f"would stop {session['name']}")
         return
-    terminal.frame("stop", terminal.wrap("The conversation is saved and the seat's number "
-                                           "reopens it later.", terminal.width()))
+    terminal.frame("stop", terminal.wrap(stop_means(None), terminal.width()))
     if read(stop_question(session["name"]), "") != "y":
         return
     stop_session_runs(session["name"])
@@ -1639,8 +1638,7 @@ def stop_this_session(dry_run):
     if not current:
         pause("stop: this menu was not opened from a session")
         return
-    terminal.frame("stop", terminal.wrap("The conversation is saved and the seat's number "
-                                         "reopens it later.", terminal.width()))
+    terminal.frame("stop", terminal.wrap(stop_means(None), terminal.width()))
     if dry_run:
         stop_session_runs(current, dry_run=True)
         print(f"would stop {current}")
@@ -2424,32 +2422,45 @@ def config_models(cfg):
     return config.offered(cfg)
 
 
-def config_body(cfg, version, at=None, column=0, selected=None, providers=None):
+def config_body(cfg, version, at=None, column=0, selected=None, providers=None, moves=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its provider's name: label, harness (dim), the three role
     marks of `selected` -- a session's record, whose missing reviewers are its workers -- and
-    its effort between the arrows that step it; with no session, only the effort, still
-    column 3.  A model `providers` read as spent is dim, its reset note beside it or, on a
+    its effort between the arrows that step it, then its strength, a bar a level it offers
+    (terminal.signal, effort_levels); a model with one effort is its word alone.  With no
+    session, only the effort, still column 3.  `moves`, a list, is handed each effort's line,
+    key, word and how its cells move once a step changed it (_effort_moves), for the clock.
+    A model `providers` read as spent is dim, its reset note beside it or, on a
     phone, under it.  Under them `+ add a model`, `Providers`
     (providers_lines), `Discord` and `Version` with their values. A row is
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
     `Discord` is still a model; `at` is the highlighted one and `column` the cell on it the keys
     act on, -1 its label, and on Providers 0 or less `+ add` and 1 or more `− remove`.  `cells`
     are a model row's (first, last, column), or Providers' acts, for a click, counted from 1 as
-    the terminal counts. On a phone the harness gives way, then the label.
+    the terminal counts. On a phone the harness gives way, then the bars, then the label.
     """
     room, utf, colour = terminal.layout_width(), terminal.utf8(), terminal.colour_depth()
     marks = "●○■□" if utf else "*.x."
     names, models = config_models(cfg), cfg["models"]
-    efforts = {name: ("‹ {} ›" if utf else "< {} >").format(models[name].get("effort", "?"))
-               for name in names}
+    levels = {name: effort_levels(models[name]) for name in names}
+    efforts, signals = {}, {}
+    for name in names:
+        effort, taken = models[name].get("effort", "?"), levels[name]
+        # one effort is nothing to step to and no strength to show
+        arrows = ("‹ {} ›" if utf else "< {} >") if len(taken) > 1 else "{}"
+        efforts[name] = arrows.format(effort)
+        signals[name] = terminal.signal(len(taken), taken.index(effort) + 1 if effort in taken
+                                        else 0) if len(taken) > 1 else []
     label = max(terminal.cells(name) for name in names)
     harness = max(terminal.cells(str(models[name].get("harness", ""))) for name in names)
     heads = CONFIG_HEADS if selected else CONFIG_HEADS[3:]
     widths = [terminal.cells(head) for head in heads[:-1]]
     widths.append(max(terminal.cells(text) for text in (heads[-1], *efforts.values())))
     rest = sum(2 + width for width in widths)
+    tall = max(len(bars) for bars in signals.values())    # the bars, a cell past the efforts
+    tall = tall if 2 + label + rest + 1 + tall <= room else 0
+    rest += 1 + tall if tall else 0
     label = min(label, max(1, room - 2 - rest))
     harness = min(harness, max(0, room - 2 - label - 2 - rest))
     left = 2 + label + (2 + harness if harness else 0)     # the columns before the marks
@@ -2483,7 +2494,14 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None):
                 # a mark is its whole column; an effort is its own text, arrows and all
                 cells.append((first + 2, first + 1 + (width if number < 3
                                                       else terminal.cells(text)), number))
+                if number == 3 and moves is not None and len(levels[name]) > 1:
+                    moves.append((len(lines), ("effort", name), models[name].get("effort"),
+                                  _effort_moves(levels[name], models[name].get("effort"), kind,
+                                                at == ("model", name), first + 4,
+                                                first + 3 + width if tall and utf else None)))
                 first += 2 + width
+            if tall and signals[name]:
+                line += " " + "".join(signals[name])
             parts = [line.rstrip()]
             if note and terminal.cells(parts[0]) + 2 + terminal.cells(note) <= room:
                 parts[0] += "  " + terminal.styled(note, "dim")
@@ -2513,6 +2531,40 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None):
             places[len(lines)] = (("row", row), [])
             lines.append(terminal.highlight(line, number == 0) if at == ("row", row) else line)
     return lines, places
+
+
+def effort_levels(entry):
+    """The efforts a model's bars count, as config.efforts gives them off the catalog its harness
+    last listed -- what a step on it walks once that is in hand (config_effort), and what `add a
+    model` and a model's own screen fetched -- else off its manifest's table.  Read from
+    config's own cache: asking catalog() could start the listing, and a draw asks no harness and
+    waits on none.  None where they cannot be read."""
+    harness, model = entry.get("harness"), entry.get("model")
+    try:
+        cached = config._CATALOGS.get(harness)
+        listed = cached[1] if cached else config.catalog_table(harness)
+        return next((list(item["efforts"]) for item in listed
+                     if item["id"] == model and item["efforts"]), None) or config.efforts(harness)
+    except config.Error:
+        return []
+
+
+def _effort_moves(levels, effort, kind, bright, word, bars):
+    """How an effort's cells move on the `c` screen's clock once a step changed it to `effort`:
+    each of its bars the step filled rises into place and each it emptied lowers
+    (motion.rising), where they stand from column `bars`, or None; and a step onto the model's
+    highest sends one light through the word from column `word` (motion.shimmering), `kind`
+    and `bright` as the draw styled it.  A function of the clock, the screen row, when the step
+    was and the effort before it."""
+    def start(clock, row, since, before):
+        was, filled = (levels.index(value) + 1 if value in levels else 0
+                       for value in (before, effort))
+        for n, bar in enumerate(terminal.signal(len(levels), len(levels)) if bars else ()):
+            if (n < was) != (n < filled):
+                clock.start([(row, bars + n)], *motion.rising(bar, n < filled, since, bright))
+        if effort == levels[-1]:
+            clock.start([(row, word)], *motion.shimmering(effort, since, kind, bright))
+    return start
 
 
 def providers_lines(cfg, wide, room, chosen=None):
@@ -2709,7 +2761,7 @@ def config_model(cfg, name):
 
 
 def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
-               fetched=None):
+               fetched=None, clock=None, moves=()):
     """One draw of a matrix screen and the key read on it: (act, here, column, top).
 
     The `c` screen and a project's feature switches are read this way: rows the highlight moves
@@ -2724,17 +2776,30 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     resize, the pointer, or `timeout` seconds with no key -- and the key's name otherwise.
     `fetched()` says since when the screen's content is being fetched, or None: while it is, the
     rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
+    `clock` moves what `moves` -- (line, key, value, start) -- says is news (`motion.Clock.look`)
+    on the lines shown, each by `start(clock, row, since, before)`, its frames drawn while the
+    key is waited for.
     """
-    said = ["", *(terminal.styled("  " + part, "dim")
-                  for part in terminal.wrap(note, terminal.layout_width() - 2))] if note else []
+    said = ["", *(terminal.styled("  " + part, "dim") for line in note.splitlines()
+                  for part in terminal.wrap(line, terminal.layout_width() - 2))] if note else []
     room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(said))
     drawn = [number for number, (row, _) in places.items() if row == here] or [0]
     top = max(0, min(max(top, drawn[-1] - room + 1), drawn[0], len(body) - room))
     shown = body[top:top + room]
     spots = terminal.frame(title, shown + said, keys, places={
         line - top: place for line, place in places.items() if top <= line < top + room})
+    if clock is not None:
+        clock.clear()
+        news = clock.look({key: value for _, key, value, _ in moves})
+        for line, key, _, start in moves:
+            if key in news and top <= line < top + room:
+                start(clock, 3 + line - top, *news[key])
+        sys.stdout.write(clock.frame())           # at the clock's phase, so nothing jumps
+        sys.stdout.flush()
     began = fetched and fetched()
-    if began is None:
+    if began is None and clock is not None and clock.wait() is not None:
+        key = moving(clock, timeout=timeout or TICK)
+    elif began is None:
         key = terminal.read_key(timeout)
     else:
         key = moving(motion.fetching(motion.Clock(), began), timeout=timeout,
@@ -2771,7 +2836,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     to the record for the runs it launches next.  With no session there are no marks.
     ↑/↓, k/j and the wheel move between rows and ←/→ between columns, the effort's too.  Enter
     or space on an effort steps it up, from its highest round to its lowest, and a click on its
-    arrow steps it that way: each change is saved and drawn at once.
+    arrow steps it that way: each change is saved and drawn at once, the bar it fills rising
+    into place or the one it empties lowering, and a step onto the model's highest sends a
+    light through its word (config_body, on the clock); nothing replays after another screen.
     Enter or a click on a model's label, left of its marks, opens that model's own screen
     (config_model), and Esc there comes back to its row.  Enter or a click
     on `+ add a model` opens its screen (config_add), and a model added there is the row
@@ -2785,7 +2852,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     """
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
     title = f"config · {session}" if selected else "config"
-    here, column, top = None, columns[1], 0
+    here, column, top, clock = None, columns[1], 0, motion.Clock()
     while True:
         rows = [*(("model", name) for name in config_models(cfg)),
                 *(("row", row) for row in CONFIG_ROWS)]
@@ -2798,16 +2865,19 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                  if here[0] == "row" else "effort" if column == 3 else "label" if column < 0
                  else "mark")
         keys = CONFIG_KEYS[where][0 if terminal.utf8() else 1] + "   esc back"
+        moves = []
         body, places = config_body(cfg, version, None if terminal.away() else here, column,
-                                   selected, providers)
+                                   selected, providers, moves)
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top, note, keys,
-                                            marks=3)
+                                            marks=3, clock=clock, moves=moves)
         column = column if clicked is None else clicked
         if act is None:
             continue                  # a resize or the pointer: drawn again
         note = ""
         if act == "back":
             return cfg
+        if act in ("enter", "space") and (here[0] == "row" or column < 0):
+            clock.forget()            # another screen: the matrix back from it replays nothing
         if here == ("row", CONFIG_ROWS[0]):
             if act in ("enter", "space"):
                 added = config_add(cfg)
@@ -3014,7 +3084,9 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None):
     """Each of `verbs` of `harness`'s adapter, run as install.sh runs them, for `account`'s
     login when one is named, with the terminal given back for them and taken again after.  The
     first that fails ends them, and waits until what it said has been read: what to say about
-    it under the matrix, or ""."""
+    it under the matrix, or "".  No verbs is nothing to run, and the terminal stays."""
+    if not verbs:
+        return ""
     keyboard.give()
     failed = ""
     for verb in verbs:
@@ -3033,16 +3105,17 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None):
     return failed
 
 
-def _add_subscription(cfg, keyboard, provider, listed, picked):
+def _add_subscription(cfg, keyboard, provider, listed, picked, verbs=("login",)):
     """Another subscription of `provider`, `picked` being the name it will get: its harness's
-    login, run on the terminal under the fresh account name last in `listed`, then `listed` as
-    the provider's `accounts` -- the ones it had, `default` when it had none, and that name.
-    A login that fails adds nothing.  What to say under the matrix, or ""."""
-    try:
-        harness, _ = config.provider_harness(cfg, provider)
-    except config.Error as exc:
-        return f"config: {exc}"
-    failed = _adapter_verbs(keyboard, harness, ("login",), picked, listed[-1])
+    login, run on the terminal under the account name last in `listed`, then `listed` as the
+    provider's `accounts` -- the ones it had, `default` when it had none, and that name.  A
+    kept login is given no `verbs`, since it is logged in already.  Its harness is its models'
+    or, with none left, the shipped default's (config.provider_harnesses).  A login that fails
+    adds nothing.  What to say under the matrix, or ""."""
+    harnesses = config.provider_harnesses(cfg, provider)
+    if not harnesses:
+        return f"config: no model names a harness for [providers.{provider}]"
+    failed = _adapter_verbs(keyboard, harnesses[0], verbs, picked, listed[-1])
     if failed:
         return failed
     before = copy.deepcopy(cfg)
@@ -3055,7 +3128,13 @@ def config_add_provider(cfg, keyboard):
     """`+ add` on the Providers row: a provider the shipped default has and the config has not,
     picked from a list, then put in the way it ships, so nothing is typed; or, listed after
     them as the name it will get (`ChatGPT II`, config.account_label), another subscription
-    of a provider the config has, which is only logged in and listed (_add_subscription).
+    of a provider the config has, which is only logged in and listed (_add_subscription); or,
+    last, `Use <who>`, a login `− remove` left on disk (config.kept_logins) whose adapter's
+    `auth` still passes, put back with no login: into its provider's `accounts` under its old
+    name, or, its provider gone too, with that provider as it ships, a subscription as its one
+    login.  <who> is who that `auth` says it is `; logged in as`, else the name the login's
+    usage row had; one several share is followed by that row, then by a number (` (2)`), so
+    every such login is listed, each as itself.
 
     A new provider's harness, the shipped default's for it, is installed when its program is
     nowhere to be found, then logged in: each its adapter's own verb, run as install.sh runs
@@ -3080,17 +3159,43 @@ def config_add_provider(cfg, keyboard):
         after = [*(config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]), os.urandom(3).hex()]
         more[config.account_label({"providers": {name: {"accounts": after}}}, name, after[-1],
                                   text)] = (name, after)
+    offers = []
+    for name, account, label in config.kept_logins():
+        listed = config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]
+        if name in labels.values():
+            after = None if account == config.DEFAULT_ACCOUNT else [account]
+        elif name in cfg["providers"] and account not in listed:
+            after = [*listed, account]
+        else:
+            continue       # it is in ak again, or has no provider to go back to
+        # its provider's harness even with none of its models left, as _add_subscription finds it
+        harnesses = config.provider_harnesses(cfg, name)
+        passed, said = worker.auth_ok(harnesses[0], account=account) if harnesses else (0, "")
+        if passed:
+            who = re.search(r"; logged in as (.+)$", said)
+            offers.append((who[1] if who else "", label, (name, after)))
+    kept = {}
+    for who, label, offer in offers:
+        text = (f"Use {who} ({label})" if who and [other for other, _, _ in offers].count(who) > 1
+                else f"Use {who or label}")
+        shown, number = text, 1
+        while shown in kept:
+            number += 1
+            shown = f"{text} ({number})"
+        kept[shown] = offer
     keys = ADD_KEYS["add"][0 if terminal.utf8() else 1] + "   esc back"
 
     def around():     # the screen the list is drawn on, drawn again on a resize
-        terminal.frame("config · add a provider", [""] * (len(labels) + len(more)), keys)
+        terminal.frame("config · add a provider", [""] * (len(labels) + len(more) + len(kept)),
+                       keys)
         return 3
-    picked = terminal.choose([*labels, *more], around=around)
+    picked = terminal.choose([*labels, *more, *kept], around=around)
     if picked is None:
         return ""
-    if picked in more:
-        return _add_subscription(cfg, keyboard, *more[picked], picked)
-    name = labels[picked]
+    name, after = {**more, **kept}.get(picked) or (labels[picked], None)
+    if name in cfg["providers"]:
+        return _add_subscription(cfg, keyboard, name, after, picked,
+                                 () if picked in kept else ("login",))
     try:
         harness, first = config.provider_harness(shipped, name)
     except config.Error as exc:
@@ -3098,8 +3203,9 @@ def config_add_provider(cfg, keyboard):
     if first in cfg["models"]:
         return f"{picked} adds its model as {first}, and a model has that name; nothing added"
     program = (harness_plugin(harness).update["version"] or [harness])[0]
-    failed = _adapter_verbs(keyboard, harness, ("login",) if config.harness_binary(program)
-                            else ("install", "login"), picked)
+    verbs = () if config.harness_binary(program) else ("install",)
+    failed = _adapter_verbs(keyboard, harness, verbs if picked in kept else (*verbs, "login"),
+                            picked)
     if failed:
         return failed
     try:
@@ -3110,6 +3216,8 @@ def config_add_provider(cfg, keyboard):
         return f"the {harness} catalog names no model; {picked} is not added"
     model, before = models[0], copy.deepcopy(cfg)
     cfg["providers"][name] = shipped["providers"][name]
+    if after:                   # a subscription it had, back as its one login
+        cfg["providers"][name]["accounts"] = after
     cfg["models"][first] = {
         "harness": harness, "model": model["id"],
         "effort": _nearest(shipped["models"][first].get("effort"), model["efforts"]),
@@ -3124,9 +3232,11 @@ def config_remove_provider(cfg):
     models?` or `Remove <subscription>?` asked under it, `Keep` picked and Esc keeping it.
     config.remove_provider takes a provider's table, its models and their places in
     [defaults], and with its table goes its usage row.  A subscription, named as its usage row
-    is (config.account_label), leaves only the provider's `accounts`, and its login stays on disk;
-    the usual login is never offered.  The last provider is not offered either, and with
-    nothing to offer it is refused without asking.  What to say under the matrix, or "".
+    is (config.account_label), leaves only the provider's `accounts`; the usual login is never
+    offered.  The last provider is not offered either, and with nothing to offer it is refused
+    without asking.  Either way no login file goes: the login taken out, the provider's usual
+    one for a provider, is recorded (config.keep_login) for `+ add` to offer back.  What to say
+    under the matrix, or "".
     """
     labels = {}
     for text, name in _by_label(list(cfg["providers"]),
@@ -3156,12 +3266,16 @@ def config_remove_provider(cfg):
     if not terminal.confirm(question.format(picked), means, "Remove", asked):
         return ""
     before = copy.deepcopy(cfg)
-    if account is not None:
-        cfg["providers"][name]["accounts"].remove(account)
-        return _saved(cfg, cfg, before)
     try:
-        config.remove_provider(cfg, name)
-    except config.Error as exc:
+        # first, so nothing leaves ak unrecorded; a removal that fails below leaves its login
+        # in ak, and a login in ak is never offered
+        config.keep_login(name, account or config.DEFAULT_ACCOUNT, picked if account else
+                          config.account_label(cfg, name, config.DEFAULT_ACCOUNT, picked))
+        if account is not None:
+            cfg["providers"][name]["accounts"].remove(account)
+        else:
+            config.remove_provider(cfg, name)
+    except (config.Error, OSError) as exc:
         return str(exc)
     return _saved(cfg, cfg, before)
 
@@ -3444,18 +3558,18 @@ def show_features(checkout, dry_run=False):
         here = here if here in rows else rows[0] if rows else None
         body, places = (features_body(features, None if terminal.away() else here[1], column)
                         if features else ([], {}))
-        said = (_SWITCHES[str(checkout)]["error"] or ("" if features else "no features"
-                if features == [] else "asking for its features"))
-        if said:
-            body.append(terminal.styled("  " + terminal.cut(said, terminal.layout_width() - 2),
-                                        "dim"))
+        # under the rows, not after them: scrolled to the last feature, a stale list still says
+        # so; each one line whatever it says, so the rows stay where a click is read against them
+        said = [terminal.cut(line, terminal.layout_width() - 2) for line in (
+            _SWITCHES[str(checkout)]["error"] or ("" if features else "no features"
+                                                  if features == [] else "asking for its features"),
+            note) if line]
         if dry_run:
-            terminal.frame(checkout.name, body, "esc back")
+            terminal.frame(checkout.name, body + [terminal.styled("  " + line, "dim")
+                                                  for line in said], "esc back")
             return
-        # one line whatever it says, so the rows stay where a click is read against them
         act, here, clicked, top = matrix_key(checkout.name, body, places, rows, here, top,
-                                             terminal.cut(note, terminal.layout_width() - 2),
-                                             keys, STIR, fetched=fetched)
+                                             "\n".join(said), keys, STIR, fetched=fetched)
         column = column if clicked is None else clicked
         if act is None:
             continue                  # a resize, the pointer, or a look at whether it landed

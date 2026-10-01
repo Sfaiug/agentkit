@@ -122,7 +122,7 @@ def make_run(root, remote, name, edits=None):
 
 class MergeTurn(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".merge-turn-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-merge-turn-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

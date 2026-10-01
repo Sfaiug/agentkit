@@ -47,7 +47,7 @@ FRESH = 4_102_444_800_000         # 2100
 
 class LoginRenewal(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".claude-renewal-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-claude-renewal-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.fake = self.root / "fake"

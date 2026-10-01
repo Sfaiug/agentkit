@@ -207,6 +207,8 @@ class RuleProgress(unittest.TestCase):
                 patch.object(update, "left_as_is", return_value=""), \
                 patch.object(update, "behind", return_value=True), \
                 patch.object(update, "agentkit_version", return_value="abc1234 · 2026-09-30"), \
+                patch.object(config, "ensure_dirs"), patch.object(config, "TMP", Path(home.name)), \
+                patch.object(config, "STATE", Path(home.name)), \
                 patch.object(update.subprocess, "run", run), redirect_stdout(out):
             menu.update_first()
         self.assertEqual(ran, ["fetch", "pull", "install.sh"])

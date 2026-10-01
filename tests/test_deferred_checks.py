@@ -14,7 +14,7 @@ from agentkit import run, worker
 
 class DeferredChecks(unittest.TestCase):
     def review_fixture(self, once=()):
-        root = Path(tempfile.mkdtemp(prefix=".deferred-checks-", dir=REPO))
+        root = Path(tempfile.mkdtemp(prefix=".ak-test-deferred-checks-", dir=REPO))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
         workspace = root / "workspace"
         workspace.mkdir()
@@ -90,7 +90,7 @@ class DeferredChecks(unittest.TestCase):
         self.assertIn(clause, worker.PREAMBLES["reviewer-scratch"])
 
     def test_result_marks_once_command_as_final_check(self):
-        root = Path(tempfile.mkdtemp(prefix=".deferred-result-", dir=REPO))
+        root = Path(tempfile.mkdtemp(prefix=".ak-test-deferred-result-", dir=REPO))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
         for where, suffix, line in (
                 ({"outcome": "passed", "sha": "abc123", "where": "round", "round": 2},

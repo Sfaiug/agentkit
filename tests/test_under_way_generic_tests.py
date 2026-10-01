@@ -28,7 +28,7 @@ from agentkit import config, run
 
 class GeneralChecks(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".generic-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-generic-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         stack = ExitStack()

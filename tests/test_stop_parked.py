@@ -30,7 +30,7 @@ REASON = ("You stopped without asking the user a question, declaring done with a
 
 class StopParked(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".stop-parked-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-stop-parked-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.home = Path(tmp.name)
         self.state = self.home / ".agentkit/state"

@@ -23,7 +23,8 @@ class Bootstrap(unittest.TestCase):
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
-        self.home = Path(self.stack.enter_context(tempfile.TemporaryDirectory(dir=REPO / 'browser')))
+        self.home = Path(self.stack.enter_context(
+            tempfile.TemporaryDirectory(prefix='.ak-test-browser-bootstrap-', dir=REPO)))
         self.root = self.home / '.local/share/browser-bridge'
         self.secrets = self.home / '.agentkit/secrets'
         self.account = SimpleNamespace(pw_name='new-agent', pw_dir=str(self.home))

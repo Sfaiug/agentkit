@@ -28,14 +28,14 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import config, orch, run
 
 SEAT = "speed-check"    # the seat the fabricated running runs were launched from
 
 
 class Sandbox(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5ad-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5ad-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -270,6 +270,7 @@ class Sandbox(unittest.TestCase):
         task.write_text("---\nrounds: 1\n---\n# Task\n\n## Done when\n```bash\ntrue\n```\n")
         # the hostile Popen mock breaks every git call the preflight check could make
         with patch.object(run.subprocess, "Popen", **{"return_value.pid": 99999999}), \
+                patch.object(orch, "scope_oom_policy", return_value=False), \
                 patch.object(run, "preflight", return_value=None), \
                 redirect_stdout(io.StringIO()):
             code = run.main([str(task), "--bg"])

@@ -22,6 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, notify, orch, run, usage, watch, worker
+from agentkit import task as taskfile
 
 URL = "https://github.com/fixture/repo/pull/7"
 SLEEP = time.sleep                  # the real one, kept for the waits the fixture itself needs
@@ -110,7 +111,7 @@ class Limits(unittest.TestCase):
     """One git repository, fake adapters, a fake gh, and no network anywhere."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5f-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5f-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -215,7 +216,10 @@ class Limits(unittest.TestCase):
     def task(self, commands, front="", rounds=1):
         path = self.root / "task.md"
         path.write_text(f"---\nrepo: {self.work}\nbase: origin/main\nrounds: {rounds}\n{front}---\n"
-                        "# Limit fixture\n\n## Goal\nWrite work.txt.\n\n## Done when\n```bash\n"
+                        # the sandbox's own name keeps its run ids its own: a run's sweep ends
+                        # every process on the host carrying its id, a copy's in another checkout too
+                        f"# Limit fixture {self.root.name}\n\n## Goal\nWrite work.txt.\n\n"
+                        "## Done when\n```bash\n"
                         + "\n".join(commands) + "\n```\n")
         return path
 
@@ -459,7 +463,7 @@ class Limits(unittest.TestCase):
     def test_v5f_the_step_is_recorded_in_run_json_as_it_changes(self):
         self.repo()
         task = self.task(["true"])
-        _, body, _ = run.parse_task(task)
+        _, body, _ = taskfile.parse_task(task)
         directory = config.RUNS / "20260914-1100-steps"
         directory.mkdir(parents=True)
         state = {"run_id": directory.name, "state": "running", "round_summaries": [],

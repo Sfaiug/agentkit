@@ -22,7 +22,7 @@ from agentkit import config, menu, orch, watch
 
 class Babysitter(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v4l-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -164,6 +164,11 @@ class Babysitter(unittest.TestCase):
             ("codex", '• stream error: rate limit reached\n▌ Ask Codex to do something\n'
                       '⏎ send  ⌃T transcript'),
         ]
+        # A narrow pane cuts Claude's footer wherever the width ends, with or without an ellipsis.
+        panes += [("claude", "● API Error: 500 Internal server error\n────────────────\n❯\n"
+                             f"────────────────\n{footer}")
+                  for footer in ("⏵⏵ bypass permissions on  · ←…",
+                                 "⏵⏵ bypass permissions on (shift+tab to", "⏵⏵ bypass")]
         for harness, pane in panes:
             with self.subTest(harness=harness, pane=pane):
                 self.data = watch.load_state()
@@ -247,7 +252,7 @@ class Babysitter(unittest.TestCase):
 
     def test_attach_during_meter_read_prevents_nudge_and_restored_stall(self):
         self.harness, self.provider = "codex", "openai"
-        self.tail = "usage limit reached\nGoal stalled"
+        self.tail = "■ usage limit reached\nGoal stalled"
         self.tick()
         watch.save_state(self.data)
         self.reset.side_effect = lambda *_: orch.seen_by_user("seat")
@@ -401,7 +406,7 @@ class Babysitter(unittest.TestCase):
     def test_long_quota_window_bypasses_hour_cutoff_and_resumes_once(self):
         for harness, provider, tail in (("muse", "meta", "429 quota exhausted"),
                                         ("claude", "anthropic", "rate limit reached"),
-                                        ("codex", "openai", "usage limit\nGoal stalled")):
+                                        ("codex", "openai", "■ usage limit\nGoal stalled")):
             with self.subTest(harness=harness):
                 self.data = watch.load_state()
                 self.harness, self.provider, self.tail = harness, provider, tail
@@ -465,7 +470,7 @@ class Babysitter(unittest.TestCase):
 
     def test_quota_policy_precedes_goal_resume_in_either_order(self):
         self.harness, self.provider = "codex", "openai"
-        for tail in ("usage limit reached\nGoal stalled", "Goal stalled\nrate limit reached"):
+        for tail in ("■ usage limit reached\nGoal stalled", "Goal stalled\nrate limit reached"):
             self.data = watch.load_state()
             self.tail = tail
             order = []
@@ -489,7 +494,7 @@ class Babysitter(unittest.TestCase):
 
     def test_dry_run_never_writes_or_calls_policy(self):
         self.harness, self.provider = "codex", "openai"
-        self.tail = "usage limit reached\nGoal stalled"
+        self.tail = "■ usage limit reached\nGoal stalled"
         self.tick(dry=True)
         self.tick(180, dry=True)
         self.assertTrue(any("would resume seat" in line for line in self.logs))
@@ -503,7 +508,7 @@ class RunsAndSmoke(unittest.TestCase):
         source = (REPO / "tests/smoke.sh").read_text()
         block = source[source.index("# --- 6d:"):source.index("# --- 7:")]
         poll = block[block.index('PANE=""'):block.index('\ncp "$HOME/')]
-        with tempfile.TemporaryDirectory(prefix=".v4l-", dir=REPO) as directory:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             script = '''set -uo pipefail
 tm() {
   case "$1" in
@@ -539,7 +544,7 @@ sleep() { :; }
         source = (REPO / "tests/smoke.sh").read_text()
         block = source[source.index("# --- 21:"):source.index("# --- 22:")]
         number = next(line for line in block.splitlines() if line.startswith("NUM="))
-        with tempfile.TemporaryDirectory(prefix=".v4l-", dir=REPO) as directory:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             root = Path(directory)
             caller, notify_home = root / "caller", root / "notify"
             for home in (caller, notify_home):
@@ -576,7 +581,7 @@ esac
     def test_smoke_empty_pick_order_requires_exhausted_providers(self):
         source = (REPO / "tests/smoke.sh").read_text()
         block = source[source.index("# --- 1: usage"):source.index("# --- 2:")]
-        with tempfile.TemporaryDirectory(prefix=".v4l-", dir=REPO) as directory:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             root = Path(directory)
             # Claude and Codex installed and logged in here, whatever the caller's HOME holds:
             # the check asks for their logins before it judges the pick order.
@@ -603,7 +608,7 @@ esac
     def test_smoke_checks_forced_harnesses_when_the_default_is_not_claude(self):
         source = (REPO / "tests/smoke.sh").read_text()
         block = source[source.index("# --- 6: orch"):source.index("# --- 6c:")]
-        with tempfile.TemporaryDirectory(prefix=".v4l-", dir=REPO) as directory:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             root = Path(directory)
             fake = root / "tmux"
             fake.write_text("#!/bin/sh\nexit 1\n")
@@ -636,7 +641,7 @@ esac
         helpers = f'. "{REPO}/tests/acceptance.sh"\n' + helpers
         run_block = source[source.index("# --- 4:"):source.index("# --- 5:")]
         mcp_block = source[source.index("# 31d/31e:"):source.index("# --- 32:")]
-        with tempfile.TemporaryDirectory(prefix=".v4l-", dir=REPO) as directory:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             root = Path(directory)
             for name, answer in (("gh", ""), ("claude", "BROWSER_TABS=0 DESKTOP=ok"),
                                  ("codex", "BROWSER_TABS=0")):
@@ -680,9 +685,9 @@ esac
     def test_muse_wrapped_error_is_joined_at_two_pane_widths(self):
         fixture = (REPO / "tests/fixtures/muse-stall-pane.txt").read_text()
         # The socket directory is the system temp's rather than the repo's: a unix socket path
-        # is capped near 108 bytes, and `<repo>/.v4l-XXXXXXXX/tmux-<uid>/agentkit-test` is past
-        # it from a worktree, where every run of this suite happens.
-        with tempfile.TemporaryDirectory(prefix=".v4l-", dir=REPO) as directory, \
+        # is capped near 108 bytes, and `<repo>/.ak-test-v4l-XXXXXXXX/tmux-<uid>/agentkit-test`
+        # is past it from a worktree, where every run of this suite happens.
+        with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory, \
                 tempfile.TemporaryDirectory(prefix="v4l-tmux-") as sockets:
             root = Path(directory)
             pane_file = root / "pane.txt"
@@ -726,7 +731,7 @@ esac
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import check_claude_stream
         fixture = (REPO / "tests/fixtures/claude-stream.jsonl").read_text().splitlines()
-        with tempfile.TemporaryDirectory(prefix=".v4l-", dir=REPO) as directory:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             events = Path(directory) / "events.jsonl"
             self.assertEqual(check_claude_stream.read_events(events), [])
             events.write_text("\n".join(fixture[:2]) + "\n")
@@ -749,7 +754,7 @@ esac
     def test_adapter_extracts_one_final_result_and_session_from_real_stream(self):
         fixture = (REPO / "tests/fixtures/claude-stream.jsonl").read_text()
         result = json.loads(fixture.splitlines()[-1])
-        with tempfile.TemporaryDirectory(prefix=".v4l-", dir=REPO) as directory:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             root = Path(directory)
             (root / "prompt").write_text("smoke replay\n")
             replay = root / "replay"
@@ -807,7 +812,7 @@ esac
         source = (REPO / "tests/smoke.sh").read_text()
         function = source.split("spent_until()", 1)[1].split("\nprintf 'Create", 1)[0]
         script = "spent_until()" + function + '\nspent_until "$1"\n'
-        with tempfile.TemporaryDirectory(prefix=".v4l-", dir=REPO) as directory:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             work = Path(directory)
             data = {"providers": {"anthropic": {"exhausted": True, "meters": [
                 {"name": "weekly_scoped", "used": 100, "exhausted": True, "resets_at": 9999999999},

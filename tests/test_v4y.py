@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, notify, orch, terminal, watch
+from agentkit import config, menu, notify, orch, terminal, usage, watch
 
 FIXTURES = config.REPO / "tests/fixtures"
 
@@ -32,7 +32,7 @@ class SeatStates(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         root = Path(self.stack.enter_context(tempfile.TemporaryDirectory(
-            prefix=".seat-state-", dir=config.REPO)))
+            prefix=".ak-test-seat-state-", dir=config.REPO)))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
@@ -52,6 +52,8 @@ class SeatStates(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "listing", lambda *_a, **_k: self.seats))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.stack.enter_context(patch.object(orch, "inside", return_value=True))
+        # a tick reads the meters: the owner's real ones, spent or not, are no fact of this seat
+        self.stack.enter_context(patch.object(usage, "collect", return_value={}))
 
     def fixture(self, harness, kind):
         return (FIXTURES / f"{harness}-{kind}-pane.txt").read_text()

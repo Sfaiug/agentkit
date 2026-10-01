@@ -17,12 +17,12 @@ from unittest.mock import MagicMock, patch
 from test_v4n import REPO
 import sys
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, run, watch
+from agentkit import config, orch, run, task, watch
 
 
 class RunScope(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix=".run-scope-", dir=REPO)
+        self.tmp = tempfile.TemporaryDirectory(prefix=".ak-test-run-scope-", dir=REPO)
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.stack = ExitStack()
@@ -236,9 +236,9 @@ class RunScope(unittest.TestCase):
         opts = {"--review-pr": None, "--no-merge": True, "--anyway": False}
         lines = []
         with patch.object(run, "task_repo", return_value=None), \
-                patch.object(run, "done_when_groups", return_value=([], [])), \
+                patch.object(task, "done_when_groups", return_value=([], [])), \
                 patch.object(run, "ignore_time_keys"), \
-                patch.object(run, "parse_task", return_value=({}, "", "Scratch")):
+                patch.object(task, "parse_task", return_value=({}, "", "Scratch")):
             run.preflight(directory, opts, lines.append)
         self.assertEqual([line for line in lines if line.startswith("scope:")],
                          ["scope: none (no user systemd manager)"])

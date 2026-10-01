@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, usage
+from agentkit import config, run, task, usage
 
 URL = "https://github.com/fixture/repo/pull/1"
 
@@ -78,7 +78,7 @@ def task_body(*cmds):
 
 class V5af(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5af-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5af-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -187,11 +187,11 @@ class V5af(unittest.TestCase):
     def test_v5af_parsing_splits_only_a_trailing_unquoted_once(self):
         body = task_body("cmd-a", "cmd-b  # once", "cmd-c #once",
                          "cmd-d # once more", 'echo "# once"', "echo '# once'")
-        every, once = run.done_when_groups(body, Path("task.md"))
+        every, once = task.done_when_groups(body, Path("task.md"))
         self.assertEqual(every, ["cmd-a", "cmd-d # once more", 'echo "# once"', "echo '# once'"])
         self.assertEqual(once, ["cmd-b", "cmd-c"])
         # done_when itself is unchanged: the flat list, markers intact
-        self.assertEqual(run.done_when(body, Path("task.md")),
+        self.assertEqual(task.done_when(body, Path("task.md")),
                          ["cmd-a", "cmd-b  # once", "cmd-c #once", "cmd-d # once more",
                           'echo "# once"', "echo '# once'"])
 

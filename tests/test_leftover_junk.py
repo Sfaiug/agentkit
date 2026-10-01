@@ -14,7 +14,7 @@ from agentkit import run
 
 class LeftoverJunk(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".no-sandbox-commit-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-no-sandbox-commit-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         env = patch.dict(os.environ, {"HOME": str(self.root),
@@ -88,7 +88,7 @@ class LeftoverJunk(unittest.TestCase):
                         self.assert_swept(repo, [relative])
                         self.assertTrue(path.exists() or path.is_symlink())
                         self.assertEqual(run.git(repo, "ls-files", "--stage", "--", relative),
-                                         index)
+                                         "" if mode == "staged" else index)
 
     def test_untracked_dependency_symlink_is_not_readded(self):
         for name in ("node_modules", "venv", ".venv"):
@@ -99,10 +99,9 @@ class LeftoverJunk(unittest.TestCase):
                 run.git(repo, "commit", "-m", "existing environment link")
                 run.git(repo, "rm", "--cached", name)
                 (repo / "app.py").write_text("value = 2\n")
-                self.assert_swept(repo, [name])
+                self.assert_swept(repo, [name], ("app.py", name))
                 self.assertEqual(run.git(repo, "ls-files", "--", name), "")
-                self.assertEqual(run.git(repo, "diff", "--cached", "--name-status"),
-                                 "D\t" + name)
+                self.assertEqual(run.git(repo, "diff", "--cached", "--name-status"), "")
                 self.assertTrue((repo / name).is_symlink())
 
     def test_only_junk_makes_no_commit(self):
@@ -121,7 +120,7 @@ class LeftoverJunk(unittest.TestCase):
         repo = self.repo()
         (repo / "app.py").unlink()
         files = ("feature.py", "package-lock.json", "poetry.lock", "recovery.lock.txt",
-                 "src/venv.py", "venv-template/keep", "src/.phone-keep/note.txt")
+                 "src/venv.py", "venv-template/keep", "src/.ak-test-keep/note.txt")
         for name in files:
             path = repo / name
             path.parent.mkdir(parents=True, exist_ok=True)

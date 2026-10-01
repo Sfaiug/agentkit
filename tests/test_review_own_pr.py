@@ -30,7 +30,7 @@ def info(author=LOGIN, head=HEAD, state="OPEN"):
 
 class OwnPr(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".review-own-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-review-own-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

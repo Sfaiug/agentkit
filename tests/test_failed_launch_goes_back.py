@@ -40,7 +40,7 @@ class FailedLaunch(unittest.TestCase):
     """One patched home, and each pass's parked record next to its tick and its pacing."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".run-failed-launch-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-run-failed-launch-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

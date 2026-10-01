@@ -65,7 +65,7 @@ def have(cmd):
 
 class V5X(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5x-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5x-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

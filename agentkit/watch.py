@@ -41,6 +41,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import browser, command_help, config, notify, orch, update, usage, worker
+from .harness import LIMITED, SPENT, says
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
 # what a seat reopened after its process died mid-turn is told, in a run's mid-turn words
@@ -74,16 +75,20 @@ def inbox():
     return os.environ.get("AGENTKIT_INBOX_SESSION") or "inbox"
 
 
-def ask_inbox(cfg, question, url, sha, log):
-    """Put the question to the inbox seat, and to the user.
+def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
+    """Put the question to the inbox seat, and then to the user.  0 once both have it.
 
     The merge the seat is told to run is pinned to the commit that was reviewed: gh refuses
     `--match-head-commit` when the author has pushed since, so a yes can never merge code the
-    reviewer never saw.
+    reviewer never saw.  The user is pinged only after the seat took the question: their yes
+    goes to a seat that knows what it is for.  `typed` is told when it did, and `asked` says
+    an earlier try's did, so a retry of a failed ping never types the question twice.
     """
     # the seat by the name it goes by now: renamed once, `inbox` is a pointer at it, and the
     # question, the keys and the ping all have to land on the seat and not on the old name
     name = config.resolve_session(inbox())
+    if asked:
+        return notify.shaped("needs", question, session=name, event_id=f"inbox:{url}:{sha}")
     if orch.ensure(cfg, name, log):
         time.sleep(INBOX_WARMUP)     # the TUI has to be listening before it is typed into
     line = (f"{question} -- {url} at {sha[:12]}, reviewed by agentkit. The user was pinged with "
@@ -100,6 +105,10 @@ def ask_inbox(cfg, question, url, sha, log):
         harness = None
 
     composed = []
+    # an earlier try's Enter failed and left this very question in the composer: only its
+    # Enter is owed, and that draft is ours, not one the question would be typed onto
+    ours = re.sub(r"\s+", "", line)
+    stuck = composer_draft(harness, pane_text(session)) == ours
 
     def veto(held):
         # Under the seat lock the other senders type under, with their owner-question veto --
@@ -113,15 +122,18 @@ def ask_inbox(cfg, question, url, sha, log):
             return False
         composed.append(True)
         pane = pane_text(session)
-        return (_decided_state(held, harness, pane) in ("draft", "asking")
-                or bool(composer_draft(harness, pane)))
+        state, draft = _decided_state(held, harness, pane), composer_draft(harness, pane)
+        if stuck:
+            return state == "asking" or draft != ours
+        return state in ("draft", "asking") or bool(draft)
 
-    if type_checked(session, line, log, harness,
-                    guard=lambda: notify.session_lock(name), veto=veto):
-        log(f"asked the {name} seat: {question}")
-    else:
+    if not type_checked(session, line, log, harness, pending=stuck,
+                        guard=lambda: notify.session_lock(name), veto=veto):
         log(f"WARN could not type the question into the {name} seat")
-    return notify.shaped("needs", question, session=name, event_id=f"inbox:{url}:{sha}")
+        return 1
+    log(f"asked the {name} seat: {question}")
+    typed()
+    return ask_inbox(cfg, question, url, sha, log, asked=True)
 
 
 # --- the tick ---------------------------------------------------------------
@@ -590,6 +602,7 @@ def screen(harness):
     built = {"composer": _pattern(block.get("composer"), path),
              "footer": _pattern(f"(?:{footer})$" if footer else None, path, re.I),
              "ruled": bool(block.get("ruled")),
+             "draft": _pattern(block.get("draft"), path, re.M),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
     return built
@@ -1026,6 +1039,31 @@ def has_dim(line):
     return False
 
 
+def in_colour(text):
+    """Each line of that raw `-e` text with only what it draws in a colour of its own: tmux
+    draws a colour once and carries it on to the lines under it until something ends it."""
+    lines, colour = [], False
+    for line in text.splitlines():
+        shown = []
+        for i, part in enumerate(SGR_SEQ.split(line)):
+            if i % 2 == 0:
+                part = strip_sgr(part)
+                shown.append(part if colour else " " * len(part))
+                continue
+            params = [int(p) if p else 0 for p in part.split(";")]
+            at = 0
+            while at < len(params):
+                if params[at] in (0, 39):
+                    colour = False
+                elif 30 <= params[at] <= 38 or 90 <= params[at] <= 97:
+                    colour = True
+                # `38;5;n`, `38;2;r;g;b` and their background `48` twins name a colour in their run
+                at += {5: 3, 2: 5}.get(params[at + 1] if at + 1 < len(params) else None, 1) \
+                    if params[at] in (38, 48) else 1
+        lines.append(" ".join("".join(shown).split()))
+    return lines
+
+
 def _draft_text(raw, plain, composer):
     """Typed, unsent text after the prompt mark, or "": dim-only and empty are not drafts."""
     if has_dim(raw):
@@ -1038,7 +1076,7 @@ def _draft_text(raw, plain, composer):
     if found and found.group(2).strip():
         if composer is not None and composer.fullmatch(plain):
             return ""
-        return " ".join(found.group(2).split())[:160]
+        return " ".join(found.group(2).split())
     return ""
 
 
@@ -1140,19 +1178,49 @@ def auth_expired_on(harness, tail):
     return None
 
 
-def stalled_on(harness, tail, session, log):
-    """The stall signature that pane is showing, or None: it is working, or it is not ours."""
-    lines = content_lines(harness, tail)
-    if not lines or not any(mark.lower() in lines[-1].lower() for mark in stalls(harness)):
-        mark = next((mark for line in reversed(lines) for mark in stalls(harness)
-                     if mark.lower() in line.lower()), None)
+def error_said(harness, lines):
+    """A seat's error, as its harness drew it.
+
+    The last line is the error line.  One that names no failure of its own -- `Goal stalled`,
+    `Error ID: ...` -- is read with the line above it only where the harness drew that line as
+    its own error (`[stall] error_marks`); nothing else above is read, so a word in the model's
+    answer is never the provider's.
+    """
+    if (len(lines) > 1 and orch.harness_plugin(harness).failure(lines[-1])[0] is None
+            and lines[-2].startswith(_words(harness, "stall", "error_marks"))):
+        return "\n".join(lines[-2:])
+    return lines[-1] if lines else ""
+
+
+def failed_on(harness, lines):
+    """What a seat's error says, read as a worker turn's failure is: (outcome, word)."""
+    return orch.harness_plugin(harness).failure(error_said(harness, lines)) if lines else (None, None)
+
+
+def stalled_on(harness, pane, session, log):
+    """The stall signature that pane is showing, or None: it is working, or it is not ours.
+
+    A harness that draws its own notices in colour and the model's answer in the terminal's
+    own (`[stall] coloured`) says a stall word only in colour, where the pane has attributes;
+    the whole pane, as a colour drawn above its tail can still be on its last line.
+    """
+    lines = content_lines(harness, pane_tail(pane))
+    last = lines[-1] if lines else ""
+    block = config.manifest(harness).get("stall")
+    if lines and isinstance(block, dict) and block.get("coloured") is True and SGR_SEQ.search(pane):
+        drawn = [shown for raw, shown in zip(pane.splitlines(), in_colour(pane))
+                 if strip_sgr(raw).strip()]      # the rows pane_tail keeps, in its order
+        last = drawn[-PANE_LINES:][len(lines) - 1]
+    if not any(says(last, mark) for mark in stalls(harness)):
+        mark = next((mark for line in reversed(lines[:-1]) for mark in stalls(harness)
+                     if says(line, mark)), None)
         if mark:
             log(f"{session}: ignored {mark!r}; newer line {lines[-1]!r} is not known chrome")
         return None
-    low = "\n".join(lines).lower()
     # Quota and goal text can coexist. The quota policy must run before goal resume.
-    quota = next((mark for mark in quotas(harness) if mark.lower() in low), None)
-    return quota or next(mark for mark in stalls(harness) if mark.lower() in lines[-1].lower())
+    outcome, word = failed_on(harness, lines)
+    return (word if outcome in (SPENT, LIMITED)
+            else next(mark for mark in stalls(harness) if says(last, mark)))
 
 
 def stuck_on(harness, tail):
@@ -1269,7 +1337,7 @@ def screen_state(harness, tail):
             if rule["id"] == "prompt.draft":
                 draft = _draft_text(raws[at], region[at], chrome["composer"])
                 if draft:
-                    return rule["state"], rule["id"], draft
+                    return rule["state"], rule["id"], draft[:160]
             elif _suggestion_line(raws[at], region[at]):
                 return rule["state"], rule["id"], region[at][:160]
             continue
@@ -1591,9 +1659,11 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * a harness turn is in flight, so the seat is working (a turn past three hours says so
       in its reason and keeps the word) -- parked run or not;
     * an error it launched is parked with no scheduled resume and still needs his
-      attention -- recent, unacknowledged, not handed back or superseded;
+      attention -- recent, unacknowledged, not handed back or superseded -- or a run
+      is stalled, or a merge wait only its age turned away;
     * nobody is in the seat any more and its number is the way back in;
-    * it said it was done itself, a job never says it for it, and nothing on its screen asks him;
+    * it said it was done itself, a job never says it for it, and nothing on its screen asks him
+      -- unless a run of its own still sits parked and undecided, which is him;
     * otherwise it is at its prompt with nothing running, which is him again -- with the
       question it asked, or the draft it never sent, for a reason.
 
@@ -1800,8 +1870,11 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             asked = f"unsent: {asked}"
         return {"word": "needs you", "reason": asked or "waiting for you",
                 "since": found.get("began")}
-    # 2. a run of its own is unfinished and resumes itself: the seat is working
-    going = [(run_dir, state) for run_dir, state in mine if run_mod.going(state, now=at)]
+    # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`
+    # is the exception, as in the stop hook's `parked`: `going` counts it, but only
+    # `ak run resume` moves one, so rung 3 has it.
+    going = [(run_dir, state) for run_dir, state in mine
+             if run_mod.going(state, now=at) and state.get("state") != "stalled"]
     if going:
         going.sort(key=lambda pair: (pair[1].get("started_at") or 0, pair[0].name))
 
@@ -1846,24 +1919,35 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # 3. ... or a run of its own is parked with no scheduled resume: then it is
     # him the run waits for, only while the same ending still counts in his tally.
     # An acknowledged, handed-back, superseded or aged-out error is nobody's new
-    # question. A merge wait whose admission expired is history, not a new error.
-    # An exhausted run the tick cannot resume is no ending: told or old, it
+    # question. An exhausted run the tick cannot resume is no ending: told or old, it
     # stays unfinished until he resumes or stops it, so it is his -- by the tally's own
     # test, which no hand-back or age ends, or rung 5 would call it recovering --
-    # unless a later merged run replaced it, which ends the question outright.
+    # unless a later merged run replaced it, which ends the question outright.  So is
+    # a stalled run, and a merge wait only its age turned away: nothing told him, and
+    # nothing but him will move it.
     # A gone seat still names its own number below instead: the number
     # is the way back to the run, never the run itself.
     if not gone:
         if index is None:
             index = run_mod.supersession_index(records)
         parked = [(run_dir, state) for run_dir, state in mine
-                  if state.get("state") in ("error", "exhausted")
-                  and menu_mod.v5o_needs_look(state, index=index, now=at)]
+                  if (state.get("state") in ("error", "exhausted")
+                      and menu_mod.v5o_needs_look(state, index=index, now=at))
+                  or (state.get("state") == "stalled" and run_mod.unfinished(state, index=index))
+                  or (state.get("state") == "waiting" and not run_mod.going(state, now=at)
+                      and run_mod.tick_admission({**state, "finished_at": at}, now=at)
+                      and not run_mod.is_superseded(state, None, index, merged_only=True))]
         if parked:
             run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
-            return {"word": "needs you", "since": first.get("finished_at"),
-                    "reason": run_mod.parked_line(first, run_dir.name, now=at)
-                    or f"run {run_dir.name} parked: {run_mod.handback_reason(first)}"}
+            name, reason = run_dir.name, run_mod.handback_reason(first)
+            if first.get("state") == "stalled":
+                # from its id, never its error: a long step cuts the command in that one short
+                reason = f"run {name} stalled: resume it with `ak run resume {name}`"
+            elif first.get("state") == "waiting":
+                reason = f"run {name} waits to merge: {reason}"
+            else:
+                reason = run_mod.parked_line(first, name, now=at) or f"run {name} parked: {reason}"
+            return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
     # 4. nobody is in it: its number is the way back into the conversation.
     # An ended run is its orchestrator's to act on -- the run handed its ending back to
     # the seat that launched it -- so no reason ever says `press r` or names a run.
@@ -1899,15 +1983,18 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if index is None:
             index = run_mod.supersession_index(records)
         failed = notify.failed_declaration(last, mine, index)
-        unfinished = [d.name for d, state in mine
+        unfinished = [(d, state) for d, state in mine
                       if run_mod.unfinished(state, index=index)]
         if failed:
             return {"word": "needs you", "reason":
                     f"run {failed[0]} failed; declaration dropped",
                     "since": last.get("time")}
+        # nothing above is going, so a run still undecided waits on him: the stop hook's
+        # third stop stands on it, and this is where he hears
         if unfinished:
-            return {"word": "working", "reason": f"run {unfinished[0]} awaits recovery",
-                    "since": last.get("time")}
+            run_dir, state = unfinished[0]
+            return {"word": "needs you", "since": last.get("time"), "reason":
+                    f"run {run_dir.name} parked: {run_mod.handback_reason(state)}"}
         line = next((piece for piece in str(last["text"]).splitlines() if piece.strip()), "")
         return {"word": "done", "reason": " ".join(line.split()), "since": last.get("time")}
     # 6. at its prompt with nothing running: the question it asked, or nothing at all
@@ -2038,7 +2125,7 @@ def observe(entry, tail, harness, now):
     if entry.get("pane") != tail:
         entry.update(pane=tail, changed_at=now, since=now)
     line = next((line for line in reversed(tail.splitlines())
-                 if any(mark.lower() in line.lower() for mark in stalls(harness))), "")
+                 if any(says(line, mark) for mark in stalls(harness))), "")
     if entry.get("stall_line") != line:
         entry.update(stall_line=line, stall_at=now, since=now)
         entry.pop("reset_nudged_at", None)
@@ -2089,7 +2176,9 @@ def _pane_sent(session, harness, pane, text):
     if state == "asking":
         # A dialog owns the screen: the line landed, and no Enter goes into it blind.
         return True
-    return not _holds_text(pane, text)
+    # ... and read whole as well: a long line wraps up past the bottom rows `_holds_text` reads
+    return not (_holds_text(pane, text)
+                or re.sub(r"\s+", "", text) in (composer_draft(harness, pane) or ""))
 
 
 def _wait_sent(session, harness, text):
@@ -2132,10 +2221,11 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     """Type one line with a gap before Enter, and confirm it left the composer's line.
 
     Text, a KEY_GAP pause, then Enter; within SENT_WAIT the typed text has to be gone
-    from the bottom region. A working seat can still hold unsent text. A dialog counts as
-    landed, never as a reason for another Enter.  Still held: one more Enter and one
-    more wait.  Still held after that, log and return False, leaving the composer
-    alone.  Where the seat paints no composer at all, a delivered send counts as sent.
+    from the bottom region and the whole composer. A working seat can still hold unsent
+    text. A dialog counts as landed, never as a reason for another Enter.  Still held:
+    one more Enter and one more wait.  Still held after that, log and return False,
+    leaving the composer alone.  Where the seat paints no composer at all, a delivered
+    send counts as sent.
     `guard` covers text, gap and first Enter, with `veto` read once before typing, so
     another sender cannot join the line and a later veto cannot strand it. Confirmation
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
@@ -2151,8 +2241,9 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             harness, _ = seat_model(config.load(), name)
         except (config.Error, OSError):
             harness = None
-    confirm = False
-    if harness is not None:
+    # a line left pending was read in its composer, whatever chrome is drawn around it
+    confirm = pending
+    if harness is not None and not confirm:
         try:
             pattern = screen(harness).get("composer")
         except config.Error:
@@ -2248,6 +2339,10 @@ def composer_draft(harness, pane):
     """
     chrome = screen(harness)
     raws, rows = _screen_rows(harness, pane_tail(pane))
+    if chrome["draft"]:
+        # A composer no `❯›⟩` mark finds: its manifest finds what it holds, a match a row or a
+        # block of them, and finding none reads as empty.
+        return re.sub(r"\s+", "", "".join(chrome["draft"].findall("\n".join(rows))))
 
     def end(at):
         return next((row for row in range(at + 1, len(rows)) if chrome_line(chrome, rows[row])),
@@ -2632,16 +2727,22 @@ def window_ends(cfg, provider):
     return max(ends, default=None)
 
 
-def spend_reset(cfg, provider, log):
-    """Put a stalled provider to the usage-limit reset policy now, whatever its due clock says.
+def spend_reset(cfg, provider, name, log):
+    """Put the subscription that seat stalled on to the usage-limit reset policy now, whatever
+    its due clock says.
 
     The policy is `ak usage`'s own and its caps are its own too -- 90% of the week gone, and at
     most one reset a day -- so a seat that stalls again an hour later costs nothing here.  The
     adapter is asked at most once a minute like everywhere else, and the snapshot stays: deleting
-    it would cost every other provider its reading.
+    it would cost every other provider its reading.  The seat's own subscription is the one
+    asked, the usual login included: a credit spent on another leaves the stalled week as spent.
     """
+    account = None
+    if config.accounts(cfg, provider):
+        record = config.session_records().get(name) or {}
+        account = record.get("account") or config.DEFAULT_ACCOUNT
     try:
-        spent, left = usage.replenish(cfg, provider, depleted=False)
+        spent, left = usage.replenish(cfg, provider, depleted=False, account=account)
     except config.Error as exc:
         log(f"WARN could not read the {provider} meters: {exc}")
         return
@@ -2740,9 +2841,10 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
                 mine.append((run_dir.name, record, run_mod.going(record)))
         except config.Error:
             continue    # a record whose seat cannot be resolved is nobody's run to wait on
-    # the hook's `parked`: `unfinished`, and not going -- or `stalled`, which nothing resumes
-    parked = [run for run, record, going in mine
-              if (not going or record.get("state") == "stalled") and run_mod.unfinished(record)]
+    # the hook's `parked`: `unfinished` over the records, so not a run a later merged run
+    # replaced, and not going -- or `stalled`, which nothing resumes
+    parked = [run for run, record, going in mine if (not going or record.get("state") == "stalled")
+              and run_mod.unfinished(record, records)]
     if not parked and any(going for *_, going in mine):
         return
     nudged = {}
@@ -2814,9 +2916,16 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     def spent(account):
         return usage.model_exhausted(cfg, model, {provider: readings.get(account, {})})[0]
 
-    line = output_line(content_lines(harness, pane_tail(pane)))
-    mark = stalled_on(harness, line, name, log) if line else None
-    refusal = mark in quotas(harness) if mark else False
+    lines = content_lines(harness, pane_tail(pane))
+    line = output_line(lines)
+    # The pane and not the line: its colours say whose words they are.  What it ignores is
+    # health()'s to log, as before.
+    mark = stalled_on(harness, pane, name, lambda _: None) if line else None
+    if mark:
+        # A bare trailer (`Goal stalled`) is told apart, and dated, by the error line above it.
+        line = error_said(harness, lines[:-1] + [line])
+    outcome = failed_on(harness, [line])[0] if mark else None
+    refusal = outcome in (SPENT, LIMITED)
     now = time.time()
     observed = live.get("usage_refusal") or {}
     until = run.try_again_at(line) if refusal else None
@@ -2859,16 +2968,14 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if dry_run:
         log(f"would recover {name} on a {provider} account with room, or wait for its reset")
         return True
-    # Reset credits still belong to the usual login: named logins are seat-only.
     refilled = False
-    if (refusal and not waiting and reset_policy(harness) and current == config.DEFAULT_ACCOUNT
-            and (until is None or until > now)):
+    if refusal and not waiting and reset_policy(harness) and (until is None or until > now):
         applied = usage._reset_applied_at(reset_path)
         refilled = applied is not None and applied != observed.get("reset_at", reset_before)
         if refilled:
             log(f"{provider}: usage-limit reset applied")
         else:
-            refilled = spend_reset(cfg, provider, log) is True
+            refilled = spend_reset(cfg, provider, name, log) is True
         if refilled:
             fresh = usage.collect(cfg).get(provider) or {}
             readings = (fresh.get("accounts") or {}) if accounts else {current: fresh}
@@ -2898,8 +3005,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                     seat_write(name, usage_refusal={"line": line, "at": now, "handled": True})
                 return True
             # A bare 429/rate limit is not proof a subscription is empty. Retry the
-            # stable error locally; only a quota refusal or deadline parks an account.
-            if until is None and not re.search(r"usage|quota|exhaust|payment", mark, re.I):
+            # stable error locally; only a spent window or deadline parks an account.
+            if until is None and outcome == LIMITED:
                 if observed.get("told"):
                     return True
                 if now - observed["at"] >= GIVE_UP:
@@ -3161,7 +3268,7 @@ def health(cfg, state, dry_run, log):
             # Only verified auth messages get an immediate needs-login notice, but neither
             # known nor unknown logout wording can receive a capacity nudge.
             mark = (None if LOGIN_HINT.search(output_line(content_lines(harness, tail))) else
-                    stalled_on(harness, tail, name, log))
+                    stalled_on(harness, pane, name, log))
             if not mark:
                 if entry.get("signature"):
                     log(f"{name}: moving again")
@@ -3201,7 +3308,7 @@ def health(cfg, state, dry_run, log):
             entry["signature"] = mark
             stood = now - entry["since"]
             quiet = now - max(entry["stall_at"], entry["changed_at"])
-            quota = mark in quotas(harness)
+            quota = failed_on(harness, content_lines(harness, tail))[0] in (SPENT, LIMITED)
             if not quota:
                 for key in ("resets_at", "status", "reset_nudged_at"):
                     entry.pop(key, None)
@@ -3217,7 +3324,7 @@ def health(cfg, state, dry_run, log):
             # wait on the persisted deadline, then resume once, without flushing usage every tick.
             if quota and not dry_run and ends is None and not throttled:
                 if reset_policy(harness):
-                    spend_reset(cfg, provider, log)
+                    spend_reset(cfg, provider, name, log)
                 ends = window_ends(cfg, provider)
                 if ends and ends > now:
                     entry["resets_at"] = ends
@@ -3729,15 +3836,25 @@ def _dead_plan(state, run_dir, now):
     # record itself. Noticing the same dead pid again would launch a second loop.
     if _resume_ordered(state, now):
         return "skip", deaths, ""
-    if last and last.get("pid") == pid and not last.get("parked") and not last.get("resumed_at"):
+    reaped = last and last.get("pid") == pid and not last.get("parked") and not last.get("resumed_at")
+    # The hour runs to the death being judged, not to the tick judging it: a tick that gets
+    # to a recorded death late must not age the first of three out of the window.
+    upto = last.get("at") if reaped else now
+    if not isinstance(upto, (int, float)) or isinstance(upto, bool):
+        upto = now
+    recent = [death for death in deaths
+              if isinstance(death.get("at"), (int, float)) and not isinstance(death.get("at"), bool)
+              and upto - death["at"] < DEAD_WINDOW]
+    if reaped:
+        # A reap noticed this death first and recorded it, so it is already among the recent:
+        # the third inside the hour parks whoever noticed it.
+        if len(recent) >= 3:
+            return "park", [*deaths[:-1], {**last, "parked": True}], last.get("reason") or ""
         if now < _backoff_until(deaths):
             return "wait-quiet", deaths, last.get("reason") or ""
         return "resume-open", deaths, last.get("reason") or ""
     noticed = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
     reason = f"loop process {pid} gone, noticed {noticed}"
-    recent = [death for death in deaths
-              if isinstance(death.get("at"), (int, float)) and not isinstance(death.get("at"), bool)
-              and now - death["at"] < DEAD_WINDOW]
     entry = {"at": now, "pid": pid, "reason": reason}
     if len(recent) >= 2:
         return "park", [*deaths, {**entry, "parked": True}], reason
@@ -4216,7 +4333,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
     A run a later merged run replaced is stood down, marked `replaced`, never
     resumed: its work is done, elsewhere, and no wait survives on it.
     """
-    from . import run as run_mod
+    from . import menu as menu_mod, run as run_mod
     now = time.time() if now is None else now
     if cfg is None:
         try:
@@ -4239,8 +4356,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
             return
     found = [(run_dir, run_mod.read_state(run_dir)) for run_dir in run_mod.run_dirs()]
     index = run_mod.supersession_index(
-        state for run_dir, state in found
-        if state and "smoke-" not in run_dir.name)
+        state for run_dir, state in found if state and not menu_mod.smoke_run(state))
     for run_dir, state in found:
         try:
             if not state or state.get("state") != "exhausted":
@@ -4386,19 +4502,19 @@ def resume_errored(dry_run=False, log=print, now=None):
     started stays `error`: still waiting, still silent, never a notification.
 
     Only a resumable error is scheduled at all: a worktree still there, the keys
-    a resume replays, a task that still parses.  Anything else was never stamped,
-    or loses its stamp here with one WARN, and reads parked for a person.
+    a resume replays, a task that still parses, and no job of its own to settle it.
+    Anything else was never stamped, or loses its stamp here with one WARN, and
+    reads parked for a person.
     A handed-back, carded or acknowledged ending, one at least a day old, or one
     with no launch session still on record loses its stamp and waits for a person.
     An error a later merged run replaced is retried never: its retry stamps go the
     way an inadmissible ending's do, and with them the wait they kept.
     """
-    from . import run as run_mod
+    from . import menu as menu_mod, run as run_mod
     now = time.time() if now is None else now
     found = [(run_dir, run_mod.read_state(run_dir)) for run_dir in run_mod.run_dirs()]
     index = run_mod.supersession_index(
-        state for run_dir, state in found
-        if state and "smoke-" not in run_dir.name)
+        state for run_dir, state in found if state and not menu_mod.smoke_run(state))
     for run_dir, state in found:
         try:
             if not state or state.get("state") != "error":
@@ -4464,7 +4580,7 @@ def resume_errored(dry_run=False, log=print, now=None):
                 pass
 
 
-def resume_waiting(dry_run=False, log=print, now=None):
+def resume_waiting(dry_run=False, log=print, now=None, run=None):
     """Park rebase-conflict FAILs as `waiting`, and resume them after main moves.
 
     A FAIL whose merge note is a rebase conflict, with rounds still to spend, is
@@ -4483,14 +4599,17 @@ def resume_waiting(dry_run=False, log=print, now=None):
     Every wait must still pass admission before a fetch or resume: waits left by
     an older tick do not keep permission after a telling, a lost seat or a day.
     A dry run names what it would park and resume, and fetches nothing: a fetch
-    moves the very refs it reports on.
+    moves the very refs it reports on.  A job's run is its job's: the tick's pass
+    leaves it, and the job's own ladder passes it as `run` to resume its wait.
     """
     from . import run as run_mod
     now = time.time() if now is None else now
-    for run_dir in run_mod.run_dirs():
+    for run_dir in [run] if run else run_mod.run_dirs():
         try:
             state = run_mod.read_state(run_dir)
             if not state or state.get("state") not in ("fail", "waiting"):
+                continue
+            if state.get("job_id") and not run:
                 continue
             if state.get("state") == "fail" and not run_mod.parkable_conflict(
                     state, run_dir, now=now):
@@ -4576,7 +4695,8 @@ def resume_waiting(dry_run=False, log=print, now=None):
                 log(f"parked {run_dir.name} waiting on {ref} at {sha[:12]}")
                 continue
             try:
-                with redirect_stdout(io.StringIO()):
+                # a job's threads share its stdout: swapping it would swallow their lines
+                with nullcontext() if run else redirect_stdout(io.StringIO()):
                     run_mod.spawn_bg(run_dir, ["resume", run_dir.name], expected=decided,
                                      park_as=True)
             except (config.Error, OSError) as exc:
@@ -5508,10 +5628,16 @@ def main(argv):
                             # which path it is, so a seat that died since gets the orphan one.
                             if run.owes_ending(receipt):
                                 run.announce(receipt, run_dir, log)
+                            # A question the seat never took is typed again before the user
+                            # hears it; one it took whose ping failed is only pinged, and so is
+                            # one kept before `asked` was, whose typing nobody knows the end of.
                             question = receipt.get("pending_inbox")
-                            if question and notify.shaped("needs", question["question"],
-                                    session=config.resolve_session(inbox()),
-                                    event_id=f"inbox:{question['url']}:{question['sha']}") == 0:
+                            if question and ask_inbox(
+                                    config.load(), question["question"], question["url"],
+                                    question["sha"], log, asked=question.get("asked", True),
+                                    typed=lambda: run.mark_delivery(
+                                        run_dir, receipt, pending_inbox={**question, "asked": True})
+                                    ) == 0:
                                 # struck off the record as it stands, never off this copy of
                                 # it: the run's own loop can have handed the ending back while
                                 # the question was going out, and a whole save from here would

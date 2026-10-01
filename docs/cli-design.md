@@ -216,9 +216,13 @@ Example:
 `agentkit · info`. `c` is a matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
 accent, a row of label, harness (dim), then `orchestrator` (`●` on the highlighted
-session's, `○` dim elsewhere), `worker` (`■`/`□`) and `effort` (`‹ xhigh ›`);
-the columns are `orch` and `work` where the full words do not fit, then the
-harness gives way, then the label. ↑/↓, k/j and the wheel move between rows,
+session's, `○` dim elsewhere), `worker` (`■`/`□`) and `effort` (`‹ xhigh ›`),
+then its strength: a bar for each level that model offers, rising in height
+(`▂▃▅▆█` for five), filled up to its effort and the rest dim -- blank where
+nothing can dim them, and without UTF-8 a `|` for each filled one alone. A model
+with one effort shows its word alone, with no bars and no arrows. The columns
+are `orch` and `work` where the full words do not fit, then the harness gives
+way, then the bars, then the label. ↑/↓, k/j and the wheel move between rows,
 ←/→ between all three columns; Enter or space on an effort steps it up through
 that model's own efforts (`config.efforts`), from the highest round to the
 lowest. The highlighted row
@@ -437,6 +441,12 @@ menu is up moves: the first draw after opening, one after a resize and one back
 from another screen or a notice draw every value as it is (`motion.Clock.look`,
 `forget`).
 
+A step on an effort on `c` is news too: the bar it fills rises into place over
+150 ms, and the one it empties lowers, the rest standing still; a step onto the
+model's highest level then sends one light through the word, a letter at a time
+left to right, over 600 ms -- once for each step onto it (`motion.rising`,
+`motion.shimmering`, `terminal.signal`).
+
 The popup's content fades in once, as it opens: from the background to its
 colours over 120 ms, on the same clock. Whatever is drawn in that time -- a
 key's draw, at once, or news -- comes up with it, and the popup closes at once,
@@ -456,8 +466,8 @@ back from the wait, the fetch left to finish on its own, and any other key is le
 go (`motion.fetching`, `menu.matrix_key`, `menu.waited`).
 
 Helpers: `motion.Clock`, `motion.breathing`, `motion.pulsing`, `motion.settling`,
-`motion.gliding`, `motion.fetching`, `menu.moving`, `menu.waited`, `terminal.faded`,
-`terminal.fade`.
+`motion.gliding`, `motion.rising`, `motion.shimmering`, `motion.fetching`, `menu.moving`,
+`menu.waited`, `terminal.faded`, `terminal.fade`, `terminal.signal`.
 
 ## Ages
 

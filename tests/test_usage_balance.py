@@ -32,7 +32,7 @@ class WeeklyBalance(unittest.TestCase):
                                 "workers": [m for m in self.cfg["models"] if m != "fable"]}
         # mimo's mode is its OpenCode endpoint's, and this fixture's config names none, never
         # the caller's: payg, so it stays out while any subscription is at or behind pace.
-        opencode = tempfile.TemporaryDirectory(prefix=".usage-opencode-", dir=REPO)
+        opencode = tempfile.TemporaryDirectory(prefix=".ak-test-usage-opencode-", dir=REPO)
         self.addCleanup(opencode.cleanup)
         env = patch.dict(os.environ, {"OPENCODE_CONFIG_DIR": opencode.name})
         env.start()
@@ -558,7 +558,7 @@ class WeeklyBalance(unittest.TestCase):
         for prov in raw.values():
             prov.pop("effective_used", None)
             prov.pop("gap", None)
-        with tempfile.TemporaryDirectory(prefix=".usage-test-", dir=REPO) as tmp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-usage-test-", dir=REPO) as tmp:
             with patch.object(config, "STATE", Path(tmp)), patch.object(config, "ensure_dirs"), \
                     patch.object(usage.time, "time", return_value=self.now), \
                     patch.object(usage, "_probe",
@@ -722,7 +722,7 @@ class WeeklyBalance(unittest.TestCase):
         for parent in (None, {"orchestrator": "astra", "workers": ["opus", "spark"]}):
             for model, first in (("fable", "astra"), ("astra", "astra")):
                 with self.subTest(parent=parent, model=model), \
-                        tempfile.TemporaryDirectory(prefix=".usage-banner-", dir=REPO) as tmp, \
+                        tempfile.TemporaryDirectory(prefix=".ak-test-usage-banner-", dir=REPO) as tmp, \
                         patch.object(config, "active_session", return_value=parent), \
                         patch.object(config, "notify_path", return_value=Path(tmp) / "notice"), \
                         patch.object(config, "save_session"), \

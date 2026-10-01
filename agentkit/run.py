@@ -21,6 +21,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import Counter
@@ -29,36 +30,14 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import (command_help, config, history, notify, orch, proc_snapshot, retention, update,
-               usage, watch, worker)
-from .harness import load as harness_plugin
+from . import (command_help, config, history, notify, orch, proc_snapshot, retention,
+               task as taskfile, update, usage, watch, worker)
+from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 DIFF_CAP = 300 * 1024
 OUT_CAP = 20 * 1024
 LESSONS_CAP = 4 * 1024
 RULES_CAP = 8 * 1024
-# A worker that dies like this died on the provider, not on the task: it is retried, never scored.
-# Only a fault, never the account: a usage or rate limit names the account and hands the
-# round to another provider instead, through the manifests' own quota words.
-TRANSIENT = re.compile(r"API Error|HTTP 5\d\d|Overloaded|Internal server error|"
-                       r"Gateway Timeout|unexpected status|overloaded|529|at capacity|"
-                       r"model stream idle timeout|Service unavailable|The service is busy|"
-                       r"Can't reach the API server", re.I)
-# What a harness says on stderr when it never ran the turn at all: it is not installed, it does
-# not know a flag or the model it was given, or its login was refused.  No wait changes any of
-# these, so an exit that left final.md empty and says one of them is no transient answer.
-HARNESS_FAULT = re.compile(r"not installed|command not found|unknown (?:shorthand )?flag|"
-                           r"unknown (?:option|argument|command|model)|unrecognized "
-                           r"(?:option|argument)|unexpected argument|invalid (?:option|model)|"
-                           r"model\b.{0,80}\b(?:not found|not exist|not supported)|"
-                           r"model_?not_?found|not logged in|please (?:run )?/?log ?in|"
-                           r"unauthori[sz]ed|authentication[ _](?:failed|required|error)|"
-                           r"invalid[ _-](?:x-)?api[ _-]?key", re.I)
-# ...unless the same stderr says the provider is down: a 5xx, an overload or a capacity refusal
-# is waited out, whatever else the harness said on the way.
-OUTAGE = re.compile(r"(?:API Error|HTTP|status)\W{0,3}5\d\d|overloaded|at capacity|"
-                    r"Internal server error|Bad Gateway|Gateway Timeout|Service unavailable|"
-                    r"The service is busy|idle timeout|Can't reach the API server", re.I)
 # A transient answer is what a person answers by typing `continue`: the same worker session
 # again, after 1, 5, 15, 30 and 60 minutes, then hourly, indefinitely.  The run stays
 # `running` throughout, so its session reads `working`, and never ends in `error` for one.
@@ -103,25 +82,11 @@ EVENT_OUTPUT = ("aggregated_output", "output", "stdout", "stderr", "command", "c
 JUNK = ("__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/",
         "node_modules/", ".DS_Store", "*.swp")
 # what the suites leave inside the checkout when a test is killed mid-way: every sandbox
-# tests/smoke.sh and the test_*.py files it runs create there (tests/acceptance.sh and
-# tests/e2e-fresh.sh only ever write under $WORK).  The leftover sweep never commits these
-# and the loop removes them before the next turn, whatever the repository's .gitignore says.
-SANDBOX_PREFIXES = (
-    ".acceptance-", ".auth-watch-", ".cards-", ".changed-checks-", ".codex-seat-",
-    ".command-help-", ".config-home-", ".deferred-checks-", ".deferred-result-",
-    ".gate-tolerance-", ".gate-turns-", ".handback-", ".lessons-", ".login-", ".macbridge-",
-    ".muse-probe-", ".no-sandbox-commit-", ".notify-", ".notify-smoke-",
-    ".one-provider-", ".one-rulebook-", ".phone-", ".pins-", ".recover-runs-", ".refusal-",
-    ".retention-", ".retry-notify-", ".review-contract-", ".review-gate-", ".rulebook-",
-    ".run-quota-", ".run-scope-", ".run-v5r-", ".seat-hook.", ".seat-state-",
-    ".session-state-", ".silence-", ".smoke-", ".stop-hook-", ".stop-nudge-",
-    ".task-size-", ".tick-health-", ".usage-banner-", ".usage-fresh-", ".usage-test-",
-    ".v4c-", ".v4l-", ".v4n-", ".v4z-no-history-", ".v5aa-", ".v5ab-", ".v5ac-",
-    ".v5ad-", ".v5ae-", ".v5af-", ".v5ah-", ".v5aj-", ".v5al-", ".v5am-", ".v5d-",
-    ".v5e-", ".v5e-list-", ".v5f-", ".v5l-", ".v5m-", ".v5p-", ".v5q-", ".v5w-",
-    ".v5x-", ".verify-integration-", ".resume-midturn-", "codex-mflag-", "phone-tmux-",
-    "v4l-tmux-",
-)
+# tests/smoke.sh and the test_*.py files create there is named under this one prefix, which
+# tests/test_leftover_staged_and_sandboxes.py holds every one of them to.  The leftover sweep
+# never commits these and the loop removes them before the next turn, whatever the
+# repository's .gitignore says.
+SANDBOX_PREFIX = ".ak-test-"
 MERGE_METHODS = {"squash": "--squash", "merge": "--merge", "rebase": "--rebase"}
 CHECKS_CAP = 60 * 60            # a check suite still running after an hour is not going to finish
 CHECKS_POLL = 10
@@ -163,10 +128,6 @@ CLASSIC_CHECKS_QUERY = (
     "query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){"
     "ref(qualifiedName:$branch){branchProtectionRule{requiresStatusChecks "
     "requiredStatusChecks{context app{databaseId}}}}}}")
-TASK_MAX_POINTS = 3      # numbered points in ## Goal: more is more than one behaviour
-TASK_MAX_WORDS = 500     # words outside the checks block: past this, split the task
-TASK_MAX_CHECKS = 6      # done-when commands: past this, split the task
-TASK_MAX_ROUNDS = 3      # the round budget, not a default: past it, split or re-scope
 NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
                 "eight", "nine", "ten")   # the hand-back spells the spent budget out
 FRONT = re.compile(r"^---\n(.*?)\n---", re.S)
@@ -250,7 +211,7 @@ def no_answer(cmd, what):
             "check `gh auth status` and the remote's credentials by hand, then resume the run")
 
 
-def tool_run(cmd, cwd=None, timeout=None):
+def tool_run(cmd, cwd=None, timeout=None, env=None):
     """(exit code, stdout, stderr) for every git and gh call this module makes.
 
     The code is None when the call ran out of time, and stderr says so: a tool that has not
@@ -264,7 +225,7 @@ def tool_run(cmd, cwd=None, timeout=None):
     try:
         proc = subprocess.run(cmd, cwd=None if cwd is None else str(cwd), capture_output=True,
                               encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
-                              timeout=timeout, env=tool_env())
+                              timeout=timeout, env={**tool_env(), **(env or {})})
     except subprocess.TimeoutExpired:
         return None, "", no_answer(cmd, f"was killed after {timeout:g}s")
     err = proc.stderr
@@ -308,25 +269,6 @@ def stall_summary(state):
         return ""
     step = (stalls[-1].get("step") or "").strip()
     return f"stalled {len(stalls)}× ({step}), recovered" if step else f"stalled {len(stalls)}×, recovered"
-
-
-def worker_dry(cfg, name, text):
-    """The harness's own quota word in a failed turn's text, or None.
-
-    A refusal is what the harness itself said -- its manifest's quota words -- not what
-    the work printed: an empty text says nothing at all, and a bare number glued into
-    a bigger one (a line count, a byte count, a diff hunk) is not the harness refusing
-    anything, so every word must stand on its own. The caller ensures only a non-zero
-    turn can be one; a turn that exited 0 said what it meant to say.
-    """
-    if not text or not text.strip():
-        return None
-    try:
-        words = watch.quotas(config.model(cfg, name)["harness"])
-    except (config.Error, OSError, ValueError):
-        return None
-    return next((word for word in words
-                 if re.search(r"\b" + re.escape(word) + r"\b", text, re.IGNORECASE)), None)
 
 
 def collect_usage(cfg):
@@ -402,8 +344,8 @@ def park_stalled(run_dir, state, entry):
                        f"ak run resume {run_dir.name}")
     save_state(run_dir, state)
     try:
-        _, body, _ = parse_task(run_dir / "task.md")
-        cmds = done_when(body, run_dir / "task.md")
+        _, body, _ = taskfile.parse_task(run_dir / "task.md")
+        cmds = taskfile.done_when(body, run_dir / "task.md")
     except (OSError, config.Error):
         cmds = []
     try:
@@ -413,14 +355,14 @@ def park_stalled(run_dir, state, entry):
     return state
 
 
-def git(repo, *args, check=True):
+def git(repo, *args, check=True, env=None):
     """The command's stdout, raising on failure unless `check` is off.
 
     `check=False` tolerates a git that said no, never one that never answered: a timeout, or a
     prompt it was refused, is not an empty result, and reading it as one is how a run loses the
     thing it was about to do.
     """
-    code, out, err = tool_run(["git", "-C", str(repo), *args])
+    code, out, err = tool_run(["git", "-C", str(repo), *args], env=env)
     halted = stopped(code, err)
     if (check or halted) and code != 0:
         raise (Stopped if halted else config.Error)(
@@ -487,24 +429,6 @@ def gh(cwd, *args, timeout=None):
     return code, (out + err).strip()
 
 
-def parse_task(path):
-    text = path.read_text()
-    match = re.match(r"^---\n(.*?)\n---\n?(.*)$", text, re.S)
-    if not match and text.startswith("---\n"):
-        raise config.Error(f"{path}: front matter needs a closing --- line")
-    meta, body = {}, match.group(2) if match else text
-    for line in (match.group(1).splitlines() if match else []):
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if ":" not in line:
-            raise config.Error(f"{path}: front matter line is not `key: value`: {line!r}")
-        key, value = line.split(":", 1)
-        meta[key.strip()] = value.split("#", 1)[0].strip()
-    title = next((l[2:].strip() for l in body.splitlines() if l.startswith("# ")), path.stem)
-    return meta, body, title
-
-
 def project_lessons(repo, state, log):
     """Read the orchestrator's repository facts once for this loop's worker prompts."""
     if repo is None:
@@ -554,67 +478,6 @@ def repo_rules(wt, ref, log):
     return ("\n\n## Repository AGENTS.md\n"
             "The repository's own instructions, as on the base commit. Where they differ "
             f"from the rest of this prompt, the rest of this prompt wins.\n\n{text}\n")
-
-
-def done_when(body, path):
-    section = re.search(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", body, re.S | re.M | re.I)
-    if not section:
-        raise config.Error(f"{path}: no `## Done when` section")
-    fence = re.search(r"```(?:bash|sh)?\n(.*?)```", section.group(1), re.S)
-    if not fence:
-        raise config.Error(f"{path}: `## Done when` has no ```bash fenced command block")
-    cmds = [l.strip() for l in fence.group(1).splitlines() if l.strip() and not l.strip().startswith("#")]
-    if not cmds:
-        raise config.Error(f"{path}: `## Done when` block is empty; done means commands that exit 0")
-    return cmds
-
-
-ONCE_MARKER = re.compile(r"#\s*once\s*$")
-
-
-def split_once(cmd):
-    """(command, is_once): strip a trailing `# once` marker, when the line has one.
-
-    The marker is the tail the spec names -- whitespace, `#`, `once` -- and only when
-    its `#` is outside any quotes: `echo "# once"` names no marker, it runs one.  The
-    stripped command is what the loop executes; bash would ignore the comment anyway,
-    so an older loop that runs the line whole runs the same command.
-    """
-    single = double = False
-    escaped = False
-    for i, ch in enumerate(cmd):
-        if escaped:
-            escaped = False
-        elif ch == "\\" and not single:
-            escaped = True
-        elif ch == "'" and not double:
-            single = not single
-        elif ch == '"' and not single:
-            double = not double
-        elif ch == "#" and not single and not double:
-            if i > 0 and cmd[i - 1] in " \t" and ONCE_MARKER.match(cmd[i:]):
-                return cmd[:i].rstrip(), True
-    return cmd, False
-
-
-def group_commands(cmds):
-    """(every, once): a command list split on the `# once` marker, markers stripped."""
-    every, once = [], []
-    for cmd in cmds:
-        bare, is_once = split_once(cmd)
-        (once if is_once else every).append(bare)
-    return every, once
-
-
-def done_when_groups(body, path):
-    """(every, once): the task's done-when commands, split on a trailing `# once` marker.
-
-    `done_when` itself is unchanged -- the flat list, markers intact, for callers that
-    want every command plus the once ones.  The every-commands run per round; the
-    once-commands run alongside the review on the commit under review, and again at
-    landing only when the target moved in the branch's files.
-    """
-    return group_commands(done_when(body, path))
 
 
 def first_command(cmd):
@@ -686,71 +549,13 @@ def with_suite(cmds, wt, target=None):
         targets.add(first)
     kept = []
     for cmd in cmds:
-        bare, once = split_once(cmd)
+        bare, once = taskfile.split_once(cmd)
         if once:
             if bare != suite:
                 kept.append(cmd)
         elif " ".join(bare.split()) not in targets:
             kept.append(cmd)
     return kept + [f"{suite}  # once"]
-
-
-def task_points(body):
-    """Numbered points in the task's `## Goal` section: `1.` or `1)` with text after it."""
-    section = re.search(r"^##\s+Goal\s*$(.*?)(?=^##\s|\Z)", body, re.S | re.M | re.I)
-    if not section:
-        return 0
-    return len(re.findall(r"^[ \t]*\d+[.)][ \t]+\S", section.group(1), re.M))
-
-
-def task_words(body):
-    """Words outside the checks block: the fenced done-when commands are not prose."""
-    section = re.search(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", body, re.S | re.M | re.I)
-    if section:
-        fence = re.search(r"```(?:bash|sh)?\n(.*?)```", section.group(1), re.S)
-        if fence:
-            body = body.replace(fence.group(0), "", 1)
-    return len(body.split())
-
-
-def task_size(body, cmds):
-    """(words outside the checks block, numbered goal points, checks) for one task."""
-    return task_words(body), task_points(body), len(cmds)
-
-
-def task_size_refusal(body, cmds):
-    """One sentence when the task is bigger than one behaviour, else None.
-
-    Points first, then words, then checks: the first rule the task breaks is the one
-    named, with its count, so the refusal is one sentence however far over it is.
-    """
-    points = task_points(body)
-    if points > TASK_MAX_POINTS:
-        return f"task has {points} numbered goal points (at most {TASK_MAX_POINTS})"
-    words = task_words(body)
-    if words > TASK_MAX_WORDS:
-        return (f"task body has {words} words outside the checks block "
-                f"(at most {TASK_MAX_WORDS})")
-    if len(cmds) > TASK_MAX_CHECKS:
-        return f"task has {len(cmds)} checks (at most {TASK_MAX_CHECKS})"
-    return None
-
-
-def rounds_refusal(value, what):
-    """One sentence when a round budget asked for is over the rule, else None.
-
-    Three rounds is the budget and never a default to raise: a run that has not passed by
-    then goes back to its orchestrator with its findings, to split or re-scope, and no
-    flag carries it further.  A value that is no number is left to the check that says so.
-    """
-    try:
-        rounds = int(value)
-    except (TypeError, ValueError):
-        return None
-    if rounds <= TASK_MAX_ROUNDS:
-        return None
-    return (f"{what} {rounds} is over the budget: {TASK_MAX_ROUNDS} rounds, then a run goes "
-            "back to its orchestrator to split or re-scope")
 
 
 def slugify(title):
@@ -840,8 +645,18 @@ def ready_order(cfg, providers, workers=None, log=None, **kwargs):
 
 
 def refuse_unready(cfg, providers, name):
-    """A model named outright whose harness cannot run here is refused, in one sentence."""
+    """A model named outright whose harness cannot run here is refused, in one sentence.
+
+    Not on an answer an install or revert of that harness overlapped: its command was missing
+    then, so the swap is waited out and the harness asked again, as a failed turn's is.
+    """
     why = usage.unready(cfg, name, providers)
+    harness = config.model(cfg, name)["harness"]
+    if why and update.swap_end(harness, providers.asked_at, time.time()):
+        while (end := update.swap_end(harness, providers.asked_at, time.time()) or 0) > (
+                now := time.time()):
+            time.sleep(min(SWAP_POLL, end - now))
+        why = usage.harness_unready(harness)
     if why:
         raise config.Error(f"{name} cannot run here: {why}")
 
@@ -1215,21 +1030,22 @@ def transient(code, text):
     Only a non-zero exit qualifies: a worker that exited 0 said what it meant to say, however
     much of an API error it quotes back while saying it.  A kill is not one either: it reads
     as the signal, through `killed_word`, and takes its own road.  An empty final.md gets
-    here only once `cannot_run` has found no harness fault on stderr.
+    here only once `cannot_run` has found no harness fault on stderr.  Anything else the
+    harness said is for its own words to read (`Harness.failure`), and `call_retrying` asked
+    them first; a final.md the model answered in says nothing here.
     """
     if code == 0 or killed_word(code):
         return None
-    if not text.strip():
-        return f"exited {code} with an empty final.md"
-    hit = TRANSIENT.search(text)
-    return f"exited {code} on {hit.group(0)!r}" if hit else None
+    return f"exited {code} with an empty final.md" if not text.strip() else None
 
 
-def cannot_run(code, text, stderr, out_dir=None):
+def cannot_run(code, text, stderr, out_dir=None, harness=None):
     """The stderr line saying this harness never ran the turn at all, or None.
 
     Only for a non-zero exit, not a kill, that left final.md empty: whatever answered is an
-    answer, and a kill takes its own road.  Never beside an OUTAGE line, which is waited out.
+    answer, and a kill takes its own road.  The line holds one of the harness's `faults`
+    words (`Harness.failure`), and no outage word stands anywhere beside it: that is waited
+    out instead.
     `opencode.sh: opencode is not installed` is the case -- it was retried like a 500,
     hourly, for as long as nobody installed it.
 
@@ -1244,10 +1060,11 @@ def cannot_run(code, text, stderr, out_dir=None):
         line = next((" ".join(line.split()) for line in stderr.splitlines() if line.strip()),
                      "")
         return line or f"exited {code} with an empty event stream"
-    if OUTAGE.search(stderr):
+    outcome, word = harness_plugin(harness).failure(stderr, ran=False)
+    if outcome != FAULT:
         return None
-    return next((" ".join(line.split()) for line in stderr.splitlines()
-                 if HARNESS_FAULT.search(line)), None)
+    return next((" ".join(line.split()) for line in stderr.splitlines() if says(line, word)),
+                None)
 
 
 def transient_wait(out_dir, delay):
@@ -1497,14 +1314,16 @@ def ran_dry(code, said, harness, refusal=False):
     """The harness's own word for a spent provider window in this exit, or None.
 
     Its words and not ours: they come from `[stall] quotas` in adapters/<harness>.toml, the
-    same list the babysitter reads off a seat's screen.  A non-zero exit is as required here as
-    it is for `transient`, because a worker that exited 0 said what it meant to say.  The scoped
-    terminal refusal path may pass ``refusal`` for an exit-zero turn that never answered.
+    same list the babysitter reads off a seat's screen, each a whole word (`Harness.failure`);
+    a LIMITED one parks a worker's account as a SPENT one does.
+    A non-zero exit is as required here as it is for `transient`, because a worker that exited
+    0 said what it meant to say.  The scoped terminal refusal path may pass ``refusal`` for an
+    exit-zero turn that never answered.
     """
     if code == 0 and not refusal:
         return None
-    low = said.lower()
-    return next((mark for mark in watch.quotas(harness) if mark.lower() in low), None)
+    outcome, word = harness_plugin(harness).failure(said)
+    return word if outcome in (SPENT, LIMITED) else None
 
 
 def try_again_at(said):
@@ -1646,7 +1465,10 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 "login rather than retrying into it")
             expired.session = expired.session or session
             raise
-        span = (began, time.time())
+        else:
+            span = (began, time.time())
+        finally:
+            memory_cap_note(out_dir.parent.parent, log)     # however the turn ended
         note_turn_meters(cfg, name, target, account)
         return result
 
@@ -1729,24 +1551,26 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         # Codex's missing model suggests `try a different model` like its capacity refusal.
         # Not a wait: the caller hands the work over, or the run is blocked on this line.
         fault = None if killed else cannot_run(
-            code, text, tail(target / "stderr.log"), target)
+            code, text, tail(target / "stderr.log"), target, entry["harness"])
         if fault:
             worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
             log(f"WARN {role} {name} cannot run: {fault}")
             raise CannotRun(name, fault)
         # Some adapters exit zero after streaming turn.failed; that event still refused
         # the turn. On a successful exit only failure events speak, never answer text.
+        # A spent window, a refusal or an outage, each in the harness's own whole words.  A
+        # kill by signal reads as the signal whatever else was said, unless the window is spent.
         said = harness_said(target, text, entry["harness"], failures_only=code == 0)
-        mark = next((word for word in watch.refusals(entry["harness"])
-                     if word.lower() in said.lower()), None)
-        if mark:
+        outcome, mark = harness_plugin(entry["harness"]).failure(said)
+        sig = killed_word(code) if not killed else None
+        if outcome in (SPENT, LIMITED) or (outcome and not sig):
             # The attempt is refused and its children are not the next one's: whatever
             # the dead turn left behind dies before the refill retry, the handover,
             # or the transient wait.
             worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
             quota = ran_dry(code, said, entry["harness"],
                             refusal=code == 0 and bool(said))
-            lines = [line for line in said.splitlines() if mark.lower() in line.lower()]
+            lines = [line for line in said.splitlines() if says(line, mark)]
             message = lines[0] if lines else said or mark
             try:
                 parsed = record_text(json.loads(message))
@@ -1774,7 +1598,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 continue
             if account is not None and next_account(try_again_at(said), message):
                 continue
-            spent, left = (usage.replenish(cfg, entry["provider"])
+            spent, left = (usage.replenish(cfg, entry["provider"], account=account)
                            if refills < MAX_REFILLS else (False, 0.0))
             if spent:
                 refills += 1
@@ -1787,7 +1611,6 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                       + time.strftime("%Y-%m-%d %H:%M", time.localtime(until)))
             log(f"WARN {role} {name} refused: {message}{parked}")
             raise RanDry(name, quota, code, text, session, until, message, True)
-        sig = killed_word(code) if not killed else None
         if sig:
             # The worker died by signal, not on the provider and not on the task: it
             # resumes once, at once, on the session it left behind.  A second kill
@@ -1805,12 +1628,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         why = (f"emitted no event for {orch.span(limit)} and was killed with everything it "
                f"spawned (session {session or 'not recorded'})" if killed else transient(code, text))
         if not why:
-            # quota the event layer missed is `worker_dry`'s to find, which hands the work to
-            # another model: an account with room of the same provider takes it first
-            dry = worker_dry(cfg, name, text) if code != 0 and account is not None else None
-            if dry and next_account(try_again_at(text), f"ran dry on {dry!r}"):
-                worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
-                continue
+            # a quota word left only in the model's answer is the answer talking, not the
+            # provider: it parks no account and hands nothing over
             return code, text, session, False
         # The attempt failed and its children are not the next one's: whatever the dead
         # turn left behind dies before the retry, so a retry never inherits them.
@@ -2115,10 +1934,10 @@ def derived_heavy_limit(readings=None):
     """
     if readings is None:
         readings = host_readings()
-    quota = _reading(readings, "slice_cpu_quota")
-    if quota is not None:
+    cpu_quota = _reading(readings, "slice_cpu_quota")
+    if cpu_quota is not None:
         used = _reading(readings, "slice_cpu_used")
-        cpu_free = quota - used if used is not None else float(quota)
+        cpu_free = cpu_quota - used if used is not None else float(cpu_quota)
     else:
         cpus = _reading(readings, "cpus", "nproc")
         load = _reading(readings, "load", "load1", "load_1m")
@@ -2437,6 +2256,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         on_timeout=reason.append, cwd=str(cwd), output=progress,
                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=suite_env())
                     end = progress.tell()
+                if log is not None and run_dir is not None:
+                    memory_cap_note(run_dir, log)
                 with log_path.open("rb") as progress:
                     progress.seek(max(offset, log_path.stat().st_size - OUT_CAP))
                     out = progress.read().decode("utf-8", errors="replace")
@@ -2510,7 +2331,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
 def leftover_junk(path):
     """Match names, not targets: a dependency symlink is junk even when Git ignores only directories."""
     parts = path.rstrip("/").split("/")
-    return (parts[0].startswith(SANDBOX_PREFIXES)
+    return (parts[0].startswith(SANDBOX_PREFIX)
             or any(part in ("recovery.lock", "delivery.lock", "node_modules", "venv", ".venv")
                    for part in parts))
 
@@ -2525,10 +2346,16 @@ def commit_leftovers(wt, log, artifacts):
     Everything the done-when commands generated is left alone.  Committing that instead earns
     a FAIL on junk the next round's commands recreate, so the fixer can never get out of it.
 
-    Test sandboxes, run locks and dependency trees are left alone too, including symlinks
-    and staged paths, whatever the repository's .gitignore says.  Anything `git check-ignore`
-    would ignore stays out as well.  Ignored junk is listed back for the count below, since
+    Test sandboxes, run locks and dependency trees are left alone too, including symlinks,
+    whatever the repository's .gitignore says.  Anything `git check-ignore` would ignore
+    stays out as well.  Ignored junk is listed back for the count below, since
     `dirty_paths` never sees it.
+
+    The done-when only verifies a checkout clean at HEAD, so nothing left out may stay
+    staged: a staged `venv` would fail every round as a changed checkout.  It is unstaged,
+    and a staged deletion of junk (`git rm --cached venv`) is committed with the rest.  The
+    commit is built in an index of its own: `git commit -- venv` would add the link back
+    from the worktree, and the real index keeps whatever else the executor staged.
     """
     paths = [p for p in dirty_paths(wt) if p not in artifacts]
     real, sandbox = [], []
@@ -2539,15 +2366,33 @@ def commit_leftovers(wt, log, artifacts):
             sandbox.append(path)
         else:
             real.append(path)
+    status = git(wt, "diff", "--cached", "--name-status", "--no-renames", "-z", "HEAD",
+                 check=False).split("\0")
+    staged = dict(zip(status[1::2], status[::2]))
+    junk = {p for p in sandbox if p in staged}
+    gone = sorted(p for p in junk if staged[p] == "D")
+    unstage = sorted(junk - set(gone))
     sandbox = sorted(set(sandbox) | set(ignored_sandbox_paths(wt, artifacts)))
     if sandbox:
         log(f"left {len(sandbox)} untracked sandbox files uncommitted: "
             f"{', '.join(sandbox[:3])}")
-    if not real:
-        return
     try:
-        git(wt, "add", "--", *real)
-        git(wt, "commit", "-m", "wip: uncommitted executor changes", "--", *real)
+        if unstage:
+            git(wt, "reset", "-q", "--", *unstage)
+            log(f"unstaged {len(unstage)} sandbox files the executor staged: "
+                f"{', '.join(unstage[:3])}")
+        if not real and not gone:
+            return
+        if real:
+            git(wt, "add", "--", *real)
+        with tempfile.TemporaryDirectory() as tmp:
+            index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
+            git(wt, "read-tree", "HEAD", env=index)
+            if real:
+                git(wt, "add", "--", *real, env=index)
+            if gone:
+                git(wt, "rm", "-q", "--cached", "--", *gone, env=index)
+            git(wt, "commit", "-m", "wip: uncommitted executor changes", env=index)
     except Stopped:
         # a git that stopped verifies nothing: the round ends on the stop, never on a review
         # of a diff the loop did not pin
@@ -2555,13 +2400,13 @@ def commit_leftovers(wt, log, artifacts):
     except config.Error as exc:
         log(f"WARN could not commit the executor's uncommitted changes: {exc}")
         return
-    log("WARN committed uncommitted executor changes: " + ", ".join(real))
+    log("WARN committed uncommitted executor changes: " + ", ".join(real + gone))
 
 
 def ignored_sandbox_paths(wt, artifacts):
     """Ignored sandbox files, run locks and dependencies: invisible to `dirty_paths`, still uncommitted.
 
-    Once the repository's .gitignore names the suite's sandbox prefixes, a killed test's
+    Once the repository's .gitignore names the suite's sandbox prefix, a killed test's
     sandbox never reaches the leftover sweep's classifier -- and without this listing its
     `left N ...` log line would never fire in a real checkout.  Collapsed directory
     entries are expanded to the files inside them, so the count is files, not sandboxes.
@@ -2592,11 +2437,11 @@ def sweep_sandboxes(wt, log):
 
     A test killed mid-way leaves its sandbox behind, and the next turn's executor would
     otherwise find stub binaries and fake adapters sitting in its checkout.  Only top-level
-    names under a suite sandbox prefix are touched; anything else is the work's own.
+    names under the suite sandbox prefix are touched; anything else is the work's own.
     """
     try:
         names = sorted(path.name for path in Path(wt).iterdir()
-                       if path.name.startswith(SANDBOX_PREFIXES))
+                       if path.name.startswith(SANDBOX_PREFIX))
     except OSError as exc:
         log(f"WARN could not list test sandboxes in {wt}: {exc}")
         return
@@ -2738,7 +2583,7 @@ class Loop:
         self.wt, self.body, self.cmds, self.context = wt, body, cmds, context
         # the per-round commands and the ones that run alongside the review; without a
         # `# once` line the two are the list and the empty one
-        self.every, self.once = group_commands(cmds)
+        self.every, self.once = taskfile.group_commands(cmds)
         self.base, self.rounds = state["base"], state["rounds"]
         # where the PR goes, which is not always where the branch came from
         self.target = state.get("target") or state["base"]
@@ -3322,24 +3167,12 @@ def execute(lp, role, text, name):
             lp.log(f"WARN {role} {killed_word(code) or f'exited {code}'}; "
                    f"see {out / 'stderr.log'}")
         lp.save()
-        mark = worker_dry(lp.cfg, lp.executor, summary) if code != 0 else None
-        if mark is None:
-            section = blocked_section(summary)
-            if section:
-                raise Blocked(blocked_reason(section), section)
-            if code == 0:
-                followup_not_needed(lp, summary)
-            return summary
-        # quota the event layer missed still hands over, straight to the other provider:
-        # the reset policy and the provider's other accounts already had their moment in
-        # call_retrying and found nothing.
-        before = lp.executor
-        new = hand_executor(lp, "ran dry", f"ran dry on {mark!r}", dry)
-        if new is None:
-            raise QuotaDry(f"{role} {before} ran dry on {mark!r} and no other provider "
-                           f"can execute; resume when a meter refills. See {out}*/stderr.log")
-        body = f"{HANDOVER.format(before=before)}\n\n{text}"
-        out = free_dir(lp, f"{name}-{lp.executor}")
+        section = blocked_section(summary)
+        if section:
+            raise Blocked(blocked_reason(section), section)
+        if code == 0:
+            followup_not_needed(lp, summary)
+        return summary
 
 
 def commit_identity(wt):
@@ -3503,7 +3336,7 @@ def resume_review(lp, verified=None):
         # a larger budget is only for asking up to the rule: past it the next step is the
         # orchestrator's, and naming a `--rounds` that is refused would send it nowhere
         onward = (f"resume with ak run resume {lp.run_dir.name} --rounds {pending['round']}"
-                  if pending["round"] <= TASK_MAX_ROUNDS else "split or re-scope the task")
+                  if pending["round"] <= taskfile.TASK_MAX_ROUNDS else "split or re-scope the task")
         reason = (f"{pending.get('reason', 'unfinished review')}; done-when and review are pending "
                   f"{work}at round {pending['round']}, but the round budget ({lp.rounds}) is spent; "
                   f"{onward}")
@@ -4255,6 +4088,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         finally:
             history_role_tokens(lp.state.get("run_id"), "reviewer", out2, lp.log,
                                 lp.cfg, lp.reviewer)
+            memory_cap_note(lp.run_dir, lp.log)
         lp.review_sid = sid2 or lp.review_sid
         if code2 != 0:
             lp.log(f"WARN reviewer {killed_word(code2) or f'exited {code2}'}; "
@@ -4780,12 +4614,15 @@ def target_disjoint_from_branch(wt, base, head_before, tip):
     parent, so the round's checks still verify the rebased commit.  Anything git
     cannot compare is overlapping: the checks run again.
     """
-    try:
-        ours = git(wt, "diff", "--no-renames", "--name-only", base, head_before).splitlines()
-        theirs = git(wt, "diff", "--no-renames", "--name-only", base, tip).splitlines()
-    except (Stopped, config.Error):
-        return False
-    return not (set(ours) & set(theirs))
+    sides = []
+    for end in (head_before, tip):
+        # `git()` strips whitespace, and with it the space a first name can start with
+        code, out, _ = tool_run(["git", "-C", str(wt), "diff", "--no-renames",
+                                 "--name-only", "-z", base, end])
+        if code != 0:
+            return False
+        sides.append(set(out.split("\0")) - {""})
+    return not (sides[0] & sides[1])
 
 
 def integrate(lp, upstream):
@@ -5579,6 +5416,7 @@ def target_fails(lp, upstream, dw_log):
                         or time.monotonic() - began > lp.done_when_limit):
                     break
                 began += busy_turn(lp.run_dir, probe_log, lp.log)
+        memory_cap_note(lp.run_dir, lp.log)
         # as after a gate: a command that exited may still have left processes behind
         worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
         if not (killed or code != 0):
@@ -6278,10 +6116,10 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     preset_exec = receipt.pop("launch_executor", None)
     preset_rev = receipt.pop("launch_reviewer", None)
     session_at_launch = launch_session(run_dir)
-    meta, body, title = parse_task(task_path)
+    meta, body, title = taskfile.parse_task(task_path)
     ignore_time_keys(run_dir, meta, log)
-    cmds = done_when(body, task_path)
-    sized_words, sized_points, sized_checks = task_size(body, cmds)
+    cmds = taskfile.done_when(body, task_path)
+    sized_words, sized_points, sized_checks = taskfile.task_size(body, cmds)
     if disk_pressure():
         gc(log)     # before this run adds a worktree of its own
     if prior:
@@ -6331,13 +6169,33 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             wt = config.WORK / run_dir.name
             wt.mkdir(parents=True, exist_ok=True)
         else:
-            if receipt.get("followup"):
-                fetch(repo, "origin", "--prune", check=True)
-            base = meta.get("base") or default_base(repo, log)
-            # where the PR goes: a run cut from `dev` can still be meant for `main`
-            target = meta.get("target") or base
+            # cut from the base as origin has it now: a local branch, or a tracking ref nothing
+            # has fetched lately, can stand merges behind, and a round spent there is spent on
+            # code that no longer exists.  Offline, or for a base origin has no branch of, the
+            # local ref is the best there is.  Every branch, not only those the clone's own
+            # refspec follows (--single-branch follows one): the base, the target whose suite
+            # the run reads and origin's default can each be any of them.
+            try:
+                code, out = fetch(repo, "origin", "--prune", "+refs/heads/*:refs/remotes/origin/*")
+            except Stopped as stop:
+                code, out = None, str(stop)
+            spelled = meta.get("base") or default_base(repo, log)
+            # where the PR goes: a run cut from `dev` can still be meant for `main`.  Every later
+            # step reads both as `<b>` or `origin/<b>`, so a full ref name is kept as the latter
+            base, target = (re.sub(r"^refs/(heads|remotes/origin)/", "origin/", spelling)
+                            for spelling in (spelled, meta.get("target") or spelled))
+            name = base.removeprefix("origin/")
+            # the tracking ref named in full, as `origin/main` could be a tag
+            ref = f"refs/remotes/origin/{name}"
+            if code == 0 and git_out(repo, "show-ref", "--verify", "--quiet", ref)[0] != 0:
+                code, out = 1, f"origin has no branch {name}"
+            if code != 0:
+                # git's reason is its first line; the rest is advice
+                log(f"WARN could not fetch {name} from origin; basing this run on the local "
+                    f"{spelled}: {out.partition(chr(10))[0]}")
+                ref = spelled
             # a branch name moves with the executor's commits, so pin the diff to the commit it names
-            base_sha = git(repo, "rev-parse", "--verify", f"{base}^{{commit}}")
+            base_sha = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
             from_branch = (meta.get("from") or "").strip()
             if from_branch and opts["--no-worktree"]:
                 raise config.Error(f"{task_path}: from: needs a worktree; "
@@ -6542,7 +6400,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                  + (f", to be merged into {target}" if target != state["base"] else "") + ")")
     if not state.get("scratch"):
         cmds = with_suite(cmds, wt, target)
-    every, once = group_commands(cmds)
+    every, once = taskfile.group_commands(cmds)
     body += project_lessons(repo, state, log) + repo_rules(wt, state.get("base_sha"), log)
     save_state(run_dir, state)
     context = (f"{where}\n\n{body}\n\n"
@@ -6828,7 +6686,7 @@ def mark_state(run_dir, name, error=None, log=None):
     if not state.get("title"):
         # nothing had written the title yet, and the message the user gets has to carry it
         try:
-            state["title"] = parse_task(run_dir / "task.md")[2]
+            state["title"] = taskfile.parse_task(run_dir / "task.md")[2]
         except (OSError, config.Error):
             pass
     state["state"], state["finished_at"] = name, time.time()
@@ -6864,7 +6722,7 @@ def failed_at_budget(state):
     Deliberately not part of `needs_recovery`: nothing was interrupted here, so this is no
     recovery decision for the menu to raise, for the seat to be told about or for `announce`
     to swallow the finished-run notice over.  An explicit `--rounds` above the saved budget,
-    and no higher than `TASK_MAX_ROUNDS`, continues it and nothing else does -- see
+    and no higher than `taskfile.TASK_MAX_ROUNDS`, continues it and nothing else does -- see
     `cmd_resume`.
     """
     return (state.get("state") == "fail" and not state.get("review_pr")
@@ -6968,9 +6826,9 @@ def continue_line(state, run_dir=None):
     if (state.get("state") == "exhausted" and state.get("review_pending")
             and "gave no verdict twice" in (state.get("error") or "")):
         return f"continue: ak run resume {state['run_id']}"
-    if failed_at_budget(state) and state["rounds"] < TASK_MAX_ROUNDS:
+    if failed_at_budget(state) and state["rounds"] < taskfile.TASK_MAX_ROUNDS:
         # up to the budget and no further: past it the task is split or re-scoped instead
-        return f"continue: ak run resume {state['run_id']} --rounds {TASK_MAX_ROUNDS}"
+        return f"continue: ak run resume {state['run_id']} --rounds {taskfile.TASK_MAX_ROUNDS}"
     if failed_in_integration(state, run_dir):
         return f"continue: ak run resume {state['run_id']}"
     if judged_in_integration(state, run_dir):
@@ -7045,7 +6903,7 @@ def final_check_line(state, cmds):
             return f"final check: {record['outcome']} at landing{sha}"
         if record.get("sha"):
             return f"final check: {record['outcome']} on {record['sha']}"
-    if not group_commands(cmds)[1]:
+    if not taskfile.group_commands(cmds)[1]:
         return "final check: none (no once-commands)"
     return "final check: not run"
 
@@ -7063,7 +6921,7 @@ def result_done_when(cmds, state=None):
         suffix = "(once)"
     marked = []
     for cmd in cmds:
-        bare, once = split_once(cmd)
+        bare, once = taskfile.split_once(cmd)
         if once and "(once" not in bare:
             cmd = f"{bare} {suffix}"
         marked.append(cmd)
@@ -7154,8 +7012,8 @@ def record_decision(run_dir, state, reason, merged=False):
     result = run_dir / "result.md"
     try:
         if state.get("worktree") and Path(state["worktree"]).is_dir():
-            _, body, _ = parse_task(run_dir / "task.md")
-            write_result(run_dir, state, done_when(body, run_dir / "task.md"))
+            _, body, _ = taskfile.parse_task(run_dir / "task.md")
+            write_result(run_dir, state, taskfile.done_when(body, run_dir / "task.md"))
         elif note not in result.read_text():
             # The worktree is gone, so the diff stat cannot be produced again: keep the result
             # as it was written and add what has happened to it since.
@@ -7224,7 +7082,7 @@ def run_project(state):
         return orch.checkout_of(state["project"])
     try:
         path = config.RUNS / state["run_id"] / "task.md"
-        meta = parse_task(path)[0]
+        meta = taskfile.parse_task(path)[0]
     except (KeyError, TypeError, OSError, ValueError, config.Error):
         return task_project(state.get("repo"), state.get("task_file"))
     try:
@@ -8339,7 +8197,7 @@ def _slice_cpu_stat(slice_dir=None):
     """The slice's cpu.stat counters as {name: value}, or None where nothing answers.
 
     Carried for diagnosis -- throttled_usec and nr_throttled say whether the
-    slice has ever hit its quota -- not for admission: the counters are
+    slice has ever hit its CPU quota -- not for admission: the counters are
     cumulative since the slice's first process, so one snapshot cannot say
     whether the slice is saturated now. The pressure gate does not read them.
     """
@@ -8366,7 +8224,7 @@ def _slice_cpu_quota(cgroup=None):
 
     Read off the slice's own directory, which `orch.slice_cgroup` finds from the
     layout whether the caller runs inside the slice or beside it -- a status shell
-    outside reads the same quota a worker inside does.  `max` is no quota.
+    outside reads the same CPU quota a worker inside does.  `max` sets none.
     """
     try:
         parts = ((cgroup or orch.slice_cgroup()) / "cpu.max").read_text().split()
@@ -8471,18 +8329,18 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None):
         readings["unit_memory_raw_mb"] = raw
         readings["unit_memory_name"] = name
     try:
-        quota = _slice_cpu_quota()
+        cpu_quota = _slice_cpu_quota()
     except Exception:
-        quota = None
+        cpu_quota = None
     try:
-        cpu_used = _slice_cpu_used() if quota is not None else None
+        cpu_used = _slice_cpu_used() if cpu_quota is not None else None
     except Exception:
         cpu_used = None
     try:
         mem = _slice_memory()
     except Exception:
         mem = None
-    readings["slice_cpu_quota"] = quota
+    readings["slice_cpu_quota"] = cpu_quota
     readings["slice_cpu_used"] = cpu_used
     if mem is not None:
         readings["slice_memory_used_mb"], readings["slice_memory_high_mb"] = mem
@@ -8619,10 +8477,20 @@ def frozen_runs(state):
     return frozen
 
 
+def slot_line(running, ahead, limit, first=False):
+    """The count wait's sentence: "ahead" is only the runs queued before this one.
+
+    Running runs are no queue, so a full limit says so by itself; a `first` run
+    skips the count cap and waits only on the queue.
+    """
+    if limit and running >= limit and not first:
+        return f"waiting for a slot · limit full ({running} running) · {ahead} ahead"
+    return f"waiting for a slot · {ahead} ahead"
+
+
 def slot_note(state):
-    running, ahead = slot_counts(state)
-    shown = ahead if state.get("first") else running + ahead
-    return state.get("slot_wait_reason") or f"waiting for a slot · {shown} ahead"
+    return state.get("slot_wait_reason") or slot_line(
+        *slot_counts(state), config.max_runs(), state.get("first"))
 
 
 def _unit_memory(readings):
@@ -8713,8 +8581,7 @@ def claim_slot(state, limit, readings=None):
     is_first = bool(state.get("first"))
     if ahead or (limit and running >= limit and not is_first):
         state["slot_waited"] = True
-        shown = ahead if is_first else running + ahead
-        state["slot_wait_reason"] = f"waiting for a slot · {shown} ahead"
+        state["slot_wait_reason"] = slot_line(running, ahead, limit, is_first)
         state["slot_wait_kind"] = "count"
         state["slot_healthy_polls"] = 0
         return False
@@ -9000,13 +8867,17 @@ def run_scope_limits(ceiling_mb=None):
 
     CPU and I/O weight stay below the seats' 100, and the memory cap is applied
     as both MemoryMax and MemorySwapMax: the same number, so a leak cannot trade
-    one for the other and keep going.  The properties are what `systemd-run -p`
-    takes; the cap is what the receipt records, so the reason can still name the
-    number after the process that knew it is gone.
+    one for the other and keep going.  OOMPolicy=continue, where the manager takes
+    it, has the kernel end only the process that grew, not the whole scope: the
+    loop, its harness session and its worktree go on, and `memory_cap_note` says
+    so.  The properties are what `systemd-run -p` takes; the cap is what the
+    receipt records, so the reason can still name the number after the process
+    that knew it is gone.
     """
     cap = memory_cap_mb(ceiling_mb)
     return cap, ("-p", "CPUWeight=40", "-p", "IOWeight=40",
-                 "-p", f"MemoryMax={cap}M", "-p", f"MemorySwapMax={cap}M")
+                 "-p", f"MemoryMax={cap}M", "-p", f"MemorySwapMax={cap}M",
+                 *(("-p", "OOMPolicy=continue") if orch.scope_oom_policy() else ()))
 
 
 def remember_memory_cap(state, placement, cap):
@@ -9029,7 +8900,8 @@ def _scope_units(scope):
 
 
 def _systemctl_fields(unit):
-    """(Result, ControlGroup) for `unit`, or (None, "") when the manager cannot be asked.
+    """(Result, ControlGroup, OOMPolicy) for `unit`, or (None, "", "") when the manager
+    cannot be asked.
 
     A unit it does not have is an empty Result, not a failure to ask: the caller
     tries the other suffix.  The labelled properties are parsed by name because
@@ -9038,21 +8910,21 @@ def _systemctl_fields(unit):
     try:
         proc = subprocess.run(
             ["systemctl", "--user", "show", unit, "-p", "Result", "-p", "ControlGroup",
-             "-p", "LoadState"],
+             "-p", "LoadState", "-p", "OOMPolicy"],
             capture_output=True, encoding="utf-8", errors="replace",
             env=orch.bus_env(), timeout=5)
     except (OSError, subprocess.SubprocessError):
-        return None, ""
+        return None, "", ""
     if proc.returncode != 0:
-        return None, ""
+        return None, "", ""
     fields = {}
     for line in proc.stdout.splitlines():
         key, sep, value = line.partition("=")
         if sep:
             fields[key.strip()] = value.strip()
     if fields.get("LoadState") == "not-found":
-        return "", ""
-    return fields.get("Result", ""), fields.get("ControlGroup", "")
+        return "", "", ""
+    return fields.get("Result", ""), fields.get("ControlGroup", ""), fields.get("OOMPolicy", "")
 
 
 def _oom_kill_count(cgroup):
@@ -9076,13 +8948,18 @@ def _oom_kill_count(cgroup):
 
 
 def _scope_oom_probe(state):
-    """(systemd Result, oom_kill count) for the run's scope.  Either witness is enough."""
+    """(systemd Result, oom_kill count) for the run's scope.  Either witness is enough.
+
+    A scope that goes on past a kill (OOMPolicy=continue) counts none: the kill ended one
+    process, and a loop dead in it later died of something else.
+    """
     result, kills = "", 0
     for unit in _scope_units(state.get("scope")):
-        shown, cgroup = _systemctl_fields(unit)
+        shown, cgroup, policy = _systemctl_fields(unit)
         if shown is None:
             continue
-        kills = max(kills, _oom_kill_count(cgroup))
+        if policy != "continue":
+            kills = max(kills, _oom_kill_count(cgroup))
         if shown:
             result = shown
         if result == "oom-kill" or kills:
@@ -9109,6 +8986,44 @@ def memory_cap_reason(state, probe=None):
     if result == "oom-kill" or (type(kills) is int and kills > 0):
         return memory_cap_line(cap)
     return None
+
+
+# "<cgroup> <oom_kill count>" this loop has logged.  In the environment, because a loop that
+# picks up new code replaces its interpreter (`pickup_new_code`) in the same scope, and must
+# not say those kills again; a resume in a new scope is a new process that starts without it.
+OOM_LOGGED = "AK_MEMORY_CAP_LOGGED"
+_OOM_LOCK = threading.Lock()   # a reviewer and a suite can end on two threads at once
+
+
+def memory_cap_note(run_dir, log):
+    """Log each process the kernel ended at this run's memory cap since the last look.
+
+    Called as each worker turn and each done-when command ends.  That is all it does: the
+    turn or command the kill ended goes on or ends the run as any failed command or killed
+    worker does.  The count is the cgroup's this loop runs in, and only when that is the
+    run's own scope: a run from a seat's shell sits in the seat's, whose kills are not its.
+    """
+    state = read_state(Path(run_dir)) or {}
+    cap, scope = state.get("memory_cap_mb"), state.get("scope")
+    if type(cap) is not int or cap <= 0 or not scope_is_real(scope):
+        return
+    try:
+        line = next(row for row in orch.OWN_CGROUP.read_text().splitlines()
+                    if row.startswith("0::"))
+    except (OSError, StopIteration):
+        return
+    cgroup = line[3:].strip().rstrip("/")
+    if cgroup.rsplit("/", 1)[-1] not in _scope_units(scope):
+        return
+    with _OOM_LOCK:
+        where, _, said = os.environ.get(OOM_LOGGED, "").rpartition(" ")
+        seen = int(said) if where == cgroup and said.isdigit() else 0
+        kills = _oom_kill_count(cgroup)
+        if kills > seen:
+            os.environ[OOM_LOGGED] = f"{cgroup} {kills}"
+    for _ in range(kills - seen):
+        log(f"{memory_cap_line(cap).removeprefix('killed: ')} hit: "
+            "the process that grew was ended")
 
 
 def conclude_memory_cap(run_dir, state, reason):
@@ -9215,7 +9130,6 @@ def reap(run_dir, state, memory_probe=None):
         grace = (status == "queued" and
                  (state.get("launch_pending") or not state.get("process_identity")) and
                  time.time() - (state.get("queued_at") or state.get("started_at") or 0) < QUEUED_GRACE)
-        resuming = False
         if status in ("running", "queued") and not grace and not process_active(state):
             cap_reason = (memory_cap_reason(state, probe=memory_probe)
                           if status == "running" else None)
@@ -9229,11 +9143,13 @@ def reap(run_dir, state, memory_probe=None):
                 if status == "running":
                     stop_run_tree(state)
                 interrupt(state, reason)
-                resuming = tick_resumes(state)
-                if resuming:
+                last = (state.get("deaths") or [None])[-1]
+                if tick_resumes(state) and not (isinstance(last, dict) and not last.get("resumed_at")
+                                                and last.get("pid") == state.get("pid")):
                     # Whoever notices the death records it, so the tick's dead-loop pass reads
                     # this record as a loop to carry on rather than as an interruption somebody
-                    # was already told about -- and so it counts towards the third death.
+                    # was already told about -- and so it counts towards the third death. Once:
+                    # one the tick recorded and held for its backoff is already there.
                     state["deaths"] = [*(state.get("deaths") or []),
                                        {"at": time.time(), "pid": state.get("pid"),
                                         "reason": reason}]
@@ -9252,7 +9168,10 @@ def reap(run_dir, state, memory_probe=None):
                 stop_run_tree(state)
                 state["tree_stopped"] = swept
                 save_state(run_dir, state)
-        if needs_recovery(state) and not resuming:
+        # A death the tick resumes is nobody's news however many reaps see it before it does,
+        # the tick's own included while it waits out a backoff.
+        if needs_recovery(state) and not (state.get("state") == "interrupted" and state.get("deaths")
+                                          and tick_resumes(state)):
             notify_recovery(run_dir, state)
     return state
 
@@ -9320,11 +9239,10 @@ def superseded_by(state, records=None, index=None, merged_only=False):
         return max(later)[1] if later else None
     found = []
     if records is None:
+        from . import menu  # here, not at the top: the menu draws without the loop
         for run_dir in run_dirs():
-            if "smoke-" in run_dir.name:
-                continue
             other = read_state(run_dir)
-            if other:
+            if other and not menu.smoke_run(other):
                 found.append(other)
     else:
         for item in records:
@@ -10671,12 +10589,15 @@ def error_resumable(state, run_dir):
 
     The same checks `resume_run` refuses on, asked before anything is scheduled:
     a worktree that is still there, the keys a resume replays, and -- for a task
-    run -- a task that still parses with a done-when.  A run that fails any of
-    them is parked for a person, not for the tick: retrying a task nobody can run
-    would only fail on the hour, every hour, saying nothing new.
+    run -- a task that still parses with a done-when.  A job's run is its job's to
+    settle, never the tick's.  A run that fails any of the others is parked for a
+    person, not for the tick: retrying a task nobody can run would only fail on
+    the hour, every hour, saying nothing new.
     """
     if state.get("review_pr"):
         return False  # the watch relaunches the review itself; the run is never resumed
+    if state.get("job_id"):
+        return False  # its job settles it or reruns it elsewhere; a retry would race that
     wt = state.get("worktree")
     if not wt or not Path(wt).is_dir():
         return False
@@ -10685,8 +10606,8 @@ def error_resumable(state, run_dir):
     if any(not state.get(key) for key in keys):
         return False
     try:
-        _, body, _ = parse_task(Path(run_dir) / "task.md")
-        done_when(body, Path(run_dir) / "task.md")
+        _, body, _ = taskfile.parse_task(Path(run_dir) / "task.md")
+        taskfile.done_when(body, Path(run_dir) / "task.md")
     except (OSError, config.Error):
         return False
     return True
@@ -10806,8 +10727,11 @@ def parkable_conflict(state, run_dir=None, now=None):
     conflict FAIL at its budget is not one of these: more rounds are the owner's
     decision, never the tick's. Only an untold, unacknowledged ending under a
     day old from a session that still exists may be parked: anything the seat
-    moved past is history, and a by-hand run waits for a person.
+    moved past is history, and a by-hand run waits for a person.  A job's run is
+    never parked: its job has already settled that FAIL, and alone decides what next.
     """
+    if state.get("job_id"):
+        return False
     if not CONFLICT_NOTE.search(state.get("merge_note") or ""):
         return False  # cheap first: most FAILs never reach the log read below
     if len(state.get("round_summaries") or []) >= (state.get("rounds") or 0):
@@ -11130,6 +11054,36 @@ def unfinished(state, records=None, index=None):
     return not is_superseded(state, records, index, merged_only=True)
 
 
+def stoppable(state):
+    """Whether `ak run stop` takes this run: unfinished work, or an `error`.
+
+    `error` reads ended but the tick retries it hourly: stopping one is its owner's off-switch
+    for the ladder, the way stopping a waiting run ends its wait.  Every other ending sits
+    inert, so there is nothing to stop.
+    """
+    return state.get("state") not in ENDED or state.get("state") == "error"
+
+
+def ways_out(state, run_dir):
+    """The commands that settle a parked run, each only where it is taken.
+
+    `ak run status` marks an ending looked at (`mark_looked_at`), `ak run stop` ends what is
+    `stoppable`, and `ak run resume` carries on what `resume_run` would: a FAIL at its round
+    budget only with the `--rounds` its `continue_line` names, and nothing whose checkout is
+    gone.
+    """
+    run_id = Path(run_dir).name
+    ways = [f"ak run status {run_id}"] if state.get("state") in ENDED else []
+    if failed_at_budget(state):
+        onward = continue_line(state, run_dir)
+        ways += [onward.removeprefix("continue: ")] if onward else []
+    elif not state.get("worktree") or Path(state["worktree"]).is_dir():
+        ways.append(f"ak run resume {run_id}")
+    if stoppable(state):
+        ways.append(f"ak run stop {run_id}")
+    return ways
+
+
 def actionable(state):
     if state.get("recovery_acknowledged_at"):
         return False
@@ -11360,8 +11314,8 @@ def status_rows(found, width, index=None, cfg=None):
 def status_final_check(directory, state):
     """The run's `final check:` line for `ak run status`, or None when unreadable."""
     try:
-        _, body, _ = parse_task(directory / "task.md")
-        cmds = done_when(body, directory / "task.md")
+        _, body, _ = taskfile.parse_task(directory / "task.md")
+        cmds = taskfile.done_when(body, directory / "task.md")
     except (OSError, config.Error):
         return None
     if not state.get("scratch") and not state.get("review_pr"):
@@ -12226,10 +12180,7 @@ def cmd_stop(argv):
     if state.get("state") == "stopped":
         print(stop_line(run_id, state.get("branch"), state.get("stop_kept", False)))
         return 0
-    # `error` reads ended but the tick retries it hourly: stopping one is its
-    # owner's off-switch for the ladder, the way stopping a waiting run ends
-    # its wait.  Every other ending sits inert, so there is nothing to stop.
-    if state.get("state") in ENDED and state.get("state") != "error":
+    if not stoppable(state):
         raise config.Error(f"{run_id} is already {state.get('state')}; "
                            "only unfinished work can be stopped")
     log = note_in(run_dir / "log.txt")
@@ -12239,7 +12190,7 @@ def cmd_stop(argv):
             print(stop_line(run_id, current.get("branch"),
                             current.get("stop_kept", False)))
             return 0
-        if current.get("state") in ENDED and current.get("state") != "error":
+        if not stoppable(current):
             raise config.Error(f"{run_id} is already {current.get('state')}; "
                                "only unfinished work can be stopped")
         kept = bool(keep or not checkout_removable(current))
@@ -12661,11 +12612,11 @@ def preflight(run_dir, opts, log):
                               f"review {url} at {info['headRefOid']}; publish findings")
         commands = "AGENTS.md tests: command from the PR checkout, if declared"
     else:
-        meta, body, title = parse_task(run_dir / "task.md")
+        meta, body, title = taskfile.parse_task(run_dir / "task.md")
         state = read_state(run_dir) or {}
         state["title"] = title
         save_state(run_dir, state)
-        every, once = done_when_groups(body, run_dir / "task.md")
+        every, once = taskfile.done_when_groups(body, run_dir / "task.md")
         commands = " ; ".join(every)
         if once:
             commands += f"{' ; ' if commands else ''}once: {' ; '.join(once)}"
@@ -12693,7 +12644,7 @@ def preflight(run_dir, opts, log):
         if opts.get("--anyway"):
             # the run starts regardless; name the run it starts next to, read-only
             rivals = already_under_way(run_dir / "task.md", meta, title,
-                                       done_when(body, run_dir / "task.md"),
+                                       taskfile.done_when(body, run_dir / "task.md"),
                                        exclude=run_dir)
             alongside = rivals[0]["id"] if rivals else None
     log("--- preflight")
@@ -12809,8 +12760,8 @@ def cmd_merge(argv):
     head = state.get("delivery_sha")
     if state.get("pr") and not head:
         raise config.Error(f"{argv[0]}: no recorded delivery SHA; cannot safely retry the merge")
-    _, body, _ = parse_task(run_dir / "task.md")
-    cmds = with_suite(done_when(body, run_dir / "task.md"), state["worktree"],
+    _, body, _ = taskfile.parse_task(run_dir / "task.md")
+    cmds = with_suite(taskfile.done_when(body, run_dir / "task.md"), state["worktree"],
                       state.get("target") or state.get("base"))
     body += (project_lessons(state.get("repo") or None, state, log)
              + repo_rules(state["worktree"], state.get("base_sha"), log))
@@ -12957,7 +12908,7 @@ def resume_run(argv):
         argv = argv[:1]
     if len(argv) != 1 or Path(argv[0]).name != argv[0] or argv[0] in (".", ".."):
         raise config.Error("usage: ak run resume <runid> [--rounds N] [--bg]")
-    refusal = rounds_refusal(n_rounds, "--rounds")
+    refusal = taskfile.rounds_refusal(n_rounds, "--rounds")
     if refusal:
         raise config.Error(refusal)
     config.ensure_dirs()
@@ -13049,13 +13000,13 @@ def resume_run(argv):
     # `needs_recovery`, because a resume of its own records `recovery_pending`, and a second
     # FAIL at the same cap must be refused exactly like the first rather than repeat itself.
     at_budget = failed_at_budget(state)
-    if at_budget and state["rounds"] >= TASK_MAX_ROUNDS:
+    if at_budget and state["rounds"] >= taskfile.TASK_MAX_ROUNDS:
         # the whole budget is spent: no --rounds carries it on, so the task is what changes
         raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
-                           f"{TASK_MAX_ROUNDS} rounds is the budget, so split or re-scope the task")
+                           f"{taskfile.TASK_MAX_ROUNDS} rounds is the budget, so split or re-scope the task")
     if at_budget and (n_rounds is None or n_rounds <= state["rounds"]):
         raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
-                           f"give --rounds N above it, at most {TASK_MAX_ROUNDS}, to continue")
+                           f"give --rounds N above it, at most {taskfile.TASK_MAX_ROUNDS}, to continue")
     # A FAIL recorded by integration below its budget carries its branch and its rounds
     # with it: the work is reviewed and only the merge is left to try again.
     integration_fail = failed_in_integration(state, run_dir)
@@ -13091,8 +13042,8 @@ def resume_run(argv):
     if wt is not None and not wt.is_dir():
         raise config.Error(f"{argv[0]}: its worktree {wt} is gone; there is nothing to resume")
     if not state.get("review_pr"):
-        _, body, _ = parse_task(run_dir / "task.md")
-        done_when(body, run_dir / "task.md")
+        _, body, _ = taskfile.parse_task(run_dir / "task.md")
+        taskfile.done_when(body, run_dir / "task.md")
     if n_rounds is not None:
         if n_rounds < (state.get("rounds") or 0):
             raise config.Error("--rounds cannot reduce the saved round budget")
@@ -13217,8 +13168,8 @@ def record_result(run_dir, state, log=None, cfg=None):
     """
     try:
         if state.get("worktree") and "round_summaries" in state and not state.get("review_pr"):
-            _, body, _ = parse_task(run_dir / "task.md")
-            write_result(run_dir, state, done_when(body, run_dir / "task.md"), log, cfg)
+            _, body, _ = taskfile.parse_task(run_dir / "task.md")
+            write_result(run_dir, state, taskfile.done_when(body, run_dir / "task.md"), log, cfg)
             return
     except (config.Error, OSError) as exc:
         suffix = f"\n\n(the full result could not be written: {exc})"
@@ -13661,8 +13612,8 @@ def review_pr(cfg, run_dir, url, opts, log):
              "no_merge": not is_own, "merged": False, "merge_note": None, "reported": False})
     # a review is a run like any other: its history row carries its task's size, measured
     # off the same body the task file on disk holds
-    sized_words, sized_points, sized_checks = task_size(
-        body, done_when(body, run_dir / "task.md"))
+    sized_words, sized_points, sized_checks = taskfile.task_size(
+        body, taskfile.done_when(body, run_dir / "task.md"))
     state.update(task_words=sized_words, task_points=sized_points,
                  task_checks=sized_checks)
     save_state(run_dir, state)
@@ -13766,11 +13717,13 @@ def review_pr(cfg, run_dir, url, opts, log):
                 merge_own_pr(lp, url, head)
             else:
                 question = f"PR #{number} by {info['author']}: {info['title']}. Merge? yes/no"
-                if watch.ask_inbox(cfg, question, url, head, log) == 0:
+                pending = {"question": question, "url": url, "sha": head, "asked": False}
+                if watch.ask_inbox(cfg, question, url, head, log,
+                                   typed=lambda: pending.update(asked=True)) == 0:
                     state["merge_note"] = f"offered to the {watch.inbox()} session at {head[:12]}"
                 else:
-                    state["merge_note"] = "merge question notification requires retry"
-                    state["pending_inbox"] = {"question": question, "url": url, "sha": head}
+                    state["merge_note"] = "merge question requires retry"
+                    state["pending_inbox"] = pending
         else:
             if green:
                 why = "the PR head changed, closed, or could not be verified after the checks"
@@ -13888,8 +13841,8 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
                 if not state:
                     continue
                 try:
-                    run_meta, body, parsed_title = parse_task(directory / "task.md")
-                    found = test_files(done_when(body, directory / "task.md"))
+                    run_meta, body, parsed_title = taskfile.parse_task(directory / "task.md")
+                    found = test_files(taskfile.done_when(body, directory / "task.md"))
                 except (OSError, config.Error):
                     continue
                 if not ours(directory, state, run_meta):
@@ -13914,8 +13867,8 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
         if not process_active(state):
             continue
         try:
-            rival_meta, body, parsed_title = parse_task(directory / "task.md")
-            other_cmds = done_when(body, directory / "task.md")
+            rival_meta, body, parsed_title = taskfile.parse_task(directory / "task.md")
+            other_cmds = taskfile.done_when(body, directory / "task.md")
         except (OSError, config.Error):
             rival_meta, other_cmds, parsed_title = {}, [], None
         if not ours(directory, state, rival_meta):
@@ -14110,15 +14063,15 @@ def job_create(cfg, task_paths, opts, parallel):
         path = Path(raw).expanduser().resolve()
         if not path.is_file():
             raise config.Error(f"no such task file: {path}")
-        meta, body, title = parse_task(path)
+        meta, body, title = taskfile.parse_task(path)
         # reject malformed commands before allocating anything, as well as a task bigger
         # than one behaviour or over the round budget, or whose `repo:` names no home here,
         # which nothing waives, and one that looks already under way in the same repository
         # -- unless --anyway says to start beside it regardless, the way a single run does
-        cmds = done_when(body, path)
+        cmds = taskfile.done_when(body, path)
         infos.append({"path": path, "meta": meta, "title": title, "stem": path.stem,
-                      "name": path.name, "cmds": cmds, "after_raw": config.task_afters(path),
-                      "size_note": task_size_refusal(body, cmds)})
+                      "name": path.name, "cmds": cmds, "after_raw": taskfile.task_afters(path),
+                      "size_note": taskfile.task_size_refusal(body, cmds)})
     seen = {}
     for info in infos:
         if info["name"] in seen:
@@ -14130,7 +14083,7 @@ def job_create(cfg, task_paths, opts, parallel):
         if info["size_note"]:
             raise config.Error(f"{info['path']}: {info['size_note']}; split it into one "
                                "behaviour per task")
-        refusal = rounds_refusal(info["meta"].get("rounds"), "task rounds")
+        refusal = taskfile.rounds_refusal(info["meta"].get("rounds"), "task rounds")
         if refusal:
             raise config.Error(f"{info['path']}: {refusal}")
         repo_line(info["meta"], info["path"])
@@ -14588,7 +14541,7 @@ def job_passed_branch(cfg, job, task, dep):
         return None
     try:
         path = Path(task["task_file"])
-        meta = parse_task(path)[0]
+        meta = taskfile.parse_task(path)[0]
         repo = None if meta.get("from") else task_repo(meta, path)
     except (config.Error, OSError):
         return None
@@ -14600,7 +14553,7 @@ def job_passed_branch(cfg, job, task, dep):
 def job_start_task(cfg, job_dir, task, opts, log):
     """Allocate an ordinary run directory and launch it; the caller marks running first."""
     task_path = Path(task["task_file"])
-    _, _, title = parse_task(task_path)
+    _, _, title = taskfile.parse_task(task_path)
     run_dir = job_allocate_run_dir(title)
     extra = task.get("starting_branch")
     text = task_path.read_text()
@@ -14728,10 +14681,15 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
     task["reviewer"] = run_state.get("reviewer") or task.get("reviewer")
     log(job_exit_line(task, run_dir, run_state, rc))
     if run_state.get("state") == "waiting":
-        # a PASS parked on the next merge to its target is no ending: the tick resumes it
-        # then, and the task follows it there, so its dependants wait instead of skipping
+        # a PASS parked on the next merge to its target is no ending: the job resumes it
+        # then, as the tick would a lone run, and the task follows it there, so its
+        # dependants wait instead of skipping
         log(f"{task['name']}: parked waiting ({run_state.get('error')}); following it")
+    asked = 0
     while run_state.get("state") == "waiting" and tick_admission(run_state):
+        if time.time() - asked >= JOB_PICKER_INTERVAL:
+            asked = time.time()   # each ask fetches: at the picker's rate, not every tick
+            watch.resume_waiting(log=log, run=run_dir)
         time.sleep(JOB_TICK)
         run_state = read_state(run_dir) or run_state
         if run_state.get("state") != "waiting":
@@ -15328,7 +15286,7 @@ def cmd_job_resume(argv):
     if len(argv) >= 3 and argv[1] == "--rounds":
         if not (len(argv) == 3 and argv[2].isdigit() and int(argv[2]) > 0):
             raise config.Error("usage: ak run resume ID [--rounds N] [--bg]")
-        refusal = rounds_refusal(argv[2], "--rounds")
+        refusal = taskfile.rounds_refusal(argv[2], "--rounds")
         if refusal:
             raise config.Error(refusal)
         argv = [argv[0]]
@@ -15447,7 +15405,7 @@ def main(argv):
                            "ak run stop <runid> [--keep] | ak run clean <runid> | ak run gc")
     if opts["--rounds"] is not None and not (opts["--rounds"].isdigit() and int(opts["--rounds"]) > 0):
         raise config.Error(f"--rounds must be a positive integer (got {opts['--rounds']!r})")
-    refusal = rounds_refusal(opts["--rounds"], "--rounds")
+    refusal = taskfile.rounds_refusal(opts["--rounds"], "--rounds")
     if refusal:
         raise config.Error(refusal)
     parallel = None
@@ -15491,18 +15449,18 @@ def main(argv):
         task_path = Path(positional[0]).expanduser().resolve()
         if not task_path.is_file():
             raise config.Error(f"no such task file: {task_path}")
-        meta, body, title = parse_task(task_path)
+        meta, body, title = taskfile.parse_task(task_path)
         # reject malformed commands before allocating a run directory, as well as a task
         # bigger than one behaviour or over the round budget, or whose `repo:` names no home
         # here, which nothing waives, and a job that looks already under way in the same
         # repository -- unless --anyway says to start regardless.  A run's own child launch
         # never runs the already-under-way check.
-        cmds = done_when(body, task_path)
-        refusal = task_size_refusal(body, cmds)
+        cmds = taskfile.done_when(body, task_path)
+        refusal = taskfile.task_size_refusal(body, cmds)
         if refusal:
             print(f"ak run: {refusal}; split it into one behaviour per task", file=sys.stderr)
             return 2
-        refusal = rounds_refusal(meta.get("rounds"), "task rounds")
+        refusal = taskfile.rounds_refusal(meta.get("rounds"), "task rounds")
         if refusal:
             print(f"ak run: {refusal}", file=sys.stderr)
             return 2

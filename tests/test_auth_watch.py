@@ -25,7 +25,7 @@ from agentkit import config, menu, notify, orch, watch, worker
 
 class AuthWatch(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".auth-watch-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-auth-watch-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

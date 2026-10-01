@@ -19,7 +19,7 @@ from agentkit.harness import codex as codex_plugin
 
 class Sandbox(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v4n-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v4n-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -147,6 +147,7 @@ class LaunchAndCache(Sandbox):
                     self.assertEqual(run.read_state(directory)["launched_session"], "seat")
                     return None
                 with patch.object(run, "preflight", side_effect=preflight), \
+                        patch.object(orch, "scope_oom_policy", return_value=False), \
                         patch.object(run.subprocess, "Popen", **{"return_value.pid": 99999999}), \
                         redirect_stdout(io.StringIO()):
                     run.main(args)

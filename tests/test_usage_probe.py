@@ -67,7 +67,7 @@ esac
 
 class GentleProbe(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".usage-probe-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-usage-probe-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.fake = self.root / "fake"

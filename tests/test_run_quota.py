@@ -26,7 +26,7 @@ from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, run, usage, watch
+from agentkit import config, notify, orch, run, usage, watch
 
 WEEK = 604800
 TASK = "---\nrepo: none\nrounds: 1\n---\n# Quota fixture\n\n## Done when\n```bash\ntest -f deliverable\n```\n"
@@ -69,7 +69,7 @@ class Quota(unittest.TestCase):
     """Patched home, the shipped default config, fake meters everywhere else."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".run-quota-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-run-quota-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -383,11 +383,10 @@ class Quota(unittest.TestCase):
                          [("astra", "opus", "dry")])
 
     def test_quota_words_must_stand_on_their_own(self):
-        self.assertEqual(run.worker_dry(self.cfg, "astra", "API Error: rate limit exceeded"),
-                         "rate limit")
-        self.assertIsNone(run.worker_dry(self.cfg, "spark", "wrote 4294967296 bytes in 12s"))
-        self.assertIsNone(run.worker_dry(self.cfg, "astra", ""))
-        self.assertIsNone(run.worker_dry(self.cfg, "astra", "all green"))
+        self.assertEqual(run.ran_dry(1, "API Error: rate limit exceeded", "codex"), "rate limit")
+        self.assertIsNone(run.ran_dry(1, "wrote 4294967296 bytes in 12s", "muse"))
+        self.assertIsNone(run.ran_dry(1, "", "codex"))
+        self.assertIsNone(run.ran_dry(1, "all green", "codex"))
 
     def test_quota_exhausted_run_resumes_through_the_command(self):
         run_dir, _ = self.receipt("20260916-1201-quota-resume")
@@ -403,6 +402,7 @@ class Quota(unittest.TestCase):
             return type("Proc", (), {"pid": 12345, "poll": lambda self: None})()
 
         with patch.object(run.subprocess, "Popen", side_effect=fake_popen), \
+                patch.object(orch, "scope_oom_policy", return_value=False), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.cmd_resume([run_dir.name, "--bg"]), 0)
         self.assertEqual(len(launched), 1)
@@ -416,7 +416,7 @@ class QuotaDry(unittest.TestCase):
     """One run directory, fake adapters that speak each harness's real refusal, fake meters."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".run-quota-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-run-quota-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -511,7 +511,7 @@ class QuotaDry(unittest.TestCase):
     def collect(self, cfg):
         return usage._gate_flags(self.providers, self.now, cfg)
 
-    def replenish(self, cfg, provider):
+    def replenish(self, cfg, provider, **_kw):
         """The real policy's contract: one credit at most, and only while the day allows."""
         self.replenished.append(provider)
         claimed = config.STATE / f"{provider}-reset.json"

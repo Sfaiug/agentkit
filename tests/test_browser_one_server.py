@@ -33,7 +33,7 @@ class OneServer(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.home = Path(self.stack.enter_context(
-            tempfile.TemporaryDirectory(prefix=".browser-one-", dir=REPO)))
+            tempfile.TemporaryDirectory(prefix=".ak-test-browser-one-", dir=REPO)))
         self.stack.enter_context(patch.object(browser, "CLAUDE_CONFIG",
                                               self.home / ".claude.json"))
         self.stack.enter_context(patch.object(browser, "CODEX_CONFIG",

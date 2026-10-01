@@ -14,7 +14,7 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
   going. Tests never touch the real ones.
 - A harness is meant to be a plugin: an adapter pair, an optional plugin module and one
   config entry. Its names and failure words also live in some twenty other files today.
-- `run.py` (14.7k lines) holds nearly the whole run side.
+- `run.py` (15.5k lines) holds nearly the whole run side.
 
 ## Entry points
 
@@ -24,15 +24,16 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
 
 ## agentkit/
 
-- `run.py`: the run loop. Hides task parsing, staffing, turns, the done-when gate, review
-  rounds, landing, hand-back, run.json and its stop-safe write, provider-failure
-  classification, slots and host admission, worktrees, gc and jobs. Offers `main`,
+- `run.py`: the run loop. Hides staffing, turns, the done-when gate, review rounds,
+  landing, hand-back, run.json and its stop-safe write, provider-failure
+  handling, slots and host admission, worktrees, gc and jobs. Offers `main`,
   `save_state`/`read_state`, `record` (read-change-write under its lock, never over a record
   it cannot read; the loop and the tick change records through it), `going`, `pick_models`.
   Used by watch (about 60 functions), orch, menu, notify, usage, worker, retention and a hook.
-  Leaks: harness failure text in `TRANSIENT`/`OUTAGE`, Claude temp-file gc.
+  Leak: Claude temp-file gc.
+- `task.py`: the task file's front matter, done-when groups, size and round refusals; for run.
 - `watch.py`: the tick. Hides watch.json, reading each manifest's screen rules and words
-  (`quotas`, `stalls`, `auth_expiry`), seat state (`session_state`, `waiting_on`), typing
+  (`stalls`, `auth_expiry`), seat state (`session_state`, `waiting_on`), typing
   into and reviving seats, resuming runs, PR scanning, `doctor`. Used by run, orch, menu,
   notify, update, usage, worker and both hooks. Leaks: run.json writes (stall ladder,
   freeze marks, resume passes; all through `run.record`), run states (`GOING`).
@@ -47,8 +48,8 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
   scripts and manifests, seat records, their rename chain and file names (`SEAT_FILES`), child
   env. Used by nearly everything. Leaks: the shell hooks rebuild seat file names.
 - `worker.py`: one headless turn: role preambles and the review gate text, the adapter `run`
-  call, silence watchdog, process kills, auth check. Offers `call`, `kill_marked`,
-  `auth_ok`. Used by run, watch, usage, harness. Leak: a Claude-only shell timeout.
+  call, silence watchdog, kills, auth check. Offers `call`, `kill_marked`,
+  `auth_ok`. Used by run, watch, usage, menu, harness. Leak: a Claude-only shell timeout.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
   `usage.json`. Offers `collect`, `pick_order`, `mark_exhausted`, `render`. Used by run,
   orch, menu, watch, history. Leak: watch and the Muse plugin call its private helpers.
@@ -87,8 +88,9 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
   screen rules, stall/quota/auth/resume words, compact, effort, catalog.
 - `agentkit/harness/`: `load(name)` merges the manifest and an optional plugin module
   (`claude.py`, `codex.py`, `muse.py`, `opencode.py`, `grokbuild.py`) with a default for
-  every hook: conversation, resume, launch, titles, usage, tokens. Used by orch, usage,
-  update, run, menu. Leak: orch and run import `harness.claude`.
+  every hook: conversation, resume, launch, titles, usage, tokens; `failure` reads a failed
+  turn or seat in whole `[stall]` words. Used by orch, usage, update, run, menu, watch. Leak:
+  orch and run import `harness.claude`.
 
 ## hooks/, tools/, tests/
 
@@ -109,9 +111,8 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
 Planned work, each its own task; none of it is true today.
 
 Run side, out of `run.py`:
-- `task`: the task file, front matter, done-when groups, size refusal.
 - `record`: sole owner of run.json: keys, the stop-safe write, a transition table.
-- `turn`: one model turn; a harness `classify` hook says transient, outage, quota or login.
+- `turn`: one model turn, branching on the harness's `failure` and login words.
 - `staffing`: who executes and who reviews, from budgets.
 - `gate`: done-when commands, heavy-suite turns, host admission.
 - `prompts`: role preambles and the review contract.

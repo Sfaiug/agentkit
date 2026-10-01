@@ -32,6 +32,8 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 import uuid
 from collections import Counter
@@ -127,6 +129,8 @@ INTERPRETERS = (
 REPORTABLE = ("pass", "fail", "error", "blocked", "exhausted", "interrupted")
 _VERSIONS = {}             # installed harness builds, asked for once and only to name a refusal
 _MANAGER = {}              # whether this host has a user systemd manager, asked once
+_OOM_POLICY = {}           # whether its scopes take OOMPolicy=continue, asked once too,
+_OOM_POLICY_LOCK = threading.Lock()   # ... however many of a job's threads launch at once
 _SLICE = {}                # ... and what its slice says about itself, for the same reason
 _PROCESSES = {}            # the last reading of the process table, when, and whether it is held
 
@@ -149,6 +153,24 @@ def choose(cfg, providers):
         notes.append(f"skipped {name}: {why}")
     return default, (f"WARN {'; '.join(notes)}; every model is exhausted, "
                      f"launching {default} anyway")
+
+
+@contextmanager
+def scratch(dry_run):
+    """Where the adapters called inside write a seat's rulebook, and whatever they make beside it.
+
+    For a dry run, a directory of its own that is gone once the command is printed: a preview
+    changes no rules a seat was opened with, and leaves none for a seat it never opens.
+    """
+    if not dry_run:
+        yield
+        return
+    with tempfile.TemporaryDirectory(prefix="ak-dry-run-") as tmp:
+        os.environ[config.RULEBOOK_DIR_ENV] = tmp
+        try:
+            yield
+        finally:
+            del os.environ[config.RULEBOOK_DIR_ENV]
 
 
 @contextmanager
@@ -335,6 +357,32 @@ def user_manager():
             except (OSError, ValueError):
                 pass
     return _MANAGER["answer"]
+
+
+def scope_oom_policy():
+    """Does a scope here take `OOMPolicy=continue`?  A user manager of systemd 253 or later.
+
+    An older `systemd-run` refuses the whole scope over it, and the run would start plainly,
+    outside the slice and its cap; there a scope keeps the default, which stops it whole.  The
+    version is the running manager's own answer (`257.13-1~deb13u1` is 257): no file names it
+    reliably, since a build tags its library as it likes.  Asked once per process, and only of
+    a manager `user_manager` found.  No answer counts as older.
+    """
+    with _OOM_POLICY_LOCK:
+        if "answer" not in _OOM_POLICY:
+            version = 0
+            if user_manager():
+                try:
+                    said = subprocess.run(
+                        ["systemctl", "--user", "show", "-p", "Version", "--value"],
+                        capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                        env=bus_env(), timeout=SLICE_WAIT).stdout
+                except (OSError, subprocess.SubprocessError):
+                    said = ""
+                found = re.match(r"\s*(\d+)", said)
+                version = int(found.group(1)) if found else 0
+            _OOM_POLICY["answer"] = version >= 253
+        return _OOM_POLICY["answer"]
 
 
 def can_scope():
@@ -1295,14 +1343,14 @@ def project_name(repo, fallback="no project"):
 
 def session_projects(kept):
     """Infer old records once, from launched runs; ties use the checkout's name."""
-    from . import run
+    from . import menu, run   # here, not at the top: menu imports this module
     missing = {name for name, record in kept.items() if "repo" not in record}
     votes = {name: Counter() for name in missing}
     if missing:
         for directory in run.run_dirs():
-            if "smoke-" in directory.name:
-                continue
             state = run.read_state(directory) or {}
+            if menu.smoke_run(state):
+                continue
             name = run.launched_session(state)
             repo = state.get("repo")
             if name in votes and isinstance(repo, str) and repo:
@@ -1809,11 +1857,12 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     if detached and (not record.get("cwd") or not ran_in.is_dir()):
         raise config.Error(f"{name}: recorded directory is unavailable: {ran_in}")
     cwd = ran_in if ran_in.is_dir() else seat_cwd()
-    if recorded:
-        cmd = resume_command(cfg, orchestrator, recorded, ran_in, seat=name, account=account)
-        conversation = recorded
-    else:
-        cmd, conversation = fresh_command(cfg, orchestrator, seat=name, account=account)
+    with scratch(dry_run):
+        if recorded:
+            cmd = resume_command(cfg, orchestrator, recorded, ran_in, seat=name, account=account)
+            conversation = recorded
+        else:
+            cmd, conversation = fresh_command(cfg, orchestrator, seat=name, account=account)
     where = "in the same window" if session else f"in {cwd}"
     log(f"orch: resuming {name} on {orchestrator} {where}"
         + (f" (conversation {recorded})" if recorded
@@ -3340,29 +3389,29 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     account = opening_account(cfg, model, providers, prompting)
     # where and when, because that is what opens the seat again once tmux has lost it -- and the
     # conversation it owns, written down before it starts wherever its harness can be told one.
-    # Not for a dry run: a conversation nothing ever opened is nobody's to be resumed into.
+    # Not for a dry run: a record of a seat nothing opened is one the next `ak orch` resumes.
     extra = {"cwd": str(cwd), "repo": str(repo) if repo else None, "created": time.time(),
              "account": account, "home_account": account}
     if len(selected) == 4:
         extra["reviewers"] = selected[3]
-    if unnamed:
+    if unnamed and not dry_run:
         # The adapter writes the rulebook while building its command, before the seat starts.
         extra["unnamed"] = True
         config.save_session(cfg, name, model, workers, extra)
-    else:
+    elif not dry_run:
         config.update_session(name, unnamed=None)
     try:
-        cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
+        with scratch(dry_run):
+            cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
     except Exception:
         if unnamed:
             config.session_path(name).unlink(missing_ok=True)
         raise
-    if conversation and not dry_run:
-        extra["conversation"] = conversation
-        extra["id_source"] = LAUNCHER
-    record = config.save_session(cfg, name, model, workers, extra)
     if not dry_run:
-        config.remember_defaults(record)
+        if conversation:
+            extra["conversation"] = conversation
+            extra["id_source"] = LAUNCHER
+        config.remember_defaults(config.save_session(cfg, name, model, workers, extra))
     # a name may be used again once its seat is gone, and this seat has said nothing yet: the
     # last message of the one before it is not this one's state, and a question it left
     # standing on Discord is closed rather than dropped with its card -- by a start, never by
@@ -3370,10 +3419,11 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     if not dry_run:
         from . import notify
         notify.forget_card(name)
-    config.notify_path(name).unlink(missing_ok=True)
+        config.notify_path(name).unlink(missing_ok=True)
     if dry_run:
         print(f"orch: {model} ({reason})")
         print(f"session {name} in {cwd} (new)")
+        print(f"workers {' '.join(workers)}")
         # before printing the tmux command, check infocmp "$TERM" the same way starting or
         # attaching would: an unknown type is exported as xterm-256color for the tmux command
         note = fix_term()

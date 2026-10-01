@@ -12,6 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, run, worker
+from agentkit import task as taskfile
 
 TASK = "# Learn once\n\n## Goal\nUse the repository facts.\n\n## Done when\n```bash\ntrue\n```\n"
 EXPLANATION = ("Facts earlier runs in this repository learned. Follow them; they are not part "
@@ -22,7 +23,7 @@ PAST_CAP = "is past its 4 KB cap and reached the workers cut short: tighten it."
 
 class Lessons(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".lessons-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-lessons-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -127,7 +128,7 @@ class Lessons(unittest.TestCase):
                                   self.opts, self.logs.append)
         self.assertEqual(state["state"], "pass")
         body = self.prompt("reviewer-pr")
-        _, task, _ = run.parse_task(directory / "task.md")
+        _, task, _ = taskfile.parse_task(directory / "task.md")
         section = f"## Project lessons\n{EXPLANATION}\n\nUse the test cluster.\n"
         self.assertIn(task + "\n\n" + section, body)
         self.assertLess(body.index(section), body.index("## Done-when output"))
@@ -147,7 +148,7 @@ class Lessons(unittest.TestCase):
         task = directory / "task.md"
         task.write_text(task.read_text().replace("true\n```", "true\ntest -f ready # once\n```"))
         raw_task = task.read_text()
-        _, body, _ = run.parse_task(task)
+        _, body, _ = taskfile.parse_task(task)
         state.update(merge_failed=True, rounds=3)
         run.save_state(directory, state)
         self.prompts.clear()

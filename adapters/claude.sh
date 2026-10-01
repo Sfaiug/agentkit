@@ -8,7 +8,8 @@
 #                       login        -> the device-code login, unless already logged in
 #                       auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                    `seat` asks about the interactive login alone, never the
-#                                    worker token, because the two expire apart
+#                                    worker token, because the two expire apart; a yes ends
+#                                    `; logged in as <email>` where Claude Code wrote it down
 #                       hooks        -> wire this harness's lifecycle hooks, idempotently
 #                       models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                    Anthropic's models API, else the [catalog] table of
@@ -39,6 +40,14 @@ if [ -n "$ACCOUNT" ]; then
   security() { return 1; }   # the Keychain's `Claude Code-credentials` is the usual login's
 fi
 cmd=${1:-}; shift 2>/dev/null || true
+
+# Who this login is, as Claude Code keeps it beside the login: what `+ add` shows a login
+# `− remove` left on disk by.  Silent where it says nobody.
+who() {
+  local email
+  email=$(jq -r '.oauthAccount.emailAddress // empty' "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" \
+          2>/dev/null) && [ -n "$email" ] && printf '; logged in as %s' "$email"
+}
 
 # jq is the tool most likely to be missing, so build the error object with printf
 err() { local m=${1//\\/}; m=${m//\"/\'}
@@ -240,14 +249,14 @@ auth)
       # written -- the installer's write or a hand's -- so the file's own date is the token's.
       mtime=$(stat -c %Y "$TOKEN" 2>/dev/null || stat -f %m "$TOKEN" 2>/dev/null || echo "")
       case "$mtime" in ''|*[!0-9]*)
-        echo "claude: long-lived worker token in $TOKEN"; exit 0 ;;
+        echo "claude: long-lived worker token in $TOKEN$(who)"; exit 0 ;;
       esac
       now=$(date +%s); exp=$((mtime + 365 * 24 * 3600))
       if [ "$now" -ge "$exp" ]; then
         echo "claude: worker token expired; run \`claude setup-token\` and replace $TOKEN" >&2
         exit 1
       fi
-      echo "claude: long-lived worker token in $TOKEN (expires in $(((exp - now) / 86400)) days)"
+      echo "claude: long-lived worker token in $TOKEN (expires in $(((exp - now) / 86400)) days)$(who)"
       exit 0 ;;
     esac
   }
@@ -278,7 +287,7 @@ auth)
   [ "${#exp}" -gt 11 ] || exp="${exp}000"
   [ "$exp" -gt "$(( $(date +%s) * 1000 ))" ] || {
     echo "claude: the OAuth token in $CREDS expired; run /login" >&2; exit 1; }
-  echo "claude: the OAuth token in $CREDS is still valid" ;;
+  echo "claude: the OAuth token in $CREDS is still valid$(who)" ;;
 hooks)
   # SessionStart follows /clear's new conversation. The other events say a turn began, a
   # turn ended, a prompt is waiting -- all to the one hook script, which writes the fact down and

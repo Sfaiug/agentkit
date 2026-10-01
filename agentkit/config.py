@@ -27,7 +27,6 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-AFTER_KEY = "after"  # task front matter `after:` names another task file in the same job
 JOB_DIR_ENV = "AGENTKIT_JOB_DIR"  # the `ak run --bg` job child this receipt belongs to
 KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*$")
 HARNESS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")   # a harness name is one path component
@@ -36,8 +35,10 @@ HARNESS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")   # a harness name is one pa
 RUN_DIR_ENV = "AGENTKIT_RUN_DIR"
 ADAPTER_DIR_ENV = "AGENTKIT_ADAPTER_DIR"   # adapters/ elsewhere: the offline smoke checks
 SESSION_ENV = "AGENTKIT_SESSION"
+RULEBOOK_DIR_ENV = "AGENTKIT_RULEBOOK_DIR"  # a dry run's: where rulebook.py writes instead of STATE
 ACCOUNT_ENV = "AGENTKIT_ACCOUNT"           # which of a provider's `accounts` an adapter call is for
 DEFAULT_ACCOUNT = "default"                # ... the login it has when it lists none: the empty name
+KEPT_LOGINS = "kept-logins.json"           # under STATE: the logins `− remove` left on disk
 UNATTENDED_ENV = "AGENTKIT_UNATTENDED"   # set below a run loop: what it starts is machinery
 CODE = Path.home() / "code"                # where the checkouts live, and where a new seat opens
 RENAME_HOPS = 8                            # how many renames a session name is followed through
@@ -1176,41 +1177,31 @@ def account_env(account):
     return {ACCOUNT_ENV: "" if account in (None, DEFAULT_ACCOUNT) else account}
 
 
+def kept_logins():
+    """Each login `− remove` took out of ak and left on disk, oldest first, as (provider,
+    account, label): a subscription it took out of `accounts`, or the usual login of a provider
+    it removed whole, with the name its usage row had.  `+ add` offers them back.  [] where
+    there is no record, or none that can be read."""
+    try:
+        kept = _read_json(STATE / KEPT_LOGINS)
+    except Error:
+        return []
+    return [tuple(entry) for entry in kept if isinstance(entry, list) and len(entry) == 3] \
+        if isinstance(kept, list) else []
+
+
+def keep_login(provider, account, label):
+    """Record one login `− remove` takes out, in place of an older record of the same one."""
+    kept = [entry for entry in kept_logins() if entry[:2] != (provider, account)]
+    _write_json(STATE / KEPT_LOGINS, [*kept, (provider, account, label)])
+
+
 def provider_harness(cfg, provider):
     """The harness of the first model of a provider -- that adapter owns its usage call."""
     for name, entry in cfg["models"].items():
         if entry.get("provider") == provider:
             return entry["harness"], name
     raise Error(f"~/.agentkit/config.toml: [providers.{provider}] has no model")
-
-
-def task_afters(task_path):
-    """`after:` values from a task file's front matter, one per line, repeatable.
-
-    Each line names the basename or title of another task file in the same job;
-    a comma-separated line names several. Blank values are ignored.
-    """
-    try:
-        text = Path(task_path).read_text(encoding="utf-8")
-    except OSError as exc:
-        raise Error(f"cannot read {task_path}: {exc}")
-    match = re.match(r"^---\n(.*?)\n---", text, re.S)
-    if not match:
-        return []
-    found = []
-    for line in match.group(1).splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or ":" not in stripped:
-            continue
-        key, value = stripped.split(":", 1)
-        if key.strip() != AFTER_KEY:
-            continue
-        value = value.split("#", 1)[0].strip()
-        for part in value.split(","):
-            part = part.strip()
-            if part:
-                found.append(part)
-    return found
 
 
 def ensure_dirs():

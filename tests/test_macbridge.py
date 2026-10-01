@@ -24,7 +24,7 @@ from agentkit import config, macbridge, menu
 
 class Sandbox(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".macbridge-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-macbridge-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

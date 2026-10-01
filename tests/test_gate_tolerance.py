@@ -61,7 +61,7 @@ def refused(provider, reason):
 
 class GateTolerance(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".gate-tolerance-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-gate-tolerance-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.adapters = self.root / "adapters"
@@ -162,6 +162,14 @@ class GateTolerance(unittest.TestCase):
         # The retry is inside every cadence, so it asks nothing: one ask, then the skip.
         self.assertEqual(self.probes("claude"), ["usage"])
         self.assertEqual(self.probes("codex"), ["usage"])
+
+    def test_429_skip_passes_under_an_outer_suites_diversion(self):
+        # Sourced inside a running suite, the check inherits that suite's diversion log; its
+        # own `finish` reads only what this check diverted.
+        outer = self.root / "outer-diversions.log"
+        outer.write_text("an outer suite's diversion\n")
+        self.env["AK_NOTIFY_SINK_LOG"] = str(outer)
+        self.test_429_skips_with_reason_after_one_retry()
 
     def test_5xx_skips_with_reason_after_one_retry(self):
         self.adapter("claude", meters("anthropic"))

@@ -31,7 +31,7 @@ import time
 from pathlib import Path
 
 from . import command_help, config, terminal, usage_probe, worker
-from .harness import load as harness_plugin
+from .harness import limited, load as harness_plugin
 
 CACHE_TTL = 300
 # A usage endpoint has a rate limit of its own, and everything here wants the same answer: the
@@ -121,10 +121,11 @@ def probe_refused(error):
     out with, so neither may be read as a logout, and neither is a reason to throw away the
     reading it could not replace.  Nothing prints these words: a row says the reading's
     age instead, and this answer only decides whether the probe asks `auth` and whether the
-    last reading stands.
+    last reading stands.  A 429 is read in the harness package's words, whole
+    (`harness.limited`): one inside a longer number is none.
     """
     text = str(error or "")
-    if re.search(r"\b429\b|rate limit", text, re.I):
+    if limited(text):
         return "rate limited"
     if re.search(r"\bHTTP 5[0-9][0-9]\b|timed out", text, re.I):
         return "unavailable"
@@ -893,9 +894,10 @@ class Readings(dict):
 
     An attribute and not a key, so the providers stay exactly the providers for everything
     that compares, stores or prints them.  `collect` leaves it empty; a pick's `readiness`
-    fills it.
+    fills it, and `asked_at` with when it began asking.
     """
     harnesses = {}
+    asked_at = 0.0
 
 
 def readiness(cfg, providers):
@@ -910,7 +912,7 @@ def readiness(cfg, providers):
     if not isinstance(providers, Readings):
         return providers
     read = Readings(providers)
-    read.harnesses = {}
+    read.harnesses, read.asked_at = {}, time.time()
     for name in config.offered(cfg):
         harness = cfg["models"][name]["harness"]
         if harness not in read.harnesses:
@@ -936,8 +938,9 @@ def harness_unready(harness):
     return f"{harness} is not logged in" if worker.auth_ok(harness)[0] is False else None
 
 
-def replenish(cfg, provider, depleted=True):
-    """Read this provider's meters again, and spend a usage-limit reset if it holds one.
+def replenish(cfg, provider, depleted=True, account=None):
+    """Read this provider's meters again -- or that account's of it -- and spend a
+    usage-limit reset if it holds one.
 
     The moment of need: a worker has just been refused, and that refusal is proof the window
     is spent whatever the cached used% said.  So the five-minute due clock and the 90%
@@ -946,11 +949,15 @@ def replenish(cfg, provider, depleted=True):
     adapter is still asked at most once in its harness's cadence, and the reading goes into the cache so
     the next pick ranks on what the provider says now.  A seat stalled on its quota is not
     that proof (`watch.spend_reset`): `depleted=False` keeps the threshold.
+    A refused `account` is the one whose credit goes: its week is the one that ran out, and
+    for none it is the one a turn runs on next, the usual login once every account is spent.
 
     Returns (was a credit really spent, the resets left in hand).
     """
     now = time.time()
-    prov = _without_past(_probe_gently(cfg, provider), now, "the adapter")
+    prov = _without_past(_probe_gently(cfg, provider, account), now, "the adapter")
+    if account is not None:
+        prov = {**prov, "account": account}
     # The probe and a credit each write their own reading as they get it.
     prov, spent = _reset_policy(cfg, provider, prov, now, depleted)
     return spent, _number(prov.get("resets")) or 0.0

@@ -33,7 +33,7 @@ SPENT = "three rounds spent: split or re-scope the task"
 
 class StopPeerTurn(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".stop-peer-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-stop-peer-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.home = Path(tmp.name)
         self.state = self.home / ".agentkit/state"

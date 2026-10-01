@@ -35,7 +35,7 @@ class GrokSandbox(unittest.TestCase):
     """A temporary HOME with a fake `grok`, like the other adapter tests' hosts."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".grokbuild-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-grokbuild-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.home = Path(tmp.name)
         self.state = self.home / ".agentkit/state"

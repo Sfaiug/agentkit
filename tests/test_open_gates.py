@@ -44,7 +44,7 @@ class OpenGates(unittest.TestCase):
         self.addCleanup(overrides.stop)
         # Every harness binary a gate asks about is a fake, ahead of any this host installed:
         # smoke_home's login probe then runs each real adapter's `auth` against no real harness.
-        fakes = tempfile.TemporaryDirectory(prefix=".open-gates-bin-", dir=REPO)
+        fakes = tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-bin-", dir=REPO)
         self.addCleanup(fakes.cleanup)
         for name in ('claude', 'codex', 'muse', 'grok', 'opencode', 'agy'):
             (Path(fakes.name) / name).write_text('#!/bin/sh\nexit 97\n')
@@ -67,7 +67,7 @@ class OpenGates(unittest.TestCase):
                   '.config/gh/config.yml': 'git_protocol: https\n',
                   '.config/opencode/opencode.json': '{"provider": {"mimo": {"apiKey": "fixture"}}}',
                   '.agentkit/secrets/discord_webhook': 'fixture webhook'}
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             caller, home = root / 'caller', root / 'work/home'
             for name in ('.claude', '.codex', '.config', '.grok', '.opencode',
@@ -84,6 +84,9 @@ class OpenGates(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             links = {str(path.relative_to(home)): path for path in home.rglob('*')
                      if path.is_symlink()}
+            # The host's record of harness swaps is shared live: the sandbox runs its installs.
+            swaps = '.agentkit/state/harness-swaps.json'
+            self.assertEqual(links.pop(swaps).resolve(), caller / swaps)
             # The host's probe cadence is shared live: each probe file links the host's own file,
             # one the host may have yet to write, in a state directory that is there for it.
             probes = {name for name in links if name.startswith('.agentkit/state/')}
@@ -143,7 +146,7 @@ class OpenGates(unittest.TestCase):
         setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
         # A lapsed Grok key its refresh token renews: the real adapter's yes on the linked login.
         login = {'id': {'key': 'k', 'expires_at': '2000-01-01T00:00:00Z', 'refresh_token': 'r'}}
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             caller, home, binaries, adapters = (root / 'caller', root / 'work/home',
                                                 root / 'bin', root / 'adapters')
@@ -223,7 +226,7 @@ PY
                     ('smoke', original, original, False),
                     ('smoke', 'invalid JSON', original, False)):
                 with self.subTest(path=relative, gate=gate, replacement=content, link=behind_link), \
-                        tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
+                        tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
                     root = Path(tmp)
                     path = root / 'caller' / relative
                     path.parent.mkdir(parents=True)
@@ -261,7 +264,7 @@ PY
 
     def test_smoke_borrows_overridden_logins_before_clearing_overrides(self):
         setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             caller, home = root / 'caller', root / 'work/home'
             caller.mkdir()
@@ -306,7 +309,7 @@ PY
 
     def test_smoke_mcp_claude_uses_worker_token_instead_of_refreshing_seat(self):
         block = SMOKE[SMOKE.index('  BP=\'Use the browser MCP'):SMOKE.index('  if skip_spent 31e')]
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             home = Path(tmp)
             (home / '.agentkit/secrets').mkdir(parents=True)
             (home / '.agentkit/secrets/claude_oauth_token').write_text('worker-token')
@@ -339,7 +342,7 @@ if false; then :; else
 
     def test_smoke_install_and_hooks_leave_caller_contents_and_mtimes_untouched(self):
         setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             caller, home, binaries = root / 'caller', root / 'work/home', root / 'bin'
             files = {'.claude/settings.json': '{"hooks": {}, "caller": true}\n',
@@ -413,7 +416,7 @@ git config --global user.name sandbox
         setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
         flags = SMOKE[SMOKE.index('codex_model_flag_check()'):SMOKE.index('# Fake-adapter loops:')]
         shipped = (REPO / 'config.default.toml').read_text()
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             caller = root / 'caller'
             (caller / '.agentkit/secrets').mkdir(parents=True)
@@ -480,7 +483,7 @@ PY
         shipped = (REPO / 'config.default.toml').read_text()
         defaults = tomllib.loads(shipped)['defaults']['workers']
         every = list(tomllib.loads(shipped)['models'])
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             for workers in (defaults, list(reversed(defaults)), ['astra'], every):
                 with self.subTest(workers=workers):
@@ -509,7 +512,7 @@ ak() { printf '%s\\n' "$ROW"; }
     def test_smoke_skips_missing_harness_or_login_with_reason(self):
         start = SMOKE.index('model_unavailable()')
         helpers = SMOKE[start:SMOKE.index('U="$WORK/usage.json"', start)]
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             binaries = root / 'bin'
             binaries.mkdir()
@@ -557,7 +560,7 @@ ak() { printf '%s\\n' "$ROW"; }
         start = SMOKE.index('model_unavailable()')
         helpers = SMOKE[start:SMOKE.index('U="$WORK/usage.json"', start)]
         check = SMOKE[SMOKE.index('# --- 3:'):SMOKE.index('# --- 4:')]
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             binaries = Path(tmp) / 'bin'
             binaries.mkdir()
             (binaries / 'python3').symlink_to(sys.executable)
@@ -574,7 +577,7 @@ ak() { printf '%s\\n' "$ROW"; }
         self.assertIn('FAIL  3: no harness here is installed with its login', result.stdout)
         self.assertIn('6 passed, 1 failed, 0 skipped', result.stdout)
         # A login smoke_home's adapters confirmed is that one harness, called here or not.
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             binaries = Path(tmp) / 'bin'
             binaries.mkdir()
             (binaries / 'python3').symlink_to(sys.executable)
@@ -588,6 +591,16 @@ ak() { printf '%s\\n' "$ROW"; }
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('6 passed, 0 failed, 0 skipped', result.stdout)
 
+    def test_gates_pass_or_fail_on_their_own_under_an_outer_suites_diversion(self):
+        # Run inside a running suite, each check inherits that suite's diversion log; its own
+        # `finish` reads only what this check diverted.
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-outer-", dir=REPO) as outer:
+            log = Path(outer) / 'notify-diversions.log'
+            log.write_text("an outer suite's diversion\n")
+            with patch.dict(os.environ, {'AK_NOTIFY_SINK_LOG': str(log)}):
+                self.test_smoke_needs_one_harness_with_its_login()
+                self.test_smoke_keeps_webhook_get_check_without_posting()
+
     def test_fresh_borrows_what_this_host_has_and_needs_one_harness(self):
         callers = FRESH[FRESH.index('caller_config=${XDG_CONFIG_HOME'):FRESH.index('\nTS=$(date')]
         block = FRESH[FRESH.index('  # Each login is linked, file by file'):
@@ -595,7 +608,7 @@ ak() { printf '%s\\n' "$ROW"; }
 
         def gate(hostbin, logins, answers, broken=()):
             """Step c's borrowing, with each adapter's `auth` answering "<exit> <line>"."""
-            with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
+            with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
                 root = Path(tmp)
                 caller, home, fixtures = root / 'caller', root / 'home', root / 'answers'
                 (home / 'agentkit/adapters').mkdir(parents=True)
@@ -715,7 +728,7 @@ ak() { printf '%s\\n' "$ROW"; }
         setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
         start = SMOKE.index('model_unavailable()')
         helpers = SMOKE[start:SMOKE.index('U="$WORK/usage.json"', start)]
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             caller, binaries, adapters = root / 'caller', root / 'bin', root / 'adapters'
             binaries.mkdir()
@@ -763,7 +776,7 @@ for model in opus spark astra grok mimo; do model_unavailable "$model"; done
             def log_message(self, *args):
                 pass
 
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp, \
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp, \
                 ThreadingHTTPServer(('127.0.0.1', 0), Hook) as server:
             thread = threading.Thread(target=server.serve_forever)
             thread.start()
@@ -794,7 +807,7 @@ smoke_home
     def test_claude_stream_leaves_no_credential_links_in_output(self):
         start = SMOKE.index('smoke_share_probes()')
         stream = SMOKE[start:SMOKE.index('usage_fresh_check()', start)]
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             caller = root / 'caller'
             (caller / '.codex').mkdir(parents=True)
@@ -865,7 +878,7 @@ python3() {
                 self.assertIn('push -q origin --delete "$branch"', setup)
 
         # A legacy target's first commit held only a README, not the failing test.
-        with tempfile.TemporaryDirectory(prefix=".open-gates-", dir=REPO) as tmp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             env = {**os.environ, "WORK": tmp, "GIT_CONFIG_GLOBAL": os.devnull,
                    "GIT_CONFIG_NOSYSTEM": "1"}
