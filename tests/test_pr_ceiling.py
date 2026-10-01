@@ -61,7 +61,7 @@ class PrCeiling(unittest.TestCase):
         (self.repo / "work.txt").write_text("work\n" * lines)
         return self.commit()
 
-    def review(self, author="owner", seat="fix-api"):
+    def review(self, author="owner", seat="fix-api", background=False):
         directory = config.RUNS / f"review-{len(list(config.RUNS.iterdir()))}"
         directory.mkdir()
         head = self.git("rev-parse", "HEAD")
@@ -75,6 +75,11 @@ class PrCeiling(unittest.TestCase):
         def merged(lp, *_args, **_kw):
             lp.state["merged"] = True
             return True
+
+        opts = {"--review": None, "--review-pr": URL}
+
+        def reviewed(directory, *_args, **_kw):
+            return run.review_pr(self.cfg, directory, URL, opts, lambda _: None)
 
         with ExitStack() as mocks:
             mocks.enter_context(patch.dict(os.environ, {"AGENTKIT_SESSION": seat}))
@@ -94,7 +99,12 @@ class PrCeiling(unittest.TestCase):
             self.reviewer, self.usage = reviewer, usage
             mocks.enter_context(patch.object(run, "merge_own_pr", side_effect=merged))
             inbox = mocks.enter_context(patch.object(watch, "ask_inbox", return_value=0))
-            state = run.review_pr(self.cfg, directory, URL, {"--review": None}, lambda _: None)
+            if background:
+                mocks.enter_context(patch.object(run, "spawn_bg", side_effect=reviewed))
+                state = run.review_pr_main(self.cfg, opts, {"--bg": True},
+                                           ["--review-pr", URL, "--bg"], None)
+            else:
+                state = reviewed(directory)
         return state, reviewer, usage, inbox
 
     def fabricated(self, small=100, large=200, count=50):
@@ -106,10 +116,12 @@ class PrCeiling(unittest.TestCase):
 
     def test_over_ceiling_refuses_before_any_model_runs(self):
         self.change(301)
-        with self.assertRaisesRegex(config.Error, r"301.*300.*split"):
-            self.review()
-        self.usage.assert_not_called()
-        self.reviewer.assert_not_called()
+        for background in (False, True):
+            with self.subTest(background=background):
+                with self.assertRaisesRegex(config.Error, r"301.*300.*split"):
+                    self.review(background=background)
+                self.usage.assert_not_called()
+                self.reviewer.assert_not_called()
 
     def test_under_and_at_ceiling_run_and_generated_lines_do_not_count(self):
         self.change(299)
