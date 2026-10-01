@@ -2786,8 +2786,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     on the lines shown, each by `start(clock, row, since, before)`, its frames drawn while the
     key is waited for.
     """
-    said = ["", *(terminal.styled("  " + part, "dim")
-                  for part in terminal.wrap(note, terminal.layout_width() - 2))] if note else []
+    said = ["", *(terminal.styled("  " + part, "dim") for line in note.splitlines()
+                  for part in terminal.wrap(line, terminal.layout_width() - 2))] if note else []
     room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(said))
     drawn = [number for number, (row, _) in places.items() if row == here] or [0]
     top = max(0, min(max(top, drawn[-1] - room + 1), drawn[0], len(body) - room))
@@ -3561,18 +3561,18 @@ def show_features(checkout, dry_run=False):
         rows = [("feature", row["id"]) for row in features or ()]
         here = here if here in rows else rows[0] if rows else None
         body, places = features_body(features, here[1], column) if features else ([], {})
-        said = (_SWITCHES[str(checkout)]["error"] or ("" if features else "no features"
-                if features == [] else "asking for its features"))
-        if said:
-            body.append(terminal.styled("  " + terminal.cut(said, terminal.layout_width() - 2),
-                                        "dim"))
+        # under the rows, not after them: scrolled to the last feature, a stale list still says
+        # so; each one line whatever it says, so the rows stay where a click is read against them
+        said = [terminal.cut(line, terminal.layout_width() - 2) for line in (
+            _SWITCHES[str(checkout)]["error"] or ("" if features else "no features"
+                                                  if features == [] else "asking for its features"),
+            note) if line]
         if dry_run:
-            terminal.frame(checkout.name, body, "esc back")
+            terminal.frame(checkout.name, body + [terminal.styled("  " + line, "dim")
+                                                  for line in said], "esc back")
             return
-        # one line whatever it says, so the rows stay where a click is read against them
         act, here, clicked, top = matrix_key(checkout.name, body, places, rows, here, top,
-                                             terminal.cut(note, terminal.layout_width() - 2),
-                                             keys, STIR, fetched=fetched)
+                                             "\n".join(said), keys, STIR, fetched=fetched)
         if act is None:
             continue                  # a resize, or a look at whether the answer has landed
         note, column = "", column if clicked is None else clicked
