@@ -2852,9 +2852,11 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     def spent(account):
         return usage.model_exhausted(cfg, model, {provider: readings.get(account, {})})[0]
 
-    line = output_line(content_lines(harness, pane_tail(pane)))
+    lines = content_lines(harness, pane_tail(pane))
+    line = output_line(lines)
     mark = stalled_on(harness, line, name, log) if line else None
-    outcome = failed_on(harness, [line])[0] if mark else None
+    # A bare trailer (`Goal stalled`) names its failure on the error line drawn above it.
+    outcome = failed_on(harness, lines[:-1] + [line])[0] if mark else None
     refusal = outcome in (SPENT, LIMITED)
     now = time.time()
     observed = live.get("usage_refusal") or {}
