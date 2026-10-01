@@ -5722,7 +5722,8 @@ fi
 if { python3 "$REPO/tests/test_regression_fails_before.py" &&
      python3 "$REPO/tests/test_probe_resume.py" &&
      python3 "$REPO/tests/test_followup_runs.py" && python3 "$REPO/tests/test_red_target.py" &&
-     python3 "$REPO/tests/test_review_gate.py" && python3 "$REPO/tests/test_changed_checks.py"; } >"$WORK/regression-base.log" 2>&1; then
+     python3 "$REPO/tests/test_review_gate.py" && python3 "$REPO/tests/test_changed_checks.py" &&
+     python3 "$REPO/tests/test_landing_review_spends_no_round.py"; } >"$WORK/regression-base.log" 2>&1; then
   ok "50 fix runs: regression fails on base and passes on HEAD, changed checks reach review, probes restore the branch"
 else
   no "50 fix runs and regression on base"; tail -30 "$WORK/regression-base.log"

@@ -15,7 +15,7 @@ import time
 from unittest.mock import patch
 import unittest
 
-from test_v4n import Sandbox
+from test_v4n import Sandbox, menu_input
 from agentkit import config, menu, orch, terminal
 
 SLOW = 2.0        # what each read takes: a host under load, and then some
@@ -108,8 +108,7 @@ class MenuSpeed(Sandbox):
             screens.append((key, lit))
             return pressed(key)
 
-        with patch.object(menu, "wait_key", side_effect=wait_key), \
-                patch.object(menu, "read", return_value="q"), \
+        with menu_input(wait=wait_key, return_value="q"), \
                 patch.object(menu, "show_config", side_effect=back), \
                 patch.object(terminal, "choose", side_effect=choose), \
                 redirect_stdout(out):

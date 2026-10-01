@@ -19,7 +19,7 @@ import time
 from unittest.mock import patch
 import unittest
 
-from test_v4n import REPO, Sandbox
+from test_v4n import REPO, Sandbox, menu_input
 from agentkit import command_help, config, menu, orch, run, terminal
 
 NOW = 1_800_000_000      # what every draw reads as the time
@@ -122,10 +122,9 @@ class Listings(Sandbox):
         self.assertFalse(hasattr(menu, "recover_run"))
         self.assertFalse(hasattr(menu, "watch_run"))
         self.assertNotIn("r runs", menu.KEYS)
-        answers = iter(["r", ""])
         with patch.object(orch, "listing", return_value=self.seats), \
                 patch.object(orch, "job_notices", return_value=[]), \
-                patch.object(menu, "read", side_effect=lambda *_: next(answers)), \
+                menu_input(side_effect=["r", ""]), \
                 patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:
