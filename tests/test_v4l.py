@@ -840,6 +840,57 @@ esac
                     self.assertEqual(result.stdout, "")
                     self.assertEqual(result.stderr, "")
 
+    def test_smoke_host_cache_checks_the_login_the_sandbox_borrowed(self):
+        source = (REPO / "tests/smoke.sh").read_text()
+        helpers = "spent_until()" + source.split("spent_until()", 1)[1].split("\nprintf 'Create", 1)[0]
+        script = ('set -uo pipefail\n. "$REPO/tests/acceptance.sh"\n' + helpers +
+                  '\nskip_unavailable() { return 1; }\n'
+                  'if skip_spent 3a/3b/31d opus; then :; else echo ATTEMPT; fi\nfinish\n')
+        with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
+            root = Path(directory)
+            host = root / "caller/.agentkit/state"
+            host.mkdir(parents=True)
+            (root / "usage-real.json").write_text(json.dumps({
+                "providers": {"anthropic": {"meters": []}}}))
+            env = {**os.environ, "HOME": directory, "WORK": directory, "REPO": str(REPO),
+                   "SMOKE_CALLER_HOME": str(root / "caller"), "PYTHONDONTWRITEBYTECODE": "1",
+                   "AGENTKIT_ACCEPTANCE_REQUIRED": "1"}
+            reset = time.time() + 86400
+
+            def record(used, ends=reset):
+                return {"meters": [{"name": "weekly_all", "used": used,
+                                    "resets_at": ends, "exhausted": used >= 100}]}
+
+            for why, default, selected, skip in (
+                    ("default spent, another login has room", record(100), record(10), True),
+                    ("default has room, another login spent", record(10), record(100), False),
+                    ("default not measured", None, record(100), False),
+                    ("default window already reset", record(100, time.time() - 1), record(10), False),
+                    ("default refused below its meter cap",
+                     {**record(10), "exhausted_until": reset}, record(10), True),
+                    ("old cache without accounts", None, record(100), True)):
+                with self.subTest(why=why):
+                    cached = copy.deepcopy(selected)
+                    if why != "old cache without accounts":
+                        cached.update(account="second", accounts={"second": selected})
+                        if default is not None:
+                            cached["accounts"]["default"] = default
+                    cache = json.dumps({"providers": {"anthropic": cached}})
+                    (host / "usage.json").write_text(cache)
+                    result = subprocess.run(["bash", "-c", script], cwd=root, env=env,
+                                            text=True, capture_output=True, timeout=10)
+                    self.assertEqual(result.returncode, 2 if skip else 0,
+                                     result.stdout + result.stderr)
+                    if skip:
+                        for label in ("3a", "3b", "31d"):
+                            self.assertIn(f"SKIP  {label}: required model opus has a spent "
+                                          "anthropic window", result.stdout)
+                        self.assertIn("0 passed, 0 failed, 3 skipped", result.stdout)
+                    else:
+                        self.assertIn("ATTEMPT", result.stdout)
+                        self.assertNotIn("SKIP", result.stdout)
+                    self.assertEqual((host / "usage.json").read_text(), cache)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
