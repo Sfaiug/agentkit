@@ -29,7 +29,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import terminal
+from agentkit import menu, terminal
 
 # The child: the real screen, key reader and saver; fakes for the catalog, versions and steps.
 CHILD = r"""
@@ -320,7 +320,8 @@ class Matrix(unittest.TestCase):
         lines = screen.click(line.index("‹") + 1, number,
                              lambda lines: "‹ high ›" in row(lines, "opus")[1])
         self.assertIn("opus", highlighted(lines))
-        self.assertEqual(lines[-1], EFFORT_KEYS)
+        # the pointer rests on the effort it clicked: the key line says what that is
+        self.assertEqual(lines[-1], "  " + menu.TIPS["effort"].format(name="opus"))
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "high")
         screen.leave()
 
@@ -357,7 +358,8 @@ class Matrix(unittest.TestCase):
         lines = screen.click(line.index("›", 2) + 1, number,
                              lambda lines: "‹ max ›" in row(lines, "opus")[1])
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")
-        column = lines[-1].index("esc back") + 3            # and one on `esc back` leaves
+        column = EFFORT_KEYS.index("esc back") + 3      # and one on `esc back` leaves, where
+                                                        # the effort's key line has it
         os.write(screen.master, f"\x1b[<0;{column};{len(lines)}M\x1b[<0;{column};{len(lines)}m"
                  .encode())
         screen.saw("<left>")
