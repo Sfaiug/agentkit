@@ -901,13 +901,11 @@ def read_key(timeout=None, wake=None):
     key hands the highlight to the keys, so the pointer lights nothing until it moves again.
     """
     global _PRESSED, _ASKED, _POINTER, _MOVED, _NEXT
-    if _NEXT is not None:
-        key, _NEXT = _NEXT, None
-        return key
+    key, _NEXT = _NEXT, None
     fd = sys.stdin.fileno()
     until = None if timeout is None else time.monotonic() + timeout
     point = None                   # where the pointer moved to, not answered yet
-    while True:
+    while key is None:
         if not _KEYED:
             again = _TAKEN.again[0] if _TAKEN is not None else None
             left = None if until is None else max(0, until - time.monotonic())
@@ -930,21 +928,20 @@ def read_key(timeout=None, wake=None):
         key = _key(fd)
         if key is None:            # the button went down: the click is when it comes up
             _PRESSED = True
-            continue
-        if key.name == "answer":   # the terminal's, to `sense`, and no key at all
-            continue
-        if key.name == "click":    # and a button that went down before the keyboard was taken
+        elif key.name == "answer":     # the terminal's, to `sense`, and no key at all
+            key = None
+        elif key.name == "click":  # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
-        if key.name == "point":
+        elif key.name == "point":
             _POINTER, spot = key, under(key, _SPOTS)
             point = key if (spot.cell != _POINTED.cell
                             or spot.what not in (None, _POINTED.what)) else None
-            continue
-        _POINTER = key if key.name == "click" else None
-        if point is not None:
+            key = None
+        if key is not None and point is not None:
             _NEXT, _MOVED = key, time.monotonic()
             return point
-        return key
+    _POINTER = key if key.name == "click" else None
+    return key
 
 
 def _key(fd):
