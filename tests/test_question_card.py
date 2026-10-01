@@ -115,15 +115,24 @@ class QuestionCard(unittest.TestCase):
     def test_the_card_is_up_before_its_runs_are_counted(self):
         with patch.object(test_close_and_info, "CHILD", test_close_and_info.CHILD.replace(
                 "orch.cmd_stop = cmd_stop\n", "orch.cmd_stop = cmd_stop\n" + SLOW)):
-            shown = Menu(self, {"alpha": "working"})
+            shown = Menu(self, {"alpha": "working"}, rows=24, cols=40)
         shown.frame()
         mark, pressed = shown.mark(), time.monotonic()
         shown.send(b"x")
-        asked = shown.frame(keys="esc back", after=mark)
+        top, _ = shown.choices(after=mark)
         self.assertLess(time.monotonic() - pressed, 1.0)     # the count takes 1.5 s
-        self.assertIn("  Its runs stop with it; the conversation stays and can be reopened.", asked)
-        shown.frame(lambda lines: "  3 runs stop with it; the conversation stays and can be "
-                                  "reopened." in lines, keys="esc back", after=mark)
+        asked = shown.frame(keys="esc back", after=mark)
+        self.assertEqual(asked[top - 4:top - 1], ["  Its runs stop with it; the",
+                                                  "  conversation stays and can be",
+                                                  "  reopened."])
+        # down on Keep; the count lands one line shorter, moving `✗ Stop` onto that row; up there
+        shown.send(f"\x1b[<0;4;{top}M".encode())
+        counted = shown.frame(lambda lines: "  3 runs stop with it; the conversation" in lines,
+                              keys="esc back", after=mark)
+        self.assertEqual(counted.index("  stays and can be reopened.") + 3, top)
+        shown.send(f"\x1b[<0;4;{top}m".encode())             # no click: the card is still up
+        time.sleep(0.3)
+        self.assertNotIn("<stopped", shown.text())
         mark = shown.mark()
         shown.send(ESC)
         shown.frame(after=mark)

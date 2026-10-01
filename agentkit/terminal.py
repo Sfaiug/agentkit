@@ -1063,17 +1063,22 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
     `around` draws the screen a list is asked inside and returns the row its first choice goes
     on, and is called again whenever the screen wants drawing again -- a resize -- so the list
     and the rows a click is read against are always where that screen now puts them.  There a
-    click on a choice picks it, or with `several` marks it, and a click anywhere else goes back.
+    click on a choice picks it, or with `several` marks it, and a click anywhere else goes back;
+    a button that went down before the list moved is no click.
     `wait`, where given, reads the key in `read_key`'s place, or None for a draw: the menu's own
     (`menu.moving`) keeps its dots breathing while the list is asked.  `warn` is a choice drawn
     in the warn colour: the one of `confirm`'s that ends something.
     """
+    global _PRESSED
     marked = set(default or ()) if several else set()
     at = choices.index(default) if not several and default in choices else 0
     drawn, top, again = 0, None, around is not None
     while True:
         if again:
-            top, again = around(), False
+            moved, again = around(), False
+            if moved != top:
+                _PRESSED = False  # a press where a choice was is no click on what is there now
+            top = moved
             if not top:
                 return None       # the screen it is asked on has no row for it any more
         lines = []
