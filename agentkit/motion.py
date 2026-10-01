@@ -3,7 +3,8 @@
 At rest one thing moves, a working session's `●` breathing; news moves once and is then still --
 a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright, a bar
 that changed value glides to it; a popup's content fades in once, as it opens; the rule under a
-screen's header glides while its content is fetched -- and every motion runs on this same clock
+screen's header glides while its content is fetched; a light crosses a usage bar the pointer
+comes onto -- and every motion runs on this same clock
 (docs/cli-design.md, Motion).  A screen says which cells animate and how when it draws
 (`Clock.start`), asking first which of its values are news (`Clock.look`); the wait loop asks
 how long until the next frame (`Clock.wait`) and what to write then (`Clock.frame`).  No screen
@@ -23,7 +24,8 @@ PULSE = 0.3         # seconds each of the two pulses of a `!` that turned `needs
 SETTLE = 0.4        # ... a `✓` that turned `done` takes from bright to its colour
 GLIDE = 0.3         # ... a bar takes from its old value to its new one
 LIT = 0.3           # ... a task bar's newly filled block stays lit after the glide
-SWEEP = 0.4         # ... the light takes across a bar that reached full, after the glide
+SWEEP = 0.4         # ... the light takes across a bar that reached full, after the glide, or
+                    # one the pointer came onto
 BRIGHTER = 0.5      # how lit news is: half way from its colour to the foreground
 FADE = 0.12         # seconds a popup's content takes to come up out of the background
 WAIT = 0.15         # ... a screen's content is fetched for before its rule says so
@@ -109,6 +111,19 @@ def gliding(before, after, began, colour=None, bright=False, sweep=False):
         return at
     return ([cell(n) for n in range(size)],
             began + GLIDE + (SWEEP if sweep else LIT if new else 0))
+
+
+def glinting(bar, began, colour):
+    """A usage bar the pointer came onto at `began`, `bar` its cells as the draw wrote each: one
+    light crosses it a cell at a time left to right in SWEEP seconds, then each cell is as drawn;
+    an animation for each cell, and when it is still.  `colour` is the kind its filled cells are
+    drawn in, which the light is a brighter tone of."""
+    light = terminal.faded(colour, -BRIGHTER)
+
+    def cell(n, text):
+        return lambda now: (terminal.styled(terminal.plain(text), light)
+                            if n == int(len(bar) * (now - began) / SWEEP) else text)
+    return [cell(n, text) for n, text in enumerate(bar)], began + SWEEP
 
 
 def fetching(clock, began):
