@@ -112,7 +112,7 @@ class IntegratedCommit(unittest.TestCase):
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         self.stack.enter_context(patch.object(worker, "kill_marked", return_value=True))
         self.stack.enter_context(patch.object(run, "marker_pids", return_value=[]))
-        self.stack.enter_context(patch.object(run, "stop_orchestrator_marked"))
+        self.stack.enter_context(patch.object(run.orch, "stop_scope"))
         self.stack.enter_context(patch.object(run.time, "sleep"))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
