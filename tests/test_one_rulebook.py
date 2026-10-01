@@ -369,12 +369,14 @@ class OneRulebook(unittest.TestCase):
         """A full install.sh into that HOME, offline: under a HOME that is not the
         account's own it touches nothing outside it, and the python3 running this
         suite plus the system dirs are the whole PATH, so the real harnesses are
-        not found and nothing is registered with them."""
+        not found and nothing is registered with them.  The caller's GROK_HOME is
+        not passed on: the grok adapter writes its hooks into any it is given."""
         path = os.pathsep.join(dict.fromkeys(
             (os.path.dirname(sys.executable), "/usr/bin", "/bin")))
+        env = {**os.environ, "HOME": str(home), "PATH": path}
+        env.pop("GROK_HOME", None)
         proc = subprocess.run(["bash", str(REPO / "install.sh")], capture_output=True,
-                              text=True, env={**os.environ, "HOME": str(home),
-                                              "PATH": path})
+                              text=True, env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
         return proc
 
