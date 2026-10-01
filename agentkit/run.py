@@ -1721,6 +1721,25 @@ def _heavy_max_existing():
         return -1
 
 
+def _heavy_running():
+    """Count held turns, including high slots left by a larger limit.
+
+    Slot files persist after their suites finish; only a lock still held counts.
+    Probe existing files without creating any, so status never grows the pool.
+    """
+    held = 0
+    for index in range(_heavy_max_existing() + 1):
+        try:
+            with gate_lock(None, index).open("r") as slot:
+                try:
+                    fcntl.flock(slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    held += 1
+        except OSError:
+            pass
+    return held
+
+
 def _first_landing_wait(run_dir):
     """This run's first landing wait, or None when it never waited to land.
 
@@ -1920,18 +1939,20 @@ class _MergeHold:
                 _MERGE_HELD.hold = None
 
 
-def derived_heavy_limit(readings=None):
-    """How many heavy suites the slice's live headroom fits; at least one.
+def derived_heavy_limit(readings=None, running=None):
+    """Running suites plus how many more the live headroom fits; at least one.
 
     The slice's idle cores over one suite's 0.7, and its free memory over 0.4 GB,
-    whichever fits fewer: twice the headroom fits twice the suites, and a
-    saturated slice fits one, so a new suite waits but nothing stalls.  Both come
+    whichever fits fewer.  Headroom already excludes running suites, so add
+    them once; a saturated slice starts one only when none run.  Both come
     off the slice's own cgroup -- its CPU quota and use, its `memory.high` less
     cache -- which a shell beside the slice reads like a worker inside it; where
     no slice answers, the host's idle cores and free memory stand in.  An
     unreadable gate fails open to the other resource, and to one suite where
     neither answers.
     """
+    if running is None:
+        running = _heavy_running()
     if readings is None:
         readings = host_readings()
     cpu_quota = _reading(readings, "slice_cpu_quota")
@@ -1964,20 +1985,20 @@ def derived_heavy_limit(readings=None):
         candidates.append(int(mem_free / HEAVY_MEM_MB))
     if not candidates:
         return 1
-    return max(1, min(candidates))
+    return max(1, running + max(0, min(candidates)))
 
 
-def heavy_suite_limit(readings=None):
+def heavy_suite_limit(readings=None, running=None):
     """(limit, pinned): the heavy-suite turns in force; 0 means no cap.
 
     An explicit `max_gates` pins the host-wide count; otherwise it is derived
-    from live readings, so twice the machine runs twice the suites.  A home
+    from running suites plus live headroom for more.  A home
     config this cannot read raises, and the caller falls back to derived.
     """
     pinned = config.max_gates()
     if pinned is not None:
         return pinned, True
-    return derived_heavy_limit(readings), False
+    return derived_heavy_limit(readings, running), False
 
 
 def _acquire_gate_turn(run_dir, log_path, log):
@@ -1991,51 +2012,50 @@ def _acquire_gate_turn(run_dir, log_path, log):
     if not repo or os.environ.get("AK_MAX_RUNS") == "0":
         return None
     said_bad = []
-    def current_limit():
-        try:
-            return heavy_suite_limit()
-        except config.Error as exc:
-            if log is not None and not said_bad:
-                said_bad.append(True)
-                log(f"done-when: {exc} · the heavy suite takes a derived turn")
-            return derived_heavy_limit(), False
-    limit, _ = current_limit()
-    if not limit:
-        return None
     config.RUNS.mkdir(parents=True, exist_ok=True)
     files = ExitStack()
     try:
         slots = []
-        def admit(new_limit):
-            total = max(new_limit, _heavy_max_existing() + 1, len(slots))
+        def admit():
+            try:
+                pinned = config.max_gates()
+            except config.Error as exc:
+                if log is not None and not said_bad:
+                    said_bad.append(True)
+                    log(f"done-when: {exc} · the heavy suite takes a derived turn")
+                pinned = None
+            # CPU sampling sleeps; locking free slots across it would count them as running.
+            readings = host_readings() if pinned is None else None
+            total = max(1, _heavy_max_existing() + 1, len(slots))
             while len(slots) < total:
                 slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
-            temp, held, candidate = [], 0, None
-            for i, fh in enumerate(slots[:total]):
+            temp, held = [], 0
+            for fh in slots:
                 try:
                     fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:
                     held += 1
                     continue
                 temp.append(fh)
-                if i < new_limit and candidate is None:
-                    candidate = fh
-            if held >= new_limit or candidate is None:
-                for fh in temp:
-                    fcntl.flock(fh, fcntl.LOCK_UN)
-                return None
+            new_limit = pinned if pinned is not None else derived_heavy_limit(readings, held)
+            while len(slots) < new_limit:
+                slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
+            candidate = take_slot(slots[:new_limit]) if held < new_limit else None
             for fh in temp:
                 if fh is not candidate:
                     fcntl.flock(fh, fcntl.LOCK_UN)
-            return candidate
-        slot = admit(limit)
+            return candidate, new_limit, held
+        slot, limit, held = admit()
+        if not limit:
+            files.close()
+            return None
         me_since = landing_since if is_landing and landing_since is not None else time.time()
         if slot is None or _gate_waiter_before(repo, self_id, is_first, me_since, is_landing):
             if slot is not None:
                 fcntl.flock(slot, fcntl.LOCK_UN)
                 slot = None
             began = time.monotonic()
-            said = f"waiting for a heavy suite turn · {limit} running"
+            said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
             if log is not None:
                 log(f"done-when: {said}")
             waited_since = mark_gate_wait(run_dir, repo)
@@ -2048,12 +2068,11 @@ def _acquire_gate_turn(run_dir, log_path, log):
                     log_path.write_text(said + "\n")
                     stop_check(run_dir)
                     time.sleep(GATE_POLL)
-                    limit, _ = current_limit()
+                    slot, limit, held = admit()
                     if not limit:
                         uncapped = True
                         break
-                    said = f"waiting for a heavy suite turn · {limit} running"
-                    slot = admit(limit)
+                    said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
                     if slot is None:
                         continue
                     if _gate_waiter_before(repo, self_id, is_first, waited_since,
@@ -2087,8 +2106,8 @@ def gate_turn(run_dir, log_path, log):
     takes one, in the round and at landing alike; every other done-when command
     runs without.  A
     suite builds its own Postgres, port and temp dir at ~0.7 core and ~0.4 GB, so
-    the turns are counted host-wide from the slice's live headroom, twice the
-    machine twice the suites, at least one so nothing stalls; an explicit
+    a suite starts when the slice's live headroom fits one more, or none run,
+    counting running suites once; an explicit
     `max_gates` pins the count instead.  A turn is a flock on one of the host's
     slot files, which the kernel lets go of when its holder dies, so a killed
     suite never blocks the next.  A waiting suite rewrites its own log every poll,
@@ -6667,11 +6686,64 @@ def changed_files(state):
     return [found for found in out.split("\0") if found]
 
 
+def diff_lines(repo, base, head="HEAD"):
+    """Added plus deleted text lines, excluding files Git marks linguist-generated.
+
+    Deleted files read their attributes at the base; their directory's attributes may
+    have been deleted too. NUL records preserve unusual filenames and rename pairs.
+    """
+    total = 0
+    for selector, source in (("d", head), ("D", base)):
+        parts = iter(git(repo, "diff", "--numstat", "-z", "--find-renames",
+                         f"--diff-filter={selector}", f"{base}...{head}").split("\0"))
+        changes = []
+        for entry in parts:
+            if not entry:
+                continue
+            added, deleted, name = entry.split("\t", 2)
+            if not name:
+                next(parts)  # the old name; surviving files use their new attributes
+                name = next(parts)
+            if added != "-":
+                changes.append((name, int(added) + int(deleted)))
+        if changes:
+            # Older Git has no check-attr --source; a private index reads the same tree.
+            with tempfile.TemporaryDirectory(dir=config.TMP) as tmp:
+                index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
+                git(repo, "read-tree", source, env=index)
+                attrs = git(repo, "check-attr", "--cached", "-z", "linguist-generated",
+                            "--", *(name for name, _ in changes), env=index).split("\0")[2::3]
+            if len(attrs) != len(changes):
+                raise config.Error("git did not report generated attributes for the PR diff")
+            total += sum(lines for (_, lines), attr in zip(changes, attrs)
+                         if attr.lower() not in ("set", "true"))
+    return total
+
+
+def refuse_pr_size(repo, base, head):
+    size = diff_lines(repo, base, head)
+    ceiling, _ = history.pr_ceiling()
+    if ceiling is not None and size > ceiling:
+        raise config.Error(f"PR has {size} changed lines, over the {ceiling}-line ceiling; split it.")
+
+
 def history_finish(state, log=None):
     """Publish a terminal receipt and close the step this process was running, if any."""
     now = state.get("finished_at") or time.time()
     history.close_step(state.get("run_id"), now, log=log)
     files = changed_files(state)
+    size = None
+    if state.get("merged") and state.get("base_sha"):
+        try:
+            wt = state.get("worktree")
+            present = wt and Path(wt).is_dir()
+            repo = wt if present else state.get("repo")
+            review = state.get("review") or {}
+            head = state.get("delivery_sha") or review.get("head_sha") or ("HEAD" if present else None)
+            if repo and head:
+                size = diff_lines(repo, state["base_sha"], head)
+        except (config.Error, OSError, ValueError, TypeError, AttributeError, StopIteration):
+            pass  # best-effort history must never change the merge's outcome
     history.finish_run(state.get("run_id"), repo=state.get("repo"),
                        executor=state.get("executor"), reviewer=state.get("reviewer"),
                        rounds_used=len(state.get("round_summaries") or []),
@@ -6679,7 +6751,7 @@ def history_finish(state, log=None):
                        started_at=state.get("started_at"), finished_at=now,
                        session=launched_session(state), peak_rss_mb=state.get("peak_rss_mb"),
                        task_files=json.dumps(files) if files is not None else None,
-                       log=log)
+                       changed_lines=size, log=log)
 
 
 def history_role_tokens(run_id, role, out, log=None, cfg=None, model=None):
@@ -7037,6 +7109,7 @@ def record_decision(run_dir, state, reason, merged=False):
         state["merged"] = True
     save_state(run_dir, state)
     if merged:
+        history_finish(state)
         start_followups(state, run_dir, logger(run_dir, True))
     result = run_dir / "result.md"
     try:
@@ -11690,6 +11763,10 @@ def cmd_status(argv):
     if not wanted:
         print(f"{hidden} older run(s) hidden; ak run status --history [--json] shows full history")
     if show_history and not wanted and not machine:
+        from . import terminal
+        ceiling, source = history.pr_ceiling()
+        value = f"{ceiling} changed lines" if ceiling is not None else "none"
+        print("\n".join(terminal.wrap(f"PR size ceiling: {value} ({source})", terminal.content_width())))
         for repo in history.finished_repos():
             line = size_summary_line(repo)
             if line:
@@ -13612,6 +13689,8 @@ def review_pr(cfg, run_dir, url, opts, log):
     fetch(repo, "origin", f"pull/{number}/head", base, check=True)
     git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}")
     base_sha = git(repo, "merge-base", f"origin/{base}", head)
+    if is_own:
+        refuse_pr_size(repo, base_sha, head)
     if prior.get("worktree"):
         wt, branch = Path(prior["worktree"]), prior["branch"]
     else:
@@ -13946,6 +14025,13 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
         if flags["--bg"]:
             try:
                 receipt = read_state(run_dir) or {}
+                # Usage probes can spend model calls: check own PR size before the pick.
+                if receipt.get("own_pr"):
+                    info = pr_view(url)
+                    repo = checkout_for(f"{owner}/{name}", logger(run_dir, True))
+                    base, head = info["baseRefName"], info["headRefOid"]
+                    fetch(repo, "origin", f"pull/{number}/head", base, check=True)
+                    refuse_pr_size(repo, git(repo, "merge-base", f"origin/{base}", head), head)
                 reviewer = preset_review_model(cfg, opts, run_workers(cfg, receipt),
                                                reviewers=receipt.get("reviewers"))
             except config.Error as exc:
