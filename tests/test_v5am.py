@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, notify, orch, run, watch
+from agentkit import config, job as jobs, menu, notify, orch, run, watch
 
 ADAPTER = r'''import json, os, pathlib, sys, time
 if sys.argv[1] == "usage":
@@ -46,11 +46,11 @@ if role == "executor":
 (out / "session_id").write_text("fixture-" + role)
 '''
 LAUNCH = """import sys
-from agentkit import run
+from agentkit import job as jobs, run
 run.host_readings = lambda: {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                              "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}
 run.SLOT_POLL = .03
-run.JOB_TICK = .03
+jobs.JOB_TICK = .03
 raise SystemExit(run.main(sys.argv[1:]))
 """
 REFUSAL = ("a worker's worker may not start runs (depth 2); only the orchestrator, "
@@ -356,7 +356,7 @@ class Slots(unittest.TestCase):
             self.assertEqual(proc.wait(timeout=5), 2)
             self.assertEqual(self.procs[-1][1].read_text().strip(), REFUSAL)
             self.assertEqual(run.run_dirs(), [])
-            self.assertEqual(run.job_dirs(), [])
+            self.assertEqual(jobs.job_dirs(), [])
 
     def test_v5am_tick_adopts_dead_queued_waiter(self):
         os.environ["AK_MAX_RUNS"] = "1"
