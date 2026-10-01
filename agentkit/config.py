@@ -27,7 +27,6 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-AFTER_KEY = "after"  # task front matter `after:` names another task file in the same job
 JOB_DIR_ENV = "AGENTKIT_JOB_DIR"  # the `ak run --bg` job child this receipt belongs to
 KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*$")
 HARNESS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")   # a harness name is one path component
@@ -1203,35 +1202,6 @@ def provider_harness(cfg, provider):
         if entry.get("provider") == provider:
             return entry["harness"], name
     raise Error(f"~/.agentkit/config.toml: [providers.{provider}] has no model")
-
-
-def task_afters(task_path):
-    """`after:` values from a task file's front matter, one per line, repeatable.
-
-    Each line names the basename or title of another task file in the same job;
-    a comma-separated line names several. Blank values are ignored.
-    """
-    try:
-        text = Path(task_path).read_text(encoding="utf-8")
-    except OSError as exc:
-        raise Error(f"cannot read {task_path}: {exc}")
-    match = re.match(r"^---\n(.*?)\n---", text, re.S)
-    if not match:
-        return []
-    found = []
-    for line in match.group(1).splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or ":" not in stripped:
-            continue
-        key, value = stripped.split(":", 1)
-        if key.strip() != AFTER_KEY:
-            continue
-        value = value.split("#", 1)[0].strip()
-        for part in value.split(","):
-            part = part.strip()
-            if part:
-                found.append(part)
-    return found
 
 
 def ensure_dirs():

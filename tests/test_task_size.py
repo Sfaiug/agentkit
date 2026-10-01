@@ -27,7 +27,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, run
+from agentkit import config, history, run, task
 
 SEAT = "size-check"
 CFG = {"models": {}, "providers": {}}
@@ -71,7 +71,7 @@ class Sandbox(unittest.TestCase):
 
     def words_outside_checks(self, path):
         """The body's word count with the fenced checks block cut out, by hand."""
-        body = run.parse_task(path)[1]
+        body = task.parse_task(path)[1]
         start = body.index("```")
         end = body.index("```", start + 3) + 3
         return len((body[:start] + body[end:]).split())
