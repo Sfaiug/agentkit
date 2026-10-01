@@ -4564,9 +4564,10 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
         return park_waiting(lp, f"the fixer did not finish {what}; it was aborted",
                             upstream, tip)
     set_base(lp, tip)
-    # Verification or review can park on a provider too. Its resume must keep the
-    # conflict round out of the task budget just as the uninterrupted path does.
-    lp.state["review_pending"] = {"round": lp.rnd, "summary": summary,
+    # Keep the passed head for target probes; a provider wait also resumes as a
+    # conflict round, outside the task budget.
+    lp.state["review_pending"] = {**(lp.state.get("review_pending") or {}),
+                                  "round": lp.rnd, "summary": summary,
                                   "reason": f"Re-review after {what}.", "record": False}
     lp.save()
     ok, dw_log = verify_work(lp)

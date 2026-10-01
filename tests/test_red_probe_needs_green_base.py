@@ -99,10 +99,10 @@ class GreenBase(unittest.TestCase):
         self.assertEqual((run_dir / "target-probe.log").read_text().count("$ false (on "), 1)
         self.assert_on_branch_head_and_clean(wt, head)
 
-    def test_a_landing_review_without_a_round_row_keeps_its_old_base(self):
-        _, owner, wt = red.make_repos(self.root)
+    def landing_review(self, root, once=True):
+        _, owner, wt = red.make_repos(root)
         cmd = "test ! -f breakage && test ! -f poison"
-        lp, run_dir, lines = red.make_loop(self.root, wt, [f"{cmd}  # once"])
+        lp, run_dir, lines = red.make_loop(root, wt, [f"{cmd}  # once" if once else cmd])
         base = self.move_target(owner, wt)
         run.git(wt, "rebase", base)
         (wt / "breakage").unlink()
@@ -111,6 +111,11 @@ class GreenBase(unittest.TestCase):
         self.assertTrue(run.run_done_when([cmd], wt, run_dir / "before.log", set())[0])
         # Landing reviews replace review without appending to round_summaries.
         lp.state["review"].update(run.commit_identity(wt))
+        return lp, owner, base, lines, cmd
+
+    def test_a_landing_review_without_a_round_row_keeps_its_old_base(self):
+        lp, owner, base, lines, cmd = self.landing_review(self.root)
+        wt, run_dir = lp.wt, lp.run_dir
         (owner / "poison").touch()
         tip = self.move_target(owner, wt)
         head = self.integrate(lp, tip)
@@ -120,6 +125,42 @@ class GreenBase(unittest.TestCase):
         self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))
         self.repair.assert_not_called()
         self.assert_on_branch_head_and_clean(wt, head)
+
+    def test_conflicts_keep_the_last_landing_review_base(self):
+        for how in ("rebase", "merge"):
+            with self.subTest(how=how):
+                root = self.root / how
+                root.mkdir()
+                lp, owner, base, lines, cmd = self.landing_review(root, once=False)
+                wt = lp.wt
+                lp.state["merge_method"] = "merge" if how == "merge" else "squash"
+                (owner / "poison").touch()
+                (owner / "work.txt").write_text("target intent\n")
+                self.move_target(owner, wt)
+                self.turns.clear()
+
+                def fix(lp, role, text, name, **_kw):
+                    self.turns.append(name)
+                    if run.in_progress(wt, how):
+                        (wt / "work.txt").write_text("both intents\n")
+                        run.git(wt, "add", "work.txt")
+                        if how == "rebase":
+                            run.git(wt, "-c", "core.editor=true", "rebase", "--continue")
+                        else:
+                            run.git(wt, "commit", "-m", "resolve conflict")
+                    else:
+                        (wt / "poison").unlink()
+                        run.git(wt, "add", "-A")
+                        run.git(wt, "commit", "-m", "fix poison")
+                    return "## Summary\nResolved the conflict and fixed the check."
+
+                with patch.object(run, "execute", side_effect=fix):
+                    self.assertTrue(run.integrate(lp, "origin/main"))
+                self.assertEqual(self.turns, [f"{how}-fixer", "executor"])
+                self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))
+                self.repair.assert_not_called()
+                self.assertNotEqual(run.read_state(lp.run_dir)["state"], "waiting")
+                self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
 
     def test_an_older_receipt_uses_its_last_passing_round(self):
         _, owner, wt = red.make_repos(self.root)
