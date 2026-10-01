@@ -145,8 +145,8 @@ title, or a relaunch `from:` its branch) reads `done`, as does a parked run a la
 
 A run never waits forever. A check with no output for 20 minutes is killed with everything it spawned and fails the
 round; the whole checks list has a six-hour ceiling. A model turn with no harness event for 20 minutes is killed and
-retried on the same conversation. Every `git` and `gh` call runs under 120 seconds with prompts disabled; one that stops
-ends the run `exhausted` with the remedy, or `pass` with `merge_failed` while the review still stands. Before the first
+retried on the same conversation. Each `git` and `gh` attempt has 120 seconds with prompts disabled; Git remote calls (`fetch`, `push`, `ls-remote`) and `gh` retry a timeout once after one second, then say the remote did not answer. Other Git calls stop for cleanup; a refused prompt stops at once and says to check `gh auth status` and the remote's credentials.
+A stop ends the run `exhausted`, or `pass` with `merge_failed` while the review still stands; its result and hand-back name `ak run merge <id>` for that PASS. Before the first
 turn the run adds build junk (`__pycache__/`, `node_modules/`, …) to the repo's `.git/info/exclude`. Before review it commits executor leftovers, leaving test sandboxes (top-level `.ak-test-*`, removed before each turn), run locks (`recovery.lock`, `delivery.lock`) and dependency trees (`node_modules`, `venv`, `.venv`, including nested paths and symlinks) uncommitted and counted in the sandbox log regardless of `.gitignore`; a staged one is unstaged and a staged deletion of one committed, so the done-when starts on a clean checkout.
 `~/.agentkit/env/<repo>.env` is exported into every worker, check and `cleanup:` for that repo.
 

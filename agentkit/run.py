@@ -91,8 +91,7 @@ SANDBOX_PREFIX = ".ak-test-"
 MERGE_METHODS = {"squash": "--squash", "merge": "--merge", "rebase": "--rebase"}
 CHECKS_CAP = 60 * 60            # a check suite still running after an hour is not going to finish
 CHECKS_POLL = 10
-TOOL_CAP = 120                  # a git or gh call still silent after two minutes is not working,
-                                # it is waiting for an answer nobody here can give it
+TOOL_CAP = 120                  # seconds allowed for each git or gh attempt
 SILENCE_MINUTES = 20            # no command output or harness event for this long is a death
 CEILING_HOURS = 6               # the whole done-when list, even if it keeps printing
 PR_URL = re.compile(r"https://\S+?/pull/\d+")
@@ -165,7 +164,7 @@ class Stopped(config.Error):
     """A git or gh that ran out of time or was refused the prompt it wanted.
 
     Not the same as a tool that answered `no`: nothing was learned, so nothing can be decided
-    on it, and the run is left where `ak run resume` can pick it up once the tool works again.
+    on it, and the run keeps its work for the command that picks it up once the tool works again.
     """
 
 
@@ -195,32 +194,33 @@ def tool_env():
     return env
 
 
-def no_answer(cmd, what):
-    """The one line a killed or unanswerable git/gh call leaves behind: what happened, what now."""
-    return (f"`{' '.join(cmd[:3])}` {what}: nothing here can answer a credential prompt, so "
-            "check `gh auth status` and the remote's credentials by hand, then resume the run")
-
-
 def tool_run(cmd, cwd=None, timeout=None, env=None):
     """(exit code, stdout, stderr) for every git and gh call this module makes.
 
-    The code is None when the call ran out of time, and stderr says so: a tool that has not
-    answered inside `timeout` -- TOOL_CAP unless the caller has a shorter deadline of its own
-    -- is waiting on a prompt or a network nobody is watching, and a run that waits on it
-    stops without ever saying that it has.  A call that did come back because it was refused
-    the prompt it wanted is the same problem seen from the other side, and gets the same
-    remedy appended to its stderr.
+    Git's fetch, push and ls-remote, and gh get one timeout retry. Other calls stop so their
+    callers can recover any unfinished checkout edits. The code is None on timeout;
+    a refused prompt gets credential advice, no retry. The run's outcome names the next command.
     """
     timeout = TOOL_CAP if timeout is None else timeout
-    try:
-        proc = subprocess.run(cmd, cwd=None if cwd is None else str(cwd), capture_output=True,
-                              encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
-                              timeout=timeout, env={**tool_env(), **(env or {})})
-    except subprocess.TimeoutExpired:
-        return None, "", no_answer(cmd, f"was killed after {timeout:g}s")
+    # Repeating checkout edits can turn a timeout into an "already in progress" failure.
+    args = cmd[3:] if len(cmd) > 1 and cmd[0] == "git" and cmd[1] == "-C" else cmd[1:]
+    retry = cmd[0] == "gh" or (cmd[0] == "git" and args and args[0] in ("fetch", "push", "ls-remote"))
+    for attempt in range(2):
+        try:
+            proc = subprocess.run(cmd, cwd=None if cwd is None else str(cwd), capture_output=True,
+                                  encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+                                  timeout=timeout, env={**tool_env(), **(env or {})})
+            break
+        except subprocess.TimeoutExpired:
+            if attempt or not retry:
+                tries = " on both attempts" if attempt else ""
+                return None, "", (f"`{' '.join(cmd[:3])}` was killed after {timeout:g}s{tries}: "
+                                  "the remote did not answer")
+            time.sleep(1)
     err = proc.stderr
     if proc.returncode != 0 and PROMPTED.search(proc.stdout + err):
-        err = err.rstrip() + "\n" + no_answer(cmd, "asked for a credential it may not ask for")
+        err = (err.rstrip() + f"\n`{' '.join(cmd[:3])}` asked for a credential it may not ask for: "
+               "check `gh auth status` and the remote's credentials by hand")
     return proc.returncode, proc.stdout, err
 
 
@@ -378,8 +378,9 @@ def fetch(repo, *args, check=False):
     Every run's worktree shares one repository's refs, so two runs fetching at once race for
     the same remote-tracking ref and the loser's fetch fails on git's ref lock.  That lock
     already put the two in order: the loser goes again at once, until it goes through or
-    TOOL_CAP, counted from its first try, is spent, so a passed run is never handed back over
-    another run's fetch.  Any other ref it could not write fails the fetch at once as before.
+    TOOL_CAP, counted from its first try, is spent (a timed-out call still gets one retry),
+    so a passed run is never handed back over another run's fetch.  Any other ref it could
+    not write fails the fetch at once as before.
     """
     deadline = time.monotonic() + TOOL_CAP
     code, out = git_out(repo, "fetch", *args)
@@ -7919,7 +7920,9 @@ def handback_reason(state, cfg=None):
         return " ".join(recovery_reason(state).split()).rstrip(".")[:300]
     word = delivery(state, report_config(cfg))
     if word.startswith("PASS, not merged: "):
-        return word[len("PASS, not merged: "):]
+        reason = word[len("PASS, not merged: "):]
+        retry = retry_command(state)
+        return f"{reason}; retry delivery: {retry}" if retry else reason
     if word.startswith("PASS"):
         return state.get("pr") or word[len("PASS, "):]
     # a FAIL hands back what the next step turns on: the rounds it spent and why they did
