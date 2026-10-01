@@ -38,11 +38,17 @@ SMALLEST = re.findall(r'"(\w+) (\w+) (\S+) (\w+)"', between("# --- 3:", "# --- 4
 ANSWERED = {"grokbuild": '{"type":"result","subtype":"success","is_error":false,"result":"Hello"}\n',
             "opencode": '{"type":"text","part":{"type":"text","text":"Hello"}}\n',
             "antigravity": '{"event":"result","result":{"status":"SUCCESS","response":"Hello"}}\n'}
-FAILED = {"grokbuild": '{"type":"result","subtype":"error_during_execution","is_error":true,'
-                       '"result":"Request failed: 503 Service Unavailable"}\n',
-          "opencode": ANSWERED["opencode"] + '{"type":"error","error":{"type":"provider.unknown",'
-                      '"message":"503 Service Unavailable","status":503}}\n',
-          "antigravity": '{"event":"result","result":{"status":"ERROR","response":"Hello"}}\n'}
+
+
+def failed(harness, message):
+    return {"grokbuild": '{"type":"result","subtype":"error_during_execution","is_error":true,'
+                         f'"result":"Request failed: {message}"}}\n',
+            "opencode": ANSWERED["opencode"] + '{"type":"error","error":{"type":"provider.unknown",'
+                        f'"message":"{message}","status":503}}}}\n',
+            "antigravity": '{"event":"result","result":{"status":"ERROR","response":"Hello",'
+                           f'"error":"{message}"}}}}\n'}[harness]
+
+
 # A turn for a named account is refused, as OpenCode's adapter refuses one.
 ADAPTER = '''#!/bin/bash
 S=$FIXTURE/${0##*/}; S=${S%.sh}
@@ -150,14 +156,27 @@ class EveryHarness(unittest.TestCase):
                     self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
 
     def test_a_turn_whose_events_say_it_failed_fails_the_gate(self):
-        # Exit 0 and an answer, beside a record in its event log saying the turn failed.
+        # Exit 0 and an answer, beside a record in its event log saying the turn failed: one
+        # short, and one longer than any tail of the log would hold whole.
         for harness in REST:
-            with self.subTest(harness=harness):
-                result = self.gate(LOGGED_IN, events={harness: FAILED[harness]})
-                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                self.assertRegex(result.stdout, rf"FAIL  3c \w+ \({harness}\): .* gave no "
-                                 r"answer: \{.*(ERROR|error)")
-                self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
+            for message in ("503 Service Unavailable", "503 " + "x" * 25000):
+                with self.subTest(harness=harness, size=len(message)):
+                    result = self.gate(LOGGED_IN, events={harness: failed(harness, message)})
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertRegex(result.stdout, rf"FAIL  3c \w+ \({harness}\): .* gave no "
+                                     r"answer: \{.*(ERROR|error)")
+                    self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
+
+    def test_a_failure_the_turn_got_past_passes_the_gate(self):
+        # A tool server that never started, and a stream error retried, before the answer.
+        for before in ('{"type":"system","subtype":"init","mcp_servers":'
+                       '[{"name":"acme","status":"failed"}]}\n',
+                       '{"type":"stream_error","error":{"message":"429 Too Many Requests; '
+                       'retrying"}}\n'):
+            with self.subTest(before=before):
+                result = self.gate(LOGGED_IN, events={"grokbuild": before + ANSWERED["grokbuild"]})
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("3 passed, 0 failed, 0 skipped", result.stdout)
 
     def test_a_named_account_in_the_callers_environment_never_reaches_a_turn(self):
         # The turn runs on the login worker.auth_ok asked about, which no named account turns.

@@ -1980,12 +1980,40 @@ os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
     # A turn that wrote its harness's logout words never reached the model, and one whose
     # event log holds a record saying it failed (Grok's is_error result, OpenCode's error
     # event) did not answer, whatever it exited with or answered beside them: judged by the
-    # scan and the records a worker's turn is judged by.
-    FAILED=$(PYTHONPATH="$REPO" python3 -c 'import sys; from pathlib import Path
+    # scan and the records a worker's turn is judged by.  The log is read whole, so a long
+    # record is never cut, and from the last record that carried the answer: a failure before
+    # it -- a retried stream error, a tool server that never started -- is one the turn got past.
+    FAILED=$(PYTHONPATH="$REPO" python3 - "$H" "$WORK/o-$M" <<'PY'
+import json, sys
+from pathlib import Path
 from agentkit import run, worker
 out = Path(sys.argv[2])
+
+def read(name):
+    try:
+        return (out / name).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+def strings(node):
+    if isinstance(node, dict):
+        node = list(node.values())
+    if isinstance(node, list):
+        return [text for item in node for text in strings(item)]
+    return [node.strip()] if isinstance(node, str) else []
+
+def carries(line, answer):
+    try:
+        return answer in strings(json.loads(line))
+    except ValueError:
+        return False
+
+lines, answer = read("events.jsonl").splitlines(), read("final.md").strip()
+last = max((i for i, line in enumerate(lines) if answer and carries(line, answer)), default=0)
 print(worker.auth_scanner(sys.argv[1])(out)
-      or next(iter(run.failures(run.tail(out / "events.jsonl"), None)), ""))' "$H" "$WORK/o-$M")
+      or next(iter(run.failures("\n".join(lines[last:]), None)), ""))
+PY
+)
     if [ "$CALLRC" = 0 ] && [ -z "$FAILED" ] && grep -q '[^[:space:]]' "$WORK/o-$M/final.md" 2>/dev/null; then
       ok "3c $M ($H): $1 at $2 answered a one-word prompt"
     else
