@@ -97,7 +97,7 @@ class MainMenu(unittest.TestCase):
         child = menu_child(self)
         lines = child.frame()
         keys = lines[-1]
-        self.assertEqual(keys, "  ↑↓ move   ⏎ open   n new   x stop   c config   esc leave")
+        self.assertEqual(keys, "  ↑↓ move   ⏎ open   n new   x stop   c config   s solo   esc leave")
         seat = next(row for row, line in enumerate(lines, 1) if "fix-api" in line)
         heading = lines.index("acme") + 1
         usage = next(row for row, line in enumerate(lines, 1) if line.startswith("  Claude"))
@@ -109,6 +109,7 @@ class MainMenu(unittest.TestCase):
             ((3, heading), "  " + TIPS["project"].format(name="acme")),
             ((keys.index("n new") + 1, len(lines)), "  " + TIPS["n new"]),
             ((keys.index("c config") + 3, len(lines)), "  " + TIPS["c config"]),
+            ((keys.index("s solo") + 1, len(lines)), "  " + TIPS["s solo"]),
             ((keys.index("↑↓ move") + 1, len(lines)), "  " + TIPS["↑↓ move"]),
             ((5, usage), USAGE),
             ((5, unread), "  " + TIPS["unread"].format(name="MiMo", why="no reading yet"))]
@@ -121,7 +122,7 @@ class MainMenu(unittest.TestCase):
         row = len(child.frame())
         explains(self, child, [((keys.index(item) + 1, row), "  " + TIPS[item]) for item in
                                ("n start a session", "r rename this session",
-                                "x stop this session")], keys)
+                                "x stop this session", "s solo")], keys)
         child.leave()
 
     def test_a_usage_row_glints_then_ticks_at_the_pace_share_until_the_pointer_leaves(self):

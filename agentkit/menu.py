@@ -14,7 +14,7 @@ the moment it is pressed, and from a pipe it is a line.
       2  fix-api             fable   ● working     tasks ██░░░ 2/5
       3  web-portal          fable   ✓ done        hero swapped and published
 
-      ↑↓ move   ⏎ open   n new   x stop   c config   esc leave
+      ↑↓ move   ⏎ open   n new   x stop   c config   s solo   esc leave
 
 `n` asks for a name, then shows the orchestrator and both roles with the last created session's
 chosen already.
@@ -73,8 +73,8 @@ news seen while the menu is up moves once on it -- a `!` pulses, a `✓` settles
 then is still.  The sub-screens are not live: they are read once, like any other question --
 but a project's feature switches, which draw again within a second of their `list` landing.
 
-Five keys: the numbers, `n`, `x`, `c` (the highlighted seat's models, every model's effort,
-providers, discord, version), and Esc, which leaves, as it goes back from every
+Six keys: the numbers, `n`, `x`, `c` (the highlighted seat's models, every model's effort,
+providers, discord, version), `s` (toggle solo), and Esc, which leaves, as it goes back from every
 screen and question under it; `q` is no key.  Nothing needs a manual: while the pointer rests
 on a row, a state word, a heading, a usage row or a key-line item, the key line says what it
 is in one sentence (terminal.TIPS), and the keys come back when it leaves; a usage row under
@@ -101,7 +101,8 @@ it is drawn, so what a number opens never depends on the page that is up.
 `ak attach --overlay` is the same menu inside a seat, where `ak orch` binds it to `Ctrl-b m` as
 a tmux popup: a number switches this client to that session and `n` starts one and switches to
 it, both of which close the popup, `r` renames this session, `x` stops this session -- or,
-done, closes it at once -- and Esc closes the popup.  The popup offers those four keys and the
+done, closes it at once -- `s` toggles solo on this session, and Esc closes the popup.  The
+popup offers those five keys and the
 numbers; `c` lives on the menu outside.
 
 On the server the menu is this process.  On a client -- a machine where install.sh recorded the
@@ -3742,7 +3743,7 @@ def pressed(key, drawn, found):
 def loop(cfg, client=False, dry_run=False, overlay=False):
     """The menu until Esc, or from a pipe until an empty line or the end of input.
 
-    `overlay` is the menu as a tmux popup over a running seat, offering the four keys and
+    `overlay` is the menu as a tmux popup over a running seat, offering the five keys and
     the numbers.  A number and `n` both hand this client to a session, and the popup has
     to come down for it to be seen, so those two return; `r` and `x` rename and stop this
     session and leave it up, `x` acting on this session wherever the highlight is.  `c` is not
