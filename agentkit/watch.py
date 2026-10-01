@@ -1107,9 +1107,40 @@ def content_lines(harness, tail):
     # The composer box and key hints are chrome, not progress. Strip only known harness
     # chrome at the bottom; arbitrary output below an old error still means it has moved on.
     chrome = screen(harness)
+    lines = lines[:chrome_below(chrome, lines)]
     while lines and chrome_line(chrome, lines[-1]):
         lines.pop()
     return lines
+
+
+def ruled_composer(chrome, rows):
+    """(prompt row, closing rule row) of the composer a ruled harness draws, else (None, None).
+
+    It is the bottom-most prompt row whose first chrome row under it is a bare rule, so a
+    user's status line under that rule is never the composer, even where it starts with a
+    prompt mark.
+    """
+    if not chrome["ruled"]:
+        return None, None
+    for at in range(len(rows) - 1, -1, -1):
+        if re.match(r"(?:│\s*)?[❯›⟩]", rows[at]):
+            end = next((row for row in range(at + 1, len(rows))
+                        if chrome_line(chrome, rows[row])), len(rows))
+            if end < len(rows) and re.fullmatch(RULE, rows[end].strip()):
+                return at, end
+    return None, None
+
+
+def chrome_below(chrome, rows):
+    """Where the chrome under a ruled harness's composer begins in `rows`, else len(rows).
+
+    From the composer's closing rule down to a footer on the bottom row, everything is chrome,
+    a user's status line among it.  A bottom row that is no footer is newer output, as
+    anywhere else, and leaves the rows as they are.
+    """
+    end = ruled_composer(chrome, rows)[1]
+    last = next((row for row in reversed(rows) if row.strip()), "")
+    return end if end is not None and chrome_line(chrome, last) else len(rows)
 
 
 def chrome_line(chrome, line):
@@ -1145,6 +1176,7 @@ def last_paragraph(harness, tail):
     """
     lines = [strip_sgr(line).rstrip() for line in tail.splitlines()]
     chrome = screen(harness)
+    lines = lines[:chrome_below(chrome, lines)]
     while lines and (not lines[-1].strip() or chrome_line(chrome, lines[-1])):
         lines.pop()
     block = []
@@ -2364,8 +2396,8 @@ def composer_draft(harness, pane):
     marked = [at for at in range(len(rows) - 1, -1, -1) if re.match(r"(?:│\s*)?[❯›⟩]", rows[at])]
     if chrome["ruled"]:
         # A pane's bottom row stands in where no composer has its own rule under it.
-        closed = [at for at in marked if end(at) < len(rows) and re.fullmatch(RULE, rows[end(at)])]
-        marked = closed or [at for at in marked if at + 1 == len(rows)]
+        closed = ruled_composer(chrome, rows)[0]
+        marked = [closed] if closed is not None else [at for at in marked if at + 1 == len(rows)]
     at = next(iter(marked), None)
     if at is None:
         return None
