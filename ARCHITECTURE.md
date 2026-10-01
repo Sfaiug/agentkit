@@ -1,6 +1,6 @@
 # agentkit architecture
 
-Each module: what it hides, offers and who uses it. Leaks are named;
+Each module: its knowledge, API and callers. Leaks are named;
 `tests/test_boundaries.py` counts them.
 
 ## What matters most

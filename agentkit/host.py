@@ -200,7 +200,7 @@ def _slice_cpu_stat(slice_dir):
 def _slice_cpu_quota(cgroup):
     """The cgroup's CPU quota in cores, or None when it sets none.
 
-    `max` sets no quota.
+    `max` sets none.
     """
     if cgroup is None:
         return None
@@ -389,4 +389,3 @@ def frozen_cgroup(pid):
         except OSError:
             continue
     return None
-
