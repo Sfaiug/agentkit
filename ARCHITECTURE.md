@@ -31,10 +31,7 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
   it cannot read; the loop and the tick change records through it), `going`, `pick_models`.
   Used by watch (about 60 functions), orch, menu, notify, usage, worker, retention and a hook.
   Leak: Claude temp-file gc.
-- `task.py`: the task file. One front-matter reader gives the meta, the title and every
-  `after:`; also the done-when commands and their `# once` groups, the size and round-budget
-  refusals and their limits. Imports only config. Used by run (as `taskfile`: a job's
-  `task` there is its entry).
+- `task.py`: the task file's front matter, done-when groups, size and round refusals; for run.
 - `watch.py`: the tick. Hides watch.json, reading each manifest's screen rules and words
   (`stalls`, `auth_expiry`), seat state (`session_state`, `waiting_on`), typing
   into and reviving seats, resuming runs, PR scanning, `doctor`. Used by run, orch, menu,
