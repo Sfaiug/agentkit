@@ -5660,6 +5660,11 @@ if python3 "$REPO/tests/test_files_scope.py" >"$WORK/files-scope.log" 2>&1; then
 else
   no "50 task files scope"; tail -30 "$WORK/files-scope.log"
 fi
+if python3 "$REPO/tests/test_turn_leftover_processes.py" >"$WORK/turn-processes.log" 2>&1; then
+  ok "worker turns stop their leftover processes on every harness and ask once to finish in the foreground"
+else
+  no "worker turn process cleanup"; tail -30 "$WORK/turn-processes.log"
+fi
 if python3 "$REPO/tests/test_auth_watch.py" >"$WORK/auth-watch.log" 2>&1; then
   ok "40 auth watchdog: immediate needs-login, one alert per episode, no auth nudge, recovery and unknown stuck escalation"
 else

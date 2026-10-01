@@ -50,9 +50,9 @@ named; `tests/test_boundaries.py` counts them.
 - `config.py`: every `~/.agentkit` path, config.toml, models, providers, accounts, adapter
   scripts and manifests, seat records, their rename chain and file names (`SEAT_FILES`), child
   env. Used by nearly everything.
-- `worker.py`: one headless turn: role preambles, the review gate text, the adapter `run`
-  call, silence watchdog, kills, auth check. Offers `call`, `kill_marked`,
-  `auth_ok`. Used by run, watch, usage, menu, harness. Leak: a Claude-only shell timeout.
+- `worker.py`: headless turns: role preambles, review gate, adapter calls, silence watchdog,
+  auth, process markers and cleanup. Offers `turn`, `call`, `kill_marked`, `auth_ok`.
+  Used by run, watch, usage, menu, harness. Leak: Claude shell timeout.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
   `usage.json`. Offers `collect`, `pick_order`, `mark_exhausted`, `render`. Used by run,
   orch, menu, watch, history. Leak: watch and the Muse plugin call its private helpers.

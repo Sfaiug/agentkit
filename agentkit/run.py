@@ -1398,8 +1398,9 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     A turn killed for emitting no event for `limit` seconds is one of those retries: nothing
     judged it, so it is retried on the same session rather than scored, with the same waits.
 
-    A turn that ends with a command still running in the background is unfinished rather than
-    answered: the same session is called once more, with no backoff, to run it in the
+    Each turn's own process marker finds and ends its leftovers, without ending the suite or
+    the loop's helpers. A turn that left processes or reports background work is unfinished:
+    the same session is called once more, with no backoff, to run it in the
     foreground and report -- the same round, and not one of the transient waits.  That
     turn gets artifacts of its own (`<role>-retry-foreground`, beside the transient retries'
     `-retryN`, so `written_answer` still finds whose answer the round recorded): the first
@@ -1458,8 +1459,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         began = time.time()
         named = env if account is None else {**env, **config.account_env(account)}
         try:
-            result = worker.call(cfg, name, text, workspace, target, role, session, env=named,
-                                 limit=limit)
+            result = worker.turn(cfg, name, text, workspace, target, role, session, env=named,
+                                 limit=limit, log=log)
         except worker.LoginExpired as expired:
             log(f"{role} {name} cannot authenticate: {expired.why}; the run waits for that "
                 "login rather than retrying into it")
@@ -1482,7 +1483,6 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         if killed or not code or killed_word(code) or update.swap_end(
                 entry["harness"], *span) is None:
             return False
-        worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
         log(f"WARN {role} {name} exited {code} while {entry['harness']} was being swapped; "
             "starting again once that swap has ended"
             + (f", resuming session {session}" if session else ""))
@@ -1506,7 +1506,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         # first attempt left behind is a fresh turn's, and an empty exit on it is the
         # transport failure the three attempts are for, not a session that cannot be opened.
         asked = session if not calls else None
-        code, text, sid, killed = turn(body, target, session)
+        code, text, sid, killed, unfinished = turn(body, target, session)
         if swapped(code, killed, sid or session):
             session, calls = sid or session, calls + 1
             continue
@@ -1522,14 +1522,14 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             session = None
             calls += 1
             target = out_dir.with_name(f"{out_dir.name}-retry{calls}")
-            code, text, sid, killed = turn(body, target, None)
+            code, text, sid, killed, unfinished = turn(body, target, None)
             session = sid or None
             calls += 1
             if swapped(code, killed, session):
                 continue
         else:
             session, calls = sid or session, calls + 1
-        if not killed and turn_unfinished(target):
+        if not killed and (unfinished or turn_unfinished(target)):
             log(f"{role} {name} ended its turn with a command still in the background; asking "
                 "it to finish in the foreground")
             finish = target.with_name(f"{target.name}-retry-foreground")
@@ -1538,11 +1538,11 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             # call, so review() never spends a second extra call on the same turn.
             finish_body = (f"{FINISH_IN_FOREGROUND} {NO_VERDICT_ASK}"
                            if role.startswith("reviewer") else FINISH_IN_FOREGROUND)
-            code, text, sid, killed = turn(finish_body, finish, session)
+            code, text, sid, killed, unfinished = turn(finish_body, finish, session)
             session = sid or session
             if swapped(code, killed, session):
                 continue
-            if not killed and turn_unfinished(finish):
+            if not killed and (unfinished or turn_unfinished(finish)):
                 log(f"WARN {role} {name} ended its turn with a command still in the background "
                     "again; carrying on with what it reported")
             target = finish
@@ -1553,7 +1553,6 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         fault = None if killed else cannot_run(
             code, text, tail(target / "stderr.log"), target, entry["harness"])
         if fault:
-            worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
             log(f"WARN {role} {name} cannot run: {fault}")
             raise CannotRun(name, fault)
         # Some adapters exit zero after streaming turn.failed; that event still refused
@@ -1564,10 +1563,6 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         outcome, mark = harness_plugin(entry["harness"]).failure(said)
         sig = killed_word(code) if not killed else None
         if outcome in (SPENT, LIMITED) or (outcome and not sig):
-            # The attempt is refused and its children are not the next one's: whatever
-            # the dead turn left behind dies before the refill retry, the handover,
-            # or the transient wait.
-            worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
             quota = ran_dry(code, said, entry["harness"],
                             refusal=code == 0 and bool(said))
             lines = [line for line in said.splitlines() if says(line, mark)]
@@ -1616,7 +1611,6 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             # resumes once, at once, on the session it left behind.  A second kill
             # inside the minute is somebody -- or something -- killing it on purpose,
             # and the run parks for a person instead of retrying into it.
-            worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
             now = time.time()
             if last_kill is not None and now - last_kill < KILL_WINDOW:
                 raise Killed(f"{role} {name} {sig} twice within a minute; "
@@ -1631,9 +1625,6 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             # a quota word left only in the model's answer is the answer talking, not the
             # provider: it parks no account and hands nothing over
             return code, text, session, False
-        # The attempt failed and its children are not the next one's: whatever the dead
-        # turn left behind dies before the retry, so a retry never inherits them.
-        worker.kill_marked(env.get("AGENTKIT_RUN"), log=log, exact=True)
         if handover is not None and attempt == 2 and not handover_tried:
             handover_tried = True
             detail = f"{why} (twice in a row)"
@@ -4103,10 +4094,6 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         if list(lp.round_dir.glob(f"{out.name}*foreground*")):
             record_findings(lp, out, text)
             lp.save()
-            # The fallback must not inherit the twice-silent turn's children: whatever
-            # the attempts without a verdict left behind dies before the spare starts.
-            worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log,
-                               exact=True)
             name = fall_back("gave no verdict twice", out)
             continue
         lp.log(f"reviewer {lp.reviewer} gave no verdict; asking once more")
@@ -4119,9 +4106,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                 "AK_RUN_LOG": str(out2.parent.parent / "log.txt")}
         stop_check(lp.run_dir)
         try:
-            code2, text2, sid2, killed2 = worker.call(lp.cfg, lp.reviewer, NO_VERDICT_ASK, lp.wt,
-                                                      out2, lp.role("reviewer"), lp.review_sid,
-                                                      env=env2, limit=lp.turn_limit)
+            code2, text2, sid2, killed2, unfinished2 = worker.turn(
+                lp.cfg, lp.reviewer, NO_VERDICT_ASK, lp.wt, out2, lp.role("reviewer"),
+                lp.review_sid, env=env2, limit=lp.turn_limit, log=lp.log)
             # The extra ask names no account, so it runs on the usual login: the turn's
             # own reading belongs to that login, and to no login nobody tracks.
             provider = config.model(lp.cfg, lp.reviewer)["provider"]
@@ -4141,7 +4128,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         if code2 != 0:
             lp.log(f"WARN reviewer {killed_word(code2) or f'exited {code2}'}; "
                    f"see {out2 / 'stderr.log'}")
-        if not killed2 and turn_unfinished(out2) and review_verdicts(text2):
+        if not killed2 and (unfinished2 or turn_unfinished(out2)) and review_verdicts(text2):
             lp.log(f"WARN reviewer {lp.reviewer} ended its turn with a command still in the "
                    "background again; carrying on with what it reported")
         if review_verdicts(text2):
@@ -4149,10 +4136,6 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             break
         record_findings(lp, out2, text2)
         lp.save()
-        # The fallback must not inherit the silent turn's children: whatever the extra
-        # ask left behind dies before the spare reviewer starts.
-        worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log,
-                           exact=True)
         name = fall_back("gave no verdict twice", out2)
 
     # the suite ran alongside the reviewer above; its verdict lands here, before judging
