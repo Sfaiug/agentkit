@@ -322,6 +322,17 @@ class Screens(Sandbox):
         last = run(lambda: menu.config_model(self.cfg, "opus"), move(*right) + ESC)[1][-1]
         self.assertOneHighlight(last, "effort")
         self.assertEqual(marked(last, "lit"), {right[1]: "›"})
+        # off every row ←/→ only bring the highlight back; a click on an arrow names its row
+        stepped = []
+        click = "\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*right).encode()
+        with patch.object(menu, "config_effort",
+                          lambda cfg, name, step, **_kw: stepped.append(step) or ""):
+            run(lambda: menu.config_model(self.cfg, "opus"), move(*right), move(1, 1), RIGHT,
+                ESC)
+            self.assertEqual(stepped, [])
+            run(lambda: menu.config_model(self.cfg, "opus"), move(*right), move(1, 1),
+                click + ESC)
+        self.assertEqual(stepped, [1])
 
     def test_the_info_page_lights_the_key_line_item_under_the_pointer(self):
         from agentkit import watch
