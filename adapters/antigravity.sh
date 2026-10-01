@@ -125,10 +125,17 @@ interactive)
   # out of an agent given it no other way.  Nothing is written into the user's ~/.gemini, and
   # only a launch naming this directory can see the agent; `subagent: false` keeps its own
   # model from calling it.  No rulebook, no command line: a seat opened without the rules it
-  # was asked for is worse than one that does not open.
+  # was asked for is worse than one that does not open.  The directory is the seat's own, named
+  # after its rulebook: one every seat shared had each launch rewrite the rules the seats
+  # before it were opened with.  A seat whose rulebook is gone has its directory go at the
+  # next launch, as nothing else removes it.
   rb=$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}") || {
     echo "antigravity.sh interactive: no rulebook for this seat" >&2; exit 2; }
-  agents="$(dirname -- "$rb")/antigravity"
+  state=$(dirname -- "$rb")
+  for old in "$state"/antigravity/rulebook-*/; do
+    [ -e "$state/$(basename -- "$old").md" ] || rm -rf -- "$old"
+  done
+  agents="$state/antigravity/$(basename -- "$rb" .md)"
   def="$agents/.agents/agents/agentkit"
   { mkdir -p -- "$def" &&
     { printf -- '---\nname: agentkit\ndescription: the agentkit orchestrator seat\nsubagent: false\n---\n'
