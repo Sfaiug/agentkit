@@ -6728,6 +6728,25 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         if prior is None and not state.get("scratch") and not opts["--no-worktree"]:
             drop_unrecorded_checkout(repo, wt, branch, log)
         raise
+    if prior is None and state.get("from"):
+        upstream = target if target.startswith("origin/") else f"origin/{target}"
+        # The startup fetch refreshed every origin branch; pin this one so another
+        # worktree's fetch cannot move the target while it is being taken in.
+        tip = git(wt, "rev-parse", "--verify", f"refs/remotes/{upstream}^{{commit}}")
+        log(f"from: merging {upstream} ({tip[:12]}) into {state['branch']} before round 1")
+        try:
+            rc, out = git_out(wt, "merge", "--no-edit", tip)
+        except Stopped:
+            git(wt, "merge", "--abort", check=False)
+            raise
+        if rc != 0:
+            if not git(wt, "diff", "--name-only", "--diff-filter=U"):
+                raise config.Error(f"could not merge {upstream} before round 1: {out}")
+            git(wt, "merge", "--abort")
+            log(f"from: {upstream} conflicts; merge aborted, branch unchanged; "
+                f"{upstream} will be taken in at landing")
+        else:
+            log(f"from: merged {upstream} into {state['branch']} before round 1")
     join_session_project(session_at_launch)     # this run on disk, so it votes too
     if not state.get("scratch"):
         exclude_junk(wt, log)
@@ -6887,25 +6906,6 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         context = f"{HANDOVER.format(before=handed)}\n\n{context}"
     lp.body, lp.cmds, lp.context = body, cmds, context
     lp.every, lp.once = every, once
-    if prior is None and state.get("from"):
-        upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
-        # The startup fetch refreshed every origin branch; pin this one so another
-        # worktree's fetch cannot move the target while it is being taken in.
-        tip = git(wt, "rev-parse", "--verify", f"refs/remotes/{upstream}^{{commit}}")
-        log(f"from: merging {upstream} ({tip[:12]}) into {state['branch']} before round 1")
-        try:
-            rc, out = git_out(wt, "merge", "--no-edit", tip)
-        except Stopped:
-            abort_stopped_integration(lp, "merge")
-            raise
-        if rc != 0:
-            if not git(wt, "diff", "--name-only", "--diff-filter=U"):
-                raise config.Error(f"could not merge {upstream} before round 1: {out}")
-            git(wt, "merge", "--abort")
-            log(f"from: {upstream} conflicts; merge aborted, branch unchanged; "
-                f"{upstream} will be taken in at landing")
-        else:
-            log(f"from: merged {upstream} into {state['branch']} before round 1")
     try:
         rounds(lp)
         if review_pass(state, cfg) and not state.get("no_merge"):

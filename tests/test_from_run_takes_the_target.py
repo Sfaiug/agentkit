@@ -64,13 +64,14 @@ class FromRunTakesTheTarget(unittest.TestCase):
         self.git(cwd, "commit", "-qm", "acme change")
         return self.git(cwd, "rev-parse", "HEAD")
 
-    def start(self, target="main", prior=None):
+    def start(self, target=None, prior=None):
         if prior is None:
             directory = config.RUNS / f"fix-api-{len(list(config.RUNS.iterdir()))}"
             directory.mkdir()
             task = directory / "task.md"
-            task.write_text(f"---\nrepo: {self.repo}\nbase: main\ntarget: {target}\n"
-                            "from: ak/previous\n---\n# Fix the API\n\n"
+            task.write_text(f"---\nrepo: {self.repo}\nbase: main\n"
+                            + (f"target: {target}\n" if target else "")
+                            + "from: ak/previous\n---\n# Fix the API\n\n"
                             "## Done when\n```bash\ntrue\n```\n")
         else:
             directory = config.RUNS / prior["run_id"]
@@ -89,7 +90,15 @@ class FromRunTakesTheTarget(unittest.TestCase):
     def test_round_one_carries_the_fresh_target_and_the_saved_work(self):
         fresh = self.commit(self.origin, "fixed.txt", "target fix\n")
         self.assertEqual(self.git(self.repo, "rev-parse", "origin/main"), self.base)
-        lp = self.start()
+
+        def collect_usage(cfg, **_kw):
+            state = run.read_state(next(config.RUNS.iterdir()))
+            self.assertTrue((Path(state["worktree"]) / "fixed.txt").is_file(),
+                            "staffing began before merging the target")
+            return {}
+
+        with patch.object(run, "collect_usage", side_effect=collect_usage):
+            lp = self.start()
         self.assertTrue((lp.wt / "fixed.txt").is_file(), "round 1 lacks the target's fix")
         self.assertEqual((lp.wt / "fixed.txt").read_text(), "target fix\n")
         self.assertEqual((lp.wt / "carried.txt").read_text(), "saved work\n")
