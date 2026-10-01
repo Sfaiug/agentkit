@@ -1321,8 +1321,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # With the keyboard the highlight turns the pages, so `j` and `k` are not offered then.
     page_keys = "" if owned else "   " + PAGE_KEYS
     # A question under a row is budgeted with the key line, so it never pushes a row off.
-    k_single = terminal.key_height(key_text, term_width=width) + len(asked)
-    k_paged = terminal.key_height(key_text + page_keys, term_width=width) + len(asked)
+    k_single = len(terminal.key_line(key_text, width)) + len(asked)
+    k_paged = len(terminal.key_line(key_text + page_keys, width)) + len(asked)
 
     def _flat(blocks):
         flat = []
@@ -3178,7 +3178,7 @@ def config_add(cfg):
         body, places = add_body(picked, choices, None if terminal.away() else at)
         said = ["", *(terminal.styled("  " + part, "dim")
                       for part in terminal.wrap(note, terminal.layout_width() - 2))] if note else []
-        room = max(1, terminal.height() - 5 - terminal.key_height(keys) - len(said))
+        room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(said))
         drawn = next((line for line, number in places.items() if number == at), len(body) - 1)
         top = max(0, min(max(top, drawn - room + 1), drawn, len(body) - room))
         shown = body[top:top + room]

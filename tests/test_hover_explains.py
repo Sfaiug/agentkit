@@ -334,6 +334,29 @@ class ConfigScreen(Sandbox):
             return run(lambda: menu.config_matrix(self.cfg, None, "abc1234", "fix-api",
                                                   self.selected, {}), *(keys or [ESC]))[1]
 
+    def test_a_full_new_session_list_does_not_scroll_under_a_wrapped_explanation(self):
+        notes = {name: "" for name in config.offered(self.cfg)}
+
+        def picking():
+            return orch._picking(self.cfg, {}, notes, dict(self.selected))
+
+        for cols in (26, 30):
+            for rows in (12, 16):
+                with self.subTest(cols=cols, rows=rows), \
+                        patch.object(terminal, "height", return_value=rows), \
+                        patch.object(terminal.time, "strftime", return_value="14:06"):
+                    first = run(picking, ESC, cols=cols, rows=rows)[1][0]
+                    point = at(first, "↑↓←→ move")
+                    screens = run(picking, move(*point), move(1, 2), ESC,
+                                  cols=cols, rows=rows)[1]
+                    before, hovering, left = (texts(screen) for screen in screens[:3])
+                    self.assertEqual([line.replace("›", " ") for line in hovering[:point[1] - 1]],
+                                     [line.replace("›", " ") for line in before[:point[1] - 1]])
+                    self.assertEqual(explanation(screens[1], point[1]), TIPS["↑↓ move"])
+                    self.assertTrue(hovering[0].startswith("agentkit · new"))
+                    self.assertEqual([line.replace("›", " ") for line in left],
+                                     [line.replace("›", " ") for line in before])
+
     def test_a_model_its_marks_its_effort_and_a_provider_say_what_they_are(self):
         first = self.matrix()[0]
         label = at(first, "astra")
