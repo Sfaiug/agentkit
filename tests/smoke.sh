@@ -1479,7 +1479,8 @@ SH
   codex_model_flag_check || OFFLINE_RC=1
   for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_boundaries.py test_architecture.py test_docs.py \
               test_audit_phone_menu_recovery_layout.py test_choose_click.py \
-              test_audit_retry_required_notifications.py test_solo_switch.py; do
+              test_audit_retry_required_notifications.py test_solo_switch.py \
+              test_from_run_takes_the_target.py test_repo_suite.py; do
     case "$test" in
       test_notify.py) lifecycle_check notify || OFFLINE_RC=1 ;;
       test_v4l.py) lifecycle_check v4l || OFFLINE_RC=1 ;;
@@ -5719,16 +5720,18 @@ else
   no "48 end-of-turn rule"; tail -30 "$WORK/stop-hook.log"
 fi
 { python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py" && python3 "$REPO/tests/test_docs.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 knowledge stays home: no boundary count in tests/test_boundaries.py above its max, ARCHITECTURE.md maps every module and harness in under 8 KB, and the docs match the interface" || { no "49 boundaries, map and docs"; tail -30 "$WORK/boundaries.log"; }
-if python3 "$REPO/tests/test_merge_trailer.py" >"$WORK/merge-trailer.log" 2>&1; then
-  ok "49a landed commits name the tree whose declared suite passed"
+if { python3 "$REPO/tests/test_repo_suite.py" &&
+     python3 "$REPO/tests/test_merge_trailer.py"; } >"$WORK/merge-trailer.log" 2>&1; then
+  ok "49a repository suites run once and landed commits name the checked tree"
 else
-  no "49a merge suite trailer"; tail -30 "$WORK/merge-trailer.log"
+  no "49a repository suites and merge trailer"; tail -30 "$WORK/merge-trailer.log"
 fi
 if { python3 "$REPO/tests/test_regression_fails_before.py" &&
      python3 "$REPO/tests/test_probe_resume.py" &&
      python3 "$REPO/tests/test_followup_runs.py" && python3 "$REPO/tests/test_red_target.py" &&
      python3 "$REPO/tests/test_review_gate.py" && python3 "$REPO/tests/test_changed_checks.py" &&
-     python3 "$REPO/tests/test_landing_review_spends_no_round.py"; } >"$WORK/regression-base.log" 2>&1; then
+     python3 "$REPO/tests/test_landing_review_spends_no_round.py" &&
+     python3 "$REPO/tests/test_from_run_takes_the_target.py"; } >"$WORK/regression-base.log" 2>&1; then
   ok "50 fix runs: regression fails on base and passes on HEAD, changed checks reach review, probes restore the branch"
 else
   no "50 fix runs and regression on base"; tail -30 "$WORK/regression-base.log"

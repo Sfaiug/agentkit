@@ -526,10 +526,21 @@ def waited(work, title, body=list, keys="esc back", keyboard=None):
     return fetch.answer()
 
 
+@terminal.clicks_its_own
 def pause(*lines):
     """Say something and, when someone is there to read it, wait until they have: Esc or Enter,
-    read a key at a time on the menu's keyboard or, where the menu gave it back, on the keys
-    alone, so Esc goes back at once here too."""
+    in a frame while the menu holds the screen, else printed where the terminal was given
+    back, with only the keys taken so Esc goes back at once here too."""
+    if terminal.taken():
+        while True:
+            body = ["  " + part for line in lines for part in
+                    (terminal.wrap(line, terminal.layout_width() - 2) or [""])]
+            spots = terminal.frame("note", body)
+            key = terminal.read_key()
+            if key is not None and (key.name in ("esc", "enter", "eof")
+                                    or key.name == "click"
+                                    and terminal.under(key, spots).cell == "esc"):
+                return
     for line in lines:
         print(line)
     if sys.stdin.isatty() and sys.stdout.isatty():
