@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 from test_v4n import REPO
 import sys
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, run, task, watch
+from agentkit import config, job as jobs, orch, run, task, watch
 
 
 class RunScope(unittest.TestCase):
@@ -367,12 +367,12 @@ class RunScope(unittest.TestCase):
 
     def test_a_job_in_its_own_scope_starts_each_task_in_a_run_scope_of_its_own(self):
         job = self.scoped_job()
-        self.assertTrue(run.job_scoped(job))
+        self.assertTrue(jobs.job_scoped(job))
         # a record naming a scope this process is not in -- the job resumed from a terminal
         # after its scoped launcher died -- and a plain start keep the tasks in the process
-        self.assertFalse(run.job_scoped({**job, "scope": "agentkit-job-an-older-launch"}))
-        self.assertFalse(run.job_scoped({**job, "scope": "none (no user systemd manager)"}))
-        self.assertFalse(run.job_scoped({}))
+        self.assertFalse(jobs.job_scoped({**job, "scope": "agentkit-job-an-older-launch"}))
+        self.assertFalse(jobs.job_scoped({**job, "scope": "none (no user systemd manager)"}))
+        self.assertFalse(jobs.job_scoped({}))
         self.fake_children()
         cfg = config.load()
         tasks = [self.job_task("20260923-2000-alpha"), self.job_task("20260923-2000-beta")]
@@ -382,7 +382,7 @@ class RunScope(unittest.TestCase):
         with redirect_stdout(io.StringIO()), \
                 patch.object(run, "drive", side_effect=AssertionError("driven in the job")):
             for directory, box in zip(tasks, boxes):
-                run.job_drive(cfg, directory, opts, box, run.job_scoped(job))
+                jobs.job_drive(cfg, directory, opts, box, jobs.job_scoped(job))
         # each task went where a lone `--bg` run goes: its own unit, capped, in the runs slice
         self.assertEqual([start["unit"] for start in self.started],
                          [f"agentkit-run-{directory.name}" for directory in tasks])
@@ -422,8 +422,8 @@ class RunScope(unittest.TestCase):
         task = {"name": "a.md", "state": "running", "run_id": resumed.name, "after": []}
         laddered = []
         with redirect_stdout(io.StringIO()), \
-                patch.object(run, "job_ladder", side_effect=lambda *args: laddered.append(args[5])):
-            run.job_adopt_worker(cfg, job_dir, job, task, resumed, threading.Lock(),
+                patch.object(jobs, "job_ladder", side_effect=lambda *args: laddered.append(args[5])):
+            jobs.job_adopt_worker(cfg, job_dir, job, task, resumed, threading.Lock(),
                                  lambda _: None)
         # the resume is `ak run resume <id>` in the task's own scope, followed to its ending
         self.assertEqual(self.started[0]["argv"][2:], ["run", "resume", resumed.name])
@@ -433,7 +433,7 @@ class RunScope(unittest.TestCase):
         delivery = {"name": "b.md", "state": "running", "run_id": undelivered.name, "after": []}
         job["tasks"] = [task, delivery]
         with patch.object(run, "cmd_merge", side_effect=AssertionError("merged in the job")):
-            run.job_ladder(cfg, job_dir, job, delivery, undelivered, run.read_state(undelivered),
+            jobs.job_ladder(cfg, job_dir, job, delivery, undelivered, run.read_state(undelivered),
                            1, lambda _: None, threading.Lock())
         self.assertEqual(self.started[1]["argv"][2:], ["run", "merge", undelivered.name])
         self.assertEqual(self.started[1]["unit"], f"agentkit-run-{undelivered.name}")

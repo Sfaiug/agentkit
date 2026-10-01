@@ -1107,9 +1107,40 @@ def content_lines(harness, tail):
     # The composer box and key hints are chrome, not progress. Strip only known harness
     # chrome at the bottom; arbitrary output below an old error still means it has moved on.
     chrome = screen(harness)
+    lines = lines[:chrome_below(chrome, lines)]
     while lines and chrome_line(chrome, lines[-1]):
         lines.pop()
     return lines
+
+
+def ruled_composer(chrome, rows):
+    """(prompt row, closing rule row) of the composer a ruled harness draws, else (None, None).
+
+    It is the bottom-most prompt row whose first chrome row under it is a bare rule, so a
+    user's status line under that rule is never the composer, even where it starts with a
+    prompt mark.
+    """
+    if not chrome["ruled"]:
+        return None, None
+    for at in range(len(rows) - 1, -1, -1):
+        if re.match(r"(?:│\s*)?[❯›⟩]", rows[at]):
+            end = next((row for row in range(at + 1, len(rows))
+                        if chrome_line(chrome, rows[row])), len(rows))
+            if end < len(rows) and re.fullmatch(RULE, rows[end].strip()):
+                return at, end
+    return None, None
+
+
+def chrome_below(chrome, rows):
+    """Where the chrome under a ruled harness's composer begins in `rows`, else len(rows).
+
+    From the composer's closing rule down to a footer on the bottom row, everything is chrome,
+    a user's status line among it.  A bottom row that is no footer is newer output, as
+    anywhere else, and leaves the rows as they are.
+    """
+    end = ruled_composer(chrome, rows)[1]
+    last = next((row for row in reversed(rows) if row.strip()), "")
+    return end if end is not None and chrome_line(chrome, last) else len(rows)
 
 
 def chrome_line(chrome, line):
@@ -1145,6 +1176,7 @@ def last_paragraph(harness, tail):
     """
     lines = [strip_sgr(line).rstrip() for line in tail.splitlines()]
     chrome = screen(harness)
+    lines = lines[:chrome_below(chrome, lines)]
     while lines and (not lines[-1].strip() or chrome_line(chrome, lines[-1])):
         lines.pop()
     block = []
@@ -1893,6 +1925,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
 
         def quiet(run_dir, state):
             """How long this run has gone without a write, from one draw's map or from disk."""
+            if run_mod.own_pr_wait_note(state) and run_mod.process_active(state):
+                return None
             if silent_map is not None:
                 return silent_map.get(run_dir.name)
             return menu_mod.silent_for_run(run_dir, state, now=at)
@@ -2364,8 +2398,8 @@ def composer_draft(harness, pane):
     marked = [at for at in range(len(rows) - 1, -1, -1) if re.match(r"(?:│\s*)?[❯›⟩]", rows[at])]
     if chrome["ruled"]:
         # A pane's bottom row stands in where no composer has its own rule under it.
-        closed = [at for at in marked if end(at) < len(rows) and re.fullmatch(RULE, rows[end(at)])]
-        marked = closed or [at for at in marked if at + 1 == len(rows)]
+        closed = ruled_composer(chrome, rows)[0]
+        marked = [closed] if closed is not None else [at for at in marked if at + 1 == len(rows)]
     at = next(iter(marked), None)
     if at is None:
         return None
@@ -2729,12 +2763,23 @@ def revive(name, line, log, cfg=None):
     return "the continue line was not confirmed sent"
 
 
-def window_ends(cfg, provider):
-    """When that provider's spent window resets, or None when nothing says it is spent."""
+def seat_subscription(cfg, provider, name):
+    """The subscription of that provider the seat is on, or None where it lists none."""
+    if not config.accounts(cfg, provider):
+        return None
+    return (config.session_records().get(name) or {}).get("account") or config.DEFAULT_ACCOUNT
+
+
+def window_ends(cfg, provider, name):
+    """When the spent window of the subscription that seat is on resets, or None when nothing
+    says it is spent.  Its own: another subscription's room or deadline says nothing of it."""
+    account = seat_subscription(cfg, provider, name)
     try:
         prov = usage.collect(cfg).get(provider) or {}
     except config.Error:
         return None
+    if account is not None:
+        prov = (prov.get("accounts") or {}).get(account) or {}
     ends = [meter.get("resets_at") for meter in prov.get("meters") or []
             if meter.get("exhausted") and isinstance(meter.get("resets_at"), (int, float))]
     return max(ends, default=None)
@@ -2750,12 +2795,9 @@ def spend_reset(cfg, provider, name, log):
     it would cost every other provider its reading.  The seat's own subscription is the one
     asked, the usual login included: a credit spent on another leaves the stalled week as spent.
     """
-    account = None
-    if config.accounts(cfg, provider):
-        record = config.session_records().get(name) or {}
-        account = record.get("account") or config.DEFAULT_ACCOUNT
     try:
-        spent, left = usage.replenish(cfg, provider, depleted=False, account=account)
+        spent, left = usage.replenish(cfg, provider, depleted=False,
+                                      account=seat_subscription(cfg, provider, name))
     except config.Error as exc:
         log(f"WARN could not read the {provider} meters: {exc}")
         return
@@ -2915,9 +2957,11 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     model = record["orchestrator"]
     waiting = live.get("usage_wait")
     # Reading the meters can itself spend a reset. Keep that receipt so the old
-    # refusal cannot park the capacity it just restored.
-    reset_path = config.STATE / f"{provider}-reset.json"
-    reset_before = usage._reset_applied_at(reset_path)
+    # refusal cannot park the capacity it just restored -- one naming this subscription,
+    # because another's credit, or one a receipt cannot say whose, restores nothing here.
+    mine = current if accounts else config.DEFAULT_ACCOUNT
+    reset_path = usage._reset_file(provider, mine)
+    reset_before = usage._reset_applied_at(reset_path, mine)
     from . import run
     try:
         prov = (run._cached_providers() if dry_run else usage.collect(cfg)).get(provider) or {}
@@ -2983,7 +3027,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         return True
     refilled = False
     if refusal and not waiting and reset_policy(harness) and (until is None or until > now):
-        applied = usage._reset_applied_at(reset_path)
+        applied = usage._reset_applied_at(reset_path, mine)
         refilled = applied is not None and applied != observed.get("reset_at", reset_before)
         if refilled:
             log(f"{provider}: usage-limit reset applied")
@@ -3338,7 +3382,7 @@ def health(cfg, state, dry_run, log):
             if quota and not dry_run and ends is None and not throttled:
                 if reset_policy(harness):
                     spend_reset(cfg, provider, name, log)
-                ends = window_ends(cfg, provider)
+                ends = window_ends(cfg, provider, name)
                 if ends and ends > now:
                     entry["resets_at"] = ends
             now = time.time()
@@ -3464,11 +3508,12 @@ def stall_clock(run_dir, state):
     the loop that recorded the wait is owed it: a resume after its death is a new loop, and
     its silence is its own.  A live loop waiting for its repository's merge turn
     (`run.merge_turn`), to take back its lent turn, or for its dependency to merge
-    (`run.wait_for_dependency`), is silent for as long as another run takes to land,
+    (`run.wait_for_dependency`), or for its seat to push PR fixes, is silent for as long as that takes,
     so its clock starts now, every tick, until the wait is over.
     """
     from . import run as run_mod
     if ((run_mod.merge_turn_note(state) or run_mod.dep_wait_note(state)
+            or run_mod.own_pr_wait_note(state)
             or run_mod.merge_retaking(state))
             and run_mod.process_active(state)):
         return time.time()
@@ -4037,7 +4082,7 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
 
 
 def resume_dead_jobs(dry_run=False, log=print, now=None):
-    """Relaunch a job whose launcher is gone, where `run.job_admission` lets the tick.
+    """Relaunch a job whose launcher is gone, where `job.job_admission` lets the tick.
 
     A job's launcher schedules its tasks, so without it the waiting ones never start: the
     dead-loop pass only carries the running one on, as a lone run.  The relaunch is the one
@@ -4045,23 +4090,23 @@ def resume_dead_jobs(dry_run=False, log=print, now=None):
     adopted where it stands -- in the job's own scope and for its own seat.  After the
     dead-loop pass, so the run it adopts is already on its way.
     """
-    from . import run as run_mod
+    from . import job as jobs
     now = time.time() if now is None else now
-    for job_dir in run_mod.job_dirs():
+    for job_dir in jobs.job_dirs():
         try:
-            job = run_mod.read_job(job_dir)
+            job = jobs.read_job(job_dir)
             if (not job or not isinstance(job.get("tasks"), list)
-                    or run_mod.reap_job(job_dir, job)
-                    or all(task.get("state") in run_mod.JOB_TERMINAL for task in job["tasks"])):
+                    or jobs.reap_job(job_dir, job)
+                    or all(task.get("state") in jobs.JOB_TERMINAL for task in job["tasks"])):
                 continue
-            admission = run_mod.job_admission(job_dir, job, now=now)
+            admission = jobs.job_admission(job_dir, job, now=now)
             if not admission:
                 continue
             if dry_run:
                 log(f"would relaunch job {job_dir.name}: launcher gone; {admission}")
                 continue
             with redirect_stdout(io.StringIO()):
-                run_mod.spawn_job_bg(job_dir, relaunch=job)
+                jobs.spawn_job_bg(job_dir, relaunch=job)
             line = f"relaunched job {job_dir.name}: launcher gone; {admission}"
             _note_run(job_dir, line)
             log(line)
@@ -5627,7 +5672,7 @@ def main(argv):
             except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
                 log(f"WARN the pre-existing sweep did not run: {exc}")
             # Detect lost loops even when no phone opens the menu and GitHub is unavailable.
-            from . import run
+            from . import job as jobs, run
             for run_dir in run.run_dirs():
                 try:
                     receipt = run.read_state(run_dir)
@@ -5661,7 +5706,7 @@ def main(argv):
             # A job that finished while its seat was mid-turn hands its line back at the next
             # quiet prompt, the way one of its runs does.
             try:
-                run.deliver_job_handbacks(log)
+                jobs.deliver_job_handbacks(log)
             except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
                 log(f"WARN a finished job was not handed back: {exc}")
             # ... and a seat whose `ak wait` names a session that has stopped is told so, at

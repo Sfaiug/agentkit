@@ -22,7 +22,7 @@ from agentkit import config, run, worker
 
 ACME = "/home/fixture/code/acme"        # main checkouts as the records name them; never opened
 WIDGET = "/home/fixture/code/widget"
-WAITING = "waiting for a heavy suite turn · 1 running"
+WAITING = "waiting for a heavy suite turn · 1 running · 0 more fit"
 
 
 class Gate(threading.Thread):
@@ -241,7 +241,7 @@ class GateTurns(unittest.TestCase):
                 gate.start()
                 gate_log = gate.run_dir / "donewhen.log"
                 self.until(lambda: gate_log.is_file() and gate_log.read_text() ==
-                           "waiting for a heavy suite turn · 1 running\n",
+                           "waiting for a heavy suite turn · 1 running · 0 more fit\n",
                            "the suite to wait on its one derived turn")
             gate.join(20)
         self.assertTrue(gate.result[0], gate.result[1])

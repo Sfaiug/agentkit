@@ -27,7 +27,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, run, task
+from agentkit import config, history, job as jobs, run, task
 
 SEAT = "size-check"
 CFG = {"models": {}, "providers": {}}
@@ -153,14 +153,14 @@ class Sandbox(unittest.TestCase):
         small = self.task("small.md", "One thing.")
         big = self.task("big.md", self.points(4))
         with self.assertRaisesRegex(config.Error, r"big\.md.*4 numbered goal points"):
-            run.job_create({}, [str(small), str(big)], {"--anyway": False}, None)
+            jobs.job_create({}, [str(small), str(big)], {"--anyway": False}, None)
         self.assertEqual(list(config.JOBS.iterdir()), [])
 
     def test_a_job_anyway_still_refuses_an_oversize_task(self):
         small = self.task("small.md", "One thing.")
         big = self.task("big.md", self.points(4))
         with self.assertRaisesRegex(config.Error, r"big\.md.*4 numbered goal points"):
-            run.job_create({}, [str(small), str(big)], {"--anyway": True}, None)
+            jobs.job_create({}, [str(small), str(big)], {"--anyway": True}, None)
         self.assertEqual(list(config.JOBS.iterdir()), [])
 
     # --- the round budget --------------------------------------------------
@@ -178,7 +178,7 @@ class Sandbox(unittest.TestCase):
         # ... and a job refuses the same file before it makes anything
         small = self.task("small.md", "One thing.")
         with self.assertRaisesRegex(config.Error, r"five\.md: task rounds 5 is over the budget"):
-            run.job_create({}, [str(small), str(task)], {"--anyway": True}, None)
+            jobs.job_create({}, [str(small), str(task)], {"--anyway": True}, None)
         self.assertEqual(list(config.JOBS.iterdir()), [])
 
     def test_rounds_over_three_are_refused_at_launch_and_on_resume(self):
@@ -186,7 +186,7 @@ class Sandbox(unittest.TestCase):
         two = self.task("two.md", "Another thing.")
         job_dir = config.JOBS / "job-1"
         job_dir.mkdir(parents=True)
-        run.save_job(job_dir, {"job_id": "job-1", "tasks": []})
+        jobs.save_job(job_dir, {"job_id": "job-1", "tasks": []})
         receipt = (job_dir / "job.json").read_text()
         rule = (r"^--rounds 5 is over the budget: 3 rounds, then a run goes back to its "
                 r"orchestrator to split or re-scope$")

@@ -422,12 +422,24 @@ def _write_reset_state(path, blob):
     tmp.replace(path)
 
 
-def _reset_applied_at(path):
-    """When the last reset was spent, or None when none was, or the file cannot be read."""
+def _reset_file(provider, account=None):
+    """Where one subscription's reset receipt is kept: its own, as its credits and week are.
+    The usual login keeps the file a provider listing no accounts keeps, so listing them moves
+    no receipt and buys no second credit inside its day."""
+    return config.STATE / (f"{provider}-reset.json" if account in (None, config.DEFAULT_ACCOUNT)
+                           else f"{provider}.{account}-reset.json")
+
+
+def _reset_applied_at(path, account=None):
+    """When the last reset was spent, or None when none was, or the file cannot be read.
+
+    Only a receipt that names `account` answers; None asks for one that names none, written
+    before receipts named their subscription, so it may have been any of them that spent it.
+    """
     try:
         blob = json.loads(path.read_text(encoding="utf-8"))
-        return _number(blob["applied_at"])
-    except (OSError, ValueError, TypeError, KeyError):
+        return _number(blob["applied_at"]) if blob.get("account") == account else None
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):   # not an object
         return None
 
 
@@ -461,15 +473,17 @@ def _reset_policy(cfg, provider, prov, now, depleted):
     weekly = _worst([m for m in prov.get("meters") or [] if m.get("window_secs") != SESSION_SECS])
     if not depleted and (weekly is None or weekly["used"] < RESET_AT_USED):
         return prov, False
-    path = config.STATE / f"{provider}-reset.json"
-    applied = _reset_applied_at(path)
-    if applied is not None and 0 <= now - applied < RESET_EVERY_SECS:
-        return prov, False
+    mine = prov.get("account") or config.DEFAULT_ACCOUNT
+    path = _reset_file(provider, mine)
+    # A receipt that names no subscription may be any one's spend: it holds each to its day.
+    for applied in (_reset_applied_at(path, mine), _reset_applied_at(_reset_file(provider))):
+        if applied is not None and 0 <= now - applied < RESET_EVERY_SECS:
+            return prov, False
     available = _number(prov.get("resets"))   # counted by the probe that just read the meters
     if not available or available <= 0:
         return prov, False
-    record = {"weekly_before": weekly["used"] if weekly else None, "depleted": depleted,
-              "available_before": available}
+    record = {"account": mine, "weekly_before": weekly["used"] if weekly else None,
+              "depleted": depleted, "available_before": available}
     try:
         _write_reset_state(path, {**record, "applied_at": now, "outcome": "asked"})
     except OSError:
