@@ -68,8 +68,7 @@ The orchestrator writes the task from `templates/task.md`: a title, `## Goal`, `
 under `## Done when` whose every command must exit 0. Optional front matter: `repo` (the launching checkout; `none` is a
 scratch workspace), `base` (the repo's default branch), `target` (the branch the PR merges into, default `base`), `from`
 (a local branch to cut from), `merge` (`squash`, `merge` or `rebase`), `rounds` (3, the most), `after` (a job
-dependency, repeatable). A fresh `from:` run merges its fetched or local target before round 1, aborting conflicts and leaving them or missing targets for landing; a resumed run never repeats it.
-A check ending in `# once` runs alongside the review on the commit under review; the executor is told not to run it,
+dependency, repeatable). A fresh `from:` run merges its fetched or local target before round 1, aborting conflicts and leaving them or missing targets for landing; a resumed run never repeats it. A check ending in `# once` runs alongside the review on the commit under review; the executor is told not to run it,
 its absence from the reviewer's input by design. The full suite a repository names as `tests:` in its `AGENTS.md` front matter is such a check in every run
 there, from the target branch where the checkout predates it, and a done-when line with the same command runs once with it, so a task lists only the checks for its change.
 `files:` (repeatable, comma-separated Git pathspecs) limits the branch's own changed paths after rebasing; an unmatched path fails the gate with `outside files: <paths>`, goes to the fixer and overrides reviewer PASS. Without it there is no limit.
