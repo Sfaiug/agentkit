@@ -237,8 +237,9 @@ sys.exit(0 if ok else 1)
     def launch(self, rounds=3, method="squash", once=False):
         (self.root / "plan.json").write_text(json.dumps(self.plan))
         once = f"\n{self.command} once  # once" if once else ""
+        # Process markers are host-wide even when each fixture has its own HOME.
         self.task.write_text(f"---\nrepo: {self.wt}\nbase: origin/main\nrounds: {rounds}\n"
-                             f"merge: {method}\n---\n# Integrated fixture\n\n## Done when\n"
+                             f"merge: {method}\n---\n# Integrated fixture {self.root.name}\n\n## Done when\n"
                              f"```bash\n{self.command}{once}\n```\n")
         code = run.main([str(self.task), "--exec", "opus", "--review", "astra", "--no-worktree"])
         dirs = run.run_dirs()
