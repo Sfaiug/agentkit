@@ -56,7 +56,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
     "orch": ("""usage: ak orch [NAME] [--model MODEL] [--workers A,B] [--dry-run]
        ak orch list [--why] | ak orch why NAME
        ak orch stop NAME | ak orch rename [--auto] [OLD] NEW
-       ak orch project [SEAT] CHECKOUT""",
+       ak orch project [SEAT] CHECKOUT | ak orch solo SESSION on|off""",
              "Start or attach to a named orchestrator session; --dry-run prints the launch plan.",
              "ak orch parser-fix"),
     "orch list": ("usage: ak orch list [--why]",
@@ -77,6 +77,9 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                      "File a seat under a checkout by name or path; omit SEAT for this session.\n"
                      "Only known checkouts are accepted; it stays there until it is filed again.",
                      "ak orch project acme"),
+    "orch solo": ("usage: ak orch solo SESSION on|off",
+                  "Save solo on a session: refuse task launches while allowing PR reviews.",
+                  "ak orch solo fix-api on"),
     "notify": (NOTIFY_USAGE,
                "Record a needs-you question or a job summary.\n"
                "--session and --dry-run apply to needs/done; --check checks without posting.",

@@ -1481,7 +1481,7 @@ SH
   codex_model_flag_check || OFFLINE_RC=1
   for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_boundaries.py test_architecture.py test_docs.py \
               test_audit_phone_menu_recovery_layout.py test_choose_click.py \
-              test_audit_retry_required_notifications.py; do
+              test_audit_retry_required_notifications.py test_solo_switch.py; do
     case "$test" in
       test_notify.py) lifecycle_check notify || OFFLINE_RC=1 ;;
       test_v4l.py) lifecycle_check v4l || OFFLINE_RC=1 ;;
@@ -4052,11 +4052,13 @@ ovhost send-keys -t ovhost C-b m
 : >"$WORK/overlay-popup.txt"
 for _ in $(seq 1 30); do
   ovhost capture-pane -p -t ovhost >"$WORK/overlay-popup.txt" 2>/dev/null
-  grep -q 'n start a session   r rename this session   x stop this session   esc leave' "$WORK/overlay-popup.txt" && break
+  grep -q 'n start a session   r rename this session   x stop this session   s solo' "$WORK/overlay-popup.txt" &&
+    grep -q 'esc leave' "$WORK/overlay-popup.txt" && break
   sleep 1
 done
 # the popup drew this server's two seats, in order, under the overlay's own key line
-grep -q 'n start a session   r rename this session   x stop this session   esc leave' "$WORK/overlay-popup.txt" || OVERLAY=1
+grep -q 'n start a session   r rename this session   x stop this session   s solo' "$WORK/overlay-popup.txt" &&
+  grep -q 'esc leave' "$WORK/overlay-popup.txt" || OVERLAY=1
 NEEDS_GLYPH=$(LC_ALL=C.UTF-8 PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("needs you"))')
 grep -q "1  $OV1  fable  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
 grep -q "2  $OV2  astra  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1

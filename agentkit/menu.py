@@ -135,6 +135,7 @@ INFO_KEYS = ("1 2 3   open that session",
              "x       stop a session, or close a done one",
              "c       change the config and the session's models",
              "i       show info",
+             "s       toggle solo on the session's row",
              "esc     leave")
 INFO_STATES = (("needs you", "it asked you something, or it cannot go on without you"),
                ("working",
@@ -935,6 +936,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     sentence = "" if word == "working" else reason
     return {"number": str(number), "name": name, "session": session,
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
+            "solo": bool(selection and selection.get("solo")),
             "sentence": sentence, "bar": bar, "estimate": estimate,
             "needs": reason if word == "needs you" else "",
             "word": word, "since": found["since"], "repo": session.get("repo")}
@@ -1061,8 +1063,9 @@ def _last_text(info, narrow=False):
     """
     bar = info.get("bar")
     done, total = bar if bar and len(bar) == 2 else (0, 0)
-    return last_column(info.get("word"), info.get("sentence"), done, total,
+    text = last_column(info.get("word"), info.get("sentence"), done, total,
                        info.get("estimate"), narrow)
+    return " · ".join(part for part in ("solo" if info.get("solo") else "", text) if part)
 
 
 def redress(session, answer, cfg=None, records=None):
@@ -1272,6 +1275,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                       order[0] if order else None)      # a seat before any heading
     if owned and words.get(own or cursor) == "done":
         keys = keys.replace("x stop", "x close", 1)
+    if owned and not ask and isinstance(own or cursor, str):
+        keys = keys.replace("esc leave", "s solo   esc leave", 1)
     asking, card = ask or (None, ())
     asked = list(card) if asking in words else []
     # Seat columns are sized once per draw from every row on screen, so the
@@ -3682,7 +3687,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     on `esc leave`, leaves; `q` is no key.
     """
     keys = OVERLAY_KEYS if overlay else KEYS
-    actions = ("n", "x", "r") if overlay else ("n", "x", "c", "i")
+    actions = ("n", "x", "r", "s") if overlay else ("n", "x", "c", "i", "s")
     page, cursor, ahead, look = 0, None, None, False
     last = [[], None]                     # what the last read left: the seats and their groups
     clock = motion.Clock(fade=overlay)    # what moves between draws: the dots, news, and
@@ -3764,9 +3769,19 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
             if terminal.is_sequence(key):
                 continue          # an arrow key is neither Esc nor a key: draw again, silently
             key = key.lower()
-            if key in ("x", "c") and not overlay and terminal.unseen():
+            if key in ("x", "c", "s") and not overlay and terminal.unseen():
                 continue          # it acts on the highlighted seat: brought back, to be seen first
             seat = own if overlay else cursor
+            if key == "s" and drawn is not None:
+                if isinstance(seat, str):
+                    if dry_run:
+                        pause(f"would toggle solo for {seat}")
+                    else:
+                        try:
+                            orch.set_solo(seat)
+                        except config.Error as exc:
+                            pause(str(exc))
+                continue
             if key == "x" and isinstance(seat, Path):
                 continue          # a heading is no seat to stop
             if key == "x" and drawn is not None and seat in drawn["words"]:

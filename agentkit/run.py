@@ -3658,6 +3658,8 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
         if watch.seat_closed(session):
             return None
         cfg = report_config(cfg)
+        if config.session_records().get(config.resolve_session(session), {}).get("solo"):
+            return None
         repo = main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
         key = repair and {"target": target, "command": repair["command"]}
@@ -14120,9 +14122,14 @@ def main(argv):
         if not (str(opts["--parallel"]).isdigit() and int(opts["--parallel"]) > 0):
             raise config.Error(f"--parallel must be a positive integer (got {opts['--parallel']!r})")
         parallel = int(opts["--parallel"])
-    config.ensure_dirs()
     opts.update(flags)
     cfg = config.load()
+    if not opts["--review-pr"]:
+        selection = config.active_session(cfg)
+        if selection and selection.get("solo"):
+            command = shlex.join(["ak", "orch", "solo", selection["name"], "off"])
+            raise config.Error(f"solo is on for {selection['name']!r}; turn it off with `{command}`.")
+    config.ensure_dirs()
     if not opts["--review-pr"] and len(positional) == 1 and parallel is not None:
         raise config.Error("usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] "
                            "[--anyway] [--first] [--no-worktree] [--no-merge] [--bg]: --parallel "
