@@ -1032,14 +1032,16 @@ def mark_exhausted(cfg, provider, until=None, account=None):
         end = _number(meter.get("resets_at"))
         if end is not None:
             ends[meter["name"]] = end
-            # the refusal shows on the fullest window that says it is long enough to hold it,
-            # one spent as it came first, of equals the last to reset: never on the session
-            # under a longer refusal, nor on a window that does not say how long it is
-            if until - now <= (_number(meter.get("window_secs")) or 0):
-                shown.append((_number(meter.get("used")) or 0, end, meter["name"]))
+            # the refusal shows on a meter spent as it came, of several the last to reset,
+            # and never on a session -- or a window that does not say it is none -- when the
+            # refusal outlasts one
+            if (_number(meter.get("used")) or 0) >= 100 and not (
+                    _number(meter.get("window_secs")) in (SESSION_SECS, None)
+                    and until - now > SESSION_SECS):
+                shown.append((end, meter["name"]))
     _patch(provider, prov, account, mark={"exhausted_until": float(until),
                                           "exhausted_at": float(now), "exhausted_ends": ends,
-                                          "exhausted_by": max(shown, default=(0, 0, None))[2]})
+                                          "exhausted_by": max(shown, default=(0, None))[1]})
     return float(until)
 
 
