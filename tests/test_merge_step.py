@@ -123,6 +123,8 @@ class MergeStep(unittest.TestCase):
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
+            "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
             "PYTHONDONTWRITEBYTECODE": "1", "AGENTKIT_SESSION": "",
             "AGENTKIT_RUN_DIR": "", "AK_RUN_ROLE": "",
@@ -534,30 +536,29 @@ class MergeStep(unittest.TestCase):
         self.assertIn("Another model started this round", asked[1][1])
         self.assertIn(f"handing executor to {lp.executor}", self.log_text(run_dir))
 
-    def test_a_clean_rebase_failed_review_uses_the_last_task_round(self):
+    def test_a_clean_rebase_failed_gate_spends_no_task_round(self):
         _, owner, wt = make_repos(self.root)
-        lp, run_dir, _ = make_loop(self.root, wt, rounds=5, spent=3)
-        # Main moved without a git conflict, but the done-when fails on the integrated
-        # tree, so integration needs a new review at round 4 before the final fixer at 5.
+        lp, run_dir, _ = make_loop(self.root, wt, rounds=3, spent=3)
+        # The work already spent its task budget; a failed landing gate gets a
+        # fixer before any reviewer, and both stay on the last task round.
         (owner / "other.txt").write_text("other\n")
         run.git(owner, "add", ".")
         run.git(owner, "commit", "-m", "other work on main")
         run.git(owner, "push", "origin", "main")
-        findings = "VERDICT: FAIL\nThe integrated tree still needs fixed.txt.\n"
-        answers = iter([findings, "VERDICT: PASS\n"])
         gates = iter([False, True])
-        turns = []
+        turns, reviews = [], []
+        failure = "$ check\n[exit 1]\nThe integrated tree still needs fixed.txt.\n"
 
         def checks(cmds, wt, out, *args, **kwargs):
             out.parent.mkdir(parents=True, exist_ok=True)
             ok = next(gates)
-            return ok, f"$ check\n[exit {0 if ok else 1}]\n"
+            return (True, "$ check\n[exit 0]\n") if ok else (False, failure)
 
         def review_call(cfg, name, body, workspace, out, role, session, log, limit=None, **kwargs):
-            answer = next(answers)
-            out.mkdir(parents=True)
-            (out / "final.md").write_text(answer)
-            return 0, answer, session, False
+            self.assertTrue((wt / "fixed.txt").exists(), "reviewed a failing gate")
+            reviews.append(out.parent.name)
+            return self.review_call(cfg, name, body, workspace, out, role, session, log,
+                                    limit, **kwargs)
 
         def fixer(lp2, role, text, name):
             turns.append((lp2.rnd, role, text))
@@ -570,10 +571,11 @@ class MergeStep(unittest.TestCase):
                 patch.object(run, "call_retrying", side_effect=review_call), \
                 patch.object(run, "run_done_when", side_effect=checks):
             self.assertTrue(run.integrate(lp, "origin/main"))
-        self.assertEqual([(rnd, role) for rnd, role, _ in turns], [(5, "fixer")])
-        self.assertIn(findings, turns[0][2])
+        self.assertEqual([(rnd, role) for rnd, role, _ in turns], [(3, "fixer")])
+        self.assertIn(failure, turns[0][2])
+        self.assertEqual(reviews, ["round-3"])
         self.assertEqual([entry["round"] for entry in lp.state["round_summaries"]],
-                         [1, 2, 3, 4, 5])
+                         [1, 2, 3])
         self.assertTrue(run.current_review(lp))
 
     def test_an_interrupted_conflict_review_resumes_without_spending_a_round(self):
