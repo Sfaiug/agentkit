@@ -2,7 +2,7 @@
 
 A job settles its own task's `error` and conflict FAIL -- skips its `after:` dependants or
 reruns it elsewhere -- so the tick's `resume_errored` and `resume_waiting` leave such a run
-to its job.  And the suite's own run is the one `menu.smoke_run` names by where it lives:
+to its job, which resumes its own merge wait.  And the suite's own run is the one `menu.smoke_run` names by where it lives:
 an owner run titled `smoke-...` still supersedes, and still votes for its seat's project.
 Offline: run records in a temporary HOME, a fake resume, a stubbed upstream sha.
 """
@@ -26,7 +26,7 @@ TASK = "# Fix the parser\n\n## Done when\n\n```bash\ntest -f deliverable\n```\n"
 
 class TickResumeScope(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".tick-scope-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-tick-scope-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -90,6 +90,24 @@ class TickResumeScope(unittest.TestCase):
                 self.assertEqual(run.read_state(run_dir)["state"],
                                  "fail" if job else "waiting")
 
+    def test_c_a_jobs_wait_is_resumed_by_its_job_never_by_the_tick(self):
+        wait = {"state": "waiting", "verdict": "PASS", "error": CONFLICT_NOTE,
+                "merge_note": CONFLICT_NOTE, "waiting_on": {"ref": "origin/main", "sha": "0" * 40}}
+        lone = self.receipt("20261001-0103-lone", **wait)
+        mine = self.receipt("20261001-0103-mine", job_id="20261001-0100-job", **wait)
+        resumed = lambda d, a, **_kw: run.save_state(d, {**run.read_state(d), "state": "queued"})
+        with patch.object(run, "upstream_sha", return_value="1" * 40), \
+                patch.object(run, "spawn_bg", side_effect=resumed) as spawn:
+            watch.resume_waiting(log=self.logs.append, now=self.now)
+            self.assertEqual([call.args[0] for call in spawn.call_args_list], [lone])
+            # the job follows its own wait and resumes it once main moved
+            with patch.object(run.time, "sleep"), \
+                    patch.object(run, "job_await", side_effect=run.read_state), \
+                    patch.object(run, "job_wait_login", return_value=True):
+                run.job_ladder(self.cfg, None, {}, {"name": "fix-api"}, mine,
+                               run.read_state(mine), 0, self.logs.append, None)
+            self.assertEqual([call.args[0] for call in spawn.call_args_list], [lone, mine])
+
     def smoke_titled_pair(self, state, **extra):
         """An owner's run titled `smoke-...`, replaced by a later merged one of that title."""
         title = "smoke-test the parser"
@@ -100,7 +118,7 @@ class TickResumeScope(unittest.TestCase):
         self.assertIn("smoke-", old.name)
         return old, new
 
-    def test_c_an_owner_smoke_titled_run_supersedes_its_errored_predecessor(self):
+    def test_d_an_owner_smoke_titled_run_supersedes_its_errored_predecessor(self):
         old, new = self.smoke_titled_pair("error", error_retry_at=self.now - 1,
                                              error_retries=0)
         self.assertEqual(run.superseded_by(run.read_state(old)), new.name)
@@ -108,12 +126,12 @@ class TickResumeScope(unittest.TestCase):
         self.assertEqual(self.spawned, [])
         self.assertNotIn("error_retry_at", run.read_state(old))
 
-    def test_d_an_owner_smoke_titled_run_supersedes_its_exhausted_predecessor(self):
+    def test_e_an_owner_smoke_titled_run_supersedes_its_exhausted_predecessor(self):
         old, _ = self.smoke_titled_pair("exhausted", quota_dry=True)
         watch.resume_exhausted(self.cfg, {}, workers=[], log=self.logs.append, now=self.now)
         self.assertTrue(run.read_state(old).get("replaced"))
 
-    def test_e_an_owner_smoke_titled_run_votes_and_the_suites_own_does_not(self):
+    def test_f_an_owner_smoke_titled_run_votes_and_the_suites_own_does_not(self):
         config.save_session(self.cfg, "legacy", "fable", ["opus"])
         self.receipt("20261001-0105-smoke-test-the-parser", launched_session="legacy")
         sandbox = config.TMP / "smoke-20261001-0100"

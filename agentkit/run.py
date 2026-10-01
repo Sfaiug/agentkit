@@ -14807,10 +14807,15 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
     task["reviewer"] = run_state.get("reviewer") or task.get("reviewer")
     log(job_exit_line(task, run_dir, run_state, rc))
     if run_state.get("state") == "waiting":
-        # a PASS parked on the next merge to its target is no ending: the tick resumes it
-        # then, and the task follows it there, so its dependants wait instead of skipping
+        # a PASS parked on the next merge to its target is no ending: the job resumes it
+        # then, as the tick would a lone run, and the task follows it there, so its
+        # dependants wait instead of skipping
         log(f"{task['name']}: parked waiting ({run_state.get('error')}); following it")
+    asked = 0
     while run_state.get("state") == "waiting" and tick_admission(run_state):
+        if time.time() - asked >= JOB_PICKER_INTERVAL:
+            asked = time.time()   # each ask fetches: at the picker's rate, not every tick
+            watch.resume_waiting(log=log, run=run_dir)
         time.sleep(JOB_TICK)
         run_state = read_state(run_dir) or run_state
         if run_state.get("state") != "waiting":

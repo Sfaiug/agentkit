@@ -4509,7 +4509,7 @@ def resume_errored(dry_run=False, log=print, now=None):
                 pass
 
 
-def resume_waiting(dry_run=False, log=print, now=None):
+def resume_waiting(dry_run=False, log=print, now=None, run=None):
     """Park rebase-conflict FAILs as `waiting`, and resume them after main moves.
 
     A FAIL whose merge note is a rebase conflict, with rounds still to spend, is
@@ -4528,14 +4528,17 @@ def resume_waiting(dry_run=False, log=print, now=None):
     Every wait must still pass admission before a fetch or resume: waits left by
     an older tick do not keep permission after a telling, a lost seat or a day.
     A dry run names what it would park and resume, and fetches nothing: a fetch
-    moves the very refs it reports on.
+    moves the very refs it reports on.  A job's run is its job's: the tick's pass
+    leaves it, and the job's own ladder passes it as `run` to resume its wait.
     """
     from . import run as run_mod
     now = time.time() if now is None else now
-    for run_dir in run_mod.run_dirs():
+    for run_dir in [run] if run else run_mod.run_dirs():
         try:
             state = run_mod.read_state(run_dir)
             if not state or state.get("state") not in ("fail", "waiting"):
+                continue
+            if state.get("job_id") and not run:
                 continue
             if state.get("state") == "fail" and not run_mod.parkable_conflict(
                     state, run_dir, now=now):
@@ -4621,7 +4624,8 @@ def resume_waiting(dry_run=False, log=print, now=None):
                 log(f"parked {run_dir.name} waiting on {ref} at {sha[:12]}")
                 continue
             try:
-                with redirect_stdout(io.StringIO()):
+                # a job's threads share its stdout: swapping it would swallow their lines
+                with nullcontext() if run else redirect_stdout(io.StringIO()):
                     run_mod.spawn_bg(run_dir, ["resume", run_dir.name], expected=decided,
                                      park_as=True)
             except (config.Error, OSError) as exc:
