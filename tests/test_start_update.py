@@ -357,6 +357,21 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         self.assertNotIn("updating", screen.text())
         self.assertEqual((self.git(self.clone, "rev-parse", "HEAD"), self.installs()), (self.first, 0))
 
+    def test_a_killed_updater_clears_progress_after_its_notice(self):
+        self.release("ls-remote")
+        screen = self.opened()
+        screen.when("agentkit · updating")
+        self.wait_for(lambda: (self.root / "fetch.started").exists())
+        os.killpg(self.updaters()[0], signal.SIGKILL)    # this test's detached updater only
+        screen.when("agentkit update exited -9")
+        after = len(screen.text().encode())
+        os.write(screen.master, b"\r")
+        screen.when("<draw old fix-api>", after)
+        screen.key(b"\x1b[B", "<draw old tidy-docs>")
+        self.assertNotIn("agentkit · updating", screen.text().encode()[after:].decode())
+        self.assertEqual((self.git(self.clone, "rev-parse", "HEAD"), self.installs()), (self.first, 0))
+        screen.leave()
+
     def test_a_dirty_checkout_is_left_as_it_is(self):
         edited = self.clone / "notes"
         edited.write_text("somebody's edit\n")
