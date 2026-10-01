@@ -163,16 +163,16 @@ class Menu:
     def send(self, keys):
         os.write(self.master, keys)
 
-    def frame(self, where=None, after=0, keys="esc leave"):
-        """The lines of the last whole menu drawn; `keys` can find the explanation a click leaves
-        on its key line instead of the keys. Row 1 first."""
+    def frame(self, where=None, after=0, tip=None):
+        """The lines of the last whole menu drawn; `tip` also finds the explanation a click can
+        leave on its key line instead of the keys. Row 1 first."""
         def ready(text):
             for part in reversed(text[after:].split("\x1b[H")[1:]):
                 if "\x1b[J" not in part:
                     continue                  # still being written, or a sub-screen's
                 lines = [terminal.ANSI.sub("", line).rstrip("\r")
                          for line in part.split("\x1b[J")[0].split("\n")[:-1]]
-                if any(keys in line for line in lines):
+                if any("esc leave" in line or tip and tip in line for line in lines):
                     return lines if where is None or where(lines) else None
             return None
         return self.until(ready, "a drawn menu")
@@ -218,7 +218,7 @@ class MenuKeys(unittest.TestCase):
                 menu.click(keys.index("s solo") + 1, row)
                 menu.frame(lambda lines: not any(line.strip() == "solo" or
                            "working  solo" in line for line in lines), after=mark,
-                           keys=terminal.TIPS["s solo"].partition(":")[0])
+                           tip=terminal.TIPS["s solo"].partition(":")[0])
                 self.assertFalse(json.loads((state / "session-seat-b.json").read_text())["solo"])
                 menu.leave()
 
