@@ -6204,8 +6204,6 @@ def disjoint_move(lp, upstream, verified, tip):
         else:
             lp.log(f"--- merge: {upstream} moved, overlapping this branch only in docs "
                    f"({', '.join(shared)}); landing after the done-when")
-            # the pending review's round, as `integrate` checks a clean rebase: the last
-            # round keeps its own done-when log
             dw_path = lp.run_dir / f"round-{lp.state['review_pending']['round']}" / "donewhen.log"
             dw_path.parent.mkdir(parents=True, exist_ok=True)
             identity = commit_identity(lp.wt)
