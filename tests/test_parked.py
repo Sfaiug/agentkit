@@ -709,8 +709,8 @@ class Parked(unittest.TestCase):
                                  error=CONFLICT_NOTE, merge_note=CONFLICT_NOTE,
                                  waiting_on={"ref": "origin/main", "sha": "0" * 40})
         original = run.read_state(directory)
-        # one only its age turned away is his: test_seat_needs_you_for_parked_runs.py
-        for extra in ({"handed_back": self.now - 30}, {"recovery_notified": "discord"},
+        for extra in ({"finished_at": self.now - 25 * 3600},
+                      {"handed_back": self.now - 30}, {"recovery_notified": "discord"},
                       {"recovery_acknowledged_at": self.now - 30},
                       {"launched_session": None}, {"launched_session": "gone"}):
             state = {**original, **extra}
@@ -731,12 +731,18 @@ class Parked(unittest.TestCase):
                         expected = watch.session_state("seat", self.now, records=[], **facts)
                         found = watch.session_state("seat", self.now, records=records,
                                                     index=index, **facts)
-                        self.assertEqual(found, expected)
-                        self.assertEqual(found["word"], word)
+                        if "finished_at" in extra and word != "working":
+                            # only its age turned it away: nobody told him, so it is his
+                            self.assertEqual(found["reason"], f"run {directory.name} "
+                                             f"waits to merge: {CONFLICT_NOTE}")
+                            self.assertEqual(found["word"], "needs you")
+                        else:
+                            self.assertEqual(found, expected)
+                            self.assertEqual(found["word"], word)
                         self.assertFalse(menu.v5o_needs_look(state, now=self.now))
                         self.assertTrue(all(counts == (0, 0, 0) for counts in
                                             run.seat_tallies([state], now=self.now).values()))
-                        if word != "needs you":
+                        if found["word"] != "needs you":
                             for at in (self.now, self.now + 120):
                                 self.assertEqual(watch.notify.transition(
                                     "seat", found, now=at, seat={"name": "seat"}), 0)

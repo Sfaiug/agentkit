@@ -1939,12 +1939,15 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                       and not run_mod.is_superseded(state, None, index, merged_only=True))]
         if parked:
             run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
-            reason = run_mod.handback_reason(first)
-            return {"word": "needs you", "since": first.get("finished_at"),
-                    "reason": f"run {run_dir.name} waits to merge: {reason}"
-                    if first.get("state") == "waiting"
-                    else run_mod.parked_line(first, run_dir.name, now=at)
-                    or f"run {run_dir.name} parked: {reason}"}
+            name, reason = run_dir.name, run_mod.handback_reason(first)
+            if first.get("state") == "stalled":
+                # from its id, never its error: a long step cuts the command in that one short
+                reason = f"run {name} stalled: resume it with `ak run resume {name}`"
+            elif first.get("state") == "waiting":
+                reason = f"run {name} waits to merge: {reason}"
+            else:
+                reason = run_mod.parked_line(first, name, now=at) or f"run {name} parked: {reason}"
+            return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
     # 4. nobody is in it: its number is the way back into the conversation.
     # An ended run is its orchestrator's to act on -- the run handed its ending back to
     # the seat that launched it -- so no reason ever says `press r` or names a run.

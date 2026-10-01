@@ -80,13 +80,13 @@ class SeatNeedsYouForParkedRuns(unittest.TestCase):
         self.assertEqual(found["reason"], "run fix-api parked: the loop died mid-review")
 
     def test_a_stalled_run_needs_you_and_says_how_to_resume_it(self):
-        stalled = self.receipt("fix-api", state="stalled", finished_at=None,
-                               error="stalled three times at review; parked: "
-                                     "ak run resume fix-api")
+        # a long id and a long step: the recorded error is cut short, the command never is
+        name = "20261001-0100-fix-api-a-long-integration-command-in-the"
+        stalled = self.receipt(name, state="running", finished_at=None)
+        run.park_stalled(stalled, run.read_state(stalled), {"step": "done-when " + "x" * 240})
         found = self.decide()
         self.assertEqual(found["word"], "needs you")
-        self.assertIn("run fix-api", found["reason"])
-        self.assertIn("ak run resume fix-api", found["reason"])
+        self.assertEqual(found["reason"], f"run {name} stalled: resume it with `ak run resume {name}`")
         # what `going` means to the tick and every other caller is unchanged
         self.assertTrue(run.going(run.read_state(stalled), now=NOW))
 
