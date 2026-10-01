@@ -81,6 +81,8 @@ footer = [
   '\? for shortcuts',
   '(?:⏵⏵\s*)?bypass permissions on(?:\s*\(shift\+tab to cycle\))?(?:\s*·\s*\d+\s+\w+)?(?:\s+[◯○]?\s*\d+% context left)?',
   '\d+% context left(?:\s*·\s*\? for shortcuts)?',
+  # a narrow pane cuts the mode line wherever its width ends, with or without an ellipsis
+  '⏵⏵\s*bypass\b.*',
 ]
 # its composer always has its own rule under it: a prompt-marked line right on the footer is a
 # user's status line, never the composer, even with no composer drawn, as under a picker
@@ -159,7 +161,8 @@ quotas = ["rate limit", "rate_limit_error", "Usage limit reached", "usage limit"
 terminal = "result"
 # `coloured`: behind the same `● `, it draws its own notice's words in a colour and the model's
 # answer in the terminal's own (captured with attributes, 2.1.286, in every theme), so on a
-# seat's screen a stall word counts only where it is drawn in colour.
+# seat's screen a stall word counts only on a line drawn wholly in colour: the answer styles
+# spans of its own in colour too.
 coloured = true
 
 [auth]

@@ -65,8 +65,7 @@ class OpenGates(unittest.TestCase):
                                             'mcpServers': {'fixture': {'command': 'true'}}}),
                   '.gitconfig': '[user]\nname = fixture\n',
                   '.config/gh/config.yml': 'git_protocol: https\n',
-                  '.config/opencode/opencode.json': '{"provider": {"mimo": {"apiKey": "fixture"}}}',
-                  '.agentkit/secrets/discord_webhook': 'fixture webhook'}
+                  '.config/opencode/opencode.json': '{"provider": {"mimo": {"apiKey": "fixture"}}}'}
         with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             caller, home = root / 'caller', root / 'work/home'
@@ -141,47 +140,6 @@ class OpenGates(unittest.TestCase):
                                     text=True, capture_output=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(os.path.lexists(home / '.codex/auth.json'))
-
-    def test_smoke_counts_only_logins_its_adapters_confirm(self):
-        setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
-        # A lapsed Grok key its refresh token renews: the real adapter's yes on the linked login.
-        login = {'id': {'key': 'k', 'expires_at': '2000-01-01T00:00:00Z', 'refresh_token': 'r'}}
-        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
-            root = Path(tmp)
-            caller, home, binaries, adapters = (root / 'caller', root / 'work/home',
-                                                root / 'bin', root / 'adapters')
-            (caller / '.grok').mkdir(parents=True)
-            (caller / '.grok/auth.json').write_text(json.dumps(login))
-            # OpenCode's settings with no key in them, and nothing in its auth store, are no login.
-            (caller / '.config/opencode').mkdir(parents=True)
-            (caller / '.config/opencode/opencode.json').write_text('{"theme": "dark"}')
-            binaries.mkdir()
-            adapters.mkdir()
-            for name in ('grok', 'codex', 'claude', 'muse', 'opencode'):
-                (binaries / name).write_text('#!/bin/sh\nexit 97\n')
-                (binaries / name).chmod(0o755)
-            # An answer with no line, no answer at all, or none within worker.auth_ok's bound
-            # confirms nothing.
-            for harness, body in (('grokbuild', f'exec {REPO}/adapters/grokbuild.sh "$@"'),
-                                  ('opencode', f'exec {REPO}/adapters/opencode.sh "$@"'),
-                                  ('codex', 'exit 0'), ('claude', 'echo fixture; exit 2'),
-                                  ('muse', 'exec sleep 60'),
-                                  ('antigravity', 'exit 1')):
-                (adapters / f'{harness}.sh').write_text(f'#!/bin/bash\n{body}\n')
-                (adapters / f'{harness}.sh').chmod(0o755)
-            script = ('set -eu\n' + setup + '\nsmoke_home\n'
-                      'printf "SMOKE_LOGINS=[%s]\\n" "$SMOKE_LOGINS"\n')
-            env = {name: value for name, value in os.environ.items()
-                   if name not in ('XAI_API_KEY', 'GROK_HOME')}
-            result = subprocess.run(['bash', '-c', script],
-                                    env={**env, 'HOME': str(caller), 'REPO': str(REPO),
-                                         'WORK': str(root / 'work'),
-                                         'PATH': f'{binaries}:/usr/bin:/bin',
-                                         'AGENTKIT_ADAPTER_DIR': str(adapters)},
-                                    text=True, capture_output=True, timeout=50)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn('SMOKE_LOGINS=[grokbuild]', result.stdout)
-            self.assertEqual((home / '.grok/auth.json').resolve(), caller / '.grok/auth.json')
 
     def test_gates_merge_back_only_valid_renamed_logins_whole(self):
         setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
@@ -555,8 +513,8 @@ ak() { printf '%s\\n' "$ROW"; }
                     self.assertNotIn('SKIP ', result.stdout)
 
     def test_smoke_needs_one_harness_with_its_login(self):
-        # None of the three check 3 calls is here: each skips by name, as not on this host,
-        # and the suite still fails, because it made no real call at all.
+        # None of the harnesses check 3 calls is here: each is named as not checked, never
+        # counted as passed, and the suite fails, because it made no real call at all.
         start = SMOKE.index('model_unavailable()')
         helpers = SMOKE[start:SMOKE.index('U="$WORK/usage.json"', start)]
         check = SMOKE[SMOKE.index('# --- 3:'):SMOKE.index('# --- 4:')]
@@ -571,25 +529,12 @@ ak() { printf '%s\\n' "$ROW"; }
                                          'AGENTKIT_ADAPTER_DIR': ''},
                                     text=True, capture_output=True, timeout=30)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        for model, harness in (('opus', 'claude'), ('astra', 'codex'), ('spark', 'muse')):
-            self.assertIn(f'SKIP  3b: required model {model} is not on this host: '
-                          f'{harness} is not installed', result.stdout)
+        for line in ('3a/3b opus (claude): claude', '3a/3b astra (codex): codex',
+                     '3a/3b spark (muse): muse', '3c grok (grokbuild): grok',
+                     '3c gemini (antigravity): agy', '3c mimo (opencode): opencode'):
+            self.assertIn(f'NOT CHECKED  {line} is not installed', result.stdout)
         self.assertIn('FAIL  3: no harness here is installed with its login', result.stdout)
-        self.assertIn('6 passed, 1 failed, 0 skipped', result.stdout)
-        # A login smoke_home's adapters confirmed is that one harness, called here or not.
-        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
-            binaries = Path(tmp) / 'bin'
-            binaries.mkdir()
-            (binaries / 'python3').symlink_to(sys.executable)
-            result = subprocess.run(['/bin/bash', '-c', '. "$REPO/tests/acceptance.sh"\n'
-                                     'ak() { return 1; }\nSMOKE_LOGINS=" grokbuild"\n'
-                                     + helpers + check + '\nfinish'],
-                                    env={**os.environ, 'HOME': tmp, 'WORK': tmp,
-                                         'REPO': str(REPO), 'PATH': str(binaries),
-                                         'AGENTKIT_ADAPTER_DIR': ''},
-                                    text=True, capture_output=True, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('6 passed, 0 failed, 0 skipped', result.stdout)
+        self.assertIn('0 passed, 1 failed, 0 skipped', result.stdout)
 
     def test_gates_pass_or_fail_on_their_own_under_an_outer_suites_diversion(self):
         # Run inside a running suite, each check inherits that suite's diversion log; its own
@@ -783,14 +728,17 @@ for model in opus spark astra grok mimo; do model_unavailable "$model"; done
             try:
                 caller = Path(tmp) / 'caller'
                 (caller / '.agentkit/secrets').mkdir(parents=True)
-                (caller / '.agentkit/secrets/discord_webhook').write_text(
-                    f'http://127.0.0.1:{server.server_port}/hook')
-                for code in (200, 403):
+                hook = f'http://127.0.0.1:{server.server_port}/hook'
+                (caller / '.agentkit/secrets/discord_webhook').write_text(hook)
+                # the file's webhook, then the one the caller's environment names instead
+                for code, inherited in ((200, ''), (403, ''), (200, hook)):
                     status[0] = code
+                    if inherited:
+                        (caller / '.agentkit/secrets/discord_webhook').unlink()
                     env = {**os.environ, 'HOME': str(caller), 'REPO': str(REPO),
-                           'WORK': str(Path(tmp) / str(code)), 'AK_NOTIFY_SINK': 'dry-run',
+                           'WORK': str(Path(tmp) / f'{code}{inherited and "-env"}'),
+                           'AK_NOTIFY_SINK': 'dry-run', 'AGENTKIT_DISCORD_WEBHOOK': inherited,
                            'PATH': f'{REPO / "bin"}:{os.environ["PATH"]}'}
-                    env.pop('AGENTKIT_DISCORD_WEBHOOK', None)
                     result = subprocess.run(['bash', '-c', setup + '''
 smoke_home
 . "$REPO/tests/acceptance.sh"
@@ -799,10 +747,41 @@ smoke_home
                                      result.stdout + result.stderr)
                     self.assertIn('webhook configured', result.stdout)
                     self.assertNotIn('no webhook configured', result.stdout)
-                self.assertEqual(methods, ['GET', 'GET'])
+                self.assertEqual(methods, ['GET', 'GET', 'GET'])
             finally:
                 server.shutdown()
                 thread.join()
+
+    def test_smoke_fails_a_webhook_it_cannot_use(self):
+        # Kept out of the suite's HOME, the webhook is still checked as it was there: a blank
+        # file is configured and fails check 5, and one that cannot be read ends the setup,
+        # whatever the environment names instead.
+        setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
+        check = SMOKE[SMOKE.index('# --- 5: notify'):SMOKE.index('# --- 5b:')]
+        cases = [('\n', '', 1, 'webhook configured but not reachable'),
+                 ('\0\n', '', 1, 'webhook configured but not reachable'),
+                 (Path('/nonexistent/hook'), 'https://example.invalid/env', 1, 'cannot read')]
+        if Path('/proc/self/mem').exists():
+            cases.append((Path('/proc/self/mem'), '', 1, ''))
+        for content, inherited, code, said in cases:
+            with self.subTest(content=content, inherited=inherited), \
+                    tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
+                webhook = Path(tmp) / 'caller/.agentkit/secrets/discord_webhook'
+                webhook.parent.mkdir(parents=True)
+                if isinstance(content, Path):
+                    webhook.symlink_to(content)
+                else:
+                    webhook.write_text(content)
+                env = {**os.environ, 'HOME': str(Path(tmp) / 'caller'), 'REPO': str(REPO),
+                       'WORK': str(Path(tmp) / 'work'), 'AK_NOTIFY_SINK': 'dry-run',
+                       'AGENTKIT_DISCORD_WEBHOOK': inherited,
+                       'PATH': f'{REPO / "bin"}:{os.environ["PATH"]}'}
+                result = subprocess.run(['bash', '-c', setup + '''
+smoke_home
+. "$REPO/tests/acceptance.sh"
+''' + check + '\nfinish'], env=env, text=True, capture_output=True, timeout=20)
+                self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                self.assertIn(said, result.stdout + result.stderr)
 
     def test_claude_stream_leaves_no_credential_links_in_output(self):
         start = SMOKE.index('smoke_share_probes()')

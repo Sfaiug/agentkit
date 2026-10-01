@@ -1,13 +1,16 @@
-"""`ak orch NAME --dry-run` for a new seat leaves nothing behind.
+"""`ak orch NAME --dry-run` leaves nothing behind.
 
 A dry run only looks: no session record and no rulebook stay for a seat it never opened, so
-the next real `ak orch NAME` creates that seat instead of resuming a record nobody launched.
+the next real `ak orch NAME` creates that seat instead of resuming a record nobody launched;
+and no rulebook a seat was opened with, nor what an adapter makes beside one, is changed, nor
+the last notification a seat of that name sent, which only a start clears.
 
 Offline: a temporary HOME, a tmux that holds no session, and fake adapters that write the
 rulebook through the real tools/rulebook.py the way every adapter's `interactive` does.
 """
 
 from contextlib import ExitStack, redirect_stdout
+import hashlib
 import io
 import os
 from pathlib import Path
@@ -25,6 +28,7 @@ FAKE_ADAPTER = f"""#!/bin/sh
 rb=$(python3 "{REPO}/tools/rulebook.py" "$AGENTKIT_SESSION") || exit 2
 echo "fake-tui --rules $rb"
 """
+RESUME = orch.resume
 
 
 class DryRun(unittest.TestCase):
@@ -34,7 +38,7 @@ class DryRun(unittest.TestCase):
         root = Path(tmp.name)
         stack = ExitStack()
         self.addCleanup(stack.close)
-        bin_dir = root / "bin"
+        bin_dir = self.bin = root / "bin"
         bin_dir.mkdir()
         (bin_dir / "tmux").write_text("#!/bin/sh\nexit 1\n")    # no server: no session at all
         for harness in (path.stem for path in (REPO / "adapters").glob("*.toml")):
@@ -64,7 +68,7 @@ class DryRun(unittest.TestCase):
         with redirect_stdout(io.StringIO()) as out:
             self.assertEqual(orch.main([*argv, "--dry-run"]), 0)
         rulebook = config.rulebook_path(name)
-        self.assertIn(f"--rules {rulebook}", out.getvalue())    # the adapter did write one
+        self.assertIn(f"/{rulebook.name}\n", out.getvalue())    # the adapter did write one
         self.assertFalse(config.session_path(name).exists())
         self.assertNotIn(name, orch.records())
         self.assertFalse(rulebook.exists())
@@ -80,6 +84,37 @@ class DryRun(unittest.TestCase):
 
     def test_an_unnamed_dry_run_saves_nothing(self):
         self.dry_run([], "new")
+
+    def state(self):
+        return {str(path.relative_to(config.STATE)): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in config.STATE.rglob("*") if path.is_file()}
+
+    def test_a_dry_run_of_a_seat_tmux_lost_leaves_its_rulebook_as_it_was(self):
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(orch.main(["acme-fix"]), 0)
+        config.rulebook_path("acme-fix").write_text("the rules acme-fix was opened with\n")
+        before = self.state()
+        with patch.object(orch, "resume", RESUME), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(orch.main(["acme-fix", "--dry-run"]), 0)
+        self.assertIn("/rulebook-acme-fix.md\n", out.getvalue())
+        self.assertEqual(self.state(), before)
+        self.launch.assert_called_once()
+
+    def test_a_dry_run_on_antigravity_leaves_no_agent_file(self):
+        # the real adapter, which writes the agent.md every Antigravity seat is launched with
+        (self.bin / "antigravity.sh").write_text(
+            f'#!/bin/sh\nexec bash "{REPO}/adapters/antigravity.sh" "$@"\n')
+        before = self.state()
+        with redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(orch.main(["acme-fix", "--model", "gemini", "--dry-run"]), 0)
+        self.assertIn("--agent agentkit", out.getvalue())
+        self.assertEqual(self.state(), before)
+
+    def test_a_dry_run_keeps_the_last_notification(self):
+        notice = config.notify_path("acme-fix")
+        notice.write_text('{"kind": "question", "summary": "merge acme?"}\n')
+        self.dry_run(["acme-fix"], "acme-fix")
+        self.assertEqual(notice.read_text(), '{"kind": "question", "summary": "merge acme?"}\n')
 
 
 if __name__ == "__main__":

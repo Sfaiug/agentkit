@@ -21,6 +21,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
 from agentkit import config, menu, orch, run
+from agentkit import task as taskfile
 
 
 def alive(pid):
@@ -260,7 +261,7 @@ class RunStop(Sandbox):
         run_dir.mkdir()
         (run_dir / "task.md").write_text(task.read_text())
         (run_dir / "log.txt").touch()
-        meta, _, title = run.parse_task(task)
+        meta, _, title = taskfile.parse_task(task)
         from_branch = (meta.get("from") or "").strip()
         wt, branch = run.make_worktree(repo, run_dir.name, run.slugify(title), from_branch)
         try:

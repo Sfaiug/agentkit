@@ -207,7 +207,8 @@ class Antigravity(unittest.TestCase):
         self.assertEqual(words[words.index("--model") + 1], "gemini-3.8-flash-high")
         self.assertIn("--dangerously-skip-permissions", words)
         agents = Path(words[words.index("--add-dir") + 1])
-        self.assertEqual(agents, self.home / ".agentkit/state/antigravity")
+        self.assertEqual(agents.parent, self.home / ".agentkit/state/antigravity")
+        self.assertTrue(agents.name.startswith("rulebook-fakesession."))
         text = (agents / ".agents/agents/agentkit/agent.md").read_text()
         head, sep, body = text[4:].partition("\n---\n")
         self.assertTrue(text.startswith("---\n") and sep)
@@ -223,6 +224,38 @@ class Antigravity(unittest.TestCase):
         self.assertEqual(body.encode(), Path(rulebook).read_bytes())
         # nothing of the seat's goes into the user's own agy configuration
         self.assertFalse((self.home / ".gemini").exists())
+
+    def test_each_seat_keeps_the_rules_it_was_opened_with(self):
+        def add_dir(command):
+            words = shlex.split(command)
+            return Path(words[words.index("--add-dir") + 1])
+
+        def launch(seat, **env):
+            proc = self.adapter("interactive", "gemini-3.8-flash", "high",
+                                env={"AGENTKIT_SESSION": seat, **env})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            return add_dir(proc.stdout)
+        first = launch("acme-one")
+        opened = (first / ".agents/agents/agentkit/agent.md").read_text()
+        (self.home / ".agentkit/rules.md").write_text("acme's own rule\n")
+        second = launch("acme-two")
+        self.assertIn("acme's own rule",
+                      (second / ".agents/agents/agentkit/agent.md").read_text())
+        # the second launch leaves the rules the first seat was opened with as they were
+        self.assertEqual((first / ".agents/agents/agentkit/agent.md").read_text(), opened)
+        # a seat whose rulebook is gone has its definition go at the next launch, and a
+        # relaunch of it that lands between that launch's check and its removal keeps its own
+        (self.home / ".agentkit/state/rulebook-acme-one.md").unlink()
+        (self.bin / "rm").write_text(
+            '#!/bin/sh\n[ -z "$RM_FIRST" ] || RM_FIRST= sh -c "$RM_FIRST"\nexec /bin/rm "$@"\n')
+        (self.bin / "rm").chmod(0o755)
+        relaunched = self.root / "relaunched"
+        launch("acme-two", RM_FIRST=(f"AGENTKIT_SESSION=acme-one {shlex.quote(ADAPTER)} "
+                                     f"interactive gemini-3.8-flash high >{relaunched}"))
+        self.assertFalse(first.exists())
+        self.assertTrue(second.exists())
+        self.assertTrue((add_dir(relaunched.read_text())
+                         / ".agents/agents/agentkit/agent.md").exists())
 
     def test_interactive_resumes_and_refuses_a_launcher_id(self):
         proc = self.adapter("interactive", "gemini-3.1-pro-high", "high", "c-123")

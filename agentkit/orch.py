@@ -32,6 +32,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -152,6 +153,24 @@ def choose(cfg, providers):
         notes.append(f"skipped {name}: {why}")
     return default, (f"WARN {'; '.join(notes)}; every model is exhausted, "
                      f"launching {default} anyway")
+
+
+@contextmanager
+def scratch(dry_run):
+    """Where the adapters called inside write a seat's rulebook, and whatever they make beside it.
+
+    For a dry run, a directory of its own that is gone once the command is printed: a preview
+    changes no rules a seat was opened with, and leaves none for a seat it never opens.
+    """
+    if not dry_run:
+        yield
+        return
+    with tempfile.TemporaryDirectory(prefix="ak-dry-run-") as tmp:
+        os.environ[config.RULEBOOK_DIR_ENV] = tmp
+        try:
+            yield
+        finally:
+            del os.environ[config.RULEBOOK_DIR_ENV]
 
 
 @contextmanager
@@ -1838,11 +1857,12 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     if detached and (not record.get("cwd") or not ran_in.is_dir()):
         raise config.Error(f"{name}: recorded directory is unavailable: {ran_in}")
     cwd = ran_in if ran_in.is_dir() else seat_cwd()
-    if recorded:
-        cmd = resume_command(cfg, orchestrator, recorded, ran_in, seat=name, account=account)
-        conversation = recorded
-    else:
-        cmd, conversation = fresh_command(cfg, orchestrator, seat=name, account=account)
+    with scratch(dry_run):
+        if recorded:
+            cmd = resume_command(cfg, orchestrator, recorded, ran_in, seat=name, account=account)
+            conversation = recorded
+        else:
+            cmd, conversation = fresh_command(cfg, orchestrator, seat=name, account=account)
     where = "in the same window" if session else f"in {cwd}"
     log(f"orch: resuming {name} on {orchestrator} {where}"
         + (f" (conversation {recorded})" if recorded
@@ -3232,14 +3252,16 @@ def pick(cfg, providers, default):
 @terminal.clicks_its_own
 def _picking(cfg, providers, notes, selected):
     """`pick`'s screen, drawn over in place and read with the keys, the way `terminal.scroll`
-    is; the rows scroll to keep the highlight on a screen too short for every model."""
+    is; the rows scroll to keep the highlight on a screen too short for every model.  The
+    pointer moves the highlight to the model and the role it is on, that mark lit."""
     names = list(notes)
     model = selected["orchestrator"]
     at, top, column, note = names.index(model) if model in names else 0, 0, 0, ""
     keys = (f"{'↑↓←→' if terminal.utf8() else 'arrows'} move   space choose   "
             f"{'⏎' if terminal.utf8() else 'enter'} start   esc back")
     while True:
-        body, rows, cells = picker_lines(cfg, notes, selected, at, column, terminal.layout_width())
+        body, rows, cells = picker_lines(cfg, notes, selected, None if terminal.away() else at,
+                                         column, terminal.layout_width())
         said = [terminal.styled("  " + terminal.cut(note, terminal.layout_width() - 2), "dim")] \
             if note else []
         room = max(1, terminal.height() - 6 - len(terminal.key_line(keys)) - len(said))
@@ -3247,27 +3269,23 @@ def _picking(cfg, providers, notes, selected):
         shown = body[top:top + room]
         lines = [terminal.header_line("new session", time.strftime("%H:%M")),
                  terminal.rule_line(), body[0], *shown, *said, ""]
-        spans = [(len(lines) + number, begin, end, key)
-                 for number, line in enumerate(terminal.key_line(keys), 1)
-                 for begin, end, key in terminal.key_spans(line)]
-        lines += terminal.key_line(keys)
-        sys.stdout.write("\033[H" + "".join(f"\033[K{line}\n" for line in lines) + "\033[J")
-        sys.stdout.flush()
+        # a model's lines from the screen's fourth row, its marks on its first
+        spots = {4 + line - top: (hit, cells[hit] if line == drawn.start else [])
+                 for hit, drawn in enumerate(rows) for line in drawn if top <= line < top + room}
+        spots.update(terminal.key_spots(terminal.key_line(keys), len(lines) + 1))
+        terminal.show(lines + terminal.key_line(keys), spots)
         key = terminal.read_key()
         if key is None:
             continue              # a resize: draw again
+        spot = terminal.under(key, spots)
+        if key.name in ("click", "point") and spot.what is not None:
+            at, column = spot.what, column if spot.cell is None else spot.cell
+        if key.name == "point":
+            continue              # the highlight on the pointer's model, its mark lit
         note = ""
         if key.name == "click":
-            item = next((item for row, begin, end, item in spans
-                         if row == key.row and begin <= key.col <= end), "")
-            line = key.row - 4 + top if 3 < key.row <= 3 + len(shown) else -1
-            hit = next((row for row, drawn in enumerate(rows) if line in drawn), None)
-            if item in ("⏎", "enter", "esc", "space"):
-                key = terminal.Key({"⏎": "enter"}.get(item, item))
-            elif hit is not None:
-                column = next((number for first, last, number in cells[hit]
-                               if line == rows[hit].start and first <= key.col <= last), column)
-                at, key = hit, terminal.Key("space")
+            item = "space" if spot.what is not None else {"⏎": "enter"}.get(spot.cell, spot.cell)
+            key = terminal.Key(item if item in ("enter", "esc", "space") else "other")
         if terminal.step(key):
             at = min(max(at + terminal.step(key), 0), len(rows) - 1)
         elif key.name in ("left", "right"):
@@ -3382,17 +3400,13 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
         config.save_session(cfg, name, model, workers, extra)
     elif not dry_run:
         config.update_session(name, unnamed=None)
-    rulebook = config.rulebook_path(name)
-    kept = rulebook.exists()
     try:
-        cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
+        with scratch(dry_run):
+            cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
     except Exception:
         if unnamed:
             config.session_path(name).unlink(missing_ok=True)
         raise
-    finally:
-        if dry_run and not kept:
-            rulebook.unlink(missing_ok=True)   # the adapter wrote it for a seat that never opens
     if not dry_run:
         if conversation:
             extra["conversation"] = conversation
@@ -3405,7 +3419,7 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     if not dry_run:
         from . import notify
         notify.forget_card(name)
-    config.notify_path(name).unlink(missing_ok=True)
+        config.notify_path(name).unlink(missing_ok=True)
     if dry_run:
         print(f"orch: {model} ({reason})")
         print(f"session {name} in {cwd} (new)")

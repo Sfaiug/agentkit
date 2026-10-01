@@ -1184,10 +1184,14 @@ def error_said(harness, lines):
     The last line is the error line.  One that names no failure of its own -- `Goal stalled`,
     `Error ID: ...` -- is read with the line above it only where the harness drew that line as
     its own error (`[stall] error_marks`); nothing else above is read, so a word in the model's
-    answer is never the provider's.
+    answer is never the provider's.  Nor is a last line drawn behind another mark, as Codex
+    draws its answer behind `•`: it says none, and a stall there is only typed at.
     """
+    marks = _words(harness, "stall", "error_marks")
+    if lines and marks and re.match(r"[^\w\s]\s", lines[-1]) and not lines[-1].startswith(marks):
+        return ""
     if (len(lines) > 1 and orch.harness_plugin(harness).failure(lines[-1])[0] is None
-            and lines[-2].startswith(_words(harness, "stall", "error_marks"))):
+            and lines[-2].startswith(marks)):
         return "\n".join(lines[-2:])
     return lines[-1] if lines else ""
 
@@ -1201,16 +1205,25 @@ def stalled_on(harness, pane, session, log):
     """The stall signature that pane is showing, or None: it is working, or it is not ours.
 
     A harness that draws its own notices in colour and the model's answer in the terminal's
-    own (`[stall] coloured`) says a stall word only in colour, where the pane has attributes;
-    the whole pane, as a colour drawn above its tail can still be on its last line.
+    own (`[stall] coloured`) says a stall word only on a line wholly in colour, where the pane
+    has attributes -- the whole pane, as a colour drawn above its tail can still be on its last
+    line -- since the answer styles a span of its own in colour too.  Where the pane has none,
+    its own line begins with the stall word, behind whatever mark it is drawn with: the
+    model's sentence about one names it further on.
     """
     lines = content_lines(harness, pane_tail(pane))
     last = lines[-1] if lines else ""
     block = config.manifest(harness).get("stall")
-    if lines and isinstance(block, dict) and block.get("coloured") is True and SGR_SEQ.search(pane):
+    coloured = isinstance(block, dict) and block.get("coloured") is True
+    if lines and coloured and SGR_SEQ.search(pane):
         drawn = [shown for raw, shown in zip(pane.splitlines(), in_colour(pane))
                  if strip_sgr(raw).strip()]      # the rows pane_tail keeps, in its order
-        last = drawn[-PANE_LINES:][len(lines) - 1]
+        if drawn[-PANE_LINES:][len(lines) - 1] != " ".join(last.split()):
+            last = ""
+    elif coloured:
+        said = re.sub(r"^[^\w\s]+\s*", "", last).lower()
+        if not any(said.startswith(mark.lower()) for mark in stalls(harness)):
+            last = ""
     if not any(says(last, mark) for mark in stalls(harness)):
         mark = next((mark for line in reversed(lines[:-1]) for mark in stalls(harness)
                      if says(line, mark)), None)
@@ -1659,9 +1672,11 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * a harness turn is in flight, so the seat is working (a turn past three hours says so
       in its reason and keeps the word) -- parked run or not;
     * an error it launched is parked with no scheduled resume and still needs his
-      attention -- recent, unacknowledged, not handed back or superseded;
+      attention -- recent, unacknowledged, not handed back or superseded -- or a run
+      is stalled, or a merge wait only its age turned away;
     * nobody is in the seat any more and its number is the way back in;
-    * it said it was done itself, a job never says it for it, and nothing on its screen asks him;
+    * it said it was done itself, a job never says it for it, and nothing on its screen asks him
+      -- unless a run of its own still sits parked and undecided, which is him;
     * otherwise it is at its prompt with nothing running, which is him again -- with the
       question it asked, or the draft it never sent, for a reason.
 
@@ -1868,8 +1883,11 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             asked = f"unsent: {asked}"
         return {"word": "needs you", "reason": asked or "waiting for you",
                 "since": found.get("began")}
-    # 2. a run of its own is unfinished and resumes itself: the seat is working
-    going = [(run_dir, state) for run_dir, state in mine if run_mod.going(state, now=at)]
+    # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`
+    # is the exception, as in the stop hook's `parked`: `going` counts it, but only
+    # `ak run resume` moves one, so rung 3 has it.
+    going = [(run_dir, state) for run_dir, state in mine
+             if run_mod.going(state, now=at) and state.get("state") != "stalled"]
     if going:
         going.sort(key=lambda pair: (pair[1].get("started_at") or 0, pair[0].name))
 
@@ -1914,24 +1932,35 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # 3. ... or a run of its own is parked with no scheduled resume: then it is
     # him the run waits for, only while the same ending still counts in his tally.
     # An acknowledged, handed-back, superseded or aged-out error is nobody's new
-    # question. A merge wait whose admission expired is history, not a new error.
-    # An exhausted run the tick cannot resume is no ending: told or old, it
+    # question. An exhausted run the tick cannot resume is no ending: told or old, it
     # stays unfinished until he resumes or stops it, so it is his -- by the tally's own
     # test, which no hand-back or age ends, or rung 5 would call it recovering --
-    # unless a later merged run replaced it, which ends the question outright.
+    # unless a later merged run replaced it, which ends the question outright.  So is
+    # a stalled run, and a merge wait only its age turned away: nothing told him, and
+    # nothing but him will move it.
     # A gone seat still names its own number below instead: the number
     # is the way back to the run, never the run itself.
     if not gone:
         if index is None:
             index = run_mod.supersession_index(records)
         parked = [(run_dir, state) for run_dir, state in mine
-                  if state.get("state") in ("error", "exhausted")
-                  and menu_mod.v5o_needs_look(state, index=index, now=at)]
+                  if (state.get("state") in ("error", "exhausted")
+                      and menu_mod.v5o_needs_look(state, index=index, now=at))
+                  or (state.get("state") == "stalled" and run_mod.unfinished(state, index=index))
+                  or (state.get("state") == "waiting" and not run_mod.going(state, now=at)
+                      and run_mod.tick_admission({**state, "finished_at": at}, now=at)
+                      and not run_mod.is_superseded(state, None, index, merged_only=True))]
         if parked:
             run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
-            return {"word": "needs you", "since": first.get("finished_at"),
-                    "reason": run_mod.parked_line(first, run_dir.name, now=at)
-                    or f"run {run_dir.name} parked: {run_mod.handback_reason(first)}"}
+            name, reason = run_dir.name, run_mod.handback_reason(first)
+            if first.get("state") == "stalled":
+                # from its id, never its error: a long step cuts the command in that one short
+                reason = f"run {name} stalled: resume it with `ak run resume {name}`"
+            elif first.get("state") == "waiting":
+                reason = f"run {name} waits to merge: {reason}"
+            else:
+                reason = run_mod.parked_line(first, name, now=at) or f"run {name} parked: {reason}"
+            return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
     # 4. nobody is in it: its number is the way back into the conversation.
     # An ended run is its orchestrator's to act on -- the run handed its ending back to
     # the seat that launched it -- so no reason ever says `press r` or names a run.
@@ -1967,15 +1996,18 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if index is None:
             index = run_mod.supersession_index(records)
         failed = notify.failed_declaration(last, mine, index)
-        unfinished = [d.name for d, state in mine
+        unfinished = [(d, state) for d, state in mine
                       if run_mod.unfinished(state, index=index)]
         if failed:
             return {"word": "needs you", "reason":
                     f"run {failed[0]} failed; declaration dropped",
                     "since": last.get("time")}
+        # nothing above is going, so a run still undecided waits on him: the stop hook's
+        # third stop stands on it, and this is where he hears
         if unfinished:
-            return {"word": "working", "reason": f"run {unfinished[0]} awaits recovery",
-                    "since": last.get("time")}
+            run_dir, state = unfinished[0]
+            return {"word": "needs you", "since": last.get("time"), "reason":
+                    f"run {run_dir.name} parked: {run_mod.handback_reason(state)}"}
         line = next((piece for piece in str(last["text"]).splitlines() if piece.strip()), "")
         return {"word": "done", "reason": " ".join(line.split()), "since": last.get("time")}
     # 6. at its prompt with nothing running: the question it asked, or nothing at all
@@ -3827,10 +3859,16 @@ def _dead_plan(state, run_dir, now):
     # record itself. Noticing the same dead pid again would launch a second loop.
     if _resume_ordered(state, now):
         return "skip", deaths, ""
+    reaped = last and last.get("pid") == pid and not last.get("parked") and not last.get("resumed_at")
+    # The hour runs to the death being judged, not to the tick judging it: a tick that gets
+    # to a recorded death late must not age the first of three out of the window.
+    upto = last.get("at") if reaped else now
+    if not isinstance(upto, (int, float)) or isinstance(upto, bool):
+        upto = now
     recent = [death for death in deaths
               if isinstance(death.get("at"), (int, float)) and not isinstance(death.get("at"), bool)
-              and now - death["at"] < DEAD_WINDOW]
-    if last and last.get("pid") == pid and not last.get("parked") and not last.get("resumed_at"):
+              and upto - death["at"] < DEAD_WINDOW]
+    if reaped:
         # A reap noticed this death first and recorded it, so it is already among the recent:
         # the third inside the hour parks whoever noticed it.
         if len(recent) >= 3:
