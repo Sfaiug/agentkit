@@ -2729,12 +2729,23 @@ def revive(name, line, log, cfg=None):
     return "the continue line was not confirmed sent"
 
 
-def window_ends(cfg, provider):
-    """When that provider's spent window resets, or None when nothing says it is spent."""
+def seat_subscription(cfg, provider, name):
+    """The subscription of that provider the seat is on, or None where it lists none."""
+    if not config.accounts(cfg, provider):
+        return None
+    return (config.session_records().get(name) or {}).get("account") or config.DEFAULT_ACCOUNT
+
+
+def window_ends(cfg, provider, name):
+    """When the spent window of the subscription that seat is on resets, or None when nothing
+    says it is spent.  Its own: another subscription's room or deadline says nothing of it."""
+    account = seat_subscription(cfg, provider, name)
     try:
         prov = usage.collect(cfg).get(provider) or {}
     except config.Error:
         return None
+    if account is not None:
+        prov = (prov.get("accounts") or {}).get(account) or {}
     ends = [meter.get("resets_at") for meter in prov.get("meters") or []
             if meter.get("exhausted") and isinstance(meter.get("resets_at"), (int, float))]
     return max(ends, default=None)
@@ -2750,12 +2761,9 @@ def spend_reset(cfg, provider, name, log):
     it would cost every other provider its reading.  The seat's own subscription is the one
     asked, the usual login included: a credit spent on another leaves the stalled week as spent.
     """
-    account = None
-    if config.accounts(cfg, provider):
-        record = config.session_records().get(name) or {}
-        account = record.get("account") or config.DEFAULT_ACCOUNT
     try:
-        spent, left = usage.replenish(cfg, provider, depleted=False, account=account)
+        spent, left = usage.replenish(cfg, provider, depleted=False,
+                                      account=seat_subscription(cfg, provider, name))
     except config.Error as exc:
         log(f"WARN could not read the {provider} meters: {exc}")
         return
@@ -2915,9 +2923,11 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     model = record["orchestrator"]
     waiting = live.get("usage_wait")
     # Reading the meters can itself spend a reset. Keep that receipt so the old
-    # refusal cannot park the capacity it just restored.
-    reset_path = config.STATE / f"{provider}-reset.json"
-    reset_before = usage._reset_applied_at(reset_path)
+    # refusal cannot park the capacity it just restored -- one naming this subscription,
+    # because another's credit, or one a receipt cannot say whose, restores nothing here.
+    mine = current if accounts else config.DEFAULT_ACCOUNT
+    reset_path = usage._reset_file(provider, mine)
+    reset_before = usage._reset_applied_at(reset_path, mine)
     from . import run
     try:
         prov = (run._cached_providers() if dry_run else usage.collect(cfg)).get(provider) or {}
@@ -2983,7 +2993,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         return True
     refilled = False
     if refusal and not waiting and reset_policy(harness) and (until is None or until > now):
-        applied = usage._reset_applied_at(reset_path)
+        applied = usage._reset_applied_at(reset_path, mine)
         refilled = applied is not None and applied != observed.get("reset_at", reset_before)
         if refilled:
             log(f"{provider}: usage-limit reset applied")
@@ -3338,7 +3348,7 @@ def health(cfg, state, dry_run, log):
             if quota and not dry_run and ends is None and not throttled:
                 if reset_policy(harness):
                     spend_reset(cfg, provider, name, log)
-                ends = window_ends(cfg, provider)
+                ends = window_ends(cfg, provider, name)
                 if ends and ends > now:
                     entry["resets_at"] = ends
             now = time.time()
