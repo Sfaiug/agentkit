@@ -711,7 +711,7 @@ _KEYED = b""       # what a keyboard sent past the key it was read for, or while
 _PRESSED = False   # the left button went down and has not been read coming up
 _ASKED = False     # a resize or a return from ^Z asked for a draw (`asked_again`)
 _POINTER = None    # where the pointer is, a `point` or a click; None until it moves, after a key
-_AWAY = False      # ... on nothing of a screen that has rows: the keys' highlight not drawn
+_AWAY = False      # ... on no row of a screen that has rows: the keys' highlight not drawn
 _UNSEEN = False    # the key read last was pressed while it was (`unseen`)
 _SPOTS = {}        # what the screen up has where (`lit`), the pointer read against it
 _SHOWN = []        # ... its lines as drawn, and with the pointer's light (`relight`)
@@ -729,16 +729,16 @@ def taken():
 
 
 def away():
-    """Whether the pointer moved onto nothing of the screen up -- no row and no key-line item, which
-    acts on the highlighted row -- which then draws no row or cell the keys' highlight is on: it
-    lost it when the pointer left, and a key brings it back."""
+    """Whether the pointer moved off every row of the screen up -- onto a key-line item, a header
+    or blank space -- which then draws no row or cell the keys' highlight is on: it lost it when
+    the pointer left, and a key brings it back where it was, the keys going on from there."""
     return _AWAY
 
 
 def unseen():
     """Whether the key read last was pressed while the keys' highlight was not drawn (`away`): a
-    key acting on what it is on then only brings it back -- Enter and space, which `read_key`
-    answers as a draw, and a screen's own, such as the menu's `x`."""
+    key acting on what it is on then only brings it back -- Enter and space, typed or clicked on
+    the key line, which `read_key` answers as a draw, and a screen's own, such as the menu's `x`."""
     return _UNSEEN
 
 
@@ -936,7 +936,8 @@ def read_key(timeout=None, wake=None):
     moves is one draw, never a draw each.  One that is not due when nothing more is sent is
     answered by a read after it; a key read past one, next.  Every other key hands the
     highlight to the keys, so the pointer lights nothing until it moves again, and Enter or
-    space while the pointer is on nothing (`away`) only brings it back, answered as a draw.
+    space -- a click on its key-line item too -- while the pointer is on no row (`away`) only
+    brings it back, answered as a draw.
     """
     global _PRESSED, _ASKED, _POINTER, _MOVED, _NEXT, _HELD, _AWAY, _UNSEEN
     key, _NEXT = _NEXT, None
@@ -982,12 +983,14 @@ def read_key(timeout=None, wake=None):
             break
     if key is None:                # the pointer's move
         (key, _), _HELD, _MOVED = _HELD, None, time.monotonic()
-        _POINTER, _AWAY = key, under(key, _SPOTS)[:2] == (None, None) and any(
+        _POINTER, _AWAY = key, under(key, _SPOTS).what is None and any(
             what is not None for what, _ in _SPOTS.values())
         return key
     _UNSEEN, _AWAY = _AWAY, False
-    _POINTER = key if key.name == "click" else None
-    if _UNSEEN and key.name in ("enter", "space"):
+    _POINTER = key if key.name == "click" and not _UNSEEN else None
+    spot = under(key, _SPOTS) if key.name == "click" else Spot()
+    if _UNSEEN and (key.name in ("enter", "space") or spot.what is None
+                    and spot.cell in ("⏎", "enter", "space")):
         _ASKED = True
         return None                # the highlight back where the keys left it, and drawn
     return key

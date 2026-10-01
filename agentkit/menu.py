@@ -2749,7 +2749,7 @@ def config_model(cfg, name):
                 before = copy.deepcopy(cfg)
                 config.remove_model(cfg, name)
                 note = _saved(cfg, cfg, before)
-        elif here in MODEL_ROWS[:2] and act in ("left", "right"):
+        elif here in MODEL_ROWS[:2] and act in ("left", "right") and not terminal.unseen():
             step = 1 if act == "right" else -1
             try:
                 note = (config_model_id(cfg, name, step, (
