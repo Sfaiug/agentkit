@@ -4939,6 +4939,7 @@ grep -q 'install.sh: tmux rejected `set -g mouse on` on the agentkit server' \
 # --- 28: watcher correctness and honest delivery, fake gh only ----------------
 if { python3 "$REPO/tests/test_v4c.py" &&
      python3 "$REPO/tests/test_reviewer_edits_never_land.py" &&
+     python3 "$REPO/tests/test_v5ac.py" &&
      python3 "$REPO/tests/test_red_target.py" &&
      python3 "$REPO/tests/test_docs.py"; } >"$WORK/v4c.log" 2>&1; then
   ok "28 watcher SHA, backoff, dry-run; required checks, delivery, roles, session age; reviewer edits archived and undone"
