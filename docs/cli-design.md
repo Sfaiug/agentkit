@@ -137,7 +137,7 @@ seat it closes at once, with no question: `orch.cmd_stop` takes its runs,
 checkouts, conversation, state files and tmux session. Any other it asks about
 on the question card (Questions), under that seat's row, the rows below moving
 down: `Stop <name> and everything it runs?`, then how many runs stop with it
-and that the conversation stays and can be reopened; the key line reads `esc
+and that ak cannot reopen the session, its record gone; the key line reads `esc
 back` while it asks. The runs are counted off the draw, so the card is up at
 once: `Its runs stop` until the number lands. The key line says `x close` while
 a done seat is highlighted (in the popup, while its own seat is done) and
@@ -181,7 +181,7 @@ Helpers: `terminal.confirm`, `terminal.choose`.
 
 Example:
 `  Stop fix-api and everything it runs?`
-`  2 runs stop with it; the conversation stays and can be reopened.`
+`  2 runs stop with it; ak cannot reopen the session: Stop removes its record.`
 `› ✓ Keep`
 `  ✗ Stop`.
 
