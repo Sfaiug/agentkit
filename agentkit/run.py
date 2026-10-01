@@ -4314,6 +4314,11 @@ def rounds(lp, execv=None):
     lp.rounds = lp.state["rounds"]
     lp.save()
     pending = lp.state.get("review_pending")
+    if (pending and "record" not in pending and pending.get("round") == lp.rnd + 1
+            and pending.get("reason", "").startswith("Re-review after the ")):
+        # Older landing receipts reserved the next round before record=False existed.
+        pending.update(round=lp.rnd, record=False)
+        lp.save()
     if pending and pending.get("record") is False:
         # A landing gate may be waiting on a changed target, not another task
         # round. Bring that target in before verifying or reviewing the fixes.
