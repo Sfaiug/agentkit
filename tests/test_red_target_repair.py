@@ -16,7 +16,7 @@ import test_red_target as red
 from agentkit import config, run, watch
 
 # Fail on the work branch and current target, but leave a moved target's old base green.
-FAILS = ("if test -f work.txt || git merge-base --is-ancestor origin/main HEAD; then "
+FAILS = ("if (test -f work.txt || git merge-base --is-ancestor origin/main HEAD); then "
          "echo 'FAIL 49 harness names 306 > 305'; exit 1; fi")
 QUESTION = "Should main keep 306 harness names or drop one?"
 SPAWN_BG = run.spawn_bg
