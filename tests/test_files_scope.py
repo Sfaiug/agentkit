@@ -49,19 +49,19 @@ class FilesScope(unittest.TestCase):
         run.git(self.repo, "add", "-A")
         run.git(self.repo, "commit", "-m", message)
 
-    def loop(self, front=""):
+    def loop(self, front="", cmds=("true",)):
         directory = config.RUNS / "scope"
         directory.mkdir()
-        body = "# Fix the api\n\n## Done when\n```bash\ntrue\n```\n"
+        body = "# Fix the api\n\n## Done when\n```bash\n" + "\n".join(cmds) + "\n```\n"
         (directory / "task.md").write_text(f"---\n{front}---\n{body}" if front else body)
         state = {"base": "main", "base_sha": self.base, "rounds": 1,
                  "executor": "opus", "reviewer": "astra", "round_summaries": []}
         lp = run.Loop(config.load(), directory, state, {}, lambda text: None,
-                      self.repo, body, ["true"], body, [])
+                      self.repo, body, list(cmds), body, [])
         return lp
 
-    def verify(self, lp):
-        lp.rnd = 1
+    def verify(self, lp, rnd=1):
+        lp.rnd = rnd
         lp.round_dir.mkdir(exist_ok=True)
         return run.verify_work(lp)
 
@@ -91,6 +91,7 @@ class FilesScope(unittest.TestCase):
         self.assertFalse(ok, text)
         self.assertIn("[exit 0]", text)
         self.assertEqual(text.splitlines()[-1], "outside files: notes.txt")
+        self.assertEqual(run.first_failure(text), "outside files: notes.txt")
         self.assertEqual((lp.round_dir / "donewhen.log").read_text(), text)
         lp.state["step"] = "reviewer"
         self.assertEqual(run.settled_gate(lp), (False, text))
@@ -164,6 +165,34 @@ class FilesScope(unittest.TestCase):
         self.assertEqual(lp.state["verdict"], "FAIL")
         self.assertFalse(lp.state["review"]["done_when"])
         self.assertIn("overridden", lp.state["review"])
+
+    def test_scope_note_does_not_hide_progress_on_a_failing_check(self):
+        cmd = "cat src/message; false"
+        lp = self.loop("files: src/\n", cmds=(cmd,))
+        self.write("notes.txt", "outside\n")
+        for rnd, message in enumerate(("AssertionError: first", "AssertionError: second"), 1):
+            self.write("src/message", message + "\n")
+            ok, text = self.verify(lp, rnd)
+            self.assertFalse(ok, text)
+            run.same_failure(lp, ok, text)
+        self.assertEqual(run.failing_checks(text), [[cmd, message]])
+        self.assertEqual(run.first_failure(text), f"`{cmd}` — {message}")
+
+    def test_changed_outside_paths_do_not_hide_an_unchanged_check_failure(self):
+        cmd = "cat src/message; false"
+        lp = self.loop("files: src/\n", cmds=(cmd,))
+        self.write("src/message", "AssertionError: unchanged\n")
+        self.write("notes.txt", "outside\n")
+        ok, text = self.verify(lp)
+        run.same_failure(lp, ok, text)
+        self.write("extra.txt", "also outside\n")
+        ok, text = self.verify(lp, 2)
+        self.assertFalse(ok, text)
+        self.assertIn("outside files: extra.txt, notes.txt", text)
+        with self.assertRaises(run.Blocked) as caught:
+            run.same_failure(lp, ok, text)
+        self.assertIn("AssertionError: unchanged", caught.exception.section)
+        self.assertNotIn("outside files:", caught.exception.section)
 
 
 if __name__ == "__main__":
