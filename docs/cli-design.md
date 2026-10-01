@@ -212,8 +212,8 @@ lists `+ add` and `− remove` open -- the key line says what it is in one plain
 sentence, in place of the keys: starting on the same row and wrapping at word
 boundaries onto further lines, never cut. The rows above stay in place. The keys
 come back when the pointer leaves it, and any key brings them back too. A state
-word, a heading naming no switches, a usage row and a provider's name only explain: nothing lights on
-them and a click there does nothing of its own (`terminal.Spot`); a key-line
+word, a heading naming no switches, a usage row and a provider's name only
+explain: nothing lights on them and a click there does nothing of its own (`terminal.Spot`); a key-line
 item whose sentence stands in its place is not lit either. `esc back` means
 just what it says, so it lights and explains nothing. The sentences live in
 one table, `terminal.TIPS`, filled in with what each is about; a key-line item
