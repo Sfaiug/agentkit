@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import browser, config, notify, orch, run, usage, watch
+from agentkit import browser, config, job as jobs, notify, orch, run, usage, watch
 
 
 class TickHealth(unittest.TestCase):
@@ -476,7 +476,7 @@ class TickHealth(unittest.TestCase):
         config.save_session(cfg, "atoll", workers[0], workers[:1])
         job_dir = config.JOBS / "20260923-2000-job"
         job_dir.mkdir(parents=True)
-        run.save_job(job_dir, {"job_id": job_dir.name, "seat": "atoll", "finished_at": None,
+        jobs.save_job(job_dir, {"job_id": job_dir.name, "seat": "atoll", "finished_at": None,
                                "started_at": time.time(), "pid": 99999999, "opts": {},
                                "cwd": str(self.root),
                                "tasks": [{"name": "a.md", "state": "queued", "after": [],
