@@ -52,6 +52,8 @@ if reviewer:
         git(root / "target", "commit", "--allow-empty", "-m", "target metadata change")
         git(root / "target", "push", "origin", "main")
     text = "VERDICT: " + ("FAIL" if count and plan.get("reject") else "PASS")
+    if count and plan.get("reject"):
+        text += "\\n## Findings\\n- expected:1 - wrong expectation - breaks callers\\n"
     code = plan.get("review_code", 0) if count else 0
 elif "## Resolve the " in prompt:
     (cwd / "shared").write_text("both intents\\n")
