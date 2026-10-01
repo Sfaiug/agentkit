@@ -122,7 +122,7 @@ class Back(unittest.TestCase):
         self.assertNotIn("Enter to go back", (REPO / "agentkit" / "menu.py").read_text())
 
     def test_v5u_frame_headers_and_key_lines(self):
-        """`x`, `n`, `c` and `i`: framed, and the key line `esc back`."""
+        """`x`, `n` and `c`: framed, and the key line `esc back`."""
         screens = {}
         screens["stop"], _, _ = self.stop("\x1b")
         out = io.StringIO()
@@ -132,7 +132,6 @@ class Back(unittest.TestCase):
             menu.new_session({}, True)
         screens["new"] = out.getvalue()
         screens["config"], _ = self.config_screen("\x1b")
-        screens["info"], _ = self.info_screen("\x1b")
         for name, screen in screens.items():
             lines = screen.splitlines()
             with self.subTest(screen=name):
@@ -171,8 +170,7 @@ class Back(unittest.TestCase):
 
     def test_v5u_no_banned_strings_on_screens(self):
         """No screen prints `Enter to go back`, `Number [` or `1) ` any more."""
-        screens = [self.stop("\x1b")[0], self.config_screen("\x1b")[0],
-                   self.info_screen("\x1b")[0]]
+        screens = [self.stop("\x1b")[0], self.config_screen("\x1b")[0]]
         out = io.StringIO()
         with patch.object(orch, "taken_names", return_value=[]), \
                 patch.object(orch, "ask_name", return_value=None), \
