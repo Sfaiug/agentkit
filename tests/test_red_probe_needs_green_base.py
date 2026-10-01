@@ -140,6 +140,8 @@ class GreenBase(unittest.TestCase):
     def test_a_failed_rebase_gate_keeps_the_old_base_after_its_fixer_review(self):
         lp, owner, base, lines, _ = self.branch_unittest(
             self.root, every="python3 -m unittest tests.test_new.New.test_no_breakage")
+        # A landing PASS can keep its checked head without a task-round row.
+        lp.state["round_summaries"].clear()
         wt = lp.wt
         (owner / "poison").touch()
         self.move_target(owner, wt)
@@ -147,7 +149,7 @@ class GreenBase(unittest.TestCase):
         def fix(lp, role, text, name, **_kw):
             self.turns.append(name)
             lp.round_dir.mkdir(parents=True, exist_ok=True)
-            path = "breakage" if name == "executor" else "poison"
+            path = "breakage" if name == "rerun-fixer" else "poison"
             (wt / path).unlink()
             run.git(wt, "add", "-A")
             run.git(wt, "commit", "-m", f"fix {path}")
@@ -156,7 +158,7 @@ class GreenBase(unittest.TestCase):
         with patch.object(run, "execute", side_effect=fix):
             self.assertTrue(run.integrate(lp, "origin/main"))
             self.assertTrue(run.final_check(lp, "origin/main"))
-        self.assertEqual(self.turns, ["executor", "final-fixer"])
+        self.assertEqual(self.turns, ["rerun-fixer", "final-fixer"])
         self.repair.assert_not_called()
         self.assertEqual("\n".join(lines).count(
             f"fails on {base[:12]} too: needs this branch"), 2)
