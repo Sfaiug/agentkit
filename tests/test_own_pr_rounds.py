@@ -72,7 +72,8 @@ class OwnPrRounds(unittest.TestCase):
                             ("collect_usage", {}), ("checks", (True, "")),
                             ("process_active", True), ("scope_alive", None),
                             ("host_status_line", "fixture host")):
-            self.stack.enter_context(patch.object(run, name, return_value=value))
+            self.stack.enter_context(patch.object(record if name == "process_active" else run,
+                                                name, return_value=value))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run, "pr_view", side_effect=lambda *_: dict(self.pr)))
         self.stack.enter_context(patch.object(run, "gh_json", side_effect=lambda *a, **k: (dict(self.pr), "")))
