@@ -65,8 +65,7 @@ class OpenGates(unittest.TestCase):
                                             'mcpServers': {'fixture': {'command': 'true'}}}),
                   '.gitconfig': '[user]\nname = fixture\n',
                   '.config/gh/config.yml': 'git_protocol: https\n',
-                  '.config/opencode/opencode.json': '{"provider": {"mimo": {"apiKey": "fixture"}}}',
-                  '.agentkit/secrets/discord_webhook': 'fixture webhook'}
+                  '.config/opencode/opencode.json': '{"provider": {"mimo": {"apiKey": "fixture"}}}'}
         with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             caller, home = root / 'caller', root / 'work/home'
@@ -729,14 +728,17 @@ for model in opus spark astra grok mimo; do model_unavailable "$model"; done
             try:
                 caller = Path(tmp) / 'caller'
                 (caller / '.agentkit/secrets').mkdir(parents=True)
-                (caller / '.agentkit/secrets/discord_webhook').write_text(
-                    f'http://127.0.0.1:{server.server_port}/hook')
-                for code in (200, 403):
+                hook = f'http://127.0.0.1:{server.server_port}/hook'
+                (caller / '.agentkit/secrets/discord_webhook').write_text(hook)
+                # the file's webhook, then the one the caller's environment names instead
+                for code, inherited in ((200, ''), (403, ''), (200, hook)):
                     status[0] = code
+                    if inherited:
+                        (caller / '.agentkit/secrets/discord_webhook').unlink()
                     env = {**os.environ, 'HOME': str(caller), 'REPO': str(REPO),
-                           'WORK': str(Path(tmp) / str(code)), 'AK_NOTIFY_SINK': 'dry-run',
+                           'WORK': str(Path(tmp) / f'{code}{inherited and "-env"}'),
+                           'AK_NOTIFY_SINK': 'dry-run', 'AGENTKIT_DISCORD_WEBHOOK': inherited,
                            'PATH': f'{REPO / "bin"}:{os.environ["PATH"]}'}
-                    env.pop('AGENTKIT_DISCORD_WEBHOOK', None)
                     result = subprocess.run(['bash', '-c', setup + '''
 smoke_home
 . "$REPO/tests/acceptance.sh"
@@ -745,7 +747,7 @@ smoke_home
                                      result.stdout + result.stderr)
                     self.assertIn('webhook configured', result.stdout)
                     self.assertNotIn('no webhook configured', result.stdout)
-                self.assertEqual(methods, ['GET', 'GET'])
+                self.assertEqual(methods, ['GET', 'GET', 'GET'])
             finally:
                 server.shutdown()
                 thread.join()

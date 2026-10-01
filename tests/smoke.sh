@@ -360,12 +360,18 @@ smoke_home() {
   # both update their config locally. OpenCode can store its static API key in its config.
   for path in "$caller_account:.claude.json" "$SMOKE_CALLER_HOME/.gitconfig:.gitconfig" \
               "$caller_gh/config.yml:.config/gh/config.yml" \
-              "$caller_opencode:.config/opencode/opencode.json" \
-              "$SMOKE_CALLER_HOME/.agentkit/secrets/discord_webhook:.agentkit/secrets/discord_webhook"; do
+              "$caller_opencode:.config/opencode/opencode.json"; do
     source=${path%:*}; target="$HOME/${path##*:}"
     smoke_source "$source" || continue
     mkdir -p -- "${target%/*}" && cp -p -- "$source" "$target" || exit 1
   done
+  # The owner's webhook, from the environment or its file, is check 5's alone: anything in this
+  # HOME may speak, a seat on a tmux server whose environment was never this command's too, and
+  # the sink diverting what was aimed at the owner fails the gate.
+  SMOKE_WEBHOOK=${AGENTKIT_DISCORD_WEBHOOK:-}
+  unset AGENTKIT_DISCORD_WEBHOOK
+  source="$SMOKE_CALLER_HOME/.agentkit/secrets/discord_webhook"
+  [ -n "$SMOKE_WEBHOOK" ] || ! smoke_source "$source" || SMOKE_WEBHOOK=$(<"$source")
   # Find installed executables without linking their writable install directories.
   export PATH="$PATH:$SMOKE_CALLER_HOME/.local/bin:$SMOKE_CALLER_HOME/.npm-global/bin:${GROK_BIN_DIR:-$SMOKE_CALLER_HOME/.grok/bin}:$SMOKE_CALLER_HOME/.opencode/bin"
   # Those binaries still belong to the caller; the sandbox must not auto-update them.
@@ -2166,8 +2172,8 @@ fi
 # --check, not a message: notifications are the orchestrator's and a smoke run is not a job.
 # It GETs the webhook, which Discord answers with the hook object without posting anything, so
 # a revoked hook or a 403 on a missing User-Agent fails here instead of sitting green for days.
-ak notify --check >"$WORK/notify.log" 2>&1; NRC=$?
-if [ -n "${AGENTKIT_DISCORD_WEBHOOK:-}" ] || [ -s "$HOME/.agentkit/secrets/discord_webhook" ]; then
+AGENTKIT_DISCORD_WEBHOOK=$SMOKE_WEBHOOK ak notify --check >"$WORK/notify.log" 2>&1; NRC=$?
+if [ -n "$SMOKE_WEBHOOK" ]; then
   if [ "$NRC" = 0 ] && grep -q '^notify: ok (200)$' "$WORK/notify.log"; then
     ok "5 ak notify --check: webhook configured and live ($(cat "$WORK/notify.log"))"
   else
@@ -2419,10 +2425,7 @@ elif [ -n "$SEATWHY" ]; then
 else
 SEAT=$(newrepo seat)
 tm kill-session -t =smoke-astra 2>/dev/null    # a seat a previous, interrupted smoke left
-# Its remote control posts a pairing notice once it connects, and this HOME holds check 5's
-# copy of the owner's webhook: like check 4's run, the seat is aimed at none.  This command
-# starts the suite's tmux server, whose environment every seat on it is handed.
-printf '\n' | ( cd "$SEAT" && AGENTKIT_DISCORD_WEBHOOK=off ak orch --model astra smoke-astra ) >"$WORK/seat.log" 2>&1
+printf '\n' | ( cd "$SEAT" && ak orch --model astra smoke-astra ) >"$WORK/seat.log" 2>&1
 SEATRC=$?
 PANE=""
 for _ in $(seq 1 30); do
