@@ -41,7 +41,7 @@ class RunBaseIsFetched(unittest.TestCase):
         self.repo = self.root / "acme"
         subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(self.origin)], check=True)
         self.git(self.root, "clone", "-q", str(self.origin), str(self.repo))
-        self.commit(self.repo, "seed")
+        self.seed = self.commit(self.repo, "seed")
         self.stale = self.commit(self.repo, "old")
         # someone else merges after this checkout last fetched: its `main` and `origin/main`
         # both still name `old`
@@ -60,12 +60,13 @@ class RunBaseIsFetched(unittest.TestCase):
         self.git(cwd, "push", "-q", "origin", "HEAD:main")
         return self.git(cwd, "rev-parse", "HEAD")
 
-    def cut(self, base=None):
+    def cut(self, base=None, target=None):
         """The commit a fresh run's worktree is made from."""
         directory = config.RUNS / f"fix-api-{base or 'default'}".replace("/", "-")
         directory.mkdir()
         task = directory / "task.md"
         task.write_text(f"---\nrepo: {self.repo}\n" + (f"base: {base}\n" if base else "")
+                        + (f"target: {target}\n" if target else "")
                         + "---\n# Fix the API\n\n## Done when\n```bash\ntrue\n```\n")
         opts = {"--rounds": "1", "--no-worktree": False, "--no-merge": True,
                 "--exec": None, "--review": None}
@@ -85,6 +86,9 @@ class RunBaseIsFetched(unittest.TestCase):
 
     def test_a_base_named_in_full_is_cut_from_origin(self):
         self.assertEqual(self.cut("refs/heads/main"), self.fresh)
+        # a branch called `origin/main` is that branch, not origin's main
+        self.git(self.origin, "update-ref", "refs/heads/origin/main", self.seed)
+        self.assertEqual(self.cut("refs/heads/origin/main"), self.seed)
 
     def test_a_single_branch_clone_fetches_a_base_it_does_not_follow(self):
         self.git(self.repo, "config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main")
@@ -94,6 +98,24 @@ class RunBaseIsFetched(unittest.TestCase):
 
     def test_the_default_base_is_fetched_before_it_is_read(self):
         self.assertEqual(self.cut(), self.fresh)
+
+    def test_the_default_base_is_origin_s_though_no_tracking_ref_names_it(self):
+        self.git(self.repo, "checkout", "-q", "-b", "dev")
+        self.git(self.repo, "update-ref", "-d", "refs/remotes/origin/main")
+        self.assertEqual(self.cut(), self.fresh)
+
+    def test_the_target_is_fetched_beside_the_base(self):
+        # the target's declared suite is read from origin/<target>: a stale one drops a check
+        self.git(self.origin, "update-ref", "refs/heads/dev", self.stale)
+        self.cut("dev", "main")
+        self.assertEqual(self.git(self.repo, "rev-parse", "refs/remotes/origin/main"), self.fresh)
+
+    def test_a_base_origin_does_not_have_is_the_local_branch_and_says_so(self):
+        self.git(self.repo, "branch", "wip", self.stale)
+        self.assertEqual(self.cut("wip"), self.stale)
+        self.assertEqual([line for line in self.logs if line.startswith("WARN")],
+                         ["WARN could not fetch wip from origin; basing this run on the local wip: "
+                          "origin has no branch wip"])
 
     def test_a_base_on_origin_is_not_taken_for_a_branch_named_like_it(self):
         self.git(self.repo, "push", "-q", "origin", f"{self.stale}:refs/heads/origin/main")
@@ -108,9 +130,14 @@ class RunBaseIsFetched(unittest.TestCase):
         self.git(self.repo, "remote", "set-url", "origin", str(self.root / "gone.git"))
         self.assertEqual(self.cut("main"), self.stale)
         warned = [line for line in self.logs if line.startswith(
-            "WARN git fetch origin failed; basing this run on the local main")]
+            "WARN could not fetch main from origin; basing this run on the local main: fatal: ")]
         self.assertEqual(len(warned), 1, self.logs)
         self.assertNotIn("\n", warned[0])
+
+    def test_offline_a_base_named_in_full_falls_back_to_that_branch(self):
+        self.git(self.repo, "remote", "set-url", "origin", str(self.root / "gone.git"))
+        self.git(self.repo, "tag", "main", self.seed)
+        self.assertEqual(self.cut("refs/heads/main"), self.stale)
 
 
 if __name__ == "__main__":
