@@ -520,16 +520,19 @@ def declared_suite(wt, target=None):
     return suite
 
 
-def with_suite(cmds, wt, target=None):
-    """The done-when commands plus the declared `tests:` suite as a `# once` line.
+def with_suite(cmds, wt, target=None, *, landing=True):
+    """Task checks, plus the declared `tests:` suite as a `# once` line when landing.
 
     A repository names its full suite once, in AGENTS.md, rather than every task writing it
     into every round: it runs once at landing on the commit to be merged.  A task line that is
     the same command is that line, so it runs once, not twice;
     so is a line that is the suite's bare first command, without its output plumbing,
     whitespace aside.  A line already marked `# once` keeps today's meaning: only one
-    identical to the suite is that line.
+    identical to the suite is that line. Without landing, omit the declared suite
+    and run task-owned `# once` checks as ordinary round checks.
     """
+    if not landing:
+        cmds = [taskfile.split_once(cmd)[0] for cmd in cmds]
     suite = declared_suite(wt, target)
     if not suite:
         return cmds
@@ -545,7 +548,7 @@ def with_suite(cmds, wt, target=None):
                 kept.append(cmd)
         elif " ".join(bare.split()) not in targets:
             kept.append(cmd)
-    return kept + [f"{suite}  # once"]
+    return kept + [f"{suite}  # once"] if landing else kept
 
 
 def slugify(title):
@@ -2043,7 +2046,9 @@ class _MergeHold:
 
     def lend(self):
         """Keep the rebased branch's files reserved while other files can land."""
-        if not self.reserved or not self.releasable or self.lent:
+        # A suite covers the whole target tree: a borrower would invalidate its check.
+        if (not self.reserved or not self.releasable or self.lent
+                or getattr(self.lp, "once", ())):
             return
         try:
             files = merge_turn_files(self.lp.wt, self.lp.base_sha)
@@ -4198,7 +4203,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
 
     The reviewer judges that work against the done-when output the loop already ran on the
     commit under review; it is told so, with the commit and the exit counts, and not to run
-    the commands again.  The declared suite and `# once` commands run at landing,
+    the commands again.  A run that lands defers its suite and `# once` commands to landing,
     and the reviewer is told their absence from the input is by design.
 
     `record` is off for landing re-review and the merge pipeline's fixer rounds: they are not task rounds
@@ -4933,14 +4938,12 @@ def integrate(lp, upstream):
     """Fetch origin and bring the branch up to date with it, resolving conflicts if there are any.
 
     A rebase, unless `how_to_integrate` says this branch's history has to survive the trip.
-    Under a landing the lap's gate turn is already held, so the fetch and the rebase run on
-    the target's tip as it reads now, and the checks run on exactly that commit -- unless
-    the target moved only outside the branch's files, which lands on the round's checks
-    without re-running them.  The tip is resolved once per lap and every check after it
-    uses that pinned commit, never the moving branch name again.  A lap re-checking under
-    a lent reserved hold skips the second fetch: borrowers may have landed disjoint moves
-    during its check, and `land` carries those over under the delivery turn without
-    another re-check.  Otherwise, when origin moved while the lap landed, the lap goes
+    A landing with a suite holds the merge turn through its checks and delivery.
+    The tip is resolved once per lap and every check after it uses that pinned commit,
+    never the moving branch name again. Without a suite, a lap re-checking under a
+    lent reserved hold skips the second fetch: borrowers may have landed disjoint
+    moves during its check, and `land` carries those over under the delivery turn
+    without another re-check. Otherwise, when origin moved while the lap landed, the lap goes
     round again, at most three laps; a move still unlanded after the third parks the run
     `waiting`, as a conflict does, and never ends it FAIL.  A re-check red on the target's
     tip and green on the old base parks without a fixer round (only the tip is probed
@@ -6054,22 +6057,23 @@ def final_check(lp, upstream):
 
 
 def land(lp, upstream, verify, deliver, execv=None):
-    """Verify without the merge turn, then hold it only for the minutes landing takes.
+    """Verify and deliver on the target tip, holding the merge turn through any suite.
 
     Each lap fetches and brings the branch onto the target's tip, then checks
-    exactly that commit; only the heavy suite takes a turn, light checks run free.
+    exactly that commit; only the heavy suite takes a heavy turn, light checks run free.
     `verify` is the rebase, the done-when and final check re-runs, and every
-    conflict fixer, final-check fixer and re-review they need.  On a loaded host
-    that is an hour, and with fixer rounds a night, and a merge turn held through
-    it lands nothing for the runs queued behind.  So the first lap's merge turn
-    covers a fetch and `deliver` -- the push, the PR, its required checks and the
-    merge.  A target still on the commit the branch was verified on lands.  One
-    moved during the suite needs verification of the new commit.  Without once-commands,
+    conflict fixer, final-check fixer and re-review they need. A lap with a suite
+    reserves the merge turn before integration and keeps it through the suite and
+    delivery, so borrowers cannot invalidate its check. Without once-commands,
+    the first lap verifies outside the turn and takes it for a fetch and `deliver`
+    -- the push, the PR, its required checks and the merge. A target still on the
+    commit the branch was verified on lands. An external move during the suite
+    needs verification of the new commit. Without once-commands,
     a disjoint move lands on the task checks; a docs overlap runs the done-when again
     (`disjoint_move`).  Any other move gives the turn
     to the next run while this one verifies again holding it, from before its
-    rebase through its merge, lending the delivery turn only to branches changing
-    other files, so the lap lands when its check passes; a third such lap parks
+    rebase through its merge. Without a suite it lends the delivery turn to branches
+    changing other files, so the lap lands when its check passes; a third such lap parks
     the run `waiting`, as a target moving under three integrations does.  A
     reserved turn is let go before any fixer or reviewer starts, and when the run
     stops, and the next lap takes it again.  A branch cut from a dependency's passed
@@ -6095,7 +6099,7 @@ def land(lp, upstream, verify, deliver, execv=None):
     try:
         for lap in range(first_lap, 4):
             pickup_new_code(lp, execv=execv, extra={"land_lap": lap})
-            reserved = lap > 1
+            reserved = bool(lp.once) or lap > 1
             # the merge turn first: the final check can wait for a heavy turn while
             # holding it, so the reverse order could deadlock two landers
             with merge_turn(lp, upstream, reserve=True) if reserved else nullcontext():
@@ -6219,10 +6223,11 @@ def merge_turn(lp, upstream, reserve=False):
 
     Passed runs of one repository that land together undo each other: each pushes a branch
     verified on a target the other's merge has just moved.  So the runs of one origin and
-    target branch take turns, and `land` keeps everything long outside them, except a lap
-    after a lost one, which reserves the turn from before its rebase through its merge.
-    After its rebase a reserved lap lends the delivery flock, keeping a flock on its
-    file list instead. Disjoint branches can then deliver one at a time; overlapping
+    target branch take turns. A lap with a suite, or after a lost lap, reserves the
+    turn from before its rebase through its merge. A suite needs the exclusive turn
+    through delivery. Without a suite, a reserved lap lends the delivery flock after
+    its rebase, keeping a flock on its file list instead. Disjoint branches can then
+    deliver one at a time; overlapping
     branches wait for the reservation without blocking delivery. The kernel releases
     both flocks when their holder dies. A run waiting says so on its record, and host
     admission does not count it as a running worker meanwhile; a reserved lap marks its
@@ -6871,8 +6876,10 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         target = state.get("target") or state["base"]
         where = (f"Repo checkout: {wt}\nBranch: {state['branch']} (based on {state['base']}"
                  + (f", to be merged into {target}" if target != state["base"] else "") + ")")
-    if not state.get("scratch"):
-        cmds = with_suite(cmds, wt, target)
+    if state.get("scratch"):
+        cmds = [taskfile.split_once(cmd)[0] for cmd in cmds]
+    else:
+        cmds = with_suite(cmds, wt, target, landing=not state.get("no_merge"))
     every, once = taskfile.group_commands(cmds)
     body += project_lessons(repo, state, log) + repo_rules(wt, state.get("base_sha"), log)
     save_state(run_dir, state)
@@ -10451,11 +10458,14 @@ def status_final_check(directory, state):
         cmds = taskfile.done_when(body, directory / "task.md")
     except (OSError, config.Error):
         return None
+    if state.get("scratch") or state.get("no_merge"):
+        cmds = [taskfile.split_once(cmd)[0] for cmd in cmds]
     if not state.get("scratch") and not state.get("review_pr"):
         wt = state.get("worktree")
         if wt:
             try:
-                cmds = with_suite(cmds, Path(wt), state.get("target") or state.get("base"))
+                cmds = with_suite(cmds, Path(wt), state.get("target") or state.get("base"),
+                                  landing=not state.get("no_merge"))
             except Exception:
                 pass
     return final_check_line(state, cmds)
@@ -11716,10 +11726,14 @@ def preflight(run_dir, opts, log):
         state["title"] = title
         save_state(run_dir, state)
         every, once = taskfile.done_when_groups(body, run_dir / "task.md")
+        repo = task_repo(meta, run_dir / "task.md")
+        if opts["--no-merge"] or repo is None:
+            every = [taskfile.split_once(cmd)[0]
+                     for cmd in taskfile.done_when(body, run_dir / "task.md")]
+            once = []
         commands = " ; ".join(every)
         if once:
             commands += f"{' ; ' if commands else ''}once: {' ; '.join(once)}"
-        repo = task_repo(meta, run_dir / "task.md")
         # What this run will deliver, settled before it ever waits for a slot: a scratch task
         # and `--no-merge` both push nothing, and the receipt is read long before the loop
         # writes the same answer into the full state -- `ak watch` reads it to know which

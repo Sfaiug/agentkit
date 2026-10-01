@@ -22,6 +22,10 @@ class DeferredChecks(unittest.TestCase):
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         workspace = root / "workspace"
         workspace.mkdir()
+        run.git(workspace, "init", "-b", "main")
+        run.git(workspace, "config", "user.name", "fixture")
+        run.git(workspace, "config", "user.email", "fixture@localhost")
+        run.git(workspace, "commit", "--allow-empty", "-m", "fixture")
         round_dir = root / "round-1"
         round_dir.mkdir()
 
@@ -33,7 +37,9 @@ class DeferredChecks(unittest.TestCase):
                 self.body = "# Fixture task"
                 self.cmds = ["true", *once]
                 self.every = ["true"]
-                self.scratch = True
+                self.scratch = False
+                self.base = "main"
+                self.base_sha = run.git(workspace, "rev-parse", "HEAD")
                 self.state = {"round_summaries": [], "executor": "executor", "reviewer": "reviewer"}
                 self.rnd = 1
                 self.round_dir = round_dir
@@ -43,7 +49,7 @@ class DeferredChecks(unittest.TestCase):
                 self.spares = []
                 self.findings = ""
                 self.artifacts = set()
-                self.validation = {}
+                self.validation = run.commit_identity(workspace)
                 self.once = list(once)
                 self.turn_limit = 1
 
@@ -91,7 +97,8 @@ class DeferredChecks(unittest.TestCase):
     def test_reviewer_preambles_explain_deferred_commands(self):
         clause = "except the commands marked deferred, which run once at landing"
         self.assertIn(clause, worker.PREAMBLES["reviewer"])
-        self.assertIn(clause, worker.PREAMBLES["reviewer-scratch"])
+        self.assertNotIn("landing", worker.PREAMBLES["reviewer-scratch"])
+        self.assertNotIn("deferred", worker.PREAMBLES["reviewer-scratch"])
 
     def test_result_marks_once_command_as_final_check(self):
         root = Path(tempfile.mkdtemp(prefix=".ak-test-deferred-result-", dir=REPO))

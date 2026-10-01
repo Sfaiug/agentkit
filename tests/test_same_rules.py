@@ -127,10 +127,8 @@ class SameRules(unittest.TestCase):
                 self.assertNotIn("users: none", prompt)
                 self.assertNotIn("before you hand over", prompt)
         executor = prompts[0][1]
-        self.assertIn("The loop runs these once at landing on the commit to be merged; "
-                      "do not run them yourself:\n"
-                      "  $ echo acme-suite", executor)
-        self.assertEqual(executor.count("echo acme-suite"), 1)
+        self.assertNotIn("runs these once at landing", executor)
+        self.assertNotIn("echo acme-suite", executor)
         # the base commit's file, never the checkout's: the work cannot rewrite its rules
         wt = Path(self.state["worktree"])
         (wt / "AGENTS.md").write_text("# rewritten on the branch\n")

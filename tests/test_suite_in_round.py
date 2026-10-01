@@ -159,11 +159,14 @@ class SuiteInRound(unittest.TestCase):
     def test_rounds_without_landing_never_run_the_suite(self):
         self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")
         self.opts["--no-merge"] = True
-        directory, state = self.launch("no-landing", ["true"])
+        directory, state = self.launch("no-landing", ["true  # once", SUITE])
         self.assertEqual(state["state"], "pass", self.logs)
         self.assertEqual(self.gates, [("donewhen.log", ["true"])])
         self.assertNotIn("final_check", state)
-        self.assertEqual(run.status_final_check(directory, state), "final check: not run")
+        self.assertEqual(run.status_final_check(directory, state),
+                         "final check: none (no once-commands)")
+        self.assertNotIn("runs these once at landing", "\n".join(body for _, body in self.prompts))
+        self.assertNotIn(SUITE, (directory / "result.md").read_text())
 
     def test_scratch_runs_task_once_checks_in_the_round(self):
         directory, state = self.launch("scratch-once", ["true", "false  # once"],
@@ -174,6 +177,8 @@ class SuiteInRound(unittest.TestCase):
         self.assertNotIn("final_check", state)
         self.assertNotIn("run once at landing", "\n".join(body for _, body in self.prompts))
         self.assertIn("false", (directory / "result.md").read_text())
+        self.assertEqual(run.status_final_check(directory, state),
+                         "final check: none (no once-commands)")
 
     def test_reviewer_is_told_the_suite_runs_at_landing(self):
         self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")
@@ -188,7 +193,8 @@ class SuiteInRound(unittest.TestCase):
         self.assertNotIn(SUITE + "\n[exit", prompt)
         clause = "except the commands marked deferred, which run once at landing"
         self.assertIn(clause, worker.PREAMBLES["reviewer"])
-        self.assertIn(clause, worker.PREAMBLES["reviewer-scratch"])
+        self.assertNotIn("landing", worker.PREAMBLES["reviewer-scratch"])
+        self.assertNotIn("deferred", worker.PREAMBLES["reviewer-scratch"])
 
     def test_landing_runs_the_suite_on_still_and_overlapping_targets(self):
         origin = self.root / "origin.git"

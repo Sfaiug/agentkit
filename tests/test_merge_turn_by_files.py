@@ -1,4 +1,4 @@
-"""A reserved re-check blocks only overlapping branches; delivery stays serial.
+"""Suites keep the merge turn; re-checks without a suite lend it to disjoint branches.
 
 Real local git remotes, kernel flocks and a temporary HOME. The shared landing
 fixture stubs only providers and PR operations, and really squash-merges on origin.
@@ -67,8 +67,7 @@ class MergeTurnByFiles(LandingCase):
     def test_disjoint_runs_land_during_recheck_and_overlap_waits_for_holder(self):
         remote, owner = make_origin(self.root)
         one = make_run(self.root, remote, "acme", [
-            f"echo every >> {self.counter}",
-            f'echo "once $(git rev-parse HEAD)" >> {self.counter} # once'],
+            f"echo every >> {self.counter}"],
             {"shared.txt": "acme\n2\n3\n4\n5\n"})
         overlap = make_run(self.root, remote, "overlap", ["true"],
                            {"shared.txt": "1\n2\noverlap\n4\n5\n"})
@@ -138,15 +137,10 @@ class MergeTurnByFiles(LandingCase):
                     thread.join(30)
                     self.assertFalse(thread.is_alive(), "a landing never finished")
         self.assertEqual(results, {lp.state["run_id"]: True for lp in (one, two, three, overlap)})
-        self.assertEqual(self.merges[:2], [("bravo", True), ("charlie", True)])
-        # A moved target needs a third lap; releasing the second lets the overlap
-        # take its turn before the holder reacquires the reservation.
-        self.assertCountEqual(self.merges[2:], [("acme", True), ("overlap", True)])
-        rows = [line.split() for line in self.counter.read_text().splitlines()]
-        self.assertEqual([row[0] for row in rows].count("once"), 3)
-        self.assertEqual(rows[-1], ["once", one.state["delivery_sha"]])
-        self.assertEqual(one.state["final_check"]["sha"], one.state["delivery_sha"])
-        self.assertIn("verifying again holding the merge turn",
+        self.assertEqual(self.merges, [("bravo", True), ("charlie", True),
+                                      ("acme", True), ("overlap", True)])
+        self.assertEqual(self.counter.read_text().splitlines(), ["every"] * 2)
+        self.assertIn("none touching this branch's files; landing on the verified checks",
                       (one.run_dir / "log.txt").read_text())
         self.assertNotIn("waiting for the merge turn", (two.run_dir / "log.txt").read_text())
         self.assertFalse(list(config.RUNS.glob("*.hold")))
@@ -156,8 +150,7 @@ class MergeTurnByFiles(LandingCase):
     def test_holder_taking_back_its_turn_is_not_silent_and_lands_verified(self):
         remote, owner = make_origin(self.root)
         one = make_run(self.root, remote, "acme", [
-            f"echo every >> {self.counter}",
-            f'echo "once $(git rev-parse HEAD)" >> {self.counter} # once'],
+            f"echo every >> {self.counter}"],
             {"shared.txt": "acme\n2\n3\n4\n5\n"})
         two = make_run(self.root, remote, "bravo", ["true"])
         commit(owner, "shared.txt", "1\n2\n3\n4\noutside")
@@ -227,13 +220,10 @@ class MergeTurnByFiles(LandingCase):
                     self.assertFalse(thread.is_alive(), "a landing never finished")
         self.assertEqual(results, {lp.state["run_id"]: True for lp in (one, two)})
         self.assertEqual(self.merges, [("bravo", True), ("acme", True)])
-        rows = [line.split() for line in self.counter.read_text().splitlines()]
-        self.assertEqual([row[0] for row in rows].count("once"), 3)
-        self.assertEqual(rows[-1], ["once", one.state["delivery_sha"]])
-        self.assertEqual(one.state["final_check"]["sha"], one.state["delivery_sha"])
+        self.assertEqual(self.counter.read_text().splitlines(), ["every"] * 2)
         self.assertIn("taking back the merge turn of acme main",
                       (one.run_dir / "log.txt").read_text())
-        self.assertIn("verifying again holding the merge turn",
+        self.assertIn("none touching this branch's files; landing on the verified checks",
                       (one.run_dir / "log.txt").read_text())
         self.assertNotIn("merge_retake", run.read_state(one.run_dir))
         self.assertFalse(list(config.RUNS.glob("*.hold")))

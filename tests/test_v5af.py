@@ -198,7 +198,7 @@ class V5af(unittest.TestCase):
                          ["cmd-a", "cmd-b  # once", "cmd-c #once", "cmd-d # once more",
                           'echo "# once"', "echo '# once'"])
 
-    def test_v5af_rounds_never_run_the_once_commands(self):
+    def test_v5af_no_merge_runs_task_once_checks_in_each_round(self):
         self.plan = {"reviews": ["FAIL", "PASS"]}
         code, state = self.launch(self.every_cmd(), f"{self.every_cmd('once')}  # once",
                                   rounds=3, flags=("--no-merge",))
@@ -206,8 +206,15 @@ class V5af(unittest.TestCase):
         self.assertEqual(state["verdict"], "PASS")
         self.assertEqual(len(state["round_summaries"]), 2)
         self.assertEqual(self.counts("every"), 2)
-        self.assertEqual(self.counts("once"), 0)
+        self.assertEqual(self.counts("once"), 2)
         self.assertNotIn("final_check", state)
+        prompt = (self.directory / "round-1" / "executor" / "prompt.md").read_text()
+        self.assertIn(f"  $ {self.every_cmd('once')}", prompt)
+        self.assertNotIn("runs these once at landing", prompt)
+        self.assertIn("final check: none (no once-commands)",
+                      (self.directory / "result.md").read_text())
+        self.assertEqual(run.status_final_check(self.directory, state),
+                         "final check: none (no once-commands)")
 
     def test_v5af_no_merge_fails_when_a_task_once_check_fails(self):
         code, state = self.launch("true", "false  # once", rounds=1, flags=("--no-merge",))
@@ -215,7 +222,7 @@ class V5af(unittest.TestCase):
         self.assertEqual(state["verdict"], "FAIL")
         self.assertFalse(state["round_summaries"][0]["done_when"])
         self.assertNotIn("final_check", state)
-        self.assertNotIn("run these once at landing", "\n".join(self.prompts()))
+        self.assertNotIn("runs these once at landing", "\n".join(self.prompts()))
         self.assertIn("false\n[exit 1]", (self.directory / "round-1" / "donewhen.log").read_text())
 
     def test_v5af_suite_runs_at_landing_on_the_pushed_commit(self):
@@ -284,8 +291,7 @@ class V5af(unittest.TestCase):
         self.assertIn("final check: none (no once-commands)", result)
 
     def test_v5af_executor_prompt_lists_once_commands_under_their_heading(self):
-        code, _ = self.launch(self.every_cmd(), f"{self.every_cmd('once')}  # once",
-                              flags=("--no-merge",))
+        code, _ = self.launch(self.every_cmd(), f"{self.every_cmd('once')}  # once")
         self.assertEqual(code, 0, self.log_text())
         prompt = (self.directory / "round-1" / "executor" / "prompt.md").read_text()
         self.assertIn("Done-when commands, all must exit 0", prompt)
