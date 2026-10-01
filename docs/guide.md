@@ -84,7 +84,7 @@ Under a systemd older than 253 the whole run ends `fail` with `killed: memory ca
 A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run scope and cap; one run from a terminal runs its tasks in its own process.
 
 The worktree is `~/.agentkit/wt/<id>` on branch `ak/<slug>`, the first name free locally and on `origin`. The executor
-writes and commits, its commands in the foreground. The loop runs the checks itself and hands the diff and their output
+writes and commits, its commands in the foreground. Every turn has its own process marker: ak logs and stops any leftovers, then asks once to finish in the foreground; the suite and loop helpers keep running. The loop runs the checks itself and hands the diff and their output
 to the reviewer, another model where the workers allow one, else the executor's own. Task reviewers may run whatever is needed to prove or dismiss a finding, except done-when commands, the repository's `tests:` suite, and checks marked deferred, which run alongside the review.
 They keep the work under review read-only; probes leave nothing behind outside a temporary directory. Reviewers of others' PRs stay read-only and may run tests and commands.
 A reviewer answers `VERDICT: PASS` or `VERDICT: FAIL`; one with no verdict is asked once more, never failed. A round passes only when the reviewer says PASS and the suite passes; a failing suite fails the round and its output goes to the fixer with the findings. A round is FAIL only for a blocking finding: a correctness defect, a safety

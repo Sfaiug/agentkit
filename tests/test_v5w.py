@@ -125,6 +125,9 @@ sys.exit(1)
         self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
+        # These adapters start no background commands; process discovery is covered by its
+        # own fixture, so this prompt regression never reads the host's process table.
+        self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
