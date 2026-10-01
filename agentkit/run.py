@@ -1459,9 +1459,9 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         named = env if account is None else {**env, **config.account_env(account)}
         try:
             with reviewer_checkout(workspace, target, log) if role in (
-                    "reviewer", "reviewer-pr") else nullcontext():
-                result = worker.call(cfg, name, text, workspace, target, role, session, env=named,
-                                     limit=limit)
+                    "reviewer", "reviewer-pr") else nullcontext(workspace) as cwd:
+                result = worker.call(cfg, name, text.replace(str(Path(workspace).resolve()), str(cwd)), cwd,
+                                     target, role, session, env=named, limit=limit)
         except worker.LoginExpired as expired:
             log(f"{role} {name} cannot authenticate: {expired.why}; the run waits for that "
                 "login rather than retrying into it")
@@ -1671,8 +1671,45 @@ def reset_checkout(wt, head, before, check=False):
 
 @contextmanager
 def reviewer_checkout(wt, out_dir, log):
+    """Keep the reviewer's files and refs apart from the suite running in the task checkout."""
+    wt = Path(wt).resolve()
+    root = git(wt, "rev-parse", "--show-toplevel", check=False)
+    if not root or Path(root).resolve() != wt:
+        # Role-only callers can use a plain workspace inside some other repository.
+        yield wt
+        return
+    checkout = Path(out_dir).parent / "review-checkout"
+    checkout.parent.mkdir(parents=True, exist_ok=True)
+    with ExitStack() as stack:
+        if checkout.exists():
+            shutil.rmtree(checkout)
+        stack.callback(shutil.rmtree, checkout, ignore_errors=True)
+        # A mirror keeps the source's base refs but owns its refs and index; a linked
+        # worktree would still let a reviewer move the task branch through shared refs.
+        git(wt, "clone", "--quiet", "--shared", "--mirror", str(wt), str(checkout / ".git"))
+        git(checkout, "config", "core.bare", "false")
+        git(checkout, "read-tree", git(wt, "write-tree"))
+        shutil.copytree(wt, checkout, symlinks=True, dirs_exist_ok=True,
+                        ignore=lambda directory, names: [n for n in names if n == ".git"
+                            or n.startswith(SANDBOX_PREFIX)] if Path(directory) == wt else [])
+        for key in ("user.name", "user.email"):
+            value = git(wt, "config", "--get", key, check=False)
+            if value:
+                git(checkout, "config", key, value)
+        exclude = Path(git(wt, "rev-parse", "--git-path", "info/exclude"))
+        if not exclude.is_absolute():
+            exclude = wt / exclude
+        if exclude.is_file():
+            shutil.copyfile(exclude, checkout / ".git/info/exclude")
+        with reviewer_changes(checkout, out_dir, log):
+            yield checkout
+
+
+@contextmanager
+def reviewer_changes(wt, out_dir, log):
     """A review turn's changes survive only in its round's patch, including on a failed turn."""
     head = git(wt, "rev-parse", "HEAD")
+    branch = git(wt, "symbolic-ref", "--quiet", "HEAD", check=False)
     before = set(dirty_paths(wt))
     staged = git(wt, "write-tree")
     # A private index records untracked files too, without staging artifacts for the next
@@ -1686,14 +1723,18 @@ def reviewer_checkout(wt, out_dir, log):
             yield
         finally:
             after = git(wt, "rev-parse", "HEAD")
+            branch_after = git(wt, "symbolic-ref", "--quiet", "HEAD", check=False)
             staged_after = git(wt, "write-tree")
             git(wt, "add", "-A", "--", ".", env=index)
             tree_after = git(wt, "write-tree", env=index)
-            if (after, staged_after, tree_after) != (head, staged, tree):
+            if (after, branch_after, staged_after, tree_after) != (head, branch, staged, tree):
                 path = Path(out_dir).parent / "reviewer-changes.patch"
                 paths, patches = set(), set()
                 with path.open("a") as saved:
                     saved.write(f"# {Path(out_dir).name}: HEAD {head} -> {after}\n")
+                    if branch_after != branch:
+                        saved.write(f"# checkout: {branch or 'detached HEAD'} -> "
+                                    f"{branch_after or 'detached HEAD'}\n")
                     for label, old, new in (("checkout", tree, tree_after),
                                             ("commits", head, after),
                                             ("index", staged, staged_after)):
@@ -1703,6 +1744,10 @@ def reviewer_checkout(wt, out_dir, log):
                         if diff and diff not in patches:
                             saved.write(f"# {label}\n{diff}\n")
                             patches.add(diff)
+                if branch:
+                    git(wt, "symbolic-ref", "HEAD", branch)
+                else:
+                    git(wt, "update-ref", "--no-deref", "HEAD", head)
                 reset_checkout(wt, head, before, check=True)
                 if before:
                     git(wt, "restore", f"--source={tree}", "--worktree", "--",
@@ -1711,6 +1756,8 @@ def reviewer_checkout(wt, out_dir, log):
                 undone = ", ".join(sorted(paths))
                 if after != head:
                     undone = f"commit {after[:12]} back to {head[:12]}" + (f"; {undone}" if undone else "")
+                if branch_after != branch:
+                    undone = f"checkout back to {branch or 'detached HEAD'}" + (f"; {undone}" if undone else "")
                 log(f"WARN undid reviewer changes: {undone}; saved {path}")
 
 
@@ -4126,8 +4173,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                 "AK_RUN_LOG": str(out2.parent.parent / "log.txt")}
         stop_check(lp.run_dir)
         try:
-            with reviewer_checkout(lp.wt, out2, lp.log) if not lp.scratch else nullcontext():
-                code2, text2, sid2, killed2 = worker.call(lp.cfg, lp.reviewer, NO_VERDICT_ASK, lp.wt,
+            with reviewer_checkout(lp.wt, out2, lp.log) if not lp.scratch else nullcontext(lp.wt) as cwd:
+                code2, text2, sid2, killed2 = worker.call(lp.cfg, lp.reviewer, NO_VERDICT_ASK, cwd,
                                                           out2, lp.role("reviewer"), lp.review_sid,
                                                           env=env2, limit=lp.turn_limit)
             # The extra ask names no account, so it runs on the usual login: the turn's

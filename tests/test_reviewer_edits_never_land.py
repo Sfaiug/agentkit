@@ -1,12 +1,14 @@
 """A reviewer's edits are archived, then undone before any next turn or round."""
 
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -15,7 +17,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, run, worker
 
 
-ADAPTER = '''import json, os, pathlib, subprocess, sys
+ADAPTER = '''import json, os, pathlib, subprocess, sys, time
 assert sys.argv[1] == "run", sys.argv
 root = pathlib.Path(os.environ["REVIEW_FIXTURE"])
 wt, out = pathlib.Path(sys.argv[4]), pathlib.Path(sys.argv[6])
@@ -24,12 +26,24 @@ def git(*args):
 if (git("rev-parse", "HEAD") != (root / "head").read_text()
         or (wt / "tracked.txt").read_text() != "executor work\\n"
         or (wt / "keep/existing.txt").read_text() != "suite artifact\\n"
-        or sorted(git("ls-files", "--others", "--exclude-standard").splitlines()) != ["keep/existing.txt"]):
+        or sorted(p for p in git("ls-files", "--others", "--exclude-standard").splitlines()
+                  if p != "report.txt") != ["keep/existing.txt"]):
     (out / "final.md").write_text("VERDICT: FAIL\\n## Findings\\nThe previous turn's edits remain.")
     sys.exit(0)
 plan = json.loads((root / "responses.json").read_text())
 row = plan.pop(0)
 (root / "responses.json").write_text(json.dumps(plan))
+if row.get("signal"):
+    (root / row["signal"]).touch()
+if row.get("wait"):
+    deadline = time.monotonic() + 5
+    while not (root / row["wait"]).exists():
+        if time.monotonic() >= deadline:
+            (out / "final.md").write_text("VERDICT: FAIL\\nTimed out waiting for the fixture suite.")
+            sys.exit(0)
+        time.sleep(0.01)
+for args in row.get("git", []):
+    git(*args)
 for name, content in row.get("files", {}).items():
     path = wt / name
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -216,6 +230,102 @@ class ReviewerEdits(unittest.TestCase):
         self.assert_restored()
         self.assertFalse(self.archive.exists())
         self.assertFalse(any("WARN" in line for line in self.logs), self.logs)
+
+    def suite_files_case(self, no_verdict):
+        self.lp.once = ["test -f report.txt"]
+        finished = threading.Event()
+        real_join = run.join_suite
+
+        def suite(cmds, cwd, log_path, *args, **_kw):
+            deadline = time.monotonic() + 5
+            while not (self.root / "review-started").exists():
+                if time.monotonic() >= deadline:
+                    raise AssertionError("the reviewer never started")
+                time.sleep(0.01)
+            report = Path(cwd) / "report.txt"
+            report.write_text("coverage\n")
+            (self.root / "suite-ready").touch()
+            if not finished.wait(5):
+                raise AssertionError("the reviewer never finished")
+            ok = report.exists() and report.read_text() == "coverage\n"
+            text = f"$ {cmds[0]}\n[exit {0 if ok else 1}]\n"
+            Path(log_path).write_text(text)
+            self.lp.artifacts.add("report.txt")
+            return ok, text
+
+        def join(lp):
+            finished.set()
+            return real_join(lp)
+
+        rows = [{"signal": "review-started", "wait": "suite-ready",
+                 "text": "Still reviewing." if no_verdict else "VERDICT: PASS"}]
+        if no_verdict:
+            rows.append({})
+        with patch.object(run, "run_done_when", side_effect=suite), \
+                patch.object(run, "join_suite", side_effect=join):
+            self.lp.suite_thread, self.lp.suite_box = run.start_suite(self.lp)
+            thread = self.lp.suite_thread
+            try:
+                verdict = self.review(*rows)
+            finally:
+                finished.set()
+                thread.join(5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(verdict, "PASS", self.logs)
+        self.assertTrue(self.lp.once_ok)
+        self.assertEqual((self.wt / "report.txt").read_text(), "coverage\n")
+        self.assertFalse(self.archive.exists())
+        self.assertFalse(any("WARN" in line for line in self.logs), self.logs)
+
+    def test_live_suite_files_survive_a_read_only_reviewer(self):
+        self.suite_files_case(False)
+
+    def test_live_suite_files_survive_the_extra_verdict_ask(self):
+        self.suite_files_case(True)
+
+    def test_branch_switches_and_detached_head_do_not_reach_the_fixer(self):
+        real_changes = run.reviewer_changes
+
+        @contextmanager
+        def check_reset(wt, out, log, **_kw):
+            with real_changes(wt, out, log):
+                yield
+            self.assertEqual(run.git(wt, "symbolic-ref", "--short", "HEAD"), "ak/fix-api")
+            self.assertEqual(run.git(wt, "rev-parse", "HEAD"), self.head)
+
+        for row in (
+                {"git": [["switch", "-q", "-c", "probe"]]},
+                {"git": [["switch", "-q", "-c", "probe"]],
+                 "files": {"probe.txt": "reviewer commit\n"}, "commit": True},
+                {"git": [["checkout", "-q", "--detach", "HEAD~1"]]}):
+            with self.subTest(row=row):
+                try:
+                    with patch.object(run, "reviewer_changes", side_effect=check_reset):
+                        self.assertEqual(self.review(row), "PASS")
+                    self.assert_restored()
+                    self.assertIn("# checkout:", self.archive.read_text())
+                    (self.wt / "fixer.txt").write_text("fixer work\n")
+                    run.commit_leftovers(self.wt, self.logs.append, self.lp.artifacts)
+                    self.assertNotEqual(self.git("rev-parse", "ak/fix-api"), self.head)
+                    self.assertEqual(self.git("rev-parse", "ak/fix-api"),
+                                     self.git("rev-parse", "HEAD"))
+                finally:
+                    self.git("symbolic-ref", "HEAD", "refs/heads/ak/fix-api")
+                    self.git("reset", "--hard", self.head)
+                    if self.git("branch", "--list", "probe"):
+                        self.git("branch", "-D", "probe")
+
+    def test_a_role_fixture_below_a_repository_is_not_a_review_checkout(self):
+        def fake(cfg, name, body, workspace, out, role, session, **_kw):
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "final.md").write_text("VERDICT: PASS")
+            return 0, "VERDICT: PASS", None, False
+
+        with patch.object(worker, "call", side_effect=fake):
+            for role in ("reviewer", "reviewer-pr"):
+                self.assertEqual(run.call_retrying(
+                    self.lp.cfg, "astra", "Review.", self.root, self.lp.dir(role), role,
+                    None, self.logs.append)[0], 0)
 
 
 if __name__ == "__main__":
