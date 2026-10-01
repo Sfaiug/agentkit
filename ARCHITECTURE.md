@@ -35,16 +35,16 @@ named; `tests/test_boundaries.py` counts them.
 - `job.py`: several task files as one job. Hides the receipt (`job.json`), the scheduler,
   each task's ladder (waits, one merge, one rerun), hand-back and relaunch; calls the loop
   as `run.*`. Used by run (main, status, gc, stop, resume), watch and menu.
-- `watch.py`: the tick. Hides watch.json, manifest screen rules and words (`stalls`,
-  `auth_expiry`), seat state (`session_state`, `waiting_on`), typing into and reviving
-  seats, resuming runs, PR scanning, `doctor`. Used by run, job, orch, menu, notify,
+- `watch.py`: tick. Hides watch.json, seat errors (harness record, else manifest
+  screen rules and words; `stalls`, `auth_expiry`), state (`session_state`, `waiting_on`),
+  typing and reviving seats, resuming runs, PR scans, `doctor`. For run, job, orch, menu, notify,
   update, usage, worker and both hooks. Leaks: run.json writes (stall ladder,
   freeze marks, resume passes; all through `run.record`), run states (`GOING`).
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename`. Used by menu, watch, run, job, notify, usage,
   update. Leaks: rename rewrites watch.json and run.json; binds Claude panes by name.
-- `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`/`i`. Also owns run listing
+- `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`. Also owns run listing
   (`run_records`, `tally`) and the seat status bar (`redress`) that watch, run, orch and
   notify import. Leaks: provider colour and name tables; reads `usage.json` itself.
 - `config.py`: every `~/.agentkit` path, config.toml, models, providers, accounts, adapter

@@ -2615,6 +2615,9 @@ class Loop:
         # it: what `save` measures its own changes by.  Never read back off the disk, where a
         # key another writer set since would read as one this loop removed.
         self.written = copy.deepcopy(state)
+        if probe := state.get("probe_checkout"):
+            log("--- resuming: restoring the interrupted probe's checkout")
+            restore_probe_checkout(self, **probe)
 
     def role(self, name):
         """The preamble this run's workers get: a scratch run has no commits to talk about."""
@@ -3242,6 +3245,8 @@ def regression_fails_before(lp):
     base = lp.base_sha
     stop_check(lp.run_dir)
     probe_log = lp.run_dir / "regression-base.log"
+    label = f"regression.sh on base {base}"
+    save_probe_checkout(lp, head, branch, before, label)
     try:
         git(lp.wt, "checkout", "--quiet", "--detach", base)
         if paths:
@@ -3260,9 +3265,7 @@ def regression_fails_before(lp):
         memory_cap_note(lp.run_dir, lp.log)
         worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
     finally:
-        restored = restore_probe_checkout(lp, head, branch, before, f"regression.sh on base {base}")
-    if not restored:
-        return "regression.sh probe left the worktree off HEAD or dirty"
+        restore_probe_checkout(lp, head, branch, before, label)
     if killed or code < 0:
         return f"regression.sh did not finish on base {base}: it does not show the defect"
     if code == 0:
@@ -3411,10 +3414,10 @@ def join_suite(lp):
 
 
 def pending_review(lp, reason):
-    """Invalidate before integration can be delivered, without granting extra task rounds."""
+    """Invalidate before delivery; landing review spends no round, only fixing findings does."""
     entries = lp.state["round_summaries"]
     lp.state.update(verdict=None, review=None,
-                    review_pending={"round": lp.rnd + 1,
+                    review_pending={"round": lp.rnd, "record": False,
                                     "summary": entries[-1]["summary"] if entries else "",
                                     "reason": reason})
     lp.save()
@@ -3972,9 +3975,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     that suite passed, and the reviewer is told its absence from the input is by design
     -- the output does not exist yet when the review starts.
 
-    `record` is off for a merge pipeline's conflict rounds only: they are not task rounds
-    and must not spend one, so no summary of them enters the rounds' own history -- see
-    `resolve_conflicts`.  The verdict is recorded either way, because delivery is decided
+    `record` is off for landing re-review and the merge pipeline's fixer rounds: they are not task rounds
+    and must not spend one, so no summary of them enters the rounds' own history.
+    The verdict is recorded either way, because delivery is decided
     on it.
     """
     lp.state.update(verdict=None, review=None,
@@ -4287,8 +4290,24 @@ def rounds(lp, execv=None):
     invalidate_saved_pass(lp.state, lp.cfg, lp.log)
     lp.rounds = lp.state["rounds"]
     lp.save()
+    pending = lp.state.get("review_pending")
+    if pending and pending.get("record") is False:
+        # A landing gate may be waiting on a changed target, not another task
+        # round. Bring that target in before verifying or reviewing the fixes.
+        upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
+        if not integrate(lp, upstream) and lp.state.get("merge_failed"):
+            # An unreachable target needs the tick's error retry, not a task verdict.
+            raise config.Error(lp.state["merge_note"])
+        return
     if review_pass(lp.state, lp.cfg) and not current_review(lp):
-        pending_review(lp, "The saved reviewed commit changed; verify the current checkout.")
+        # A changed checkout needs a task review, not landing's target integration on resume.
+        entries = lp.state["round_summaries"]
+        lp.state.update(verdict=None, review=None,
+                        review_pending={"round": lp.rnd + 1,
+                                        "summary": entries[-1]["summary"] if entries else "",
+                                        "reason": "The saved reviewed commit changed; "
+                                                  "verify the current checkout."})
+        lp.save()
     if current_review(lp):
         lp.log(f"already passed at round {lp.rnd}/{lp.rounds}; going straight to the merge")
         return
@@ -4546,21 +4565,20 @@ def wait_for_dependency(lp):
 
 
 def abort_integration(lp, how):
-    """Put the branch back, and drop the re-review the abandoned integration asked for.
+    """Put the branch back, keeping any earlier landing review.
 
-    `integrate` records that pending review before git rewrites HEAD, so an interruption
-    mid-rebase cannot leave a saved PASS.  Once the rebase or merge is aborted the branch is
-    exactly what it was and the record describes work that never happened: left behind, it
-    would spend a resumed run's next round re-reviewing instead of fixing, and record that
-    round twice.  The invalidated verdict stays invalidated -- only the pending work goes.
+    A task review describes the abandoned integration and goes with it. A non-task
+    review can predate it: the restored HEAD still holds unreviewed landing fixes,
+    so recovery must keep that pending review at the current round. The invalidated
+    verdict stays invalidated.
     """
     git_out(lp.wt, how, "--abort")
-    lp.state.pop("review_pending", None)
+    if (lp.state.get("review_pending") or {}).get("record") is not False:
+        lp.state.pop("review_pending", None)
     lp.write()
 
 
-CONFLICT_ROUNDS = 3      # the merge pipeline's own fixer rounds per conflicted rebase or merge,
-                         # and per final check that keeps failing
+CONFLICT_ROUNDS = 3      # the merge pipeline's own fixer rounds per conflict or failing re-run
 
 
 def fix_after_failed_review(lp, upstream, how):
@@ -4631,7 +4649,11 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
                f"fixer {lp.executor} ({how} conflict)")
         try:
             summary = execute(lp, "fixer", text, f"{how}-fixer")
-        except (Dead, Blocked, Exhausted, Killed, worker.LoginExpired):
+        except (Dead, Blocked, Exhausted, Killed, worker.LoginExpired) as exc:
+            pending = lp.state.get("review_pending")
+            if isinstance(exc, (Exhausted, Killed, worker.LoginExpired)) and pending:
+                # A stopped conflict fixer retries landing even at the task round budget.
+                pending.update(round=lp.rnd, record=False)
             # whatever stops here, the retry starts from a clean tree: a rebase or merge
             # left in progress behind it would be a conflict round nobody asked for
             abort_integration(lp, how)
@@ -4771,9 +4793,14 @@ def integrate(lp, upstream):
         except Exception:
             was_pass = False
         old_head = pre_identity["head_sha"] if pre_identity else None
+        landing_review = (lp.state.get("review_pending") or {}).get("record") is False
         # Persist invalidation before git rewrites HEAD: interruption must not leave a saved PASS.
         if not integrated(lp.wt, tip):
-            pending_review(lp, f"Re-review after the {how} of {upstream}.")
+            if landing_review:
+                lp.state.update(verdict=None, review=None)
+                lp.save()
+            else:
+                pending_review(lp, f"Re-review after the {how} of {upstream}.")
         try:
             if how == "merge":
                 lp.log(f"--- merge: merging {upstream} ({tip[:12]}) into {lp.state['branch']}")
@@ -4797,7 +4824,7 @@ def integrate(lp, upstream):
         else:
             old_base = lp.state.get("base_sha")
             set_base(lp, tip)
-            if current_review(lp):
+            if current_review(lp) and not landing_review:
                 lp.log("--- merge: unchanged commit; reusing done-when and review evidence")
             else:
                 # a passed review survives a clean integration whatever it leaves, an empty
@@ -4809,7 +4836,7 @@ def integrate(lp, upstream):
                 carried_here = (isinstance(carried, dict)
                                 and carried.get("outcome") == "passed"
                                 and carried.get("sha") == old_head)
-                if (was_pass and saved is not None and pre_identity is not None
+                if (not landing_review and was_pass and saved is not None and pre_identity is not None
                         and saved.get("head_sha") == pre_identity.get("head_sha")
                         and saved.get("tree_sha") == pre_identity.get("tree_sha")
                         and not on_pass(lp) and old_base and old_head and carried_here
@@ -4827,9 +4854,9 @@ def integrate(lp, upstream):
                     lp.state.pop("review_pending", None)
                     lp.save()
                     lp.lap_every_sha = new_identity["head_sha"]
-                elif (was_pass and saved is not None and pre_identity is not None
+                elif (landing_review or (was_pass and saved is not None and pre_identity is not None
                         and saved.get("head_sha") == pre_identity.get("head_sha")
-                        and saved.get("tree_sha") == pre_identity.get("tree_sha")):
+                        and saved.get("tree_sha") == pre_identity.get("tree_sha"))):
                     try:
                         post_identity = commit_identity(lp.wt)
                     except Stopped:
@@ -4848,7 +4875,7 @@ def integrate(lp, upstream):
                         lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
                     else:
                         pending = lp.state.get("review_pending")
-                        pending_round = pending["round"] if pending else lp.rnd + 1
+                        pending_round = pending["round"] if pending else lp.rnd
                         old_rnd = lp.rnd
                         lp.rnd = pending_round
                         lp.round_dir.mkdir(parents=True, exist_ok=True)
@@ -4856,7 +4883,7 @@ def integrate(lp, upstream):
                         lp.log(f"done-when after the {how}: {'all passed' if ok else 'FAILED'}")
                         if ok:
                             new_identity = commit_identity(lp.wt)
-                            if new_identity != post_identity:
+                            if new_identity != post_identity or landing_review:
                                 if not lp.state.get("review_pending"):
                                     pending_review(lp, f"Re-review after the {how} of {upstream}.")
                                 with released_gate_turn():
@@ -4880,19 +4907,43 @@ def integrate(lp, upstream):
                                 lp.rnd = old_rnd
                                 lp.lap_every_sha = new_identity["head_sha"]
                         else:
+                            # The target moved under work that already passed: fix the
+                            # gate before reviewing it, without spending task rounds.
+                            lp.rnd = old_rnd
+                            reason = f"Re-review after the {how} of {upstream}."
+                            lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
+                                                          "reason": reason, "record": False}
+                            lp.save()
                             drop_reserved_turn()    # the lap failed; the probe runs unheld
-                            said = target_fails(lp, upstream, dw_log)
-                            if said:
-                                return park_waiting(
-                                    lp, f"{upstream} itself fails: {said}", upstream, tip)
-                            if not lp.state.get("review_pending"):
-                                pending_review(lp, f"Re-review after the {how} of {upstream}.")
-                            with released_gate_turn():
-                                passed = (resume_review(lp, verified=(ok, dw_log)) == "PASS"
-                                          or fix_after_failed_review(lp, upstream, how))
-                            if not passed:
-                                return note(lp, f"done-when or review after the {how} of {upstream} "
-                                                "did not pass")
+                            for attempt in range(CONFLICT_ROUNDS + 1):
+                                said = target_fails(lp, upstream, dw_log)
+                                if said:
+                                    return park_waiting(
+                                        lp, f"{upstream} itself fails: {said}", upstream, tip)
+                                if attempt == CONFLICT_ROUNDS:
+                                    return park_waiting(
+                                        lp, f"done-when after the {how} still fails after "
+                                            f"{CONFLICT_ROUNDS} fixer rounds: {first_failure(dw_log)}",
+                                        upstream, tip)
+                                lp.log(f"--- merge: re-run round {attempt + 1}/{CONFLICT_ROUNDS}: "
+                                       f"fixer {lp.executor} (done-when after the {how})")
+                                fix = (f"{lp.context}\n\n## The done-when commands failed. "
+                                       f"Fix the root cause.\n```\n{dw_log[-OUT_CAP:]}\n```")
+                                with released_gate_turn():
+                                    summary = execute(lp, "fixer", fix, "rerun-fixer")
+                                    lp.state["review_pending"]["summary"] = summary
+                                    lp.save()
+                                    lp.round_dir.mkdir(parents=True, exist_ok=True)
+                                    ok, dw_log = verify_work(lp)
+                                    lp.log(f"done-when after the fix: {'all passed' if ok else 'FAILED'}")
+                                    if ok:
+                                        passed = (review(lp, summary, ok, dw_log, reason,
+                                                         record=False) == "PASS"
+                                                  or fix_after_failed_review(lp, upstream, how))
+                                        if not passed:
+                                            return note(lp, f"done-when or review after the {how} "
+                                                            f"of {upstream} did not pass")
+                                        break
                             lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
                 else:
                     if not lp.state.get("review_pending"):
@@ -5427,13 +5478,20 @@ def _branch_only_path(wt, cmd, head, tip):
     return None
 
 
+def save_probe_checkout(lp, head, branch, before, label):
+    """A hard exit skips finally: record recovery before Git can detach the checkout."""
+    lp.state["probe_checkout"] = {"head": head, "branch": branch,
+                                  "before": sorted(before), "label": label}
+    lp.write()
+
+
 def restore_probe_checkout(lp, head, branch, before, label):
-    """Discard a detached probe's edits and restore HEAD even if a cleanup step stops."""
+    """Discard probe edits; keep recovery pending until the original checkout is restored."""
     stopped = None
     restored = False
     try:
         git(lp.wt, "reset", "--quiet", "--hard", "HEAD", check=False)
-        new = sorted(set(dirty_paths(lp.wt)) - before)
+        new = sorted(set(dirty_paths(lp.wt)) - set(before))
         if new:
             git(lp.wt, "clean", "--quiet", "-fd", "--", *new, check=False)
     except Stopped as exc:
@@ -5443,15 +5501,22 @@ def restore_probe_checkout(lp, head, branch, before, label):
         if git(lp.wt, "rev-parse", "HEAD", check=False) != head:
             git(lp.wt, "checkout", "--quiet", head, check=False)
         restored = (git(lp.wt, "rev-parse", "HEAD", check=False) == head
-                    and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0)
+                    and (not branch or git(lp.wt, "symbolic-ref", "--quiet", "--short",
+                                           "HEAD", check=False) == branch)
+                    and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
+                    and not (set(dirty_paths(lp.wt)) - set(before)))
         if not restored:
-            lp.log(f"WARN the probe of {label} left the worktree off "
-                   f"{head[:12]} or dirty; the retry starts from whatever it left behind")
+            lp.log(f"WARN the probe of {label} did not restore {branch or head[:12]} "
+                   "cleanly; checkout recovery is still pending")
     except Stopped as exc:
         stopped = stopped or exc
+    if restored:
+        lp.state.pop("probe_checkout", None)
+        lp.write()
     if stopped is not None:
         raise stopped
-    return restored
+    if not restored:
+        raise config.Error(f"could not restore the checkout after the probe of {label}")
 
 
 def target_fails(lp, upstream, dw_log):
@@ -5506,16 +5571,12 @@ def target_fails(lp, upstream, dw_log):
     branch = git(lp.wt, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     stop_check(lp.run_dir)
     before = set(dirty_paths(lp.wt))
-    detached = False
+    label = f"`{cmd}` on {upstream}"
+    save_probe_checkout(lp, head, branch, before, label)
     try:
-        try:
-            rc, _ = git_out(lp.wt, "checkout", "--quiet", "--detach", tip)
-        except Stopped:
-            detached = True     # may have switched mid-apply; put it back below
-            raise
+        rc, _ = git_out(lp.wt, "checkout", "--quiet", "--detach", tip)
         if rc != 0:
             return ""
-        detached = True
         lp.log(f"--- merge: `{cmd}` failed; probing it once on {upstream} ({tip[:12]})")
         probe_log = lp.run_dir / "target-probe.log"
         heavy_probe = cmd in (getattr(lp, "once", None) or [])
@@ -5544,14 +5605,7 @@ def target_fails(lp, upstream, dw_log):
             said.seek(start)
             output = said.read().decode(errors="replace")
     finally:
-        if detached:
-            # the tree was clean when it was put aside, so every tracked edit and every
-            # new untracked path is the probe's own droppings: drop them first, so none
-            # of them can block the checkout back, and put the branch back on its head.
-            # Each half runs even when the other stopped -- a stop still ends the run,
-            # but only after the worktree is put back as far as git still goes -- and a
-            # worktree that is still not back is said so, never claimed clean.
-            restore_probe_checkout(lp, head, branch, before, f"`{cmd}` on {upstream}")
+        restore_probe_checkout(lp, head, branch, before, label)
     # indented, so nothing the command printed reads as a heading or a fence of the task
     printed = "\n".join("    " + line for line in output[-OUT_CAP:].splitlines())
     try:
@@ -6491,6 +6545,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         print(launch_line(run_dir.name, title, executor, reviewer,
                           self_review=same_model(cfg, executor, reviewer)))
 
+    # Recover an interrupted probe before reading the checkout's suite and worker rules.
+    lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, "", spares)
     if state.get("scratch"):
         where = (f"Workspace: {wt}\nThere is no git repository here: nothing to commit, no branch "
                  "and no PR. What you leave in the workspace is the deliverable.")
@@ -6515,7 +6571,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         # a handover on resume is the same handover as one mid-round, and the model taking over
         # is owed the same note: the round it is joining was already started by another
         context = f"{HANDOVER.format(before=handed)}\n\n{context}"
-    lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, context, spares)
+    lp.body, lp.cmds, lp.context = body, cmds, context
+    lp.every, lp.once = every, once
     try:
         rounds(lp)
         if review_pass(state, cfg) and not state.get("no_merge"):
@@ -13215,19 +13272,18 @@ def resume_run(argv):
         if n_rounds < (state.get("rounds") or 0):
             raise config.Error("--rounds cannot reduce the saved round budget")
         state["rounds"] = n_rounds
-    # A FAIL that carries a pending review carries a stale one, and so does a `waiting`
-    # run the tick parked off one: every path that ends a run `fail` either recorded its
-    # review or had its integration aborted under it, and an abort puts the branch back
-    # exactly as it was. Runs saved before `abort_integration` dropped that record still
-    # hold one, and resuming on it would spend the next round re-reviewing a round already
-    # recorded instead of fixing what the reviewer found.
+    # A failed review or aborted integration carries a stale pending review. A
+    # landing gate wait keeps its non-task review so recovery first updates the
+    # target, then fixes and reviews without spending another task round.
     # Its delivery note is stale in the same way -- what it says did not deliver is exactly
     # what this resume is about to do again -- so it goes too, the way `ak run merge` drops it
     # before its own retry; `note` writes a fresh one the moment anything fails again.
     if state.get("state") in ("fail", "waiting"):
-        state.pop("review_pending", None)
+        if (state.get("state") == "fail"
+                or (state.get("review_pending") or {}).get("record") is not False):
+            state.pop("review_pending", None)
         state.update(merge_failed=False, merge_note=None)
-    if integration_record:
+    if integration_record and (state.get("review_pending") or {}).get("record") is not False:
         # Resume at the integration step, not with another executor round: the branch is
         # saved and only the merge is left to try again.  Integration invalidated the saved
         # PASS verdict when it started, so without this `drive` enters ordinary rounds and

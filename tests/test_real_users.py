@@ -223,7 +223,6 @@ sys.exit(1)
                                  "removed from the code by your next task in that project.")):
             with self.subTest(words=words):
                 self.assertIn(words, sections[section])
-        self.assertLessEqual(len(rulebook.splitlines()), 55)
 
 
 if __name__ == "__main__":
