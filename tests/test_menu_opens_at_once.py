@@ -176,7 +176,7 @@ class OpensAtOnce(Sandbox):
                 patch.object(menu, "wait_key", return_value=Key("esc")) as keys, \
                 patch.object(menu.os, "execve") as restart, redirect_stdout(io.StringIO()):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
-        restart.assert_not_called()
+        self.assertEqual(restart.call_count, 0)
         self.assertEqual(keys.call_count, 1)
 
 

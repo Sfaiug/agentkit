@@ -206,7 +206,6 @@ class Live:
         self.last = None                 # where each read leaves the seats and their groups
         self.said = []                   # what maintenance said that no notice has shown yet
         self.tidied = threading.Event()  # a notice can land before maintenance's effects do
-        self.updates = []                # the detached update's steps, read only on the main screen
 
     def close(self):
         """Give the pipe back, and wait on no thread: Esc leaves at once.
@@ -3814,6 +3813,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     if cursor and cursor.startswith("/"):
         cursor = Path(cursor)
     page, ahead, look, updating, updated = 0, None, False, None, False
+    updates = []                         # this loop's inbox, independent of the usage/read worker
     start_update = not (dry_run or overlay)
     last = [[], None]                     # what the last read left: the seats and their groups
     clock = motion.Clock(fade=overlay)    # what moves between draws: the dots, news, and
@@ -3826,8 +3826,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             if look:
                 live.ask(look=True)       # read and looked at again, off the draw
             messages = orch.job_notices() + live.heard()
-            if live.updates:
-                news = live.updates.pop(0)
+            if updates:
+                news = updates.pop(0)
                 if "progress" in news:
                     updating = news["progress"]
                 else:
@@ -3851,7 +3851,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                                groups=groups, clock=clock, updating=updating)
             cursor = drawn["cursor"] if drawn else cursor   # the seat he sees highlighted
             if start_update:
-                update_first(live)        # only the update leaves this process; after its first frame
+                update_first(live, updates=updates)    # detached, after the first frame
                 start_update = False
             live.probe()                  # after the draw, never before it: the cache is enough
             if tidy is not None:
@@ -3863,7 +3863,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             if ahead is not None:
                 (key, shown), ahead = ahead, None
             else:
-                key, shown = moving(clock, live.reader, timeout=0 if live.updates else TICK), drawn
+                key, shown = moving(clock, live.reader, timeout=0 if updates else TICK), drawn
             if key is None:
                 # the wait ended on the clock, which looks again, or on news already written down
                 look = not live.drain()
@@ -4001,7 +4001,7 @@ def client(alias, dry_run):
         raise config.Error(f"cannot run ssh: {exc}")
 
 
-def update_first(live=None):
+def update_first(live=None, updates=None):
     """Check and update in a detached process; a client's ssh starts without waiting for it.
 
     The child has no terminal and keeps going after Esc. Only the main loop reads its messages,
@@ -4021,16 +4021,20 @@ def update_first(live=None):
             live.say(f"update: {exc}")
         return
     if live:
+        updates = [] if updates is None else updates
         def hear():
             ended = False
             with proc.stdout:
                 for line in proc.stdout:
                     news = json.loads(line)
                     ended = "moved" in news
-                    live.updates.append(news)
+                    updates.append(news)
                     live._wake()
-            if proc.wait() and not ended:
-                live.say(f"update: agentkit update exited {proc.returncode}")
+            code = proc.wait()
+            if not ended:
+                updates.append({"moved": False, "lines": [
+                    f"update: agentkit update exited {code} without a result"]})
+                live._wake()        # the main screen clears progress through the same completion path
         threading.Thread(target=hear, daemon=True).start()
     return proc
 
