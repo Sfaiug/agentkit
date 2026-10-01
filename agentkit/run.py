@@ -13632,7 +13632,9 @@ def post_review(lp, url, verdict):
         return False
     if current["headRefOid"] != head or current.get("state") != "OPEN":
         lp.state["review_stale"] = True
-        lp.state["review_error"] = "PR head changed or closed; discarded review; watcher will re-queue"
+        lp.state["review_error"] = "PR head changed or closed; discarded review"
+        if not lp.state.get("own_pr"):
+            lp.state["review_error"] += "; watcher will re-queue"
         lp.log(f"WARN {lp.state['review_error']}")
         lp.write()
         return False
@@ -13738,7 +13740,8 @@ def wait_for_own_pr(cfg, run_dir, url, state, log):
     log(own_pr_wait_note(state))
     while True:
         stop_check(run_dir)
-        tell_own_pr_round(cfg, run_dir, state, log)
+        if state.get("verdict") == "FAIL":
+            tell_own_pr_round(cfg, run_dir, state, log)
         try:
             info = pr_view(url)
         except Stopped:
@@ -13817,7 +13820,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     n_rounds = taskfile.TASK_MAX_ROUNDS if is_own else 1
     if is_own and len(summaries) >= n_rounds:
         raise config.Error("three review rounds spent; split or re-scope the PR")
-    advancing = bool(summaries and summaries[-1]["verdict"] == "FAIL"
+    advancing = bool(summaries and (summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale"))
                      and prior.get("head_sha") != info["headRefOid"])
     if prior.get("worktree") and (
             git(prior["worktree"], "rev-parse", "HEAD") != prior.get("head_sha")
@@ -13983,7 +13986,8 @@ def settle_pr_round(lp, url, info):
     number = PR_PARTS.match(url).groups()[-1]
     if not state.get("merged"):
         restore_review_checkout(lp, "reviewer")
-    if not state.get("review_posted") and not post_review(lp, url, verdict):
+    posted = state.get("review_posted") or post_review(lp, url, verdict)
+    if not posted and not (is_own and state.get("review_stale")):
         # the job was a review on GitHub; a verdict nobody can read there is not one, so the
         # run is an error -- no merge offer -- and `ak watch` launches it again next tick
         state["error"] = f"the review was not posted to {url}: {state.get('review_error')}"
@@ -13992,7 +13996,7 @@ def settle_pr_round(lp, url, info):
         write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
         log(f"ERROR {state['error']}")
         return state
-    if verdict == "PASS" and not state.get("merged"):
+    if verdict == "PASS" and posted and not state.get("merged"):
         green, why = checks(lp, url)
         current, _ = gh_json(run_dir, "pr", "view", url, "--json", "headRefOid,state")
         if (green and isinstance(current, dict) and current.get("headRefOid") == head
@@ -14016,12 +14020,16 @@ def settle_pr_round(lp, url, info):
             else:
                 state["merge_note"] = f"not offered for merge: {why}"
                 log(f"WARN {state['merge_note']}")
-    if is_own and verdict == "FAIL" and lp.rnd < lp.rounds:
+    # An obsolete verdict still supplies the next round's findings. The push wait
+    # observes the moved head or closure immediately, including after a post retry.
+    if is_own and (verdict == "FAIL" or not posted) and lp.rnd < lp.rounds:
         state.update(state="running", finished_at=None, own_pr_wait=head)
         state.pop("recovery_pending", None)
     else:
-        state["state"] = "pass" if verdict == "PASS" else "fail"
+        state["state"] = "pass" if verdict == "PASS" and posted else "fail"
         state["finished_at"] = time.time()
+        if not posted:
+            state["error"] = state["review_error"]
     state.pop("own_pr_round_pending", None)
     save_state(run_dir, state)
     write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
