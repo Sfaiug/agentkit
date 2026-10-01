@@ -600,12 +600,11 @@ def _gate_flags(providers, now, cfg):
         if recorded:
             prov.update(meters=[_normalized(meter, now) for meter in recorded], error=None)
         # a provider that refused a worker is parked until it said it would have
-        # capacity, or until the meter that shows the refusal opens a new window
+        # capacity, or until the meter that showed the refusal opens a new window
         until = _number(prov.get("exhausted_until"))
         if until is None or until <= now or _fresh_window(prov, prov, now):
-            prov.pop("exhausted_until", None)
-            prov.pop("exhausted_at", None)
-            prov.pop("exhausted_ends", None)
+            for key in MARK:
+                prov.pop(key, None)
             until = None
         prov["exhausted"] = until is not None
         for meter in prov.get("meters") or []:
@@ -636,7 +635,7 @@ def _gate_flags(providers, now, cfg):
 
 
 _WRITES = itertools.count()   # a temporary name of each writer's own; see `_write`
-MARK = ("exhausted_until", "exhausted_at", "exhausted_ends")
+MARK = ("exhausted_until", "exhausted_at", "exhausted_ends", "exhausted_by")
 
 
 def _write(change, fetched_at=None, checked=None):
@@ -765,24 +764,20 @@ def _patch(provider, prov, account=None, *, mark=None, spent=None):
 
 
 def _fresh_window(prov, mark, now):
-    """Whether the meter that shows the refusal `mark` records now reports a later reset with
-    room left, in a window that runs to the deadline.
+    """Whether the meter that showed the refusal `mark` records now reports a later reset with
+    room left.
 
-    That meter is the one whose window, as recorded at marking, held the deadline: the first
-    to reset at or after it, or the last where every one reset before it.  Another meter's
-    new window says nothing of the refusal: the 5-hour session rolling over under a weekly
-    refusal leaves that week as spent as it was, whatever length the session reports.
+    That meter is the one `mark_exhausted` named (`exhausted_by`).  Another meter's new window
+    says nothing of the refusal: the 5-hour session rolling over under a weekly refusal leaves
+    that week as spent as it was.  A mark that names none ends at its deadline alone.
     Only reported reset times identify a replacement: a window's nominal length says
     nothing about when it began.  Without a recorded reset there is nothing to compare.
     """
     ends = mark.get("exhausted_ends") if isinstance(mark, dict) else None
     if not isinstance(prov, dict) or not isinstance(ends, dict):
         return False
-    until = _number(mark.get("exhausted_until"))
-    recorded = [end for end in map(_number, ends.values()) if end is not None]
-    shows = min([end for end in recorded if end >= until], default=max(recorded, default=None))
     for meter in prov.get("meters") or []:
-        if not isinstance(meter, dict):
+        if not isinstance(meter, dict) or meter.get("name") != mark.get("exhausted_by"):
             continue
         used = _number(meter.get("used"))
         if used is None or used >= 100:
@@ -795,8 +790,6 @@ def _fresh_window(prov, mark, now):
         old = _number(ends.get(meter.get("name")))
         if old is None or resets_at <= old:
             continue          # the window the mark was made in, mismeasured or not
-        if old != shows or resets_at < until:
-            continue          # another meter's window, or one closing before the deadline
         return True
     return False
 
@@ -807,7 +800,7 @@ def _carry_mark(old, prov, now):
     A provider that has just refused a worker is parked until it says it has capacity again,
     and the meters it reports meanwhile are not that answer: the one that is, is the time the
     refusal itself named.  Once that time is behind us the mark is gone and the probe decides.
-    A new window with room on the meter that shows the refusal ends it sooner, and is that
+    A new window with room on the meter that showed the refusal ends it sooner, and is that
     same answer.
 
     Every write carries the mark the file holds this way (`_onto`) but the credit's own: the
@@ -826,6 +819,8 @@ def _carry_mark(old, prov, now):
         mark["exhausted_at"] = marked_at
     if isinstance(ends, dict):
         mark["exhausted_ends"] = ends
+    if isinstance(old.get("exhausted_by"), str):
+        mark["exhausted_by"] = old["exhausted_by"]
     return mark
 
 
@@ -1016,8 +1011,8 @@ def mark_exhausted(cfg, provider, until=None, account=None):
 
     The mark lives in the usage cache beside the meters, so `pick_order` excludes this
     provider for every later pick in every run, and it is dropped the moment the deadline has
-    passed, or the meter that shows the refusal reports a later reset than recorded at
-    marking, with room.  An account's mark is its own: the provider stays eligible on its
+    passed, or the meter that showed the refusal reports a later reset than recorded at
+    marking, with room; a refusal no meter showed waits for its deadline.  An account's mark is its own: the provider stays eligible on its
     other accounts.  Returns the deadline recorded.
     """
     now = time.time()
@@ -1029,15 +1024,21 @@ def mark_exhausted(cfg, provider, until=None, account=None):
         prov = (prov.get("accounts") or {}).get(account) or {}
     if _number(until) is None or until <= now:
         until = _next_window(prov, now) or now + DRY_FOR
-    ends = {}
+    ends, shown = {}, []
     for meter in prov.get("meters") or []:
         if not isinstance(meter, dict) or not isinstance(meter.get("name"), str):
             continue
         end = _number(meter.get("resets_at"))
         if end is not None:
             ends[meter["name"]] = end
+            # the refusal shows on a meter spent as it came, of several the last to reset,
+            # and never on the session when it outlasts one
+            if (_number(meter.get("used")) or 0) >= 100 and not (
+                    meter.get("window_secs") == SESSION_SECS and until - now > SESSION_SECS):
+                shown.append((end, meter["name"]))
     _patch(provider, prov, account, mark={"exhausted_until": float(until),
-                                          "exhausted_at": float(now), "exhausted_ends": ends})
+                                          "exhausted_at": float(now), "exhausted_ends": ends,
+                                          "exhausted_by": max(shown, default=(0, None))[1]})
     return float(until)
 
 
