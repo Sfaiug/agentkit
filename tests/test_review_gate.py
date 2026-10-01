@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import reported, scripted
 from agentkit import config, notify, run, task, worker
 
 
@@ -121,7 +122,7 @@ sys.exit(1)
         self.stack.enter_context(redirect_stdout(io.StringIO()))
 
     def script(self, path, body):
-        path.write_text(f"#!{sys.executable}\n{body}")
+        path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
 
     def reviews(self, *answers):
@@ -138,7 +139,7 @@ sys.exit(1)
         directory = (set(run.run_dirs()) - before).pop()
         return code, directory, run.read_state(directory)
 
-    def test_preamble_names_the_four_blocking_classes_and_the_follow_ups_heading(self):
+    def test_preamble_names_the_four_blocking_classes_and_hand_in(self):
         for role in ("reviewer", "reviewer-pr", "reviewer-scratch"):
             with self.subTest(role=role):
                 text = worker.PREAMBLES[role].format(workspace=self.root)
@@ -147,7 +148,7 @@ sys.exit(1)
                               "a check the executor weakened or skipped",
                               "a scope violation (work the task did not ask for, "
                               "or asked-for work missing)",
-                              "## Follow-ups", "`path:line - what - why it matters`",
+                              "ak hand-in follow-up", 'path:line "what" "why it matters"',
                               "never a reason to fail",
                               "however long the follow-ups list is",
                               "for blocking findings only"):
@@ -163,7 +164,7 @@ sys.exit(1)
         self.reviews(PASS_FOLLOWUPS)
         code, directory, state = self.launch(rounds=1)
         self.assertEqual(code, 0, (directory / "log.txt").read_text())
-        self.assertEqual(state["followups"],
+        self.assertEqual([item.splitlines()[0] for item in state["followups"]],
                          ["a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError",
                           "b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"])
 
@@ -244,7 +245,7 @@ sys.exit(1)
         self.reviews(first, second)
         code, directory, state = self.launch(rounds=3)
         self.assertEqual(code, 0, (directory / "log.txt").read_text())
-        self.assertEqual(state["followups"],
+        self.assertEqual([item.splitlines()[0] for item in state["followups"]],
                          ["b.py:2 - empty input crashes - base abc123: `parse([])` raises IndexError",
                           "c.py:3 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"])
 
@@ -267,9 +268,10 @@ sys.exit(1)
         self.reviews(fail(1), fail(1), blocking)
         code, directory, state = self.launch()
         self.assertEqual((code, state["state"]), (1, "fail"))
-        self.assertEqual(run.handback_reason(state), "after 3 rounds, open findings: "
-                         "- a.py:1 - off-by-one in the gate - wrong outcome for edge input "
-                         "- b.py:2 - drops the error - silent data loss")
+        reason = run.handback_reason(state)
+        self.assertIn("after 3 rounds, open findings: - a.py:1 - off-by-one in the gate", reason)
+        self.assertIn("- b.py:2 - drops the error - silent data loss", reason)
+        self.assertNotIn("rename this", reason)
         line = run.handback_line(state, directory)
         self.assertIn("finished FAIL: after 3 rounds, open findings: - a.py:1 - off-by-one", line)
         self.assertIn("Decide the next step.", line)

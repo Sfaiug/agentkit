@@ -21,6 +21,7 @@ from unittest.mock import patch
 from urllib.parse import unquote_to_bytes
 
 from test_v4n import REPO, Sandbox
+from fixtures.hand_in import reported, scripted
 from agentkit import host, browser, config, gc, job as jobs, menu, notify, orch, run, terminal, watch
 
 SEAT = "seat"
@@ -1245,7 +1246,7 @@ class BlockedRuns(unittest.TestCase):
         self.stack.enter_context(redirect_stdout(io.StringIO()))
 
     def script(self, path, body):
-        path.write_text(f"#!{sys.executable}\n{body}")
+        path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
 
     def plan(self, **answers):

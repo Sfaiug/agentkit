@@ -27,7 +27,7 @@ MATRIX = [
     ("usage", "usage: ak usage [--json]", ["--json"], {"--json"}),
     ("worker", "usage: ak worker MODEL TASK", ["MISSING", "missing.md", "--role"],
      {"--workspace", "--out", "--session", "--role"}),
-    ("hand-in", "usage: ak hand-in finding PATH:LINE", ["finding"], {"--run", "--quote", "--before"}),
+    ("hand-in", "usage: ak hand-in finding PATH:LINE", ["missing"], {"--run", "--quote", "--before"}),
     ("hand-in finding", "usage: ak hand-in finding PATH:LINE", ["api.py:1"], {"--run", "--quote"}),
     ("hand-in follow-up", "usage: ak hand-in follow-up PATH:LINE", ["api.py:1"],
      {"--run", "--quote", "--before"}),
@@ -126,6 +126,9 @@ def probe():
         if mode in ("help", "module"):
             for name in ("ensure_dirs", "load", "current_session", "resolve_session", "server_alias"):
                 stack.enter_context(patch.object(config, name, side_effect=blocked(f"config.{name}")))
+        if mode == "worker":
+            from agentkit import worker
+            stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         if mode == "notify":
             def parsed(name):
                 def record(*args, **kwargs):

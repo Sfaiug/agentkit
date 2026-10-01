@@ -79,7 +79,7 @@ class FollowupRule(unittest.TestCase):
                 for words in ("of a kind that would fail a round, with that same evidence",
                               "existed before this task",
                               "prove that by naming the base commit or quoting main as it was before the task",
-                              "List only these under `## Follow-ups`",
+                              "Hand in only these with `ak hand-in follow-up`",
                               "Omit everything else everywhere",
                               "however long the follow-ups list is"):
                     self.assertIn(words, preamble)

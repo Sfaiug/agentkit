@@ -23,6 +23,7 @@ from unittest.mock import patch
 REAL_TMUX = shutil.which("tmux")
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import reported, scripted
 from agentkit import host, config, gc, menu, notify, orch, retention, run, update, watch
 
 DAY = 86400
@@ -112,7 +113,7 @@ if not review:
         self.addCleanup(self.stop_children)
 
     def script(self, path, body):
-        path.write_text(f"#!{sys.executable}\n{body}")
+        path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
 
     def git(self, repo, *args):

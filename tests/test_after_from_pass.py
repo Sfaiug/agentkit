@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import reported, scripted
 from agentkit import host, config, job as jobs, notify, orch, run
 
 URL = "https://github.com/acme/widget/pull"
@@ -121,7 +122,7 @@ class AfterFromPass(unittest.TestCase):
                               'test "$(cat a.txt)" = two && test -f b.txt', after="alpha.md")
 
     def script(self, path, body):
-        path.write_text(f"#!{sys.executable}\n{body}")
+        path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
 
     def git(self, cwd, *args):

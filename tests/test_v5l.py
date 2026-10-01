@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import reported, scripted
 from agentkit import host, config, notify, run, worker
 
 
@@ -118,7 +119,7 @@ sys.exit(1)
         self.stack.enter_context(redirect_stdout(io.StringIO()))
 
     def script(self, path, body):
-        path.write_text(f"#!{sys.executable}\n{body}")
+        path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
 
     def reviews(self, *answers):
@@ -217,13 +218,13 @@ sys.exit(1)
         self.assertFalse(hasattr(run, "extend"))
         self.assertFalse(hasattr(run, "EXTENSIONS"))
 
-    def test_v5l_a_reviewer_that_listed_nothing_before_does_not_extend_the_budget(self):
-        self.reviews(fail(2), fail(0), fail(0))
+    def test_v5l_a_completed_review_without_findings_passes_without_extending_the_budget(self):
+        self.reviews(fail(2), PASS)
         code, directory, state = self.launch(rounds=3)
-        self.assertEqual(code, 1, self.log(directory))
-        self.assertEqual((state["state"], state["rounds"]), ("fail", 3))
+        self.assertEqual(code, 0, self.log(directory))
+        self.assertEqual((state["state"], state["rounds"]), ("pass", 3))
         self.assertNotIn("extended", state)
-        self.assertEqual([entry["finding_count"] for entry in state["round_summaries"]], [2, 0, 0])
+        self.assertEqual([entry["finding_count"] for entry in state["round_summaries"]], [2, 0])
         self.assertEqual(self.extensions(directory), [])
 
     # --- (d)/(e) a FAIL at the budget resumes, with more rounds and only so -
@@ -324,8 +325,10 @@ sys.exit(1)
         self.assertIn("grouped by pattern with every site listed", reviewer)
         self.assertIn("first rule on each disputed finding: upheld or dropped, and why", reviewer)
         self.assertIn("then say which earlier findings are fixed and which are not", reviewer)
-        self.assertIn("`VERDICT: PASS` or `VERDICT: FAIL`", reviewer)
-        self.assertIn("`## Findings` as a list of `path:line - issue - why it matters`", reviewer)
+        self.assertIn("ak hand-in done", reviewer)
+        self.assertNotIn("VERDICT:", reviewer)
+        self.assertIn('ak hand-in finding path:line "what" "why it matters"', reviewer)
+        self.assertNotIn("## Findings", reviewer)
         self.assertNotIn("ak notify", reviewer)
         # every role keeps its opener, which is what the fixtures and adapters route on
         openers = {"executor": "You are the executor.", "fixer": "You are the executor, continuing",
@@ -373,10 +376,10 @@ sys.exit(1)
         self.assertEqual(run.cmd_resume([directory.name, "--rounds", "3"]), 0, self.log(directory))
         resumed = self.calls("executor")[2]["prompt"]
         self.assertIn(first, resumed)
-        self.assertIn(wide.strip(), resumed)
+        self.assertIn(reported(wide).strip(), resumed)
         state = run.read_state(directory)
         self.assertEqual(state["findings_file"],
-                         str(directory / "round-3" / "reviewer" / "final.md"))
+                         str(directory / "round-3" / "reviewer" / "review.md"))
         # with the round directory gone, the bounded tail is still better than nothing
         # a `findings_file` that does not match the tail is repaired from the round's answers
         whole = run.read_answer(state["findings_file"])
@@ -430,7 +433,7 @@ sys.exit(1)
         self.assertNotIn(first, state["findings"])
         self.assertEqual(run.cmd_resume([directory.name, "--rounds", "3"]), 0, self.log(directory))
         self.assertIn(first, self.calls("executor")[2]["prompt"])
-        self.assertEqual(run.saved_findings(directory, state), wide)
+        self.assertEqual(run.saved_findings(directory, state), reported(wide))
 
     def test_v5l_an_existing_conflict_fail_drops_its_obsolete_pending_review(self):
         self.reviews(fail(2), fail(2), PASS)

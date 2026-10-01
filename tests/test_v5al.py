@@ -23,6 +23,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import host, config, harness, menu, notify, orch, run, terminal, update, usage, watch
 from agentkit.harness import codex as codex_plugin
 
@@ -100,7 +101,7 @@ class Fixture(unittest.TestCase):
         for name in REAL:
             shutil.copy2(REPO / "adapters" / f"{name}.toml", self.adapters / f"{name}.toml")
             stub = self.adapters / f"{name}.sh"
-            stub.write_text(STUB)
+            stub.write_text(scripted(STUB))
             stub.chmod(0o755)
         for name in ("echo.sh", "echo.toml"):
             shutil.copy2(FIXTURES / name, self.adapters / name)

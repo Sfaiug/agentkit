@@ -21,6 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import reported, scripted
 from agentkit import host, config, gc, notify, orch, run, usage, watch, worker
 from agentkit import task as taskfile
 
@@ -161,7 +162,7 @@ class Limits(unittest.TestCase):
     # --- the fixture ---------------------------------------------------------
 
     def script(self, path, text):
-        path.write_text(f"#!{sys.executable}\n{text}")
+        path.write_text(f"#!{sys.executable}\n{scripted(text)}")
         path.chmod(0o755)
 
     def plan(self, plan):
