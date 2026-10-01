@@ -69,7 +69,7 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
   config formats; imports run back.
 - `terminal.py`: width, wrapping, colour, keys, `choose`/`ask`/`frame`, state styles, for
   every listing screen (docs/cli-design.md). Used by menu, usage, orch, watch, run, motion.
-- `motion.py`: the one clock: time, easing, what moves. Used by menu, terminal.
+- `motion.py`: one clock: time, easing, what moves; for menu, orch, terminal.
 - `command_help.py`: help text per verb, for bin/ak and each `main`; imports nothing.
 - `browser.py`: the shared Chromium stack: units, CDP, MCP, VNC, tab ownership. Used by run,
   watch. Leak: registers its MCP per harness by name.
