@@ -1479,8 +1479,8 @@ SH
   python3 "$REPO/tests/test_notify_rule.py" || OFFLINE_RC=1
   python3 "$REPO/tests/test_notify_smoke.py" || OFFLINE_RC=1
   codex_model_flag_check || OFFLINE_RC=1
-  for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_boundaries.py test_architecture.py \
-              test_audit_phone_menu_recovery_layout.py \
+  for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_boundaries.py test_architecture.py test_docs.py \
+              test_audit_phone_menu_recovery_layout.py test_choose_click.py \
               test_audit_retry_required_notifications.py; do
     case "$test" in
       test_notify.py) lifecycle_check notify || OFFLINE_RC=1 ;;
@@ -1554,6 +1554,11 @@ if python3 "$REPO/tests/test_v4z.py"; then
   ok "43 project menus: named checks a-h, fixed rendering state and isolated tmux"
 else
   no "43 project menus"
+fi
+if python3 "$REPO/tests/test_hover.py"; then
+  ok "pointer highlights and keyboard navigation (offline)"
+else
+  no "pointer highlights and keyboard navigation"
 fi
 # 41 reads no live meter -- its probes are mocked inside usage_fresh_check -- so a
 # throttled provider cannot fail it and it takes no meter-unavailable skip.
@@ -1896,9 +1901,9 @@ fi
 # the rest make the smallest turn they allow (3c): the cheapest model their catalog lists
 # at its lowest effort, asked for a fixed word that needs no tool, through the adapter with
 # the flags a worker's turn gets, since those are what an upgrade breaks.  The adapter's own
-# verdict judges it: exit 0 and the word in final.md, which holds the model's text alone.  No
-# error words are read: a warning the turn recovered from passes, and a turn cut short -- no
-# text, or partial text without the word -- fails whatever it exited with.
+# verdict judges it: exit 0 and the word in final.md, which holds the model's text alone.
+# A failed call refused for quota skips even when its last meter was below 100%; a warning
+# the turn recovered from passes, and every other failed or incomplete turn fails.
 # A missing harness or login is reported as not checked: never a pass, and never a skip
 # that holds the gate.  Broken saved logins still fail.  One harness installed with its
 # login is what the suite needs, and with none here it fails rather than skipping everything.
@@ -1908,20 +1913,26 @@ spent_until() {   # spent_until <model>: "<provider> <when it comes back>", or n
 import json, os, pathlib, sys, time
 from agentkit import config, usage
 cfg, model = config.load(), sys.argv[1]
+provider = config.model(cfg, model)["provider"]
 def providers_of(path):
     try:
         providers = json.loads(pathlib.Path(path).read_text())["providers"]
     except (OSError, ValueError, KeyError, TypeError):
         return None
+    record = providers.get(provider) if isinstance(providers, dict) else None
+    # Both reads judge the usual login the sandbox borrows; another subscription's
+    # room (or refusal) says nothing about this one.
+    if isinstance(record, dict) and isinstance(record.get("accounts"), dict):
+        record = record["accounts"].get(config.DEFAULT_ACCOUNT)
+        providers[provider] = record if isinstance(record, dict) else {}
     return providers if isinstance(providers, dict) else None
 def spent(providers):
     return providers is not None and usage.model_exhausted(cfg, model, providers)[0]
 providers = providers_of(sys.argv[2])
 if not spent(providers):
-    provider = config.model(cfg, model)["provider"]
     sandbox = providers.get(provider) if isinstance(providers, dict) else None
     if isinstance(sandbox, dict) and sandbox.get("meters"):
-        sys.exit(0)  # this read measured the provider itself; its room stands
+        sys.exit(0)  # this read measured the borrowed login; its room stands
     # The sandbox shares the host's probe cadence but not its answers: where the host
     # asked inside the cadence, this read is empty and knows nothing. Only then does
     # the host's own cache stand in -- the same account's spent-knowledge, read only,
@@ -1931,13 +1942,13 @@ if not spent(providers):
     providers = providers_of(host)
     record = providers.get(provider) if isinstance(providers, dict) else None
     if isinstance(record, dict):
-        providers = {**providers, provider: usage._without_past(
-            record, time.time(), "the host cache")}
+        providers[provider] = usage._without_past(record, time.time(), "the host cache")
     if not spent(providers):
         sys.exit(0)  # unknown usage cannot justify skipping a real call
 meters, _ = usage._gating_meters(cfg, model, providers)
 ends = max((m["resets_at"] for m in meters if m.get("exhausted")
-            and isinstance(m.get("resets_at"), (int, float))), default=None)
+            and isinstance(m.get("resets_at"), (int, float))),
+           default=providers.get(config.model(cfg, model)["provider"], {}).get("exhausted_until"))
 when = time.strftime("%Y-%m-%d %H:%M:%S %Z", time.localtime(ends)) if ends else "unknown"
 print(config.model(cfg, model)["provider"], when)
 PY
@@ -1954,6 +1965,47 @@ skip_spent() {   # skip_spent <check labels> <required models...>
     skip_unavailable "$checks" "$model" && return 0
   done
   return 1
+}
+skip_refused() {   # skip_refused <check labels> <model> <exit> <out-dir or MCP log>
+  local checks=$1 model=$2 rc=$3 out=$4 why
+  [ "$rc" != 0 ] || return 1
+  # A provider's refusal is newer than its meter. Keep that fact in this suite's
+  # snapshot so its later checks skip too, without another probe or a host write.
+  why=$(PYTHONPATH="$REPO" python3 - "$model" "$rc" "$out" "$WORK/usage-real.json" <<'PY'
+import json, pathlib, sys, time
+from agentkit import config, run, usage
+cfg = config.load()
+entry = config.model(cfg, sys.argv[1])
+out, snapshot = map(pathlib.Path, sys.argv[3:])
+text = run.tail(out / "final.md" if out.is_dir() else out)
+said = text if not run.answered(text) else ""
+if out.is_dir():
+    # Terminal errors count; earlier warnings and the work's own output do not.
+    said += "\n" + run.harness_said(out, text, entry["harness"], failures_only=True)
+    if not text.strip():
+        said += "\n" + run.harness_said(out, text, entry["harness"])
+word = run.ran_dry(int(sys.argv[2]), said, entry["harness"])
+if not word:
+    sys.exit(1)
+try:
+    providers = json.loads(snapshot.read_text())["providers"]
+except (OSError, ValueError, KeyError, TypeError):
+    providers = {}
+providers = providers if isinstance(providers, dict) else {}
+record = providers.get(entry["provider"])
+if isinstance(record, dict) and isinstance(record.get("accounts"), dict):
+    record = record["accounts"].get(config.DEFAULT_ACCOUNT)
+record = record if isinstance(record, dict) else {}
+now, until = time.time(), run.try_again_at(said)
+if until is None or until <= now:
+    until = usage._next_window(record, now) or now + usage.DRY_FOR
+providers[entry["provider"]] = {**{k: v for k, v in record.items() if k not in usage.MARK},
+                                "exhausted_until": until}
+snapshot.write_text(json.dumps({"providers": providers}))
+print(text.strip() or word)
+PY
+  ) || return 1
+  skip_checks "$checks" "required model $model was refused: $why"
 }
 printf 'Create a file hello.txt containing exactly: hello\nThen reply with only the word DONE.\n' \
   >"$WORK/p-make.txt"
@@ -1990,6 +2042,7 @@ for pair in "${HARNESSES[@]}"; do
 os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
       "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M" >"$WORK/$M.log" 2>&1
     CALLRC=$?
+    if skip_refused 3c "$M" "$CALLRC" "$WORK/o-$M"; then continue; fi
     if [ "$CALLRC" = 0 ] && grep -qiwF "$WORD" "$WORK/o-$M/final.md" 2>/dev/null; then
       ok "3c $M ($H): $1 at $2 replied $WORD"
     else
@@ -2006,6 +2059,7 @@ os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
     ak worker "$M" "$WORK/p-make.txt" --workspace "$R" --out "$WORK/o-$M" >"$WORK/$M.log" 2>&1
   fi
   CALLRC=$?
+  if skip_refused 3a/3b "$M" "$CALLRC" "$WORK/o-$M"; then continue; fi
   if [ "$CALLRC" = 0 ] && grep -qxF hello "$R/hello.txt" 2>/dev/null && [ -s "$WORK/o-$M/final.md" ]; then
     ok "3a $M ($H): wrote hello.txt, final.md non-empty"
   else
@@ -2018,6 +2072,7 @@ os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
     ak worker "$M" "$WORK/p-ask.txt" --workspace "$R" --out "$WORK/o-$M-2" --session "$SID" \
       >"$WORK/$M-2.log" 2>&1
     RESUMERC=$?
+    if skip_refused 3b "$M" "$RESUMERC" "$WORK/o-$M-2"; then continue; fi
     if [ "$RESUMERC" = 0 ] && grep -qi 'hello\.txt' "$WORK/o-$M-2/final.md" 2>/dev/null; then
       ok "3b $M ($H): resumed session $SID recalled hello.txt"
     else
@@ -5163,6 +5218,8 @@ except Exception:
   MCPRC=$?
   if [ "$MCPRC" = 0 ] && grep -qE 'BROWSER_TABS=[0-9]+ DESKTOP=ok' "$WORK/mcp-claude.txt"; then
     ok "31d claude reached the shared browser and the desktop over MCP: $(grep -oE 'BROWSER_TABS=[0-9]+ DESKTOP=ok' "$WORK/mcp-claude.txt" | tail -1)"
+  elif skip_refused 31d opus "$MCPRC" "$WORK/mcp-claude.txt"; then
+    :
   else
     no "31d claude over MCP: $(tail -c 200 "$WORK/mcp-claude.txt")"
   fi
@@ -5180,6 +5237,8 @@ except Exception:
   MCPRC=$?
   if [ "$MCPRC" = 0 ] && grep -qE 'BROWSER_TABS=[0-9]+' "$WORK/mcp-codex.txt"; then
     ok "31e codex reached the shared browser over MCP: $(grep -oE 'BROWSER_TABS=[0-9]+' "$WORK/mcp-codex.txt" | tail -1)"
+  elif skip_refused 31e astra "$MCPRC" "$WORK/mcp-codex.txt"; then
+    :
   else
     no "31e codex over MCP: $(tail -c 200 "$WORK/mcp-codex.txt")"
   fi
@@ -5606,7 +5665,7 @@ if python3 "$REPO/tests/test_stop_hook.py" >"$WORK/stop-hook.log" 2>&1; then
 else
   no "48 end-of-turn rule"; tail -30 "$WORK/stop-hook.log"
 fi
-{ python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 knowledge stays home: no boundary count in tests/test_boundaries.py above its max, and ARCHITECTURE.md maps every module and harness in under 8 KB" || { no "49 boundaries and the map"; tail -30 "$WORK/boundaries.log"; }
+{ python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py" && python3 "$REPO/tests/test_docs.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 knowledge stays home: no boundary count in tests/test_boundaries.py above its max, ARCHITECTURE.md maps every module and harness in under 8 KB, and the docs match the interface" || { no "49 boundaries, map and docs"; tail -30 "$WORK/boundaries.log"; }
 if seat_state_check >"$WORK/seat-state.log" 2>&1; then
   ok "42 seat states: a session is working, needs you or done -- (a) a turn-ended hook fact reads 'needs you', (b) a newer turn-began fact reads 'working' since it began, (c) every harness's dialog fixture reads the 'asking' fact and a transcript quoting it does not, (d) a notified seat reads 'needs you' with its question for a reason and a newer turn outranks it, (e) two renders and a watch tick agree on the word and the since and no live state is ever a reason to type into a seat, (f) the babysitter reads every stall/quota/auth signature from adapters/*.toml and no harness is named in watch.py, (g) a hook writes nothing for a worker or without a seat, (h) ak orch list --why names the word, the authority, the rule and the evidence, (i) every adapter's hooks verb is idempotent"
 else
@@ -5617,14 +5676,20 @@ if lifecycle_check v4l >"$WORK/v4l.log" 2>&1; then
 else
   no "36 v4l regressions"; tail -30 "$WORK/v4l.log"
 fi
+if python3 "$REPO/tests/test_smoke_judges_the_borrowed_login.py" >"$WORK/borrowed-login.log" 2>&1; then
+  ok "3d real calls judge the borrowed login: sandbox and host cache skip its spent subscription, and its room permits a call"
+else
+  no "3d borrowed login"; tail -30 "$WORK/borrowed-login.log"
+fi
 if { python3 "$REPO/tests/test_smoke_target_pool.py" &&
      python3 "$REPO/tests/test_smoke_lock_scope.py"; } >"$WORK/smoke-targets.log" 2>&1; then
   ok "4e smoke targets: two suites take two, the next is made below the bound read at each try, the bound waits, a failed listing makes none, a killed holder frees its own"
 else
   no "4e smoke targets"; tail -30 "$WORK/smoke-targets.log"
 fi
-if python3 "$REPO/tests/test_v4n.py" >"$WORK/v4n.log" 2>&1; then
-  ok "37 readable menus at 40/80/100 columns, run reporting, Codex resume and launch/cache edges"
+if { python3 "$REPO/tests/test_v4n.py" &&
+     python3 "$REPO/tests/test_choose_click.py"; } >"$WORK/v4n.log" 2>&1; then
+  ok "37 readable menus at 40/80/100 columns, chooser Enter clicks, run reporting, Codex resume and launch/cache edges"
 else
   no "37 v4n regressions"; tail -30 "$WORK/v4n.log"
 fi

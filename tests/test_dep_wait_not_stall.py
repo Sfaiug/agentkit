@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, watch, worker
+from agentkit import config, job as jobs, run, watch, worker
 
 DEP = "alpha.md"
 LIVE = 999999991
@@ -131,7 +131,7 @@ class DepWaitNotStall(unittest.TestCase):
         job_id = "20260925-140000-dep-wait"
         job_dir = config.JOBS / job_id
         job_dir.mkdir(parents=True)
-        run.save_job(job_dir, {"job_id": job_id, "seat": None, "started_at": time.time(),
+        jobs.save_job(job_dir, {"job_id": job_id, "seat": None, "started_at": time.time(),
                                "finished_at": None, "pid": LIVE, "process_identity": None,
                                "tasks": [{"name": DEP, "state": "running"},
                                          {"name": "beta.md", "state": "running",
@@ -148,7 +148,7 @@ class DepWaitNotStall(unittest.TestCase):
         logs = []
         lp = SimpleNamespace(state=state, run_dir=directory, base_sha="abc",
                              log=logs.append, write=lambda: run.save_state(directory, state))
-        with patch.object(run, "JOB_TICK", 0.05):
+        with patch.object(jobs, "JOB_TICK", 0.05):
             result = {}
             thread = threading.Thread(target=lambda: result.update(
                 rc=run.wait_for_dependency(lp)), daemon=True)
@@ -161,9 +161,9 @@ class DepWaitNotStall(unittest.TestCase):
                     time.sleep(0.02)
                 self.assertEqual(run.dep_wait_note(run.read_state(directory)),
                                  f"waiting for {DEP} to merge")
-                job = run.read_job(job_dir)
+                job = jobs.read_job(job_dir)
                 job["tasks"][0]["state"] = "merged"
-                run.save_job(job_dir, job)
+                jobs.save_job(job_dir, job)
             finally:
                 thread.join(20)
             self.assertFalse(thread.is_alive())

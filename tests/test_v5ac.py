@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, usage
+from agentkit import config, job as jobs, run, usage
 
 URL = "https://github.com/fixture/repo/pull/1"
 
@@ -252,7 +252,7 @@ sys.exit(0 if ok else 1)
         self.assertEqual(code, 0)
         self.assertEqual(state["state"], "pass")
         self.assertFalse(state["merged"])
-        self.assertEqual(run.job_classify(state, self.cfg), "passed")
+        self.assertEqual(jobs.job_classify(state, self.cfg), "passed")
         self.assertIsNone(state["pr"])
         self.assertEqual(len(self.events("review")), 1)
         self.assertEqual(run.git(self.wt, "ls-remote", "origin", "ak/task"), "")
@@ -271,7 +271,7 @@ sys.exit(0 if ok else 1)
         self.assertEqual(code, 0)
         self.assertEqual(state["state"], "pass")
         self.assertFalse(state["merged"])
-        self.assertEqual(run.job_classify(state, self.cfg), "passed")
+        self.assertEqual(jobs.job_classify(state, self.cfg), "passed")
         self.assertEqual(run.git(self.wt, "ls-remote", "origin", "ak/task"), pushed)
         self.assertEqual(len(self.events("review")), 1)
         self.assertIn("its work is already on main", self.log_text())

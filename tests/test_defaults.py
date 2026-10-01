@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, run, terminal, usage
+from agentkit import config, job as jobs, menu, orch, run, terminal, usage
 
 DEFAULT = REPO / "config.default.toml"
 
@@ -163,7 +163,7 @@ class Defaults(unittest.TestCase):
         self.assertEqual(orch.select(cfg, {}, prompting=False)[2], ["opus", "astra"])
         self.assertEqual(sorted(usage.pick_order(cfg, self.providers(cfg), quiet=True)),
                          ["astra", "opus"])
-        self.assertEqual(run.job_next_executor(cfg, "opus"), "astra")
+        self.assertEqual(jobs.job_next_executor(cfg, "opus"), "astra")
         cfg["defaults"]["workers"] = ["grok"]
         self.assertEqual(config.workers(cfg), ["grok"])
         # a session answers for itself, whatever the defaults say
