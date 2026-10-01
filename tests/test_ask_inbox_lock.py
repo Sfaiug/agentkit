@@ -165,6 +165,19 @@ class AskInboxLock(unittest.TestCase):
             return fixture("draft").replace("Fix the login redirect",
                                             "\n  ".join(textwrap.wrap(line, 72)))
 
+        def agy(line):
+            # Antigravity's composer is a `>` between two rules
+            if not line:
+                return (FIX / "antigravity-prompt-pane.txt").read_text(encoding="utf-8")
+            return (FIX / "antigravity-draft-pane.txt").read_text(encoding="utf-8").replace(
+                "Please look at the failing test in the", line)
+
+        def opencode(line):
+            # OpenCode's is a `┃` box, wrapping a typed line on that edge over its model line
+            pane = (FIX / "opencode-prompt-pane.txt").read_text(encoding="utf-8")
+            return pane.replace('Ask anything… "What is the tech stack of this project?"',
+                                "\n             ┃  ".join(textwrap.wrap(line, 70))) if line else pane
+
         lost = []
 
         def tmux(*args, socket=None, client=False):
@@ -173,9 +186,12 @@ class AskInboxLock(unittest.TestCase):
                 return 1, "lost server"
             return self.tmux(*args, socket=socket, client=client)
 
-        for kind, draw in (("unruled", unruled), ("wrapped", wrapped)):
+        for kind, harness, draw in (("unruled", "claude", unruled), ("wrapped", "claude", wrapped),
+                                    ("antigravity", "antigravity", agy),
+                                    ("opencode", "opencode", opencode)):
             with self.subTest(kind=kind), patch.object(orch, "tmux_out", side_effect=tmux), \
-                    patch.object(watch.time, "sleep"):
+                    patch.object(watch.time, "sleep"), \
+                    patch.object(watch, "seat_model", return_value=(harness, "example")):
                 del self.sent[:], lost[:]
                 self.pinged.reset_mock()
                 # the composer lets the question go only on the second Enter that arrives

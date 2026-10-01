@@ -96,6 +96,10 @@ composer = '[┃╹].*'
 # flight is never trimmed as chrome.
 footer = ['.*ctrl\+p commands', '.*\d+\.\d+\.\d+',
           '[\w-]+ · [^·]+( · \d+(ms|\.\ds|m \d+s|h \d+m|d \d+h))?( · \d+\.\d+ tok/s)?( · interrupted)?']
+# What the input box holds, a row a match: each row of typed text after its `┃` edge, over
+# the box's padding row, its agent and model line and its `╹` bottom edge, as 2.0.21 draws a
+# typed line.  The grey `Ask anything… "…"` placeholder holds nothing typed.
+draft = '^┃ +(?!Ask anything… ")(\S.*)\n(?=(?:┃ .*\n)*┃\n┃ .*\n╹)'
 
 # Read in file order, first match wins: the dialog before the spinner, the spinner before the
 # prompt, because the composer is still drawn while a turn runs.

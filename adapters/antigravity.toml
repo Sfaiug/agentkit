@@ -46,6 +46,9 @@ composer = '^>$'
 # and effort (`Gemini 3.8 Flash · low`), or, on a seat opened with `--agent`, the agent with
 # them once agy has resolved the model (`agentkit (Gemini 3.8 Flash · low)  /agents`).
 footer = ['(?:\? for shortcuts|esc to cancel)?\s*(?:[^·]+ · (?:low|medium|high)|[\w.-]+(?: \([^)]*\))?\s+/agents)']
+# its composer always has its own rule under it: the `> /usage` a chooser lists under that
+# rule is never the composer
+ruled = true
 
 # Read in file order, first match wins: the dialogs before the spinner, the spinner before the
 # prompt, because the composer is still drawn while a turn runs.
