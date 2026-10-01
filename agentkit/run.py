@@ -4222,7 +4222,9 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
         env = suite_env()
         env.pop(hand_in.ENV, None)
         env.pop(hand_in.CONTINUE, None)
-        with log_path.open("w+b") as progress:
+        with tempfile.TemporaryDirectory(dir=lp.run_dir) as cache, log_path.open("w+b") as progress:
+            # Same-size revisions can share a timestamp, making ignored bytecode look valid.
+            env["PYTHONPYCACHEPREFIX"] = cache
             progress.write(f"$ {command} (on {revision or 'workspace'})\n".encode())
             progress.flush()
             start = progress.tell()
