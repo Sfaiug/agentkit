@@ -97,7 +97,7 @@ class FreshWindowEndsMark(unittest.TestCase):
     # --- the mark ---------------------------------------------------------
 
     def test_fresh_window_with_room_ends_the_mark_and_picks_the_provider(self):
-        self.set_meters("alpha", self.old_window())
+        self.set_meters("alpha", self.old_window(used=100))
         self.set_meters("beta", self.old_window(used=10))
         with patch.object(usage, "_probe", side_effect=self.fake_probe):
             until = NOW + 5 * 86400
@@ -188,7 +188,7 @@ class FreshWindowEndsMark(unittest.TestCase):
             self.assertNotIn("one", order)
 
     def test_later_reset_needs_no_window_length_or_inferred_start(self):
-        self.set_meters("alpha", self.old_window())
+        self.set_meters("alpha", self.old_window(used=100))
         self.set_meters("beta", self.old_window(used=10))
         with patch.object(usage, "_probe", side_effect=self.fake_probe):
             usage.mark_exhausted(self.cfg, "alpha", NOW + 5 * 86400)
@@ -255,7 +255,7 @@ class FreshWindowEndsMark(unittest.TestCase):
 
     def test_a_fresh_account_window_leaves_the_other_accounts_mark_intact(self):
         self.cfg["providers"]["alpha"]["accounts"] = ["first", "second"]
-        self.set_meters("alpha", self.old_window(), account="first")
+        self.set_meters("alpha", self.old_window(used=100), account="first")
         self.set_meters("alpha", [{"name": "weekly", "used": 10,
                                    "resets_at": NOW + WEEK / 4, "window_secs": WEEK}],
                         account="second")
