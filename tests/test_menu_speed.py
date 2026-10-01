@@ -112,7 +112,6 @@ class MenuSpeed(Sandbox):
         with patch.object(menu, "wait_key", side_effect=wait_key), \
                 patch.object(menu, "read", return_value="q"), \
                 patch.object(menu, "show_config", side_effect=back), \
-                patch.object(menu, "show_info", side_effect=back), \
                 patch.object(terminal, "choose", side_effect=choose), \
                 redirect_stdout(out):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
@@ -129,7 +128,7 @@ class MenuSpeed(Sandbox):
                                        ("char", "i", ["tidy-docs"]),
                                        ("char", "x", ["tidy-docs"]),
                                        ("esc", "", ["tidy-docs"])], screens)
-        self.assertEqual(marks, [(True,), (True,)])   # `c` and `i`; `m` is no key
+        self.assertEqual(marks, [(True,)])   # `c`; `m` and `i` are no keys
         self.assertEqual(self.estimates, [str(config.CODE / "acme")])   # once, not once a draw
 
 

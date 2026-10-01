@@ -219,7 +219,6 @@ class Pages(Sandbox):
     def draw(self, seats, width, height, page=0, keys=menu.KEYS):
         with patch.object(terminal, "width", return_value=width), \
                 patch.object(terminal, "height", return_value=height), \
-                patch.object(menu, "installed", return_value="abc1234 · 15 Sep"), \
                 redirect_stdout(io.StringIO()) as out:
             drawn = menu.draw(self.cfg, seats, keys, page)
         return out.getvalue().splitlines(), drawn
@@ -758,15 +757,13 @@ class Phone(Sandbox):
         phone.settled()                      # its screen goes before its process does
         phone.keys("C-b", "d")
         phone.until("your projects", prompt="esc leave")
-        # `c` lists the config, `i` is one screen, `r` is no key and says nothing
+        # `c` lists the config, `i` and `r` are no keys and say nothing
         phone.press("c")
         phone.until("add a model", "esc back")
         phone.keys("Escape")
         phone.until("your projects", "esc leave", prompt="esc leave")
         phone.press("i")
-        phone.until("you talk to one orchestrator", "esc back")
-        phone.keys("Escape")
-        phone.until("your projects", "esc leave", prompt="esc leave")
+        phone.until("your projects", "esc leave", absent=["not a key"], prompt="esc leave")
         phone.press("r")
         screen = phone.until("your projects", "esc leave", absent=["not a key"], prompt="esc leave")
         # the terminal turned, then held short: the layout follows on the next redraw

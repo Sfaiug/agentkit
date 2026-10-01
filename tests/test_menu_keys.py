@@ -445,7 +445,7 @@ class MenuKeys(unittest.TestCase):
                               capture_output=True, text=True, env=env, timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         out = proc.stdout
-        self.assertIn("\n  n new   x stop   c config   i info   esc leave\n", out)
+        self.assertIn("\n  n new   x stop   c config   esc leave\n", out)
         self.assertIn("not a key: 'zz'", out)
         self.assertIn("not a key: 'q'", out)       # and the empty line at the end leaves
         self.assertIn("<lines None>", out)

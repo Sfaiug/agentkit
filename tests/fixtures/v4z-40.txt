@@ -24,5 +24,4 @@ newsletter-tool
   4  rent        fable  ! needs you
     waiting for you
 
-  n new   x stop   c config   i info
-  esc leave
+  n new   x stop   c config   esc leave
