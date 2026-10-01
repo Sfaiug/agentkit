@@ -125,6 +125,9 @@ sys.exit(1)
         self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
+        # These adapters start no background commands; process discovery is covered by its
+        # own fixture, so this prompt regression never reads the host's process table.
+        self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
@@ -205,6 +208,21 @@ sys.exit(1)
         self.assertEqual(call["bash_default"], cap)
         self.assertEqual(call["bash_max"], cap)
         self.assertEqual(call["sentinel"], "kept")
+
+    def test_v5w_claude_worker_command_keeps_cap_with_inherited_timeouts(self):
+        out = self.root / "wout"
+        workspace = self.root / "ws"
+        workspace.mkdir()
+        self.task.write_text("Fixture work.")
+        with patch.dict(os.environ, {"BASH_DEFAULT_TIMEOUT_MS": "1000",
+                                     "BASH_MAX_TIMEOUT_MS": "2000"}):
+            code = worker.main(["opus", str(self.task), "--workspace", str(workspace),
+                                "--out", str(out)])
+        self.assertEqual(code, 0)
+        call = self.calls("executor")[-1]
+        cap = str(int(run.CEILING_HOURS * 3600 * 1000))
+        self.assertEqual(call["bash_default"], cap)
+        self.assertEqual(call["bash_max"], cap)
 
     # --- (b) a Codex and a Muse call carry their equivalent or nothing new ---
 
