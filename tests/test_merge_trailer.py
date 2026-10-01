@@ -73,7 +73,7 @@ class MergeTrailer(unittest.TestCase):
         return ok, text
 
     def gh(self, cwd, *args, **_kw):
-        if args[:2] == ("api", "graphql"):
+        if args[0] == "api" and "graphql" in args:
             query = next(arg for arg in args if arg.startswith("query="))
             self.assertIn("viewerMergeBodyText(mergeType:$method)", query)
             for field in ("owner=acme", "name=widget", "number=7"):
@@ -130,7 +130,7 @@ class MergeTrailer(unittest.TestCase):
         return run.Loop(self.cfg, self.directory, state, {}, lambda line: None,
                         self.repo, "", cmds, "", [])
 
-    def land(self, lp):
+    def land(self, lp, url=URL, own=False):
         if lp.state["merge_method"] == "rebase":
             # Exercise push's message preparation, with only the network write faked.
             original = run.git_out
@@ -140,7 +140,11 @@ class MergeTrailer(unittest.TestCase):
 
             with patch.object(run, "git_out", side_effect=git_out):
                 self.assertTrue(run.push(lp))
-        self.assertTrue(run.do_merge(lp, URL, "origin/main"))
+        if own:
+            lp.state["own_orchestrator"] = "opus"
+            self.assertTrue(run.merge_own_pr(lp, url, lp.state["delivery_sha"]))
+        else:
+            self.assertTrue(run.do_merge(lp, url, "origin/main"))
         return self.git("log", "-1", "--format=%B")
 
     def test_squash_after_passing_final_check_names_checked_tree(self):
@@ -177,18 +181,51 @@ class MergeTrailer(unittest.TestCase):
                 self.assertEqual(self.git("log", "-1", "--format=%(trailers:key=Co-authored-by)"),
                                  "Co-authored-by: Acme <acme@localhost>")
 
-    def test_unavailable_default_body_leaves_the_pr_open(self):
-        lp = self.loop()
-        self.assertTrue(run.final_check(lp, "origin/main"))
+    def test_enterprise_merges_read_the_default_body_on_the_pr_host(self):
+        url = URL.replace("github.com", "ghe.acme.test")
+        for method, own in (("squash", False), ("merge", False), ("squash", True)):
+            with self.subTest(method=method, own=own):
+                self.git("checkout", "-q", "ak/fix-api")
+                lp = self.loop(method=method)
+                self.assertTrue(run.final_check(lp, "origin/main"))
+                reads = []
 
-        def gh(cwd, *args, **_kw):
-            if args[:2] == ("api", "graphql"):
-                return 1, "fixture: body unavailable"
-            return self.gh(cwd, *args, **_kw)
+                def gh(cwd, *args, **_kw):
+                    if args[0] == "api":
+                        reads.append(args)
+                        self.assertEqual(args[:4], ("api", "--hostname", "ghe.acme.test", "graphql"))
+                    return self.gh(cwd, *args, **_kw)
 
-        with patch.object(run, "gh", side_effect=gh):
-            self.assertFalse(run.do_merge(lp, URL, "origin/main"))
-        self.assertEqual(self.calls, [])
+                with patch.object(run, "gh", side_effect=gh):
+                    message = self.land(lp, url, own=own)
+                self.assertEqual(len(reads), 1)
+                self.assertEqual(self.calls[-1][2], url)
+                self.assertIn("Suite-Passed-Tree:", message)
+                self.assertIn(self.default_body(method), message)
+
+    def test_unavailable_default_body_merges_with_the_default_message(self):
+        for method, own in (("squash", False), ("merge", False), ("squash", True)):
+            for answer in ((1, "HTTP 502"), (0, "not JSON"), (None, "timed out")):
+                with self.subTest(method=method, own=own, answer=answer):
+                    self.git("checkout", "-q", "ak/fix-api")
+                    lp = self.loop(method=method)
+                    self.assertTrue(run.final_check(lp, "origin/main"))
+                    reads = []
+
+                    def gh(cwd, *args, **_kw):
+                        if args[0] == "api" and "graphql" in args:
+                            reads.append(args)
+                            return answer
+                        return self.gh(cwd, *args, **_kw)
+
+                    with patch.object(run, "gh", side_effect=gh):
+                        message = self.land(lp, own=own)
+                    self.assertEqual(len(reads), 1)
+                    self.assertTrue(lp.state["merged"])
+                    self.assertFalse(lp.state.get("merge_failed"))
+                    self.assertNotIn("--body", self.calls[-1])
+                    self.assertNotIn("Suite-Passed-Tree:", message)
+                    self.assertIn(self.default_body(method), message)
 
     def test_without_declared_suite_has_no_trailer_even_with_once_check(self):
         for method, once in (("squash", None), ("squash", "true"), ("rebase", "true")):

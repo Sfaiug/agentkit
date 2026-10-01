@@ -5309,19 +5309,30 @@ def merge_body(lp, head, url=None):
         body = f"Suite-Passed-Tree: {checked['tree_sha']}"
         if url:
             # An explicit body replaces GitHub's defaults, including co-author credit.
-            owner, name, number = PR_PARTS.match(url).groups()
-            default, why = gh_json(
-                lp.run_dir, "api", "graphql", "-f",
-                "query=query($owner:String!,$name:String!,$number:Int!,$method:PullRequestMergeMethod!){"
-                "repository(owner:$owner,name:$name){pullRequest(number:$number){"
-                "viewerMergeBodyText(mergeType:$method)}}}",
-                "-f", f"owner={owner}", "-f", f"name={name}", "-F", f"number={number}",
-                "-f", f"method={(lp.state.get('merge_method') or 'squash').upper()}",
-                "-q", ".data.repository.pullRequest.viewerMergeBodyText | tojson")
+            pr = urlsplit(url)
+            match = re.fullmatch(r"/([^/\s]+)/([^/\s]+)/pull/(\d+)/?", pr.path)
+            if (not match or pr.scheme != "https" or not pr.hostname or pr.username
+                    or pr.query or pr.fragment):
+                lp.log(f"WARN cannot read the merge commit body for {url}; merging without suite trailer")
+                return []
+            owner, name, number = match.groups()
+            api = ("api",) if pr.netloc == "github.com" else ("api", "--hostname", pr.netloc)
+            try:
+                default, why = gh_json(
+                    lp.run_dir, *api, "graphql", "-f",
+                    "query=query($owner:String!,$name:String!,$number:Int!,$method:PullRequestMergeMethod!){"
+                    "repository(owner:$owner,name:$name){pullRequest(number:$number){"
+                    "viewerMergeBodyText(mergeType:$method)}}}",
+                    "-f", f"owner={owner}", "-f", f"name={name}", "-F", f"number={number}",
+                    "-f", f"method={(lp.state.get('merge_method') or 'squash').upper()}",
+                    "-q", ".data.repository.pullRequest.viewerMergeBodyText | tojson")
+            except Stopped as exc:
+                # Only the CI shortcut needs this read; the reviewed head stays pinned.
+                default, why = None, str(exc)
             if not isinstance(default, str):
-                note(lp, f"could not read the merge commit body for {url}: "
-                         f"{why or 'GitHub returned no body text'}", failed=True)
-                return None
+                lp.log(f"WARN could not read the merge commit body for {url}: "
+                       f"{why or 'GitHub returned no body text'}; merging without suite trailer")
+                return []
             body = add_suite_trailer(lp, default, body)
         return ["--body", body]
     return []
@@ -5348,8 +5359,6 @@ def do_merge(lp, url, upstream):
                 return note(lp, "the delivery SHA is not the tested and reviewed commit", failed=True)
             if ready:
                 body = [] if method == "rebase" else merge_body(lp, lp.state["delivery_sha"], url)
-                if body is None:
-                    return False
                 rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method], "--delete-branch",
                              "--match-head-commit", lp.state["delivery_sha"], *body)
             if rc == 0 or stopped(rc, out):
@@ -13779,8 +13788,6 @@ def merge_own_pr(lp, url, head):
     with merge_turn(lp, upstream):
         for attempt in range(1, MERGE_RETRIES + 2):
             body = merge_body(lp, head, url)
-            if body is None:
-                return False
             rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method],
                          "--delete-branch", "--match-head-commit", head, *body)
             if rc == 0:

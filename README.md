@@ -75,7 +75,7 @@ A failing done-when after a clean rebase gets up to three landing fixer rounds w
 
 When a session's run merges, its follow-ups immediately start ordinary runs of that same session, using its saved workers and the merged target branch. Each task carries the defect and evidence; an open fix at the same site in that session prevents a duplicate. The executor first checks the current target and other open runs: a defect already gone or being fixed ends `not needed: <why>`, counted as done with no PR or review. Otherwise it adds a regression test that fails before and passes after. Once its checks pass, the loop runs its `regression.sh` on the base commit with changed tests overlaid; a pass there fails the gate, and the checkout returns to HEAD. An owner-only decision ends blocked with the question. The merged run's ending names the fixes it started; the session stays working until they end, and stopping or closing it stops them. Fix runs' own follow-ups work the same way. Runs without a session, scratch runs and reviews of other people's PRs start none. There is no setting or follow-up backlog.
 
-Merges carry `Suite-Passed-Tree: <tree sha>` when the declared `tests:` suite passed on the delivered tree, so CI can skip a repeat on byte-identical code.
+Merges carry `Suite-Passed-Tree: <tree sha>` when the declared `tests:` suite passed on the delivered tree, so CI can skip a repeat on byte-identical code. If GitHub's default merge body cannot be read, ak merges without the trailer and CI runs as usual.
 
 ## New features in live projects
 
