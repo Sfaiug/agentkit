@@ -18,14 +18,19 @@ COMMANDS = {
               "ak usage --json"),
     "worker": (WORKER_USAGE, "Run one headless model turn from a task or prompt file.",
                "ak worker MODEL task.md --role reviewer"),
-    "hand-in": (f"usage: {HAND_IN_FINDING}\n       {HAND_IN_FOLLOWUP}\n       ak hand-in done",
-                "Hand in checked review records from a worker turn.\n"
+    "hand-in": (f"usage: {HAND_IN_FINDING}\n       {HAND_IN_FOLLOWUP}\n       ak hand-in done\n"
+                '       ak hand-in blocked "WHY"\n       ak hand-in not-needed "WHY"',
+                "Hand in review evidence or close a worker turn.\n"
                 "The loop names AK_HAND_IN; outside a turn this command is refused.\n"
                 "Paths and lines must exist in the checkout; a quote must occur in that file.\n"
                 "--run executes in the checkout and records bounded output excerpts and the exit status.\n"
                 "A finding's command must fail while the defect exists; ak re-runs it on commit and base.\n"
                 "--before proves a follow-up existed before the task.\n"
-                "done completes the review: any blocking finding means FAIL, otherwise PASS.",
+                "done closes any turn; in a review, any blocking finding means FAIL, otherwise PASS.\n"
+                "Executors and fixers use blocked when the task cannot be done as written, or\n"
+                "not-needed when a fix run finds the defect gone or already being fixed.\n"
+                "Review turns refuse blocked and not-needed; other turns refuse finding and follow-up.\n"
+                "A closing record refuses later records.",
                 'ak hand-in finding api.py:12 "Wrong result" "Breaks callers" --quote "return None"'),
     "hand-in finding": (f"usage: {HAND_IN_FINDING}",
                         "Hand in a finding for ak to weigh, with a failing command or quoted evidence.",
@@ -33,8 +38,14 @@ COMMANDS = {
     "hand-in follow-up": (f"usage: {HAND_IN_FOLLOWUP}",
                           "Hand in a proven defect that existed before the task; it cannot fail this review.",
                           'ak hand-in follow-up api.py:12 "Wrong result" "Breaks callers" --quote "return None" --before "base abc123 has the same defect"'),
-    "hand-in done": ("usage: ak hand-in done", "Complete this review and derive its verdict.",
+    "hand-in done": ("usage: ak hand-in done", "Close this worker turn; a review derives its verdict.",
                      "ak hand-in done"),
+    "hand-in blocked": ('usage: ak hand-in blocked "WHY"',
+                        "End an executor or fixer run whose task cannot be done as written.",
+                        'ak hand-in blocked "The task requires an unavailable file"'),
+    "hand-in not-needed": ('usage: ak hand-in not-needed "WHY"',
+                           "End a fix run whose defect is gone or already being fixed.",
+                           'ak hand-in not-needed "The target already fixes empty input"'),
     "run": ("""usage: ak run TASK [TASK ...] [--rounds N] [--exec MODEL] [--review MODEL]
               [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N]
        ak run --review-pr URL [--review MODEL] [--first] [--no-merge] [--bg]
@@ -160,7 +171,7 @@ PURPOSES = {
     "run": "execute a task file to a merged PR",
     "orch": "open a seat",
     "worker": "run one headless model turn from a task or prompt file",
-    "hand-in": "hand in checked review records from a worker turn",
+    "hand-in": "hand in review evidence or close a worker turn",
     "attach": "the menu",
     "usage": "show provider usage and worker pick order",
     "browser": "inspect the shared browser, sign in, register MCP tools, or install the stack",

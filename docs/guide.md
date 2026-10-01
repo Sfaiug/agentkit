@@ -100,8 +100,11 @@ the task: a named base commit or a quote from main before the task. Only these a
 number limit; everything else is omitted by the reviewer. ak’s follow-ups join the reviewer’s own, which are not re-run. Notes appear under `## Notes` in result.md and the PR body and start no fix run. A fixer receives only blocking findings, with ak’s output from both commits. The run's `run.json` and PR description carry only the final
 passing review's list, plus checks that passed only on re-run with their `flaky:` evidence. Earlier reviews' items
 are discarded. Nothing reads or writes `~/.agentkit/followups/`; existing files and archives are left alone.
+
+Every executor and fixer turn closes with `ak hand-in done`, `ak hand-in blocked "<why>"` when the task cannot be done as written, or `ak hand-in not-needed "<why>"` when a fix run first finds the defect gone or already being fixed. The closing record decides the outcome and establishes an answer regardless of the final text. Later records are refused. Reviewers cannot use blocked or not-needed; executors and fixers cannot use finding or follow-up. Without a closing record, the loop still reads legacy text answers.
+
 On merge each follow-up starts an ordinary run of the same session, with the executors and reviewers the session's record holds at that moment (the discovering run's if the session has no record), and a fresh checkout of the merged target. Its task is the defect and evidence. An open fix at the same site in that session prevents a duplicate. There is no setting or backlog.
-The executor first checks the current target and other open runs. A defect already gone or being fixed ends `not needed: <why>` (optionally under `## Summary`): done, no PR, checks or review. Otherwise it adds a regression test, shows failure before and success after, and writes the run's `regression.sh` to invoke it. After done-when passes, the loop runs it detached on the base commit with changed tests overlaid and a fresh bytecode cache; a pass there fails the gate. A successful base failure is recorded once per run, and the checkout returns to the branch head, clean. Every probe records its original checkout first; after a crash, the resumed run restores it before verifying or building. An owner-only decision ends `## Blocked` with the question.
+The executor first checks the current target and other open runs. A defect already gone or being fixed ends with `ak hand-in not-needed "<why>"`: done, no PR, checks or review. Otherwise it adds a regression test, shows failure before and success after, and writes the run's `regression.sh` to invoke it. After done-when passes, the loop runs it detached on the base commit with changed tests overlaid and a fresh bytecode cache; a pass there fails the gate. A successful base failure is recorded once per run, and the checkout returns to the branch head, clean. Every probe records its original checkout first; after a crash, the resumed run restores it before verifying or building. An owner-only decision ends with `ak hand-in blocked "<question>"`.
 The merged run's ending names its fix runs. The session stays working until they end; stopping or closing it stops them. Their follow-ups start runs the same way. Runs without a session, scratch runs and reviews of other people's PRs start none.
 A FAIL starts a fix round: the fixer fixes every undisputed finding, or lists a finding and evidence that it is wrong under `## Disputed` in its summary.
 Re-review rules on each dispute first, upheld or dropped, and says why. Three rounds is the budget: at the third FAIL the run ends
@@ -120,8 +123,8 @@ and ends `PASS, not merged: waiting for the maintainer`, exiting 0; the tick fol
 Before each round and each landing lap's verify, a run whose installed agentkit moved replaces itself in place with
 `ak run resume <id>` — same pid, slot and saved PASS — saying `picked up agentkit <old>..<new>; continuing on it`; it never moves holding a turn or a child, and a landing resumed mid-laps keeps its lap count.
 
-A run ends `blocked` when the task is wrong: an executor or fixer ends its turn with `## Blocked` instead of `##
-Summary`, or a fix round leaves the same checks failing the same way (or no harness can run it, see Resumption). No
+A run ends `blocked` when the task is wrong: an executor or fixer runs `ak hand-in blocked "<why>"`,
+or a fix round leaves the same checks failing the same way (or no harness can run it, see Resumption). No
 checks, no reviewer, no further round. `result.md` opens `# BLOCKED — <title>`, and the orchestrator writes a new task.
 
 Scheduled errors and merge waits send no ending. Every ending goes to the launching seat as one line typed at its next

@@ -27,9 +27,10 @@ ONE_PASS = ("Report every finding you can establish in this one pass, grouped by
 # A task that cannot be done as written is the task's defect, not the worker's: saying so ends
 # the run there, and the orchestrator that wrote the task gets the sentence back instead of a
 # reviewer's verdict on work nobody could do.
-BLOCKED = ("If the task cannot be completed as written, end with a `## Blocked` section saying "
-           "exactly why instead of `## Summary`. "
-           "`## Blocked` is only for a task that cannot be completed as written; never for a "
+BLOCKED = ('Close every turn with `ak hand-in done`, or `ak hand-in blocked "<why>"` if the task '
+           'cannot be completed as written, or `ak hand-in not-needed "<why>"` if a fix run\'s '
+           "first turn finds the defect gone or already being fixed. "
+           "`blocked` is only for a task that cannot be completed as written; never for a "
            "transient provider failure, a capacity refusal, or a check the loop runs later such "
            "as the `# once` suite.")
 # The reviewer supplies evidence; the loop weighs it outside the reviewer's editable copy.
@@ -597,7 +598,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
         raise LoginExpired(entry["harness"], why)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    turn_env[hand_in.ENV] = hand_in.start(out_dir, workspace, turn_env.pop(hand_in.CONTINUE, None))
+    turn_env[hand_in.ENV] = hand_in.start(out_dir, workspace, turn_env.pop(hand_in.CONTINUE, None),
+                                       role=role)
     preamble = PREAMBLES[role].format(workspace=workspace)
     if GATE in preamble:
         from . import run as loop

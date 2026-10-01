@@ -1151,7 +1151,7 @@ def answered(text):
 
     A refusal takes the answer's place rather than following it: it is the whole of what the
     harness managed to say, and it is short. Legacy text answers carry a heading, a verdict
-    line or length of their own; checked review records establish an answer separately.
+    line or length of their own; closing hand-in records establish an answer separately.
     """
     return len(text) > REFUSAL_CAP or bool(ANSWERED.search(text))
 
@@ -1279,7 +1279,7 @@ def harness_said(out_dir, text, harness, failures_only=False):
     submitted = hand_in.read(out_dir / hand_in.FILE)
     # Successful turns with a record file use it even when the model forgot to hand in anything.
     # An unfinished, failed call may still contain a real provider error in its final text.
-    handed_in = submitted is not None and (submitted.done or failures_only)
+    handed_in = submitted is not None and (submitted.closing is not None or failures_only)
     if failures_only and not handed_in and answered(text):
         return ""
     terminal = watch.terminal(harness)
@@ -3328,7 +3328,7 @@ def execute(lp, role, text, name):
     this turn left behind.  A turn killed by signal twice within a minute is neither either:
     the run parks as an interruption, reading `needs you` with the signal for a reason.
 
-    A turn that ends with a `## Blocked` section instead of `## Summary` says the task cannot
+    A turn that hands in blocked says the task cannot
     be done as written: that ends the run here, with no done-when gate, no reviewer and no
     further round, because there is nothing to judge and nothing another round would change.
     """
@@ -3419,6 +3419,14 @@ def execute(lp, role, text, name):
             lp.log(f"WARN {role} {killed_word(code) or f'exited {code}'}; "
                    f"see {out / 'stderr.log'}")
         lp.save()
+        submitted = review_records(out, summary)
+        closing = submitted.closing if submitted is not None else None
+        if closing:
+            if closing["kind"] == "blocked":
+                raise Blocked(closing["why"], f"## Blocked\n\n{closing['why']}")
+            if closing["kind"] == "not-needed":
+                raise NotNeeded(closing["why"])
+            return summary
         section = blocked_section(summary)
         if section:
             raise Blocked(blocked_reason(section), section)
@@ -3890,25 +3898,25 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                 if repair:
                     task += (
                         "First fetch the target branch and run the command on its tip. If it "
-                        "passes there now, end with only `not needed: <why>` (optionally under "
-                        "`## Summary`), with no edits or PR. Otherwise make the target pass it "
+                        'passes there now, run `ak hand-in not-needed "<why>"`, '
+                        "with no edits or PR. Otherwise make the target pass it "
                         "again: fix the root cause, and show the command failing before the fix "
                         "and passing afterwards in your summary. If only the owner can decide, "
-                        "end `## Blocked` with the question.\n\n"
+                        'run `ak hand-in blocked "<question>"`.\n\n'
                         f"## Done when\n```bash\n{repair['check']}\n```\n")
                 else:
                     task += (
                         "First fetch the target branch and check that this defect still exists there. "
                         f"Inspect {config.RUNS}/*/run.json for another open run of session {session} "
                         f"fixing this site in {repo}; exclude this run ({directory.name}). "
-                        "If the defect is gone or another open run is fixing it, end with only "
-                        "`not needed: <why>` (optionally under `## Summary`), with no edits or PR. "
+                        "If the defect is gone or another open run is fixing it, run "
+                        '`ak hand-in not-needed "<why>"`, with no edits or PR. '
                         "Otherwise fix it with a regression test: show it failing before the fix "
                         "and passing afterwards, and include both outputs in your summary. "
                         f"You may write {directory / 'regression.sh'} outside the checkout "
                         "to run that test from the checkout; "
-                        "the loop runs it as a check. If only the owner can decide, end `## Blocked` "
-                        "with the question.\n\n"
+                        "the loop runs it as a check. If only the owner can decide, run "
+                        '`ak hand-in blocked "<question>"`.\n\n'
                         f"## Done when\n```bash\nbash {check}\n```\n")
                 (directory / "task.md").write_text(task)
                 (directory / "log.txt").touch()

@@ -73,7 +73,7 @@ class HandIn(unittest.TestCase):
         for file in ("", str(self.root / "absent.jsonl")):
             result = self.cli("done", AK_HAND_IN=file)
             self.assertEqual(result.returncode, 2)
-            self.assertIn("review turn", result.stderr)
+            self.assertIn("worker turn", result.stderr)
 
     def test_evidence_runs_in_the_checkout_and_keeps_its_output_and_exit_status(self):
         result = self.cli("finding", "api.py:2", "wrong result", "breaks callers",
@@ -114,6 +114,67 @@ class HandIn(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("done", result.stderr)
         self.assertEqual(self.file.read_bytes(), before)
+
+    def test_executor_and_fixer_closings_require_a_why_and_refuse_later_records(self):
+        for role in ("executor", "fixer", "executor-scratch", "fixer-scratch"):
+            for kind in ("done", "blocked", "not-needed"):
+                with self.subTest(role=role, kind=kind):
+                    hand_in.start(self.root, self.workspace, role=role)
+                    if kind != "done":
+                        for args in ((kind,), (kind, " "), (kind, "why", "extra")):
+                            before = self.file.read_bytes()
+                            result = self.cli(*args)
+                            self.assertEqual(result.returncode, 2, result.stderr)
+                            self.assertIn("why", result.stderr)
+                            self.assertEqual(self.file.read_bytes(), before)
+                    args = [kind] + (["the task is already fixed"] if kind != "done" else [])
+                    result = self.cli(*args)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(hand_in.read(self.file).closing, self.rows()[-1])
+                    if kind != "done":
+                        self.assertEqual(self.rows()[-1]["why"], "the task is already fixed")
+                    before = self.file.read_bytes()
+                    for args in (("done",), ("blocked", "why"), ("not-needed", "why")):
+                        result = self.cli(*args)
+                        self.assertEqual(result.returncode, 2, result.stderr)
+                        self.assertIn("closed", result.stderr)
+                        self.assertEqual(self.file.read_bytes(), before)
+
+    def test_records_are_refused_in_the_wrong_role_before_running_evidence(self):
+        for role in worker.PREAMBLES:
+            hand_in.start(self.root, self.workspace, role=role)
+            commands = ([['blocked', 'why'], ['not-needed', 'why']] if role.startswith("reviewer") else
+                        [['finding', 'api.py:1', 'what', 'why', '--run', 'touch proof-ran; exit 1'],
+                         ['follow-up', 'api.py:1', 'what', 'why', '--run', 'touch proof-ran; exit 1',
+                          '--before', 'base abc123']])
+            for args in commands:
+                with self.subTest(role=role, kind=args[0]):
+                    before = self.file.read_bytes()
+                    result = self.cli(*args)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn("only for", result.stderr)
+                    self.assertEqual(self.file.read_bytes(), before)
+                    self.assertFalse((self.workspace / "proof-ran").exists())
+
+    def test_all_worker_closings_establish_an_answer_without_hiding_terminal_errors(self):
+        for role in worker.PREAMBLES:
+            kinds = ("done",) if role.startswith("reviewer") else ("done", "blocked", "not-needed")
+            for kind in kinds:
+                with self.subTest(role=role, kind=kind):
+                    hand_in.start(self.root, self.workspace, role=role)
+                    result = self.cli(kind, *(["why"] if kind != "done" else []))
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    text = "Handed in the rate limit parser result."
+                    for harness in ("claude", "grokbuild", "muse"):
+                        event = {"type": run.watch.terminal(harness), "result": text}
+                        (self.root / "events.jsonl").write_text(json.dumps(event) + "\n")
+                        for failures_only in (False, True):
+                            self.assertEqual(run.harness_said(self.root, text, harness,
+                                                              failures_only=failures_only), "")
+                        event.update(is_error=True, error="rate limit")
+                        (self.root / "events.jsonl").write_text(json.dumps(event) + "\n")
+                        self.assertIn("rate limit", run.harness_said(self.root, text, harness,
+                                                                    failures_only=True))
 
     def review(self, *plan, ok=True, reviewer="astra", prior=(), prior_suffix="", overrides=()):
         """The adapter invokes bin/ak, so these turns cross the real record-file boundary."""
