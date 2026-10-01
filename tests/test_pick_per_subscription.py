@@ -143,5 +143,22 @@ class PickPerSubscription(unittest.TestCase):
         self.assert_parked_through_session_rollovers(4 * 3600, 4 * 3600, [
             (3700, usage.SESSION_SECS), (4300, None)])
 
+    def test_only_the_deadline_ends_a_refusal_no_meter_of_its_length_showed(self):
+        # refused for five days beside nothing but a session ending in an hour, short of 100%
+        # or spent: a fresh session an hour before the deadline answers neither refusal
+        self.stack.enter_context(patch.object(usage, "_probe", side_effect=self.fake_probe))
+        for used in (30, 100):
+            self.now += 6 * DAY
+            self.meters = [{"name": "session", "used": used, "resets_at": self.now + 3600,
+                            "window_secs": usage.SESSION_SECS}]
+            until = usage.mark_exhausted(self.cfg, "beta", self.now + 5 * DAY)
+            self.now = until - 3600
+            self.meters = [{"name": "session", "used": 0,
+                            "resets_at": self.now + usage.SESSION_SECS,
+                            "window_secs": usage.SESSION_SECS}]
+            providers = usage.collect(self.cfg)
+            self.assertEqual(providers["beta"].get("exhausted_until"), until, used)
+            self.assertNotIn("two", usage.pick_order(self.cfg, providers, ["two"], quiet=True))
+
 if __name__ == "__main__":
     unittest.main()
