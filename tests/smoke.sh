@@ -2298,7 +2298,7 @@ grep -q 'idle-compact.py -- claude ' "$WORK/orch-fable.log" || ORCH2=1
 [ "$ORCH2" = 0 ] && ok "6b ak orch: astra prints a codex command with its model, spark a muse one, fable a claude one" \
                  || no "6b ak orch per-harness command: $(tail -1 "$WORK/orch-astra.log")"
 
-# --- 6c: each new seat records and applies its own models (offline) ---------
+# --- 6c: each seat applies its own models, a dry run records none (offline) --
 # A fresh HOME and a current empty-meter cache ensure selection and usage never probe a provider.
 SHOME="$WORK/sessionhome"
 mkdir -p -- "$SHOME/.agentkit/state"
@@ -2318,6 +2318,9 @@ printf '\n' | HOME="$SHOME" ak orch --dry-run --model astra --workers opus,spark
   >"$WORK/session-pick.log" 2>&1 || SESSIONRC=1
 printf '3\n\n' | HOME="$SHOME" ak orch --dry-run smoke-pick2 \
   >"$WORK/session-pick2.log" 2>&1 || SESSIONRC=1
+# a dry run leaves no record, so the seat whose workers usage applies is written here
+printf '{"orchestrator": "astra", "workers": ["opus", "spark"]}\n' \
+  >"$SHOME/.agentkit/state/session-smoke-pick.json"
 HOME="$SHOME" AGENTKIT_SESSION=smoke-pick ak usage --json \
   >"$WORK/session-usage.json" 2>"$WORK/session-usage.err" || SESSIONRC=1
 HOME="$SHOME" AGENTKIT_SESSION=ghost ak usage --json \
@@ -2352,14 +2355,13 @@ assert "list-bad" in listed and re.search(r"(?m)^list-bad\s+\S+\s+.*\s\?\s+\?\s+
 assert str(config.session_path("list-bad")) in warned and "retired-model" in warned, warned
 PY
 if [ "$SESSIONRC" = 0 ] &&
-   jq -e '.orchestrator == "astra" and .workers == ["opus", "spark"]' \
-     "$SHOME/.agentkit/state/session-smoke-pick.json" >/dev/null 2>&1 &&
-   jq -e '.orchestrator == "astra" and .workers == ["opus", "astra"]' \
-     "$SHOME/.agentkit/state/session-smoke-pick2.json" >/dev/null 2>&1 &&
+   grep -q '^orch: astra ' "$WORK/session-pick.log" &&
+   grep -q '^orch: astra ' "$WORK/session-pick2.log" &&
+   [ ! -e "$SHOME/.agentkit/state/session-smoke-pick2.json" ] &&
    jq -e '.pick_order == ["opus", "spark"]' "$WORK/session-usage.json" >/dev/null 2>&1 &&
    jq -e '.pick_order == ["opus", "astra"]' \
      "$WORK/session-default-usage.json" >/dev/null 2>&1; then
-  ok "6c session picker: choices persist, usage applies workers or missing-state defaults, list tolerates stale state"
+  ok "6c session picker: a dry run records nothing, usage applies workers or missing-state defaults, list tolerates stale state"
 else
   no "6c session picker"; sed 's/^/      /' "$WORK/session-pick.log" | head -8
 fi

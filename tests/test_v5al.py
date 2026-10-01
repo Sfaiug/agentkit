@@ -352,9 +352,15 @@ class Seats(Fixture):
         self.assertIn("session echo-seat in ", printed[2])
         self.assertEqual(shlex.split(printed[-1]),
                          ["env", "AGENTKIT_ACCOUNT=", os.environ.get("SHELL") or "/bin/sh"])
+        # a dry run records nothing; the seat it planned, really started, is given no id:
+        # its TUI cannot be told one (echo.sh exits 3)
+        self.assertNotIn("echo-seat", config.session_records())
+        with patch.object(terminal, "ask", return_value=""), redirect_stdout(io.StringIO()), \
+                patch.object(orch, "maintenance"), patch.object(orch, "launch"), \
+                patch.object(orch, "attach", return_value=0):
+            self.assertEqual(orch.main(["echo-seat", "--model", "echo"]), 0)
         record = config.session_records()["echo-seat"]
         self.assertEqual(record["orchestrator"], "echo")
-        # its TUI cannot be told an id (echo.sh exits 3), so the seat is given none
         self.assertNotIn("conversation", record)
 
     def test_v5al_the_menu_draws_the_seat_from_its_own_screen_rules(self):
