@@ -373,7 +373,9 @@ class SeatWordsBounded(unittest.TestCase):
                 self.tick(state, watch.STALL_WAIT)
                 self.reset.assert_not_called()
                 self.window.assert_not_called()
-                self.assertNotIn("fix-api", state["stalls"])
+                self.assertNotIn("status", state["stalls"].get("fix-api", {}))
+                # Codex's answer behind its `•` is still a stall, typed at as any other
+                self.assertEqual("fix-api" in state["stalls"], harness == "codex")
         # while a notice it draws in colour still parks the account it ran on, a colour tmux
         # carries on from the line above included
         for pane in ("\x1b[38;5;220m\x1b[49m●\x1b[39m \x1b[38;5;220mAPI Error: 429 Usage limit reached",

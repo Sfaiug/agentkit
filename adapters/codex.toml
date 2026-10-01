@@ -129,10 +129,8 @@ quotas = ["rate limit", "usage limit", "429 Too Many Requests", "429", "insuffic
 # `terminal` is the event log's terminal record kind: a refused turn ends with `turn.failed`,
 # which is the harness speaking about the run whether or not its kind names a failure.
 terminal = "turn.failed"
-# `error_marks` begin the error line it draws (`■ exceeded retry limit, ...`, captured): on a
-# seat's screen a stall word counts only behind one, or where it begins the line, as a bare
-# `Goal stalled` does; that names no failure of its own, and reads the line above it only when
-# drawn so.  The model's answer, behind its `• `, names a quota word further on.
+# `error_marks` begin the error line it draws (`■ exceeded retry limit, ...`, captured): a seat's
+# `Goal stalled` names no failure of its own, and reads the line above it only when drawn so.
 error_marks = ["■ "]
 
 # Codex in goal mode resumes its goal rather than the turn.
