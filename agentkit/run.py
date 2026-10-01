@@ -11174,6 +11174,36 @@ def unfinished(state, records=None, index=None):
     return not is_superseded(state, records, index, merged_only=True)
 
 
+def stoppable(state):
+    """Whether `ak run stop` takes this run: unfinished work, or an `error`.
+
+    `error` reads ended but the tick retries it hourly: stopping one is its owner's off-switch
+    for the ladder, the way stopping a waiting run ends its wait.  Every other ending sits
+    inert, so there is nothing to stop.
+    """
+    return state.get("state") not in ENDED or state.get("state") == "error"
+
+
+def ways_out(state, run_dir):
+    """The commands that settle a parked run, each only where it is taken.
+
+    `ak run status` marks an ending looked at (`mark_looked_at`), `ak run stop` ends what is
+    `stoppable`, and `ak run resume` carries on what `resume_run` would: a FAIL at its round
+    budget only with the `--rounds` its `continue_line` names, and nothing whose checkout is
+    gone.
+    """
+    run_id = Path(run_dir).name
+    ways = [f"ak run status {run_id}"] if state.get("state") in ENDED else []
+    if failed_at_budget(state):
+        onward = continue_line(state, run_dir)
+        ways += [onward.removeprefix("continue: ")] if onward else []
+    elif not state.get("worktree") or Path(state["worktree"]).is_dir():
+        ways.append(f"ak run resume {run_id}")
+    if stoppable(state):
+        ways.append(f"ak run stop {run_id}")
+    return ways
+
+
 def actionable(state):
     if state.get("recovery_acknowledged_at"):
         return False
@@ -12270,10 +12300,7 @@ def cmd_stop(argv):
     if state.get("state") == "stopped":
         print(stop_line(run_id, state.get("branch"), state.get("stop_kept", False)))
         return 0
-    # `error` reads ended but the tick retries it hourly: stopping one is its
-    # owner's off-switch for the ladder, the way stopping a waiting run ends
-    # its wait.  Every other ending sits inert, so there is nothing to stop.
-    if state.get("state") in ENDED and state.get("state") != "error":
+    if not stoppable(state):
         raise config.Error(f"{run_id} is already {state.get('state')}; "
                            "only unfinished work can be stopped")
     log = note_in(run_dir / "log.txt")
@@ -12283,7 +12310,7 @@ def cmd_stop(argv):
             print(stop_line(run_id, current.get("branch"),
                             current.get("stop_kept", False)))
             return 0
-        if current.get("state") in ENDED and current.get("state") != "error":
+        if not stoppable(current):
             raise config.Error(f"{run_id} is already {current.get('state')}; "
                                "only unfinished work can be stopped")
         kept = bool(keep or not checkout_removable(current))

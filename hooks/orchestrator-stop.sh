@@ -7,8 +7,9 @@
 # another session's work it said it waits on with `ak wait`, for as long as `watch.waiting_on`
 # says that session is working.  A turn the owner opened with a question ends on its answer too:
 # the prompt asked, so a plain reply stands.  A run of its own that sits parked and undecided --
-# `unfinished`, the runs `ak notify done` refuses on -- holds the turn past a done, an answer
-# or a run going: the block names each such run and its parked reason, and the seat resumes it,
+# `unfinished`, the runs `ak notify done` refuses on, so not one a later merged run replaced --
+# holds the turn past a done, an answer or a run going: the block names each such run, its
+# parked reason and the commands its state takes, and the seat looks at it, resumes it,
 # relaunches it split or on another model, stops it, or asks the owner.  A question, `ak notify
 # needs`, background work and the third stop stand past it, as they always did.  A turn another
 # session's message opened keeps a done declared before it: the seat only acknowledged the
@@ -61,7 +62,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
-from agentkit.run import going, handback_reason, unfinished
+from agentkit.run import going, handback_reason, unfinished, ways_out
 from agentkit.watch import waiting_on
 
 HOPS = 8            # how many renames a seat name is followed through, as agentkit/config does
@@ -256,7 +257,8 @@ def waiting(seat, turn):
 def parked(seat):
     """(run, parked reason) for this seat's runs that sit parked and undecided.
 
-    Undecided is `unfinished` whole -- the runs `ak notify done` refuses on -- read through
+    Undecided is `unfinished` whole over every run's record -- the runs `ak notify done`
+    refuses on, so not one a later merged relaunch or continuation replaced -- read through
     agentkit's own function, never a copy of its rule.  A run going somewhere is not parked:
     it resumes itself, and a stop that waits on it stands as it always did.  `stalled` is the
     exception: `going` counts it, but nothing resumes one -- the tick only told the seat --
@@ -266,28 +268,28 @@ def parked(seat):
         directories = sorted(path for path in RUNS.iterdir() if path.is_dir())
     except OSError:
         return []
+    records = [(directory, read(directory / "run.json")) for directory in directories]
     found = []
-    for directory in directories:
-        state = read(directory / "run.json")
+    for directory, state in records:
         owner = state.get("launched_session") or state.get("session")
         # the rename chain is only walked for a run whose recorded name is not already this one
         if not isinstance(owner, str) or not owner or (owner != seat and resolve(owner) != seat):
             continue
         if going(state) and state.get("state") != "stalled":
             continue
-        if not unfinished(state):
+        if not unfinished(state, records):
             continue
-        found.append((directory.name, handback_reason(state)))
+        found.append((directory.name, handback_reason(state), ways_out(state, directory)))
     return found
 
 
 def parked_reason(found):
-    """The block where runs sit parked and undecided: each run and its reason, and the four ways out."""
-    runs = "; ".join(f"run {name} parked: {why}" for name, why in found)
-    resume = " / ".join(f"ak run resume {name}" for name, _ in found)
-    stop = " / ".join(f"ak run stop {name}" for name, _ in found)
-    return (f"{runs}. Continue: resume it ({resume}), relaunch it split or on another model, "
-            f"stop it ({stop}), or ask the owner.")
+    """The block where runs sit parked and undecided: each run, its reason and the commands its
+    state takes -- `ways_out`, so none that refuses it -- and the ways out."""
+    runs = "; ".join(f"run {name} parked: {why} ({' / '.join(ways)})" for name, why, ways in found)
+    return (f"{runs}. Continue: settle each with one of its commands -- ak run status marks an "
+            f"ended run looked at, ak run resume carries it on, ak run stop ends it -- relaunch "
+            f"it split or on another model, or ask the owner.")
 
 
 def held(launched, payload):
