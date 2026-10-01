@@ -52,7 +52,7 @@ class OwnPrRounds(unittest.TestCase):
         self.git("update-ref", "refs/remotes/origin/main", self.git("rev-parse", "HEAD"))
         self.git("checkout", "-qb", "fix-api")
         self.heads = []
-        for n in range(1, 4):
+        for n in range(1, 5):
             (self.repo / "fence.txt").write_text(f"fix {n}\n")
             self.git("commit", "-qam", f"Fix {n}")
             self.heads.append(self.git("rev-parse", "HEAD"))
@@ -346,6 +346,99 @@ class OwnPrRounds(unittest.TestCase):
         self.assertEqual([s["verdict"] for s in state["round_summaries"]], ["FAIL", "FAIL", "PASS"])
         self.assertEqual(len(self.prompts), 3)
         self.assertEqual(self.merges[0][-1], self.heads[2])
+
+    def assert_moved_round_merges(self, state):
+        self.assertEqual(state["state"], "pass")
+        self.assertTrue(state["merged"])
+        self.assertNotIn("own_pr_round_pending", state)
+        self.assertEqual([(s["round"], s["head_sha"]) for s in state["round_summaries"]],
+                         list(enumerate(self.heads[:3], 1)))
+        self.assertEqual(len(self.prompts), 3)
+        self.assertIn("first rule on each previous finding", self.prompts[2])
+        self.assertEqual(self.events, ["event=COMMENT", "event=COMMENT"])
+        self.assertEqual(len(self.merges), 1)
+        self.assertEqual(self.merges[0][-1], self.heads[2])
+
+    def test_push_during_review_advances_with_the_recorded_findings(self):
+        def moved(*args, **kw):
+            answer = self.reviewer(*args, **kw)
+            if len(self.prompts) == 2:
+                self.pr["headRefOid"] = self.heads[2]
+            return answer
+
+        with patch.object(worker, "call", side_effect=moved):
+            state = self.review(["FAIL", "FAIL", "PASS"])
+        self.assert_moved_round_merges(state)
+        self.assertIn("defect 2", self.prompts[2])
+        self.assertEqual(len(self.notices), 2)
+
+    def test_push_during_pass_reviews_the_new_head_before_merging(self):
+        def moved(*args, **kw):
+            answer = self.reviewer(*args, **kw)
+            if len(self.prompts) == 2:
+                self.pr["headRefOid"] = self.heads[2]
+            return answer
+
+        with patch.object(worker, "call", side_effect=moved):
+            state = self.review(["FAIL", "PASS", "PASS"])
+        self.assert_moved_round_merges(state)
+        self.assertEqual(len(self.notices), 1)
+
+    def test_pending_round_resumes_after_a_push_during_review(self):
+        def killed(lp, url, verdict, **_kw):
+            if len(self.prompts) == 2:
+                self.pr["headRefOid"] = self.heads[2]
+                raise InterruptedError("fixture: loop died before posting the moved head")
+            return post(lp, url, verdict)
+
+        post = run.post_review
+        with patch.object(run, "post_review", side_effect=killed), self.assertRaises(InterruptedError):
+            self.review(["FAIL", "FAIL", "PASS"])
+        self.assertEqual(run.read_state(self.run_dir)["own_pr_round_pending"], 2)
+        self.assert_moved_round_merges(self.review(["FAIL", "FAIL", "PASS"]))
+        self.assertIn("defect 2", self.prompts[2])
+
+    def test_failed_post_resumes_on_a_new_head(self):
+        def failed(cwd, *args, **_kw):
+            if args[0] == "api" and len(self.prompts) == 2:
+                return 1, "HTTP 502: fixture"
+            return self.gh(cwd, *args)
+
+        with patch.object(run, "gh", side_effect=failed):
+            state = self.review(["FAIL", "PASS", "PASS"])
+        self.assertEqual(state["state"], "error")
+        self.pr["headRefOid"] = self.heads[2]
+        self.assert_moved_round_merges(self.review(["FAIL", "PASS", "PASS"]))
+
+    def test_closed_pr_settles_a_pending_round(self):
+        with patch.object(run, "gh", return_value=(1, "HTTP 502: fixture")):
+            self.assertEqual(self.review(["FAIL"])["state"], "error")
+        self.pr["state"] = "CLOSED"
+        state = self.review(["FAIL"])
+        self.assertEqual(state["state"], "fail")
+        self.assertIsNotNone(state["finished_at"])
+        self.assertNotIn("own_pr_round_pending", state)
+        self.assertIn("closed", state["error"].lower())
+        self.assertIn("defect 1", (self.run_dir / "result.md").read_text())
+        self.assertEqual(len(self.prompts), 1)
+        self.assertEqual(self.events, [])
+        self.assertEqual(self.merges, [])
+
+    def test_push_during_round_three_ends_without_a_fourth_review(self):
+        def moved(*args, **kw):
+            answer = self.reviewer(*args, **kw)
+            if len(self.prompts) == 3:
+                self.pr["headRefOid"] = self.heads[3]
+            return answer
+
+        with patch.object(worker, "call", side_effect=moved):
+            state = self.review(["FAIL", "FAIL", "PASS"])
+        self.assertEqual(state["state"], "fail")
+        self.assertIsNotNone(state["finished_at"])
+        self.assertNotIn("own_pr_round_pending", state)
+        self.assertIn("head changed", state["error"])
+        self.assertEqual(len(self.prompts), 3)
+        self.assertEqual(self.merges, [])
 
     def test_killed_after_merge_settles_without_another_merge(self):
         merge = run.merge_own_pr
