@@ -74,7 +74,7 @@ class SeatBar(Sandbox):
         """(word, the row's last column, the whole row, the status bar's left half)."""
         info = menu.v5o_seat_info(self.cfg, 1, seat, menu.run_records(), {}, {}, NOW)
         watch.announce_state(seat, cfg=self.cfg)
-        row = "\n".join(terminal.plain(line) for line in menu.v5o_format_seats([info], 100))
+        row = "\n".join(terminal.plain(line) for line in menu.v5o_seat_blocks([info], 100)[0])
         return info["word"], menu._last_text(info), row, self.options["status-left"]
 
     def test_a_renamed_seats_plan_under_its_old_name_draws_its_bar(self):

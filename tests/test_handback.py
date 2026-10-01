@@ -1115,17 +1115,12 @@ class HandBack(Sandbox):
         self.assertFalse(run.needs_recovery(run.read_state(directory)))
         self.assertFalse(run.unfinished(run.read_state(directory)))
 
-    def test_blocked_reads_with_its_glyph_and_its_reason_on_both_screens(self):
+    def test_blocked_reads_with_its_glyph_and_its_reason_in_status(self):
         directory = self.blocked_record("run-7")
         state = run.read_state(directory)
         self.assertEqual(menu.run_state_word(state), "needs you")
         self.assertEqual(run.blocked_note(state),
                          f"{terminal.state_glyph('needs you')} blocked · the checks are wrong")
-        _, blocks = menu._runs_table([(directory, state)], 100, 30)
-        lines = [terminal.plain(line) for block in blocks for line in block]
-        self.assertTrue(any(line.endswith("! needs you") for line in lines), lines)
-        self.assertIn(run.blocked_note(state), lines)
-        self.assertNotIn("offers resume", "\n".join(lines))
         out = io.StringIO()
         with redirect_stdout(out):
             run.cmd_status([directory.name])

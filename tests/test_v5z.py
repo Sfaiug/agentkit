@@ -335,20 +335,8 @@ class Listings(Sandbox):
         # hour, straight through the real reader: nobody needs to act on it
         sentence = run.waiting(state)
         self.assertTrue(sentence.startswith("waiting"), sentence)
-        # the column keeps a STATES word; the provider and the hour live on
-        # the note line only, said once, never twice on adjacent lines.
-        # A run that resumes itself is still working, on `r` and on `ak run status`.
+        # A run that resumes itself is still working on `ak run status`.
         self.assertEqual(menu.run_state_word(state), "working")
-        self.assertEqual(menu.runs_word(state), "working")
-        _, blocks = menu._runs_table([(directory, state)], 100, 30)
-        block = "\n".join(blocks[0])
-        self.assertEqual(block.count(sentence), 1, block)
-        self.assertIn("● working", blocks[0][0])
-        self.assertNotIn("unfinished", block)
-        self.assertNotIn(sentence, blocks[0][0])
-        self.assertNotIn("offers resume", block)
-        # one shape for every note: glyph, then what the number is for
-        self.assertIn(f"● {sentence}", block)
         # ak run status reads the same word from the same table
         table = self.status([])
         row = next(line for line in table.splitlines()
@@ -375,32 +363,21 @@ class Listings(Sandbox):
             own = command_help.render(name)
             self.assertEqual(own.count(command_help.PURPOSES[name]), 1, name)
 
-    def test_v5z_o_waiting_runs_read_the_cache_and_config_once_per_draw(self):
-        pairs = []
-        for hour in ("0600", "0610"):
-            waiting_id = f"20260101-{hour}-wait-for-a-window"
-            directory = config.RUNS / waiting_id
-            directory.mkdir()
-            run.save_state(directory, {"run_id": waiting_id, "title": "Wait for a window",
-                                       "state": "exhausted", "quota_dry": True,
-                                       "error": "provider quota spent",
-                                       "executor": "opus", "reviewer": "astra",
-                                       "rounds": 2, "round_summaries": [],
-                                       "started_at": NOW - 3600, "finished_at": None,
-                                       **run.process_owner()})
-            pairs.append((directory, run.read_state(directory)))
-        with patch.object(run, "_cached_providers",
-                          wraps=run._cached_providers) as cached, \
-                patch.object(config, "load", wraps=config.load) as loaded:
-            _, blocks = menu._runs_table(pairs, 100, 30)
-            self.assertEqual(cached.call_count, 1, "one cache read per draw")
-            self.assertEqual(loaded.call_count, 1, "one config read per draw")
-        for block in blocks:
-            self.assertIn("waiting for a provider window", "\n".join(block))
+    def test_v5z_o_status_details_use_the_given_cache(self):
+        waiting_id = "20260101-0600-wait-for-a-window"
+        directory = config.RUNS / waiting_id
+        directory.mkdir()
+        run.save_state(directory, {"run_id": waiting_id, "title": "Wait for a window",
+                                   "state": "exhausted", "quota_dry": True,
+                                   "error": "provider quota spent",
+                                   "executor": "opus", "reviewer": "astra",
+                                   "rounds": 2, "round_summaries": [],
+                                   "started_at": NOW - 3600, "finished_at": None,
+                                   **run.process_owner()})
         # a caller handing the scope down reads nothing further
         with patch.object(run, "_cached_providers",
                           wraps=run._cached_providers) as cached:
-            lines = run.status_details(pairs[0][0], pairs[0][1], {}, None)
+            lines = run.status_details(directory, run.read_state(directory), {}, None)
             self.assertEqual(cached.call_count, 0)
         self.assertIn("waiting for a provider window", "\n".join(lines))
 

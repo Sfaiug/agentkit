@@ -107,7 +107,7 @@ class LiveStatus(unittest.TestCase):
         """The seat's row as the menu's next draw would put it, and its values."""
         info = menu.v5o_seat_info(self.cfg, 1, dict(self.seat, repo=self.repo),
                                   menu.run_records(), {}, {}, time.time())
-        return info, terminal.plain(menu.v5o_format_seats([info], 100)[0])
+        return info, terminal.plain(menu.v5o_seat_blocks([info], 100)[0][0])
 
     # --- one answer, fast --------------------------------------------------------
 

@@ -27,7 +27,6 @@ import fcntl
 import hashlib
 import json
 import math
-import mimetypes
 import os
 import secrets
 import stat
@@ -186,15 +185,6 @@ def webhook(report=False):
     return target
 
 
-def speaker(session):
-    """Who is speaking: the seat, by the name the owner opens it with.
-
-    Never the hostname: a provider's `v1234567890123456789` names nothing the owner can press a number for.
-    """
-    name = " ".join((session or "").split())
-    return f"agentkit \u00b7 {name}" if name else "agentkit"
-
-
 def _scrub(exc, url):
     """The URL is the secret; scrub it in case the exception quotes it back."""
     return str(exc).replace(url, "<webhook>")
@@ -220,26 +210,6 @@ def _read(paths):
         except OSError as exc:
             raise config.Error(f"--file {path}: {exc}")
     return files
-
-
-def _multipart(payload, files):
-    """(body, content-type) for a webhook POST that carries files as well as text."""
-    boundary = f"----agentkit{secrets.token_hex(16)}"
-    sep = f"--{boundary}\r\n".encode()
-    body = bytearray()
-    body += sep
-    body += b'Content-Disposition: form-data; name="payload_json"\r\n'
-    body += b"Content-Type: application/json\r\n\r\n"
-    body += json.dumps(payload).encode() + b"\r\n"
-    for n, (name, blob) in enumerate(files):
-        ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
-        body += sep
-        body += (f'Content-Disposition: form-data; name="files[{n}]"; '
-                 f'filename="{name}"\r\n').encode()
-        body += f"Content-Type: {ctype}\r\n\r\n".encode()
-        body += blob + b"\r\n"
-    body += f"--{boundary}--\r\n".encode()
-    return bytes(body), f"multipart/form-data; boundary={boundary}"
 
 
 def mention():
@@ -1168,22 +1138,6 @@ def forget_card(name, log=lambda _: None):
         log(f"WARN the card of {name} was not closed ({type(exc).__name__}); retry required")
 
 
-def session_number(name):
-    """This session's number in the menu, or None when the menu has no row for it.
-
-    The menu's own listing, and not just the seats tmux is holding: a seat that is resumable
-    still has a row, and the number the message names has to be the number that opens it.
-    """
-    from . import orch   # here, not at the top: orch imports nothing of ours that imports notify
-    # Use the menu's eligibility rules without listing()'s session-record reconciliation;
-    # rendering a notification preview must not write resumability changes to those records.
-    names = {s["name"] for s in orch.sessions()}
-    names.update(name for name, record in config.session_records().items()
-                 if orch.resumable(record) or orch.seat_plugin(record).always_offered)
-    names = sorted(names)
-    return names.index(name) + 1 if name in names else None
-
-
 def subject(session, text):
     """Who the notification is about: the session it speaks for, else what it is about.
 
@@ -1272,18 +1226,6 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
     except (OSError, ValueError, config.Error) as exc:
         print(f"notify: record could not be persisted ({type(exc).__name__}); retry required", file=sys.stderr)
         return 1
-
-
-def log_line(line, dry_run=False):
-    """The line on stdout and in the run log, the way a suppression already says it."""
-    print(line)
-    log = os.environ.get("AK_RUN_LOG")
-    if log and not dry_run:
-        try:
-            with Path(log).open("a") as fh:
-                fh.write(f"[{datetime.now():%H:%M:%S}] {line}\n")
-        except OSError:
-            pass
 
 
 def check():

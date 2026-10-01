@@ -98,9 +98,8 @@ class Cleanup(Sandbox):
         done, done_wt, done_branch = self.receipt("done", state="pass", owner="atoll",
                                                   merged=False)
         other, other_wt, _ = self.receipt("other", state="running", owner="parser", merged=False)
-        browser.note_opener("tab-seat", session="atoll")
-        browser.note_opener("tab-run", run="mine")
-        stored = browser._read_tabs()
+        stored = {"tab-seat": {"opener": {"session": "atoll"}},
+                  "tab-run": {"opener": {"run": "mine"}}}
         stored["tab-stray"] = {"first_seen": 1, "last_change": 1, "url": "https://x", "title": "x"}
         browser._write_tabs(stored)
         self.assertIn("and everything it is running", menu.stop_question("atoll"))
@@ -453,8 +452,7 @@ class Cleanup(Sandbox):
 
     def test_tab_opened_by_a_run_closes_when_it_ends(self):
         directory, wt, _ = self.receipt("ended", state="pass", merged=True, age=60)
-        browser.note_opener("tab-ended", run="ended")
-        stored = browser._read_tabs()
+        stored = {"tab-ended": {"opener": {"run": "ended"}}}
         stored["tab-other"] = {"first_seen": 1, "last_change": 1, "url": "https://y", "title": "y"}
         browser._write_tabs(stored)
         state = run.read_state(directory)

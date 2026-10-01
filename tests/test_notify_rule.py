@@ -69,7 +69,6 @@ class Rule(unittest.TestCase):
         self.stack.enter_context(patch.object(notify.urllib.request, "urlopen",
                                               side_effect=self.urlopen))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux_out))
-        self.stack.enter_context(patch.object(notify, "session_number", return_value=1))
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[]))
         self.out = self.stack.enter_context(redirect_stdout(io.StringIO()))
         self.err = self.stack.enter_context(redirect_stderr(io.StringIO()))

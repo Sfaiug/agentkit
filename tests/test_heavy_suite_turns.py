@@ -121,8 +121,6 @@ class HeavySuiteTurns(unittest.TestCase):
         large = run.derived_heavy_limit(dict(LARGE))
         self.assertEqual(large, 2 * small)
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(SMALL)}):
-            limit, pinned = run.heavy_suite_limit()
-            self.assertEqual((limit, pinned), (small, False))
             self.assertIn(f"heavy suites: {small} at once (derived)",
                           run.host_status_line())
 
@@ -310,7 +308,6 @@ class HeavySuiteTurns(unittest.TestCase):
     def test_a_pinned_max_gates_holds(self):
         self.gates(2)
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(SATURATED)}):
-            self.assertEqual(run.heavy_suite_limit(), (2, True))
             self.assertIn("heavy suites: 2 at once (pinned)", run.host_status_line())
             first = Gate(self, "one", ACME, [self.mark("one", 1)])
             second = Gate(self, "two", WIDGET, [self.mark("two")])

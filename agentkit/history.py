@@ -391,59 +391,6 @@ def memory_requirement(repo, min_free_mb=MIN_FREE_MB):
     return max(float(min_free_mb), 1.2 * estimate) if estimate is not None else None
 
 
-def role_stats(repo, role, model=None, *, limit=30):
-    """Return (success rate, finished count, median active seconds) for a model role.
-
-    A worker's seconds are its own step's; an orchestrator's are the whole run's, every step
-    of the runs its seat launched.  A role that never ran in a row has no speed there.
-    """
-    column = role if role in ("executor", "orchestrator") else "reviewer"
-    rows = _rows(repo, "run_id", limit=limit, role=column, model=model)
-    if len(rows) < 10:
-        rows = _rows(None, "run_id", limit=limit, role=column, model=model)
-    ix = _index()
-    rows = [row for row in rows if row[ix["final_state"]] is not None]
-    if not rows:
-        return None
-    passed = sum(str(row[ix["verdict"]]).upper() == "PASS" for row in rows)
-    durations = [active_seconds(row) if column == "orchestrator" else
-                 max(0.0, row[ix[f"{column}_seconds"]] or 0.0) for row in rows]
-    durations = [seconds for seconds in durations if seconds]
-    return passed / len(rows) * 100, len(rows), float(median(durations)) if durations else None
-
-
-def usage_line(repo, model, role):
-    stats = role_stats(repo, role, model)
-    if not stats:
-        return None
-    success, count, seconds = stats
-    if seconds is None:
-        return f"{model}: {role}: {success:.0f}% over {count} runs"
-    return f"{model}: {role}: {success:.0f}% over {count} runs, ~{seconds / 60:.0f}m"
-
-
-def role_lines():
-    """`usage_line` for every model in every role, over every repository's real runs.
-
-    For `ak run status --history`: how each orchestrator's runs and each worker's turns went.
-    """
-    lines = []
-    for role in ("orchestrator", "executor", "reviewer"):
-        try:
-            with _LOCK:
-                connection = _connect(readonly=True)
-                try:
-                    models = [row[0] for row in connection.execute(
-                        f"SELECT DISTINCT {role} FROM runs WHERE {role} IS NOT NULL "
-                        f"AND {REAL_WORK} ORDER BY {role}")]
-                finally:
-                    connection.close()
-        except (OSError, sqlite3.Error, TypeError, ValueError):
-            continue
-        lines += [line for line in (usage_line(None, model, role) for model in models) if line]
-    return lines
-
-
 def _ensure_migrated():
     """Bring an old database up to the current schema, best effort.
 

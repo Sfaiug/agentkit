@@ -90,10 +90,8 @@ class HistoryTests(unittest.TestCase):
                             now, 5))
         self.assertIsNone(history.estimate_seconds("project"))
         self.assertIsNone(history.estimate_seconds("agentkit-smoke"))
-        self.assertIsNone(history.role_stats("project", "executor", "opus"))
         self.assertIsNone(history.size_summary("agentkit-smoke"))
         self.assertEqual(history.finished_repos(), [])
-        self.assertEqual(history.role_lines(), [])
 
     def test_estimate_and_speed_are_active_time_of_runs_not_stopped(self):
         now = time.time()
@@ -109,7 +107,6 @@ class HistoryTests(unittest.TestCase):
         history.finish_run("stopped", started_at=now - 350000, finished_at=now,
                            final_state="stopped", verdict="STOPPED")
         self.assertEqual(history.estimate_seconds("ATOLL"), 900)
-        self.assertEqual(history.role_stats("ATOLL", "executor", "opus"), (100, 5, 600))
         # a step closed when its run parked stays closed: the stop days later adds nothing
         history.start_run("parked", repo="ATOLL", started_at=0)
         history.open_step("parked", "executor", 100)
@@ -283,7 +280,6 @@ class HistoryTests(unittest.TestCase):
         with patch.object(config, "RUNS", runs):
             # a few rows whose time includes waits move a median a rank or two, no further
             self.assertEqual(history.estimate_seconds("ATOLL"), 900)
-            self.assertEqual(history.role_stats("ATOLL", "executor", "opus"), (100, 8, 600))
             # suite and stopped rows stay, and no statistic reads them
             self.assertEqual(history.estimate_seconds("repo-retry"), 900)
             self.assertEqual(history.estimate_memory_mb("ATOLL"), 100)
@@ -405,7 +401,7 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(history.estimate_memory_mb("project"), 500)
         self.assertEqual(history.memory_requirement("project", 100), 600)
 
-    def test_picker_ignores_history_for_every_role_and_keeps_ties_in_list_order(self):
+    def test_picker_keeps_budget_ties_in_list_order_for_every_role(self):
         entry = {"harness": "x", "model": "x", "effort": "x", "meter": None}
         cfg = {"models": {
             "slow": {**entry, "provider": "p"}, "fast": {**entry, "provider": "q"}},
@@ -416,12 +412,9 @@ class HistoryTests(unittest.TestCase):
                         patch.object(usage, "model_exhausted", return_value=(False, None)), \
                         patch.object(usage, "model_pace", return_value=(None, "provider meters")), \
                         patch.object(usage, "model_budget", side_effect=lambda _c, name, _p, _n:
-                                     (1.0 if name == "slow" else budget, None)), \
-                        patch.object(history, "role_stats", side_effect=lambda _r, _role, name:
-                                     (100, 30, 30) if name == "fast" else (50, 30, 120)) as stats:
+                                     (1.0 if name == "slow" else budget, None)):
                     self.assertEqual(usage.pick_order(cfg, {"p": {}, "q": {}}, ["slow", "fast"],
                                                       role=role, repo="project"), ["slow", "fast"])
-                    stats.assert_not_called()
 
     def test_usage_render_omits_model_success_rates(self):
         history.start_run("r1", repo="project", executor="opus", reviewer="astra",

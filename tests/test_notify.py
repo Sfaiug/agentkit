@@ -83,7 +83,6 @@ class Notifications(unittest.TestCase):
                         'assert sys.argv[1:3] == ["-L", "agentkit-test"]\nsys.exit(1)\n')
         tmux.chmod(0o755)
         self.stack.enter_context(patch.dict(os.environ, {"PATH": f"{binaries}:{os.environ['PATH']}"}))
-        self.stack.enter_context(patch.object(notify, "session_number", return_value=1))
 
     def cli(self, *args, env=None):
         result = subprocess.run([sys.executable, str(REPO / "bin/ak"), "notify", *args],

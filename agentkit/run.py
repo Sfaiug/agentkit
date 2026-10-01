@@ -141,8 +141,6 @@ LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after |
 # on, long before the tally it ends with.  See `first_failure`.
 FAILURE_LINE = re.compile(r"^(?:FAIL(?:ED)?|ERROR|not ok)\b")
 ENDED = ("pass", "fail", "error", "blocked", "stopped", "not_needed")
-NOTICE = 100                    # a finished-run notice is one line, this wide: what a phone shows
-                                # -- the menu's leading space included, so the line itself is 99
 QUEUED_GRACE = 30               # old launchers did not record the background child's identity
 try:
     SLOT_POLL = float(os.environ.get("AK_SLOT_POLL", "30"))
@@ -2152,19 +2150,6 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     if not candidates:
         return 1
     return max(1, running + max(0, min(candidates)))
-
-
-def heavy_suite_limit(readings=None, running=None):
-    """(limit, pinned): the heavy-suite turns in force; 0 means no cap.
-
-    An explicit `max_gates` pins the host-wide count; otherwise it is derived
-    from running suites plus live headroom for more.  A home
-    config this cannot read raises, and the caller falls back to derived.
-    """
-    pinned = config.max_gates()
-    if pinned is not None:
-        return pinned, True
-    return derived_heavy_limit(readings, running), False
 
 
 def _acquire_gate_turn(run_dir, log_path, log):
@@ -4451,20 +4436,6 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     lp.state.pop("review_pending", None)
     lp.save()
     return verdict
-
-
-def round_findings(lp, entry):
-    """How much a round found: the number it recorded, or the answer it left on disk.
-
-    A run saved before the count was recorded still has its reviewer's text in the round
-    directory, and a budget decision must not read a missing number as "found nothing".
-    None when neither is there -- that is not a count, and nothing can be compared to it.
-    """
-    if isinstance(entry.get("finding_count"), int):
-        return entry["finding_count"]
-    files = review_files(lp.run_dir, entry.get("round"))
-    whole = read_answer(files[-1]) if files else None
-    return finding_count(whole) if whole is not None else None
 
 
 def prev_suite_failure(lp):
@@ -7821,39 +7792,6 @@ def seat_tallies(records, now=None):
     return {seat: tuple(counts) for seat, counts in found.items()}
 
 
-def verdict_word(state, cfg=None):
-    """The outcome a notice carries, including DONE for a follow-up no longer needed.
-
-    A run that stopped on an error says so; everything else is the delivery outcome, so an
-    exhausted or interrupted run reads FAIL, exactly as `delivery` already calls it.
-    """
-    if state.get("state") == "not_needed":
-        return "DONE"
-    if state.get("state") == "error":
-        return "ERROR"
-    return "PASS" if delivery(state, report_config(cfg)).startswith("PASS") else "FAIL"
-
-
-def whereabouts(state, short=False):
-    """Where the work ended up: delivered, merged, the PR it is still waiting in, or neither.
-
-    `short` names an open PR by its number instead of its URL.  A URL is never cut -- half a
-    link is not a link, and the number is the one thing that still finds the PR by hand -- so
-    this is what goes on the line when the whole URL will not fit on it.  A run with no
-    repository is `delivered`: there was never a branch for `not merged` to be about.
-    """
-    if state.get("state") == "not_needed":
-        return "not needed"
-    if state.get("scratch"):
-        return "delivered"
-    if state.get("merged"):
-        return "merged"
-    pr = state.get("pr")
-    if not pr:
-        return "not merged"
-    return f"PR #{pr.rstrip('/').rsplit('/', 1)[-1]}" if short else f"PR {pr}"
-
-
 def notice_title(state):
     """The run's title for the notice, with every path token dropped.
 
@@ -7863,42 +7801,6 @@ def notice_title(state):
     """
     words = (state.get("title") or state.get("run_id") or "agentkit run").split()
     return " ".join(word for word in words if "/" not in word and "~" not in word)
-
-
-def fit(title, tail, room):
-    """`<title> — <tail>` inside `room` characters, or None when the tail alone will not fit.
-
-    Only the title gives way: first shortened, then dropped altogether.
-    """
-    if len(tail) > room:
-        return None
-    left = room - len(tail) - 3            # the ` — ` that joins the title to the rest
-    if len(title) > left:
-        title = title[:left - 3] + "..." if left >= 4 else ""
-    return f"{title} — {tail}" if title else tail
-
-
-def summary_line(state, cfg=None):
-    """What happened, in one line of at most NOTICE characters, for a human.
-
-    Written for a phone, not for a log reader: what it was, whether it passed, where it went,
-    and nothing else. The seat that opens after an unattended run prints this line with one
-    space in front of it, and that space is part of the NOTICE budget. It carries no merge
-    error and no path -- both are long, and both are in result.md, which `ak run status` names.
-
-    The title is what gives way when the line will not fit, never the PR link: it is shortened,
-    then dropped, and only once a bare `PASS — PR <url>` is still too long does the URL give
-    up its place to the PR's number.
-    """
-    if needs_recovery(state):
-        return f"{notice_title(state)} — unfinished; r in the menu offers recovery"[:NOTICE - 1]
-    room = NOTICE - 1                      # the menu prints this line with one space in front
-    title, verdict = notice_title(state), verdict_word(state, cfg)
-    for short in (False, True):
-        line = fit(title, f"{verdict} — {whereabouts(state, short)}", room)
-        if line is not None:
-            return line
-    return f"{verdict} — {whereabouts(state, True)}"[:room]
 
 
 @contextmanager

@@ -91,7 +91,7 @@ class StatusBar(Sandbox):
         records = menu.run_records()
         info = menu.v5o_seat_info(self.cfg, 1, self.seat, records, {}, {}, NOW)
         with patch.object(menu, "last_column", return_value="PATCHED") as patched:
-            row = menu.v5o_format_seats([info], 100)
+            row = menu.v5o_seat_blocks([info], 100)[0]
             watch.announce_state(self.seat, cfg=self.cfg)
         self.assertTrue(patched.called)
         self.assertIn("PATCHED", "\n".join(row))

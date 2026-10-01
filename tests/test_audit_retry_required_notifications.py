@@ -66,8 +66,6 @@ def child():
     with ExitStack() as stack, redirect_stdout(output), redirect_stderr(errors):
         stack.enter_context(patch.object(notify.time, "time", return_value=args.get("now", 10000)))
         stack.enter_context(patch.object(notify.urllib.request, "urlopen", side_effect=http))
-        if not args.get("real_number"):
-            stack.enter_context(patch.object(notify, "session_number", return_value=2))
         stack.enter_context(patch.object(orch, "sessions", return_value=[]))
         if args.get("persist_error"):
             stack.enter_context(patch.object(notify, "_write_event", side_effect=OSError("disk full")))
@@ -440,7 +438,7 @@ class RequiredNotifications(unittest.TestCase):
         self.call(dry=True, env={"AK_RUN_ROLE": "worker", "AK_RUN_LOG": str(self.root / "log")})
         self.assertEqual(self.snapshot(), before)
 
-    def test_dry_run_number_lookup_does_not_reconcile_session_records(self):
+    def test_dry_run_does_not_reconcile_session_records(self):
         record = self.root / ".agentkit/state/session-seat.json"
         record.parent.mkdir(parents=True)
         model = next(name for name, entry in config.load()["models"].items()
@@ -448,7 +446,7 @@ class RequiredNotifications(unittest.TestCase):
         record.write_text(json.dumps({"orchestrator": model, "conversation": "unverified",
                                       "resumable": True}))
         before = self.snapshot()
-        result = self.call(dry=True, real_number=True)
+        result = self.call(dry=True)
         self.assertEqual(json.loads(result["stdout"])["embeds"][0]["title"], "Needs you · seat")
         self.assertNotIn("fields", json.loads(result["stdout"])["embeds"][0])
         self.assertEqual(self.snapshot(), before)

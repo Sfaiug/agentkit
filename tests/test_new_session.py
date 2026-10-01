@@ -103,11 +103,11 @@ class NewSession(Sandbox):
         menu.open_session.assert_not_called()
         self.assertEqual(list(config.STATE.glob("session-*.json")), [])
 
-    def test_the_automatic_name_keeps_its_number_inside_the_cap(self):
+    def test_unique_name_keeps_its_number_inside_the_cap(self):
         long = "m" * orch.NAME_CAP
-        self.assertEqual(orch.default_name(long, {long}), "m" * (orch.NAME_CAP - 2) + "-2")
+        self.assertEqual(orch.unique_name(long, {long}), "m" * (orch.NAME_CAP - 2) + "-2")
         taken = {long, "m" * (orch.NAME_CAP - 2) + "-2"}
-        name = orch.default_name(long + "-longer", taken)
+        name = orch.unique_name(long + "-longer", taken)
         self.assertEqual(name, "m" * (orch.NAME_CAP - 2) + "-3")
         self.assertEqual(orch.session_name(name), name)       # what `create` will call it
 

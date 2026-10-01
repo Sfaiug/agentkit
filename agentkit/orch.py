@@ -2833,11 +2833,6 @@ def unique_name(base, taken):
         number += 1
 
 
-def default_name(orchestrator, taken):
-    """Name after model choice: the orchestrator's lowercased name made unique."""
-    return unique_name(orchestrator, taken)
-
-
 def ask_name(taken, default=None, auto=False, screen=None):
     """`Name:` or `Name [default]:`, until there is one. Esc goes back.
 
@@ -3072,16 +3067,6 @@ def _switch_plan(cfg, name, model, providers):
     if note:
         return f"{model} is {note}", None
     return "", account
-
-
-def switch_refusal(cfg, name, model, providers):
-    """Why the seat cannot move to `model`, or "" where it can.
-
-    The same model is already there. A harness that is not installed or whose seat login
-    says no, and a model whose meter reads spent, are refused in one line, and the seat
-    stays as it was.
-    """
-    return _switch_plan(cfg, name, model, providers)[0]
 
 
 def _one_line(exc):
@@ -3565,9 +3550,3 @@ def main(argv):
     if result is None:
         return 0
     return 0 if dry_run else attach(name)
-
-
-def attach_main(argv):
-    """`ak attach`: the menu, the way the phone key and the old habit both reach it."""
-    from . import menu   # here, not at the top: menu imports this module
-    return menu.main(argv)

@@ -225,8 +225,6 @@ class ExhaustedResume(unittest.TestCase):
         self.assertNotIn("waiting", out.getvalue())
         row = next(line for line in out.getvalue().splitlines() if run_dir.name in line)
         self.assertIn("! needs you", row)
-        row = menu.run_row(1, run_dir, run.read_state(run_dir))
-        self.assertIn("exhausted", row[4])
 
     def test_v5r_handover_repicks_the_pair_by_budget(self):
         # opus is dry; spark is the cheaper executor and was this run's reviewer, so the
@@ -285,8 +283,6 @@ class ExhaustedResume(unittest.TestCase):
         self.assertTrue(lines[0].startswith("host: "), lines[0])
         status_row = next(line for line in lines if want in line)
         self.assertNotIn("exhausted", status_row)
-        row = menu.run_row(1, run_dir, state)
-        self.assertIn(want, row[4])
         self.assertEqual(run.read_state(run_dir)["state"], "exhausted")  # drill-down keeps it
         (config.STATE / "usage.json").unlink()
         self.assertEqual(run.waiting_word(state), "waiting for a provider window")

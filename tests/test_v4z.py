@@ -137,15 +137,12 @@ class Projects(Sandbox):
         self.assertEqual(menu.rollup(["working", "done"]), "working")
         self.assertEqual(menu.rollup(["done", "done"]), "done")
         self.assertEqual(menu.rollup(["needs you", "working", "done"]), "needs you")
-        self.assertEqual(menu.run_progress({"state": "fail"})[2], "FAIL")
-        self.assertIn("✗ FAIL", "\n".join(terminal.seats(
-            [menu.run_row(1, Path("failure"), {"state": "fail"})], 100)))
 
     @staticmethod
     def numbered(screen):
         return {name: int(number) for number, name in re.findall(r"^\s*(\d+)  (\S+)", screen, re.M)}
 
-    def test_c_numbers_survive_repeat_draws_state_changes_and_pages_and_match_discord(self):
+    def test_c_numbers_survive_repeat_draws_state_changes_and_pages(self):
         # Put the first alphabetical seat in the last project: visual order is not numbering.
         self.seats[0]["repo"] = str(config.CODE / "newsletter-tool")
         first = self.numbered(self.draw()[0])
@@ -162,9 +159,6 @@ class Projects(Sandbox):
         for name, number in seen.items():
             self.assertTrue(next(original for original in first if first[original] == number)
                             .startswith(name.rstrip("…")))
-        with patch.object(orch, "sessions", return_value=self.seats):
-            for name, number in first.items():
-                self.assertEqual(notify.session_number(name), number)
         with patch.object(orch, "listing", return_value=self.seats), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 menu_input(side_effect=["m", "4", ""]), \
@@ -198,15 +192,6 @@ class Projects(Sandbox):
                     self.assertTrue(all(terminal.cells(line) <= width for line in screen.splitlines()), screen)
                     for key in (keys + ("   " + menu.PAGE_KEYS if pages > 1 else "")).split("   "):
                         self.assertIn(key, screen)
-
-    def test_project_headers_fit_even_when_the_state_and_counts_fill_the_width(self):
-        for word in terminal.STATES:
-            project = {"name": "長い名前-project", "word": word, "rows": [None] * 100, "runs": [None]}
-            for width in range(1, 61):
-                with self.subTest(word=word, width=width):
-                    self.assertLessEqual(terminal.cells(menu.project_header(project, width)), width)
-        project = {"name": "ATOLL", "word": "needs you", "rows": [None] * 2, "runs": []}
-        self.assertIn("! needs you", menu.project_header(project, 28))
 
     def test_very_short_pages_keep_each_number_once_and_leave_room_for_the_prompt(self):
         # the overlay's four keys wrap to a line more than the menu's at tiny widths,

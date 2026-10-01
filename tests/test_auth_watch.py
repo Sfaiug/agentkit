@@ -43,7 +43,6 @@ class AuthWatch(unittest.TestCase):
         self.seats = [{"name": "auth-seat"}]
         self.stack.enter_context(patch.object(orch, "sessions", lambda: self.seats))
         self.stack.enter_context(patch.object(orch, "records", return_value={}))
-        self.stack.enter_context(patch.object(notify, "session_number", return_value=3))
         self.harness = "claude"
         self.stack.enter_context(patch.object(watch, "seat_model", lambda *_: (self.harness, "test")))
         self.pane = self.fixture("claude")

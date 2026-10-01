@@ -47,7 +47,7 @@ export AK_MAX_RUNS=0
 # from just before it seeds it until its delivery is read.  It takes the first free target; when
 # every one is busy and the pool is smaller than the heavy suites the host admits at once, it
 # takes the next and creates it.  It waits only at that bound with every target in use.
-# The bound is the loop's own count, `heavy_suite_limit`, never a number of ours; 0 is no cap.
+# The bound is the loop's configured or derived count, never a number of ours; 0 is no cap.
 # The pool is the repositories the account lists, never the lock files: /tmp forgets those, and
 # a leftover one names no repository.  A waiting suite lists it again every minute, and before it
 # takes a lock that came free, since another suite may have added or freed a target meanwhile.
@@ -166,7 +166,8 @@ smoke_pool_bound() {   # the heavy suites the host admits at once: 0 is no cap, 
   HOME="${SMOKE_CALLER_HOME:-$HOME}" PYTHONPATH="$REPO" python3 - 2>/dev/null <<'PY' || echo 1
 from agentkit import config, run
 try:
-    print(run.heavy_suite_limit()[0])
+    limit = config.max_gates()
+    print(limit if limit is not None else run.derived_heavy_limit())
 except config.Error:
     print(run.derived_heavy_limit())     # the loop's own fallback for a config it cannot read
 PY
@@ -1477,7 +1478,7 @@ SH
   python3 "$REPO/tests/test_notify_rule.py" || OFFLINE_RC=1
   python3 "$REPO/tests/test_notify_smoke.py" || OFFLINE_RC=1
   codex_model_flag_check || OFFLINE_RC=1
-  for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_boundaries.py test_architecture.py test_docs.py \
+  for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_dead_code.py test_boundaries.py test_architecture.py test_docs.py \
               test_audit_phone_menu_recovery_layout.py test_choose_click.py test_note_screen.py \
               test_audit_retry_required_notifications.py test_solo_switch.py \
               test_from_run_takes_the_target.py test_repo_suite.py; do
@@ -3875,8 +3876,7 @@ grep -q '^would run ssh -t srv ak --client$' "$WORK/client-dry.log" || CLIENT=1
 # --- 20d: finished-run receipts stay off the menu entirely (offline) --------
 # Drive startup through the menu: warnings appear once after the first frame and never enter the
 # main screen, and an ending owned by a live seat -- including one older than the runs list --
-# is nowhere on it, because that seat reports it.  The notice line keeps its phone shape, so
-# that is still checked -- against run.summary_line, which is where it is made.
+# is nowhere on it, because that seat reports it.
 NOTICEH="$WORK/home-notice"
 mkdir -p -- "$NOTICEH/.agentkit/state"
 NOTICERC=0
@@ -3961,21 +3961,6 @@ again = next(i for i in range(told, len(lines)) if lines[i].startswith("agentkit
 screen, said = lines[:told], lines[told:again]
 assert f" {WARNING}" in said and WARNING not in "\n".join(screen + lines[again:]), lines
 assert not [line for line in said if " — " in line], said   # no ending is handed back here
-notices = [run.summary_line(run.read_state(config.RUNS / name))
-           for name in ("run-2-owned", "run-3-broken", "run-4-huge", "run-5-path")]
-owned, broken, huge, path = notices
-# the notice is written with one space in front of it, and that space is in the budget
-assert not any(f" {notice}" in lines for notice in notices), lines
-assert all(len(f" {notice}") <= 100 for notice in notices), [len(n) for n in notices]
-assert len(f" {owned}") == 100, owned                          # this one fills the line exactly
-assert owned.endswith(f" — PASS — PR {PR}") and "..." in owned and LONG not in owned, owned
-assert owned.startswith("Rewrite the finished-run notice so"), owned
-assert broken == "The run that could not merge — ERROR — not merged", broken
-# a URL too long for the line is never cut: the title gives way, then the URL becomes a number
-assert huge.endswith(" — PASS — PR #1702") and HUGE not in huge, huge
-assert "http" not in huge and "..." in huge, huge
-# a title's path tokens are dropped, whatever separator they carry
-assert path == f"Fix and — PASS — PR {PR}", path
 assert any(line.strip().startswith("1  orch-notice") for line in screen), screen
 assert any("usage left" in line for line in screen), screen
 # The menu at rest is the projects and their seats: a run of nobody's is neither a
@@ -3998,10 +3983,9 @@ assert not any("reaped a loop whose process was gone" in line for line in second
 # opening the menu tells nobody anything, so nothing on it is marked told: `r` still owes them
 assert not any(run.read_state(config.RUNS / n)["reported"] for n in
                ("run-1-by-hand", "run-2-owned", "run-3-broken", "run-4-huge", "run-5-path"))
-print("\n".join(notices))
 PY
-[ "$NOTICERC" = 0 ] && ok "20d warnings shown once, after the menu's first frame; a live seat's endings -- an eight-hour-old result included -- are nowhere on it and stay unreported, and the notice line keeps its phone shape" \
-                  || { no "20d the menu's finished-run notice"; sed 's/^/      /' "$WORK/menu-notice.log" | head -14; }
+[ "$NOTICERC" = 0 ] && ok "20d warnings shown once, after the menu's first frame; a live seat's endings -- an eight-hour-old result included -- are nowhere on it and stay unreported" \
+                  || { no "20d warnings and hidden finished-run receipts"; sed 's/^/      /' "$WORK/menu-notice.log" | head -14; }
 
 # --- 20e: the menu as a popup inside a seat (offline, real tmux seats) --------
 # Every seat `ak orch` starts is dressed on the way up, out of agentkit's own tmux config and
@@ -5344,17 +5328,12 @@ for name, extra in made.items():
 was = {name: run.read_state(config.RUNS / name) for name in made}
 scratch = was["20260101-0900-scratch"]
 assert run.delivery(scratch) == "PASS, delivered", run.delivery(scratch)
-assert run.whereabouts(scratch) == "delivered", run.whereabouts(scratch)
 assert run.status_word(scratch) == "delivered", run.status_word(scratch)
-# the finished-run notice the menu and `ak orch` print
-assert run.summary_line(scratch) == "Write the quarterly summary — PASS — delivered", \
-    run.summary_line(scratch)
 # ... and `merged` / `not merged: <reason>` are still the repository run's answer
 assert run.delivery(was["20260101-0901-merged"]) == "PASS, merged"
 assert run.delivery(was["20260101-0902-waiting"]) == "PASS, not merged: waiting for the maintainer"
 assert run.delivery(was["20260101-0903-nomerge"]) == "PASS, not merged: --no-merge"
 assert run.status_word(was["20260101-0903-nomerge"]) == "not merged: --no-merge"
-assert run.whereabouts(was["20260101-0903-nomerge"]) == "not merged"
 # a run that is still going has become nothing yet
 going = dict(scratch, state="running", finished_at=None)
 assert run.status_word(going) == "", run.status_word(going)
@@ -5370,7 +5349,7 @@ grep -q "^# PASS, delivered — Smoke scratch workspace $$\$" "$SCRDIR/result.md
 grep -q 'not merged' "$SCRDIR/result.md" && DEL=1
 HOME="$SCRH" ak run status --plain "$SCRID" >"$WORK/delivered-scratch.log" 2>&1 || DEL=1
 grep -q ' scratch  delivered$' "$WORK/delivered-scratch.log" || DEL=1
-[ "$DEL" = 0 ] && ok "33 a run with no repository is delivered: result.md, \`ak run status\` and the finished-run notice all say it, while merged and \`not merged: <reason>\` stay the repository run's answers" \
+[ "$DEL" = 0 ] && ok "33 a run with no repository is delivered: result.md and \`ak run status\` both say it, while merged and \`not merged: <reason>\` stay the repository run's answers" \
               || { no "33 delivered instead of not merged"; sed 's/^/      /' "$WORK/delivered.log" "$WORK/delivered-status.log" | head -10; }
 # --- 34: the session babysitter types the stalled seats back into motion (offline) ------------
 # Six real seats on a tmux server of this check's own, replaying captured TUI panes and writing
@@ -5725,7 +5704,7 @@ if python3 "$REPO/tests/test_stop_hook.py" >"$WORK/stop-hook.log" 2>&1; then
 else
   no "48 end-of-turn rule"; tail -30 "$WORK/stop-hook.log"
 fi
-{ python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py" && python3 "$REPO/tests/test_docs.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 knowledge stays home: no boundary count in tests/test_boundaries.py above its max, ARCHITECTURE.md maps every module and harness in under 8 KB, and the docs match the interface" || { no "49 boundaries, map and docs"; tail -30 "$WORK/boundaries.log"; }
+{ python3 "$REPO/tests/test_dead_code.py" && python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py" && python3 "$REPO/tests/test_docs.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 definitions have callers, knowledge stays home, ARCHITECTURE.md maps every module and harness in under 8 KB, and the docs match the interface" || { no "49 dead code, boundaries, map and docs"; tail -30 "$WORK/boundaries.log"; }
 if { python3 "$REPO/tests/test_repo_suite.py" &&
      python3 "$REPO/tests/test_merge_trailer.py"; } >"$WORK/merge-trailer.log" 2>&1; then
   ok "49a repository suites run once and landed commits name the checked tree"

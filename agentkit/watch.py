@@ -1614,21 +1614,6 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
     return found
 
 
-def _run_slug(run_id):
-    """A run id is `YYYYMMDD-HHMM-slug`; the slug is what a sentence calls that run."""
-    match = re.match(r"^\d{8}-\d{4}-(.+)$", run_id, re.DOTALL)
-    return match.group(1) if match else run_id
-
-
-def _ended_word(state):
-    """What an ending a seat still owes him is: failed, interrupted or not merged."""
-    if state.get("state") == "interrupted":
-        return "interrupted"
-    if state.get("state") == "pass":
-        return "not merged"
-    return "failed"
-
-
 def _turn_in_flight(harness, found):
     """Is a harness turn running now, and since when.
 
