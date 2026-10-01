@@ -41,7 +41,7 @@ from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import command_help, config, retention, terminal, update, usage
+from . import command_help, config, motion, retention, terminal, update, usage
 from .harness import LAUNCHER, load as harness_plugin
 
 MARK = "@ak_orch"          # the tmux session option that says agentkit opened this seat
@@ -3173,8 +3173,9 @@ def switch_orchestrator(cfg, name, model, providers=None):
     return ""
 
 
-def picker_lines(cfg, notes, selected, at, column, room):
-    """Every model once with three marks; detail and spent notes wrap below on a phone."""
+def picker_lines(cfg, notes, selected, at, column, room, moves=None):
+    """Every model once with three marks; detail and spent notes wrap below on a phone.  `moves`
+    is handed each mark's line, key, glyph and how it moves (motion.toggled), for the clock."""
     names = list(notes)
     marks = "●○■□" if terminal.utf8() else "*.x."
     titles = {name: model_title(cfg, name) for name in names}
@@ -3193,15 +3194,12 @@ def picker_lines(cfg, notes, selected, at, column, room):
         own = []
         for number, (text, head) in enumerate(zip(texts, ROLE_HEADS)):
             first = terminal.cells(line) + 3
-            shown = f" {text} "
-            kind = "dim" if note or text in (marks[1], marks[3]) else None
-            if at_row == at and column == number:
-                kind = "reverse"
-                if not terminal.colour_depth():
-                    shown = f"[{text}]"
-            lead = (len(head) - 3) // 2
-            line += ("  " + " " * lead + (terminal.styled(shown, kind) if kind else shown)
-                     + " " * (len(head) - lead - 3))
+            kind = ("reverse" if at_row == at and column == number else
+                    "dim" if note or text in (marks[1], marks[3]) else None)
+            line += "  " + terminal.toggle(text, len(head), kind)
+            if moves is not None:
+                moves.append((len(lines), ("mark", name, number), text,
+                              motion.toggled(text, len(head), kind, at_row == at, first)))
             own.append((first, first + len(head) - 1, number))
         detail = f"{entry['harness']} · {entry['effort']}" + (f" · {note}" if note else "")
         parts = [line + "  " + terminal.styled(detail, "dim")]
@@ -3273,15 +3271,19 @@ def pick(cfg, providers, default):
 def _picking(cfg, providers, notes, selected):
     """`pick`'s screen, drawn over in place and read with the keys, the way `terminal.scroll`
     is; the rows scroll to keep the highlight on a screen too short for every model.  The
-    pointer moves the highlight to the model and the role it is on, that mark lit."""
+    pointer moves the highlight to the model and the role it is on, that mark lit.  A mark
+    chosen fills and one let go empties, and one refused shakes, on the clock (motion.toggled),
+    which a key ends on its last frame."""
     names = list(notes)
     model = selected["orchestrator"]
     at, top, column, note = names.index(model) if model in names else 0, 0, 0, ""
     keys = (f"{'↑↓←→' if terminal.utf8() else 'arrows'} move   space choose   "
             f"{'⏎' if terminal.utf8() else 'enter'} start   esc back")
+    clock = motion.Clock()
     while True:
+        moves = []
         body, rows, cells = picker_lines(cfg, notes, selected, None if terminal.away() else at,
-                                         column, terminal.layout_width())
+                                         column, terminal.layout_width(), moves)
         said = [terminal.styled("  " + terminal.cut(note, terminal.layout_width() - 2), "dim")] \
             if note else []
         room = max(1, terminal.height() - 6 - len(terminal.key_line(keys)) - len(said))
@@ -3294,7 +3296,14 @@ def _picking(cfg, providers, notes, selected):
                  for hit, drawn in enumerate(rows) for line in drawn if top <= line < top + room}
         spots.update(terminal.key_spots(terminal.key_line(keys), len(lines) + 1))
         terminal.show(lines + terminal.key_line(keys), spots)
-        key = terminal.read_key()
+        sys.stdout.write(clock.drawn(moves, lambda line: 4 + line - top
+                                     if top <= line < top + room else None))
+        while True:               # the clock's frames while it moves and no key is waiting
+            sys.stdout.flush()
+            key = terminal.read_key(clock.wait())
+            if key is not None or terminal.asked_again() or clock.wait() is None:
+                break
+            sys.stdout.write(clock.frame())
         if key is None:
             continue              # a resize: draw again
         spot = terminal.under(key, spots)
@@ -3302,6 +3311,7 @@ def _picking(cfg, providers, notes, selected):
             at, column = spot.what, column if spot.cell is None else spot.cell
         if key.name == "point":
             continue              # the highlight on the pointer's model, its mark lit
+        clock.settle()
         note = ""
         if key.name == "click":
             item = "space" if spot.what is not None else {"⏎": "enter"}.get(spot.cell, spot.cell)
@@ -3312,6 +3322,8 @@ def _picking(cfg, providers, notes, selected):
             column = min(max(column + (1 if key.name == "right" else -1), 0), 2)
         elif key.name == "space":
             selected, note = role_mark(cfg, selected, names[at], column, providers)
+            if note:
+                clock.touch(("mark", names[at], column))  # refused: the mark shakes
         elif key.name == "enter":
             missing = next((number for number, role in enumerate(
                 ("orchestrator", "workers", "reviewers")) if not selected[role]), None)
