@@ -13,6 +13,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from agentkit import config, gc, run, worker
+from agentkit import record
 from agentkit import task as taskfile
 
 TASK = "# Learn once\n\n## Goal\nUse the repository facts.\n\n## Done when\n```bash\ntrue\n```\n"
@@ -91,7 +92,7 @@ class Lessons(unittest.TestCase):
         state = run.loop(self.cfg, directory, task, self.opts, self.logs.append, prior)
         self.assertEqual(state["state"], "pass", self.logs)
         self.assertEqual(task.read_text().split("---\n", 2)[2], TASK)
-        return run.read_state(directory)
+        return record.read_state(directory)
 
     def prompt(self, role):
         return next(body for worker_role, body in self.prompts if worker_role == role)
@@ -158,7 +159,7 @@ class Lessons(unittest.TestCase):
         raw_task = task.read_text()
         _, body, _ = taskfile.parse_task(task)
         state.update(merge_failed=True, rounds=3)
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         self.prompts.clear()
 
         def fix(cfg, name, body, workspace, out_dir, role, session, **kwargs):
@@ -188,7 +189,7 @@ class Lessons(unittest.TestCase):
             self.assertIn(body + "\n\n" + section, prompt)
             if role == "reviewer":
                 self.assertLess(prompt.index(section), prompt.index("## Done-when output"))
-        saved = run.read_state(directory)
+        saved = record.read_state(directory)
         self.assertTrue(run.review_pass(saved, self.cfg))
         self.assertEqual(saved["final_check"]["outcome"], "passed")
         self.assertEqual(self.logs.count(WARNING), 1)
@@ -222,7 +223,7 @@ class Lessons(unittest.TestCase):
 
         for metadata in ({}, {"repo": None}, {"repo": ""}):
             with self.subTest(metadata=metadata):
-                run.save_state(directory, {**state, **metadata})
+                record.save_state(directory, {**state, **metadata})
                 self.prompts.clear()
                 with patch.object(Path, "open", guarded_open), \
                         patch.object(run, "logger", return_value=self.logs.append), \
@@ -232,7 +233,7 @@ class Lessons(unittest.TestCase):
                 self.assertEqual([role for role, _ in self.prompts], ["fixer", "reviewer"])
                 for role, body in self.prompts:
                     self.assertNotIn("## Project lessons", body, role)
-                self.assertTrue(run.review_pass(run.read_state(directory), self.cfg))
+                self.assertTrue(run.review_pass(record.read_state(directory), self.cfg))
 
     def test_no_file_adds_nothing_and_loop_creates_directory(self):
         self.assertFalse(self.path.parent.exists())

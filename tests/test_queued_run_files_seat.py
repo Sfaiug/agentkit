@@ -20,6 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox, menu_input
 from agentkit import config, gc, menu, orch, run, terminal, watch
+from agentkit import record
 
 
 class QueuedRunFilesSeat(Sandbox):
@@ -59,15 +60,15 @@ class QueuedRunFilesSeat(Sandbox):
                                                    "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "4"}), \
                 patch.object(run, "refresh_seat_tally"), redirect_stdout(io.StringIO()):
             run.prepare(directory, opts, lambda _: None, task_file=task_file)
-        self.assertEqual(run.read_state(directory)["state"], "queued")
+        self.assertEqual(record.read_state(directory)["state"], "queued")
         return directory
 
     def waiting(self, name, repo, **extra):
         """A receipt from before a queued run had a vote: nothing filed its seat."""
         directory = self.task(name, repo)
-        run.save_state(directory, {"run_id": name, "state": "queued", "slot_waiting": True,
+        record.save_state(directory, {"run_id": name, "state": "queued", "slot_waiting": True,
                                    "launched_session": "fix-api", "started_at": 9000,
-                                   "queued_at": 9000, **run.process_owner(), **extra})
+                                   "queued_at": 9000, **record.process_owner(), **extra})
         return directory
 
     def repo(self):
@@ -75,8 +76,8 @@ class QueuedRunFilesSeat(Sandbox):
 
     def test_a_seat_whose_only_run_is_queued_is_filed_at_launch(self):
         directory = self.launch("q1", self.acme)
-        self.assertNotIn("repo", run.read_state(directory))
-        self.assertEqual(run.run_project(run.read_state(directory)), self.acme)
+        self.assertNotIn("repo", record.read_state(directory))
+        self.assertEqual(run.run_project(record.read_state(directory)), self.acme)
         self.assertEqual(self.repo(), str(self.acme))
 
     def test_a_projectless_seat_whose_queued_runs_name_one_checkout_is_filed_at_the_next_draw(self):
@@ -84,7 +85,7 @@ class QueuedRunFilesSeat(Sandbox):
         self.waiting("q2", self.acme)
         self.assertIsNone(self.repo())
         # Filed from the records the draw reads anyway: no run.json twice.
-        with patch.object(run, "read_state", wraps=run.read_state) as read, \
+        with patch.object(record, "read_state", wraps=record.read_state) as read, \
                 menu_input(return_value=""), \
                 patch.object(menu.Live, "look"), \
                 patch.object(orch, "job_notices", return_value=[]), \
@@ -143,7 +144,7 @@ class QueuedRunFilesSeat(Sandbox):
                 directory = self.launch(name, repo, task_file, where)
                 # read from anywhere, by a draw, a tick or a later launch: the same vote
                 with chdir(self.beta if where != self.beta else self.acme):
-                    self.assertEqual(run.run_project(run.read_state(directory)), project)
+                    self.assertEqual(run.run_project(record.read_state(directory)), project)
                 self.assertEqual(self.repo(), str(project))
                 worktree = self.root / f"wt-{name}"
                 worktree.mkdir()
@@ -166,7 +167,7 @@ class QueuedRunFilesSeat(Sandbox):
                               "--exec": None, "--review": None}, lambda _: None)
                 self.assertEqual(seen, [(project, str(project))])
         # A receipt from before the field: the same vote queued and once it works in `beta`.
-        legacy = run.read_state(self.waiting("legacy", None, task_file=str(tasks / "check.md")))
+        legacy = record.read_state(self.waiting("legacy", None, task_file=str(tasks / "check.md")))
         for state in (legacy, {**legacy, "repo": str(self.beta), "scratch": False}):
             self.assertEqual(run.run_project(state), self.acme)
 
@@ -174,10 +175,10 @@ class QueuedRunFilesSeat(Sandbox):
         # Two runs from before `project`, whose task says `repo: .`, worked in `acme`: they vote
         # for the checkout their record names, and one new `beta` run does not refile their seat.
         # Before such a run starts nobody else knows what `.` meant, and it has no vote.
-        self.assertIsNone(run.run_project(run.read_state(self.waiting("q1", "."))))
+        self.assertIsNone(run.run_project(record.read_state(self.waiting("q1", "."))))
         for name in ("l1", "l2"):
             directory = self.waiting(name, ".", state="pass", slot_waiting=False)
-            run.save_state(directory, {**run.read_state(directory), "repo": str(self.acme)})
+            record.save_state(directory, {**record.read_state(directory), "repo": str(self.acme)})
         self.launch("b1", self.beta)
         self.assertEqual(self.repo(), str(self.acme))
 

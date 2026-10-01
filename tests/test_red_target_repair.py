@@ -14,6 +14,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_red_target as red
 from agentkit import config, run, watch
+from agentkit import record
 
 # Fail on the work branch and current target, but leave a moved target's old base green.
 FAILS = ("if (test -f work.txt || git merge-base --is-ancestor origin/main HEAD); then "
@@ -38,7 +39,7 @@ class RedTargetRepair(unittest.TestCase):
     def prepare(self, directory, opts, log, cfg, *args, **kwargs):
         # what preflight leaves: a receipt queued for a slot, `first` from the options
         self.prepared.append((directory.name, dict(opts)))
-        run.save_state(directory, {**run.read_state(directory), "run_id": directory.name,
+        record.save_state(directory, {**record.read_state(directory), "run_id": directory.name,
                                    "state": "queued", "slot_waiting": True,
                                    **({"first": True} if opts.get("--first") else {})})
 
@@ -61,7 +62,7 @@ class RedTargetRepair(unittest.TestCase):
         lp, run_dir, _ = red.make_loop(self.root / where, self.wt, ["true", *cmds])
         lp.state["launched_session"] = seat
         self.assertFalse(run.final_check(lp, "origin/main"))
-        return run.read_state(run_dir)
+        return record.read_state(run_dir)
 
     def test_the_first_run_on_a_red_target_starts_one_repair_and_the_rest_wait_on_it(self):
         _, owner, self.wt = red.make_repos(self.root)
@@ -74,7 +75,7 @@ class RedTargetRepair(unittest.TestCase):
         self.assertTrue(opts["--first"])
         self.assertEqual(self.spawned, [(name, [str(config.RUNS / name / "task.md")])])
         self.assertEqual(first["waiting_on"], {"ref": "origin/main", "sha": tip, "repair": name})
-        repair = run.read_state(config.RUNS / name)
+        repair = record.read_state(config.RUNS / name)
         self.assertEqual(repair["repair"], {"target": "main", "command": FAILS})
         self.assertEqual(repair["launched_session"], "seat")
         self.assertTrue(repair["first"])
@@ -90,11 +91,11 @@ class RedTargetRepair(unittest.TestCase):
         third = self.red_run("third", "other", cmds=("false  # once",))
         self.assertEqual(len(self.prepared), 2)
         self.assertEqual(third["waiting_on"]["repair"], self.prepared[1][0])
-        self.assertEqual(run.read_state(config.RUNS / self.prepared[1][0])["repair"],
+        self.assertEqual(record.read_state(config.RUNS / self.prepared[1][0])["repair"],
                          {"target": "main", "command": "false"})
         # a repair that found the command passing guards nothing: the next run on the same
         # red starts another
-        run.save_state(config.RUNS / name, {**repair, "state": "not_needed",
+        record.save_state(config.RUNS / name, {**repair, "state": "not_needed",
                                             "not_needed": "passes now"})
         fourth = self.red_run("fourth", "seat")
         self.assertEqual(len(self.prepared), 3)
@@ -113,7 +114,7 @@ class RedTargetRepair(unittest.TestCase):
         wt.mkdir(exist_ok=True)
         run_dir = config.RUNS / "20260930-0200-parked"
         run_dir.mkdir(parents=True, exist_ok=True)
-        run.save_state(run_dir, {
+        record.save_state(run_dir, {
             "run_id": run_dir.name, "state": "waiting", "verdict": "PASS",
             "launched_session": "seat", "worktree": str(wt), "finished_at": time.time(),
             "merge_note": "origin/main itself fails: `false`",
@@ -130,7 +131,7 @@ class RedTargetRepair(unittest.TestCase):
                 "repair": {"target": "main", "command": "false"},
                 "followup": {"run": "parked", "text": "`false` fails", "place": "`false`"}}
         with patch.object(run, "upstream_sha", return_value=sha):
-            run.save_state(repair, {**base, "state": "running"})
+            record.save_state(repair, {**base, "state": "running"})
             run_dir = self.parked(sha, repair.name)
             watch.resume_waiting(log=self.logs.append)
             self.assertEqual(self.spawned, [])
@@ -138,7 +139,7 @@ class RedTargetRepair(unittest.TestCase):
                            {"state": "not_needed", "not_needed": "passes now"}):
                 with self.subTest(**ending):
                     self.spawned.clear()
-                    run.save_state(repair, {**base, **ending})
+                    record.save_state(repair, {**base, **ending})
                     run_dir = self.parked(sha, repair.name)
                     watch.resume_waiting(log=self.logs.append)
                     self.assertEqual(self.spawned, [(run_dir.name, ["resume", run_dir.name])])
@@ -146,12 +147,12 @@ class RedTargetRepair(unittest.TestCase):
                                   self.logs)
             # parked with no sha to wait from: the pass that takes one keeps the repair
             self.spawned.clear()
-            run.save_state(repair, {**base, "state": "running"})
+            record.save_state(repair, {**base, "state": "running"})
             run_dir = self.parked(None, repair.name)
             watch.resume_waiting(log=self.logs.append)
-            self.assertEqual(run.read_state(run_dir)["waiting_on"],
+            self.assertEqual(record.read_state(run_dir)["waiting_on"],
                              {"ref": "origin/main", "sha": sha, "repair": repair.name})
-            run.save_state(repair, {**base, "state": "fail"})
+            record.save_state(repair, {**base, "state": "fail"})
             watch.resume_waiting(log=self.logs.append)
             self.assertEqual(self.spawned, [(run_dir.name, ["resume", run_dir.name])])
 
@@ -170,7 +171,7 @@ class RedTargetRepair(unittest.TestCase):
         for word, ending in endings.items():
             for live in (True, False):
                 state = {**base, **ending}
-                run.save_state(run_dir, state)
+                record.save_state(run_dir, state)
 
                 @contextmanager
                 def world(session):
@@ -192,12 +193,12 @@ class RedTargetRepair(unittest.TestCase):
         self.red_run("first", "seat")
         name = self.prepared[0][0]
         repair = config.RUNS / name
-        blocked = {**run.read_state(repair), "state": "blocked", "verdict": "BLOCKED",
+        blocked = {**record.read_state(repair), "state": "blocked", "verdict": "BLOCKED",
                    "error": QUESTION, "blocked": f"## Blocked\n{QUESTION}",
                    "started_at": time.time() - 60, "finished_at": time.time()}
         # the tip it holds is the one its launch recorded, from the probe that found it red
         self.assertEqual(blocked["repair_tip"], tip)
-        run.save_state(repair, blocked)
+        record.save_state(repair, blocked)
 
         @contextmanager
         def world(session):
@@ -238,8 +239,8 @@ class RedTargetRepair(unittest.TestCase):
             with self.subTest(word):
                 name = self.prepared[-1][0]
                 repair = config.RUNS / name
-                tip = run.read_state(repair)["repair_tip"]
-                run.save_state(repair, {**run.read_state(repair), **ending,
+                tip = record.read_state(repair)["repair_tip"]
+                record.save_state(repair, {**record.read_state(repair), **ending,
                                         "finished_at": time.time()})
                 # its waiter stays parked on it while that tip stands ...
                 self.spawned.clear()
@@ -271,9 +272,9 @@ class RedTargetRepair(unittest.TestCase):
         repair = config.RUNS / name
         # its branch integrated the next red tip before it failed: that red is not its own
         tip = self.move(owner)
-        run.save_state(repair, {**run.read_state(repair), "state": "fail", "verdict": "FAIL",
+        record.save_state(repair, {**record.read_state(repair), "state": "fail", "verdict": "FAIL",
                                 "base_sha": tip})
-        self.assertEqual(run.read_state(repair)["repair_tip"], started)
+        self.assertEqual(record.read_state(repair)["repair_tip"], started)
         # so the tip it was never started for gets its first repair
         later = self.red_run("later", "seat")
         self.assertEqual(len(self.prepared), 2)
@@ -294,7 +295,7 @@ class RedTargetRepair(unittest.TestCase):
         self.red_run("first", "seat")
         name = self.prepared[0][0]
         repair = config.RUNS / name
-        run.save_state(repair, {**passed, **run.read_state(repair), "state": "pass",
+        record.save_state(repair, {**passed, **record.read_state(repair), "state": "pass",
                                 "pr": "https://github.com/acme/app/pull/7"})
 
         def blocked(*_args, **_kw):
@@ -305,7 +306,7 @@ class RedTargetRepair(unittest.TestCase):
                     "state": "OPEN"}), \
                 patch.object(run, "finish"), patch.object(run, "stop_run_tree"):
             run.cmd_merge([name])
-        ended = run.read_state(repair)
+        ended = record.read_state(repair)
         self.assertEqual((ended["state"], ended["repair_tip"]), ("blocked", tip))
         self.assertEqual(run.git(self.wt, "merge-base", "HEAD", "origin/main"), base)
         # its waiter stays parked on B, and one retried there starts no second repair
@@ -334,7 +335,7 @@ class RedTargetRepair(unittest.TestCase):
                 patch.object(run.orch, "start_in_slice", side_effect=OSError("no user bus")):
             first = self.red_run("first", "seat")
         name = self.prepared[0][0]
-        repair = run.read_state(config.RUNS / name)
+        repair = record.read_state(config.RUNS / name)
         self.assertEqual((repair["state"], repair["slot_waiting"]), ("queued", True))
         self.assertIn("no user bus", repair["launch_error"])
         self.assertEqual(first["waiting_on"], {"ref": "origin/main", "sha": tip, "repair": name})
@@ -345,7 +346,7 @@ class RedTargetRepair(unittest.TestCase):
         with patch.object(run, "upstream_sha", return_value=tip):
             watch.resume_waiting(log=self.logs.append)
             self.assertEqual(self.spawned, [])
-            run.save_state(config.RUNS / name, {**repair, "state": "pass", "merged": True})
+            record.save_state(config.RUNS / name, {**repair, "state": "pass", "merged": True})
             watch.resume_waiting(log=self.logs.append)
         self.assertEqual(self.spawned, [(waiter.name, ["resume", waiter.name])])
 

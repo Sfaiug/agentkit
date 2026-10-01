@@ -15,6 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, gc, menu, orch, run, terminal, usage
+from agentkit import record as run_record
 from agentkit.harness import codex as codex_plugin
 from fixtures.hand_in import records
 
@@ -74,7 +75,7 @@ class Sandbox(unittest.TestCase):
                  "finished_at": 9990, **extra}
         if "findings" in extra and "review_records" not in extra:
             state["review_records"] = records(extra["findings"])
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         return directory
 
     def rollout(self, filename, cwd, stamp, sid="thread", **extra):
@@ -93,15 +94,15 @@ class RunReporting(Sandbox):
         smoke = self.ended("smoke-ignored")
         with redirect_stdout(io.StringIO()):
             menu.draw(self.cfg, [])
-        self.assertFalse(run.read_state(visible)["reported"])
-        self.assertFalse(run.read_state(old)["reported"])
-        self.assertFalse(run.read_state(smoke)["reported"])
+        self.assertFalse(run_record.read_state(visible)["reported"])
+        self.assertFalse(run_record.read_state(old)["reported"])
+        self.assertFalse(run_record.read_state(smoke)["reported"])
         later = self.ended("later")
-        self.assertFalse(run.read_state(later)["reported"])
+        self.assertFalse(run_record.read_state(later)["reported"])
         # `ak run status <id>` marks one ending looked at.
         with redirect_stdout(io.StringIO()):
             run.cmd_status(["visible"])
-        self.assertTrue(run.read_state(visible).get("recovery_acknowledged_at"))
+        self.assertTrue(run_record.read_state(visible).get("recovery_acknowledged_at"))
 
 
 class CodexSeats(Sandbox):
@@ -164,15 +165,15 @@ class LaunchAndCache(Sandbox):
         for args in ([str(task), "--bg"], ["--review-pr", "https://github.com/o/r/pull/1", "--bg"]):
             with self.subTest(args=args), patch.object(config, "current_session", return_value="seat"):
                 def preflight(directory, *_):
-                    self.assertEqual(run.read_state(directory)["launched_session"], "seat")
+                    self.assertEqual(run_record.read_state(directory)["launched_session"], "seat")
                     return None
                 with patch.object(run, "preflight", side_effect=preflight), \
                         patch.object(orch, "scope_oom_policy", return_value=False), \
                         patch.object(run.subprocess, "Popen", **{"return_value.pid": 99999999}), \
                         redirect_stdout(io.StringIO()):
                     run.main(args)
-                    self.assertEqual(run.read_state(run.run_dirs()[-1])["pid"], 99999999)
-        for directory in run.run_dirs():
+                    self.assertEqual(run_record.read_state(run_record.run_dirs()[-1])["pid"], 99999999)
+        for directory in run_record.run_dirs():
             with patch.object(config, "current_session", return_value="different"):
                 self.assertEqual(run.launch_session(directory), "seat")
         directory = self.ended("unowned", owner=None)
@@ -202,7 +203,7 @@ class LaunchAndCache(Sandbox):
                 patch.object(run, "preflight", side_effect=config.Error("bad base")):
             with self.assertRaisesRegex(config.Error, "bad base"):
                 run.prepare(directory, {}, lambda _: None)
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertEqual(state["launched_session"], "seat")
         self.assertEqual(state["state"], "error")
         self.assertEqual(state["finished_at"], 10000)

@@ -24,6 +24,7 @@ from unittest.mock import patch
 from test_v4n import REPO, Sandbox
 sys.path.insert(0, str(REPO))
 from agentkit import config, job as jobs, run
+from agentkit import record
 
 
 def _cap_500mb():
@@ -121,7 +122,7 @@ class StatusAlive(Sandbox):
         state = {"run_id": name, "title": f"Run {name}", "executor": "opus",
                  "reviewer": "astra", "rounds": 3, "round_summaries": [{}],
                  "started_at": time.time() - 60, "reported": False, **extra}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         return directory
 
     def status(self, argv):
@@ -139,7 +140,7 @@ class StatusAlive(Sandbox):
         (scope_dir / "cgroup.procs").write_text("999999991\n999999992\n999999993\n")
         (scope_dir / "memory.current").write_text("1288490189\n")
         with patch.object(run, "run_scope_dir", return_value=scope_dir), \
-                patch.object(run, "process_active", return_value=True):
+                patch.object(record, "process_active", return_value=True):
             table = self.status([])
             alone = self.status([run_id])
         self.assertIn("3 processes · 1.2 GB", table)
@@ -186,7 +187,7 @@ class StatusAlive(Sandbox):
                                  merged=True, scope="none", pid=999999999,
                                  process_identity=None,
                                  finished_at=time.time() - 10)
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual(run.alive_line(state), "")
         self.assertEqual(run.stop_note(state), "")
         text = self.status([run_id])
@@ -213,7 +214,7 @@ class StatusAlive(Sandbox):
             {"name": "b.md", "state": "running", "run_id": "20260922-0901-job-second"},
             {"name": "c.md", "state": "waiting", "after": ["a.md"], "run_id": None}])
         # the launcher and both runs' loops are gone: nothing here is probed or signalled
-        with patch.object(run, "process_active", return_value=False), \
+        with patch.object(record, "process_active", return_value=False), \
                 patch.object(run, "stop_run_tree"):
             alone = self.status([name])
             table = self.status([])
@@ -243,7 +244,7 @@ class StatusAlive(Sandbox):
                           card_sent={"kind": "handback", "at": time.time() - 30})
         carded = self.job("20260922-090300-job-carded", tasks, finished_at=time.time() - 20,
                           card_sent={"kind": "needs", "at": time.time() - 20})
-        with patch.object(run, "process_active", return_value=False), \
+        with patch.object(record, "process_active", return_value=False), \
                 patch.object(run, "stop_run_tree"):
             table = self.status([])
         for job_dir in (handed, carded):

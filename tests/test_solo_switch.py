@@ -15,6 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
 from agentkit import config, orch, run
+from agentkit import record
 
 
 class SoloSwitch(Sandbox):
@@ -26,7 +27,7 @@ class SoloSwitch(Sandbox):
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
         self.stack.enter_context(patch.object(run, "refresh_seat_tally"))
-        self.stack.enter_context(patch.object(run, "process_owner", return_value={}))
+        self.stack.enter_context(patch.object(record, "process_owner", return_value={}))
         self.stack.enter_context(patch.object(run, "history_start"))
         config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra"],
                             {"cwd": str(self.root), "created": 100, "solo": True})
@@ -66,7 +67,7 @@ class SoloSwitch(Sandbox):
                 "baseRefName": "main", "headRefOid": "f" * 40}
 
         def drive(cfg, directory, opts, log, job=None, **_kw):
-            receipt = run.read_state(directory)
+            receipt = record.read_state(directory)
             self.assertEqual(receipt["launched_session"], "fix-api")
             self.assertTrue(receipt["own_pr"])
             self.assertEqual(receipt["own_orchestrator"], "opus")
@@ -88,7 +89,7 @@ class SoloSwitch(Sandbox):
         state = {"run_id": "review", "launched_session": "fix-api", "repo": str(self.root),
                  "base": "main", "merged": True, "review_pr": "https://github.com/acme/api/pull/7",
                  "own_pr": True, "followups": ["Fix the other endpoint"]}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         with patch.object(run, "main_checkout") as checkout, \
                 patch.object(run, "spawn_bg") as spawn:
             self.assertIsNone(run.start_followups(state, directory, lambda _: None, self.cfg))

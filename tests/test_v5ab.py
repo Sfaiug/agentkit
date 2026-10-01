@@ -20,6 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, gc, notify, run, usage, worker
+from agentkit import record
 
 
 def fail(note="pattern"):
@@ -136,21 +137,21 @@ sys.exit(1)
         self.reviews(*answers)
         self.task.write_text(f"---\nrepo: {repo}\nrounds: {rounds}\n---\n# V5ab repo fixture\n\n"
                              "## Done when\n```bash\ntest -f deliverable\necho verified\n```\n")
-        before = set(run.run_dirs())
+        before = set(record.run_dirs())
         code = run.main([str(self.task), "--exec", self.executor, "--review", self.reviewer,
                          "--no-worktree", "--no-merge"])
-        directory = (set(run.run_dirs()) - before).pop()
-        return code, directory, run.read_state(directory), repo
+        directory = (set(record.run_dirs()) - before).pop()
+        return code, directory, record.read_state(directory), repo
 
     def launch_scratch(self, *answers, rounds=1):
         self.reviews(*answers)
         self.task.write_text("---\nrepo: none\n"
                              f"rounds: {rounds}\n---\n# V5ab scratch fixture\n\n"
                              "## Done when\n```bash\ntest -f deliverable\n```\n")
-        before = set(run.run_dirs())
+        before = set(record.run_dirs())
         code = run.main([str(self.task), "--exec", self.executor, "--review", self.reviewer])
-        directory = (set(run.run_dirs()) - before).pop()
-        return code, directory, run.read_state(directory)
+        directory = (set(record.run_dirs()) - before).pop()
+        return code, directory, record.read_state(directory)
 
     # --- (a) a repo run names the reviewed commit and its exit counts -------
 

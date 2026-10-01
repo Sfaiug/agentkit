@@ -21,6 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, notify, orch, run, watch
+from agentkit import record
 
 WEEK = 604800
 SPENT = ("unfinished review; done-when and review are pending at round 4, but the round "
@@ -75,11 +76,11 @@ class SupersededPark(unittest.TestCase):
                 "base_sha": "0" * 40, "error": SPENT,
                 "started_at": self.now - 3600, "finished_at": self.now - 600}
         base.update(extra)
-        run.save_state(run_dir, base)
+        record.save_state(run_dir, base)
         return run_dir
 
     def records(self):
-        return [(directory, run.read_state(directory)) for directory in config.RUNS.iterdir()]
+        return [(directory, record.read_state(directory)) for directory in config.RUNS.iterdir()]
 
     def test_exhausted_run_replaced_by_a_merged_retry_is_settled(self):
         parked = self.receipt("20260925-1257-parked", title="Fix the parser")
@@ -88,7 +89,7 @@ class SupersededPark(unittest.TestCase):
                      round_summaries=[{}], error=None,
                      started_at=self.now - 300, finished_at=self.now - 60)
         index = run.supersession_index(self.records())
-        state = run.read_state(parked)
+        state = record.read_state(parked)
         self.assertTrue(run.is_superseded(state, None, index))
         self.assertTrue(run.settled(state, index))
         self.assertFalse(run.unfinished(state, index=index))
@@ -105,7 +106,7 @@ class SupersededPark(unittest.TestCase):
                      error="the done-when failed",
                      started_at=self.now - 300, finished_at=self.now - 60)
         index = run.supersession_index(self.records())
-        state = run.read_state(parked)
+        state = record.read_state(parked)
         self.assertFalse(run.settled(state, index))
         self.assertTrue(run.unfinished(state, index=index))
         self.assertTrue(menu.v5o_needs_look(state, index=index, now=self.now))
@@ -121,7 +122,7 @@ class SupersededPark(unittest.TestCase):
                      started_at=self.now - 300, finished_at=None)
         records = self.records()
         index = run.supersession_index(records)
-        state = run.read_state(parked)
+        state = record.read_state(parked)
         # the orchestrator took the work up again, but it has not merged
         self.assertEqual(run.superseded_by(state, records), "20260925-1713-relaunch")
         self.assertIsNone(run.superseded_by(state, records, merged_only=True))
@@ -171,13 +172,13 @@ class SupersededPark(unittest.TestCase):
             watch.resume_exhausted(self.cfg, self.providers(), log=self.log, now=self.now)
             watch.resume_errored(log=self.log, now=self.now)
         self.assertEqual(self.logs, [])
-        self.assertEqual(run.read_state(quota)["state"], "exhausted")
-        self.assertEqual(run.read_state(errored)["state"], "error")
+        self.assertEqual(record.read_state(quota)["state"], "exhausted")
+        self.assertEqual(record.read_state(errored)["state"], "error")
         # the stand-down ends what `going` reads: the wait is over, not parked
-        quota_state = run.read_state(quota)
+        quota_state = record.read_state(quota)
         self.assertTrue(quota_state["replaced"])
         self.assertFalse(run.going(quota_state))
-        errored_state = run.read_state(errored)
+        errored_state = record.read_state(errored)
         self.assertNotIn("error_retry_at", errored_state)
         self.assertNotIn("error_retries", errored_state)
         self.assertFalse(run.going(errored_state))

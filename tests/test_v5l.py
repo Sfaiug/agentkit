@@ -16,6 +16,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import finding_count, reported, scripted
 from agentkit import host, config, notify, run, worker
+from agentkit import record
 
 
 def fail(count, note="pattern"):
@@ -135,10 +136,10 @@ sys.exit(1)
         """One scratch run, so the loop is the only thing under test: no repo, branch or PR."""
         self.task.write_text(f"---\nrepo: none\nrounds: {rounds}\n---\n# Budget fixture\n\n"
                              "## Done when\n```bash\ntest -f deliverable\n```\n")
-        before = set(run.run_dirs())
+        before = set(record.run_dirs())
         code = run.main([str(self.task), "--exec", self.executor, "--review", self.reviewer, *flags])
-        directory = (set(run.run_dirs()) - before).pop()
-        return code, directory, run.read_state(directory)
+        directory = (set(record.run_dirs()) - before).pop()
+        return code, directory, record.read_state(directory)
 
     def calls(self, role=None):
         path = self.root / "calls.jsonl"
@@ -246,7 +247,7 @@ sys.exit(1)
         directory, state = self.exhausted_run()
         findings = state["findings"]
         self.assertEqual(run.cmd_resume([directory.name, "--rounds", "3"]), 0, self.log(directory))
-        after = run.read_state(directory)
+        after = record.read_state(directory)
         self.assertEqual(after["state"], "pass")
         self.assertEqual(after["rounds"], 3)
         self.assertEqual(len(after["round_summaries"]), 3)
@@ -280,9 +281,9 @@ sys.exit(1)
                         r"give --rounds N above it, at most 3, to continue"):
                     run.cmd_resume(argv)
         self.assertEqual(len(self.calls()), spent)       # refused before any model call
-        self.assertEqual(run.read_state(directory)["state"], "fail")
+        self.assertEqual(record.read_state(directory)["state"], "fail")
         # a FAIL with rounds still to spend is not one of these, and keeps the older message
-        run.save_state(directory, {**state, "rounds": 3})
+        record.save_state(directory, {**state, "rounds": 3})
         with self.assertRaisesRegex(config.Error, "is 'fail', not interrupted or exhausted"):
             run.cmd_resume([directory.name, "--rounds", "3"])
 
@@ -296,12 +297,12 @@ sys.exit(1)
         self.assertIn(wanted, self.status(directory.name))
         merged = config.RUNS / "20260101-1000-merged"
         merged.mkdir()
-        run.save_state(merged, {**state, "run_id": merged.name, "state": "pass", "verdict": "PASS",
+        record.save_state(merged, {**state, "run_id": merged.name, "state": "pass", "verdict": "PASS",
                                 "merged": True, "no_merge": False})
-        run.write_result(merged, run.read_state(merged), ["test -f deliverable"])
+        run.write_result(merged, record.read_state(merged), ["test -f deliverable"])
         self.assertNotIn("continue: ak run resume", (merged / "result.md").read_text())
         self.assertNotIn("continue: ak run resume", self.status(merged.name))
-        self.assertEqual(run.continue_line(run.read_state(merged)), "")
+        self.assertEqual(run.continue_line(record.read_state(merged)), "")
 
     def test_v5l_status_shows_a_spent_budget_with_no_extension(self):
         self.reviews(fail(4), fail(3), fail(2), PASS)
@@ -384,7 +385,7 @@ sys.exit(1)
         resumed = self.calls("executor")[2]["prompt"]
         self.assertIn(first, resumed)
         self.assertIn(reported(wide).strip(), resumed)
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual(state["findings_file"],
                          str(directory / "round-3" / "reviewer" / "review.md"))
         # with the round directory gone, the bounded tail is still better than nothing
@@ -422,13 +423,13 @@ sys.exit(1)
 
     def existing_format(self, directory, **changes):
         """The same run with everything this change added to run.json taken back out."""
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         for entry in state["round_summaries"]:
             entry.pop("finding_count", None)
         state.pop("findings_file", None)
         state.pop("extended", None)
         state.update(changes)
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         return state
 
     def test_v5l_an_existing_run_recovers_its_whole_review_from_the_round_directory(self):
@@ -445,14 +446,14 @@ sys.exit(1)
     def test_v5l_an_existing_conflict_fail_drops_its_obsolete_pending_review(self):
         self.reviews(fail(2), fail(2), PASS)
         _, directory, state = self.launch(rounds=2)
-        summaries = run.read_state(directory)["round_summaries"]
+        summaries = record.read_state(directory)["round_summaries"]
         # what a conflict at the cap left behind before the abort dropped it
         state = self.existing_format(directory, state="fail", verdict="FAIL", merge_failed=True,
                                      merge_note="the rebase of origin/main conflicted",
                                      review_pending={"round": 3, "summary": summaries[-1]["summary"],
                                                      "reason": "Re-review after the rebase."})
         self.assertEqual(run.cmd_resume([directory.name, "--rounds", "3"]), 0, self.log(directory))
-        after = run.read_state(directory)
+        after = record.read_state(directory)
         self.assertNotIn("review_pending", after)
         # the delivery note of the attempt this one replaces goes with it
         self.assertFalse(after["merge_failed"])
@@ -470,7 +471,7 @@ sys.exit(1)
         state = self.existing_format(directory)
         self.assertFalse(any("finding_count" in e for e in state["round_summaries"]))
         self.assertEqual(run.cmd_resume([directory.name, "--rounds", "3"]), 1, self.log(directory))
-        after = run.read_state(directory)
+        after = record.read_state(directory)
         # round 3 found one where round 2 found two, and bought nothing with it
         self.assertEqual(self.extensions(directory), [])
         self.assertEqual((after["state"], after["rounds"]), ("fail", 3))
@@ -485,19 +486,19 @@ sys.exit(1)
             with self.subTest(why=why):
                 self.reviews(PASS)
                 _, directory, state = self.launch(rounds=2)
-                lp = run.Loop(self.cfg, directory, run.read_state(directory), {},
+                lp = run.Loop(self.cfg, directory, record.read_state(directory), {},
                               lambda line: None, Path(state["worktree"]), "body", ["true"],
                               "context", [])
                 lp.rnd = rnd
                 run.pending_review(lp, "Re-review after the rebase of origin/main.")
-                self.assertIn("review_pending", run.read_state(directory))
+                self.assertIn("review_pending", record.read_state(directory))
                 calls = []
                 with patch.object(run, "git", return_value=""), \
                         patch.object(run, "git_out",
                                      side_effect=lambda wt, *a, **k: (calls.append(a), (0, ""))[1]):
                     self.assertFalse(run.resolve_conflicts(lp, "origin/main", "conflicted", "rebase"))
                 self.assertIn(("rebase", "--abort"), calls)
-                after = run.read_state(directory)
+                after = record.read_state(directory)
                 self.assertEqual(after["review_pending"]["round"], rnd)
                 self.assertIs(after["review_pending"]["record"], False)
                 # what the abandoned integration invalidated stays invalidated, and the
@@ -514,7 +515,7 @@ sys.exit(1)
         directory, _ = self.exhausted_run()
         self.reviews(fail(2), fail(2))
         self.assertEqual(run.cmd_resume([directory.name, "--rounds", "3"]), 1, self.log(directory))
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual((state["state"], state["rounds"]), ("fail", 3))
         self.assertTrue(state["recovery_pending"])        # the resume records one of its own
         self.assertTrue(run.needs_recovery(state))
@@ -526,7 +527,7 @@ sys.exit(1)
                                                           r"re-scope the task"):
                     run.cmd_resume(argv)
         self.assertEqual(len(self.calls()), spent)
-        self.assertEqual(run.read_state(directory)["state"], "fail")
+        self.assertEqual(record.read_state(directory)["state"], "fail")
         self.assertNotIn("continue: ak run resume", (directory / "result.md").read_text())
 
     # --- a review finished on a resume buys no extra round ------------------
@@ -536,17 +537,17 @@ sys.exit(1)
         _, directory, state = self.launch(rounds=3)
         self.assertEqual((state["state"], state["rounds"]), ("fail", 3))
         # rewind to the shape an exhausted reviewer leaves: round 3 reviewed, nothing recorded
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         summaries = state["round_summaries"]
         state.update(state="exhausted", verdict=None, review=None, rounds=3,
                      error="reviewer died on API errors; waiting for review",
                      round_summaries=summaries[:2],
                      review_pending={"round": 3, "summary": summaries[1]["summary"],
                                      "reason": "Resume the unfinished review."})
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         self.reviews(fail(2), PASS)
         self.assertEqual(run.cmd_resume([directory.name]), 1, self.log(directory))
-        after = run.read_state(directory)
+        after = record.read_state(directory)
         self.assertEqual(after["state"], "fail")
         self.assertEqual(after["rounds"], 3)
         self.assertNotIn("extended", after)

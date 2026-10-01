@@ -14,6 +14,35 @@ def cpu_count():
     return os.cpu_count() or 1
 
 
+def alive(pid):
+    """Process existence only; run ownership also requires process_active's identity check."""
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def process_identity(pid):
+    """Linux process birth, including the boot so a reboot cannot recycle an identity."""
+    try:
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        if fields[0] in ("Z", "X"):
+            return None
+        ticks = int(fields[19])
+        boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        btime = next(line.split()[1] for line in Path("/proc/stat").read_text().splitlines()
+                     if line.startswith("btime "))
+        return {"boot": boot, "ticks": ticks,
+                "started_at": int(btime) + ticks / os.sysconf("SC_CLK_TCK")}
+    except (OSError, ValueError, IndexError, StopIteration):
+        return None
+
+
 def _cgroup_text(pid="self", cgroup_file=None):
     if cgroup_file is None:
         cgroup_file = (os.environ.get("AK_CGROUP_FILE") or OWN_CGROUP

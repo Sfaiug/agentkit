@@ -1,8 +1,8 @@
-"""A write to a live run's record survives the loop's next save; `run.record` is how it lands.
+"""A write to a live run's record survives the loop's next save; `record.record` is how it lands.
 
 The watcher's freeze marks and stall entries and a rename's `launched_session` are written
 while the loop runs, holding a record of its own in memory: its next save merges what it
-changed and keeps the rest.  The tick's passes change a record only through `run.record`,
+changed and keeps the rest.  The tick's passes change a record only through `record.record`,
 and one it cannot read is left as it is.  Offline: a sandbox HOME, no real process, tmux or
 seat.
 """
@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from test_v4n import Sandbox
 from agentkit import host, config, orch, run, watch, worker
+from agentkit import record
 
 
 class Fixture(Sandbox):
@@ -26,18 +27,18 @@ class Fixture(Sandbox):
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         self.run_dir = config.RUNS / "20260929-1710-fix-api"
         self.run_dir.mkdir(parents=True)
-        run.save_state(self.run_dir, {
+        record.save_state(self.run_dir, {
             "run_id": self.run_dir.name, "state": "running", "pid": 999999999,
             "launched_session": "lagoon", "base": "main", "rounds": 3, "executor": "opus",
             "reviewer": "astra", "round_summaries": [], "stalls": [], "silence_minutes": 17})
-        self.lp = run.Loop({}, self.run_dir, run.read_state(self.run_dir), {}, lambda _: None,
+        self.lp = run.Loop({}, self.run_dir, record.read_state(self.run_dir), {}, lambda _: None,
                            self.root, "", [], "", [])
-        self.stack.enter_context(patch.object(run, "run_dirs", return_value=[self.run_dir]))
-        self.stack.enter_context(patch.object(run, "process_active", return_value=True))
+        self.stack.enter_context(patch.object(record, "run_dirs", return_value=[self.run_dir]))
+        self.stack.enter_context(patch.object(record, "process_active", return_value=True))
 
     def loop_saves(self, step):
         self.lp.step(step)
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         self.assertEqual(state["step"], step)
         return state
 
@@ -84,7 +85,7 @@ class LiveRun(Fixture):
         self.assertEqual(self.loop_saves("execute")["launched_session"], "quay")
 
     def test_a_write_before_the_loop_is_built_survives_its_first_save(self):
-        handed = run.read_state(self.run_dir)
+        handed = record.read_state(self.run_dir)
         with patch.object(host, "frozen_cgroup", return_value="/agentkit.slice"):
             watch.recover_runs({}, log=lambda _: None, now=5000)
         self.lp = run.Loop({}, self.run_dir, handed, {}, lambda _: None, self.root, "", [], "",
@@ -92,11 +93,11 @@ class LiveRun(Fixture):
         self.assertEqual(self.loop_saves("execute")["frozen_since"], 5000)
 
     def test_a_stop_between_two_saves_still_ends_the_loop(self):
-        state = run.read_state(self.run_dir)
-        run.save_state(self.run_dir, {**state, "state": "stopped"})
-        with self.assertRaises(run.StopRequested):
+        state = record.read_state(self.run_dir)
+        record.save_state(self.run_dir, {**state, "state": "stopped"})
+        with self.assertRaises(record.StopRequested):
             self.lp.step("execute")
-        self.assertEqual(run.read_state(self.run_dir)["state"], "stopped")
+        self.assertEqual(record.read_state(self.run_dir)["state"], "stopped")
 
 
 class MergePipeline(Fixture):
@@ -104,10 +105,10 @@ class MergePipeline(Fixture):
 
     def survives(self, save):
         self.lp.save()
-        with run.record(self.run_dir) as current:
+        with record.record(self.run_dir) as current:
             current["frozen_since"] = 5000
         save()
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         self.assertEqual(state["frozen_since"], 5000)
         return state
 
@@ -135,58 +136,58 @@ class MergePipeline(Fixture):
         self.assertEqual(state["final_check"]["outcome"], "passed")
 
     def test_a_stop_still_ends_a_pipeline_save_and_a_release_still_lets_go(self):
-        run.save_state(self.run_dir, {**run.read_state(self.run_dir), "state": "stopped"})
-        with self.assertRaises(run.StopRequested):
+        record.save_state(self.run_dir, {**record.read_state(self.run_dir), "state": "stopped"})
+        with self.assertRaises(record.StopRequested):
             run.note(self.lp, "the PR is closed")
         self.lp.state["merge_hold"] = {"pid": 1, "of": "acme main"}
         run._MergeHold(None, self.lp, True).release()     # its fallback, not a raise
         self.assertNotIn("merge_hold", self.lp.state)
-        self.assertEqual(run.read_state(self.run_dir)["state"], "stopped")
+        self.assertEqual(record.read_state(self.run_dir)["state"], "stopped")
 
 
 class Contract(Fixture):
     def writes(self):
-        return patch.object(run, "_write_state", wraps=run._write_state)
+        return patch.object(record, "_write_state", wraps=record._write_state)
 
     def test_a_record_writes_once_and_only_when_something_changed(self):
         with self.writes() as write:
-            with run.record(self.run_dir) as state:
+            with record.record(self.run_dir) as state:
                 self.assertEqual(state["state"], "running")
             write.assert_not_called()
-            with run.record(self.run_dir) as state:
+            with record.record(self.run_dir) as state:
                 state["thawed_at"] = 7000
                 state.pop("stalls")
             write.assert_called_once()
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         self.assertEqual(state["thawed_at"], 7000)
         self.assertNotIn("stalls", state)
 
     def test_flush_writes_early_and_the_exit_writes_only_what_came_after(self):
         with self.writes() as write:
-            with run.record(self.run_dir) as state:
+            with record.record(self.run_dir) as state:
                 state["stall_resume_at"] = 7000
                 state.flush()
-                self.assertEqual(run.read_state(self.run_dir)["stall_resume_at"], 7000)
+                self.assertEqual(record.read_state(self.run_dir)["stall_resume_at"], 7000)
                 state.flush()
             self.assertEqual(write.call_count, 1)
 
     def test_an_exception_writes_nothing(self):
         with self.assertRaises(KeyError):
-            with run.record(self.run_dir) as state:
+            with record.record(self.run_dir) as state:
                 state["thawed_at"] = 7000
                 raise KeyError("thawed_at")
-        self.assertNotIn("thawed_at", run.read_state(self.run_dir))
+        self.assertNotIn("thawed_at", record.read_state(self.run_dir))
 
     def test_a_record_keeps_the_stop_guard(self):
-        run.save_state(self.run_dir, {**run.read_state(self.run_dir), "state": "stopped"})
-        with self.assertRaises(run.StopRequested):
-            with run.record(self.run_dir) as state:
+        record.save_state(self.run_dir, {**record.read_state(self.run_dir), "state": "stopped"})
+        with self.assertRaises(record.StopRequested):
+            with record.record(self.run_dir) as state:
                 state["state"] = "running"
-        self.assertEqual(run.read_state(self.run_dir)["state"], "stopped")
+        self.assertEqual(record.read_state(self.run_dir)["state"], "stopped")
         # a stopped record still takes a mark that leaves it stopped: a rename's, say
-        with run.record(self.run_dir) as state:
+        with record.record(self.run_dir) as state:
             state["launched_session"] = "quay"
-        self.assertEqual(run.read_state(self.run_dir)["launched_session"], "quay")
+        self.assertEqual(record.read_state(self.run_dir)["launched_session"], "quay")
 
     def test_a_delivery_and_a_save_never_share_a_temporary_file(self):
         temps, real = [], Path.replace
@@ -194,28 +195,28 @@ class Contract(Fixture):
         def replacing(path, target):
             temps.append(path.name)
             return real(path, target)
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         with patch.object(Path, "replace", replacing):
-            run.save_state(self.run_dir, {**state, "step": "execute"})
-            with run.record(self.run_dir) as current:
+            record.save_state(self.run_dir, {**state, "step": "execute"})
+            with record.record(self.run_dir) as current:
                 current["step"] = "done-when"
             run.mark_delivery(self.run_dir, state, handback_pending=True)
         self.assertEqual(len(temps), 3)
         self.assertEqual(temps[0], temps[1])
         self.assertNotEqual(temps[1], temps[2])
-        self.assertTrue(run.read_state(self.run_dir)["handback_pending"])
+        self.assertTrue(record.read_state(self.run_dir)["handback_pending"])
 
     def test_an_unreadable_record_is_left_as_it_is_and_the_caller_learns_it(self):
         path = self.run_dir / "run.json"
         path.write_text('{"state": "runn')
-        with self.assertRaises(run.Unreadable), self.writes() as write:
-            with run.record(self.run_dir) as state:
+        with self.assertRaises(record.Unreadable), self.writes() as write:
+            with record.record(self.run_dir) as state:
                 state["thawed_at"] = 7000
         write.assert_not_called()
         self.assertEqual(path.read_text(), '{"state": "runn')
         path.unlink()
-        with self.assertRaises(run.Unreadable):
-            with run.record(self.run_dir) as state:
+        with self.assertRaises(record.Unreadable):
+            with record.record(self.run_dir) as state:
                 state["thawed_at"] = 7000
         self.assertFalse(path.exists())
 
@@ -231,9 +232,9 @@ class Tick(Fixture):
 
     def setUp(self):
         super().setUp()
-        self.base = run.read_state(self.run_dir)
+        self.base = record.read_state(self.run_dir)
         for target, name, value in (
-                (run, "process_active", False),        # every loop here is gone
+                (record, "process_active", False),        # every loop here is gone
                 (run, "is_superseded", True),          # a later merged run did the work
                 (run, "tick_admission", True),
                 (run, "exhausted_wait", "window"),
@@ -280,8 +281,8 @@ class Tick(Fixture):
         moment (too many open files) on a record that is whole.  `self.between` is what
         run.json held once `between` ran.
         """
-        run.save_state(self.run_dir, {**self.base, **state})
-        path, real, logs, self.between = self.run_dir / "run.json", run.read_state, [], None
+        record.save_state(self.run_dir, {**self.base, **state})
+        path, real, logs, self.between = self.run_dir / "run.json", record.read_state, [], None
 
         def read(run_dir):
             if self.between is None:
@@ -289,9 +290,9 @@ class Tick(Fixture):
                 between()
                 self.between = path.read_bytes()
                 return first
-            locked = str(run_dir) in getattr(run._RECOVERY_HELD, "paths", ())
+            locked = str(run_dir) in getattr(record._RECOVERY_HELD, "paths", ())
             return None if fail and locked else real(run_dir)
-        with patch.object(run, "read_state", side_effect=read):
+        with patch.object(record, "read_state", side_effect=read):
             run_pass(logs.append)
         return logs
 
@@ -310,7 +311,7 @@ class Tick(Fixture):
             with self.subTest(name):
                 self.tick(state, run_pass, self.another_writer)
                 self.assertNotEqual((self.run_dir / "run.json").read_bytes(), self.between)
-                self.assertTrue(run.read_state(self.run_dir)["handback_pending"])
+                self.assertTrue(record.read_state(self.run_dir)["handback_pending"])
 
     def test_a_launch_leaves_a_record_it_cannot_read_as_it_is_and_says_so(self):
         # unreadable after the start: the child owns the run now, so the launch stands
@@ -331,7 +332,7 @@ class Tick(Fixture):
         self.assertTrue(any(line.startswith("WARN") and "run.json cannot be read" in line
                             for line in logs), logs)
         self.tick({"scope": "none"}, launch, self.another_writer)
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         self.assertTrue(state["handback_pending"])
         self.assertIsNone(state["scope"])     # the launch's own placement, empty in a fake start
 

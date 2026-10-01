@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
 from agentkit import config, menu, notify, orch, run, terminal, watch, worker
+from agentkit import record
 
 NOW = 1_800_000_000
 SEAT = "fix-api"
@@ -210,14 +211,14 @@ class DoneStaysDone(Sandbox):
         self.fact("Stop")
         other = config.RUNS / "20260924-1250-fix-api"
         other.mkdir(parents=True)
-        run.save_state(other, {"run_id": other.name, "state": "running",
+        record.save_state(other, {"run_id": other.name, "state": "running",
                                "launched_session": SEAT, "title": "Another task"})
         self.assertEqual(notify.shaped("done", JOB[0], session=SEAT, event_id=JOB[1]), 0)
         self.assertEqual(notify.last(SEAT)["text"], JOB[0])
         # a run of its own still going holds the job's card back, as it always did
         self.assertEqual(self.decide()[0], "working")
         self.assertEqual(self.posts, [])
-        run.save_state(other, {**run.read_state(other), "state": "pass",
+        record.save_state(other, {**record.read_state(other), "state": "pass",
                                "finished_at": NOW - 60})
         self.assertEqual(self.decide(), ("needs you", "waiting for you"))
         # its card is the green one it always was, once, and no question card follows it

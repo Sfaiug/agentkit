@@ -164,7 +164,7 @@ if hold:
 '
 smoke_pool_bound() {   # the heavy suites the host admits at once: 0 is no cap, 1 when unreadable
   HOME="${SMOKE_CALLER_HOME:-$HOME}" PYTHONPATH="$REPO" python3 - 2>/dev/null <<'PY' || echo 1
-from agentkit import config, run
+from agentkit import config, run, record
 try:
     limit = config.max_gates()
     print(limit if limit is not None else run.derived_heavy_limit())
@@ -434,7 +434,7 @@ import subprocess
 import tempfile
 from unittest.mock import patch
 
-from agentkit import config, gc, menu, muse_usage, notify, orch, run, terminal, usage, watch
+from agentkit import config, gc, menu, muse_usage, notify, orch, run, terminal, usage, watch, record
 
 with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO) as tmp, ExitStack() as stack:
     root = Path(tmp)
@@ -450,7 +450,7 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
                          (gc, "schedule_gc"), (orch, "stamp"), (orch, "sweep"),
                          (watch.browser, "tidy")):
         passes[name] = stack.enter_context(patch.object(module, name))
-    stack.enter_context(patch.object(run, "run_dirs", return_value=[]))
+    stack.enter_context(patch.object(record, "run_dirs", return_value=[]))
     stack.enter_context(patch.object(watch, "gh_json", return_value=(None, "offline fixture")))
 
     def meter(name, used):
@@ -697,12 +697,12 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
     for error in (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError):
         receipt = {"state": "pass", "notification_pending": True,
                    "pending_inbox": {"question": "Fixture question", "url": "fixture", "sha": "abc"}}
-        run.save_state(finished, receipt)
+        record.save_state(finished, receipt)
         for mock in passes.values():
             mock.reset_mock()
         before = cache.read_bytes()
         with patch.object(usage, "collect", side_effect=error("bad usage")), \
-                patch.object(run, "run_dirs", return_value=[finished]), \
+                patch.object(record, "run_dirs", return_value=[finished]), \
                 patch.object(run, "reap", side_effect=lambda d, state: state), \
                 patch.object(run, "announce") as announce, \
                 patch.object(watch, "inbox", return_value="inbox"), \
@@ -710,7 +710,7 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
             assert "WARN the usage refresh did not finish" in tick()
             announce.assert_called_once()
             question.assert_called_once()
-        assert "pending_inbox" not in run.read_state(finished)
+        assert "pending_inbox" not in record.read_state(finished)
         assert cache.read_bytes() == before
         for name in ("schedule_gc", "stamp", "sweep"):
             passes[name].assert_called_once()
@@ -734,7 +734,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from agentkit import config, gc, menu, notify, orch, run, terminal, usage, watch
+from agentkit import config, gc, menu, notify, orch, run, terminal, usage, watch, record
 
 
 class SessionState(unittest.TestCase):
@@ -771,7 +771,7 @@ class SessionState(unittest.TestCase):
         for module, name in ((usage, "collect"), (gc, "schedule_gc"),
                              (orch, "stamp"), (orch, "sweep"), (watch.browser, "tidy")):
             self.stack.enter_context(patch.object(module, name))
-        self.stack.enter_context(patch.object(run, "run_dirs", return_value=[]))
+        self.stack.enter_context(patch.object(record, "run_dirs", return_value=[]))
         self.stack.enter_context(patch.object(watch, "gh_json", return_value=(None, "offline")))
         # No command, network request or actual attach may escape this fixture.
         self.stack.enter_context(patch.object(subprocess, "run", side_effect=AssertionError("subprocess")))
@@ -1933,7 +1933,7 @@ skip_refused() {   # skip_refused <check labels> <model> <exit> <out-dir or MCP 
   # snapshot so its later checks skip too, without another probe or a host write.
   why=$(PYTHONPATH="$REPO" python3 - "$model" "$rc" "$out" "$WORK/usage-real.json" <<'PY'
 import json, pathlib, sys, time
-from agentkit import config, run, usage
+from agentkit import config, run, usage, record
 cfg = config.load()
 entry = config.model(cfg, sys.argv[1])
 out, snapshot = map(pathlib.Path, sys.argv[3:])
@@ -3824,7 +3824,7 @@ import time
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from agentkit import config, menu, orch, run
+from agentkit import config, menu, orch, run, record
 
 config.ensure_dirs()
 LONG = ("Rewrite the finished-run notice so a phone can read it "
@@ -3855,7 +3855,7 @@ for name, extra in {
 }.items():
     d = config.RUNS / name
     d.mkdir()
-    run.save_state(d, dict({"run_id": name, "merged": False, "reported": False,
+    record.save_state(d, dict({"run_id": name, "merged": False, "reported": False,
                             "executor": "opus", "reviewer": "astra", "review": review,
                             "finished_at": time.time()}, **extra))
 
@@ -3918,7 +3918,7 @@ for frame in (screen, lines[again:], second):
 assert not any(WARNING in line for line in second), second
 assert not any("reaped a loop whose process was gone" in line for line in second), second
 # opening the menu tells nobody anything, so nothing on it is marked told: `r` still owes them
-assert not any(run.read_state(config.RUNS / n)["reported"] for n in
+assert not any(record.read_state(config.RUNS / n)["reported"] for n in
                ("run-1-by-hand", "run-2-owned", "run-3-broken", "run-4-huge", "run-5-path"))
 PY
 [ "$NOTICERC" = 0 ] && ok "20d warnings shown once, after the menu's first frame; a live seat's endings -- an eight-hour-old result included -- are nowhere on it and stay unreported" \
@@ -4531,7 +4531,7 @@ import os
 import time
 from pathlib import Path
 
-from agentkit import config, run, watch
+from agentkit import config, run, watch, record
 
 config.ensure_dirs()
 URL = "https://github.com/me/owned/pull/3"
@@ -4557,7 +4557,7 @@ want(watch.settled({"run": "gone"}) == "failed", "a run directory that is gone f
 want(watch.settled({"run": run_dir("r-err", state="error")}) == "failed", "error failed")
 want(watch.settled({"run": run_dir("r-dead", state="running", pid=999999)}) == "pending",
      "running with a dead pid waits for explicit recovery")
-want(watch.settled({"run": run_dir("r-live", state="running", **run.process_owner())}) == "pending",
+want(watch.settled({"run": run_dir("r-live", state="running", **record.process_owner())}) == "pending",
      "running with a live pid is pending")
 want(watch.settled({"run": run_dir("r-ok", state="pass", review_posted=True)}) == "done",
      "passed and posted is done")
@@ -4572,9 +4572,9 @@ want(watch.settled({"run": run_dir("r-q-old", state="queued", queued_at=time.tim
                     "at": time.time() - 7200}) == "pending",
      "queued for two hours waits for explicit recovery")
 for name in ("r-dead", "r-q-old"):
-    want(run.needs_recovery(run.read_state(config.RUNS / name)), f"{name} kept for recovery")
-want(run.read_state(config.RUNS / "r-live")["state"] == "running", "live run was not interrupted")
-want(run.read_state(config.RUNS / "r-q")["state"] == "queued", "fresh launcher keeps its grace period")
+    want(run.needs_recovery(record.read_state(config.RUNS / name)), f"{name} kept for recovery")
+want(record.read_state(config.RUNS / "r-live")["state"] == "running", "live run was not interrupted")
+want(record.read_state(config.RUNS / "r-q")["state"] == "queued", "fresh launcher keeps its grace period")
 
 # incoming(): backoff persists between ticks and never abandons a head
 launched = []
@@ -5235,7 +5235,7 @@ DEL=0
 HOME="$DELH" PYTHONPATH="$REPO" python3 - >"$WORK/delivered.log" 2>&1 <<'PY' || DEL=1
 import time
 
-from agentkit import config, run
+from agentkit import config, run, record
 
 config.ensure_dirs()
 now = time.time()
@@ -5258,12 +5258,12 @@ review = {"executor": "opus", "reviewer": "astra", "returncode": 0,
           "verdict": "PASS", "done_when": True}
 for name, extra in made.items():
     (config.RUNS / name).mkdir()
-    run.save_state(config.RUNS / name,
+    record.save_state(config.RUNS / name,
                    dict({"run_id": name, "state": "pass", "verdict": "PASS", "executor": "opus",
                          "reviewer": "astra", "rounds": 1, "round_summaries": [], "merged": False,
                          "review": review,
                          "started_at": now - 300, "finished_at": now, "reported": False}, **extra))
-was = {name: run.read_state(config.RUNS / name) for name in made}
+was = {name: record.read_state(config.RUNS / name) for name in made}
 scratch = was["20260101-0900-scratch"]
 assert run.delivery(scratch) == "PASS, delivered", run.delivery(scratch)
 assert run.status_word(scratch) == "delivered", run.status_word(scratch)
@@ -5531,20 +5531,20 @@ import sys
 import time
 from contextlib import redirect_stdout
 
-from agentkit import config, menu, orch, run, watch
+from agentkit import config, menu, orch, run, watch, record
 
 config.ensure_dirs()
 now = time.time()
-owner = run.process_owner(int(sys.argv[1]))
+owner = record.process_owner(int(sys.argv[1]))
 GOING, SMOKE = "20260101-1000-teach-the-menu", "20260101-1100-smoke-make-hello-pass"
 d = config.RUNS / GOING
 d.mkdir(parents=True)
-run.save_state(d, {"run_id": GOING, "title": "Teach the menu the plan bar", "state": "running",
+record.save_state(d, {"run_id": GOING, "title": "Teach the menu the plan bar", "state": "running",
                    "verdict": None, "executor": "opus", "reviewer": "astra", "rounds": 3,
                    "round_summaries": [{"round": 1}], "launched_session": "atoll-fix",
                    "started_at": now - 900, **owner, "merged": False, "reported": True})
 (config.RUNS / SMOKE).mkdir()
-run.save_state(config.RUNS / SMOKE, {"run_id": SMOKE, "title": "Smoke make hello pass",
+record.save_state(config.RUNS / SMOKE, {"run_id": SMOKE, "title": "Smoke make hello pass",
                                      "state": "running", "verdict": None, "executor": "opus",
                                      "reviewer": "astra", "rounds": 2, "round_summaries": [],
                                      "started_at": now - 60, **owner, "merged": False,

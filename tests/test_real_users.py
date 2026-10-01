@@ -21,6 +21,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import config, notify, run, worker
+from agentkit import record
 
 RULE = f"{worker.GATE} {worker.REAL_USERS}"
 ADAPTER = '''import json, os, pathlib, sys
@@ -125,9 +126,9 @@ sys.exit(1)
         task = self.root / "task.md"
         task.write_text("---\nrepo: none\n---\n# Users fixture\n\n"
                         "## Done when\n```bash\ntest -f deliverable\n```\n")
-        before = set(run.run_dirs())
+        before = set(record.run_dirs())
         code = run.main([str(task), "--exec", self.executor, "--review", self.reviewer])
-        directory = (set(run.run_dirs()) - before).pop()
+        directory = (set(record.run_dirs()) - before).pop()
         self.assertEqual(code, 0, (directory / "log.txt").read_text())
         prompts = [json.loads(line) for line in
                    (self.root / "prompts.jsonl").read_text().splitlines()]
@@ -203,9 +204,9 @@ sys.exit(1)
         for users in ("real", "none"):
             for leftover in ("prompts.jsonl", "reviewed"):
                 (self.root / leftover).unlink(missing_ok=True)
-            before = set(run.run_dirs())
+            before = set(record.run_dirs())
             reviews, others = self.launch(f"---\nusers: {users}\n---\n# Repo\n")
-            run_id = (set(run.run_dirs()) - before).pop().name
+            run_id = (set(record.run_dirs()) - before).pop().name
             seen[users] = [prompt.replace(run_id, "<run>") for prompt in others]
         self.assertEqual(len(seen["real"]), 2)
         self.assertEqual(seen["real"], seen["none"])

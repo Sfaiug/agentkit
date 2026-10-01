@@ -23,6 +23,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, gc, notify, orch, run, usage, watch, worker
+from agentkit import record as run_record
 from agentkit import task as taskfile
 
 URL = "https://github.com/fixture/repo/pull/7"
@@ -211,7 +212,7 @@ class Limits(unittest.TestCase):
                  "repo": str(self.work), "worktree": str(self.work), "branch": "main",
                  "base": "origin/main", "base_sha": run.git(self.work, "rev-parse", "HEAD"),
                  "merged": False, "reported": False, **extra}
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         return directory, state
 
     def task(self, commands, front="", rounds=1):
@@ -227,8 +228,8 @@ class Limits(unittest.TestCase):
     def launch(self, *argv):
         with redirect_stdout(io.StringIO()):
             code = run.main(list(argv))
-        directory = max(run.run_dirs(), key=lambda d: d.name)
-        return code, directory, run.read_state(directory)
+        directory = max(run_record.run_dirs(), key=lambda d: d.name)
+        return code, directory, run_record.read_state(directory)
 
     def gone(self, pid, limit=10.0):
         """Wait briefly for a pid to disappear; True only if nothing answers to it."""
@@ -249,7 +250,7 @@ class Limits(unittest.TestCase):
         self.repo()
         child = self.root / "child.pid"
         hang = f"echo begun; sleep 600 & echo $! > {shlex.quote(str(child))}; wait"
-        self.stack.enter_context(patch.object(run, "SILENCE_MINUTES", 0.05))
+        self.stack.enter_context(patch.object(run_record, "SILENCE_MINUTES", 0.05))
         task = self.task([hang])
         code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra",
                                              "--no-merge")
@@ -289,7 +290,7 @@ class Limits(unittest.TestCase):
     def test_v5f_model_turn_past_its_limit_is_a_dead_attempt_that_keeps_the_session(self):
         self.repo()
         self.plan({"hang_executor": 1})
-        self.stack.enter_context(patch.object(run, "SILENCE_MINUTES", 0.06))
+        self.stack.enter_context(patch.object(run_record, "SILENCE_MINUTES", 0.06))
         task = self.task(["true"])
         code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra",
                                              "--no-merge")
@@ -315,7 +316,7 @@ class Limits(unittest.TestCase):
     def test_v5f_turns_past_the_limit_are_resumed_until_one_answers(self):
         self.repo()
         self.plan({"hang_executor": 3})
-        self.stack.enter_context(patch.object(run, "SILENCE_MINUTES", 0.06))
+        self.stack.enter_context(patch.object(run_record, "SILENCE_MINUTES", 0.06))
         task = self.task(["true"])
         code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra",
                                              "--no-merge")
@@ -397,7 +398,7 @@ class Limits(unittest.TestCase):
             directory.mkdir(parents=True)
             workspace = config.WORK / name
             workspace.mkdir(parents=True)     # a running run always has one to go back to
-            run.save_state(directory, {"run_id": name, "title": f"A run that died ({name})",
+            run_record.save_state(directory, {"run_id": name, "title": f"A run that died ({name})",
                                        "state": "running", "verdict": None,
                                        "launched_session": "seat", "executor": "opus",
                                        "reviewer": "astra", "rounds": 1, "round_summaries": [],
@@ -421,7 +422,7 @@ class Limits(unittest.TestCase):
                 # the tick skips the offline GitHub and ends there, after the resume
                 self.assertEqual(watch.main([]), 0)
             for name in dead:
-                state = run.read_state(config.RUNS / name)
+                state = run_record.read_state(config.RUNS / name)
                 self.assertEqual(state["state"], "running", (name, tick))
                 self.assertFalse(state.get("recovery_pending"), (name, tick))
                 self.assertNotIn("recovery_notified", state)
@@ -439,12 +440,12 @@ class Limits(unittest.TestCase):
                                 ("20260914-1003-d", "merge", 60)):
             directory = config.RUNS / name
             directory.mkdir(parents=True)
-            run.save_state(directory, {"run_id": name, "title": name, "state": "running",
+            run_record.save_state(directory, {"run_id": name, "title": name, "state": "running",
                                        "verdict": None, "executor": "opus", "reviewer": "astra",
                                        "branch": "ak/limit", "rounds": 1, "round_summaries": [],
                                        "started_at": now - 3600, "step": step,
                                        "step_at": now - age, "reported": False,
-                                       **run.process_owner()})
+                                       **run_record.process_owner()})
         out = io.StringIO()
         with patch.object(run.time, "time", return_value=now), redirect_stdout(out):
             self.assertEqual(run.cmd_status([]), 0)
@@ -465,7 +466,7 @@ class Limits(unittest.TestCase):
                                     rf"+{step} {age}$")
         # a finished run's step is over, and still is: step_word says nothing
         done = config.RUNS / "20260914-1003-d"
-        state = run.read_state(done)
+        state = run_record.read_state(done)
         self.assertEqual(run.step_word({**state, "state": "pass", "finished_at": now}), "")
 
     def test_v5f_the_step_is_recorded_in_run_json_as_it_changes(self):
@@ -477,13 +478,13 @@ class Limits(unittest.TestCase):
         state = {"run_id": directory.name, "state": "running", "round_summaries": [],
                  "rounds": 1, "base": "origin/main", "base_sha": "0" * 40, "executor": "opus",
                  "reviewer": "astra", "worktree": str(self.work)}
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         lp = run.Loop(self.cfg, directory, state, {}, lambda m: None, self.work, body,
                       ["true"], body, [])
         for step in ("executor", "done-when", "reviewer", "merge"):
             before = time.time()
             lp.step(step)
-            saved = run.read_state(directory)
+            saved = run_record.read_state(directory)
             self.assertEqual(saved["step"], step)
             self.assertGreaterEqual(saved["step_at"], before)
 
@@ -510,9 +511,9 @@ class Limits(unittest.TestCase):
         turns = [(limit, silence) for name, limit, silence in limits if name.endswith(".sh")]
         commands = [(limit, silence) for name, limit, silence in limits if name == "bash"]
         self.assertTrue(turns and commands)
-        self.assertEqual(set(turns), {(None, 60 * run.SILENCE_MINUTES)})
-        self.assertTrue(all(0 < limit <= 3600 * run.CEILING_HOURS and
-                            silence == 60 * run.SILENCE_MINUTES for limit, silence in commands))
+        self.assertEqual(set(turns), {(None, 60 * run_record.SILENCE_MINUTES)})
+        self.assertTrue(all(0 < limit <= 3600 * run_record.CEILING_HOURS and
+                            silence == 60 * run_record.SILENCE_MINUTES for limit, silence in commands))
 
     # --- 7: a PASS whose delivery failed is never a dead end -----------------
 
@@ -535,7 +536,7 @@ class Limits(unittest.TestCase):
         (self.root / "reject-push").unlink()
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", directory.name]), 0)
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertTrue(state["merged"])
         self.assertEqual(state["pr"], URL)
         self.assertEqual(state["delivery_sha"], state["review"]["head_sha"])
@@ -570,7 +571,7 @@ class Limits(unittest.TestCase):
     def test_v5f_done_when_never_starts_a_command_past_the_deadline(self):
         self.repo()
         commands = [f"echo step {n}; sleep 0.4" for n in range(1, 6)]
-        self.stack.enter_context(patch.object(run, "CEILING_HOURS", 0.6 / 3600))
+        self.stack.enter_context(patch.object(run_record, "CEILING_HOURS", 0.6 / 3600))
         task = self.task(commands)
         code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra",
                                              "--no-merge")
@@ -656,7 +657,7 @@ class Limits(unittest.TestCase):
         (self.root / "slow-gh").unlink()
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", directory.name]), 0)
-        self.assertTrue(run.read_state(directory)["merged"])
+        self.assertTrue(run_record.read_state(directory)["merged"])
 
     def test_v5f_run_merge_survives_a_stopped_gh_and_stays_retryable(self):
         self.repo()
@@ -669,7 +670,7 @@ class Limits(unittest.TestCase):
         # the same run, back where a failed delivery leaves it, with gh no longer answering
         (self.root / "delivery").write_text(state["delivery_sha"])   # what the PR reports now
         state.update(merged=False, merge_failed=True, merge_note="pushing failed", reported=False)
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         # the first run merged, so its checkout went with the merge; a genuine failed
         # delivery still has its tree, so the retry gets it back
         run.git(state["repo"], "branch", state["branch"], state["delivery_sha"])
@@ -677,7 +678,7 @@ class Limits(unittest.TestCase):
         (self.root / "slow-gh").write_text("pr view")
         with patch.object(run, "TOOL_CAP", 5), redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", directory.name]), 1)
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertEqual(state["state"], "pass")
         self.assertTrue(state["merge_failed"])              # still retryable, not a dead end
         self.assertIn("was killed after 5s", state["merge_note"])
@@ -685,7 +686,7 @@ class Limits(unittest.TestCase):
         (self.root / "slow-gh").unlink()
         with patch.object(run, "TOOL_CAP", 5), redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", directory.name]), 0)
-        self.assertTrue(run.read_state(directory)["merged"])
+        self.assertTrue(run_record.read_state(directory)["merged"])
 
     def test_v5f_a_refused_credential_prompt_stops_with_credential_advice(self):
         self.repo()
@@ -746,7 +747,7 @@ class Limits(unittest.TestCase):
         (self.root / "slow-git").unlink()
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["resume", directory.name]), 0)
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertEqual((state["state"], state["verdict"]), ("pass", "PASS"))
         self.assertTrue(state["merged"])
         # the checkout is gone with the merge; the delivered history still carries origin/main
@@ -767,7 +768,7 @@ class Limits(unittest.TestCase):
         seen = {}
 
         def killed(lp, upstream):
-            seen.update(run.read_state(directory))      # the receipt a killed retry leaves
+            seen.update(run_record.read_state(directory))      # the receipt a killed retry leaves
             raise KeyboardInterrupt
 
         with patch.object(run, "integrate", side_effect=killed), \
@@ -783,10 +784,10 @@ class Limits(unittest.TestCase):
         # so once that process is gone, the reaper picks it up instead of ignoring a PASS
         gone = subprocess.Popen([sys.executable, "-c", "pass"])
         gone.wait()
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         state.update(pid=gone.pid, process_identity=None)
-        run.save_state(directory, state)
-        state = run.reap(directory, run.read_state(directory))
+        run_record.save_state(directory, state)
+        state = run.reap(directory, run_record.read_state(directory))
         self.assertEqual(state["state"], "interrupted")
         self.assertTrue(run.needs_recovery(state))
         self.assertTrue(run.actionable(state))
@@ -820,7 +821,7 @@ class Limits(unittest.TestCase):
 
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run.drive(self.cfg, third, {}, lambda message: None, job=stop), 1)
-        state = run.read_state(third)
+        state = run_record.read_state(third)
         self.assertEqual(state["state"], "exhausted")
         self.assertTrue(run.needs_recovery(state))
         self.assertIn("was killed after 1s", run.recovery_reason(state))
@@ -859,7 +860,7 @@ class Limits(unittest.TestCase):
         (self.root / "prompt-gh").unlink()
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", directory.name]), 0)
-        self.assertTrue(run.read_state(directory)["merged"])
+        self.assertTrue(run_record.read_state(directory)["merged"])
 
     # --- 10: second pass -- three timeout paths that lost the classification ----
 
@@ -898,7 +899,7 @@ class Limits(unittest.TestCase):
         (self.root / "slow-git").unlink()
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", directory.name]), 0)
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertTrue(state["merged"])
 
         # and the abort is real: on a genuinely conflicted rebase it drops the state and
@@ -1003,7 +1004,7 @@ class Limits(unittest.TestCase):
             (self.root / "slow-git").unlink()
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(run.main(["merge", directory.name]), 0, verb)
-            self.assertTrue(run.read_state(directory)["merged"], verb)
+            self.assertTrue(run_record.read_state(directory)["merged"], verb)
 
     def test_v5f_a_stop_before_launch_is_reported_with_its_relaunch(self):
         self.repo()
@@ -1024,7 +1025,7 @@ class Limits(unittest.TestCase):
                                       "--no-merge": False}, log)
         self.assertIn("was killed after 1s", str(prelaunch.exception))
         self.assertIn("the remote did not answer", str(prelaunch.exception))
-        state = run.read_state(run_dir)
+        state = run_record.read_state(run_dir)
         self.assertEqual(state["state"], "error")
         self.assertIn("was killed after 1s", state["error"])
         text = (run_dir / "log.txt").read_text()
@@ -1055,7 +1056,7 @@ class Limits(unittest.TestCase):
         self.assertNotIn("retry delivery:", result)         # merged: nothing to retry
         self.assertTrue(any("was killed after 1s" in line for line in logged))
         self.assertTrue(any("the remote did not answer" in line for line in logged))
-        saved = run.read_state(directory)
+        saved = run_record.read_state(directory)
         self.assertEqual((saved["state"], saved["verdict"]), ("pass", "PASS"))
         self.assertTrue(saved["merged"])
 
@@ -1081,7 +1082,7 @@ class Limits(unittest.TestCase):
         (self.root / "slow-git").unlink()
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["resume", directory.name]), 0)
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertEqual((state["state"], state["verdict"]), ("pass", "PASS"))
         self.assertTrue(state["merged"])
 
@@ -1094,7 +1095,7 @@ class Limits(unittest.TestCase):
         hang = (f"echo ok 8g; (flock -x {shlex.quote(str(lock))} "
                 f"bash -c 'echo taken > {shlex.quote(str(taken))}; sleep 600') & "
                 f"echo $! > {shlex.quote(str(holder))}; sleep 600")
-        self.stack.enter_context(patch.object(run, "SILENCE_MINUTES", 0.05))
+        self.stack.enter_context(patch.object(run_record, "SILENCE_MINUTES", 0.05))
         task = self.task([hang])
         code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra",
                                              "--no-merge")
@@ -1172,7 +1173,7 @@ class Limits(unittest.TestCase):
         # PR already merged server-side
         (self.root / "delivery").write_text(state["delivery_sha"])
         state.update(merged=False, merge_failed=True, merge_note="pushing failed", reported=False)
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         # the first run merged, so its checkout went with the merge; a genuine failed
         # delivery still has its tree, so the retry gets it back
         run.git(state["repo"], "branch", state["branch"], state["delivery_sha"])
@@ -1188,7 +1189,7 @@ class Limits(unittest.TestCase):
         with patch.object(run, "TOOL_CAP", 5), patch.object(run, "gh", side_effect=confirm_gh), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", directory.name]), 0)
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertTrue(state["merged"])
         self.assertFalse(state["merge_failed"])
         (self.root / "slow-gh").unlink()
@@ -1202,7 +1203,7 @@ class Limits(unittest.TestCase):
                  "round_summaries": [], "base": "origin/main", "base_sha": "0" * 40,
                  "branch": "ak/fork-fixture", "target": "origin/main",
                  "worktree": str(self.work), "pr": None}
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         lp = run.Loop(self.cfg, directory, state, {}, lambda message: None, self.work,
                       "", [], "", [])
         refused = ("gh: prompts are disabled; run `gh auth login` to authenticate\n"

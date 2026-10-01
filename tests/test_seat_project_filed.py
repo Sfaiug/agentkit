@@ -15,6 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
 from agentkit import config, orch, run
+from agentkit import record as run_record
 
 
 class SeatProjectFiled(Sandbox):
@@ -43,7 +44,7 @@ class SeatProjectFiled(Sandbox):
     def vote(self, name, project):
         directory = config.RUNS / name
         directory.mkdir()
-        run.save_state(directory, {"run_id": name, "launched_session": "fix-api",
+        run_record.save_state(directory, {"run_id": name, "launched_session": "fix-api",
                                    "state": "queued", "project": str(project)})
 
     def test_file_current_or_named_seat_by_name_or_path(self):

@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 from test_v4n import Sandbox
 from agentkit import browser, config, gc, menu, orch, retention, run, watch
+from agentkit import record as run_record
 
 DAY = 86400
 DEAD = 99999999
@@ -73,7 +74,7 @@ class Cleanup(Sandbox):
         if state == "running":
             record["verdict"] = None
             record["merged"] = False
-        run.save_state(directory, record)
+        run_record.save_state(directory, record)
         (directory / "result.md").write_text("result\n")
         (directory / "task.md").write_text("task\n")
         (directory / "log.txt").write_text("log\n")
@@ -105,12 +106,12 @@ class Cleanup(Sandbox):
         self.assertIn("and everything it is running", menu.stop_question("atoll"))
         with redirect_stdout(io.StringIO()):
             self.assertEqual(orch.cmd_stop(["atoll"]), 0)
-        self.assertEqual(run.read_state(mine)["state"], "stopped")
-        self.assertEqual(run.read_state(done)["state"], "pass")
-        self.assertEqual(run.read_state(other)["state"], "running")
-        self.assertTrue(run.read_state(mine)["branch_removed"])
-        self.assertTrue(run.read_state(done)["branch_removed"])
-        self.assertNotIn("branch_removed", run.read_state(other))
+        self.assertEqual(run_record.read_state(mine)["state"], "stopped")
+        self.assertEqual(run_record.read_state(done)["state"], "pass")
+        self.assertEqual(run_record.read_state(other)["state"], "running")
+        self.assertTrue(run_record.read_state(mine)["branch_removed"])
+        self.assertTrue(run_record.read_state(done)["branch_removed"])
+        self.assertNotIn("branch_removed", run_record.read_state(other))
         self.assertFalse(mine_wt.exists())
         self.assertFalse(done_wt.exists())
         self.assertTrue(other_wt.is_dir())
@@ -136,7 +137,7 @@ class Cleanup(Sandbox):
 
     def test_merged_run_worktree_is_gone(self):
         directory, wt, branch = self.receipt("merged", state="pass", merged=True, age=60)
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         with redirect_stdout(io.StringIO()):
             run.settle_run(state, directory, lambda _message: None)
         self.assertFalse(wt.exists())
@@ -154,7 +155,7 @@ class Cleanup(Sandbox):
     def test_failed_run_worktree_is_gone_after_handback(self):
         directory, wt, branch = self.receipt("failed", state="fail", merged=False, age=60,
                                              owner="seat", verdict="FAIL")
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         with patch.object(orch, "find", return_value={"name": "seat"}), \
                 patch.object(watch, "type_at_prompt", return_value=True), \
                 patch.object(watch, "is_preexisting", return_value=False), \
@@ -187,7 +188,7 @@ class Cleanup(Sandbox):
         directory, wt, branch = self.receipt("budget", state="fail", merged=False, age=60,
                                              owner="seat", verdict="FAIL",
                                              round_summaries=summaries)
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertIn("ak run resume budget --rounds 3",
                       run.continue_line(state, directory))
         with patch.object(orch, "find", return_value={"name": "seat"}), \
@@ -198,7 +199,7 @@ class Cleanup(Sandbox):
         self.assertTrue(wt.is_dir(), "the hand-back took the resume's checkout")
         self.assertNotIn(str(wt), {item["path"] for item in gc.gc_plan()})
         self.assertIn("ak run resume budget --rounds 3",
-                      run.continue_line(run.read_state(directory), directory))
+                      run.continue_line(run_record.read_state(directory), directory))
         # The seven-day clock still takes it; the branch stays regardless.
         old, old_wt, old_branch = self.receipt("budget-old", state="fail", merged=False,
                                                age=8 * DAY, verdict="FAIL",
@@ -211,9 +212,9 @@ class Cleanup(Sandbox):
 
     def test_live_run_worktree_is_never_removed(self):
         directory, wt, _ = self.receipt("live", state="running", merged=False)
-        state = run.read_state(directory)
-        state.update(run.process_owner())
-        run.save_state(directory, state)
+        state = run_record.read_state(directory)
+        state.update(run_record.process_owner())
+        run_record.save_state(directory, state)
         self.assertEqual(gc.gc(lambda _message: None), [])
         run.settle_run(state, directory, lambda _message: None)
         run.drop_checkout(state, lambda _message: None)
@@ -223,10 +224,10 @@ class Cleanup(Sandbox):
         owned.mkdir(parents=True)
         (owned / "keep").write_text("owner\n")
         code_dir, _, _ = self.receipt("code", state="pass", merged=True, age=60)
-        current = run.read_state(code_dir)
+        current = run_record.read_state(code_dir)
         current["worktree"] = str(owned)
         current["repo"] = str(owned)
-        run.save_state(code_dir, current)
+        run_record.save_state(code_dir, current)
         gc.gc(lambda _message: None)
         run.drop_checkout(current, lambda _message: None)
         self.assertEqual((owned / "keep").read_text(), "owner\n")
@@ -336,7 +337,7 @@ class Cleanup(Sandbox):
         self.assertIn(f"kept; relaunch with from: {branch}", out.getvalue())
         self.assertTrue(wt.is_dir())
         self.assertTrue(self.branch_exists(branch))
-        self.assertTrue(run.read_state(directory)["stop_kept"])
+        self.assertTrue(run_record.read_state(directory)["stop_kept"])
 
     def test_changed_files_survive_the_removed_checkout(self):
         # history reads the changed files after the merge took the tree: the
@@ -346,18 +347,18 @@ class Cleanup(Sandbox):
         self.git(wt, "add", ".")
         self.git(wt, "commit", "-qm", "ship")
         tip = self.git(wt, "rev-parse", "HEAD")
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         state.update(base_sha=self.head, delivery_sha=tip)
-        run.save_state(directory, state)
-        run.settle_run(run.read_state(directory), directory, lambda _message: None)
+        run_record.save_state(directory, state)
+        run.settle_run(run_record.read_state(directory), directory, lambda _message: None)
         self.assertFalse(wt.exists())
         self.assertFalse(self.branch_exists(branch))
-        self.assertEqual(run.changed_files(run.read_state(directory)), ["shipped.txt"])
+        self.assertEqual(run.changed_files(run_record.read_state(directory)), ["shipped.txt"])
 
     def test_clean_names_the_gone_scratch_workspace(self):
         directory = config.RUNS / "cleaned"
         directory.mkdir(parents=True)
-        run.save_state(directory, {"run_id": "cleaned", "state": "pass", "verdict": "PASS",
+        run_record.save_state(directory, {"run_id": "cleaned", "state": "pass", "verdict": "PASS",
                                    "scratch": True,
                                    "worktree": str(config.WORK / "cleaned")})
         (directory / "result.md").write_text("result\n")
@@ -379,7 +380,7 @@ class Cleanup(Sandbox):
             directory.mkdir(parents=True)
             work.mkdir(parents=True)
             (work / "crosscheck.md").write_text("33 KB of findings\n")
-            run.save_state(directory, {"run_id": name, "title": name, "state": state,
+            run_record.save_state(directory, {"run_id": name, "title": name, "state": state,
                                        "verdict": state.upper(), "scratch": True, "repo": None,
                                        "worktree": str(work), "launched_session": "atoll",
                                        "started_at": now - 31 * DAY - 90,
@@ -387,8 +388,8 @@ class Cleanup(Sandbox):
                                        "handed_back": now, "pid": DEAD,
                                        "process_identity": None, "round_summaries": [],
                                        "rounds": 1})
-            run.settle_run(run.read_state(directory), directory, lambda _message: None)
-            run._drop_told(run.read_state(directory), lambda _message: None, directory)
+            run.settle_run(run_record.read_state(directory), directory, lambda _message: None)
+            run._drop_told(run_record.read_state(directory), lambda _message: None, directory)
             runs.append((directory, work))
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run.cmd_clean(["made"]), 0)
@@ -432,7 +433,7 @@ class Cleanup(Sandbox):
             record["created_at"] = time.time() - age
             record["finished_at"] = time.time() - age
             if live:
-                record.update(run.process_owner())
+                record.update(run_record.process_owner())
             else:
                 record.update(pid=DEAD, process_identity=None)
             retention.marker(path).write_text(json.dumps(record))
@@ -455,7 +456,7 @@ class Cleanup(Sandbox):
         stored = {"tab-ended": {"opener": {"run": "ended"}}}
         stored["tab-other"] = {"first_seen": 1, "last_change": 1, "url": "https://y", "title": "y"}
         browser._write_tabs(stored)
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         run.settle_run(state, directory, lambda _message: None)
         self.assertIn("tab-ended", self.closed)
         self.assertNotIn("tab-other", self.closed)

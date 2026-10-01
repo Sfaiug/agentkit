@@ -25,6 +25,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, harness, menu, notify, orch, run, terminal, update, usage, watch
+from agentkit import record as run_record
 from agentkit.harness import codex as codex_plugin
 
 FIXTURES = REPO / "tests/fixtures/adapters"
@@ -404,11 +405,11 @@ class ScratchRun(Fixture):
                              "## Done when\n```bash\ntrue\n```\n")
 
     def test_v5al_a_scratch_run_through_the_echo_adapter_passes(self):
-        before = set(run.run_dirs())
+        before = set(run_record.run_dirs())
         with redirect_stdout(io.StringIO()) as out:
             code = run.main([str(self.task), "--exec", "echo", "--review", "astra"])
-        directory = (set(run.run_dirs()) - before).pop()
-        state = run.read_state(directory)
+        directory = (set(run_record.run_dirs()) - before).pop()
+        state = run_record.read_state(directory)
         self.assertEqual((code, state["state"], state["verdict"]), (0, "pass", "PASS"))
         self.assertEqual((state["executor"], state["reviewer"]), ("echo", "astra"))
         self.assertTrue(run.review_pass(state, self.cfg))

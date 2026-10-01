@@ -19,6 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
 from agentkit import config, job as jobs, menu, orch, run, watch
+from agentkit import record
 
 BAD = "~nosuch-acme-owner/acme"
 
@@ -57,10 +58,10 @@ class RepoLineBadHome(Sandbox):
         """A receipt as a launch that died in preflight left it: queued, no `project`."""
         directory = config.RUNS / name
         self.task(directory / "task.md", repo)
-        run.save_state(directory, {"run_id": name, "state": "queued", "slot_waiting": True,
+        record.save_state(directory, {"run_id": name, "state": "queued", "slot_waiting": True,
                                    "launched_session": "fix-api", "started_at": 9000,
-                                   "queued_at": 9000, **run.process_owner()})
-        return run.read_state(directory)
+                                   "queued_at": 9000, **record.process_owner()})
+        return record.read_state(directory)
 
     def repo(self):
         return config.load_session(self.cfg, "fix-api")["repo"]
@@ -97,8 +98,8 @@ class RepoLineBadHome(Sandbox):
         with chdir(self.root), patch.dict(os.environ, {"AK_MAX_RUNS": "4"}), \
                 patch.object(run, "refresh_seat_tally"), redirect_stdout(io.StringIO()):
             run.prepare(directory, opts, lambda _: None)
-        self.assertEqual(run.read_state(directory)["state"], "queued")
-        self.assertEqual(run.run_project(run.read_state(directory)), self.acme)
+        self.assertEqual(record.read_state(directory)["state"], "queued")
+        self.assertEqual(run.run_project(record.read_state(directory)), self.acme)
         self.assertIsNone(run.run_project(broken))
 
 

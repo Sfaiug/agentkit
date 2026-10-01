@@ -18,6 +18,7 @@ from test_v4n import REPO
 import sys
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, job as jobs, orch, run, watch
+from agentkit import record
 
 
 class RunScope(unittest.TestCase):
@@ -36,7 +37,7 @@ class RunScope(unittest.TestCase):
     def run_dir(self, name="20260922-0900-scope"):
         directory = config.RUNS / name
         directory.mkdir(parents=True)
-        run.save_state(directory, {"run_id": name, "state": "queued",
+        record.save_state(directory, {"run_id": name, "state": "queued",
                                    "launched_session": "old-session"})
         return directory
 
@@ -75,7 +76,7 @@ class RunScope(unittest.TestCase):
             for pid, directory in list(self.live.items()):
                 ending = endings.get(directory.name, {"state": "pass", "verdict": "PASS"})
                 if ending is not None:
-                    run.save_state(directory, {**run.read_state(directory), **ending})
+                    record.save_state(directory, {**record.read_state(directory), **ending})
                 del self.live[pid]
 
         for where, name, fake in (
@@ -83,7 +84,7 @@ class RunScope(unittest.TestCase):
                 (orch, "next_scope_unit", lambda unit: unit),
                 (orch, "stop_scope", lambda scope, log=None, wait=False:
                     self.stopped.append((scope, wait)) or True),
-                (run, "process_active", lambda state: state.get("pid") in self.live),
+                (record, "process_active", lambda state: state.get("pid") in self.live),
                 (run, "_scope_oom_probe", lambda state: ("success", 0)),
                 (run.worker, "kill_marked", lambda run_id, log=None, exact=False: True),
                 (run.time, "sleep", finish)):
@@ -96,7 +97,7 @@ class RunScope(unittest.TestCase):
         (directory / "task.md").write_text(
             "---\nrepo: none\nrounds: 1\n---\n# A job task\n\n## Done when\n```bash\ntrue\n```\n")
         (directory / "log.txt").touch()
-        run.save_state(directory, {"run_id": name, "state": "running", "slot_waiting": False,
+        record.save_state(directory, {"run_id": name, "state": "running", "slot_waiting": False,
                                    "job_id": "20260923-2000-job", "launched_session": None,
                                    "pid": os.getpid(), **fields})
         return directory
@@ -195,7 +196,7 @@ class RunScope(unittest.TestCase):
 
         with patch.object(orch, "start_in_slice", side_effect=placed):
             run.spawn_bg(directory, ["resume", directory.name])
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual(state["scope"], "agentkit-run-20260922-0900-scope")
         self.assertEqual(state["pid"], 9876)
         self.assertEqual(state["launched_session"], "old-session")
@@ -209,7 +210,7 @@ class RunScope(unittest.TestCase):
 
         with patch.object(orch, "start_in_slice", side_effect=plain):
             run.spawn_bg(directory, ["resume", directory.name])
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual(state["scope"], "none")
         self.assertIn("systemd-run failed", state["scope_reason"])
 
@@ -230,7 +231,7 @@ class RunScope(unittest.TestCase):
     def test_preflight_prints_scope_reason_once(self):
         directory = self.run_dir("20260922-0900-preflight")
         (directory / "task.md").write_text("# Scratch\n\n## Done when\n```bash\ntrue\n```\n")
-        run.save_state(directory, {**(run.read_state(directory) or {}),
+        record.save_state(directory, {**(record.read_state(directory) or {}),
                                    "silence_minutes": 20, "ceiling_hours": 6,
                                    "scope": "none", "scope_reason": "no user systemd manager"})
         opts = {"--review-pr": None, "--no-merge": True, "--anyway": False}
@@ -300,7 +301,7 @@ class RunScope(unittest.TestCase):
 
     def test_recovery_orders_resume_after_releasing_the_run_lock(self):
         directory = self.run_dir("20260922-0900-recover")
-        run.save_state(directory, {"run_id": directory.name, "state": "running",
+        record.save_state(directory, {"run_id": directory.name, "state": "running",
                                    "pid": 999999, "scope": "none", "silence_minutes": 1})
         (directory / "log.txt").write_text("old\n")
 
@@ -308,11 +309,11 @@ class RunScope(unittest.TestCase):
             kwargs["placement"].update(scope="agentkit-run-20260922-0900-recover")
             return 999998
 
-        with patch.object(run, "run_dirs", return_value=[directory]), \
-                patch.object(run, "process_active", return_value=False), \
+        with patch.object(record, "run_dirs", return_value=[directory]), \
+                patch.object(record, "process_active", return_value=False), \
                 patch.object(orch, "start_in_slice", side_effect=placed):
             watch.recover_runs({}, now=time.time() + 3600, log=lambda _: None)
-        self.assertEqual(run.read_state(directory)["scope"],
+        self.assertEqual(record.read_state(directory)["scope"],
                          "agentkit-run-20260922-0900-recover")
 
     def test_scope_stop_cleans_an_escaped_executor_session(self):
@@ -392,7 +393,7 @@ class RunScope(unittest.TestCase):
                                                  "--rounds", "2", "--exec", "exec-model",
                                                  "--no-merge"])
             self.assertEqual(start["env"][config.RUN_DIR_ENV], str(directory))
-            state = run.read_state(directory)
+            state = record.read_state(directory)
             self.assertEqual(state["scope"], f"agentkit-run-{directory.name}")
             self.assertEqual(state["job_id"], "20260923-2000-job")
             self.assertEqual(state["memory_cap_mb"], run.memory_cap_mb())
@@ -431,7 +432,7 @@ class RunScope(unittest.TestCase):
         delivery = {"name": "b.md", "state": "running", "run_id": undelivered.name, "after": []}
         job["tasks"] = [task, delivery]
         with patch.object(run, "cmd_merge", side_effect=AssertionError("merged in the job")):
-            jobs.job_ladder(cfg, job_dir, job, delivery, undelivered, run.read_state(undelivered),
+            jobs.job_ladder(cfg, job_dir, job, delivery, undelivered, record.read_state(undelivered),
                            1, lambda _: None, threading.Lock())
         self.assertEqual(self.started[1]["argv"][2:], ["run", "merge", undelivered.name])
         self.assertEqual(self.started[1]["unit"], f"agentkit-run-{undelivered.name}")
@@ -445,7 +446,7 @@ class RunScope(unittest.TestCase):
         # receipt; a merge that read it before then would save the old scope back over it
         directory = self.run_dir("20260923-2000-merge")
         reads, refused = [], []
-        real_read = run.read_state
+        real_read = record.read_state
 
         def reading(run_dir):
             state = real_read(run_dir)
@@ -460,12 +461,12 @@ class RunScope(unittest.TestCase):
                 refused.append(str(exc))
 
         child = threading.Thread(target=merge, name="merge", daemon=True)
-        with patch.object(run, "read_state", side_effect=reading):
-            with run.recovery_lock(directory):
+        with patch.object(record, "read_state", side_effect=reading):
+            with record.recovery_lock(directory):
                 child.start()
                 time.sleep(0.3)
                 self.assertEqual(reads, [])
-                run.save_state(directory, {**real_read(directory),
+                record.save_state(directory, {**real_read(directory),
                                            "scope": "agentkit-run-20260923-2000-merge-2"})
             child.join(timeout=10)
         self.assertEqual(reads[0]["scope"], "agentkit-run-20260923-2000-merge-2")

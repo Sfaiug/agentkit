@@ -22,6 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import browser, config, gc, job as jobs, notify, orch, run, usage, watch
+from agentkit import record
 
 
 class TickHealth(unittest.TestCase):
@@ -393,9 +394,9 @@ class TickHealth(unittest.TestCase):
                 (directory / "task.md").write_text(
                     "---\nrepo: none\nrounds: 1\n---\n# A queued job\n\n"
                     "## Done when\n```bash\ntrue\n```\n")
-                run.save_state(directory, run.read_state(directory))   # silence and ceiling
+                record.save_state(directory, record.read_state(directory))   # silence and ceiling
                 run.preflight(directory, {**opts, "--no-merge": flag}, lambda _: None)
-                self.assertIs(run.read_state(directory)["no_merge"], True)
+                self.assertIs(record.read_state(directory)["no_merge"], True)
         # so the queue wait puts the word on nobody: neither of them will ever push
         self.assertEqual(watch.pushing_seats(), [])
 

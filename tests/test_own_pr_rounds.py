@@ -19,6 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from agentkit import host, config, gc, menu, orch, run, watch, worker
+from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
 
@@ -118,7 +119,7 @@ class OwnPrRounds(unittest.TestCase):
     def push(self, seconds):
         if seconds != run.SLOT_POLL:
             return
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         self.waits.append(state)
         self.assertEqual(state["state"], "running")
         self.assertIsNone(state.get("finished_at"))
@@ -201,10 +202,10 @@ class OwnPrRounds(unittest.TestCase):
         clock.sleep.side_effect = die
         with self.assertRaises(InterruptedError):
             self.review(["FAIL", "PASS"])
-        saved = run.read_state(self.run_dir)
+        saved = record.read_state(self.run_dir)
         self.assertEqual(saved["own_pr_round_told"], 1)
         saved.update(state="queued", pid=999999991)
-        run.save_state(self.run_dir, saved)
+        record.save_state(self.run_dir, saved)
         clock.sleep.side_effect = self.push
         state = self.review(["FAIL", "PASS"])
         self.assertTrue(state["merged"])
@@ -269,12 +270,12 @@ class OwnPrRounds(unittest.TestCase):
         def push(seconds):
             if seconds != run.SLOT_POLL:
                 return
-            state = run.read_state(self.run_dir)
+            state = record.read_state(self.run_dir)
             with patch.object(watch, "run_last_write", return_value=time.time() - 7200):
                 bare = {**state, "own_pr_wait": None}
                 self.assertEqual(menu.silent_for_run(self.run_dir, bare), "2h")
                 self.assertIsNone(menu.silent_for_run(self.run_dir, state))
-                with patch.object(run, "process_active", return_value=False):
+                with patch.object(record, "process_active", return_value=False):
                     self.assertEqual(menu.silent_for_run(self.run_dir, state), "2h")
                 for silent in (None, {self.run_dir.name: "2h"}):
                     found = watch.session_state(
@@ -289,10 +290,10 @@ class OwnPrRounds(unittest.TestCase):
         self.assertTrue(self.review(["FAIL", "PASS"])["merged"])
 
     def assert_resumed_post_finishes_round_one(self):
-        saved = run.read_state(self.run_dir)
+        saved = record.read_state(self.run_dir)
         self.assertEqual(len(saved["round_summaries"]), 1)
         saved.update(state="queued", pid=999999991)
-        run.save_state(self.run_dir, saved)
+        record.save_state(self.run_dir, saved)
         state = self.review(["FAIL", "PASS"])
         self.assertTrue(state["merged"])
         self.assertEqual([(s["round"], s["head_sha"]) for s in state["round_summaries"]],
@@ -394,7 +395,7 @@ class OwnPrRounds(unittest.TestCase):
         post = run.post_review
         with patch.object(run, "post_review", side_effect=killed), self.assertRaises(InterruptedError):
             self.review(["FAIL", "FAIL", "PASS"])
-        self.assertEqual(run.read_state(self.run_dir)["own_pr_round_pending"], 2)
+        self.assertEqual(record.read_state(self.run_dir)["own_pr_round_pending"], 2)
         self.assert_moved_round_merges(self.review(["FAIL", "FAIL", "PASS"]))
         self.assertIn("defect 2", self.prompts[2])
 

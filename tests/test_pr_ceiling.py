@@ -17,6 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, gc, history, run, watch
+from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
 
@@ -232,10 +233,10 @@ class PrCeiling(unittest.TestCase):
         self.assertIsNone(history.get("unmerged")["changed_lines"])
         directory = config.RUNS / "unmerged"
         directory.mkdir()
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         with patch.object(run, "start_followups"):
             run.record_decision(directory, state, "merged by the maintainer", merged=True)
-        self.assertTrue(run.read_state(directory)["merged"])
+        self.assertTrue(record.read_state(directory)["merged"])
         self.assertEqual(history.get("unmerged")["changed_lines"], 6)
 
     def test_history_status_shows_ceiling_and_source(self):

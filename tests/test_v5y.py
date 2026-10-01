@@ -21,6 +21,7 @@ from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
 from agentkit import config, gc, menu, orch, run, terminal, usage, watch
+from agentkit import host, record
 
 TALLY = "2 running · 1 needs a look"
 
@@ -49,7 +50,7 @@ def offline(case):
         "AK_NOTIFY_SINK": "off", "AGENTKIT_DISCORD_WEBHOOK": "",
         "AGENTKIT_DISCORD_USER_ID": "", config.RUN_DIR_ENV: ""}))
     case.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
-    case.stack.enter_context(patch.object(run, "process_identity", side_effect=lambda pid, **_kw: (
+    case.stack.enter_context(patch.object(host, "process_identity", side_effect=lambda pid, **_kw: (
         {"boot": "fixture-boot", "ticks": 1, "started_at": 1.0} if pid == os.getpid() else None)))
     case.stack.enter_context(patch.object(gc, "disk_pressure", return_value=None))
 
@@ -192,7 +193,7 @@ class Writes(Sandbox):
         state = {"run_id": name, "title": f"Task {name}", "state": "running",
                  "launched_session": owner, "started_at": time.time() - 60,
                  **extra}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         return directory
 
     def providers_gating_astra(self):
@@ -227,7 +228,7 @@ class Writes(Sandbox):
             at_launch = self.run_sets()
             run.mark_state(run_dir, "error", "boom")
             at_change = self.run_sets()
-            state = run.read_state(run_dir)
+            state = record.read_state(run_dir)
             with patch.object(run, "launcher_watched", return_value=True):
                 run.finish(state, run_dir, lambda line: None)
             at_end = self.run_sets()
@@ -262,9 +263,9 @@ class Writes(Sandbox):
             watch.health(self.cfg, {"stalls": {}}, False, logs.append)
             self.assertEqual(self.run_sets()[-1], ("herdr", "1 running"))
             # the run dies without a word: the record says fail, the bar still says going
-            state = run.read_state(config.RUNS / "20260917-1200-ship-it")
+            state = record.read_state(config.RUNS / "20260917-1200-ship-it")
             state.update(state="fail", verdict="FAIL", finished_at=time.time())
-            run.save_state(config.RUNS / "20260917-1200-ship-it", state)
+            record.save_state(config.RUNS / "20260917-1200-ship-it", state)
             watch.health(self.cfg, {"stalls": {}}, False, logs.append)
             self.assertEqual(self.run_sets()[-1], ("herdr", "1 needs you"))
 
@@ -307,7 +308,7 @@ class Writes(Sandbox):
                 patch.object(run.subprocess, "Popen", **popen), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(run.main([str(source), "--bg"]), 0)
-        saved = run.read_state(max(run.run_dirs(), key=lambda d: d.name))
+        saved = record.read_state(max(record.run_dirs(), key=lambda d: d.name))
         line = (f"run {saved['run_id']} launched: Ship it "
                 f"({saved['launch_executor']}/{saved['launch_reviewer']}); "
                 "it counts on this bar and in the menu; you will be told when it ends")
@@ -334,7 +335,7 @@ class Writes(Sandbox):
                          (saved["launch_executor"], saved["launch_reviewer"]))
         self.assertTrue(picked.call_args[1].get("resuming"))
         self.assertNotIn("launched:", out.getvalue())
-        self.assertNotIn("launch_executor", run.read_state(run_dir))
+        self.assertNotIn("launch_executor", record.read_state(run_dir))
 
     def test_v5y_i_review_pr_prints_launch_line(self):
         url = "https://github.com/o/r/pull/1"
@@ -379,7 +380,7 @@ class Writes(Sandbox):
                 {"--no-worktree": False, "--no-merge": False, "--bg": True},
                 ["--review-pr", url, "--bg"], None)
         self.assertEqual(rc, 0)
-        saved = run.read_state(max(run.run_dirs(), key=lambda d: d.name))
+        saved = record.read_state(max(record.run_dirs(), key=lambda d: d.name))
         line = (f"run {saved['run_id']} launched: Review PR #1: Mend the fence "
                 f"({saved['launch_reviewer']} review); "
                 "it counts on this bar and in the menu; you will be told when it ends")
@@ -400,14 +401,14 @@ class Writes(Sandbox):
                 "--no-worktree": False, "--no-merge": False, "--bg": False}
         with patch.dict(os.environ, {"AGENTKIT_SESSION": ""}):
             run.capture_launch(run_dir, {})
-            state = run.read_state(run_dir)
+            state = record.read_state(run_dir)
             state.update(launch_executor="opus", launch_reviewer="astra")
-            run.save_state(run_dir, state)
+            record.save_state(run_dir, state)
             with patch.object(run, "rounds", return_value=None), \
                     patch.object(run.usage, "collect", return_value=providers):
                 run.loop(self.cfg, run_dir, run_dir / "task.md", opts,
                          lambda line: None)
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         # the executor keeps its identity; the spent reviewer is re-picked live
         self.assertEqual(state["executor"], "opus")
         self.assertNotEqual(state["reviewer"], "astra")
@@ -456,12 +457,12 @@ class Writes(Sandbox):
                 patch.object(run, "review", return_value="FAIL"), \
                 patch.object(run, "restore_review_checkout", return_value=None):
             run.capture_launch(run_dir, {"--review-pr": url})
-            state = run.read_state(run_dir)
+            state = record.read_state(run_dir)
             state.update(launch_reviewer="astra")
-            run.save_state(run_dir, state)
+            record.save_state(run_dir, state)
             state = run.review_pr(self.cfg, run_dir, url, opts, lambda line: None)
         self.assertNotEqual(state["reviewer"], "astra")
-        self.assertNotIn("launch_reviewer", run.read_state(run_dir))
+        self.assertNotIn("launch_reviewer", record.read_state(run_dir))
 
     def test_v5y_g_menu_draw_sets_each_live_seat_bar(self):
         now = time.time()
@@ -479,7 +480,7 @@ class Writes(Sandbox):
         self.launch("legacy-going", "old")
         merged = config.RUNS / "20260917-1200-merged"
         merged.mkdir(parents=True)
-        run.save_state(merged, {"run_id": merged.name, "title": "Task merged",
+        record.save_state(merged, {"run_id": merged.name, "title": "Task merged",
                                 "state": "pass", "merged": True,
                                 "launched_session": "merger",
                                 "finished_at": time.time() - 60})

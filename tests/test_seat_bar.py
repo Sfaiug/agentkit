@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from test_v4n import Sandbox
 from agentkit import config, menu, orch, run, terminal, watch
+from agentkit import record
 
 NOW = 1_800_000_000
 DAY = 86400
@@ -51,7 +52,7 @@ class SeatBar(Sandbox):
         """A run the seat launched, still going: what keeps a seat working."""
         directory = config.RUNS / run_id
         directory.mkdir(parents=True)
-        run.save_state(directory, {"run_id": run_id, "title": f"Task {run_id}", "state": "running",
+        record.save_state(directory, {"run_id": run_id, "title": f"Task {run_id}", "state": "running",
                                    "verdict": None, "launched_session": owner, "reported": False,
                                    "repo": self.repo, "executor": "opus", "reviewer": "astra",
                                    "rounds": 2, "round_summaries": [], "finished_at": None,

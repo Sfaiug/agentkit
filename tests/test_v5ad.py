@@ -29,6 +29,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, orch, run
+from agentkit import record as run_record
 
 SEAT = "speed-check"    # the seat the fabricated running runs were launched from
 
@@ -108,13 +109,13 @@ class Sandbox(unittest.TestCase):
         directory.mkdir(parents=True)
         (directory / "log.txt").touch()
         (directory / "task.md").write_text(self.task_text(title, cmds, repo))
-        owner = dict(run.process_owner()) if live else {"pid": 99999999}
+        owner = dict(run_record.process_owner()) if live else {"pid": 99999999}
         record = {"run_id": name, "state": state, "verdict": None,
                   "launched_session": seat, "started_at": time.time() - 60,
                   "reported": False, **owner}
         if not stub:
             record.update(title=title, repo=str(repo), scratch=False)
-        run.save_state(directory, record)
+        run_record.save_state(directory, record)
         return directory
 
     def launch(self, *argv):
@@ -124,7 +125,7 @@ class Sandbox(unittest.TestCase):
         return code, out.getvalue(), err.getvalue()
 
     def started_hhmm(self, directory):
-        return datetime.fromtimestamp(run.read_state(directory)["started_at"]).strftime("%H:%M")
+        return datetime.fromtimestamp(run_record.read_state(directory)["started_at"]).strftime("%H:%M")
 
     # --- the refusal -------------------------------------------------------
 
@@ -143,7 +144,7 @@ class Sandbox(unittest.TestCase):
         self.assertIn("tests/test_gate.py", err)
         self.assertIn(self.started_hhmm(rival), err)
         self.assertIn("--anyway", err)
-        self.assertEqual(run.run_dirs(), [rival])
+        self.assertEqual(run_record.run_dirs(), [rival])
         self.drive.assert_not_called()
 
     def test_v5ad_shared_title_words_refused(self):
@@ -157,7 +158,7 @@ class Sandbox(unittest.TestCase):
         self.assertEqual(code, 2, err)
         self.assertIn(rival.name, err)
         self.assertIn("5 title words", err)
-        self.assertEqual(run.run_dirs(), [rival])
+        self.assertEqual(run_record.run_dirs(), [rival])
         self.drive.assert_not_called()
 
     def test_v5ad_both_signals_names_only_the_files(self):
@@ -171,7 +172,7 @@ class Sandbox(unittest.TestCase):
         self.assertEqual(code, 2, err)
         self.assertIn("shares tests/test_gate.py;", err)
         self.assertNotIn("title words", err)
-        self.assertEqual(run.run_dirs(), [rival])
+        self.assertEqual(run_record.run_dirs(), [rival])
         self.drive.assert_not_called()
 
     def test_v5ad_missing_started_at_says_unknown(self):
@@ -179,9 +180,9 @@ class Sandbox(unittest.TestCase):
         rival = self.running_run("20260916-1535-release-gate",
                                  "Repair release gate failed for PR 1728",
                                  ["pytest tests/test_gate.py"], repo)
-        record = run.read_state(rival)
+        record = run_record.read_state(rival)
         del record["started_at"]
-        run.save_state(rival, record)
+        run_record.save_state(rival, record)
         task = self.task("second", "Repair release gate failed for PR 1728",
                          ["pytest tests/test_gate.py"], repo)
         code, _, err = self.launch(str(task))
@@ -197,7 +198,7 @@ class Sandbox(unittest.TestCase):
                          ["bash tests/smoke.sh"], repo)
         code, _, _ = self.launch(str(task))
         self.assertEqual(code, 0)
-        self.assertEqual(len(run.run_dirs()), 2)
+        self.assertEqual(len(run_record.run_dirs()), 2)
 
     # --- what starts anyway --------------------------------------------------
 
@@ -211,7 +212,7 @@ class Sandbox(unittest.TestCase):
         code, _, _ = self.launch(str(task))
         self.assertEqual(code, 0)
         self.assertEqual(self.drive.call_count, 1)
-        self.assertEqual(len(run.run_dirs()), 2)
+        self.assertEqual(len(run_record.run_dirs()), 2)
 
     def test_v5ad_finished_run_starts(self):
         repo = self.make_repo("atoll")
@@ -222,19 +223,19 @@ class Sandbox(unittest.TestCase):
                 (rival / "log.txt").touch()
                 title = "Repair release gate failed for PR 1728"
                 (rival / "task.md").write_text(self.task_text(title, ["true"], repo))
-                run.save_state(rival, {
+                run_record.save_state(rival, {
                     "run_id": rival.name, "title": title, "state": word,
                     "verdict": "PASS" if word == "pass" else "FAIL",
                     "launched_session": SEAT, "started_at": time.time() - 3600,
                     "finished_at": time.time() - 3500, "pid": 99999999,
                     "repo": str(repo), "scratch": False, "reported": False})
                 task = self.task(f"again-{word}", title, ["pytest tests/test_gate.py"], repo)
-                before = set(run.run_dirs())
+                before = set(run_record.run_dirs())
                 code, _, _ = self.launch(str(task))
                 self.assertEqual(code, 0)
                 # the launch above is itself a live queued run under the same title:
                 # take it back down so the next state does not trip over this one
-                for made in run.run_dirs():
+                for made in run_record.run_dirs():
                     if made not in before and made != rival:
                         shutil.rmtree(made)
 
@@ -243,12 +244,12 @@ class Sandbox(unittest.TestCase):
         rival = self.running_run("20260916-1535-release-gate",
                                  "Repair release gate failed for PR 1728",
                                  ["pytest tests/test_gate.py"], repo, live=False)
-        self.assertFalse(run.process_active(run.read_state(rival)))
+        self.assertFalse(run_record.process_active(run_record.read_state(rival)))
         task = self.task("second", "Repair release gate failed for PR 1728",
                          ["pytest tests/test_gate.py"], repo)
         code, _, _ = self.launch(str(task))
         self.assertEqual(code, 0)
-        self.assertEqual(len(run.run_dirs()), 2)
+        self.assertEqual(len(run_record.run_dirs()), 2)
 
     def test_v5ad_anyway_starts_and_logs(self):
         repo = self.make_repo("atoll")
@@ -259,8 +260,8 @@ class Sandbox(unittest.TestCase):
                          ["pytest tests/test_gate.py"], repo)
         code, _, _ = self.launch(str(task), "--anyway")
         self.assertEqual(code, 0)
-        made = [d for d in run.run_dirs() if d != rival]
-        self.assertEqual(len(made), 1, [d.name for d in run.run_dirs()])
+        made = [d for d in run_record.run_dirs() if d != rival]
+        self.assertEqual(len(made), 1, [d.name for d in run_record.run_dirs()])
         log = (made[0] / "log.txt").read_text()
         self.assertIn(f"--- preflight: started alongside {rival.name} (--anyway)", log)
 
@@ -275,7 +276,7 @@ class Sandbox(unittest.TestCase):
                 redirect_stdout(io.StringIO()):
             code = run.main([str(task), "--bg"])
         self.assertEqual(code, 0)
-        self.assertEqual(run.read_state(run.run_dirs()[-1])["pid"], 99999999)
+        self.assertEqual(run_record.read_state(run_record.run_dirs()[-1])["pid"], 99999999)
 
     def test_v5ad_resume_never_checks(self):
         repo = self.make_repo("atoll")
@@ -286,7 +287,7 @@ class Sandbox(unittest.TestCase):
         target.mkdir(parents=True)
         (target / "log.txt").touch()
         (target / "task.md").write_text(self.task_text(title, ["make verify"], repo))
-        run.save_state(target, {
+        run_record.save_state(target, {
             "run_id": target.name, "title": title, "state": "interrupted",
             "recovery_pending": True, "interruption_reason": "fixture stop",
             "launched_session": SEAT, "started_at": time.time() - 3600,
@@ -294,7 +295,7 @@ class Sandbox(unittest.TestCase):
         code, _, _ = self.launch("resume", target.name)
         self.assertEqual(code, 0)
         self.assertEqual(self.drive.call_count, 1)
-        self.assertEqual(run.read_state(rival)["state"], "running")
+        self.assertEqual(run_record.read_state(rival)["state"], "running")
 
 
 if __name__ == "__main__":

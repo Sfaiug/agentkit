@@ -127,6 +127,7 @@ from contextlib import closing
 from pathlib import Path
 
 from . import command_help, config, history, motion, notify, orch, terminal, update, usage, worker
+from . import record
 from .harness import load as harness_plugin
 
 KEYS = "n new   x stop   c config   esc leave"
@@ -814,7 +815,7 @@ def silent_for_run(run_dir, state, now=None):
     from . import run as _run
     if state.get("state") not in ("running", "queued"):
         return None
-    if _run.own_pr_wait_note(state) and _run.process_active(state):
+    if _run.own_pr_wait_note(state) and record.process_active(state):
         return None  # the seat's push, not another loop write, ends this wait
     at = time.time() if now is None else now
     try:
@@ -824,7 +825,7 @@ def silent_for_run(run_dir, state, now=None):
         newest = 0.0
     if not newest:
         try:
-            newest = _run.read_state(Path(run_dir)).get("started_at") or 0
+            newest = record.read_state(Path(run_dir)).get("started_at") or 0
         except (OSError, ValueError, AttributeError):
             newest = 0
     try:
@@ -1556,13 +1557,13 @@ def session_runs(name):
     owner, which the tick would retry."""
     from . import run as run_mod
     try:
-        dirs = run_mod.run_dirs()
+        dirs = record.run_dirs()
     except OSError:
         return []
     found = []
     for run_dir in dirs:
         try:
-            state = run_mod.read_state(run_dir)
+            state = record.read_state(run_dir)
             word = state and state.get("state")
             if (state and run_mod.launched_session(state) == name
                     and (word not in run_mod.ENDED
@@ -1766,10 +1767,9 @@ def run_records():
     either but does belong to the terminal it was started from.  Read-only: a bad record is
     skipped, never repaired.
     """
-    from . import run   # here, not at the top: run.py is the whole loop, and a menu draws without it
     found = []
-    for run_dir in run.run_dirs():
-        state = run.read_state(run_dir)
+    for run_dir in record.run_dirs():
+        state = record.read_state(run_dir)
         if state is not None and not state.get("unattended") and not smoke_run(state):
             found.append((run_dir, state))
     return found

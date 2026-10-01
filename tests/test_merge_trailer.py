@@ -17,6 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from agentkit import config, gc, run
+from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
 SUITE = "test -f work.txt"
@@ -126,7 +127,7 @@ class MergeTrailer(unittest.TestCase):
                  "base_sha": self.base, "branch": "ak/fix-api", "worktree": str(self.repo),
                  "repo": str(self.repo), "merge_method": method, "delivery_sha": head,
                  "merged": False, "findings": ""}
-        run.save_state(self.directory, state)
+        record.save_state(self.directory, state)
         cmds = ["true"] + ([f"{once or suite}  # once"] if once or suite else [])
         return run.Loop(self.cfg, self.directory, state, {}, lambda line: None,
                         self.repo, "", cmds, "", [])

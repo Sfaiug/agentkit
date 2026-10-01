@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 import test_review_gate as gate
 from agentkit import host, browser, config, gc, job as jobs, menu, notify, orch, run, task, watch, worker
+from agentkit import record
 
 
 DEFECT = "broken.py:1 - empty input crashes - base abc123: `first([])` raises IndexError"
@@ -147,7 +148,7 @@ class FollowupRuns(unittest.TestCase):
                  "launched_session": "seat", "workers": [self.executor, self.reviewer],
                  "repo": str(self.repo), "target": "main", "base": "origin/main",
                  "followups": [DEFECT], **extra}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         return directory, state
 
     def start(self, directory, state):
@@ -156,9 +157,9 @@ class FollowupRuns(unittest.TestCase):
 
     def drive(self, directory, mode="fix"):
         (self.root / "mode").write_text(mode)
-        opts = run.read_state(directory)["launch_opts"]
+        opts = record.read_state(directory)["launch_opts"]
         code = run.drive(self.cfg, directory, opts, self.logs.append)
-        return code, run.read_state(directory)
+        return code, record.read_state(directory)
 
     def test_merge_launches_each_item_with_evidence_and_the_session_workers(self):
         directory, state = self.source(followups=[DEFECT + "\nreproduction details", OTHER])
@@ -169,7 +170,7 @@ class FollowupRuns(unittest.TestCase):
             children = self.start(directory, state)
         self.assertEqual(len(children), 2)
         for child, item, (_, env, _) in zip(children, state["followups"], self.spawns):
-            receipt = run.read_state(child)
+            receipt = record.read_state(child)
             self.assertEqual(receipt["launched_session"], "seat")
             self.assertEqual(receipt["workers"], [self.reviewer])
             self.assertEqual(receipt["run_depth"], 0)
@@ -183,7 +184,7 @@ class FollowupRuns(unittest.TestCase):
             self.assertEqual(receipt["followup"]["run"], directory.name)
             self.assertIn(child.name, run.handback_line(state, directory, self.cfg))
         self.assertFalse((config.HOME / "followups").exists())
-        self.start(directory, run.read_state(directory))
+        self.start(directory, record.read_state(directory))
         self.assertEqual(len(self.spawns), 2)
 
     def test_fix_run_takes_session_current_lists_and_discovering_ones_only_without_a_record(self):
@@ -194,16 +195,16 @@ class FollowupRuns(unittest.TestCase):
                                         if name != self.reviewer}}
         with patch.dict(os.environ, {"AGENTKIT_SESSION": "seat"}):
             run.start_followups(state, directory, self.logs.append, stale)
-        receipt = run.read_state(config.RUNS / state["followup_runs"][0])
+        receipt = record.read_state(config.RUNS / state["followup_runs"][0])
         self.assertEqual(receipt["workers"], [self.reviewer])
         self.assertEqual(receipt["reviewers"], [self.reviewer])
-        parent = run.read_state(directory)
+        parent = record.read_state(directory)
         self.assertEqual(run.run_workers(self.cfg, parent), [self.executor, self.reviewer])
         self.assertEqual(run.run_reviewers(self.cfg, parent), [self.executor])
         config.session_path("seat").unlink()   # a seat made by hand: a pane, no record
         directory, state = self.source("no-record", reviewers=[self.executor], followups=[OTHER])
         with patch.object(orch, "find", return_value={"name": "seat"}):
-            receipt = run.read_state(self.start(directory, state)[0])
+            receipt = record.read_state(self.start(directory, state)[0])
         self.assertEqual(receipt["workers"], state["workers"])
         self.assertEqual(receipt["reviewers"], [self.executor])
 
@@ -230,21 +231,21 @@ class FollowupRuns(unittest.TestCase):
     def test_own_pr_and_fix_runs_start_their_followups(self):
         directory, state = self.source(own_pr=True, review_pr="url")
         child = self.start(directory, state)[0]
-        fixed = run.read_state(child)
+        fixed = record.read_state(child)
         fixed.update(state="pass", merged=True, followups=[OTHER], target="main")
-        run.save_state(child, fixed)
+        record.save_state(child, fixed)
         grandchild = self.start(child, fixed)[0]
-        self.assertEqual(run.read_state(grandchild)["followup"]["run"], child.name)
-        self.assertEqual(run.read_state(grandchild)["launched_session"], "seat")
+        self.assertEqual(record.read_state(grandchild)["followup"]["run"], child.name)
+        self.assertEqual(record.read_state(grandchild)["launched_session"], "seat")
 
     def test_same_site_suppressed_only_for_an_open_fix_in_the_same_session(self):
         directory, state = self.source()
         child = self.start(directory, state)[0]
         second, later = self.source("later", followups=["`./broken.py:01` - different words"])
         self.assertEqual(self.start(second, later), [])
-        receipt = run.read_state(child)
+        receipt = record.read_state(child)
         receipt.update(state="not_needed", not_needed="already fixed")
-        run.save_state(child, receipt)
+        record.save_state(child, receipt)
         third, next_state = self.source("next")
         self.assertEqual(len(self.start(third, next_state)), 1)
         config.save_session(self.cfg, "other-seat", self.executor, state["workers"])
@@ -266,7 +267,7 @@ class FollowupRuns(unittest.TestCase):
                 patch.object(host, "host_readings", return_value=readings), \
                 patch.object(config, "min_free_mb", return_value=1024):
             children = self.start(directory, state)
-        receipts = [run.read_state(child) for child in children]
+        receipts = [record.read_state(child) for child in children]
         self.assertTrue(all(s["state"] == "queued" and s["slot_waiting"] for s in receipts))
         self.assertEqual(run.seat_tallies(receipts)["seat"][0], 2)
         with patch.object(run, "cmd_stop") as stop:
@@ -299,7 +300,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn("another open run of session seat", calls[0]["prompt"])
         self.assertEqual(len(fixed["followup_runs"]), 1)
         self.assertIn(fixed["followup_runs"][0], self.endings[-1])
-        grandchild = run.read_state(config.RUNS / fixed["followup_runs"][0])
+        grandchild = record.read_state(config.RUNS / fixed["followup_runs"][0])
         self.assertEqual(grandchild["launched_session"], "seat")
         self.assertEqual(grandchild["workers"], state["workers"])
         self.assertEqual(grandchild["followup"]["text"].splitlines()[0], OTHER)
@@ -398,12 +399,12 @@ class FollowupRuns(unittest.TestCase):
         state = {"run_id": "quiet", "state": "not_needed", "not_needed": "already fixed",
                  "launched_session": "seat", "started_at": 1, "finished_at": 2,
                  "title": "Fix broken.py:1"}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         with patch.object(run, "launcher_world", return_value=nullcontext(False)), \
                 patch.object(watch, "revive", side_effect=AssertionError("revived")), \
                 patch.object(notify, "shaped", side_effect=AssertionError("card")):
             self.real_announce(dict(state), directory, self.logs.append, self.cfg)
-        ended = run.read_state(directory)
+        ended = record.read_state(directory)
         self.assertTrue(ended["reported"])
         self.assertNotIn("handback_pending", ended)
         self.assertNotIn("notification_pending", ended)
@@ -444,17 +445,17 @@ class FollowupRuns(unittest.TestCase):
             {"state": "blocked"},
             {"state": "stopped"},
         ]
-        with patch.object(run, "process_active", side_effect=lambda s: s.get("pid") == "live"):
+        with patch.object(record, "process_active", side_effect=lambda s: s.get("pid") == "live"):
             for extra in blocking:
-                run.save_state(child_dir, {**base, **extra})
+                record.save_state(child_dir, {**base, **extra})
                 self.assertEqual(run.open_followup(state, DEFECT), "fix", extra)
             for extra in quiet:
-                run.save_state(child_dir, {**base, **extra})
+                record.save_state(child_dir, {**base, **extra})
                 self.assertIsNone(run.open_followup(state, DEFECT), extra)
 
     def test_finish_still_ends_when_followups_fail_to_start(self):
         for index, exc in enumerate((config.Error("boom"), OSError("disk gone"),
-                                     run.StopRequested("stopped"))):
+                                     record.StopRequested("stopped"))):
             self.logs.clear()
             self.endings.clear()
             directory, state = self.source(f"broken-{index}")
@@ -512,7 +513,7 @@ class FollowupRuns(unittest.TestCase):
         third = [DEFECT.replace("broken.py:1", "third.py:1"),
                  OTHER.replace("other.py:2", "third.py:2")]
         directory, state = self.source("stopped", followups=third)
-        with patch.object(run, "prepare", side_effect=run.StopRequested("stopped")):
+        with patch.object(run, "prepare", side_effect=record.StopRequested("stopped")):
             children = self.start(directory, state)
         self.assertEqual(children, [])
         self.assertTrue(any("could not start" in line for line in self.logs))

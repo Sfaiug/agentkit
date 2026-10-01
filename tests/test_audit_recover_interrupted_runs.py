@@ -18,6 +18,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import config, gc, job as jobs, menu, notify, orch, run, terminal, watch
+from agentkit import host, record as run_record
 
 
 class InterruptedRuns(unittest.TestCase):
@@ -133,7 +134,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         state = {"run_id": name, "title": name, "state": status, "verdict": None,
                  "pid": 99999999, "started_at": self.now - 2 * 86400, "finished_at": None,
                  "launched_session": "owner", "reported": False, **extra}
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         return directory
 
     def screen(self, *answers):
@@ -170,7 +171,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         with patch.object(run.time, "time", return_value=self.now):
             first = self.screen("")
         for directory in directories:
-            state = run.read_state(directory)
+            state = run_record.read_state(directory)
             self.assertEqual(state["state"], "interrupted")
             self.assertIsNone(state["finished_at"])
             self.assertIsNone(state["verdict"])
@@ -183,10 +184,10 @@ if role == "reviewer" and (root / "fail-review").exists():
             self.assertTrue(all(run.needs_recovery(record) for _, record in menu.run_records()))
         self.assertIn("dead", second)
         self.assertEqual(self.notified.call_count, 2)
-        self.assertEqual(run.read_state(directories[0])["interrupted_at"], self.now)
+        self.assertEqual(run_record.read_state(directories[0])["interrupted_at"], self.now)
 
     def test_pid_reuse_and_boot_change_are_interrupted_but_active_identity_is_kept(self):
-        owner = run.process_owner()
+        owner = run_record.process_owner()
         self.assertIsNotNone(owner["process_identity"])
         active = self.receipt("active", **owner)
         queued = self.receipt("active-queue", "queued", **owner)
@@ -197,7 +198,7 @@ if role == "reviewer" and (root / "fail-review").exists():
             self.assertEqual(run.reap(directory, {})["state"], "interrupted")
         for directory in (active, queued):
             before = (directory / "run.json").read_bytes()
-            self.assertTrue(run.process_active(run.reap(directory, {})))
+            self.assertTrue(run_record.process_active(run.reap(directory, {})))
             self.assertEqual((directory / "run.json").read_bytes(), before)
             with self.assertRaisesRegex(config.Error, "still running"):
                 run.cmd_resume([directory.name, "--bg"])
@@ -210,18 +211,18 @@ if role == "reviewer" and (root / "fail-review").exists():
         with self.track_background(), redirect_stdout(io.StringIO()):
             self.assertEqual(run.main([str(source), "--exec", self.executor,
                                        "--review", self.reviewer, "--bg"]), 0)
-        directory = run.run_dirs()[0]
+        directory = run_record.run_dirs()[0]
         self.wait_for(lambda: (self.root / "calls").exists())
-        active = run.read_state(directory)
-        self.assertTrue(run.process_active(active))
+        active = run_record.read_state(directory)
+        self.assertTrue(run_record.process_active(active))
         active.pop("process_identity")
-        run.save_state(directory, active)
-        self.assertTrue(run.process_active(active), active)
+        run_record.save_state(directory, active)
+        self.assertTrue(run_record.process_active(active), active)
         stale = {**active, "pid": 99999999}
         self.assertEqual(run.reap(directory, stale)["state"], "running")
         (self.root / "hold").unlink()
         self.finish_children()
-        self.assertEqual(run.read_state(directory)["state"], "pass")
+        self.assertEqual(run_record.read_state(directory)["state"], "pass")
         self.notified.assert_not_called()
 
     def test_legacy_unrelated_live_pid_and_recent_abandoned_launcher(self):
@@ -238,7 +239,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         self.children.append(child)
         self.wait_for(lambda: Path(f"/proc/{child.pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z")
         directory = self.receipt("zombie", pid=child.pid)
-        self.assertTrue(run.alive(child.pid))
+        self.assertTrue(host.alive(child.pid))
         self.assertEqual(run.reap(directory, {})["state"], "interrupted")
         queued = self.receipt("pending-handoff", "queued", launch_pending=True,
                               process_identity={"boot": "dead", "ticks": 1}, queued_at=self.now)
@@ -250,7 +251,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         with patch.dict(os.environ, {config.RUN_DIR_ENV: str(queued)}):
             with self.assertRaisesRegex(config.Error, "launch was interrupted"):
                 run.main([str(queued / "task.md")])
-        self.assertEqual(set(run.run_dirs()), {directory, queued})
+        self.assertEqual(set(run_record.run_dirs()), {directory, queued})
 
     def test_existing_interruption_is_notified_once_under_concurrent_reaping(self):
         self.seats = [{"name": "owner"}]
@@ -264,7 +265,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         self.assertIsNone(states[0]["finished_at"])
         self.assertEqual(states[0]["recovery_notified"], "orchestrator")
         self.screen("")
-        self.assertFalse(run.read_state(directory).get("recovery_acknowledged_at"))
+        self.assertFalse(run_record.read_state(directory).get("recovery_acknowledged_at"))
         self.assertIn(directory, dict(menu.run_records()))
 
     def test_unavailable_or_failed_orchestrator_uses_needs_once_and_no_seat_stays_local(self):
@@ -274,7 +275,7 @@ if role == "reviewer" and (root / "fail-review").exists():
             directory = self.receipt(name)
             for _ in range(3):
                 run.reap(directory, {})
-            self.assertEqual(run.read_state(directory)["recovery_notified"], "needs")
+            self.assertEqual(run_record.read_state(directory)["recovery_notified"], "needs")
         self.assertEqual(self.notified.call_count, 2)
         for call in self.notified.call_args_list:
             self.assertEqual(call.args[0], "needs")
@@ -287,8 +288,8 @@ if role == "reviewer" and (root / "fail-review").exists():
         busy = self.receipt("failed-send")
         for _ in range(3):
             run.reap(busy, {})
-        self.assertTrue(run.read_state(busy)["handback_pending"])
-        self.assertNotIn("recovery_notified", run.read_state(busy))
+        self.assertTrue(run_record.read_state(busy)["handback_pending"])
+        self.assertNotIn("recovery_notified", run_record.read_state(busy))
         self.assertEqual(self.notified.call_count, 2)
         local = self.receipt("local", launched_session=None)
         run.reap(local, {})
@@ -303,7 +304,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         self.screen("")  # drawing the list is not acknowledgment
         self.assertIn(directory, dict(menu.run_records()))
         run.acknowledge(directory)
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertTrue(state["recovery_acknowledged_at"])
         self.assertEqual(state["state"], "interrupted")
         self.assertIsNone(state["finished_at"])
@@ -323,12 +324,12 @@ if role == "reviewer" and (root / "fail-review").exists():
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(run.cmd_resume([directory.name, "--bg"]), 0)
         self.finish_children()
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertEqual(state["state"], "pass", (directory / "log.txt").read_text())
         self.assertTrue(run.review_pass(state, self.cfg))
         self.assertTrue(state["no_merge"])
         self.assertFalse(run.needs_recovery(state))
-        self.assertEqual(run.run_dirs(), [directory])
+        self.assertEqual(run_record.run_dirs(), [directory])
         self.assertEqual((self.root / "calls").read_text().splitlines(), ["executor", "reviewer"])
         # the delivered workspace stays with its run: the resumed work is there,
         # and result.md links it
@@ -343,13 +344,13 @@ if role == "reviewer" and (root / "fail-review").exists():
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(run.cmd_resume([directory.name, "--bg"]), 0)
         self.wait_for(lambda: (self.root / "calls").exists())
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertEqual(state["state"], "running")
-        self.assertTrue(run.process_active(state))
+        self.assertTrue(run_record.process_active(state))
         with self.assertRaisesRegex(config.Error, "still running"):
             run.cmd_resume([directory.name, "--bg"])
         self.finish_children()
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertEqual(state["state"], "pass", (directory / "log.txt").read_text())
         self.assertEqual(Path(state["worktree"]), config.WORK / "scratch-resume")
         # the delivered workspace stays with its run: the resumed work is there,
@@ -364,7 +365,7 @@ if role == "reviewer" and (root / "fail-review").exists():
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(run.cmd_resume([directory.name, "--bg"]), 0)
         self.finish_children()
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertEqual(state["state"], "fail", (directory / "log.txt").read_text())
         self.assertTrue(run.needs_recovery(state))
         with patch.object(run.time, "time", return_value=self.now + 86401):
@@ -381,7 +382,7 @@ if role == "reviewer" and (root / "fail-review").exists():
                 run.cmd_resume([directory.name])
         self.assertIn(directory, dict(menu.run_records()))
         self.notified.assert_called_once()
-        self.assertEqual(run.read_state(directory)["state"], "interrupted")
+        self.assertEqual(run_record.read_state(directory)["state"], "interrupted")
 
     def test_failed_background_launch_and_failed_attempt_stay_recoverable(self):
         directory = self.receipt("spawn-failure", "interrupted", launched_session=None)
@@ -390,7 +391,7 @@ if role == "reviewer" and (root / "fail-review").exists():
                 with redirect_stdout(io.StringIO()):
                     run.cmd_resume([directory.name, "--bg"])
         self.assertIn(directory, dict(menu.run_records()))
-        self.assertIsNone(run.read_state(directory)["finished_at"])
+        self.assertIsNone(run_record.read_state(directory)["finished_at"])
         with patch.object(run, "loop", side_effect=config.Error("fixture resume failure")), \
                 redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(config.Error, "fixture resume failure"):
@@ -414,7 +415,7 @@ if role == "reviewer" and (root / "fail-review").exists():
             self.assertEqual(watch.main([]), 0)
             self.assertIn("PR checks skipped", said.getvalue())
             self.assertIn(f"resumed {directory.name}: loop died", said.getvalue())
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertEqual(state["state"], "running")
         self.assertEqual(resumed, [directory.name])
         self.assertIn("loop process", state["deaths"][0]["reason"])
@@ -461,7 +462,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run.main([str(a), "--exec", self.executor,
                                        "--review", self.reviewer]), 0)
-        finished = run.run_dirs()[0]
+        finished = run_record.run_dirs()[0]
         tasks = [{"name": "a.md", "title": "A", "after": [], "state": "running",
                   "run_id": finished.name, "started_at": self.now, "task_file": str(a)},
                  {"name": "b.md", "title": "B", "after": ["a.md"], "state": "waiting",
@@ -510,7 +511,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         self.assertEqual(by_name["b.md"]["state"], "passed")
         self.assertTrue(looked)
         self.assertEqual({path.resolve() for path in looked}, {launched.resolve()})
-        self.assertEqual(run.read_state(config.RUNS / by_name["b.md"]["run_id"])
+        self.assertEqual(run_record.read_state(config.RUNS / by_name["b.md"]["run_id"])
                          ["launched_session"], "owner")
         self.assertEqual((self.root / "calls").read_text().splitlines(),
                          ["executor", "reviewer", "executor", "reviewer"])
@@ -563,7 +564,7 @@ if role == "reviewer" and (root / "fail-review").exists():
             self.receipt("ended-run", "pass", verdict="PASS", finished_at=self.now,
                          handed_back=self.now)))
         # never looked at: a launcher alive, and a job already finished
-        self.dead_job("alive", **run.process_owner())
+        self.dead_job("alive", **run_record.process_owner())
         self.dead_job("finished", finished_at=self.now)
         # relaunches more than an hour before its last sign of life count for nothing
         lived = self.dead_job("lived-past-its-relaunches",

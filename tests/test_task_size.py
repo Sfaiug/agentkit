@@ -28,6 +28,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, gc, history, job as jobs, run, task
+from agentkit import record
 
 SEAT = "size-check"
 CFG = {"models": {}, "providers": {}}
@@ -103,7 +104,7 @@ class Sandbox(unittest.TestCase):
         self.assertEqual(code, 2, err)
         self.assertIn("4 numbered goal points", err)
         self.assertNotIn("--anyway", err)       # no way past it is offered
-        self.assertEqual(run.run_dirs(), [])
+        self.assertEqual(record.run_dirs(), [])
         self.drive.assert_not_called()
 
     def test_long_body_is_refused_with_the_count(self):
@@ -114,7 +115,7 @@ class Sandbox(unittest.TestCase):
         self.assertEqual(code, 2, err)
         self.assertIn(f"{expected} words outside the checks block", err)
         self.assertNotIn("--anyway", err)
-        self.assertEqual(run.run_dirs(), [])
+        self.assertEqual(record.run_dirs(), [])
         self.drive.assert_not_called()
 
     def test_seven_checks_are_refused_with_the_count(self):
@@ -123,7 +124,7 @@ class Sandbox(unittest.TestCase):
         self.assertEqual(code, 2, err)
         self.assertIn("7 checks", err)
         self.assertNotIn("--anyway", err)
-        self.assertEqual(run.run_dirs(), [])
+        self.assertEqual(record.run_dirs(), [])
         self.drive.assert_not_called()
 
     def test_a_task_at_the_limits_starts(self):
@@ -132,7 +133,7 @@ class Sandbox(unittest.TestCase):
         code, _, err = self.launch(str(task))
         self.assertEqual(code, 0, err)
         self.assertEqual(self.drive.call_count, 1)
-        self.assertEqual(len(run.run_dirs()), 1)
+        self.assertEqual(len(record.run_dirs()), 1)
 
     def test_words_inside_the_checks_block_are_not_counted(self):
         task = self.task("echo.md", "One thing.",
@@ -148,7 +149,7 @@ class Sandbox(unittest.TestCase):
         code, _, err = self.launch(str(task), "--anyway")
         self.assertEqual(code, 2, err)
         self.assertIn("4 numbered goal points", err)
-        self.assertEqual(run.run_dirs(), [])
+        self.assertEqual(record.run_dirs(), [])
         self.drive.assert_not_called()
 
     def test_a_job_refuses_an_oversize_task_per_file(self):
@@ -175,7 +176,7 @@ class Sandbox(unittest.TestCase):
                 self.assertEqual(code, 2, err)
                 self.assertEqual(err, "ak run: task rounds 5 is over the budget: 3 rounds, then "
                                       "a run goes back to its orchestrator to split or re-scope\n")
-        self.assertEqual(run.run_dirs(), [])
+        self.assertEqual(record.run_dirs(), [])
         self.drive.assert_not_called()
         # ... and a job refuses the same file before it makes anything
         small = self.task("small.md", "One thing.")
@@ -198,7 +199,7 @@ class Sandbox(unittest.TestCase):
             with self.subTest(argv=argv):
                 with self.assertRaisesRegex(config.Error, rule):
                     self.launch(*argv)
-        self.assertEqual(run.run_dirs(), [])
+        self.assertEqual(record.run_dirs(), [])
         self.assertEqual([path.name for path in config.JOBS.iterdir()], ["job-1"])
         self.assertEqual((job_dir / "job.json").read_text(), receipt)
         self.drive.assert_not_called()
@@ -211,13 +212,13 @@ class Sandbox(unittest.TestCase):
         run_dir = config.RUNS / "run-1"
         run_dir.mkdir(parents=True)
         state = {**self.failed_at_budget(), "run_id": run_dir.name, "worktree": str(self.root)}
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         self.assertEqual(run.continue_line(state), "")
         with self.assertRaisesRegex(config.Error, r"^run-1 FAILed at its round budget \(3\); "
                                                   r"3 rounds is the budget, so split or "
                                                   r"re-scope the task$"):
             run.cmd_resume([run_dir.name, "--rounds", "3"])
-        self.assertEqual(run.read_state(run_dir)["state"], "fail")
+        self.assertEqual(record.read_state(run_dir)["state"], "fail")
         # a budget set below three may still be raised to it, and no further
         below = {**state, "rounds": 1, "round_summaries": [{}]}
         self.assertEqual(run.continue_line(below),
@@ -302,7 +303,7 @@ class Sandbox(unittest.TestCase):
         run_dir = config.RUNS / "run-review"
         run_dir.mkdir(parents=True)
         (run_dir / "log.txt").touch()
-        run.save_state(run_dir, {"run_id": run_dir.name, "state": "running",
+        record.save_state(run_dir, {"run_id": run_dir.name, "state": "running",
                                  "launched_session": None})
         repo = self.root / "repo"
         repo.mkdir()

@@ -15,6 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import records, submitting
 from agentkit import config, hand_in, run, worker
+from agentkit import record as run_record
 
 DEFECT = "a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError"
 OTHER = "b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"
@@ -77,7 +78,7 @@ class FollowupRule(unittest.TestCase):
             "VERDICT: PASS\n## Follow-ups\n- " + item.replace("\n", "\n  "))).followups[0]
                  for item in items]
         self.assertEqual(self.lp.state["followups"], items)
-        self.assertEqual(run.read_state(self.lp.run_dir)["followups"], items)
+        self.assertEqual(run_record.read_state(self.lp.run_dir)["followups"], items)
 
     def test_every_reviewer_uses_the_same_proven_preexisting_defect_rule(self):
         for role, preamble in worker.PREAMBLES.items():

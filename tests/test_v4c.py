@@ -17,6 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting, scripted
 from agentkit import config, orch, run, usage, watch
+from agentkit import record as run_record
 
 URL = "https://github.com/me/repo/pull/7"
 SHA = "a" * 40
@@ -94,8 +95,8 @@ sys.exit(item.get("rc", 0))
         return SimpleNamespace(run_dir=d, target="origin/release/v4", reviewer="stub",
                                state={"head_sha": SHA}, findings="VERDICT: PASS", log=lambda s: None,
                                write=lambda: None,
-                               turn_limit=60 * run.SILENCE_MINUTES,
-                               done_when_limit=3600 * run.CEILING_HOURS)
+                               turn_limit=60 * run_record.SILENCE_MINUTES,
+                               done_when_limit=3600 * run_record.CEILING_HOURS)
 
     def rules(self, checks):
         self.reply("api --paginate repos/me/repo/rules/branches/release%2Fv4?per_page=100",
@@ -395,7 +396,7 @@ sys.exit(item.get("rc", 0))
             config.STATE.mkdir(mode=0o755)
             d = config.RUNS / "dead"
             d.mkdir()
-            run.save_state(d, {"state": "running", "pid": 999999999})
+            run_record.save_state(d, {"state": "running", "pid": 999999999})
             state = {"reviewed": {URL: {"sha": SHA, "run": "dead", "at": 0}}, "own": {}}
             watch.state_path().write_text(json.dumps(state))
             before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in (d / "run.json", watch.state_path())}
@@ -432,7 +433,7 @@ sys.exit(item.get("rc", 0))
     def test_settled_rejects_posted_review_of_a_different_head(self):
         d = config.RUNS / "posted"
         d.mkdir(parents=True)
-        run.save_state(d, {"state": "pass", "review_posted": True, "head_sha": "old"})
+        run_record.save_state(d, {"state": "pass", "review_posted": True, "head_sha": "old"})
         self.assertEqual(watch.settled({"sha": SHA, "run": "posted"}), "failed")
 
     def test_fallback_needs_speaks_only_for_the_seat_that_launched_the_run(self):
@@ -488,7 +489,7 @@ sys.exit(item.get("rc", 0))
             task.write_text("---\nrepo: none\n---\n# Bad task\n\n" + block)
             with self.assertRaisesRegex(config.Error, "Done when"):
                 run.main([str(task)])
-            self.assertEqual(run.run_dirs(), [])
+            self.assertEqual(run_record.run_dirs(), [])
 
     def test_delivery_headlines(self):
         for state, expected in (({"verdict": "PASS", "merged": True}, "PASS, merged"),
@@ -507,7 +508,7 @@ sys.exit(item.get("rc", 0))
                  "worktree": str(d), "rounds": 1, "round_summaries": [], "findings": "",
                  "executor": "opus", "reviewer": "astra", "branch": "ak/test", "pr": URL,
                  "delivery_sha": SHA, "merge_method": "squash", "merged": False}
-        run.save_state(d, state)
+        run_record.save_state(d, state)
         self.reply(f"pr view {URL} --json number,title,body,author,baseRefName,headRefOid,url,state,isDraft",
                    {"headRefOid": SHA, "baseRefName": "release/v4", "state": "OPEN"})
         self.rules([])
@@ -522,14 +523,14 @@ sys.exit(item.get("rc", 0))
             self.assertIn("# PASS, not merged: gh pr merge --squash failed", (d / "result.md").read_text())
             self.reply(key, {})
             self.assertEqual(run.main(["merge", "passed"]), 0)
-            after = run.read_state(d)
+            after = run_record.read_state(d)
             self.assertTrue(after["merged"])
             self.assertFalse(after["merge_failed"])
             self.assertEqual(after["round_summaries"], [])
             self.assertTrue((d / "result.md").read_text().startswith("# PASS, merged"))
             self.assertEqual(run.main(["merge", "passed"]), 0)
             after["merged"] = False
-            run.save_state(d, after)
+            run_record.save_state(d, after)
             self.reply(f"pr view {URL} --json number,title,body,author,baseRefName,headRefOid,url,state,isDraft",
                        {"headRefOid": "changed", "baseRefName": "release/v4", "state": "OPEN"})
             self.assertEqual(run.main(["merge", "passed"]), 1)
@@ -541,7 +542,7 @@ sys.exit(item.get("rc", 0))
         d = config.RUNS / "failed"
         d.mkdir()
         for status in ("fail", "error", "running"):
-            run.save_state(d, {"state": status, "verdict": "PASS"})
+            run_record.save_state(d, {"state": status, "verdict": "PASS"})
             with self.assertRaises(config.Error):
                 run.main(["merge", "failed"])
         self.assertEqual(self.calls(), [])

@@ -15,6 +15,7 @@ import unittest
 
 from test_v4n import REPO, Sandbox, menu_input
 from agentkit import config, menu, notify, orch, run, terminal, usage, watch
+from agentkit import record as run_record
 
 
 class Projects(Sandbox):
@@ -57,7 +58,7 @@ class Projects(Sandbox):
 
     def running(self, name, repo, owner, **fields):
         return self.ended(name, owner=owner, repo=str(config.CODE / repo) if repo else None,
-                          started_at=9100, rounds=3, round_summaries=[{}], **run.process_owner(),
+                          started_at=9100, rounds=3, round_summaries=[{}], **run_record.process_owner(),
                           **{"state": "running", "finished_at": None, **fields})
 
     def draw(self, width=100, height=30, page=0, keys=menu.KEYS):
@@ -271,7 +272,7 @@ class Projects(Sandbox):
         self.running("old-b", "ATOLL", "legacy")
         self.running("old-c", "agentkit", "legacy")
         config.rename_session("legacy", "renamed")
-        with patch.object(run, "read_state", wraps=run.read_state) as read, \
+        with patch.object(run_record, "read_state", wraps=run_record.read_state) as read, \
                 patch.object(config, "ensure_dirs", side_effect=AssertionError("inference prepared directories")):
             found = orch.session_projects(config.session_records())
             self.assertGreater(read.call_count, 0)
@@ -279,7 +280,7 @@ class Projects(Sandbox):
         self.assertIn("repo", config.load_session(self.cfg, "unassigned"))
         self.assertIsNone(found["unassigned"])
         before = config.session_path("renamed").read_bytes()
-        with patch.object(run, "run_dirs", side_effect=AssertionError("inference repeated")):
+        with patch.object(run_record, "run_dirs", side_effect=AssertionError("inference repeated")):
             orch.session_projects(config.session_records())
         self.assertEqual(config.session_path("renamed").read_bytes(), before)
 

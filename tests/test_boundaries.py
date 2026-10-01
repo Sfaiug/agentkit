@@ -57,12 +57,18 @@ RULES = [
      "home": ("adapters/", "agentkit/harness/"),
      "max": 66},
     # run.json has one writer, so its keys and their transitions can be read in one file.
-    # Called through the module (`run.save_state`); watch.py's own `save_state` writes the
+    # Called through the module (`record.save_state`); watch.py's own `save_state` writes the
     # watcher's state, not a run record.
     {"name": "run-record writes",
      "flags": (),
      "pattern": r"\.save_state\(",
      "home": ("agentkit/run.py",),
+     "max": 0},
+    # A run's writer owns the temporary files and recovery lock it leaves on disk.
+    {"name": "run record write",
+     "flags": (),
+     "pattern": r"run\.tmp|delivery\.tmp|recovery\.lock",
+     "home": ("agentkit/record.py",),
      "max": 0},
     # A live loop writes its record through `Loop.write`, which keeps what the watcher or a
     # rename put there since; a whole save of its memory would put the old record back.

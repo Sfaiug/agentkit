@@ -23,6 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, orch, run, watch, worker
+from agentkit import record
 
 WEEK = 604800
 SPAWN_BG = run.spawn_bg          # the real one, under every fake below
@@ -104,7 +105,7 @@ class FailedLaunch(unittest.TestCase):
         wt = self.root / f"wt-{run_dir.name}"
         wt.mkdir()
         (run_dir / "task.md").write_text(TASK)
-        run.save_state(run_dir, {
+        record.save_state(run_dir, {
             "run_id": run_dir.name, "title": f"Parked run ({word})", "state": word,
             "verdict": None, "executor": "astra", "reviewer": "spark",
             "rounds": 3, "round_summaries": [], "launched_session": "seat",
@@ -126,11 +127,11 @@ class FailedLaunch(unittest.TestCase):
         def spawn(directory, argv, expected=None, **kwargs):
             handed.append(dict(expected))
             if change:
-                run.save_state(directory, change(dict(expected)))
-            handed.append(run.read_state(directory))
+                record.save_state(directory, change(dict(expected)))
+            handed.append(record.read_state(directory))
             return SPAWN_BG(directory, argv, expected=expected, **kwargs)
 
-        with patch.object(run, "run_dirs", return_value=[run_dir]), \
+        with patch.object(record, "run_dirs", return_value=[run_dir]), \
                 patch.object(run, "spawn_bg", side_effect=spawn):
             self.passes[word][1](now)
         return handed
@@ -142,7 +143,7 @@ class FailedLaunch(unittest.TestCase):
                 run_dir = self.parked(word)
                 handed = self.tick(word, run_dir, self.now)
                 self.assertEqual(len(self.forks), 1)
-                after = run.read_state(run_dir)
+                after = record.read_state(run_dir)
                 self.assertEqual(after, handed[0])
                 self.assertEqual(after["state"], word)
                 for key in INTERRUPTION:
@@ -172,7 +173,7 @@ class FailedLaunch(unittest.TestCase):
                     run_dir = self.parked(word, f"-{tag}")
                     _, written = self.tick(word, run_dir, self.now, change=change)
                     self.assertEqual(self.forks, [])          # nothing was launched
-                    self.assertEqual(run.read_state(run_dir), written)
+                    self.assertEqual(record.read_state(run_dir), written)
 
 
 if __name__ == "__main__":

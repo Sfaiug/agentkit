@@ -15,6 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, history, run, usage  # noqa: E402
+from agentkit import record
 
 
 class HistoryTests(unittest.TestCase):
@@ -118,7 +119,7 @@ class HistoryTests(unittest.TestCase):
         run_dir = self.home / "runs" / "retried"
         out = run_dir / "round-1" / "executor"
         out.mkdir(parents=True)
-        run.save_state(run_dir, {"run_id": "retried", "state": "running", "step": "executor"})
+        record.save_state(run_dir, {"run_id": "retried", "state": "running", "step": "executor"})
         history.start_run("retried", repo="ATOLL", started_at=0)
         clock = [1000.0]
 
@@ -185,7 +186,7 @@ class HistoryTests(unittest.TestCase):
         run_dir.mkdir(parents=True)
         state = {"run_id": "merged", "state": "running", "base": "main", "rounds": 1,
                  "executor": "opus", "reviewer": "astra", "round_summaries": [{}]}
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         history.start_run("merged", repo="ATOLL", started_at=0)
         history.add_seconds("merged", "merge", 10)
         history.finish_run("merged", final_state="pass", verdict="PASS", finished_at=100)
@@ -200,7 +201,7 @@ class HistoryTests(unittest.TestCase):
         # ten minutes: the sampler checkpoints meanwhile, and only the forty count, both for
         # an ordinary wait and for a reserved lap taking its lent turn back
         clock = [1000.0]
-        real_flock, real_save = run.fcntl.flock, run.save_state
+        real_flock, real_save = run.fcntl.flock, record.save_state
 
         def flock(lock, flags):
             if ".merge-" not in lock.name:
@@ -224,7 +225,7 @@ class HistoryTests(unittest.TestCase):
             lp = run.Loop({}, run_dir, state, {}, lambda _: None, run_dir, "", [], "", [])
             with patch.object(run.time, "time", lambda: clock[0]), \
                     patch.object(run.fcntl, "flock", flock), \
-                    patch.object(run, "save_state", save_state), \
+                    patch.object(record, "save_state", save_state), \
                     patch.object(config, "RUNS", self.home / "runs"):
                 lp.step("merge")
                 clock[0] += 40

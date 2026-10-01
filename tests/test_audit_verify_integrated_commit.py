@@ -15,6 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, gc, run, usage, worker
+from agentkit import record as run_record
 
 URL = "https://github.com/fixture/repo/pull/1"
 
@@ -245,14 +246,14 @@ sys.exit(0 if ok else 1)
                              f"merge: {method}\n---\n# {title}\n\n## Done when\n"
                              f"```bash\n{self.command}{once}\n```\n")
         code = run.main([str(self.task), "--exec", "opus", "--review", "astra", "--no-worktree"])
-        dirs = run.run_dirs()
+        dirs = run_record.run_dirs()
         self.assertEqual(len(dirs), 1)
         self.directory = dirs[0]
-        return code, run.read_state(self.directory)
+        return code, run_record.read_state(self.directory)
 
     def retry(self):
         code = run.main(["merge", self.directory.name])
-        return code, run.read_state(self.directory)
+        return code, run_record.read_state(self.directory)
 
     def assert_bound(self, state, count):
         tests, reviews = self.events("tests"), self.events("review")

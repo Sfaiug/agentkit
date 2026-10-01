@@ -19,6 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, job as jobs, menu, notify, orch, run, watch
+from agentkit import record
 
 ADAPTER = r'''import json, os, pathlib, sys, time
 if sys.argv[1] == "usage":
@@ -153,7 +154,7 @@ class Slots(unittest.TestCase):
         return self.start(self.task(name), "--exec", self.executor, "--review", self.reviewer, **kw)
 
     def states(self):
-        return [(d, s) for d in run.run_dirs() if (s := run.read_state(d))]
+        return [(d, s) for d in record.run_dirs() if (s := record.read_state(d))]
 
     def wait(self, predicate, seconds=15):
         end = time.monotonic() + seconds
@@ -182,7 +183,7 @@ class Slots(unittest.TestCase):
 
     def release(self, directory):
         (self.root / ("release-" + directory.name)).touch()
-        self.wait(lambda: run.read_state(directory).get("state") == "pass")
+        self.wait(lambda: record.read_state(directory).get("state") == "pass")
 
     def finish_all(self):
         (self.root / "release-all").touch()
@@ -224,7 +225,7 @@ class Slots(unittest.TestCase):
         (directory / "task.md").write_text(Path(task).read_text())
         (directory / "log.txt").touch()
         run.capture_launch(directory)
-        before = run.read_state(directory)
+        before = record.read_state(directory)
         self.assertEqual(before["state"], "queued")
         self.assertEqual(before["pid"], os.getpid())
         self.assertEqual(run.slot_counts({"run_id": "new"})[0], 0)
@@ -263,7 +264,7 @@ class Slots(unittest.TestCase):
         with patch.object(subprocess, "Popen", side_effect=OSError("fork failed")):
             with self.assertRaisesRegex(config.Error, "fork failed"):
                 run.spawn_bg(directory, [task, "--bg"])
-        self.assertEqual(run.read_state(directory)["state"], "interrupted")
+        self.assertEqual(record.read_state(directory)["state"], "interrupted")
         self.assertEqual(run.slot_counts({"run_id": "new"})[0], 0)
         self.launch("next")
         self.started("next")
@@ -292,7 +293,7 @@ class Slots(unittest.TestCase):
         for proc, _ in self.procs:
             proc.wait(timeout=15)
         self.wait(lambda: all(s["state"] == "pass" for _, s in self.states()))
-        self.wait(lambda: not run.process_active(run.read_state(second)))
+        self.wait(lambda: not record.process_active(record.read_state(second)))
 
     def test_v5am_resume_waits(self):
         os.environ["AK_MAX_RUNS"] = "1"
@@ -301,7 +302,7 @@ class Slots(unittest.TestCase):
         watch.kill_tree(victim.pid, log=lambda _: None)
         victim.wait(timeout=5)
         with patch.object(run, "notify_recovery"):
-            run.reap(saved, run.read_state(saved))
+            run.reap(saved, record.read_state(saved))
         self.launch("occupier")
         first, _ = self.started("occupier")
         self.start("resume", saved.name)
@@ -348,7 +349,7 @@ class Slots(unittest.TestCase):
         for call in self.calls() + self.calls("reviewer"):
             self.assertEqual(call["depth"], "1" if call["id"] == parent.name else "2")
             self.assertEqual(call["parent"], parent.name)
-        self.assertEqual((Path(run.read_state(child)["worktree"]) / "depth").read_text(), "2")
+        self.assertEqual((Path(record.read_state(child)["worktree"]) / "depth").read_text(), "2")
 
     def test_v5am_depth_two_refused_before_directory(self):
         for args in ([self.task("forbidden")], ["resume", "missing"],
@@ -356,7 +357,7 @@ class Slots(unittest.TestCase):
             proc = self.start(*args, env={"AK_RUN_DEPTH": "2", "AK_MAX_RUNS": "0"})
             self.assertEqual(proc.wait(timeout=5), 2)
             self.assertEqual(self.procs[-1][1].read_text().strip(), REFUSAL)
-            self.assertEqual(run.run_dirs(), [])
+            self.assertEqual(record.run_dirs(), [])
             self.assertEqual(jobs.job_dirs(), [])
 
     def test_v5am_tick_adopts_dead_queued_waiter(self):
@@ -367,12 +368,12 @@ class Slots(unittest.TestCase):
         orphan, state = self.receipt("orphan", "queued")
         proc.terminate()
         proc.wait(timeout=5)
-        self.assertEqual(run.reap(orphan, run.read_state(orphan))["state"], "queued")
+        self.assertEqual(run.reap(orphan, record.read_state(orphan))["state"], "queued")
         self.release(first)
         with patch.object(subprocess, "Popen", side_effect=OSError("temporary fork failure")):
             watch.recover_runs(self.cfg, log=lambda _: None)
-        self.assertEqual(run.read_state(orphan)["state"], "queued")
-        self.assertEqual(run.read_state(orphan)["queued_at"], state["queued_at"])
+        self.assertEqual(record.read_state(orphan)["state"], "queued")
+        self.assertEqual(record.read_state(orphan)["queued_at"], state["queued_at"])
         with patch.object(notify, "shaped") as cards:
             self.recover()
             self.recover()
@@ -380,7 +381,7 @@ class Slots(unittest.TestCase):
         _, adopted = self.started("orphan")
         self.assertEqual(adopted["queued_at"], state["queued_at"])
         self.release(orphan)
-        self.wait(lambda: not run.process_active(run.read_state(orphan)))
+        self.wait(lambda: not record.process_active(record.read_state(orphan)))
         self.procs[0][0].wait(timeout=5)
 
     def test_v5am_status_menu_and_seat_bar_say_waiting(self):
@@ -490,13 +491,13 @@ usage._store, pathlib.Path.replace = publish, rename
                                  ("waiter", "waiting-seat", "queued")):
             directory = config.RUNS / name
             directory.mkdir()
-            run.save_state(directory, {
+            record.save_state(directory, {
                 "run_id": name, "state": word, "title": name, "launched_session": seat,
                 "started_at": now, "queued_at": now, "slot_waiting": word == "queued",
-                **run.process_owner()})
+                **record.process_owner()})
         seat = {"name": "waiting-seat", "legacy": False, "exited": False}
         directory = config.RUNS / "waiter"
-        receipt = run.read_state(directory)
+        receipt = record.read_state(directory)
         self.assertEqual(menu.run_state_word(receipt), "working")
         with patch.object(orch, "sessions", return_value=[seat]), \
                 patch.object(watch, "seat_model", return_value=("claude", "anthropic")), \
@@ -510,7 +511,7 @@ usage._store, pathlib.Path.replace = publish, rename
             for word, expected in (("queued", "1 waiting"),
                                    ("running", "1 running")):
                 receipt["state"] = word
-                run.save_state(directory, receipt)
+                record.save_state(directory, receipt)
                 for refresh in (lambda: run.refresh_seat_tally("waiting-seat"),
                                 lambda: menu.projects(self.cfg, [seat]),
                                 lambda: watch.health(self.cfg, {"stalls": {}}, False,
@@ -555,9 +556,9 @@ usage._store, pathlib.Path.replace = publish, rename
         first, _ = self.started("one")
         stale = config.RUNS / "stale"
         stale.mkdir()
-        owner = run.process_owner()
+        owner = record.process_owner()
         owner["process_identity"]["ticks"] -= 1
-        run.save_state(stale, {"run_id": stale.name, "state": "running", **owner})
+        record.save_state(stale, {"run_id": stale.name, "state": "running", **owner})
         self.start(self.task("two"), "--anyway", "--exec", self.executor,
                    "--review", self.reviewer)
         _, queued = self.receipt("two", "queued")
@@ -572,9 +573,9 @@ usage._store, pathlib.Path.replace = publish, rename
         saved, _ = self.started("stalled")
         watch.kill_tree(victim.pid, log=lambda _: None)
         victim.wait(timeout=5)
-        state = run.read_state(saved)
+        state = record.read_state(saved)
         state["stall_resume_at"] = time.time()
-        run.save_state(saved, state)
+        record.save_state(saved, state)
         self.launch("occupier")
         first, _ = self.started("occupier")
         waiter = self.start("resume", saved.name, "--rounds", "2")
@@ -585,10 +586,10 @@ usage._store, pathlib.Path.replace = publish, rename
         self.release(first)
         self.recover()
         self.wait(lambda: len([c for c in self.calls() if c["id"] == saved.name]) == 2)
-        self.assertEqual(run.read_state(saved)["rounds"], 2)
-        self.assertEqual(run.read_state(saved)["queued_at"], state["queued_at"])
+        self.assertEqual(record.read_state(saved)["rounds"], 2)
+        self.assertEqual(record.read_state(saved)["queued_at"], state["queued_at"])
         self.release(saved)
-        self.wait(lambda: not run.process_active(run.read_state(saved)))
+        self.wait(lambda: not record.process_active(record.read_state(saved)))
 
     def test_v5am_invalid_queued_task_does_not_block_followers(self):
         os.environ["AK_MAX_RUNS"] = "1"
@@ -602,7 +603,7 @@ usage._store, pathlib.Path.replace = publish, rename
         self.launch("three")
         self.receipt("three", "queued")
         self.recover()
-        self.wait(lambda: run.read_state(broken)["state"] == "error")
+        self.wait(lambda: record.read_state(broken)["state"] == "error")
         self.release(first)
         third, _ = self.started("three")
         self.release(third)

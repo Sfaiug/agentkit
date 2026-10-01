@@ -20,6 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, run
+from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
 LOCKED = ("error: cannot lock ref 'refs/remotes/origin/main': is at 1111111 but expected 2222222\n"
@@ -120,7 +121,7 @@ class FetchRefRace(unittest.TestCase):
 
         state = {
             "run_id": run_dir.name, "title": "fix-api", "state": "running", "verdict": "PASS",
-            **run.process_owner(), "started_at": time.time(),
+            **record.process_owner(), "started_at": time.time(),
             "review": {"executor": "opus", "executor_provider": executor_provider,
                        "reviewer": "astra", "reviewer_provider": reviewer_provider,
                        "returncode": 0, "verdict": "PASS", "done_when": True,
@@ -133,7 +134,7 @@ class FetchRefRace(unittest.TestCase):
             "reviewer": "astra", "merge_method": "squash", "merged": False,
             "merge_failed": False, "merge_note": None, "findings": "",
         }
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         return run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context", [])
 
     def land(self, fails, answer, delay=0):

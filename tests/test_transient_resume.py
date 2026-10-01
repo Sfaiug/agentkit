@@ -12,6 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, gc, run, usage, watch  # noqa: E402
+from agentkit import record as run_record
 
 
 class TransientResume(unittest.TestCase):
@@ -194,15 +195,15 @@ class TransientResume(unittest.TestCase):
         # Nothing real is killed or launched: every rung of the ladder is a mock.
         run_dir = config.RUNS / "20260922-2124-outage"
         run_dir.mkdir(parents=True)
-        run.save_state(run_dir, {"run_id": run_dir.name, "state": "running",
-                                 "round_summaries": [], "stalls": [], **run.process_owner()})
+        run_record.save_state(run_dir, {"run_id": run_dir.name, "state": "running",
+                                 "round_summaries": [], "stalls": [], **run_record.process_owner()})
         outage = (1, "API Error: 500 Internal server error\n", "s1")
         calls, fake = self.worker([outage] * 7 + [(0, "## Summary\nDone.\n", "s1")])
         sleeps, ticks = [], []
 
         def sleep(seconds):
             sleeps.append(seconds)
-            wait = run.read_state(run_dir)["transient_wait"]
+            wait = run_record.read_state(run_dir)["transient_wait"]
             self.assertEqual(wait["pid"], os.getpid())
             self.assertAlmostEqual(wait["until"], time.time() + seconds, delta=5)
             watch.recover_runs({}, log=ticks.append, now=time.time() + seconds - 1)
@@ -225,7 +226,7 @@ class TransientResume(unittest.TestCase):
         for rung in (kill, scope, resume, handover):
             rung.assert_not_called()
         self.assertEqual(ticks, [])
-        state = run.read_state(run_dir)
+        state = run_record.read_state(run_dir)
         self.assertEqual((state["state"], state["stalls"]), ("running", []))
 
     def test_a_harness_that_cannot_run_is_not_transient(self):
@@ -345,7 +346,7 @@ class TransientResume(unittest.TestCase):
         run_dir = config.RUNS / "20260923-1200-review-pr"
         run_dir.mkdir(parents=True)
         (run_dir / "log.txt").touch()
-        run.save_state(run_dir, {"run_id": run_dir.name, "state": "running",
+        run_record.save_state(run_dir, {"run_id": run_dir.name, "state": "running",
                                  "launched_session": None})
         repo, wt = self.root / "repo", self.root / "pr-checkout"
         repo.mkdir()
@@ -369,7 +370,7 @@ class TransientResume(unittest.TestCase):
                 patch.object(run, "post_review", side_effect=AssertionError("posted")):
             state = run.review_pr(self.cfg, run_dir, "https://github.com/o/r/pull/1",
                                   {"--review": "mimo"}, lambda _: None)
-        saved = run.read_state(run_dir)
+        saved = run_record.read_state(run_dir)
         for record in (state, saved):
             self.assertEqual((record["state"], record["verdict"]), ("blocked", "BLOCKED"))
             self.assertIn(line, record["error"])

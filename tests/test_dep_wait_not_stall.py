@@ -20,6 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, job as jobs, run, watch, worker
+from agentkit import record as run_record
 
 DEP = "alpha.md"
 LIVE = 999999991
@@ -58,15 +59,15 @@ class DepWaitNotStall(unittest.TestCase):
         if dep_wait is not None:
             state["dep_wait"] = dep_wait
         state.update(extra)
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         return directory
 
     def passing(self, directory, alive):
         """The stall pass over one run, its loop stubbed alive or dead, its write old."""
         old = time.time() - 21 * 60
         stack = self.stack
-        stack.enter_context(patch.object(run, "run_dirs", return_value=[directory]))
-        stack.enter_context(patch.object(run, "process_active", return_value=alive))
+        stack.enter_context(patch.object(run_record, "run_dirs", return_value=[directory]))
+        stack.enter_context(patch.object(run_record, "process_active", return_value=alive))
         stack.enter_context(patch.object(watch, "run_last_write", return_value=old))
         stack.enter_context(patch.object(watch, "step_for_run",
                                          return_value=("none", "no child", None, [])))
@@ -76,7 +77,7 @@ class DepWaitNotStall(unittest.TestCase):
 
     def test_live_dep_wait_is_not_stalled_after_twenty_minutes_of_silence(self):
         directory = self.record("live-wait", LIVE, {"pid": LIVE, "of": DEP})
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertEqual(run.dep_wait_note(state), f"waiting for {DEP} to merge")
         old, kill, resume = self.passing(directory, True)
         # without the mark the same silence is a stall; with it the clock starts now
@@ -87,7 +88,7 @@ class DepWaitNotStall(unittest.TestCase):
         watch.recover_runs({}, log=lambda _: None, now=time.time())
         kill.assert_not_called()
         resume.assert_not_called()
-        self.assertEqual(run.read_state(directory)["stalls"], [])
+        self.assertEqual(run_record.read_state(directory)["stalls"], [])
 
     def test_dead_or_resumed_dep_wait_does_not_hold_the_clock(self):
         grace = worker.KILL_GRACE + 2 * worker.ACTIVITY_POLL
@@ -100,24 +101,24 @@ class DepWaitNotStall(unittest.TestCase):
         }
         for name, (directory, alive) in cases.items():
             with self.subTest(name=name):
-                state = run.read_state(directory)
+                state = run_record.read_state(directory)
                 if name == "resumed":
                     self.assertEqual(run.dep_wait_note(state), "")
                 old, kill, resume = self.passing(directory, alive)
                 self.assertLess(watch.stall_clock(directory, state), old + 1)
                 watch.recover_runs({}, log=lambda _: None,
                                    now=old + 20 * 60 + grace + 0.01)
-                self.assertEqual(len(run.read_state(directory)["stalls"]), 1)
+                self.assertEqual(len(run_record.read_state(directory)["stalls"]), 1)
                 if alive:
                     kill.assert_called_once()
                 resume.assert_called_once()
 
     def test_status_names_the_dependency_it_waits_for(self):
         directory = self.record("status-wait", LIVE, {"pid": LIVE, "of": DEP})
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertIn(f"  waiting for {DEP} to merge",
                       run.status_details(directory, state))
-        with patch.object(run, "process_active", return_value=True):
+        with patch.object(run_record, "process_active", return_value=True):
             out = io.StringIO()
             with redirect_stdout(out):
                 self.assertEqual(run.cmd_status([]), 0)
@@ -140,14 +141,14 @@ class DepWaitNotStall(unittest.TestCase):
         directory.mkdir(parents=True)
         (directory / "log.txt").touch()
         state = {"run_id": "beta-wait", "title": "Beta", "state": "running",
-                 **run.process_owner(), "started_at": time.time(),
+                 **run_record.process_owner(), "started_at": time.time(),
                  "round_summaries": [{}], "job_id": job_id,
                  "from_pass": {"task": DEP, "branch": "ak/alpha", "tip": "abc"},
                  "base_sha": "abc"}
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         logs = []
         lp = SimpleNamespace(state=state, run_dir=directory, base_sha="abc",
-                             log=logs.append, write=lambda: run.save_state(directory, state))
+                             log=logs.append, write=lambda: run_record.save_state(directory, state))
         with patch.object(jobs, "JOB_TICK", 0.05):
             result = {}
             thread = threading.Thread(target=lambda: result.update(
@@ -155,11 +156,11 @@ class DepWaitNotStall(unittest.TestCase):
             thread.start()
             try:
                 deadline = time.monotonic() + 20
-                while not run.dep_wait_note(run.read_state(directory) or {}):
+                while not run.dep_wait_note(run_record.read_state(directory) or {}):
                     self.assertLess(time.monotonic(), deadline,
                                     "the wait never marked the record")
                     time.sleep(0.02)
-                self.assertEqual(run.dep_wait_note(run.read_state(directory)),
+                self.assertEqual(run.dep_wait_note(run_record.read_state(directory)),
                                  f"waiting for {DEP} to merge")
                 job = jobs.read_job(job_dir)
                 job["tasks"][0]["state"] = "merged"
@@ -168,8 +169,8 @@ class DepWaitNotStall(unittest.TestCase):
                 thread.join(20)
             self.assertFalse(thread.is_alive())
             self.assertTrue(result["rc"])
-        self.assertEqual(run.dep_wait_note(run.read_state(directory)), "")
-        self.assertNotIn("dep_wait", run.read_state(directory))
+        self.assertEqual(run.dep_wait_note(run_record.read_state(directory)), "")
+        self.assertNotIn("dep_wait", run_record.read_state(directory))
         self.assertTrue(any(f"waiting for {DEP} to merge" in line for line in logs))
 
 

@@ -1,33 +1,34 @@
 # agentkit architecture
 
-Each module: its knowledge, API and callers. Leaks are named;
-`tests/test_boundaries.py` counts them.
+Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` counts copies.
 
 ## What matters most
 
 - `ak` shows seats as working, needs you or done; `ak run task.md` delivers a merged PR.
   Keep the inside behind those.
-- A **seat** is an orchestrator session: a harness TUI in tmux with `session-<name>.json`.
-  A **run** is one task: executor turn, done-when commands, review on another provider,
-  merge, hand-back, recorded in `~/.agentkit/runs/<id>/run.json`.
+- A **seat** is a harness TUI in tmux with `session-<name>.json`.
+  A **run** is a task: executor, done-when, review, merge and hand-back,
+  in `~/.agentkit/runs/<id>/run.json`.
 - State is files under `~/.agentkit`; the `ak watch` cron tick keeps seats and runs going.
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
   words still leak into some twenty files.
-- `run.py` (13.5k lines) holds most of the run side.
+- `run.py` (13.2k lines) holds most of the run side.
 
 ## Entry points
 
-- `bin/ak`: maps a verb to a module's `main`; `ak` alone is the menu.
-- `install.sh`: directories, packages, each adapter's `install`/`login`/`hooks`, harness
-  defaults, cron, tmux, systemd slice. Leak: its own list of harnesses and binaries.
+- `bin/ak`: verbs to each module's `main`; `ak` alone is the menu.
+- `install.sh`: paths, packages, adapter `install`/`login`/`hooks`, defaults, cron, tmux,
+  systemd slice. Leak: its own harness and binary lists.
 
 ## agentkit/
 
-- `run.py`: staffing, turns, gates, review, landing, hand-back, run.json's stop-safe write,
-  provider failures, slots, admission and worktrees. Offers `main`, `save_state`/`read_state`,
-  `record` (locked updates preserving unreadable records), `going`, `pick_models`. Used by
-  watch, job, gc, orch, menu, notify, usage, worker, retention and a hook.
+- `run.py`: staffing, turns, gates, review, landing, hand-back, provider failures, slots,
+  admission and worktrees. Offers `main`, `going`, `pick_models`. For watch, job, gc, orch,
+  menu, notify, usage, worker, retention and a hook.
+- `record.py`: run.json reads, stop-safe writes, recovery locks, defaults, folders and writer
+  identity. Offers `read_state`, `save_state`, `record`, `stop_check`, `process_active`,
+  `writing`. For run, job, menu, orch, watch, gc, retention, history and worker.
 - `gc.py`: plans and schedules removal of seats, stamps, temps, worktrees, runs and jobs.
   Asks each harness's `tmp_rule` for temp ownership and live sessions; retention deletes.
   Used by bin/ak, run, menu, watch and retention; offers `cmd_gc`.
@@ -40,7 +41,7 @@ Each module: its knowledge, API and callers. Leaks are named;
   screen rules and words; `stalls`, `auth_expiry`), state (`session_state`, `waiting_on`),
   typing and reviving seats, resuming runs, PR scans, `doctor`. For run, job, orch, menu, notify,
   update, usage, worker and both hooks. Leaks: run.json writes (stall ladder,
-  freeze marks, resume passes; all through `run.record`), run states (`GOING`).
+  freeze marks, resume passes; through `record.record`), run states (`GOING`).
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename`. Used by menu, watch, run, job, notify, usage,
@@ -69,11 +70,11 @@ Each module: its knowledge, API and callers. Leaks are named;
   up into menu, run, watch and orch.
 - `update.py`: manifest `[update]` upgrades, rollback and agentkit's update (`go_live`).
   Used by menu, orch, run, watch. Leak: `MuseSnapshot` knows Muse's layout.
-- `history.py`: SQLite `history.db` of runs and steps; active duration estimates. Used
-  by run, menu, harness. Leaks: reads run.json directly; parses harness event logs.
+- `history.py`: SQLite `history.db` of runs and steps; active duration estimates. For
+  run, menu, harness. Leak: parses harness event logs.
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
   cleanup, compression. Used by gc, run, orch, update, notify. Leaks: Claude and Codex
-  config formats; imports run back.
+  config formats.
 - `terminal.py`: width, wrapping, colour, keys, `choose`/`ask`/`frame`, state styles, for
   every listing screen (docs/cli-design.md). Used by menu, usage, orch, watch, run, motion.
 - `motion.py`: one clock: time, easing, what moves; for menu, orch, terminal.
@@ -82,8 +83,8 @@ Each module: its knowledge, API and callers. Leaks are named;
   watch. Leak: registers its MCP per harness by name.
 - `macbridge.py`: `ak fetch` of Mac files: request, inbox, heartbeat, launchd agent. Used
   by bin/ak, menu, install.sh.
-- `host.py`: host memory, load, CPUs and process/cgroup counters; reads only, no agentkit
-  imports. Used by config, orch, run, job and watch.
+- `host.py`: memory, load, CPUs, process/cgroup counters, `alive`, `process_identity`;
+  reads only, no agentkit imports. For config, orch, run, job, watch, gc and record.
 - `proc_snapshot.py`: read-only /proc inventory; no agentkit imports, so it runs under sudo.
   Used by gc.
 - `__init__.py`: empty.
@@ -115,10 +116,10 @@ Each module: its knowledge, API and callers. Leaks are named;
 
 ## Direction
 
-Planned, one task each; none of it is true today.
+Planned, one task each.
 
 Run side, out of `run.py`:
-- `record`: run.json and transitions.
+- `record`: transition table.
 - `turn`: model calls and harness failures.
 - `staffing`: executor and reviewer budgets.
 - `gate`: commands, suite turns, admission.

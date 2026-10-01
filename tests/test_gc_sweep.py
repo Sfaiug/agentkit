@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 from test_v4n import Sandbox
 from agentkit import config, gc, orch, retention, run
+from agentkit import record as run_record
 
 DAY = 86400
 DEAD = 99999999
@@ -75,7 +76,7 @@ class GcSweep(Sandbox):
                   "delivery_sha": self.git(repo, "rev-parse", "HEAD"), "merged": merged,
                   "launched_session": None, "started_at": now - 90, "finished_at": now - 60,
                   "pid": DEAD, "process_identity": None, "reported": True, "rounds": 1, **extra}
-        run.save_state(directory, record)
+        run_record.save_state(directory, record)
         (directory / "result.md").write_text("result\n")
         (directory / "task.md").write_text("task\n")
         (directory / "log.txt").write_text("log\n")
@@ -92,7 +93,7 @@ class GcSweep(Sandbox):
         record["created_at"] = time.time() - age
         if finished:
             record["finished_at"] = time.time() - age
-        record.update(run.process_owner() if live else {"pid": DEAD, "process_identity": None})
+        record.update(run_record.process_owner() if live else {"pid": DEAD, "process_identity": None})
         retention.marker(path).write_text(json.dumps(record))
         now = time.time()
         for item in (path, path / "fixture", retention.marker(path)):
@@ -339,7 +340,7 @@ class GcSweep(Sandbox):
         directory, wt, _ = self.receipt("locked", self.repo, **failed_merge)
         held, clear = [], gc.clear_tree
         def watched(tree, report):
-            held.append(str(directory) in getattr(run._RECOVERY_HELD, "paths", set()))
+            held.append(str(directory) in getattr(run_record._RECOVERY_HELD, "paths", set()))
             return clear(tree, report)
         with patch.object(gc, "clear_tree", side_effect=watched):
             self.gc()
@@ -349,7 +350,7 @@ class GcSweep(Sandbox):
         resumed, resumed_wt, _ = self.receipt("resumed", self.repo, **failed_merge)
         planned = [item for item in gc.gc_plan() if item["path"] == str(resumed_wt)]
         self.assertEqual([item["kind"] for item in planned], ["unmerged-worktree"])
-        run.save_state(resumed, {**run.read_state(resumed), "state": "running"})
+        run_record.save_state(resumed, {**run_record.read_state(resumed), "state": "running"})
         with patch.object(gc, "gc_candidates", return_value=iter(planned)):
             self.assertEqual(gc.gc(lambda _message: None), [])
         self.assertTrue(resumed_wt.is_dir())
@@ -403,7 +404,7 @@ class GcSweep(Sandbox):
         (going / "ours.txt").write_text("in use\n")
         self.locked_tree(going)
         state = {"run_id": "going", "state": "fail", "repo": str(self.repo),
-                 "worktree": str(going), "branch": "ak/going", **run.process_owner(os.getppid())}
+                 "worktree": str(going), "branch": "ak/going", **run_record.process_owner(os.getppid())}
         self.assertFalse(gc.drop_tree(state, going, lambda _message: None))
         self.assertTrue((going / "ours.txt").exists())
         # ~/.agentkit/wt reached through a link into ~/code: the month-old record goes, and
@@ -419,7 +420,7 @@ class GcSweep(Sandbox):
         self.locked_tree(tree)
         directory, now = config.RUNS / "ancient", time.time()
         directory.mkdir()
-        run.save_state(directory, {"run_id": "ancient", "state": "fail", "verdict": "FAIL",
+        run_record.save_state(directory, {"run_id": "ancient", "state": "fail", "verdict": "FAIL",
                                    "repo": str(self.repo), "worktree": str(tree),
                                    "branch": "ak/ancient", "merged": False,
                                    "launched_session": None, "started_at": now - 31 * DAY,
@@ -440,7 +441,7 @@ class GcSweep(Sandbox):
             directory.mkdir(parents=True)
             work.mkdir(parents=True)
             (work / "crosscheck.md").write_text("the deliverable\n")
-            run.save_state(directory, {"run_id": name, "title": name, "state": "pass",
+            run_record.save_state(directory, {"run_id": name, "title": name, "state": "pass",
                                        "verdict": "PASS", "scratch": True, "repo": None,
                                        "worktree": str(work), "launched_session": None,
                                        "started_at": now - age, "finished_at": now - age,

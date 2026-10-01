@@ -20,6 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, gc, run, task, usage
+from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/1"
 
@@ -171,10 +172,10 @@ class V5af(unittest.TestCase):
                              f"---\n{task_body(*cmds)}")
         code = run.main([str(self.task), "--exec", "opus", "--review", "astra",
                          "--no-worktree", *flags])
-        dirs = run.run_dirs()
+        dirs = record.run_dirs()
         self.assertEqual(len(dirs), 1)
         self.directory = dirs[0]
-        return code, run.read_state(self.directory)
+        return code, record.read_state(self.directory)
 
     def counts(self, word):
         return self.counter.read_text().split().count(word)

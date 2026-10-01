@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from test_v4n import Sandbox
 from agentkit import config, menu, notify, orch, run, watch, worker
+from agentkit import record
 
 NOW = 1_800_000_000
 NO_VERDICT = "reviewer astra gave no verdict twice and no eligible reviewer is left"
@@ -48,7 +49,7 @@ class ExhaustedNotGoing(Sandbox):
                  "launched_session": "acme", "reported": False, "repo": self.repo,
                  "executor": "opus", "reviewer": "astra", "rounds": 3, "round_summaries": [],
                  "finished_at": NOW - 600, "started_at": NOW - 3600, **extra}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         return directory, state
 
     def decide(self):
@@ -93,7 +94,7 @@ class ExhaustedNotGoing(Sandbox):
         # ... above the seat's own last word, which would otherwise call it recovering,
         # and past its own age: nothing else will ever move it, so it stays his
         notify.record("acme", "done", "Shipped it")
-        run.save_state(directory, {**state, "finished_at": NOW - 8 * 86400})
+        record.save_state(directory, {**state, "finished_at": NOW - 8 * 86400})
         found = self.decide()
         self.assertEqual((found["word"], found["reason"]),
                          ("needs you", f"run {directory.name} parked: {NO_VERDICT}"))
@@ -105,21 +106,21 @@ class ExhaustedNotGoing(Sandbox):
         self.assertEqual((found["word"], found["reason"]),
                          ("needs you", f"run {directory.name} parked: {NO_VERDICT}"))
         index = run.supersession_index(state for _, state in menu.run_records())
-        reread = run.read_state(directory)
+        reread = record.read_state(directory)
         self.assertFalse(run.settled(reread, index))
         self.assertEqual(run.status_state_word(reread, index), "needs you")
         # `ak run stop` is still a way out: stopped, the seat's own word stands
-        run.save_state(directory, {**reread, "state": "stopped",
+        record.save_state(directory, {**reread, "state": "stopped",
                                    "error": "stopped by the user"})
         self.assertEqual(self.decide()["word"], "done")
         # past the stop guard on purpose: the fixture goes back to parked
         (directory / "run.json").write_text(json.dumps(reread))
         # ... but once that relaunch merges, the parked run is settled: the seat's own
         # word stands, and the status row reads done
-        run.save_state(relaunch, {**run.read_state(relaunch), "merged": True})
+        record.save_state(relaunch, {**record.read_state(relaunch), "merged": True})
         self.assertEqual(self.decide()["word"], "done")
         index = run.supersession_index(state for _, state in menu.run_records())
-        reread = run.read_state(directory)
+        reread = record.read_state(directory)
         self.assertTrue(run.is_superseded(reread, None, index))
         self.assertTrue(run.settled(reread, index))
         self.assertEqual(run.status_state_word(reread, index), "done")

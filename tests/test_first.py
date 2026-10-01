@@ -17,6 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, run, worker  # noqa: E402
+from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"
 HEALTHY = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -69,18 +70,18 @@ class First(unittest.TestCase):
                  "run_depth": 0, **FAKE_OWNER}
         if first:
             state["first"] = True
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         return directory
 
     def record(self, name, repo, first=False):
         directory = config.RUNS / name
         directory.mkdir()
         state = {"run_id": name, "title": name, "state": "running", "verdict": None,
-                 "repo": repo, **run.process_owner(), "started_at": time.time(),
+                 "repo": repo, **run_record.process_owner(), "started_at": time.time(),
                  "round_summaries": []}
         if first:
             state["first"] = True
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         return directory
 
     def mark(self, word, seconds=0):
@@ -98,15 +99,15 @@ class First(unittest.TestCase):
         with patch.dict(os.environ, {"AK_MAX_RUNS": "1", "AK_MIN_FREE_MB": "3072",
                                       "AK_MAX_LOAD": "8",
                                       "AK_HOST_READINGS": json.dumps(HEALTHY)}), \
-                patch.object(run, "process_owner", return_value=dict(FAKE_OWNER)), \
-                patch.object(run, "process_active", return_value=True):
-            self.assertLess(run.slot_order(run.read_state(first)),
-                            run.slot_order(run.read_state(earlier)))
-            state = run.read_state(first)
+                patch.object(run_record, "process_owner", return_value=dict(FAKE_OWNER)), \
+                patch.object(run_record, "process_active", return_value=True):
+            self.assertLess(run.slot_order(run_record.read_state(first)),
+                            run.slot_order(run_record.read_state(earlier)))
+            state = run_record.read_state(first)
             self.assertFalse(run.claim_slot(state, 1))
             self.assertTrue(run.claim_slot(state, 1))
             self.assertEqual(state["state"], "running")
-            behind = run.read_state(earlier)
+            behind = run_record.read_state(earlier)
             self.assertFalse(run.claim_slot(behind, 1))
             self.assertEqual(behind["slot_wait_kind"], "count")
 
@@ -114,17 +115,17 @@ class First(unittest.TestCase):
         loaded = self.queued("20250925-1200-loaded", 1000, first=True)
         with patch.dict(os.environ, {"AK_MAX_RUNS": "1", "AK_MIN_FREE_MB": "3072",
                                       "AK_MAX_LOAD": "8"}), \
-                patch.object(run, "process_owner", return_value=dict(FAKE_OWNER)), \
-                patch.object(run, "process_active", return_value=True):
+                patch.object(run_record, "process_owner", return_value=dict(FAKE_OWNER)), \
+                patch.object(run_record, "process_active", return_value=True):
             os.environ["AK_HOST_READINGS"] = json.dumps({**HEALTHY, "load": 41})
-            state = run.read_state(loaded)
+            state = run_record.read_state(loaded)
             self.assertFalse(run.claim_slot(state, 1))
             self.assertTrue(run.claim_slot(state, 1))
             self.assertEqual(state["state"], "running")
-            run.save_state(loaded, state)
+            run_record.save_state(loaded, state)
             thirsty = self.queued("20250925-1201-thirsty", 2000, first=True)
             os.environ["AK_HOST_READINGS"] = json.dumps({**HEALTHY, "free_mb": 1024})
-            dry = run.read_state(thirsty)
+            dry = run_record.read_state(thirsty)
             self.assertFalse(run.claim_slot(dry, 1))
             self.assertEqual(dry["slot_wait_kind"], "memory")
             self.assertIn("needs 3 G", dry["slot_wait_reason"])
@@ -135,15 +136,15 @@ class First(unittest.TestCase):
         with patch.dict(os.environ, {"AK_MAX_RUNS": "1", "AK_MIN_FREE_MB": "3072",
                                       "AK_MAX_LOAD": "8",
                                       "AK_HOST_READINGS": json.dumps(HEALTHY)}), \
-                patch.object(run, "process_owner", return_value=dict(FAKE_OWNER)), \
-                patch.object(run, "process_active", return_value=True):
-            later = run.read_state(two)
+                patch.object(run_record, "process_owner", return_value=dict(FAKE_OWNER)), \
+                patch.object(run_record, "process_active", return_value=True):
+            later = run_record.read_state(two)
             self.assertFalse(run.claim_slot(later, 1))
             self.assertEqual(later["slot_wait_kind"], "count")
-            early = run.read_state(one)
+            early = run_record.read_state(one)
             self.assertFalse(run.claim_slot(early, 1))
             self.assertTrue(run.claim_slot(early, 1))
-            run.save_state(one, early)
+            run_record.save_state(one, early)
             self.assertFalse(run.claim_slot(later, 1))
             self.assertTrue(run.claim_slot(later, 1))
             self.assertEqual(later["state"], "running")
@@ -161,10 +162,10 @@ class First(unittest.TestCase):
         self.addCleanup(holder.close)
         fcntl.flock(holder, fcntl.LOCK_EX)
         waiter.start()
-        self.until(lambda: run.gate_turn_note(run.read_state(waiter.run_dir) or {}),
+        self.until(lambda: run.gate_turn_note(run_record.read_state(waiter.run_dir) or {}),
                    "the waiter to mark its wait")
         first.start()
-        self.until(lambda: run.gate_turn_note(run.read_state(first.run_dir) or {}),
+        self.until(lambda: run.gate_turn_note(run_record.read_state(first.run_dir) or {}),
                    "the first run to mark its wait")
         fcntl.flock(holder, fcntl.LOCK_UN)
         waiter.join(20)
@@ -184,17 +185,17 @@ class First(unittest.TestCase):
                      "reported": False, **FAKE_OWNER}
             if first:
                 state["first"] = True
-            run.save_state(directory, state)
+            run_record.save_state(directory, state)
         with patch.dict(os.environ, {"AK_MAX_RUNS": "1", "AK_MIN_FREE_MB": "3072",
                                       "AK_MAX_LOAD": "8",
                                       "AK_HOST_READINGS": json.dumps(HEALTHY)}), \
-                patch.object(run, "process_active", return_value=True):
+                patch.object(run_record, "process_active", return_value=True):
             out = StringIO()
             with redirect_stdout(out):
                 self.assertEqual(run.cmd_status(["--plain"]), 0)
             self.assertEqual(out.getvalue().count("\n  first\n"), 1)
             details = run.status_details(config.RUNS / "20250925-1200-first",
-                                         run.read_state(config.RUNS / "20250925-1200-first"))
+                                         run_record.read_state(config.RUNS / "20250925-1200-first"))
             self.assertIn("  first", details)
 
 

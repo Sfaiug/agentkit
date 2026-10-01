@@ -14,6 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, orch, run, watch
+from agentkit import record
 
 PR = "https://github.com/acme/widget/pull/"
 NOW = 2000000
@@ -48,7 +49,7 @@ class SecondBreak(unittest.TestCase):
     def merged(self, name, sha, number, seat, age):
         directory = config.RUNS / name
         directory.mkdir()
-        run.save_state(directory, {
+        record.save_state(directory, {
             "run_id": name, "state": "pass", "merged": True, "pr": f"{PR}{number}",
             "merge_sha": sha, "target": "origin/main", "launched_session": seat,
             "started_at": NOW - age - 60, "finished_at": NOW - age})

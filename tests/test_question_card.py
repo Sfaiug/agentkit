@@ -24,6 +24,7 @@ sys.path.insert(0, str(REPO / "tests"))
 import test_close_and_info
 from test_close_and_info import ESC, Menu
 from agentkit import menu, run, terminal
+from agentkit import record
 
 Key = terminal.Key
 QUESTION = "Stop fix-api and everything it runs?"
@@ -148,8 +149,8 @@ class QuestionCard(unittest.TestCase):
                   "errored": {"state": "error"},
                   "failed": {"state": "fail", "recovery_pending": True},
                   "passed": {"state": "pass"}, "elsewhere": {"state": "running", "seat": "tidy"}}
-        with patch.object(run, "run_dirs", return_value=[Path(name) for name in states]), \
-                patch.object(run, "read_state", side_effect=lambda path: states[path.name]), \
+        with patch.object(record, "run_dirs", return_value=[Path(name) for name in states]), \
+                patch.object(record, "read_state", side_effect=lambda path: states[path.name]), \
                 patch.object(run, "launched_session",
                              side_effect=lambda state: state.get("seat", "fix-api")):
             counted = [path.name for path in menu.session_runs("fix-api")]

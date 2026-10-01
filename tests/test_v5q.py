@@ -17,6 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, gc, history, job as jobs, notify, orch, retention, run, worker
+from agentkit import record
 
 ADAPTER = '''import json, os, pathlib, sys, time
 root = pathlib.Path(os.environ["V5Q_FIXTURE"])
@@ -181,7 +182,7 @@ sys.exit(1)
             lp.state.update(merged=True, merge_failed=False, merge_note=None,
                             pr="https://example.invalid/pr/1")
             lp.log("merged (fixture delivery)")
-            run.save_state(lp.run_dir, lp.state)
+            record.save_state(lp.run_dir, lp.state)
             return True
 
         return patch.object(run, "merge", side_effect=delivered)
@@ -287,7 +288,7 @@ sys.exit(1)
                               self.read_job(self.job_dirs()[0])["tasks"]))
             job = self.read_job(self.job_dirs()[0])
             self.assertEqual([t["state"] for t in job["tasks"]], ["queued", "queued"])
-            self.assertEqual(run.run_dirs(), [])
+            self.assertEqual(record.run_dirs(), [])
             # the meter refills: drop the flag and the cached 100% reading
             (self.root / "meters-full").unlink()
             (config.STATE / "usage.json").unlink(missing_ok=True)
@@ -377,7 +378,7 @@ sys.exit(1)
         self.assertEqual(saved["seat"], "seat-v5q")
         self.assertIsNone(saved["finished_at"])
         self.assertEqual([t["state"] for t in saved["tasks"]], ["queued", "queued"])
-        self.assertEqual(run.run_dirs(), [])
+        self.assertEqual(record.run_dirs(), [])
         with redirect_stdout(io.StringIO()):
             rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=True)
         self.assertEqual(rc, 0)
@@ -420,16 +421,16 @@ sys.exit(1)
                     "--bg": False}
         with redirect_stdout(io.StringIO()):
             run.prepare(run_dir_a, run_opts, run.logger(run_dir_a, True))
-        state = run.read_state(run_dir_a)
+        state = record.read_state(run_dir_a)
         state.update(state="interrupted", interrupted_at=time.time(),
                      interruption_reason="killed in test", recovery_pending=True)
-        run.save_state(run_dir_a, state)
+        record.save_state(run_dir_a, state)
         job["tasks"][0].update(state="running", run_id=run_dir_a.name, started_at=time.time())
         # the kill took the launcher: resume refuses a live one, so record the death
         job.update(pid=99999999)
         job.pop("process_identity", None)
         jobs.save_job(job_dir, job)
-        before = set(run.run_dirs())
+        before = set(record.run_dirs())
         with redirect_stdout(io.StringIO()):
             rc = run.cmd_resume([job_dir.name])
         self.assertEqual(rc, 0)
@@ -437,7 +438,7 @@ sys.exit(1)
         self.assertEqual(self.shaped.call_count, 1)
         self.assertEqual(self.shaped.call_args.args[0], "done")
         # the interrupted run resumed in its own directory; only the unstarted task is new
-        fresh = set(run.run_dirs()) - before
+        fresh = set(record.run_dirs()) - before
         self.assertEqual(len(fresh), 1)
         self.assertNotIn(run_dir_a, fresh)
         job = self.read_job(job_dir)
@@ -453,8 +454,8 @@ sys.exit(1)
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run.main([a, "--exec", self.executor,
                                        "--review", self.reviewer]), 0)
-        finished = run.run_dirs()[0]
-        before = set(run.run_dirs())
+        finished = record.run_dirs()[0]
+        before = set(record.run_dirs())
         with redirect_stdout(io.StringIO()):
             job_dir, job = jobs.job_create(self.cfg, [a, b],
                                           {"--rounds": None, "--exec": self.executor,
@@ -469,7 +470,7 @@ sys.exit(1)
             rc = run.cmd_resume([job_dir.name])
         self.assertEqual(rc, 0)
         # a's result was adopted, never re-executed: only b allocated a run
-        self.assertEqual(len(set(run.run_dirs()) - before), 1)
+        self.assertEqual(len(set(record.run_dirs()) - before), 1)
         self.assertEqual(len(self.calls("executor")), 2)
         job = self.read_job(job_dir)
         by_name = {t["name"]: t for t in job["tasks"]}
@@ -542,7 +543,7 @@ sys.exit(1)
         self.assertEqual(rc, 0)
         job = self.read_job(self.job_dirs()[0])
         self.assertEqual({t["state"] for t in job["tasks"]}, {"merged"})
-        runs = {t["run_id"]: run.read_state(config.RUNS / t["run_id"]) for t in job["tasks"]}
+        runs = {t["run_id"]: record.read_state(config.RUNS / t["run_id"]) for t in job["tasks"]}
         branches = {state["branch"] for state in runs.values()}
         worktrees = {state["worktree"] for state in runs.values()}
         self.assertEqual(len(branches), 2)
@@ -559,7 +560,7 @@ sys.exit(1)
         rival_state = {"run_id": rival_dir.name,
                        "title": "Orange orangutan orchestrates operations daily",
                        "state": "running", "repo": str(repo), "started_at": time.time(),
-                       "launched_session": "seat-v5q", **run.process_owner()}
+                       "launched_session": "seat-v5q", **record.process_owner()}
         (rival_dir / "run.json").write_text(json.dumps(rival_state))
         lines = ["---", f"repo: {repo}", "base: main",
                  "---", "# Orange orangutan orchestrates operations nightly", "",
@@ -961,7 +962,7 @@ sys.exit(1)
         self.assertEqual(spawned["stdout"].name, str(job_dir / "log.txt"))
         self.assertEqual(job["pid"], os.getpid())
         self.assertIn(job_dir.name, out.getvalue())
-        self.assertEqual(run.run_dirs(), [])
+        self.assertEqual(record.run_dirs(), [])
         self.assertEqual([t["state"] for t in job["tasks"]], ["queued", "queued"])
         # the child, whose stdout is the job log, records nothing twice and adopts the pid
         with patch.dict(os.environ, {config.JOB_DIR_ENV: str(job_dir)}):

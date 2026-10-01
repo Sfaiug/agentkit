@@ -21,6 +21,7 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from test_v4n import Sandbox
 from agentkit import config, menu, run, terminal, update, usage
+from agentkit import record as run_record
 
 
 def marks(line):
@@ -129,7 +130,7 @@ class SessionModels(Sandbox):
             directory = config.RUNS / "next-run"
             directory.mkdir()
             run.capture_launch(directory, cfg=self.cfg)
-            state = run.read_state(directory)
+            state = run_record.read_state(directory)
         self.assertEqual(state["workers"], ["opus", "astra", "fable"])
         self.assertEqual(state["reviewers"], ["astra"])
         going = {"run_id": "going", "launched_session": "fix-api",

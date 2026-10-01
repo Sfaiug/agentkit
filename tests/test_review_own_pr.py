@@ -17,6 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, gc, orch, run, watch
+from agentkit import record
 from fixtures.hand_in import records
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -291,7 +292,7 @@ class OwnPr(unittest.TestCase):
             with patch.object(run, "launcher_world") as world, patch.object(run, "drop_checkout"):
                 world.return_value.__enter__.return_value = True
                 world.return_value.__exit__.return_value = False
-                run.announce(run.read_state(run_dir), run_dir, lambda line: None)
+                run.announce(record.read_state(run_dir), run_dir, lambda line: None)
         self.assertEqual(len(typed), 1, typed)
         self.assertIn(f"run {run_dir.name} finished FAIL", typed[0])
         self.assertIn("off-by-one in the gate", typed[0])
@@ -395,9 +396,9 @@ class OwnPr(unittest.TestCase):
     def test_writer_is_preserved_when_the_record_changes(self):
         run_dir = self.launch_dir("20260927-0011-own-resume")
         opts = {"--review": None, "--review-pr": URL}
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         saved.update(own_pr=True, own_orchestrator="opus")
-        run.save_state(run_dir, saved)
+        record.save_state(run_dir, saved)
         config.save_session(self.cfg, "fix-api", "astra", ["opus", "astra"])
         events = []
         with ExitStack() as mocks:
@@ -417,9 +418,9 @@ class OwnPr(unittest.TestCase):
         config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra", "spark"])
         run_dir = self.launch_dir("20260927-0012-own-preset")
         opts = {"--review": None, "--review-pr": URL}
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         saved.update(launch_reviewer="spark")
-        run.save_state(run_dir, saved)
+        record.save_state(run_dir, saved)
         events = []
         with ExitStack() as mocks:
             for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
@@ -447,7 +448,7 @@ class OwnPr(unittest.TestCase):
                 with patch.object(run, "pr_view", return_value=info(author)), \
                         patch.object(run, "viewer_login", return_value=LOGIN):
                     run.preflight(run_dir, {"--review-pr": URL}, lines.append)
-                saved = run.read_state(run_dir)
+                saved = record.read_state(run_dir)
                 self.assertEqual(bool(saved.get("own_pr")), want_own)
                 if want_own:
                     self.assertEqual(saved.get("own_orchestrator"), "opus")
@@ -463,7 +464,7 @@ class OwnPr(unittest.TestCase):
                 patch.object(run, "viewer_login", return_value=LOGIN):
             with self.assertRaisesRegex(config.Error, "writer"):
                 run.preflight(run_dir, {"--review-pr": URL}, lambda line: None)
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         self.assertTrue(saved.get("own_pr"))
         self.assertIsNone(saved.get("own_orchestrator"))
 

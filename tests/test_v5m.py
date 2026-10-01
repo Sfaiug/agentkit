@@ -26,6 +26,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, gc, menu, notify, orch, run, terminal, usage, watch
+from agentkit import record
 
 SEAT = "seat-v5m"          # the seat every one of these runs is launched from
 
@@ -120,7 +121,7 @@ class Sandbox(unittest.TestCase):
         directory = config.RUNS / name
         directory.mkdir()
         (directory / "log.txt").touch()
-        run.save_state(directory, {
+        record.save_state(directory, {
             "run_id": name, "title": title, "state": state, "verdict": verdict,
             "launched_session": owner, "reported": reported, "scratch": True,
             "executor": "opus", "reviewer": "astra", "merged": False,
@@ -143,9 +144,9 @@ class Sandbox(unittest.TestCase):
         (self.root / "verdicts.json").write_text(json.dumps(list(verdicts)))
         with redirect_stdout(io.StringIO()):
             code = run.main([str(task_path), "--exec", "opus", "--review", "astra"])
-        directories = run.run_dirs()
+        directories = record.run_dirs()
         self.assertEqual(len(directories), 1)
-        state = run.read_state(directories[0])
+        state = record.read_state(directories[0])
         self.assertEqual(state["run_depth"], 0)
         self.assertEqual(state["parent_run"], "")
         return code, directories[0], state
@@ -160,13 +161,13 @@ class Sandbox(unittest.TestCase):
         command = shlex.join([sys.executable, str(REPO / "bin" / "ak"), "run",
                               str(self.task(title, ["true"])),
                               "--exec", "opus", "--review", "astra"])
-        before = set(run.run_dirs())
+        before = set(record.run_dirs())
         ok, text = run.run_done_when([command], self.root,
                                      self.root / f"{run.slugify(title)}.log", set())
         self.assertTrue(ok, text)
-        made = [d for d in run.run_dirs() if d not in before]
+        made = [d for d in record.run_dirs() if d not in before]
         self.assertEqual(len(made), 1, made)
-        state = run.read_state(made[0])
+        state = record.read_state(made[0])
         self.assertEqual(state["run_depth"], 1)
         self.assertEqual(state["parent_run"], "")
         return made[0], state
@@ -190,9 +191,9 @@ class MenuOpensOnTheSeats(Sandbox):
             orch.maintenance(messages.append)
         # nothing at all: no receipt line, and no warning while producing none
         self.assertEqual(messages, [])
-        self.assertFalse(run.read_state(first)["reported"])
-        self.assertFalse(run.read_state(second)["reported"])
-        self.assertTrue(run.read_state(told)["reported"])
+        self.assertFalse(record.read_state(first)["reported"])
+        self.assertFalse(record.read_state(second)["reported"])
+        self.assertTrue(record.read_state(told)["reported"])
 
     def test_v5m_maintenance_still_reaps_a_dead_loop_and_wakes_only_its_own_seat(self):
         """Reporting went; the reconciliation it carried did not."""
@@ -209,21 +210,21 @@ class MenuOpensOnTheSeats(Sandbox):
             orch.maintenance(messages.append)
         self.assertEqual(messages, [])
         for directory in (dead, nobody):
-            state = run.read_state(directory)
+            state = record.read_state(directory)
             self.assertEqual(state["state"], "interrupted", state)
             self.assertTrue(run.needs_recovery(state), state)
         # v5ay: the seat that launched one is there, so the ending is its to act on and the
         # owner is asked nothing; a seat mid-turn leaves it pending for the tick to deliver
-        self.assertTrue(run.read_state(dead)["handback_pending"])
-        self.assertNotIn("recovery_notified", run.read_state(dead))
+        self.assertTrue(record.read_state(dead)["handback_pending"])
+        self.assertNotIn("recovery_notified", record.read_state(dead))
         self.assertEqual(shaped.call_count, 0)
-        self.assertNotIn("recovery_notified", run.read_state(nobody))
+        self.assertNotIn("recovery_notified", record.read_state(nobody))
         # ... and once its seat is gone, the needs card is what it always was
         self.live.discard(SEAT)
         with patch.object(notify, "shaped", return_value=0) as gone, \
                 redirect_stdout(io.StringIO()):
-            run.notify_recovery(dead, run.read_state(dead))
-        self.assertEqual(run.read_state(dead)["recovery_notified"], "needs")
+            run.notify_recovery(dead, record.read_state(dead))
+        self.assertEqual(record.read_state(dead)["recovery_notified"], "needs")
         self.assertEqual(gone.call_count, 1)
         self.assertEqual(gone.call_args.kwargs["session"], SEAT)
 
@@ -231,16 +232,16 @@ class MenuOpensOnTheSeats(Sandbox):
         orphan = self.receipt("run-4-orphan", "An ending of a gone seat", owner="gone-seat")
         listed = self.receipt("run-5-listed", "Another ending of a gone seat", owner="gone-seat")
         with patch.object(notify, "shaped", return_value=0) as shaped:
-            run.announce(run.read_state(orphan), orphan, lambda _: None)
+            run.announce(record.read_state(orphan), orphan, lambda _: None)
         self.assertEqual(shaped.call_args.kwargs["session"], "gone-seat")
-        self.assertTrue(run.read_state(orphan)["reported"])
-        self.assertFalse(run.read_state(listed)["reported"])
+        self.assertTrue(record.read_state(orphan)["reported"])
+        self.assertFalse(record.read_state(listed)["reported"])
         with redirect_stdout(io.StringIO()):
             menu.draw(self.cfg, [])
-        self.assertFalse(run.read_state(listed)["reported"])
+        self.assertFalse(record.read_state(listed)["reported"])
         with redirect_stdout(io.StringIO()):
             run.cmd_status([listed.name])
-        self.assertTrue(run.read_state(listed).get("recovery_acknowledged_at"))
+        self.assertTrue(record.read_state(listed).get("recovery_acknowledged_at"))
 
 
 class NothingBelowTheLoopHasASeat(Sandbox):
@@ -294,7 +295,7 @@ class NothingBelowTheLoopHasASeat(Sandbox):
         self.assertEqual(groups["no project"]["rows"][0][1], SEAT)
         self.assertEqual(groups["no project"]["rows"][0][-1], menu.tally(None))
         # `ak run status` still has it, as it has the smoke suite's own runs
-        self.assertIn(directory, run.run_dirs())
+        self.assertIn(directory, record.run_dirs())
 
     def test_v5m_a_run_launched_by_hand_stays_in_records_but_makes_no_row(self):
         """The seatless run that is not machinery: nobody owns it, the terminal does."""
@@ -318,7 +319,7 @@ class NothingBelowTheLoopHasASeat(Sandbox):
         self.assertEqual([group["runs"] for group in self.overview().values()], [[]])
         with redirect_stdout(io.StringIO()):
             menu.draw(self.cfg, [])
-        self.assertFalse(run.read_state(directory)["reported"])
+        self.assertFalse(record.read_state(directory)["reported"])
 
 
 if __name__ == "__main__":

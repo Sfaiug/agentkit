@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 from test_land_reserve import LandingCase, REPO, commit, make_origin, make_run
 from agentkit import config, run, watch
+from agentkit import record
 
 
 class MergeTurnByFiles(LandingCase):
@@ -106,17 +107,17 @@ class MergeTurnByFiles(LandingCase):
                 threads.append(self.land(one, results))
                 self.assertTrue(checking.wait(20), "holder never reached its reserved check")
                 threads.append(self.land(overlap, results))
-                self.until(lambda: run.merge_turn_note(run.read_state(overlap.run_dir) or {}),
+                self.until(lambda: run.merge_turn_note(record.read_state(overlap.run_dir) or {}),
                            "the overlapping branch to wait")
                 threads.append(self.land(two, results))
                 self.assertTrue(delivering.wait(20), "the disjoint borrower could not deliver")
                 threads.append(self.land(three, results))
-                self.until(lambda: run.merge_turn_note(run.read_state(three.run_dir) or {}),
+                self.until(lambda: run.merge_turn_note(record.read_state(three.run_dir) or {}),
                            "the second borrower to wait for delivery")
-                self.assertEqual(run.merge_turn_note(run.read_state(two.run_dir)), "")
-                self.assertEqual(run.merge_hold_note(run.read_state(one.run_dir)),
+                self.assertEqual(run.merge_turn_note(record.read_state(two.run_dir)), "")
+                self.assertEqual(run.merge_hold_note(record.read_state(one.run_dir)),
                                  "holding the merge turn of acme main to land")
-                self.assertEqual(run.merge_turn_note(run.read_state(one.run_dir)), "")
+                self.assertEqual(run.merge_turn_note(record.read_state(one.run_dir)), "")
                 shown = io.StringIO()
                 with redirect_stdout(shown):
                     run.cmd_status([])
@@ -189,9 +190,9 @@ class MergeTurnByFiles(LandingCase):
                 self.assertTrue(delivering.wait(20), "the disjoint borrower could not deliver")
                 # the holder finishes its re-check while the borrower still delivers
                 finish_check.set()
-                self.until(lambda: run.merge_retaking(run.read_state(one.run_dir) or {}),
+                self.until(lambda: run.merge_retaking(record.read_state(one.run_dir) or {}),
                            "the holder to wait for its lent turn back")
-                state = run.read_state(one.run_dir) or {}
+                state = record.read_state(one.run_dir) or {}
                 self.assertEqual(run.merge_turn_note(state), "")
                 self.assertEqual(run.merge_hold_note(state),
                                  "holding the merge turn of acme main to land")
@@ -206,7 +207,7 @@ class MergeTurnByFiles(LandingCase):
                 old = time.time() - 25 * 60
                 for path in one.run_dir.rglob("*"):
                     os.utime(path, (old, old))
-                state = run.read_state(one.run_dir) or {}
+                state = record.read_state(one.run_dir) or {}
                 self.assertGreater(watch.stall_clock(one.run_dir, state), time.time() - 60)
                 finish_delivery.set()
                 for thread in threads:
@@ -225,7 +226,7 @@ class MergeTurnByFiles(LandingCase):
                       (one.run_dir / "log.txt").read_text())
         self.assertIn("none touching this branch's files; landing on the verified checks",
                       (one.run_dir / "log.txt").read_text())
-        self.assertNotIn("merge_retake", run.read_state(one.run_dir))
+        self.assertNotIn("merge_retake", record.read_state(one.run_dir))
         self.assertFalse(list(config.RUNS.glob("*.hold")))
 
     def take_turn(self, lp, entered, errors, upstream="origin/main", reserve=False):
@@ -258,7 +259,7 @@ class MergeTurnByFiles(LandingCase):
                     entered = threading.Event()
                     events.append(entered)
                     threads.append(self.take_turn(lp, entered, errors))
-                    self.until(lambda: run.merge_turn_note(run.read_state(lp.run_dir) or {}),
+                    self.until(lambda: run.merge_turn_note(record.read_state(lp.run_dir) or {}),
                                f"the branch touching {name!r} to wait")
                     self.assertFalse(entered.is_set())
             finally:
@@ -293,7 +294,7 @@ class MergeTurnByFiles(LandingCase):
                             order.append(lp.state["title"])
                     threads.append(threading.Thread(target=take, name=name, daemon=True))
                     threads[-1].start()
-                    self.until(lambda: run.merge_turn_note(run.read_state(lp.run_dir) or {}),
+                    self.until(lambda: run.merge_turn_note(record.read_state(lp.run_dir) or {}),
                                f"{name} to wait for the reservation")
             finally:
                 run.drop_reserved_turn()
@@ -338,7 +339,7 @@ class MergeTurnByFiles(LandingCase):
                 with run.merge_turn(one, "origin/main", reserve=True):
                     run.set_base(one, one.base_sha)
                     thread = self.take_turn(two, entered, errors)
-                    self.until(lambda: run.merge_turn_note(run.read_state(two.run_dir) or {}),
+                    self.until(lambda: run.merge_turn_note(record.read_state(two.run_dir) or {}),
                                "the unknown diff to wait")
                     self.assertFalse(entered.is_set())
                     raise run.Stopped("test interruption")
@@ -346,7 +347,7 @@ class MergeTurnByFiles(LandingCase):
         self.assertFalse(thread.is_alive())
         self.assertTrue(entered.is_set())
         self.assertEqual(errors, [])
-        self.assertNotIn("merge_hold", run.read_state(one.run_dir))
+        self.assertNotIn("merge_hold", record.read_state(one.run_dir))
         self.assertFalse(list(config.RUNS.glob("*.hold")))
 
     def test_dead_reservation_does_not_block_the_next_run(self):
@@ -356,10 +357,10 @@ class MergeTurnByFiles(LandingCase):
 import os, sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
-from agentkit import config, run
+from agentkit import config, record, run
 config.RUNS = Path(sys.argv[2])
 directory = Path(sys.argv[3])
-state = run.read_state(directory)
+state = record.read_state(directory)
 lp = run.Loop({}, directory, state, {}, lambda msg: None,
               Path(state['worktree']), '', [], '', [])
 with run.merge_turn(lp, 'origin/main', reserve=True):
@@ -380,7 +381,7 @@ with run.merge_turn(lp, 'origin/main', reserve=True):
         try:
             self.assertEqual(holder.stdout.readline().strip(), "held")
             thread = self.take_turn(one, entered, errors)
-            self.until(lambda: run.merge_turn_note(run.read_state(one.run_dir) or {}),
+            self.until(lambda: run.merge_turn_note(record.read_state(one.run_dir) or {}),
                        "an overlapping branch to wait for the child")
             holder.stdin.write("exit\n")
             holder.stdin.flush()

@@ -14,6 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from agentkit import config, run, worker
+from agentkit import record
 
 
 class RegressionFailsBefore(unittest.TestCase):
@@ -64,7 +65,7 @@ class RegressionFailsBefore(unittest.TestCase):
             state = {"run_id": "regression-test", "state": "running", "base": "main",
                      "base_sha": self.base, "branch": "ak/fix-api", "rounds": 3,
                      "executor": executor, "reviewer": reviewer, "round_summaries": []}
-            run.save_state(self.directory, state)
+            record.save_state(self.directory, state)
         cmds = cmds if cmds is not None else [f"bash {shlex.quote(str(self.script))}"]
         lp = run.Loop(self.cfg, self.directory, state, {}, self.logs.append, self.wt,
                       "# Fix empty input", cmds, "context", [])
@@ -117,7 +118,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assert_restored(head)
         lp.state["step"] = "reviewer"
         self.assertEqual(run.settled_gate(lp), (True, text))
-        resumed = self.loop(state=run.read_state(self.directory))
+        resumed = self.loop(state=record.read_state(self.directory))
         with patch.object(worker, "limited", wraps=worker.limited) as limited:
             self.assertTrue(run.verify_work(resumed)[0])
         self.assertEqual(len(limited.call_args_list), 1, "base was probed again after resume")
@@ -143,7 +144,7 @@ class RegressionFailsBefore(unittest.TestCase):
         lp = self.loop()
         with patch.dict(os.environ, {"PYTHONDONTWRITEBYTECODE": "", "PYTHONPYCACHEPREFIX": ""}):
             self.assertEqual(run.regression_fails_before(lp), "")
-            self.assertTrue(run.read_state(self.directory)["regression_checked"])
+            self.assertTrue(record.read_state(self.directory)["regression_checked"])
             base_output = (self.directory / "regression-base.log").read_text()
             self.assertIn("saw base", base_output)
             self.assertIn("[exit 1]", base_output)
@@ -180,7 +181,7 @@ class RegressionFailsBefore(unittest.TestCase):
             with self.assertRaises(run.Stopped):
                 run.verify_work(lp)
         self.assert_restored(self.base)
-        self.assertFalse(run.read_state(self.directory).get("regression_checked"))
+        self.assertFalse(record.read_state(self.directory).get("regression_checked"))
 
 
 if __name__ == "__main__":

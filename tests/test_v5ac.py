@@ -15,6 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, gc, job as jobs, run, usage
+from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/1"
 
@@ -193,17 +194,17 @@ sys.exit(0 if ok else 1)
                              "---\n# Task fixture\n\n## Done when\n"
                              f"```bash\n{self.command}\n```\n")
         code = run.main([str(self.task), "--exec", "opus", "--review", "astra", "--no-worktree"])
-        dirs = run.run_dirs()
+        dirs = record.run_dirs()
         self.assertEqual(len(dirs), 1)
         self.directory = dirs[0]
-        return code, run.read_state(self.directory)
+        return code, record.read_state(self.directory)
 
     def log_text(self):
         return (self.directory / "log.txt").read_text()
 
     def retry(self):
         code = run.main(["merge", self.directory.name])
-        return code, run.read_state(self.directory)
+        return code, record.read_state(self.directory)
 
     def test_v5ac_identical_patch_keeps_review(self):
         self.plan = {"target": {"independent": "new work"}}

@@ -15,6 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, gc, run
+from agentkit import record
 
 
 class AtRound(Exception):
@@ -93,7 +94,7 @@ class FromRunTakesTheTarget(unittest.TestCase):
         self.assertEqual(self.git(self.repo, "rev-parse", "origin/main"), self.base)
 
         def collect_usage(cfg, **_kw):
-            state = run.read_state(next(config.RUNS.iterdir()))
+            state = record.read_state(next(config.RUNS.iterdir()))
             self.assertTrue((Path(state["worktree"]) / "fixed.txt").is_file(),
                             "staffing began before merging the target")
             return {}
@@ -122,7 +123,7 @@ class FromRunTakesTheTarget(unittest.TestCase):
                 self.assertEqual((lp.wt / "fixed.txt").read_text(), "dev fix\n")
                 self.assertTrue(any("merged origin/dev" in line for line in self.logs))
                 self.assertEqual(lp.base_sha, fresh)
-                self.assertEqual(run.read_state(lp.run_dir)["base_sha"], fresh)
+                self.assertEqual(record.read_state(lp.run_dir)["base_sha"], fresh)
                 self.assertEqual(self.git(lp.wt, "diff", "--name-only",
                                           f"{lp.base_sha}...HEAD"), "carried.txt")
                 lp.files = ["carried.txt"]
@@ -192,7 +193,7 @@ class FromRunTakesTheTarget(unittest.TestCase):
         self.logs.clear()
         with patch.object(run, "fetch", side_effect=AssertionError("resume fetched")), \
                 patch.object(run, "git_out", wraps=run.git_out) as commands:
-            resumed = self.start(prior=run.read_state(lp.run_dir))
+            resumed = self.start(prior=record.read_state(lp.run_dir))
         self.assertEqual(self.git(resumed.wt, "rev-parse", "HEAD"), head)
         self.assertEqual(resumed.base_sha, lp.base_sha)
         self.assertFalse((resumed.wt / "later.txt").exists())

@@ -13,6 +13,7 @@ from test_v4n import Sandbox
 from test_merge_step import make_loop, make_repos
 from fixtures.hand_in import submitting
 from agentkit import run
+from agentkit import record
 
 
 class LandingReviewSpendsNoRound(Sandbox):
@@ -73,7 +74,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.lp.state["review_pending"]["round"] = spent + 1
         self.lp.state["review_pending"].pop("record")
         self.lp.save()
-        saved = run.read_state(self.run_dir)
+        saved = record.read_state(self.run_dir)
         return run.Loop(self.cfg, self.run_dir, saved, {}, self.lp.log, self.wt,
                         "body", ["true"], "context", [])
 
@@ -90,7 +91,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         return run.land(lp, "origin/main", lambda: run.integrate(lp, "origin/main"), deliver)
 
     def assert_no_round(self, lp):
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         self.assertEqual(state["round_summaries"], self.history)
         self.assertEqual(lp.rnd, len(self.history))
         self.assertEqual(state["rounds"], 3)
@@ -102,7 +103,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.assertTrue(self.land())
         self.assertEqual(self.events, [("reviewer", "round-3")])
         self.assert_no_round(self.lp)
-        self.assertTrue(run.read_state(self.run_dir)["merged"])
+        self.assertTrue(record.read_state(self.run_dir)["merged"])
 
     def test_pass_below_the_budget_spends_no_round(self):
         self.pending_merge(spent=1)
@@ -116,7 +117,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.assertTrue(self.land())
         self.assertEqual(self.events, [("reviewer", "round-1"), ("fixer", 2),
                                        ("reviewer", "round-2")])
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         self.assertEqual([entry["round"] for entry in state["round_summaries"]], [1, 2])
         self.assertEqual(state["round_summaries"][:1], self.history)
         self.assertTrue(state["merged"])
@@ -127,7 +128,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.assertFalse(self.land())
         self.assertEqual(self.events, [("reviewer", "round-3")])
         self.assert_no_round(self.lp)
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         self.assertEqual(state["review"]["verdict"], "FAIL")
         self.assertIn("work.txt:1 - the merged tree breaks", state["findings"])
         self.assertFalse(state["merged"])
@@ -137,14 +138,14 @@ class LandingReviewSpendsNoRound(Sandbox):
         with patch.object(run, "run_done_when", side_effect=run.Exhausted("check interrupted")):
             with self.assertRaisesRegex(run.Exhausted, "check interrupted"):
                 run.integrate(self.lp, "origin/main")
-        saved = run.read_state(self.run_dir)
+        saved = record.read_state(self.run_dir)
         resumed = run.Loop(self.cfg, self.run_dir, saved, {}, self.lp.log, self.wt,
                            "body", ["true"], "context", [])
         run.rounds(resumed)
         self.assertTrue(self.land(resumed))
         self.assertEqual(self.events, [("reviewer", "round-3")])
         self.assert_no_round(resumed)
-        self.assertTrue(run.read_state(self.run_dir)["merged"])
+        self.assertTrue(record.read_state(self.run_dir)["merged"])
 
     def test_legacy_landing_review_resumes_at_the_budget_and_lands(self):
         resumed = self.legacy_merge()
@@ -152,7 +153,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.assertTrue(self.land(resumed))
         self.assertEqual(self.events, [("reviewer", "round-3")])
         self.assert_no_round(resumed)
-        self.assertTrue(run.read_state(self.run_dir)["merged"])
+        self.assertTrue(record.read_state(self.run_dir)["merged"])
 
     def test_legacy_landing_review_below_the_budget_spends_only_the_fixer_round(self):
         resumed = self.legacy_merge(spent=1)
@@ -161,7 +162,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.assertTrue(self.land(resumed))
         self.assertEqual(self.events, [("reviewer", "round-1"), ("fixer", 2),
                                        ("reviewer", "round-2")])
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         self.assertEqual([entry["round"] for entry in state["round_summaries"]], [1, 2])
         self.assertEqual(state["round_summaries"][:1], self.history)
         self.assertTrue(state["merged"])
@@ -172,7 +173,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         run.rounds(resumed)
         self.assertEqual(self.events, [("reviewer", "round-3")])
         self.assert_no_round(resumed)
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         self.assertEqual(state["review"]["verdict"], "FAIL")
         self.assertIn("work.txt:1 - the merged tree breaks", state["findings"])
         self.assertFalse(state["merged"])
@@ -190,7 +191,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         with patch.object(run, "run_done_when", side_effect=run.Exhausted("check interrupted")):
             with self.assertRaisesRegex(run.Exhausted, "check interrupted"):
                 run.rounds(self.lp)
-        saved = run.read_state(self.run_dir)
+        saved = record.read_state(self.run_dir)
         resumed = run.Loop(self.cfg, self.run_dir, saved, self.lp.opts, self.lp.log, self.wt,
                            "body", ["true"], "context", [])
         with patch.object(run, "integrate", wraps=run.integrate) as integrate:

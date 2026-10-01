@@ -15,6 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, run, usage
+from agentkit import record
 
 
 class ReviewContract(unittest.TestCase):
@@ -124,12 +125,12 @@ sys.exit(row["code"])
         return [row for row in rows if role is None or row["role"] == role]
 
     def launch(self, *flags):
-        before = set(run.run_dirs())
+        before = set(record.run_dirs())
         code = run.main([str(self.task), *flags])
-        dirs = set(run.run_dirs()) - before
+        dirs = set(record.run_dirs()) - before
         self.assertEqual(len(dirs), 1)
         directory = dirs.pop()
-        return code, directory, run.read_state(directory)
+        return code, directory, record.read_state(directory)
 
     def assert_undelivered(self, state):
         self.assertFalse(run.review_pass(state, self.cfg))
@@ -148,7 +149,7 @@ sys.exit(row["code"])
         self.assertEqual(code, 0)
         state.update(state=status, reviewer=reviewer, review_session="old-review-session")
         state.pop("review")
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         return directory, state
 
     def test_explicit_same_provider_pair_reviews_without_refusal(self):
@@ -242,7 +243,7 @@ sys.exit(row["code"])
         self.respond({})
         self.assertEqual(run.cmd_resume([directory.name]), 0)
         self.assertEqual(len(self.calls("executor")), 1)
-        self.assertTrue(run.review_pass(run.read_state(directory), self.cfg))
+        self.assertTrue(run.review_pass(record.read_state(directory), self.cfg))
         self.assertTrue(all(p.read_text() == text for p, text in artifacts.items()))
 
     def test_fable_executor_resumes_review_from_its_seat_with_more_rounds(self):
@@ -273,7 +274,7 @@ sys.exit(row["code"])
                 {"code": 0, "text": "VERDICT: PASS"}]
             self.respond({state["reviewer"]: fail_then_pass, "astra": fail_then_pass})
             self.assertEqual(run.cmd_resume([directory.name, "--rounds", "2"]), 0)
-            state = run.read_state(directory)
+            state = record.read_state(directory)
             self.assertEqual(state["executor"], "fable")
             self.assertEqual(state["rounds"], 2)
             self.assertEqual(state["reviewer"], "astra")
@@ -292,7 +293,7 @@ sys.exit(row["code"])
                     self.available("anthropic")
                     self.assertEqual(run.cmd_resume([directory.name]), 0)
                     self.assertEqual([r["role"] for r in self.calls()[count:]], ["reviewer"])
-                    state = run.read_state(directory)
+                    state = record.read_state(directory)
                     self.assertTrue(run.review_pass(state, self.cfg))
                     self.assertEqual(state["reviewer"], "fable")
                     if reviewer in ("astra", "opus"):
@@ -310,7 +311,7 @@ sys.exit(row["code"])
         changed["models"]["astra"]["provider"] = config.model(self.cfg, "opus")["provider"]
         self.assertFalse(run.review_pass(state, changed))
         state["state"] = "interrupted"
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         count = len(self.calls())
         self.available("anthropic")
         self.assertEqual(run.cmd_resume([directory.name]), 0)
@@ -319,7 +320,7 @@ sys.exit(row["code"])
     def test_merge_entry_points_reject_legacy_pass_before_delivery(self):
         directory, state = self.legacy()
         state.update(scratch=False, state="pass", pr="https://github.com/fixture/repo/pull/1")
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         lp = self.loop_for(directory, state)
         with self.assertRaisesRegex(config.Error, "successful reviewer"):
             run.cmd_merge([directory.name])

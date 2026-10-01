@@ -24,6 +24,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, run, watch
+from agentkit import record as run_record
 
 SANDBOXED = ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE")
 COLLECTOR = [sys.executable, "-m", "agentkit.retention", "collect"]
@@ -110,7 +111,7 @@ class ConfigHome(unittest.TestCase):
         """A run whose loop process is gone, for maintenance to find and mark interrupted."""
         directory = config.RUNS / "20260920-0000-config-home"
         directory.mkdir(parents=True)
-        run.save_state(directory, {"run_id": directory.name, "title": "A loop that died",
+        run_record.save_state(directory, {"run_id": directory.name, "title": "A loop that died",
                                    "state": "running", "verdict": None, "merged": False,
                                    "reported": False, "executor": "opus", "reviewer": "astra",
                                    "pid": DEAD, "started_at": 0, "finished_at": None})
@@ -155,7 +156,7 @@ class ConfigHome(unittest.TestCase):
             with patch("subprocess.run", side_effect=record), \
                     patch("subprocess.Popen", side_effect=record):
                 orch.maintenance(lambda message: None)
-            state = run.read_state(directory)
+            state = run_record.read_state(directory)
         # the reconciliation stays: a loop whose process is gone is recoverable work, not `working`
         self.assertEqual(state["state"], "interrupted", state)
         self.assertTrue(run.needs_recovery(state), state)

@@ -15,6 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, notify, run, worker
+from agentkit import record
 
 # The words the task pins, quoted here so the tests fail if the loop rewords them.
 HEADER = ("Run long commands, tests included, in the foreground and wait for them; "
@@ -182,10 +183,10 @@ sys.exit(1)
         self.task.write_text(f"---\nrepo: none\nrounds: {rounds}\n---\n"
                              f"# Budget fixture {self.root.name}\n\n"
                              f"## Done when\n```bash\n{done_when}\n```\n")
-        before = set(run.run_dirs())
+        before = set(record.run_dirs())
         code = run.main([str(self.task), "--exec", self.executor, "--review", self.reviewer])
-        directory = (set(run.run_dirs()) - before).pop()
-        return code, directory, run.read_state(directory)
+        directory = (set(record.run_dirs()) - before).pop()
+        return code, directory, record.read_state(directory)
 
     def calls(self, role=None):
         path = self.root / "calls.jsonl"
@@ -207,7 +208,7 @@ sys.exit(1)
                                     "executor", None, env={"V5W_SENTINEL": "kept"}, limit=120)
         self.assertEqual(code, 0)
         call = self.calls("executor")[-1]
-        cap = str(int(run.CEILING_HOURS * 3600 * 1000))
+        cap = str(int(record.CEILING_HOURS * 3600 * 1000))
         self.assertEqual(cap, "21600000")
         self.assertEqual(call["bash_default"], cap)
         self.assertEqual(call["bash_max"], cap)
@@ -224,7 +225,7 @@ sys.exit(1)
                                 "--out", str(out)])
         self.assertEqual(code, 0)
         call = self.calls("executor")[-1]
-        cap = str(int(run.CEILING_HOURS * 3600 * 1000))
+        cap = str(int(record.CEILING_HOURS * 3600 * 1000))
         self.assertEqual(call["bash_default"], cap)
         self.assertEqual(call["bash_max"], cap)
 

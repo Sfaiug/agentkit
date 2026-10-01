@@ -22,6 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import config, notify, orch, run, watch
+from agentkit import record
 
 ADAPTER = """import json, os, sys
 from pathlib import Path
@@ -107,7 +108,7 @@ class ResumeMidturn(unittest.TestCase):
                  "executor": "opus", "reviewer": "astra", "rounds": 3,
                  "round_summaries": [], "step": "executor", "worktree": str(work),
                  "scratch": True, "base": None, **extra}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         return directory
 
     def calls(self):
@@ -124,14 +125,14 @@ class ResumeMidturn(unittest.TestCase):
         """
         watch.resume_dead_loops(dry_run=False, log=self.logs.append,
                                 now=self.now if now is None else now)
-        for directory in run.run_dirs():
-            state = run.read_state(directory)
+        for directory in record.run_dirs():
+            state = record.read_state(directory)
             if state:
                 run.reap(directory, state)
 
     def loop(self, name, cmds=("true",)):
         directory = config.RUNS / name
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         work = Path(state["worktree"])
         lp = run.Loop(config.load(), directory, state, {}, self.logs.append, work,
                       "task body", list(cmds), "context line", [])
@@ -141,7 +142,7 @@ class ResumeMidturn(unittest.TestCase):
     def test_tick_resumes_a_dead_running_loop_and_the_session_stays_working(self):
         directory = self.receipt("20260922-1300-dead")
         self.tick()
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertNotIn("interrupted_at", state, "a record about to run again is not interrupted")
         self.assertNotIn("interruption_reason", state)
         self.assertEqual(self.resumed, [directory.name])
@@ -164,17 +165,17 @@ class ResumeMidturn(unittest.TestCase):
         ordered = self.receipt("20260922-1301-ordered", stall_resume_at=self.now)
         watch.resume_dead_loops(dry_run=False, log=self.logs.append, now=self.now)
         self.assertEqual(self.resumed, [])
-        self.assertEqual(run.read_state(grace)["state"], "queued")
-        self.assertNotIn("deaths", run.read_state(ordered))
+        self.assertEqual(record.read_state(grace)["state"], "queued")
+        self.assertNotIn("deaths", record.read_state(ordered))
         self.assertEqual(self.cards, [])
 
     def died_again(self, directory, pid):
         """The resume ran and then died: the child had adopted the record, so the order
         stamp is gone and the pid on it is the one that has just exited."""
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         state.pop("stall_resume_at", None)
         state["pid"] = pid
-        run.save_state(directory, state)
+        record.save_state(directory, state)
 
     def test_backoff_waits_and_a_third_death_parks_with_one_notice(self):
         directory = self.receipt("20260922-1302-backoff")
@@ -183,7 +184,7 @@ class ResumeMidturn(unittest.TestCase):
         self.died_again(directory, 2 ** 30 - 1)
         self.tick(self.now + 60)
         self.assertEqual(self.resumed, [directory.name], "a second death inside 10 min waits")
-        waiting = run.read_state(directory)
+        waiting = record.read_state(directory)
         self.assertEqual(len(waiting["deaths"]), 2)
         # The whole tick holds the wait, reap included: no interruption, no card, and the
         # seat goes on reading `working` for the ten minutes.
@@ -198,11 +199,11 @@ class ResumeMidturn(unittest.TestCase):
         self.assertTrue(any("next try after 10 min" in line for line in self.logs))
         self.tick(self.now + 700)
         self.assertEqual(len(self.resumed), 2, "the next try comes after the backoff")
-        self.assertNotIn("resume_after", run.read_state(directory))
+        self.assertNotIn("resume_after", record.read_state(directory))
         self.died_again(directory, 2 ** 30 - 2)
         before = len(self.cards)
         self.tick(self.now + 760)
-        parked = run.read_state(directory)
+        parked = record.read_state(directory)
         self.assertEqual(parked["state"], "interrupted")
         self.assertTrue(parked["deaths"][-1]["parked"])
         self.assertEqual(len(self.resumed), 2, "a parked run is not launched")
@@ -212,14 +213,14 @@ class ResumeMidturn(unittest.TestCase):
 
     def test_a_menu_look_before_the_tick_does_not_spend_the_recovery_card(self):
         directory = self.receipt("20260922-1302-look")
-        run.reap(directory, run.read_state(directory))
+        run.reap(directory, record.read_state(directory))
         self.assertEqual(self.cards, [], "a death the tick answers is nobody's news")
-        self.assertFalse(run.read_state(directory).get("recovery_notified"))
+        self.assertFalse(record.read_state(directory).get("recovery_notified"))
         # the reap records the death it noticed, which is how the next tick knows this
         # interruption is a loop to carry on and not one a person was handed
-        self.assertEqual(len(run.read_state(directory)["deaths"]), 1)
+        self.assertEqual(len(record.read_state(directory)["deaths"]), 1)
         self.tick()
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual(self.resumed, [directory.name])
         self.assertEqual(state["state"], "running")
         self.assertNotIn("interrupted_at", state)
@@ -234,7 +235,7 @@ class ResumeMidturn(unittest.TestCase):
         with patch.object(run, "memory_cap_reason", return_value="killed: memory cap 4 GB"):
             watch.resume_dead_loops(dry_run=False, log=self.logs.append, now=self.now)
         self.assertEqual(self.resumed, [])
-        self.assertNotIn("deaths", run.read_state(directory))
+        self.assertNotIn("deaths", record.read_state(directory))
         self.assertEqual(self.cards, [])
 
     def test_stopped_run_and_a_missing_worktree_are_not_resumed(self):
@@ -246,12 +247,12 @@ class ResumeMidturn(unittest.TestCase):
         older = self.receipt("20260922-1303-older", state="interrupted")
         watch.resume_dead_loops(dry_run=False, log=self.logs.append, now=self.now)
         self.assertEqual(self.resumed, [])
-        self.assertEqual(run.read_state(stopped)["state"], "stopped")
+        self.assertEqual(record.read_state(stopped)["state"], "stopped")
         self.assertTrue(any("worktree" in line and "explicit resume" in line for line in self.logs))
-        self.assertTrue(run.read_state(missing).get("dead_worktree_warned"))
-        self.assertNotIn("deaths", run.read_state(unstarted))
-        self.assertEqual(run.read_state(older)["state"], "interrupted")
-        self.assertNotIn("deaths", run.read_state(older))
+        self.assertTrue(record.read_state(missing).get("dead_worktree_warned"))
+        self.assertNotIn("deaths", record.read_state(unstarted))
+        self.assertEqual(record.read_state(older)["state"], "interrupted")
+        self.assertNotIn("deaths", record.read_state(older))
         self.assertEqual(self.cards, [])
 
     def test_executor_turn_resumes_its_session_into_the_next_attempt(self):
@@ -269,7 +270,7 @@ class ResumeMidturn(unittest.TestCase):
         self.assertEqual(recorded[0]["out"], "executor-attempt2")
         self.assertIn("continued", summary)
         self.assertTrue((directory / "round-1" / "executor-attempt2" / "final.md").is_file())
-        self.assertFalse(run.read_state(directory)["resume_notice"]["restarted"])
+        self.assertFalse(record.read_state(directory)["resume_notice"]["restarted"])
 
     def test_a_resume_that_exits_with_no_output_starts_a_fresh_conversation(self):
         os.environ["RESUME_DIE"] = "dead-sid"
@@ -281,10 +282,10 @@ class ResumeMidturn(unittest.TestCase):
         run.execute(lp, "executor", "original task text", "executor")
         recorded = self.calls()
         self.assertEqual([call["sid"] for call in recorded], ["dead-sid", ""])
-        self.assertEqual(run.read_state(directory)["exec_session"], "fresh-session")
+        self.assertEqual(record.read_state(directory)["exec_session"], "fresh-session")
         self.assertTrue(any(line == "resume of dead-sid failed; fresh conversation"
                             for line in self.logs))
-        self.assertTrue(run.read_state(directory)["resume_notice"]["restarted"])
+        self.assertTrue(record.read_state(directory)["resume_notice"]["restarted"])
         self.assertIn("original task text", recorded[1]["prompt"])
 
     def test_reviewer_resume_counts_its_verdict_for_the_round(self):
@@ -305,7 +306,7 @@ class ResumeMidturn(unittest.TestCase):
         self.assertEqual(recorded[0]["sid"], "sess-reviewer")
         self.assertIn("do not start over.", recorded[0]["prompt"])
         self.assertEqual(recorded[0]["out"], "reviewer-attempt2")
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual(state["round_summaries"][-1]["verdict"], "PASS")
         self.assertEqual(state["verdict"], "PASS")
 
@@ -323,7 +324,7 @@ class ResumeMidturn(unittest.TestCase):
         self.assertIn("fix the done-when failure", recorded[1]["prompt"])
         self.assertTrue(any(line == "resume of sess-fixer failed; fresh conversation"
                             for line in self.logs))
-        self.assertTrue(run.read_state(directory)["resume_notice"]["restarted"])
+        self.assertTrue(record.read_state(directory)["resume_notice"]["restarted"])
 
     def test_a_dead_reviewer_session_judges_the_round_from_a_fresh_conversation(self):
         os.environ["RESUME_DIE"] = "sess-reviewer"
@@ -345,7 +346,7 @@ class ResumeMidturn(unittest.TestCase):
         self.assertNotIn("do not start over.", recorded[1]["prompt"])
         self.assertTrue(any(line == "resume of sess-reviewer failed; fresh conversation"
                             for line in self.logs))
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual(state["round_summaries"][-1]["verdict"], "PASS")
         self.assertTrue(state["resume_notice"]["restarted"])
 
@@ -368,14 +369,14 @@ class ResumeMidturn(unittest.TestCase):
         self.assertEqual(recorded[0]["sid"], "sess-fallback")
         self.assertEqual(recorded[0]["out"], "reviewer-astra-attempt2")
         self.assertIn("do not start over.", recorded[0]["prompt"])
-        self.assertEqual(run.read_state(directory)["round_summaries"][-1]["verdict"], "PASS")
+        self.assertEqual(record.read_state(directory)["round_summaries"][-1]["verdict"], "PASS")
 
     def test_a_slot_wait_resumes_with_its_original_queued_at(self):
         waited_since = self.now - 3600
         directory = self.receipt("20260922-1311-slot", state="queued", slot_waiting=True,
                                  queued_at=waited_since, step=None)
         self.tick()
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual(self.resumed, [directory.name])
         self.assertEqual(state["state"], "queued")
         self.assertEqual(state["queued_at"], waited_since, "it keeps its place in the queue")
@@ -427,12 +428,12 @@ class ResumeMidturn(unittest.TestCase):
             self.assertIn(spelling, " ".join(argv.read_text().split()), harness)
 
     def test_status_shows_the_resumed_line_and_lists_deaths(self):
-        directory = self.receipt("20260922-1307-status", **run.process_owner())
-        state = run.read_state(directory)
+        directory = self.receipt("20260922-1307-status", **record.process_owner())
+        state = record.read_state(directory)
         state["resume_notice"] = {"at": self.now, "role": "executor", "restarted": False}
         state["deaths"] = [{"at": self.now, "pid": 111,
                             "reason": "loop process 111 gone, noticed 2026-09-22 13:05:00"}]
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         out = io.StringIO()
         with patch.object(time, "time", return_value=self.now + 10), redirect_stdout(out):
             self.assertEqual(run.cmd_status([directory.name]), 0)

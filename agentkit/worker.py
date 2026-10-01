@@ -10,7 +10,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import command_help, config, hand_in
+from . import command_help, config, hand_in, record
 
 # A worker session is not a seat: `ak notify` is suppressed there, and a finding names a class
 # the fixer has to finish, not a line to patch, so that a later round only confirms fixes.
@@ -554,8 +554,7 @@ def shell_timeout_ms():
     This is the shell maximum, not a silence exemption: a foreground tool whose
     harness emits no events can still lose its turn to the silence watchdog.
     """
-    from . import run as loop
-    return str(int(loop.CEILING_HOURS * 3600 * 1000))
+    return str(int(record.CEILING_HOURS * 3600 * 1000))
 
 
 def call(cfg, model_name, body, workspace, out_dir, role="executor", session=None, env=None,

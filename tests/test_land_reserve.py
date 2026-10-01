@@ -23,6 +23,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from agentkit import host, config, run, watch
+from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/7"
 
@@ -73,7 +74,7 @@ def make_run(root, remote, name, cmds, edits=None):
 
     state = {
         "run_id": run_dir.name, "title": name, "state": "running", "verdict": "PASS",
-        **run.process_owner(), "started_at": time.time(),
+        **record.process_owner(), "started_at": time.time(),
         "review": {"executor": "opus", "executor_provider": executor_provider,
                    "reviewer": "astra", "reviewer_provider": reviewer_provider,
                    "returncode": 0, "verdict": "PASS", "done_when": True,
@@ -86,7 +87,7 @@ def make_run(root, remote, name, cmds, edits=None):
         "merge_method": "squash", "merged": False, "merge_failed": False,
         "merge_note": None, "findings": "",
     }
-    run.save_state(run_dir, state)
+    record.save_state(run_dir, state)
     return run.Loop(cfg, run_dir, state, {}, log, wt, "body", cmds, "context", [])
 
 
@@ -170,7 +171,7 @@ class LandingCase(unittest.TestCase):
 
         def probe(lp, upstream, dw_log):
             own = getattr(run._MERGE_HELD, "hold", None) is not None
-            state = run.read_state(lp.run_dir) or {}
+            state = record.read_state(lp.run_dir) or {}
             self.probes.append((lp.wt.name, own, merge_held(lp.wt),
                                 run.merge_hold_note(state)))
             return real_target_fails(lp, upstream, dw_log)
@@ -179,7 +180,7 @@ class LandingCase(unittest.TestCase):
         def fix(lp, role, text, name):
             self.fixer_seen["held"] = merge_held(lp.wt)
             self.fixer_seen["own"] = getattr(run._MERGE_HELD, "hold", None) is not None
-            state = run.read_state(lp.run_dir) or {}
+            state = record.read_state(lp.run_dir) or {}
             self.fixer_seen["note"] = run.merge_turn_note(state)
             self.fixer_seen["hold_note"] = run.merge_hold_note(state)
             if not self.fixer:
@@ -209,7 +210,7 @@ class LandingCase(unittest.TestCase):
         run.git(owner, "commit", "-m", lp.state["title"])
         run.git(owner, "push", "origin", "main")
         lp.state["merged"] = True
-        run.save_state(lp.run_dir, lp.state)
+        record.save_state(lp.run_dir, lp.state)
         return True
 
     def land(self, lp, results):
@@ -251,9 +252,9 @@ class LandReserve(LandingCase):
         results = {}
         first = self.land(one, results)
         try:
-            self.until(lambda: run.merge_hold_note(run.read_state(one.run_dir) or {}).startswith(
+            self.until(lambda: run.merge_hold_note(record.read_state(one.run_dir) or {}).startswith(
                 "holding the merge turn"), "the second lap to hold the turn")
-            state = run.read_state(one.run_dir) or {}
+            state = record.read_state(one.run_dir) or {}
             self.assertEqual(run.merge_hold_note(state),
                              "holding the merge turn of acme main to land")
             self.assertEqual(run.merge_turn_note(state), "")
@@ -271,8 +272,8 @@ class LandReserve(LandingCase):
         self.assertFalse(first.is_alive(), "the reserved run never finished")
         self.assertEqual(results.get(one.state["run_id"]), True)
         self.assertEqual(results.get(two.state["run_id"]), True)
-        self.assertNotIn("merge_hold", run.read_state(one.run_dir) or {})
-        self.assertEqual(run.merge_hold_note(run.read_state(one.run_dir) or {}), "")
+        self.assertNotIn("merge_hold", record.read_state(one.run_dir) or {})
+        self.assertEqual(run.merge_hold_note(record.read_state(one.run_dir) or {}), "")
         laps = [extra for run_id, extra in self.pickups if run_id == one.state["run_id"]]
         self.assertEqual(laps, [{"land_lap": 1}, {"land_lap": 2}])
         acme_checks = [held for name, held in self.checks if name == "acme"]
@@ -333,7 +334,7 @@ class LandReserve(LandingCase):
         self.assertFalse(self.fixer_seen["own"])
         self.assertEqual(self.fixer_seen["note"], "")
         self.assertEqual(self.fixer_seen["hold_note"], "")
-        self.assertNotIn("merge_hold", run.read_state(lp.run_dir) or {})
+        self.assertNotIn("merge_hold", record.read_state(lp.run_dir) or {})
 
     def test_first_lap_and_disjoint_landing_never_take_early(self):
         remote, owner = make_origin(self.root)

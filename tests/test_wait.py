@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
 from agentkit import config, notify, orch, run, watch, worker
+from agentkit import record
 
 NOW = 1_800_000_000
 SEAT, OTHER = "acme-api", "fix-api"
@@ -70,7 +71,7 @@ class Wait(Sandbox):
     def receipt(self, name, owner, **extra):
         directory = config.RUNS / name
         directory.mkdir(parents=True, exist_ok=True)
-        run.save_state(directory, {"run_id": name, "title": f"Task {name}", "state": "running",
+        record.save_state(directory, {"run_id": name, "title": f"Task {name}", "state": "running",
                                    "launched_session": owner, "repo": self.repo,
                                    "started_at": NOW - 600, "finished_at": None, **extra})
 
@@ -154,8 +155,8 @@ class Wait(Sandbox):
         self.assertEqual(self.decide(), ("needs you", "waiting for you"))
         self.receipt("20260101-0800-absent", OTHER)
         self.assertEqual(self.decide(), ("working", f"waiting on {OTHER}"))
-        run.save_state(config.RUNS / "20260101-0800-absent", {
-            **run.read_state(config.RUNS / "20260101-0800-absent"), "state": "pass",
+        record.save_state(config.RUNS / "20260101-0800-absent", {
+            **record.read_state(config.RUNS / "20260101-0800-absent"), "state": "pass",
             "finished_at": NOW - 30})
         self.seats[OTHER] = gone
         # the wait itself is still the seat's word: nothing that looked ended it

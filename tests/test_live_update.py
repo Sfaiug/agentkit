@@ -24,6 +24,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import browser, config, gc, job as jobs, notify, orch, run, update, usage, watch
+from agentkit import record
 
 INSTALL = '#!/bin/sh\necho installed >>"$(dirname "$0")/../installs"\n'
 
@@ -109,7 +110,7 @@ class LiveUpdate(unittest.TestCase):
                                 (browser, "tidy"), (watch, "incoming"), (watch, "outgoing"),
                                 (update, "keep_current")):
                 stack.enter_context(patch.object(where, name))
-            stack.enter_context(patch.object(run, "run_dirs", return_value=[]))
+            stack.enter_context(patch.object(record, "run_dirs", return_value=[]))
             stack.enter_context(patch.object(config, "load", return_value=self.cfg))
             stack.enter_context(patch.object(watch, "gh_json",
                                              return_value=(None, "offline fixture")))

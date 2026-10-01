@@ -11,6 +11,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, run  # noqa: E402
+from agentkit import record
 
 
 HEALTHY = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -23,7 +24,7 @@ class Slots(unittest.TestCase):
                                            "AK_MAX_LOAD": "8"})
         self.env.start()
         self.addCleanup(self.env.stop)
-        self.owner = patch.object(run, "process_owner", return_value={"pid": 1})
+        self.owner = patch.object(record, "process_owner", return_value={"pid": 1})
         self.owner.start()
         self.addCleanup(self.owner.stop)
         self.counts = patch.object(run, "slot_counts", return_value=(0, 0))
@@ -151,7 +152,7 @@ class Slots(unittest.TestCase):
                 directory = runs / "r"
                 directory.mkdir()
                 run.capture_launch(directory)
-                state = run.read_state(directory)
+                state = record.read_state(directory)
                 self.assertEqual(state["state"], "queued")
                 self.assertNotIn("slot_healthy_polls", state)
 
@@ -168,7 +169,7 @@ class Slots(unittest.TestCase):
                 directory = runs / "r"
                 directory.mkdir()
                 (directory / "log.txt").write_text("started\n")
-                run.save_state(directory, {"run_id": "r", "state": "queued",
+                record.save_state(directory, {"run_id": "r", "state": "queued",
                                             "slot_waiting": True, "queued_at": time.time(),
                                             "pid": os.getpid(), "run_depth": 0})
                 run.wait_for_slot(directory)

@@ -24,6 +24,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, run
+from agentkit import record as run_record
 
 
 class GeneralChecks(unittest.TestCase):
@@ -55,11 +56,11 @@ class GeneralChecks(unittest.TestCase):
         (directory / "task.md").write_text(
             f"---\nrepo: {self.repo}\n---\n# {title}\n\n## Done when\n```bash\n"
             + "\n".join(cmds) + "\n```\n")
-        state = ({"state": "queued" if stub else "running", **run.process_owner()}
+        state = ({"state": "queued" if stub else "running", **run_record.process_owner()}
                  if live or stub else {"state": "pass", "pid": 99999999})
         if not stub:
             state.update(title=title, repo=str(self.repo))
-        run.save_state(directory, {"run_id": name, "started_at": time.time() - 60, **state})
+        run_record.save_state(directory, {"run_id": name, "started_at": time.time() - 60, **state})
 
     def rivals(self, title, cmds):
         return run.already_under_way(self.root / "task.md", {"repo": str(self.repo)},

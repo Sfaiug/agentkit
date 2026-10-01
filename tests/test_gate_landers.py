@@ -20,6 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, run, worker
+from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"        # a main checkout as the records name it; never opened
 
@@ -70,13 +71,13 @@ class GateLanders(unittest.TestCase):
         directory = config.RUNS / name
         directory.mkdir()
         state = {"run_id": name, "title": name, "state": "running", "verdict": None,
-                 "repo": repo, **run.process_owner(),
+                 "repo": repo, **run_record.process_owner(),
                  "started_at": time.time(), "round_summaries": []}
         if first:
             state["first"] = True
         if landing:
             state["landing"] = True
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         return directory
 
     def waiter(self, name, repo, since, first=False, landing=False, landing_since=None):
@@ -87,18 +88,18 @@ class GateLanders(unittest.TestCase):
         landing key at all.
         """
         directory = self.record(name, repo, first, landing)
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         mark = {"pid": state["pid"], "of": str(run.main_checkout(repo)), "since": since}
         if landing:
             mark["landing"] = True
             (directory / "landing_since").write_text(
                 repr(since if landing_since is None else landing_since))
         state["gate_turn"] = mark
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         return directory
 
     def turn(self, name):
-        return (run.read_state(config.RUNS / name) or {}).get("gate_turn") or {}
+        return (run_record.read_state(config.RUNS / name) or {}).get("gate_turn") or {}
 
     def mark(self, word, seconds=0):
         return f"echo {word} >> {shlex.quote(str(self.marks))}; sleep {seconds}"
@@ -156,19 +157,19 @@ class GateLanders(unittest.TestCase):
         # gate turn first, so the laps below run after their marks are gone
         for name in ("old-lander", "new-lander", "lander-first"):
             directory = config.RUNS / name
-            ranked = run.read_state(directory)
+            ranked = run_record.read_state(directory)
             ranked.pop("gate_turn", None)
-            run.save_state(directory, ranked)
+            run_record.save_state(directory, ranked)
         # across laps in a real landing: each lap waits, and a whole-record save of
         # the loop's own state between two waits keeps the landing's start
         run_dir = self.record("lap-run", ACME)
-        state = run.read_state(run_dir)
+        state = run_record.read_state(run_dir)
         state["base_sha"] = "base0001"
-        run.save_state(run_dir, state)
-        lp = SimpleNamespace(state=run.read_state(run_dir), run_dir=run_dir,
+        run_record.save_state(run_dir, state)
+        lp = SimpleNamespace(state=run_record.read_state(run_dir), run_dir=run_dir,
                              wt=self.root / "wt", base_sha="base0001", once=[],
                              log=lambda msg: None, no_pickup=True,
-                             write=lambda: run.save_state(run_dir, lp.state))
+                             write=lambda: run_record.save_state(run_dir, lp.state))
         firsts = []
 
         def verify():
@@ -176,7 +177,7 @@ class GateLanders(unittest.TestCase):
             firsts.append(began)
             self.assertEqual(run._first_landing_wait(run_dir), began)
             run.mark_gate_wait(run_dir, None)
-            run.save_state(run_dir, lp.state)   # an inner save, as final_check does
+            run_record.save_state(run_dir, lp.state)   # an inner save, as final_check does
             return True
 
         with patch.object(run, "git", return_value="tip9999"), \
@@ -223,18 +224,18 @@ class GateLanders(unittest.TestCase):
 
     def test_land_marks_landing_for_its_gate_waits_and_clears_it(self):
         run_dir = self.record("landing-run", ACME)
-        state = run.read_state(run_dir)
+        state = run_record.read_state(run_dir)
         state["base_sha"] = "base0001"
-        run.save_state(run_dir, state)
+        run_record.save_state(run_dir, state)
         logs = []
-        lp = SimpleNamespace(state=run.read_state(run_dir), run_dir=run_dir,
+        lp = SimpleNamespace(state=run_record.read_state(run_dir), run_dir=run_dir,
                              wt=self.root / "wt", base_sha="base0001", once=[],
                              log=logs.append, no_pickup=True,
-                             write=lambda: run.save_state(run_dir, lp.state))
+                             write=lambda: run_record.save_state(run_dir, lp.state))
         repo = run.main_checkout(ACME)
 
         def verify():
-            on_disk = run.read_state(run_dir)
+            on_disk = run_record.read_state(run_dir)
             self.assertTrue(on_disk.get("landing"))
             # the landing starts unwaited: the first wait seeds the count
             self.assertIsNone(run._first_landing_wait(run_dir))
@@ -246,7 +247,7 @@ class GateLanders(unittest.TestCase):
             return True
 
         def deliver():
-            self.assertTrue(run.read_state(run_dir).get("landing"))
+            self.assertTrue(run_record.read_state(run_dir).get("landing"))
             return True
 
         with patch.object(run, "git", return_value="base0001"), \
@@ -254,18 +255,18 @@ class GateLanders(unittest.TestCase):
             self.assertTrue(run.land(lp, "origin/main", verify, deliver,
                                      execv=lambda *a: self.fail("no pickup here")))
         self.assertNotIn("landing", lp.state)
-        self.assertNotIn("landing", run.read_state(run_dir))
+        self.assertNotIn("landing", run_record.read_state(run_dir))
         self.assertFalse((run_dir / "landing_since").exists())
         # a pickup resume keeps its marker with its lap count
         rerun = self.record("landing-resumed", ACME)
-        state = run.read_state(rerun)
+        state = run_record.read_state(rerun)
         state.update(base_sha="base0001", land_lap=2)
-        run.save_state(rerun, state)
+        run_record.save_state(rerun, state)
         (rerun / "landing_since").write_text("1000.0")
-        kept = SimpleNamespace(state=run.read_state(rerun), run_dir=rerun,
+        kept = SimpleNamespace(state=run_record.read_state(rerun), run_dir=rerun,
                                wt=self.root / "wt", base_sha="base0001", once=[],
                                log=lambda msg: None, no_pickup=True,
-                               write=lambda: run.save_state(rerun, kept.state))
+                               write=lambda: run_record.save_state(rerun, kept.state))
 
         def again():
             self.assertEqual(run.mark_gate_wait(rerun, repo), 1000.0)

@@ -28,6 +28,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting, scripted
 from agentkit import host, config, notify, orch, run, usage, watch
+from agentkit import record
 
 WEEK = 604800
 TASK = "---\nrepo: none\nrounds: 1\n---\n# Quota fixture\n\n## Done when\n```bash\ntest -f deliverable\n```\n"
@@ -182,7 +183,7 @@ class Quota(unittest.TestCase):
                  "base_sha": None, "scratch": scratch, "no_merge": True, "findings": "",
                  "error": "every provider is out of budget",
                  "started_at": self.now - 600, "finished_at": self.now - 60}
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         return run_dir, state
 
     def test_quota_dry_executor_hands_over_mid_round_and_answers(self):
@@ -195,12 +196,12 @@ class Quota(unittest.TestCase):
         state = {"run_id": run_dir.name, "title": run_dir.name, "state": "running",
                  "verdict": None, "executor": "astra", "reviewer": "spark",
                  "rounds": 2, "round_summaries": [], "findings": ""}
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         logs = []
         lp = SimpleNamespace(cfg=self.cfg, run_dir=run_dir, state=state, wt=wt,
                              executor="astra", reviewer="spark", exec_sid=None, rnd=1,
                              turn_limit=60, log=logs.append,
-                             save=lambda: run.save_state(run_dir, lp.state),
+                             save=lambda: record.save_state(run_dir, lp.state),
                              role=lambda role: f"{role}-scratch",
                              dir=lambda name: run_dir / "round-1" / name)
         bodies = {}
@@ -221,7 +222,7 @@ class Quota(unittest.TestCase):
         self.assertEqual((lp.executor, lp.exec_sid), ("opus", "s-opus"))
         self.assertIn("Another model started this round", bodies["opus"])
         self.assertIn("Do the task.", bodies["opus"])
-        history = run.read_state(run_dir)["executor_history"]
+        history = record.read_state(run_dir)["executor_history"]
         self.assertEqual([(entry["from"], entry["to"], entry["reason"]) for entry in history],
                          [("astra", "opus", "dry")])
         self.assertTrue(any("handing executor to opus" in line for line in logs), logs)
@@ -248,7 +249,7 @@ class Quota(unittest.TestCase):
                 redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
             self.assertEqual(run.drive(self.cfg, run_dir, opts, run.logger(run_dir, False),
                                        prior=state), 1)
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "exhausted")
         self.assertIn("ran dry", saved["error"])
         self.assertTrue(saved["quota_dry"])   # the tick may watch this one refill
@@ -261,7 +262,7 @@ class Quota(unittest.TestCase):
         run_dir, state = self.receipt("20260916-1207-quota-pass")
         state.update(state="exhausted", error="every provider is out of budget",
                      quota_dry=True)
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         providers = self.providers(openai_used=40, anthropic_used=100, meta_used=50)
         def turn(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None):
             Path(out_dir).mkdir(parents=True, exist_ok=True)
@@ -283,7 +284,7 @@ class Quota(unittest.TestCase):
                 redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
             self.assertEqual(run.drive(self.cfg, run_dir, opts, run.logger(run_dir, False),
                                        prior=state), 0)
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "pass")
         self.assertNotIn("quota_dry", saved)
         self.assertEqual(sent, [])
@@ -301,7 +302,7 @@ class Quota(unittest.TestCase):
         review = {"executor": "astra", "executor_provider": "openai", "reviewer": "spark",
                   "reviewer_provider": "meta", "returncode": 0, "verdict": "PASS",
                   "done_when": True}
-        run.save_state(run_dir, {
+        record.save_state(run_dir, {
             "run_id": run_dir.name, "title": run_dir.name, "state": "pass", "verdict": "PASS",
             "executor": "astra", "reviewer": "spark", "review": review,
             "rounds": 1, "round_summaries": [{"round": 1, "verdict": "PASS", "done_when": True,
@@ -317,7 +318,7 @@ class Quota(unittest.TestCase):
                 patch.object(notify, "shaped", return_value=0), \
                 redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
             self.assertEqual(run.cmd_merge([run_dir.name]), 1)
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "exhausted")
         self.assertIn("gh api stopped", saved["error"])
         self.assertNotIn("quota_dry", saved)
@@ -330,7 +331,7 @@ class Quota(unittest.TestCase):
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.drive(self.cfg, run_dir, {"--rounds": None}, run.logger(
                 run_dir, False), prior=state), 1)
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "exhausted")
         self.assertNotIn("quota_dry", saved)
 
@@ -340,12 +341,12 @@ class Quota(unittest.TestCase):
         # relaunch a tool-stopped run every RESUME_EVERY for a window never spent.
         run_dir, state = self.receipt("20260916-1206-quota-stale")
         state["quota_dry"] = True
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         with patch.object(run, "loop", side_effect=run.Stopped("git push stopped: timed out")), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.drive(self.cfg, run_dir, {"--rounds": None}, run.logger(
                 run_dir, False), prior=state), 1)
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "exhausted")
         self.assertNotIn("quota_dry", saved)
 
@@ -360,12 +361,12 @@ class Quota(unittest.TestCase):
         state = {"run_id": run_dir.name, "title": run_dir.name, "state": "running",
                  "verdict": None, "executor": "astra", "reviewer": "opus",
                  "rounds": 2, "round_summaries": [], "findings": ""}
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         logs = []
         lp = SimpleNamespace(cfg=self.cfg, run_dir=run_dir, state=state, wt=wt,
                              executor="astra", reviewer="opus", exec_sid=None, rnd=1,
                              turn_limit=60, log=logs.append,
-                             save=lambda: run.save_state(run_dir, lp.state),
+                             save=lambda: record.save_state(run_dir, lp.state),
                              role=lambda role: f"{role}-scratch",
                              dir=lambda name: run_dir / "round-1" / name)
         def turn(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None):
@@ -379,7 +380,7 @@ class Quota(unittest.TestCase):
             with self.assertRaises(run.QuotaDry):
                 run.execute(lp, "executor", "Do the task.", "executor")
         self.assertEqual(lp.executor, "opus")
-        history = run.read_state(run_dir)["executor_history"]
+        history = record.read_state(run_dir)["executor_history"]
         self.assertEqual([(entry["from"], entry["to"], entry["reason"]) for entry in history],
                          [("astra", "opus", "dry")])
 
@@ -409,7 +410,7 @@ class Quota(unittest.TestCase):
             self.assertEqual(run.cmd_resume([run_dir.name, "--bg"]), 0)
         self.assertEqual(len(launched), 1)
         self.assertEqual(launched[0][0][0][-3:], ["run", "resume", run_dir.name])
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "queued")
         self.assertEqual(saved["resume_from"], "exhausted")
 
@@ -535,10 +536,10 @@ class QuotaDry(unittest.TestCase):
         return float(until)
 
     def launch(self, *flags):
-        before = set(run.run_dirs())
+        before = set(record.run_dirs())
         code = run.main([str(self.task), *flags])
-        directory = (set(run.run_dirs()) - before).pop()
-        return code, directory, run.read_state(directory)
+        directory = (set(record.run_dirs()) - before).pop()
+        return code, directory, record.read_state(directory)
 
     def repository(self):
         repo = self.root / "repo"
@@ -855,7 +856,7 @@ class QuotaDry(unittest.TestCase):
         # refilled spark is the cheaper executor, so the cheapest legal pair takes the round
         self.providers["meta"]["meters"] = [self.meter(5)]
         self.assertEqual(run.cmd_resume([directory.name]), 0)
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual(state["state"], "pass")
         self.assertEqual(state["executor"], "spark")
         self.assertEqual(state["reviewer"], "spark")
@@ -972,7 +973,7 @@ class QuotaDry(unittest.TestCase):
         self.providers["openai"].pop("exhausted_until")
         self.plan({})
         self.assertEqual(run.cmd_resume([directory.name]), 0)
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual((state["state"], state["executor"]), ("pass", "astra"))
         self.assertEqual(state["executor_history"],
                          [{"from": "astra", "to": "spark", "reason": "dry",

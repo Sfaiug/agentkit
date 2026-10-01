@@ -16,6 +16,7 @@ import unittest
 
 from test_v4n import REPO, Sandbox
 from agentkit import config, gc, menu, orch, retention, run, terminal, watch
+from agentkit import record as run_record
 
 NOW = 1_800_000_000
 DAY = 86400
@@ -59,7 +60,7 @@ class Projects(Sandbox):
                  "verdict": "PASS", "launched_session": owner, "reported": False,
                  "executor": "opus", "reviewer": "astra",
                  "finished_at": NOW - 1800, "started_at": NOW - 3600, **extra}
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         for path in list(directory.rglob("*")) + [directory]:
             try:
                 if path.is_file() or path == directory:
@@ -152,7 +153,7 @@ class Projects(Sandbox):
         seat = self.seat("atoll-fix", "atoll", live="working")
         self.record("going", owner=seat["name"], repo=seat["repo"], title="Going work",
                     state="running", finished_at=None, started_at=NOW - 600,
-                    rounds=2, round_summaries=[], **run.process_owner())
+                    rounds=2, round_summaries=[], **run_record.process_owner())
         self.record("failed", owner=seat["name"], repo=seat["repo"], title="Failed work",
                     state="fail", verdict="FAIL", finished_at=NOW - 2 * DAY)
         self.record("parked", owner=seat["name"], repo=seat["repo"], title="Parked work",
@@ -224,9 +225,9 @@ class Projects(Sandbox):
                              finished_at=NOW - 2 * DAY)
         self.assertRegex(self.draw(100, 30), re.compile(
             r"atoll-fix\s+fable\s+! needs you\s+session closed: press 1 to reopen$", re.M))
-        state = run.read_state(failed)
+        state = run_record.read_state(failed)
         state["finished_at"] = NOW - 8 * DAY
-        run.save_state(failed, state)
+        run_record.save_state(failed, state)
         self.assertRegex(self.draw(100, 30), re.compile(
             r"atoll-fix\s+fable\s+! needs you\s+session closed: press 1 to reopen$", re.M))
         self.record("stopped", owner=seat["name"], repo=seat["repo"], title="Stopped work",
@@ -250,10 +251,10 @@ class Projects(Sandbox):
         self.assertIn("nothing needs you", screen)
         self.assertNotIn("press", screen.split("n new")[0])
         for name in ("parked", "stuck-run"):
-            state = run.read_state(config.RUNS / name)
+            state = run_record.read_state(config.RUNS / name)
             self.assertFalse(menu.v5o_needs_look(state, now=NOW), name)
         # ak run status reads the same word from the same table.
-        self.assertEqual(menu.run_state_word(run.read_state(config.RUNS / "parked")),
+        self.assertEqual(menu.run_state_word(run_record.read_state(config.RUNS / "parked")),
                          "working")
 
     def test_v5ak_g_the_tally_counts_endings_the_row_never_names(self):
@@ -282,8 +283,8 @@ class Projects(Sandbox):
         # Its parked run resumes itself, so the seat is working until that one ends;
         # then the gone seat names its own number, never the endings.
         self.assertIn("● working", self.draw(100, 30))
-        run.save_state(config.RUNS / "parked",
-                       {**run.read_state(config.RUNS / "parked"), "state": "pass",
+        run_record.save_state(config.RUNS / "parked",
+                       {**run_record.read_state(config.RUNS / "parked"), "state": "pass",
                         "merged": True, "finished_at": NOW - 60})
         screen = self.draw(100, 30)
         self.assertIn("session closed: press 1 to reopen", screen)
@@ -325,7 +326,7 @@ class Projects(Sandbox):
         live = self.record("live-throwaway", owner="smoke-seat",
                            repo=str(config.TMP / "smoke-repo"), state="running",
                            finished_at=None, started_at=NOW - 8 * DAY,
-                           **run.process_owner())
+                           **run_record.process_owner())
         self.assertTrue(retention.throwaway(str(config.TMP / "smoke-repo")))
         self.assertTrue(retention.throwaway(str(config.TMP)))
         self.assertFalse(retention.throwaway(str(config.CODE / "atoll")))

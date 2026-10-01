@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import config, host, notify, orch, retention, run, task as taskfile, watch
+from . import record
 
 JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at most this often
 JOB_TICK = 2              # seconds between scheduler passes over the job receipt
@@ -130,7 +131,7 @@ def job_scheduler_owns(run_id, state):
     if not job or job.get("pid") != state.get("pid"):
         return False
     try:
-        return bool(run.process_active(job))
+        return bool(record.process_active(job))
     except (TypeError, ValueError, AttributeError, OSError):
         return False  # an old receipt with no pid to check owns nothing live
 
@@ -233,7 +234,7 @@ def job_create(cfg, task_paths, opts, parallel):
     job_dir.mkdir(parents=True)
     (job_dir / "log.txt").touch()
     job = {"job_id": job_dir.name, "seat": seat, "started_at": time.time(), "finished_at": None,
-           "parallel": parallel, "executor_history": [], **run.process_owner(), "cwd": os.getcwd(),
+           "parallel": parallel, "executor_history": [], **record.process_owner(), "cwd": os.getcwd(),
            "opts": {key: opts.get(key) for key in ("--rounds", "--exec", "--review",
                                                    "--no-merge", "--no-worktree", "--anyway",
                                                    "--first")},
@@ -626,7 +627,7 @@ def job_passed_branch(cfg, job, task, dep):
     repository; `wait_for_dependency` holds the dependant's own landing until `dep` merged.
     """
     dep_task = job_task_by_name(job, dep) or {}
-    state = run.read_state(config.RUNS / dep_task["run_id"]) if dep_task.get("run_id") else None
+    state = record.read_state(config.RUNS / dep_task["run_id"]) if dep_task.get("run_id") else None
     if (not state or state.get("state") not in ("running", "waiting", "pass")
             or state.get("no_merge") or not state.get("branch") or not run.review_pass(state, cfg)):
         return None
@@ -666,9 +667,9 @@ def job_start_task(cfg, job_dir, task, opts, log):
     run.prepare(run_dir, run_opts, run.logger(run_dir, True), cfg, job_id=job_dir.name, task_file=task_path)
     if task.get("from_pass"):
         # run.json is run.py's to write; a stop since preflight refuses the key as a save would
-        with run.record(run_dir) as state:
+        with record.record(run_dir) as state:
             if state.stopped:
-                raise run.StopRequested(f"{run_dir.name} was stopped")
+                raise record.StopRequested(f"{run_dir.name} was stopped")
             state["from_pass"] = task["from_pass"]
     log(f"{task['name']} start: {run_dir.name}")
     return run_dir, run_opts
@@ -700,8 +701,8 @@ def job_await(run_dir):
     its ending, a wait for budget or a login, or what the tick left for a person.
     """
     while True:
-        state = run.read_state(run_dir) or {}
-        if not run.process_active(state):
+        state = record.read_state(run_dir) or {}
+        if not record.process_active(state):
             with job_adopting(run_dir.name):
                 state = run.reap(run_dir, state)
             if not (state.get("state") in ("queued", "running")
@@ -731,14 +732,14 @@ def job_drive(cfg, run_dir, run_opts, box, scoped=False):
         log = run.logger(run_dir, True)
         with job_muted():
             box["rc"] = run.drive(cfg, run_dir, run_opts, log)
-        box["state"] = run.read_state(run_dir) or {}
+        box["state"] = record.read_state(run_dir) or {}
     except config.Error as exc:
         box["rc"] = 2
-        box["state"] = run.read_state(run_dir) or {"state": "error", "verdict": "ERROR",
+        box["state"] = record.read_state(run_dir) or {"state": "error", "verdict": "ERROR",
                                                "error": str(exc)}
     except Exception as exc:  # noqa: BLE001 - a crashed task run must still end its thread
         box["rc"] = 2
-        box["state"] = run.read_state(run_dir) or {"state": "error", "verdict": "ERROR",
+        box["state"] = record.read_state(run_dir) or {"state": "error", "verdict": "ERROR",
                                                "error": repr(exc)}
 
 
@@ -783,7 +784,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             asked = time.time()   # each ask fetches: at the picker's rate, not every tick
             watch.resume_waiting(log=log, run=run_dir)
         time.sleep(JOB_TICK)
-        run_state = run.read_state(run_dir) or run_state
+        run_state = record.read_state(run_dir) or run_state
         if run_state.get("state") != "waiting":
             run_state = job_await(run_dir)
     if job_wait_login(job_dir, job, task, log, lock, run_state, "mid-run"):
@@ -823,8 +824,8 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             if job_scoped(job):
                 # in a run scope of its own, like every other attempt the task makes
                 pid = watch.launch_resume(run_dir.name, log, verb="merge")
-                launched = run.process_owner(pid) if pid else {}
-                while run.process_active(launched):
+                launched = record.process_owner(pid) if pid else {}
+                while record.process_active(launched):
                     time.sleep(JOB_TICK)
                 settled = job_await(run_dir) if pid else {}
                 mrc = 0 if job_classify(settled, cfg) in ("merged", "passed") else 1
@@ -834,7 +835,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
         except config.Error as exc:
             mrc = 2
             log(f"{task['name']}: merge refused: {exc}")
-        run_state = run.read_state(run_dir) or run_state
+        run_state = record.read_state(run_dir) or run_state
         task["executor"] = run_state.get("executor") or task.get("executor")
         task["reviewer"] = run_state.get("reviewer") or task.get("reviewer")
         log(job_exit_line(task, run_dir, run_state, mrc))
@@ -908,7 +909,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
                 save_job(job_dir, job)
             box = {}
             job_drive(cfg, run_dir2, run_opts2, box, job_scoped(job))
-            run_state2 = box.get("state") or run.read_state(run_dir2) or {}
+            run_state2 = box.get("state") or record.read_state(run_dir2) or {}
             task["executor"] = run_state2.get("executor") or nxt
             task["reviewer"] = run_state2.get("reviewer") or task.get("reviewer")
             log(job_exit_line(task, run_dir2, run_state2, box.get("rc", 1)))
@@ -949,7 +950,7 @@ def job_fresh_worker(cfg, job_dir, job, task, run_dir, run_opts, lock, log):
     job_drive(cfg, run_dir, run_opts, box, job_scoped(job))
     try:
         job_ladder(cfg, job_dir, job, task, run_dir,
-                   box.get("state") or run.read_state(run_dir) or {}, box.get("rc", 1), log, lock)
+                   box.get("state") or record.read_state(run_dir) or {}, box.get("rc", 1), log, lock)
     except (OSError, ValueError, KeyError, TypeError):
         task.update(state="failed", finished_at=time.time(),
                     verdict_line=f"{task['name']}: FAIL: needs you")
@@ -972,9 +973,9 @@ def job_adopt_worker(cfg, job_dir, job, task, run_dir, lock, log):
     """
     try:
         with job_adopting(run_dir.name):
-            run_state = run.reap(run_dir, run.read_state(run_dir) or {})
+            run_state = run.reap(run_dir, record.read_state(run_dir) or {})
         if (run_state.get("state") == "queued" and run_state.get("slot_waiting") and
-                not run.process_active(run_state)) or run_state.get("state") in (
+                not record.process_active(run_state)) or run_state.get("state") in (
                 "interrupted", "exhausted", "stalled") or (
                 run.needs_recovery(run_state) and run_state.get("state") not in run.ENDED
                 and run_state.get("state") != "waiting_login"):
@@ -982,7 +983,7 @@ def job_adopt_worker(cfg, job_dir, job, task, run_dir, lock, log):
             scoped = job_scoped(job)
             with job_adopting(run_dir.name), job_muted():
                 run.cmd_resume([run_dir.name, "--bg"] if scoped else [run_dir.name])
-            run_state = job_await(run_dir) if scoped else run.read_state(run_dir) or run_state
+            run_state = job_await(run_dir) if scoped else record.read_state(run_dir) or run_state
         if run_state.get("state") in ("running", "queued"):
             # `reap` declined it (inside its grace) or it is parked: pace the next look at
             # the once-a-minute rate and keep the run, so adopt hands back instead of spinning
@@ -1016,7 +1017,7 @@ def reap_job(job_dir, job):
     if job.get("finished_at"):
         return True
     try:
-        return run.process_active(job)
+        return record.process_active(job)
     except (TypeError, ValueError, AttributeError):
         return True  # uncertainty is never evidence of an exit
 
@@ -1044,7 +1045,7 @@ def job_admission(job_dir, job, now=None):
     if not job.get("cwd") or not Path(job["cwd"]).is_dir():
         return ""
     for task in job["tasks"]:
-        run_state = (run.read_state(config.RUNS / task["run_id"]) if task.get("run_id") else None) or {}
+        run_state = (record.read_state(config.RUNS / task["run_id"]) if task.get("run_id") else None) or {}
         if "stopped" in (task.get("state"), run_state.get("state")):
             return ""
         if (task.get("state") not in JOB_TERMINAL and run_state.get("state") not in run.ENDED
@@ -1085,8 +1086,8 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
     # This process owns the receipt from here on, so a kill reads as unfinished, not
     # running. Under the recovery lock a `--bg` child starts only after its launcher's
     # handoff save, the way a run child waits on its own receipt.
-    with run.recovery_lock(job_dir):
-        job.update(run.process_owner())
+    with record.recovery_lock(job_dir):
+        job.update(record.process_owner())
         with lock:
             save_job(job_dir, job)
 
@@ -1122,8 +1123,8 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
                 save()
                 continue
             with job_adopting(rundir.name):
-                state = run.reap(rundir, run.read_state(rundir) or {})
-            if state.get("state") in ("running", "queued") and run.process_active(state):
+                state = run.reap(rundir, record.read_state(rundir) or {})
+            if state.get("state") in ("running", "queued") and record.process_active(state):
                 # alive elsewhere; its own scheduler owns it: look again in a minute,
                 # not every tick (the reap takes the run's lock each time)
                 task["retry_after"] = now + JOB_PICKER_INTERVAL
@@ -1202,9 +1203,9 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
                 # an exhausted or interrupted run kept across ticks: reap it here so a live
                 # record is never adopted, then resume it in a worker, never redo it
                 with job_adopting(kept_dir.name):
-                    kept_state = run.reap(kept_dir, run.read_state(kept_dir) or {})
+                    kept_state = run.reap(kept_dir, record.read_state(kept_dir) or {})
                 if kept_state.get("state") in ("running", "queued") \
-                        and run.process_active(kept_state):
+                        and record.process_active(kept_state):
                     # alive elsewhere; its own scheduler owns it: back off like every wait
                     task["retry_after"] = now + JOB_PICKER_INTERVAL
                     save()
@@ -1223,7 +1224,7 @@ def run_job_loop(cfg, job_dir, job, to_file=True):
             save()
             try:
                 run_dir, run_opts = job_start_task(cfg, job_dir, task, opts, log)
-            except run.StopRequested:
+            except record.StopRequested:
                 # A stop landed during preflight: the receipt already says so, so
                 # the task keeps the run's word and nothing is launched to carry on.
                 task.update(state="stopped", finished_at=time.time(),
@@ -1339,7 +1340,7 @@ def spawn_job_bg(job_dir, relaunch=None):
     if relaunch is not None:
         env[config.SESSION_ENV] = relaunch["seat"]
     child = [sys.executable, str(config.REPO / "bin" / "ak"), "run", "resume", job_dir.name]
-    with run.recovery_lock(job_dir):
+    with record.recovery_lock(job_dir):
         try:
             job = read_job(job_dir) or {}
             if relaunch is not None:
@@ -1358,7 +1359,7 @@ def spawn_job_bg(job_dir, relaunch=None):
                 nice=True, placement=placement)
             # The child waits on this lock before adopting the receipt. The parent can never
             # overwrite a running child's tasks, and reaping sees the child, not its launcher.
-            job.update(run.process_owner(pid), scope=placement.get("scope"),
+            job.update(record.process_owner(pid), scope=placement.get("scope"),
                        scope_reason=placement.get("scope_reason"))
             run.remember_memory_cap(job, placement, cap)
             save_job(job_dir, job)
@@ -1390,12 +1391,12 @@ def cmd_job_resume(argv):
     # Read under the handoff lock so a `--bg` child never decides on a receipt its
     # launcher is still writing: the parent holds this lock across Popen and its pid
     # save, and the child adopts the receipt under it on its first tick.
-    with run.recovery_lock(job_dir):
+    with record.recovery_lock(job_dir):
         job = read_job(job_dir)
     if not job or not isinstance(job.get("tasks"), list):
         raise config.Error(f"no resumable job: {argv[0]} (looked in {config.JOBS})")
     try:
-        launcher_alive = not job.get("finished_at") and bool(run.process_active(job))
+        launcher_alive = not job.get("finished_at") and bool(record.process_active(job))
     except (TypeError, ValueError, AttributeError, OSError):
         launcher_alive = False  # an old receipt with no pid to check is resumable, not live
     own_child = (launcher_alive and os.environ.get(config.JOB_DIR_ENV) == str(job_dir)

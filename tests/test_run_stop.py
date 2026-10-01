@@ -22,6 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
 from agentkit import config, job as jobs, menu, orch, run, worker
+from agentkit import host, record
 from agentkit import task as taskfile
 
 
@@ -52,7 +53,7 @@ class RunStop(Sandbox):
                  "executor": "opus", "reviewer": "astra", "rounds": 3,
                  "started_at": time.time() - 60, "reported": False,
                  "pid": 999999999, "process_identity": None, **extra}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         return directory
 
     def repo(self):
@@ -89,7 +90,7 @@ class RunStop(Sandbox):
         children = [pid for pid, _ in watch_mod.loop_children(loop.pid)]
         self.assertTrue(children, "the fixture loop has no child to kill")
         directory = self.running(run_id, pid=loop.pid,
-                                 process_identity=run.process_identity(loop.pid))
+                                 process_identity=host.process_identity(loop.pid))
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(run.cmd_stop([run_id]), 0)
@@ -105,7 +106,7 @@ class RunStop(Sandbox):
         for pid in children:
             self.assertFalse(alive(pid), f"the loop's child {pid} survived")
         self.assertFalse(alive(marked.pid), "the marked child survived")
-        self.assertEqual(run.read_state(directory)["state"], "stopped")
+        self.assertEqual(record.read_state(directory)["state"], "stopped")
         self.assertEqual(len(out.getvalue().strip().splitlines()), 1)
 
     def reap(self, proc):
@@ -127,7 +128,7 @@ class RunStop(Sandbox):
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(run.cmd_stop([run_id]), 0)
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual(state["state"], "stopped")
         self.assertIn("stopped", run.ENDED)
         self.assertFalse(run.needs_recovery(state))
@@ -195,7 +196,7 @@ class RunStop(Sandbox):
         job_dir.mkdir(parents=True)
         (job_dir / "log.txt").touch()
         job = {"job_id": job_dir.name, "seat": None, "started_at": time.time(),
-               "finished_at": None, "parallel": None, **run.process_owner(),
+               "finished_at": None, "parallel": None, **record.process_owner(),
                "opts": {}, "tasks": [
                    {"name": "a.md", "title": "A", "after": [], "state": "stopped",
                     "run_id": "gone", "verdict_line": "a.md: stopped"},
@@ -235,9 +236,9 @@ class RunStop(Sandbox):
                 patch.object(orch, "cmd_stop", side_effect=seat_stop), \
                 redirect_stdout(out):
             menu.stop_session([dict(entry) for entry in seats], dry_run=False)
-        self.assertEqual(run.read_state(mine)["state"], "stopped")
-        self.assertEqual(run.read_state(other)["state"], "running")
-        self.assertEqual(run.read_state(done)["state"], "pass")
+        self.assertEqual(record.read_state(mine)["state"], "stopped")
+        self.assertEqual(record.read_state(other)["state"], "running")
+        self.assertEqual(record.read_state(done)["state"], "pass")
         self.assertIn(("run", mine.name), order)
         self.assertIn(("seat", seat), order)
         self.assertLess(order.index(("run", mine.name)), order.index(("seat", seat)),
@@ -292,7 +293,7 @@ class RunStop(Sandbox):
         time.sleep(0.5)  # both marked sleeps are children of the scheduler by now
         children = watch_mod.loop_children(scheduler.pid)
         self.assertEqual(len(children), 2, "the fixture scheduler has no two children")
-        ident = run.process_identity(scheduler.pid)
+        ident = host.process_identity(scheduler.pid)
         self.running(run_a, pid=scheduler.pid, process_identity=ident)
         self.running(run_b, pid=scheduler.pid, process_identity=ident)
         job_dir = config.JOBS / "20260101-090000-stop-shared"
@@ -300,7 +301,7 @@ class RunStop(Sandbox):
         (job_dir / "log.txt").touch()
         jobs.save_job(job_dir, {"job_id": job_dir.name, "seat": None,
                                "started_at": time.time(), "finished_at": None,
-                               "parallel": None, **run.process_owner(scheduler.pid),
+                               "parallel": None, **record.process_owner(scheduler.pid),
                                "opts": {}, "tasks": [
                                    {"name": "a.md", "title": "A", "after": [],
                                     "state": "running", "run_id": run_a},
@@ -315,8 +316,8 @@ class RunStop(Sandbox):
         self.assertTrue(left, "the stop killed its sibling task's child")
         gone = [pid for pid in run.marker_pids(run_a) if alive(pid)]
         self.assertEqual(gone, [], "the stopped task's own child survived")
-        self.assertEqual(run.read_state(config.RUNS / run_a)["state"], "stopped")
-        self.assertEqual(run.read_state(config.RUNS / run_b)["state"], "running")
+        self.assertEqual(record.read_state(config.RUNS / run_a)["state"], "stopped")
+        self.assertEqual(record.read_state(config.RUNS / run_b)["state"], "running")
         for pid, _ in children:
             if alive(pid):
                 try:
@@ -342,7 +343,7 @@ class RunStop(Sandbox):
                               "--review-pr": None, "--no-merge": True,
                               "--no-worktree": False, "--anyway": True, "--bg": False},
                     lambda _: None, job_id="20260101-090000-stop-job")
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state.get("job_id"), "20260101-090000-stop-job")
         self.assertEqual(state.get("pid"), os.getpid())
 
@@ -358,7 +359,7 @@ class RunStop(Sandbox):
         time.sleep(0.5)
         children = watch_mod.loop_children(scheduler.pid)
         self.assertEqual(len(children), 2, "the fixture scheduler has no two children")
-        ident = run.process_identity(scheduler.pid)
+        ident = host.process_identity(scheduler.pid)
         # The preflight window: the receipt records the scheduler pid before the
         # scheduler writes task["run_id"], so the job file cannot name this run yet.
         self.running(run_a, pid=scheduler.pid, process_identity=ident,
@@ -370,7 +371,7 @@ class RunStop(Sandbox):
         (job_dir / "log.txt").touch()
         jobs.save_job(job_dir, {"job_id": job_dir.name, "seat": None,
                                "started_at": time.time(), "finished_at": None,
-                               "parallel": None, **run.process_owner(scheduler.pid),
+                               "parallel": None, **record.process_owner(scheduler.pid),
                                "opts": {}, "tasks": [
                                    {"name": "a.md", "title": "A", "after": [],
                                     "state": "running", "run_id": None},
@@ -385,7 +386,7 @@ class RunStop(Sandbox):
         self.assertTrue(left, "the stop killed its sibling task's child")
         gone = [pid for pid in run.marker_pids(run_a) if alive(pid)]
         self.assertEqual(gone, [], "the stopped task's own child survived")
-        self.assertEqual(run.read_state(config.RUNS / run_a)["state"], "stopped")
+        self.assertEqual(record.read_state(config.RUNS / run_a)["state"], "stopped")
         for pid, _ in children:
             if alive(pid):
                 try:
@@ -405,7 +406,7 @@ class RunStop(Sandbox):
         held = threading.Event()
 
         def holder():
-            with run.recovery_lock(directory):
+            with record.recovery_lock(directory):
                 held.set()
                 time.sleep(0.4)
 
@@ -413,10 +414,10 @@ class RunStop(Sandbox):
         thread.start()
         try:
             self.assertTrue(held.wait(timeout=10))
-            state = run.read_state(directory)
+            state = record.read_state(directory)
             state["note"] = "guarded-write"
             start = time.monotonic()
-            run.save_state(directory, state)
+            record.save_state(directory, state)
             blocked = time.monotonic() - start
         finally:
             thread.join(timeout=10)
@@ -429,11 +430,11 @@ class RunStop(Sandbox):
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(run.cmd_stop([run_id]), 0)
-        stale = run.read_state(directory)
+        stale = record.read_state(directory)
         stale.update(state="running", finished_at=None, error=None)
-        with self.assertRaises(run.StopRequested):
-            run.save_state(directory, stale)
-        self.assertEqual(run.read_state(directory)["state"], "stopped")
+        with self.assertRaises(record.StopRequested):
+            record.save_state(directory, stale)
+        self.assertEqual(record.read_state(directory)["state"], "stopped")
 
     def test_mark_state_keeps_a_concurrent_stop(self):
         run_id = "20260101-0900-stop-markkept"
@@ -443,7 +444,7 @@ class RunStop(Sandbox):
             self.assertEqual(run.cmd_stop([run_id]), 0)
         kept = run.mark_state(directory, "error", "boom")
         self.assertEqual(kept["state"], "stopped")
-        self.assertEqual(run.read_state(directory)["state"], "stopped")
+        self.assertEqual(record.read_state(directory)["state"], "stopped")
 
     def test_scheduler_settles_task_stopped_when_stop_lands_in_preflight(self):
         task_file = self.root / "pre-stop.md"
@@ -452,7 +453,7 @@ class RunStop(Sandbox):
         job_dir.mkdir(parents=True)
         (job_dir / "log.txt").touch()
         job = {"job_id": job_dir.name, "seat": None, "started_at": time.time(),
-               "finished_at": None, "parallel": 1, **run.process_owner(),
+               "finished_at": None, "parallel": 1, **record.process_owner(),
                "opts": {}, "tasks": [
                    {"name": "pre-stop.md", "title": "Pre-stop", "after": [],
                     "state": "queued", "run_id": None,
@@ -460,7 +461,7 @@ class RunStop(Sandbox):
         jobs.save_job(job_dir, job)
         out = io.StringIO()
         with patch.object(jobs, "job_start_task",
-                          side_effect=run.StopRequested("20260101 stopped")), \
+                          side_effect=record.StopRequested("20260101 stopped")), \
                 redirect_stdout(out):
             rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
         self.assertEqual(rc, 1)
@@ -472,7 +473,7 @@ class RunStop(Sandbox):
         task_file.write_text("# Launch-stop\n\n## Done when\n```bash\ntrue\n```\n")
         out = io.StringIO()
         with patch.object(run, "prepare",
-                          side_effect=run.StopRequested("launch stopped")), \
+                          side_effect=record.StopRequested("launch stopped")), \
                 redirect_stdout(out):
             rc = run.main([str(task_file)])
         self.assertEqual(rc, 1)
@@ -488,7 +489,7 @@ class RunStop(Sandbox):
         time.sleep(0.3)
         # A task resumed by hand: the receipt still names its old job, but its loop
         # runs under its own pid while the scheduler works on undisturbed.
-        self.running(run_id, pid=loop.pid, process_identity=run.process_identity(loop.pid),
+        self.running(run_id, pid=loop.pid, process_identity=host.process_identity(loop.pid),
                      job_id="20260101-090000-stop-oldjob")
         job_dir = config.JOBS / "20260101-090000-stop-oldjob"
         job_dir.mkdir(parents=True)
@@ -496,7 +497,7 @@ class RunStop(Sandbox):
         jobs.save_job(job_dir, {"job_id": job_dir.name, "seat": None,
                                "started_at": time.time(), "finished_at": None,
                                "parallel": None,
-                               **run.process_owner(scheduler.pid),
+                               **record.process_owner(scheduler.pid),
                                "opts": {}, "tasks": [
                                    {"name": "a.md", "title": "A", "after": [],
                                     "state": "running", "run_id": run_id}]})
@@ -509,7 +510,7 @@ class RunStop(Sandbox):
             pass
         self.assertFalse(alive(loop.pid), "the resumed loop survived its stop")
         self.assertTrue(alive(scheduler.pid), "the stop killed the live scheduler")
-        self.assertEqual(run.read_state(config.RUNS / run_id)["state"], "stopped")
+        self.assertEqual(record.read_state(config.RUNS / run_id)["state"], "stopped")
 
     def test_stop_commits_before_killing(self):
         from agentkit import watch as watch_mod
@@ -519,9 +520,9 @@ class RunStop(Sandbox):
         self.addCleanup(self.reap, loop)
         time.sleep(0.3)
         self.running(run_id, pid=loop.pid,
-                     process_identity=run.process_identity(loop.pid))
+                     process_identity=host.process_identity(loop.pid))
         events = []
-        real_save, real_kill = run.save_state, watch_mod.kill_tree
+        real_save, real_kill = record.save_state, watch_mod.kill_tree
 
         def saving(run_dir, state):
             events.append(("save", state.get("state")))
@@ -532,7 +533,7 @@ class RunStop(Sandbox):
             return real_kill(pid, log)
 
         out = io.StringIO()
-        with patch.object(run, "save_state", side_effect=saving), \
+        with patch.object(record, "save_state", side_effect=saving), \
                 patch.object(watch_mod, "kill_tree", side_effect=killing), \
                 redirect_stdout(out):
             self.assertEqual(run.cmd_stop([run_id]), 0)
@@ -559,7 +560,7 @@ class RunStop(Sandbox):
         calls = []
         with patch.object(worker_mod, "call",
                           side_effect=lambda *a, **k: calls.append(a) or (0, "x", None, False)):
-            with self.assertRaises(run.StopRequested):
+            with self.assertRaises(record.StopRequested):
                 run.call_retrying(self.cfg, "opus", "do it", str(self.root),
                                   target, "executor", None, lambda _: None)
         self.assertEqual(calls, [], "a worker turn started on a stopped run")
@@ -577,7 +578,7 @@ class RunStop(Sandbox):
                 run.spawn_bg(directory, ["resume", run_id])
         self.assertIn("stopped", str(refused.exception))
         started.assert_not_called()
-        self.assertEqual(run.read_state(directory)["state"], "stopped")
+        self.assertEqual(record.read_state(directory)["state"], "stopped")
 
     def test_no_worktree_stop_reports_branch_kept(self):
         repo = self.repo()
@@ -608,7 +609,7 @@ class RunStop(Sandbox):
         held = threading.Event()
 
         def holder():
-            with run.recovery_lock(directory):
+            with record.recovery_lock(directory):
                 held.set()
                 time.sleep(0.4)
 
@@ -617,7 +618,7 @@ class RunStop(Sandbox):
         try:
             self.assertTrue(held.wait(timeout=10))
             start = time.monotonic()
-            run.stop_check(directory)
+            record.stop_check(directory)
         finally:
             thread.join(timeout=10)
         self.assertGreaterEqual(time.monotonic() - start, 0.25,
@@ -625,9 +626,9 @@ class RunStop(Sandbox):
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(run.cmd_stop([run_id]), 0)
-        with self.assertRaises(run.StopRequested):
-            run.stop_check(directory)
-        self.assertIsNone(run.stop_check(self.root / "no-such-run"))
+        with self.assertRaises(record.StopRequested):
+            record.stop_check(directory)
+        self.assertIsNone(record.stop_check(self.root / "no-such-run"))
 
     def test_done_when_aborts_on_a_stopped_record(self):
         run_id = "20260101-0900-stop-nogate"
@@ -636,7 +637,7 @@ class RunStop(Sandbox):
         with redirect_stdout(out):
             self.assertEqual(run.cmd_stop([run_id]), 0)
         marker = self.root / "gate-marker"
-        with self.assertRaises(run.StopRequested):
+        with self.assertRaises(record.StopRequested):
             run.run_done_when(["touch %s" % marker], self.root,
                               directory / "donewhen.log", set(), 60,
                               run_dir=directory)
@@ -671,7 +672,7 @@ class RunStop(Sandbox):
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(run.cmd_stop([run_id]), 0)
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual(state["state"], "stopped")
         lines = run.status_details(directory, state)
         workspace = next(line for line in lines if "workspace:" in line)

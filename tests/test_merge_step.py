@@ -19,6 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from agentkit import host, config, gc, run, usage
+from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/7"
 BASE_RACE = ("GraphQL: Base branch was modified. Review and try the merge again. "
@@ -109,7 +110,7 @@ def make_loop(root, wt, rounds=3, spent=1, cfg=None):
         "merge_method": "squash", "merged": False, "merge_failed": False,
         "merge_note": None, "findings": "", "delivery_sha": head,
     }
-    run.save_state(run_dir, state)
+    record.save_state(run_dir, state)
     lp = run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context", [])
     return lp, run_dir, lines
 
@@ -167,7 +168,7 @@ class MergeStep(unittest.TestCase):
 
         with patch.object(run, "execute", side_effect=fixer):
             self.assertTrue(run.integrate(lp, "origin/main"))
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(len(state["round_summaries"]), 2)   # still 2 of 2
         self.assertEqual(state["rounds"], 2)
         self.assertTrue(run.current_review(lp))
@@ -189,7 +190,7 @@ class MergeStep(unittest.TestCase):
         with patch.object(run, "execute", side_effect=fixer):
             self.assertFalse(run.integrate(lp, "origin/main"))
         self.assertEqual(turns, ["rebase-fixer"] * 3)
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertNotEqual(state["verdict"], "FAIL")
         self.assertEqual(state["waiting_on"]["ref"], "origin/main")
@@ -229,7 +230,7 @@ class MergeStep(unittest.TestCase):
             self.assertFalse(run.final_check(lp, "origin/main"))
         self.assertEqual(turns, [("final-fixer", 3)] * 3)
         self.assertEqual(len(suites), 4)
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["verdict"], "PASS")
         self.assertFalse(state["merge_failed"])
@@ -282,7 +283,7 @@ class MergeStep(unittest.TestCase):
                          [("final-fixer", 1), ("executor", 2)])
         self.assertIn("## Reviewer findings to fix", turns[1][2])
         self.assertIn("fix1.txt:1 - the fix skips the gate", turns[1][2])
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual([entry["round"] for entry in state["round_summaries"]], [1, 2])
         self.assertEqual(state["final_check"]["outcome"], "passed")
         self.assertTrue(run.current_review(lp))
@@ -318,7 +319,7 @@ class MergeStep(unittest.TestCase):
                 patch.object(run, "call_retrying", side_effect=submitting(fake_review)):
             self.assertFalse(run.final_check(lp, "origin/main"))
         self.assertEqual(turns, [("final-fixer", 3)])
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertNotEqual(state["state"], "waiting")
         self.assertNotIn("waiting_on", state)
         self.assertEqual(state["verdict"], "FAIL")
@@ -327,7 +328,7 @@ class MergeStep(unittest.TestCase):
         self.assertEqual(len(state["round_summaries"]), 3)   # the re-review spent none
         self.assertEqual(state["review"]["head_sha"], state["round_summaries"][-1]["head_sha"])
         state["state"] = "fail"         # what the run makes of a FAIL the merge step left
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         self.assertEqual(run.handback_reason(state), "after 3 rounds, open findings: "
                          "- work.txt:1 - the gate is skipped - fixture defect Quote: fixture evidence")
         self.assertFalse(run.integration_note(state, run_dir))
@@ -356,7 +357,7 @@ class MergeStep(unittest.TestCase):
                 patch.object(run, "execute", return_value="## Summary\nTried."), \
                 patch.object(run, "call_retrying", side_effect=submitting(fake_review)):
             self.assertFalse(run.final_check(lp, "origin/main"))
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["review"]["overridden"], "the reviewer said PASS but exited 1")
         state["state"] = "fail"
         self.assertEqual(run.handback_reason(state),
@@ -397,7 +398,7 @@ class MergeStep(unittest.TestCase):
                          [("final-fixer", 1), ("executor", 2)])
         self.assertIn("## The done-when commands failed.", turns[1][2])
         self.assertIn("lint: fix1.txt:1 trailing space", turns[1][2])
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertNotEqual(state["state"], "waiting")
         self.assertEqual([entry["round"] for entry in state["round_summaries"]], [1, 2])
         self.assertEqual(state["final_check"]["outcome"], "passed")
@@ -434,7 +435,7 @@ class MergeStep(unittest.TestCase):
                 with patch.object(run, "execute", side_effect=fixer), \
                         patch.object(run, "call_retrying", side_effect=submitting(fake_review)):
                     self.assertFalse(run.integrate(lp, "origin/main"))
-                state = run.read_state(run_dir)
+                state = record.read_state(run_dir)
                 self.assertNotEqual(state["state"], "waiting")
                 self.assertNotIn("waiting_on", state)
                 self.assertEqual(state["verdict"], "FAIL")
@@ -465,7 +466,7 @@ class MergeStep(unittest.TestCase):
                 patch.object(run, "current_review", return_value=True):
             self.assertFalse(run.integrate(lp, "origin/main"))
         self.assertEqual(len(laps), 3)
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertNotEqual(state["verdict"], "FAIL")
         self.assertFalse(state["merge_failed"])
@@ -506,7 +507,7 @@ class MergeStep(unittest.TestCase):
         self.assertIn("## Reviewer findings to fix", findings[0])
         self.assertIn("shared:1 - the merged tree breaks", findings[0])
         self.assertEqual(lp.rnd, 2)                          # the fixer round spent one
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["verdict"], "PASS")
         self.assertEqual([entry["round"] for entry in state["round_summaries"]], [1, 2])
         self.assertNotEqual(state["state"], "fail")
@@ -589,12 +590,12 @@ class MergeStep(unittest.TestCase):
                 patch.object(run, "execute", side_effect=fixer):
             with patch.object(run, "execute", side_effect=stop):
                 self.assertEqual(run.cmd_resume([run_dir.name]), 1)
-            saved = run.read_state(run_dir)
+            saved = record.read_state(run_dir)
             self.assertEqual(saved["state"], parked)
             self.assertEqual(run.git(wt, "rev-parse", "HEAD"), head)
             self.assertFalse(run.in_progress(wt, how))
             code = run.cmd_resume([run_dir.name])
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         print(f"{type(stop).__name__} ({how}): stopped={saved['state']} "
               f"review_pending={saved.get('review_pending')}; resumed={code} "
               f"state={state['state']} merged={state['merged']}", flush=True)
@@ -678,7 +679,7 @@ class MergeStep(unittest.TestCase):
                 patch.object(usage, "pick_order", return_value=[]):
             with self.assertRaises(run.Exhausted):
                 run.integrate(lp, "origin/main")
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         self.assertFalse(saved["review_pending"]["record"])
         resumed = run.Loop(lp.cfg, run_dir, saved, {}, lp.log, wt, "body", ["true"], "context", [])
         with patch.object(run, "execute", side_effect=AssertionError("unexpected fixer")):
@@ -698,7 +699,7 @@ class MergeStep(unittest.TestCase):
                 patch.object(run, "execute", return_value="## Summary\nUnresolved."), \
                 patch.object(run, "stop_run_tree"):
             self.assertNotEqual(run.cmd_merge([run_dir.name]), 0)
-        self.assertEqual(run.read_state(run_dir)["state"], "waiting")
+        self.assertEqual(record.read_state(run_dir)["state"], "waiting")
         self.assertTrue((run_dir / "result.md").read_text().startswith("# WAITING:"))
 
     def test_a_base_race_verifies_and_pushes_the_new_head_before_retrying(self):
@@ -768,7 +769,7 @@ class MergeStep(unittest.TestCase):
         # subprocess may also sleep briefly while reaping the fixture's git calls.
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
                          [60, 300, 900])
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertNotEqual(state["verdict"], "FAIL")
         self.assertIn("base branch was modified", state["merge_note"])
@@ -814,7 +815,7 @@ class MergeStep(unittest.TestCase):
         with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
             self.assertTrue(run.do_merge(lp, URL, "origin/main"))
         self.assertEqual(seen, ["merge", "view"])
-        self.assertTrue(run.read_state(run_dir)["merged"])
+        self.assertTrue(record.read_state(run_dir)["merged"])
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
                          [60])
 
@@ -835,7 +836,7 @@ class MergeStep(unittest.TestCase):
         with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
             self.assertTrue(run.do_merge(lp, URL, "origin/main"))
         self.assertEqual(seen, ["merge", "view", "merge"])
-        self.assertTrue(run.read_state(run_dir)["merged"])
+        self.assertTrue(record.read_state(run_dir)["merged"])
 
     def test_an_own_pr_merge_asks_again_after_a_github_5xx(self):
         _, _, wt = make_repos(self.root)
@@ -856,7 +857,7 @@ class MergeStep(unittest.TestCase):
                 patch.object(run.time, "sleep") as slept:
             self.assertTrue(run.merge_own_pr(lp, URL, lp.state["delivery_sha"]))
         self.assertEqual(len(merges), 2)
-        self.assertTrue(run.read_state(run_dir)["merged"])
+        self.assertTrue(record.read_state(run_dir)["merged"])
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
                          [60])
 
@@ -881,7 +882,7 @@ class MergeStep(unittest.TestCase):
         with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
             self.assertTrue(run.do_merge(lp, URL, "origin/main"))
         self.assertEqual(len(merges), run.MERGE_RETRIES + 1)
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertTrue(state["merged"])
         self.assertNotEqual(state.get("state"), "waiting")
 
@@ -907,7 +908,7 @@ class MergeStep(unittest.TestCase):
                         patch.object(run.time, "sleep"):
                     self.assertFalse(run.merge_own_pr(lp, URL, lp.state["delivery_sha"]))
                 self.assertEqual(len(merges), 1)
-                state = run.read_state(run_dir)
+                state = record.read_state(run_dir)
                 self.assertFalse(state["merged"])
                 self.assertTrue(state["merge_failed"])
 

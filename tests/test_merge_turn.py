@@ -23,6 +23,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from agentkit import host, config, run, watch
+from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/7"
 
@@ -33,7 +34,7 @@ import os, sys
 from pathlib import Path
 from types import SimpleNamespace
 sys.path.insert(0, sys.argv[1])
-from agentkit import config, run
+from agentkit import config, record, run
 config.RUNS = Path(sys.argv[2])
 lp = SimpleNamespace(wt=Path(sys.argv[3]), state={"repo": sys.argv[3]}, run_dir=None, log=print)
 with run.merge_turn(lp, "origin/main"):
@@ -47,10 +48,10 @@ WAITER = """
 import sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
-from agentkit import config, run
+from agentkit import config, record, run
 config.RUNS = Path(sys.argv[2])
 directory = Path(sys.argv[3])
-state = run.read_state(directory)
+state = record.read_state(directory)
 lp = run.Loop({}, directory, state, {}, lambda msg: print(msg, flush=True),
               Path(state["worktree"]), "", [], "", [])
 with run.merge_turn(lp, "origin/main"):
@@ -104,7 +105,7 @@ def make_run(root, remote, name, edits=None):
 
     state = {
         "run_id": run_dir.name, "title": name, "state": "running", "verdict": "PASS",
-        **run.process_owner(), "started_at": time.time(),
+        **record.process_owner(), "started_at": time.time(),
         "review": {"executor": "opus", "executor_provider": executor_provider,
                    "reviewer": "astra", "reviewer_provider": reviewer_provider,
                    "returncode": 0, "verdict": "PASS", "done_when": True,
@@ -117,7 +118,7 @@ def make_run(root, remote, name, edits=None):
         "merge_method": "squash", "merged": False, "merge_failed": False,
         "merge_note": None, "findings": "",
     }
-    run.save_state(run_dir, state)
+    record.save_state(run_dir, state)
     return run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context", [])
 
 
@@ -220,7 +221,7 @@ class MergeTurn(unittest.TestCase):
         run.git(owner, "commit", "-m", lp.state["title"])
         run.git(owner, "push", "origin", "main")
         lp.state["merged"] = True
-        run.save_state(lp.run_dir, lp.state)
+        record.save_state(lp.run_dir, lp.state)
         return True
 
     def land(self, lp, results):
@@ -238,7 +239,7 @@ class MergeTurn(unittest.TestCase):
         """Poll the run's record until it says it waits for its merge turn."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            state = run.read_state(lp.run_dir) or {}
+            state = record.read_state(lp.run_dir) or {}
             if run.merge_turn_note(state):
                 return state
             time.sleep(0.05)
@@ -286,7 +287,7 @@ class MergeTurn(unittest.TestCase):
         self.assertTrue(run.merge(lp))
         self.assertEqual(self.events, [("recheck", lp.wt), ("turn", lp.wt), ("checks", lp.wt)])
         self.assertNotIn(" moved ", (lp.run_dir / "log.txt").read_text())
-        state = run.read_state(lp.run_dir)
+        state = record.read_state(lp.run_dir)
         self.assertEqual(run.git(lp.wt, "rev-parse", f"origin/{state['branch']}"),
                          state["review"]["head_sha"])       # the commit re-checked is the one pushed
         self.assertEqual(state["delivery_sha"], state["review"]["head_sha"])
@@ -338,7 +339,7 @@ class MergeTurn(unittest.TestCase):
         self.assertEqual(self.rechecks[two.wt], [["base.txt", "outside.txt", "two.txt"]])
         self.assertIn("--- merge: origin/main moved 1 commits, none touching this branch's files; "
                       "landing on the verified checks", (two.run_dir / "log.txt").read_text())
-        state = run.read_state(two.run_dir)
+        state = record.read_state(two.run_dir)
         self.assertEqual(state["review"]["rebased_from"], verified)
         self.assertEqual(state["delivery_sha"], state["review"]["head_sha"])
         run.git(owner, "pull", "--ff-only", "origin", "main")
@@ -373,7 +374,7 @@ class MergeTurn(unittest.TestCase):
         log = (lp.run_dir / "log.txt").read_text()
         self.assertIn("verifying again holding the merge turn", log)
         self.assertNotIn("none touching", log)
-        state = run.read_state(lp.run_dir)
+        state = record.read_state(lp.run_dir)
         self.assertNotIn("merge_turn", state)
         self.assertNotIn("merge_hold", state)
         run.git(owner, "pull", "--ff-only", "origin", "main")
@@ -392,7 +393,7 @@ class MergeTurn(unittest.TestCase):
         self.assertEqual(self.events, [("recheck", lp.wt), ("turn", lp.wt),
                                        ("turn", lp.wt), ("recheck", lp.wt), ("turn", lp.wt),
                                        ("turn", lp.wt), ("recheck", lp.wt), ("turn", lp.wt)])
-        state = run.read_state(lp.run_dir)
+        state = record.read_state(lp.run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["waiting_on"]["ref"], "origin/main")
         self.assertIn("moved three times", state["merge_note"])
@@ -445,7 +446,7 @@ class MergeTurn(unittest.TestCase):
                 for name in ("killed", "early", "late", "urgent")}
         for name in ("killed", "urgent"):
             runs[name].state["first"] = True
-            run.save_state(runs[name].run_dir, runs[name].state)
+            record.save_state(runs[name].run_dir, runs[name].state)
         holder = subprocess.Popen(
             [sys.executable, "-c", HOLDER, str(REPO), str(config.RUNS), str(runs["early"].wt)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)

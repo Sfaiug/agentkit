@@ -20,6 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox, menu_input
 from agentkit import config, gc, menu, notify, orch, run, terminal, usage
+from agentkit import record as run_record
 
 COLLECT, SESSIONS = usage.collect, orch.sessions    # the real ones, for the dry run
 
@@ -243,7 +244,7 @@ class NewSession(Sandbox):
 
         def ran(name, repo):
             (config.RUNS / name).mkdir()
-            run.save_state(config.RUNS / name, {"launched_session": "seat", "repo": str(repo)})
+            run_record.save_state(config.RUNS / name, {"launched_session": "seat", "repo": str(repo)})
 
         for name, repo in (("a1", alpha), ("b1", beta), ("b2", beta)):
             ran(name, repo)

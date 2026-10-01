@@ -14,6 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, notify, run, usage, worker
+from agentkit import record
 
 NO_VERDICT_PROMPT = ("Your previous turn ended without ak hand-in done. Review the diff now, "
                      "hand in any remaining findings or follow-ups with ak hand-in, then run "
@@ -165,10 +166,10 @@ sys.exit(1)
     def launch(self, rounds=1, done_when="test -f deliverable"):
         self.task.write_text(f"---\nrepo: none\nrounds: {rounds}\n---\n# V5aj fixture\n\n"
                              f"## Done when\n```bash\n{done_when}\n```\n")
-        before = set(run.run_dirs())
+        before = set(record.run_dirs())
         code = run.main([str(self.task), "--exec", self.executor, "--review", self.reviewer])
-        directory = (set(run.run_dirs()) - before).pop()
-        return code, directory, run.read_state(directory)
+        directory = (set(record.run_dirs()) - before).pop()
+        return code, directory, record.read_state(directory)
 
     def calls(self, role=None):
         path = self.root / "calls.jsonl"
@@ -292,7 +293,7 @@ sys.exit(1)
         executors_before = len(self.calls("executor"))
         self.assertEqual(executors_before, 1)
         self.assertEqual(run.cmd_resume([directory.name]), 0, self.log(directory))
-        after = run.read_state(directory)
+        after = record.read_state(directory)
         self.assertEqual(after["state"], "pass")
         self.assertEqual(after["verdict"], "PASS")
         self.assertEqual(len(after["round_summaries"]), 1)
@@ -333,7 +334,7 @@ sys.exit(1)
             "review_pending": {"round": 2, "summary": "work",
                                "reason": "Re-review after the rebase of origin/main."},
         }
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         lp = run.Loop(self.cfg, run_dir, state, {}, log, wt, "body", ["true"], "context", [])
         lp.rnd = 2
         self.reviews(NO_VERDICT, NO_VERDICT)
@@ -341,7 +342,7 @@ sys.exit(1)
             run.resume_review(lp)
         self.assertIn("gave no verdict twice", str(ctx.exception))
         self.assertEqual(run.git(wt, "rev-parse", "HEAD"), head_rebased)
-        after = run.read_state(run_dir)
+        after = record.read_state(run_dir)
         self.assertEqual(len(after["round_summaries"]), 1)
         self.assertIsNone(after.get("verdict"))
         self.assertEqual(after.get("review_pending", {}).get("round"), 2)
@@ -351,7 +352,7 @@ sys.exit(1)
         with patch.object(run, "execute", side_effect=AssertionError("no executor turn")):
             self.assertEqual(run.resume_review(lp), "PASS")
         self.assertEqual(run.git(wt, "rev-parse", "HEAD"), head_rebased)
-        resumed = run.read_state(run_dir)
+        resumed = record.read_state(run_dir)
         self.assertEqual(len(resumed["round_summaries"]), 2)
         self.assertEqual(resumed["round_summaries"][-1]["verdict"], "PASS")
 
@@ -384,12 +385,12 @@ sys.exit(1)
             "findings": findings_text.strip()[-8000:],
             "findings_file": str(review_dir / "final.md"),
         }
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         (run_dir / "log.txt").write_text(
             "[00:00:00] WARN not merged: done-when or review after the rebase "
             "of origin/main did not pass\n")
-        self.assertFalse(run.failed_in_integration(run.read_state(run_dir), run_dir))
-        self.assertEqual(run.continue_line(run.read_state(run_dir), run_dir),
+        self.assertFalse(run.failed_in_integration(record.read_state(run_dir), run_dir))
+        self.assertEqual(run.continue_line(record.read_state(run_dir), run_dir),
                          f"continue: ak run resume {run_dir.name}")
         self.reviews(PASS)
         URL = "https://github.com/fixture/repo/pull/1"
@@ -412,7 +413,7 @@ sys.exit(1)
         with patch.object(run, "gh", side_effect=fake_gh):
             self.assertEqual(run.cmd_resume([run_dir.name]), 0,
                              (run_dir / "log.txt").read_text())
-        after = run.read_state(run_dir)
+        after = record.read_state(run_dir)
         self.assertEqual(after["state"], "pass")
         executors = self.calls("executor")
         self.assertEqual(len(executors), 1)

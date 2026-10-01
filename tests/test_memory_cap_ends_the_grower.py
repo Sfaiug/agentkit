@@ -21,6 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, orch, run, worker
+from agentkit import record
 
 SCOPE = "agentkit-run-20260930-2300-acme"
 CGROUP = ("user.slice/user-1000.slice/user@1000.service/agentkit-test.slice/"
@@ -119,7 +120,7 @@ class Loop(Sandbox):
         os.environ.pop(run.OOM_LOGGED, None)    # the sandbox's patch.dict puts it back
         self.run_dir = config.RUNS / "20260930-2300-acme"
         self.run_dir.mkdir(parents=True)
-        run.save_state(self.run_dir, {
+        record.save_state(self.run_dir, {
             "run_id": self.run_dir.name, "state": "running", "verdict": None,
             "scope": SCOPE, "memory_cap_mb": 4096})
         self.lines = []
@@ -137,7 +138,7 @@ class Loop(Sandbox):
         self.assertFalse(ok)
         self.assertIn("[exit 137]", text)
         self.assertEqual(self.lines.count(HIT), 1)
-        self.assertEqual(run.read_state(self.run_dir)["state"], "running")
+        self.assertEqual(record.read_state(self.run_dir)["state"], "running")
 
     def test_each_kill_in_a_worker_turn_is_logged_once(self):
         cfg = {"models": {"w": {"harness": "claude", "model": "m", "effort": "e",
@@ -157,7 +158,7 @@ class Loop(Sandbox):
                                                  "executor", None, self.lines.append)
                 self.assertEqual(code, 0)
         self.assertEqual(self.lines.count(HIT), 3)
-        self.assertEqual(run.read_state(self.run_dir)["state"], "running")
+        self.assertEqual(record.read_state(self.run_dir)["state"], "running")
 
     def test_a_reviewer_and_a_suite_ending_at_once_log_a_kill_once(self):
         self.kills(1)
@@ -208,7 +209,7 @@ class Loop(Sandbox):
         # the kill ended one process; a loop that died later died of something else,
         # and the dead-loop pass resumes it like any other
         self.kills(2)
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         for policy, reason in (("continue", None), ("stop", "killed: memory cap 4 GB")):
             with patch.object(run, "_systemctl_fields",
                               return_value=("success", f"/{CGROUP}", policy)):

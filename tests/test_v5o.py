@@ -17,6 +17,7 @@ import unittest
 
 from test_v4n import REPO, Sandbox, menu_input
 from agentkit import config, menu, orch, run, terminal, watch
+from agentkit import record
 
 NOW = 1_800_000_000
 DAY = 86400
@@ -128,8 +129,8 @@ class V5oMenu(Sandbox):
                  "executor": "opus", "reviewer": "astra",
                  "finished_at": NOW - 1800, "started_at": NOW - 3600, **extra}
         if owner in ("atoll-job", "atoll-solo") and state.get("state") in ("running", "queued"):
-            state.update(run.process_owner())
-        run.save_state(directory, state)
+            state.update(record.process_owner())
+        record.save_state(directory, state)
         for path in list(directory.rglob("*")) + [directory]:
             try:
                 if path.is_file() or path == directory:
@@ -163,16 +164,16 @@ class V5oMenu(Sandbox):
         with patch("agentkit.watch.live_state", return_value={"state": "working", "rule": "fixture",
                                                              "since": NOW - 60, "began": NOW - 60}):
             with patch.object(menu.notify, "last", return_value=None):
-                for run_dir in run.run_dirs():
-                    state = run.read_state(run_dir) or {}
+                for run_dir in record.run_dirs():
+                    state = record.read_state(run_dir) or {}
                     if run.needs_recovery(state) or state.get("state") in ("fail", "error"):
                         state["recovery_acknowledged_at"] = NOW
-                        run.save_state(run_dir, state)
+                        record.save_state(run_dir, state)
                     if state.get("state") in ("running", "queued"):
                         state["state"] = "pass"
                         state["merged"] = True
                         state["finished_at"] = NOW - 60
-                        run.save_state(run_dir, state)
+                        record.save_state(run_dir, state)
                         for path in list(run_dir.rglob("*")):
                             try:
                                 if path.is_file():
@@ -311,10 +312,10 @@ class V5oMenu(Sandbox):
                                repo=str(config.CODE / "atoll"), title="Superseded title",
                                state="pass", merged=True, finished_at=NOW - 3600,
                                started_at=NOW - 3600 - 1800)
-        records = [run.read_state(d) for d in run.run_dirs()]
-        self.assertEqual(run.superseded_by(run.read_state(failed), records), "new-merged-pass")
-        self.assertTrue(run.is_superseded(run.read_state(failed), records))
-        self.assertFalse(run.is_superseded(run.read_state(merged), records))
+        records = [record.read_state(d) for d in record.run_dirs()]
+        self.assertEqual(run.superseded_by(record.read_state(failed), records), "new-merged-pass")
+        self.assertTrue(run.is_superseded(record.read_state(failed), records))
+        self.assertFalse(run.is_superseded(record.read_state(merged), records))
         screen, _ = self.draw(100, 30)
         self.assertNotIn("old-first-pass", screen)
         # Not in the reason either: the solo seat is still working, not needing him.
@@ -377,7 +378,7 @@ class V5oMenu(Sandbox):
                                started_at=NOW - 2 * 3600 - 1800)
         with redirect_stdout(io.StringIO()):
             run.cmd_status(["herdr-second-pass"])
-        self.assertTrue(run.read_state(second).get("recovery_acknowledged_at"))
+        self.assertTrue(record.read_state(second).get("recovery_acknowledged_at"))
         third = self.touching("herdr-third-pass", owner="herdr-quiet",
                               repo=str(config.CODE / "agentkit"), title="Herdr third pass",
                               state="error", finished_at=NOW - 3600,
@@ -392,9 +393,9 @@ class V5oMenu(Sandbox):
         self.assertNotIn("press r", screen)
         with redirect_stdout(io.StringIO()):
             run.cmd_status(["herdr-fourth-pass"])
-        self.assertTrue(run.read_state(fourth).get("recovery_acknowledged_at"))
+        self.assertTrue(record.read_state(fourth).get("recovery_acknowledged_at"))
         for run_id in ("herdr-second-pass", "herdr-third-pass", "herdr-fourth-pass"):
-            state = run.read_state(config.RUNS / run_id)
+            state = record.read_state(config.RUNS / run_id)
             self.assertTrue(state.get("recovery_acknowledged_at"), run_id)
         # Acknowledged or not, the gone seat is his for nobody being in it.
         screen, _ = self.draw(100, 30)

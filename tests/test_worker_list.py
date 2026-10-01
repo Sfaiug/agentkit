@@ -23,6 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, notify, run, usage, watch
+from agentkit import record
 from fixtures.hand_in import submitting
 
 
@@ -165,7 +166,7 @@ class WorkerList(unittest.TestCase):
 
     def test_status_and_log_name_the_bound_workers(self):
         lp = self.loop("alpha", "gamma", ["alpha", "gamma"])
-        run.save_state(lp.run_dir, lp.state)
+        record.save_state(lp.run_dir, lp.state)
         (lp.run_dir / "task.md").write_text(
             "---\nrepo: none\nrounds: 1\n---\n# Fixture\n\n## Done when\n```bash\ntrue\n```\n")
         opts = {"--review-pr": None, "--no-merge": True, "--no-worktree": True}
@@ -237,7 +238,7 @@ class WorkerList(unittest.TestCase):
         (run_dir / "task.md").write_text(
             "---\nrepo: none\nrounds: 1\n---\n# Fixture\n\n## Done when\n```bash\ntrue\n```\n")
         (run_dir / "log.txt").touch()
-        run.save_state(run_dir, {"run_id": run_dir.name, "workers": ["alpha", "beta"]})
+        record.save_state(run_dir, {"run_id": run_dir.name, "workers": ["alpha", "beta"]})
         self.cfg["models"]["beta"]["harness"] = "codex"
         self.why["codex"] = "codex is not logged in"
         self.why["claude"] = "claude is not logged in"
@@ -253,7 +254,7 @@ class WorkerList(unittest.TestCase):
             with self.assertRaises(config.Error) as refused:
                 run.drive(self.cfg, run_dir, opts, run.logger(run_dir, True))
         self.assertEqual(str(refused.exception), refusal)
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         self.assertEqual((saved["state"], saved["error"]), ("error", refusal))
         self.assertNotIn("quota_dry", saved)
         self.assertIn("skipped beta: codex is not logged in", (run_dir / "log.txt").read_text())
@@ -279,8 +280,8 @@ class WorkerList(unittest.TestCase):
             "none of the workers alpha, beta, gamma, delta and reviewers alpha, beta, gamma, delta "
             "can run here (alpha: claude is not logged in; beta: codex is not logged in;"),
             refused.exception)
-        (run_dir,) = run.run_dirs()
-        saved = run.read_state(run_dir)
+        (run_dir,) = record.run_dirs()
+        saved = record.read_state(run_dir)
         self.assertEqual((saved["state"], saved["error"]), ("error", str(refused.exception)))
         self.assertIn("skipped beta: codex is not logged in", (run_dir / "log.txt").read_text())
 
@@ -301,7 +302,7 @@ class WorkerList(unittest.TestCase):
                  "round_summaries": [], "repo": None, "worktree": str(workspace),
                  "branch": None, "base": None, "base_sha": None, "scratch": True,
                  "no_merge": True, "findings": "", "workers": ["alpha", "beta", "gamma"]}
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         calls = []
 
         def fake(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None):
@@ -317,7 +318,7 @@ class WorkerList(unittest.TestCase):
                 patch.object(notify, "shaped", return_value=0), \
                 redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
             run.drive(self.cfg, run_dir, opts, run.logger(run_dir, True), prior=state)
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         self.assertEqual((saved["executor"], saved["reviewer"]), ("beta", "alpha"))
         self.assertEqual(calls[0], "beta")
         self.assertIn("saved executor gamma cannot run: codex is not logged in",
@@ -332,7 +333,7 @@ class WorkerList(unittest.TestCase):
         run_dir.mkdir(parents=True)
         workspace = self.root / "waiting-work"
         workspace.mkdir()
-        run.save_state(run_dir, {"run_id": run_dir.name, "state": "exhausted",
+        record.save_state(run_dir, {"run_id": run_dir.name, "state": "exhausted",
                                  "quota_dry": True, "executor": "alpha", "reviewer": "gamma",
                                  "worktree": str(workspace),
                                  "workers": ["alpha", "beta", "gamma", "delta"]})
@@ -365,7 +366,7 @@ class WorkerList(unittest.TestCase):
         self.why["codex"] = "codex is not logged in"
         run_dir = config.RUNS / "20260924-0000-stalled"
         run_dir.mkdir(parents=True)
-        run.save_state(run_dir, {"run_id": run_dir.name, "state": "running", "pid": 4242,
+        record.save_state(run_dir, {"run_id": run_dir.name, "state": "running", "pid": 4242,
                                  "executor": "alpha", "reviewer": "gamma", "round_summaries": [],
                                  "stalls": [{"time": 0, "round": 1, "step": "executor turn",
                                              "action": "killed step"}],
@@ -373,7 +374,7 @@ class WorkerList(unittest.TestCase):
         logs = []
         with patch.object(usage, "collect",
                           return_value=usage.Readings(self.providers(a=50, c=0))), \
-                patch.object(run, "process_active", return_value=True), \
+                patch.object(record, "process_active", return_value=True), \
                 patch.object(host, "frozen_cgroup", return_value=None), \
                 patch.object(watch, "stall_clock", return_value=0), \
                 patch.object(watch, "step_for_run",
@@ -382,7 +383,7 @@ class WorkerList(unittest.TestCase):
                 patch.object(watch, "launch_resume") as resume:
             watch.recover_runs(self.cfg, log=logs.append, now=self.now)
         resume.assert_called_once()
-        self.assertEqual(run.read_state(run_dir)["executor"], "beta")
+        self.assertEqual(record.read_state(run_dir)["executor"], "beta")
         text = (run_dir / "log.txt").read_text()
         self.assertEqual(text.count("skipped delta: codex is not logged in"), 1)
         self.assertFalse([line for line in logs if line.startswith("skipped")])
@@ -404,7 +405,7 @@ class WorkerList(unittest.TestCase):
                  "branch": None, "base": None, "base_sha": None, "scratch": True,
                  "no_merge": True, "findings": "", "workers": ["alpha", "beta"],
                  "error": "every provider is out of budget"}
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         calls, fake = self.turn({"alpha": (1, "usage limit reached", "s", False),
                                  "beta": (1, "usage limit reached", "s", False)})
         sent = []
@@ -418,7 +419,7 @@ class WorkerList(unittest.TestCase):
                 redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
             self.assertEqual(run.drive(self.cfg, run_dir, opts, run.logger(run_dir, False),
                                        prior=state), 1)
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "exhausted")
         self.assertIn("no other provider can execute", saved["error"])
         self.assertTrue(saved["quota_dry"])

@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from test_v4n import Sandbox
 from agentkit import browser, config, gc, menu, notify, orch, run, watch
+from agentkit import record
 
 SEAT = "seat"
 
@@ -100,7 +101,7 @@ class NoReplay(Sandbox):
         self.assertIn("old-1", logs[0])
         self.assertIn("old-2", logs[0])
         for directory in (first, second):
-            state = run.read_state(directory)
+            state = record.read_state(directory)
             self.assertTrue(state["handed_back"])
             self.assertEqual(state["handback_note"], "pre-existing ending; not replayed")
             self.assertFalse(run.owes_ending(state))
@@ -111,10 +112,10 @@ class NoReplay(Sandbox):
     def test_ending_younger_than_an_hour_is_delivered(self):
         directory = self.fresh("run-new")
         self.rows = [self.live()]
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(len(self.typed), 1)
         self.assertIn("finished PASS", self.typed[0][1])
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertTrue(state["handed_back"])
         self.assertNotIn("handback_note", state)
 
@@ -122,9 +123,9 @@ class NoReplay(Sandbox):
         directory = self.fresh("run-wait")
         self.rows = []
         watch.seat_write(SEAT, closed_by_owner=True)
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual((self.reopened, self.typed, self.cards), ([], [], []))
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertFalse(state["handed_back"])
         self.assertTrue(state["handback_pending"])
         self.assertEqual(state["handback_wait_reason"], "session closed by the owner")
@@ -133,7 +134,7 @@ class NoReplay(Sandbox):
         logs = []
         self.assertEqual(watch.sweep_preexisting(logs.append, now=time.time() + 7200), 0)
         self.assertEqual(logs, [])
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertTrue(state["handback_pending"])
         self.assertTrue(run.owes_ending(state))
         found = watch.session_state(SEAT, session={"name": SEAT, "exited": True},
@@ -145,14 +146,14 @@ class NoReplay(Sandbox):
         directory = self.fresh("run-back")
         self.rows = []
         watch.seat_write(SEAT, closed_by_owner=True)
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.typed, [])
         # the seat stays closed longer than an hour: the wait ages but is still delivered
-        aged = run.read_state(directory)
+        aged = record.read_state(directory)
         aged["finished_at"] = 1000
-        run.save_state(directory, aged)
+        record.save_state(directory, aged)
         self.assertEqual(watch.sweep_preexisting(self.logs.append), 0)
-        self.assertTrue(run.read_state(directory)["handback_pending"])
+        self.assertTrue(record.read_state(directory)["handback_pending"])
         with patch.object(orch, "start"):
             orch.launch(SEAT, "fable", self.root, ["fable"], "thread-seat")
         self.assertFalse(watch.seat_read(SEAT).get("closed_by_owner"))
@@ -161,7 +162,7 @@ class NoReplay(Sandbox):
         self.tick()
         self.assertEqual(len(self.typed), 1)
         self.assertIn("run-back", self.typed[0][1])
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertTrue(state["handed_back"])
         self.assertNotIn("handback_pending", state)
         self.assertNotIn("handback_note", state)
@@ -215,7 +216,7 @@ class NoReplay(Sandbox):
         directory = self.fresh("run-pending")
         self.rows = []
         watch.seat_write(SEAT, closed_by_owner=True)
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(run.cmd_status(["--pending"]), 0)
@@ -231,8 +232,8 @@ class NoReplay(Sandbox):
         directory = self.fresh("run-old-death")
         self.rows = []
         config.update_session(SEAT, seen=5000)
-        self.assertFalse(watch.orphan_fresh(run.read_state(directory), SEAT))
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        self.assertFalse(watch.orphan_fresh(record.read_state(directory), SEAT))
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual((self.reopened, self.typed), ([], []))
         self.assertEqual(len(self.cards), 1)
         self.assertNotIn("tried to reopen", self.cards[0][1])
@@ -241,15 +242,15 @@ class NoReplay(Sandbox):
         directory = self.ended("run-card", owner=SEAT, finished_at=1000,
                                notification_pending=True)
         self.rows = []
-        self.assertTrue(watch.is_preexisting(run.read_state(directory)))
-        self.assertTrue(watch.orphan_fresh(run.read_state(directory), SEAT))
+        self.assertTrue(watch.is_preexisting(record.read_state(directory)))
+        self.assertTrue(watch.orphan_fresh(record.read_state(directory), SEAT))
         self.assertEqual(watch.sweep_preexisting(self.logs.append), 0)
-        self.assertTrue(run.read_state(directory)["notification_pending"])
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        self.assertTrue(record.read_state(directory)["notification_pending"])
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual((self.reopened, self.typed), ([], []))
         self.assertEqual(len(self.cards), 1)
         self.assertNotIn("tried to reopen", self.cards[0][1])
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertTrue(state["reported"])
         self.assertNotIn("handback_note", state)
 
