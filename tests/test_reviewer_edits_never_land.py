@@ -551,6 +551,7 @@ class ReviewerEdits(unittest.TestCase):
 
         def unstaged(cfg, name, body, workspace, out, role, session, **kwargs):
             result = real_call(cfg, name, body, workspace, out, role, session, **kwargs)
+            self.assertEqual(result[0], 0, run.tail(Path(out) / "stderr.log"))
             if run.git(workspace, "ls-files", "--unmerged"):
                 (Path(workspace) / "staged.txt").write_text("working edit\n")
             return result
@@ -570,7 +571,8 @@ class ReviewerEdits(unittest.TestCase):
                 (["cherry-pick", "other"], []),
                 (["stash", "pop", "--quiet"], [
                     ["checkout", "-q", "--detach", base],
-                    ["restore", "--source=other", "--", "tracked.txt", "binary.bin"],
+                    ["restore", "--source=other", "--staged", "--worktree", "--",
+                     "tracked.txt", "binary.bin"],
                     ["stash", "push", "-qm", "probe"],
                     ["checkout", "-q", "ak/fix-api"]])):
             with self.subTest(command=command[0]):
