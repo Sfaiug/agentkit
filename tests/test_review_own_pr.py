@@ -35,6 +35,9 @@ class OwnPr(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        # An empty fake checkout still inherits the enclosing repository's Git state.
+        self.stack.enter_context(patch.object(
+            run, "git_out", side_effect=AssertionError("real Git in a fake checkout")))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
@@ -111,6 +114,7 @@ class OwnPr(unittest.TestCase):
             patch.object(run, "review", side_effect=faces[reviewer]),
             patch.object(run, "restore_review_checkout", return_value=None),
             patch.object(run, "launcher_world", side_effect=lambda *a, **k: nullcontext(False)),
+            patch.object(run, "fetch", return_value=(0, "")),
         ]
 
     def posting_gh(self, events, merges=None):
@@ -281,7 +285,7 @@ class OwnPr(unittest.TestCase):
         with patch.object(orch, "find", return_value={"name": "fix-api"}), \
                 patch.object(watch, "type_at_prompt",
                              side_effect=lambda seat, line, *a, **k: typed.append(line) or True):
-            with patch.object(run, "launcher_world") as world:
+            with patch.object(run, "launcher_world") as world, patch.object(run, "drop_checkout"):
                 world.return_value.__enter__.return_value = True
                 world.return_value.__exit__.return_value = False
                 run.announce(run.read_state(run_dir), run_dir, lambda line: None)
