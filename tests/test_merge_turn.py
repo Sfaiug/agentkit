@@ -370,7 +370,7 @@ class MergeTurn(unittest.TestCase):
                                        ("turn", lp.wt), ("recheck", lp.wt),
                                        ("turn", lp.wt), ("checks", lp.wt)])
         log = (lp.run_dir / "log.txt").read_text()
-        self.assertIn("touching this branch's files; verifying again holding the merge turn", log)
+        self.assertIn("verifying again holding the merge turn", log)
         self.assertNotIn("none touching", log)
         state = run.read_state(lp.run_dir)
         self.assertNotIn("merge_turn", state)

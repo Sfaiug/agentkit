@@ -127,8 +127,8 @@ class SameRules(unittest.TestCase):
                 self.assertNotIn("users: none", prompt)
                 self.assertNotIn("before you hand over", prompt)
         executor = prompts[0][1]
-        self.assertIn("The loop runs these alongside the review, and again at landing "
-                      "only if the target touched your files; do not run them yourself:\n"
+        self.assertIn("The loop runs these once at landing on the commit to be merged; "
+                      "do not run them yourself:\n"
                       "  $ echo acme-suite", executor)
         self.assertEqual(executor.count("echo acme-suite"), 1)
         # the base commit's file, never the checkout's: the work cannot rewrite its rules

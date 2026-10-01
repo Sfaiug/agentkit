@@ -1,4 +1,4 @@
-"""Suite commands running alongside are explained to reviewers and in result.md."""
+"""Suite commands deferred to landing are explained to reviewers and in result.md."""
 
 from pathlib import Path
 import shutil
@@ -67,10 +67,10 @@ class DeferredChecks(unittest.TestCase):
 
     def test_reviewer_body_lists_each_deferred_command_and_explanation(self):
         prompt = self.reviewer_prompt(("bash tests/smoke.sh", "python3 tests/test_extra.py"))
-        first = "runs alongside this review on the commit under review: bash tests/smoke.sh"
-        second = ("runs alongside this review on the commit under review: "
+        first = "runs once at landing on the commit to be merged: bash tests/smoke.sh"
+        second = ("runs once at landing on the commit to be merged: "
                   "python3 tests/test_extra.py")
-        sentence = ("These run alongside this review; their absence here is by design "
+        sentence = ("These run at landing; their absence here is by design "
                     "and is never a finding.")
         self.assertIn(first, prompt)
         self.assertIn(second, prompt)
@@ -81,11 +81,11 @@ class DeferredChecks(unittest.TestCase):
 
     def test_review_without_deferred_commands_adds_no_deferred_note(self):
         prompt = self.reviewer_prompt()
-        self.assertNotIn("runs alongside this review", prompt)
+        self.assertNotIn("runs once at landing", prompt)
         self.assertNotIn("Their absence here is by design", prompt)
 
     def test_reviewer_preambles_explain_deferred_commands(self):
-        clause = "except the commands marked deferred, which run alongside your review"
+        clause = "except the commands marked deferred, which run once at landing"
         self.assertIn(clause, worker.PREAMBLES["reviewer"])
         self.assertIn(clause, worker.PREAMBLES["reviewer-scratch"])
 

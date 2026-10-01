@@ -241,7 +241,9 @@ class MergeTrailer(unittest.TestCase):
                 self.git("checkout", "-q", "ak/fix-api")
                 lp = self.loop(suite="false" if failed else SUITE)
                 if failed:
-                    self.assertFalse(run.verify_once(lp)[0])
+                    with patch.object(run, "target_fails", return_value="red target"), \
+                            patch.object(run, "park_waiting", return_value=False):
+                        self.assertFalse(run.final_check(lp, "origin/main"))
                 self.assertNotIn("Suite-Passed-Tree:", self.land(lp))
 
     def test_suite_pass_on_another_commit_has_no_trailer(self):
@@ -253,10 +255,10 @@ class MergeTrailer(unittest.TestCase):
         lp.state["delivery_sha"] = self.git("rev-parse", "HEAD")
         self.assertNotIn("Suite-Passed-Tree:", self.land(lp))
 
-    def test_carried_round_check_does_not_certify_a_different_tree(self):
+    def test_landing_checks_a_new_tree_before_certifying_it(self):
         lp = self.loop()
         lp.rnd = 1
-        self.assertTrue(run.verify_once(lp)[0])
+        self.assertTrue(run.final_check(lp, "origin/main"))
         tree = self.git("rev-parse", "HEAD^{tree}")
         self.git("checkout", "-q", "main")
         (self.repo / "other.txt").write_text("other work\n")
@@ -269,7 +271,8 @@ class MergeTrailer(unittest.TestCase):
         self.assertNotEqual(self.git("rev-parse", "HEAD^{tree}"), tree)
         self.assertTrue(run.final_check(lp, "origin/main"))
         lp.state["delivery_sha"] = self.git("rev-parse", "HEAD")
-        self.assertNotIn("Suite-Passed-Tree:", self.land(lp))
+        checked = self.git("rev-parse", "HEAD^{tree}")
+        self.assertIn(f"Suite-Passed-Tree: {checked}", self.land(lp))
 
     def review_pr(self, suite, own=True):
         lp = self.loop(suite=suite)

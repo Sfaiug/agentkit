@@ -8,7 +8,6 @@ import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -245,58 +244,6 @@ class ReviewerEdits(unittest.TestCase):
         self.assert_restored()
         self.assertFalse(self.archive.exists())
         self.assertFalse(any("WARN" in line for line in self.logs), self.logs)
-
-    def suite_files_case(self, no_verdict):
-        self.lp.once = ["test -f report.txt"]
-        finished = threading.Event()
-        real_join = run.join_suite
-
-        def suite(cmds, cwd, log_path, *args, **_kw):
-            deadline = time.monotonic() + 5
-            while not (self.root / "review-started").exists():
-                if time.monotonic() >= deadline:
-                    raise AssertionError("the reviewer never started")
-                time.sleep(0.01)
-            report = Path(cwd) / "report.txt"
-            report.write_text("coverage\n")
-            (self.root / "suite-ready").touch()
-            if not finished.wait(5):
-                raise AssertionError("the reviewer never finished")
-            ok = report.exists() and report.read_text() == "coverage\n"
-            text = f"$ {cmds[0]}\n[exit {0 if ok else 1}]\n"
-            Path(log_path).write_text(text)
-            self.lp.artifacts.add("report.txt")
-            return ok, text
-
-        def join(lp):
-            finished.set()
-            return real_join(lp)
-
-        rows = [{"signal": "review-started", "wait": "suite-ready",
-                 "text": "Still reviewing." if no_verdict else "VERDICT: PASS"}]
-        if no_verdict:
-            rows.append({})
-        with patch.object(run, "run_done_when", side_effect=suite), \
-                patch.object(run, "join_suite", side_effect=join):
-            self.lp.suite_thread, self.lp.suite_box = run.start_suite(self.lp)
-            thread = self.lp.suite_thread
-            try:
-                verdict = self.review(*rows)
-            finally:
-                finished.set()
-                thread.join(5)
-        self.assertFalse(thread.is_alive())
-        self.assertEqual(verdict, "PASS", self.logs)
-        self.assertTrue(self.lp.once_ok)
-        self.assertEqual((self.wt / "report.txt").read_text(), "coverage\n")
-        self.assertFalse(self.archive.exists())
-        self.assertFalse(any("WARN" in line for line in self.logs), self.logs)
-
-    def test_live_suite_files_survive_a_read_only_reviewer(self):
-        self.suite_files_case(False)
-
-    def test_live_suite_files_survive_the_extra_verdict_ask(self):
-        self.suite_files_case(True)
 
     def test_suite_files_disappearing_during_copy_do_not_abort_review(self):
         build = self.wt / "build"
