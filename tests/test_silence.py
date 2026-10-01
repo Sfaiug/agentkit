@@ -119,6 +119,18 @@ class Silence(unittest.TestCase):
         self.assertIn("first\nlast", text)
         self.assertIn(f"{cmd} (last output: last)", logs[0])
 
+    def test_silence_stop_names_the_sleeping_child(self):
+        logs = []
+        path = self.root / "donewhen.log"
+        ok, text = run.run_done_when(["sleep 600 & wait"], self.root, path, set(),
+                                     limit=60, silence=3, log=logs.append)
+        self.assertFalse(ok, text)
+        self.assertEqual(len(logs), 1)
+        detail = logs[0].split("(last output: (no output))", 1)[1]
+        self.assertRegex(detail, r"^; still running: sleep 600 \(\d+s\)$")
+        self.assertIn(logs[0], text)
+        self.assertEqual(path.read_text(), text)
+
     def test_background_child_holding_output_does_not_escape_silence(self):
         child = self.root / "child.pid"
         cmd = f"sleep 600 & echo $! > {shlex.quote(str(child))}"
