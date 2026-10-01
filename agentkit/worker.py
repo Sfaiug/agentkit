@@ -10,7 +10,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import command_help, config
+from . import command_help, config, hand_in
 
 # A worker session is not a seat: `ak notify` is suppressed there, and a finding names a class
 # the fixer has to finish, not a line to patch, so that a later round only confirms fixes.
@@ -33,16 +33,22 @@ BLOCKED = ("If the task cannot be completed as written, end with a `## Blocked` 
            "transient provider failure, a capacity refusal, or a check the loop runs later such "
            "as the `# once` suite.")
 # Only proven defects are reported; those already present before the task are follow-ups.
-GATE = ("A round is `VERDICT: FAIL` only for a **blocking** finding: a correctness defect in "
+GATE = ("Hand in a **blocking** finding only for a correctness defect in "
         "the task's outcome, a safety or data-loss risk, a check the executor weakened or "
         "skipped, or a scope violation (work the task did not ask for, or asked-for work "
         "missing). A blocking finding must include evidence: a command that fails, a "
-        "reproduction, or quoted diff lines that show the defect. **Follow-ups** are defects "
+        "reproduction, or quoted lines that show the defect. Use "
+        "`ak hand-in finding path:line \"what\" \"why it matters\" --run 'command'` "
+        "or `--quote 'lines from that file'` for blocking findings only. "
+        "**Follow-ups** are defects "
         "of a kind that would fail a round, with that same evidence, that existed before this "
         "task: prove that by naming the base commit or quoting main as it was before the task. "
-        "List only these under `## Follow-ups` as `path:line - what - why it matters`, with "
-        "the evidence, never a reason to fail. Omit everything else everywhere. End `VERDICT: PASS` "
-        "when no blocking finding exists, however long the follow-ups list is.")
+        "Hand in only these with `ak hand-in follow-up` using the same arguments plus "
+        "`--before 'base commit or quoted main proving it existed before the task'`; "
+        "they are never a reason to fail. Omit everything else everywhere. "
+        "Finish with `ak hand-in done`: the loop derives FAIL from any blocking finding, "
+        "otherwise PASS, however long the follow-ups list is. A refused hand-in explains "
+        "what to correct; fix the call and try again before done.")
 # A repository whose AGENTS.md says `users: real` ships a new feature hidden until the owner
 # turns it on for everyone, so its reviewer holds one more finding blocking.
 REAL_USERS = ("This repository has real users: new user-visible behaviour (something a user can "
@@ -209,9 +215,7 @@ PREAMBLES = {
         "exactly that. The full suite a repository declares as `tests:` in its AGENTS.md runs "
         "alongside your review; a task whose done-when leaves it out has weakened no check. "
         "Their absence from your input is by design and is never a finding. "
-        f"{GATE} {ONE_PASS} Finish with a line "
-        "exactly `VERDICT: PASS` or `VERDICT: FAIL`, then `## Findings` as a list of "
-        "`path:line - issue - why it matters` for blocking findings only."),
+        f"{GATE} {ONE_PASS}"),
     "fixer": (
         "You are the executor, continuing. Address every finding below, re-run the per-round "
         "done-when commands, "
@@ -222,8 +226,7 @@ PREAMBLES = {
         "You are the reviewer of a pull request by another author. Read-only: do not edit files "
         "(running tests/commands is fine). Judge the diff against what the repository itself says "
         "-- its AGENTS.md, README, tests and conventions -- and against the intent the PR states. "
-        f"{GATE} {ONE_PASS} Finish with a line exactly `VERDICT: PASS` or `VERDICT: FAIL`, then "
-        "`## Findings` as a list of `path:line - issue - why it matters` for blocking findings only."),
+        f"{GATE} {ONE_PASS}"),
     # the same three roles for a run with no repository: nothing to commit, and the reviewer is
     # given the workspace rather than a diff
     "executor-scratch": (
@@ -246,9 +249,7 @@ PREAMBLES = {
         "must leave nothing behind outside a temporary directory. Judge "
         "the contents of {workspace} against the task and its done-when criteria. "
         "Their absence from your input is by design and is never a finding. "
-        f"{GATE} {ONE_PASS} Finish with a line "
-        "exactly `VERDICT: PASS` or `VERDICT: FAIL`, then `## Findings` as a list of "
-        "`path:line - issue - why it matters` for blocking findings only."),
+        f"{GATE} {ONE_PASS}"),
 }
 
 
@@ -585,6 +586,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
         raise LoginExpired(entry["harness"], why)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    turn_env[hand_in.ENV] = hand_in.start(out_dir, workspace, turn_env.pop(hand_in.CONTINUE, None))
     preamble = PREAMBLES[role].format(workspace=workspace)
     if GATE in preamble:
         from . import run as loop

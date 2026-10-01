@@ -27,6 +27,11 @@ MATRIX = [
     ("usage", "usage: ak usage [--json]", ["--json"], {"--json"}),
     ("worker", "usage: ak worker MODEL TASK", ["MISSING", "missing.md", "--role"],
      {"--workspace", "--out", "--session", "--role"}),
+    ("hand-in", "usage: ak hand-in finding PATH:LINE", ["finding"], {"--run", "--quote", "--before"}),
+    ("hand-in finding", "usage: ak hand-in finding PATH:LINE", ["api.py:1"], {"--run", "--quote"}),
+    ("hand-in follow-up", "usage: ak hand-in follow-up PATH:LINE", ["api.py:1"],
+     {"--run", "--quote", "--before"}),
+    ("hand-in done", "usage: ak hand-in done", ["extra"], set()),
     ("run", "usage: ak run TASK", ["missing.md", "--exec"],
      {"--rounds", "--exec", "--review", "--anyway", "--first", "--no-worktree", "--no-merge",
       "--bg", "--parallel", "--review-pr", "--history", "--why", "--plain", "--json",
@@ -79,7 +84,7 @@ def probe():
     module = None
     if mode == "module":
         name = {"attach": "menu", "fetch": "macbridge", "doctor": "watch",
-                "wait": "watch"}.get(args[0], args[0])
+                "wait": "watch", "hand-in": "hand_in"}.get(args[0], args[0])
         module = importlib.import_module(f"agentkit.{name}")
     elif mode == "notify":
         from agentkit import notify
@@ -151,7 +156,7 @@ def probe():
                     code = exc.code
             if mode == "help":
                 # Public help must return before command imports.
-                loaded = [name for name in ("usage", "worker", "run", "notify", "orch", "menu",
+                loaded = [name for name in ("usage", "worker", "hand_in", "run", "notify", "orch", "menu",
                                             "update", "watch", "browser", "macbridge")
                           if f"agentkit.{name}" in sys.modules]
                 assert not loaded, f"help imported operational modules: {loaded}"

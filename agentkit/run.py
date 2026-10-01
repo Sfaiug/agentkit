@@ -4,7 +4,7 @@ The reviewer is another model where the workers allow one, else the executor's o
 a model tends to miss the mistakes it makes, so its own review is the last choice,
 never a refusal.
 
-No LLM decides anything here; the loop is a script and the verdict is a parsed line.
+The loop derives a review's verdict from its checked hand-in records.
 
 `ak run --review-pr <url>` is the same reviewer with no executor: a PR checked out at
 its head, judged against the repo and posted back as a GitHub review. The seat's own
@@ -30,8 +30,8 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import (command_help, config, gc, history, host, job as jobs, notify, orch, retention,
-               task as taskfile, update, usage, watch, worker)
+from . import (command_help, config, gc, hand_in, history, host, job as jobs, notify, orch,
+               retention, task as taskfile, update, usage, watch, worker)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 DIFF_CAP = 300 * 1024
@@ -60,7 +60,7 @@ TRY_AGAIN_NAMED = re.compile(r"try again (?:at|on)\s+([A-Za-z]{3,9})\.?\s+(\d{1,
 MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 # The files in a worker's out dir that are the harness talking.  prompt.md is what it was told,
 # and session_id is bookkeeping; neither is ever evidence of anything the harness said.
-NOT_HARNESS = ("prompt.md", "session_id")
+NOT_HARNESS = ("prompt.md", "session_id", hand_in.FILE, hand_in.REPORT)
 ANSWER = "final.md"             # and this one arrives as `text`, already read by worker.call
 ECHO = 40                       # a prompt is recognised quoted back by this many of its own
                                 # first characters -- the role preamble, which is one line and
@@ -1089,9 +1089,10 @@ def shell_foreground_note():
 
 FINISH_IN_FOREGROUND = ("The command you left in the background was stopped when your turn ended. "
                         "Run it in the foreground now, wait for it, and report.")
-NO_VERDICT_ASK = ("Your previous turn ended without a verdict. Review the diff now and end "
-                  "your answer with VERDICT: PASS or VERDICT: FAIL. Do not start commands you "
-                  "will not wait for in this turn.")
+NO_VERDICT_ASK = ("Your previous turn ended without ak hand-in done. Review the diff now, "
+                  "hand in any remaining findings or follow-ups with ak hand-in, then run "
+                  "ak hand-in done. Earlier records have been carried into this turn. "
+                  "Do not start commands you will not wait for in this turn.")
 
 
 def turn_unfinished(out_dir):
@@ -1435,7 +1436,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     attempt, calls, refills, last_kill, account, span = 1, 0, 0, None, None, None
     handover_tried = False
 
-    def turn(text, target, session):
+    def turn(text, target, session, previous=None):
         """One call, with a login failure taken aside before it costs a wait.
 
         No call starts on a stopped run: the stop lands first and the sweep after
@@ -1447,6 +1448,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         account = usage.account(cfg, entry["provider"])[0]
         began = time.time()
         named = env if account is None else {**env, **config.account_env(account)}
+        if previous is not None:
+            named = {**named, hand_in.CONTINUE: str(previous / hand_in.FILE)}
         try:
             with reviewer_checkout(workspace, target, log) if role in (
                     "reviewer", "reviewer-pr") else nullcontext(workspace) as cwd:
@@ -1529,7 +1532,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             # call, so review() never spends a second extra call on the same turn.
             finish_body = (f"{FINISH_IN_FOREGROUND} {NO_VERDICT_ASK}"
                            if role.startswith("reviewer") else FINISH_IN_FOREGROUND)
-            code, text, sid, killed, unfinished = turn(finish_body, finish, session)
+            code, text, sid, killed, unfinished = turn(finish_body, finish, session, previous=target)
             session = sid or session
             if swapped(code, killed, session):
                 continue
@@ -3681,7 +3684,10 @@ def review_files(run_dir, rnd):
     found = []
     for directory in Path(run_dir).joinpath(f"round-{rnd}").glob("reviewer*"):
         try:
-            found.append((directory.joinpath("final.md").stat().st_mtime, directory / "final.md"))
+            path = directory / hand_in.REPORT
+            if not path.exists():
+                path = directory / "final.md"
+            found.append((path.stat().st_mtime, path))
         except OSError:
             continue                    # no answer under it, or it went while we were looking
     return [path for _, path in sorted(found)]
@@ -3696,10 +3702,20 @@ def written_answer(out, text):
     is what makes the answer and the file the same thing.
     """
     out = Path(out)
-    for directory in sorted(out.parent.glob(f"{out.name}-retry*"), reverse=True) + [out]:
+    directories = sorted([out, *out.parent.glob(f"{out.name}-retry*")],
+                         key=lambda path: path.stat().st_mtime_ns if path.exists() else 0,
+                         reverse=True)
+    for directory in directories:
         if read_answer(directory / "final.md") == text:
             return directory / "final.md"
+    for directory in directories:
+        if (directory / hand_in.FILE).exists():
+            return directory / "final.md"
     return out / "final.md"
+
+
+def review_records(out, text):
+    return hand_in.read(written_answer(out, text).parent / hand_in.FILE)
 
 
 def record_findings(lp, out, text):
@@ -3708,9 +3724,15 @@ def record_findings(lp, out, text):
     Written together everywhere, because a `findings_file` left pointing at another answer
     would hand the next fixer the wrong review -- worse than the tail it replaces.
     """
+    source = written_answer(out, text)
+    submitted = hand_in.read(source.parent / hand_in.FILE)
+    if submitted is not None:
+        text = submitted.text
+        source = source.parent / hand_in.REPORT
+        source.write_text(text)
     lp.findings = text
     lp.state["findings"] = text.strip()[-8000:]
-    lp.state["findings_file"] = str(written_answer(out, text))
+    lp.state["findings_file"] = str(source)
 
 
 def saved_findings(run_dir, state):
@@ -4331,7 +4353,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             lp.save()
             name = fall_back(why, out)
             continue
-        if review_verdicts(text):
+        submitted = review_records(out, text)
+        if submitted.verdict if submitted is not None else review_verdicts(text):
             break
         # A missing verdict is a reviewer that has not answered, never an answer: ask the
         # same session once more, same round, no backoff, not a transport attempt.  When
@@ -4350,7 +4373,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             attempt2 += 1
             out2 = lp.dir(f"{name}-attempt{attempt2}")
         env2 = {**run_child_env(), "AK_RUN_ROLE": "worker",
-                "AK_RUN_LOG": str(out2.parent.parent / "log.txt")}
+                "AK_RUN_LOG": str(out2.parent.parent / "log.txt"),
+                hand_in.CONTINUE: str(written_answer(out, text).parent / hand_in.FILE)}
         stop_check(lp.run_dir)
         try:
             with reviewer_checkout(lp.wt, out2, lp.log) if not lp.scratch else nullcontext(lp.wt) as cwd:
@@ -4376,11 +4400,14 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         if code2 != 0:
             lp.log(f"WARN reviewer {killed_word(code2) or f'exited {code2}'}; "
                    f"see {out2 / 'stderr.log'}")
-        if not killed2 and (unfinished2 or turn_unfinished(out2)) and review_verdicts(text2):
+        submitted2 = review_records(out2, text2)
+        answered2 = submitted2.verdict if submitted2 is not None else review_verdicts(text2)
+        if not killed2 and (unfinished2 or turn_unfinished(out2)) and answered2:
             lp.log(f"WARN reviewer {lp.reviewer} ended its turn with a command still in the "
                    "background again; carrying on with what it reported")
-        if review_verdicts(text2):
+        if answered2:
             code, text, out = code2, text2, out2
+            submitted = submitted2
             break
         record_findings(lp, out2, text2)
         lp.save()
@@ -4388,8 +4415,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
 
     # the suite ran alongside the reviewer above; its verdict lands here, before judging
     join_suite(lp)
-    verdicts = review_verdicts(text)
-    verdict = verdicts[-1].upper()
+    verdict = submitted.verdict if submitted is not None else review_verdicts(text)[-1].upper()
     overridden = None       # why the loop failed what the reviewer passed, for the hand-back
     if code != 0 and verdict == "PASS":
         verdict = "FAIL"
@@ -4410,7 +4436,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         overridden = "the checkout changed after verification"
         lp.log(f"WARN {overridden}; overriding to FAIL")
     record_findings(lp, out, text)
-    lp.state["followups"] = followups_in(text) if verdict == "PASS" else []
+    lp.state["followups"] = (submitted.followups if submitted is not None else followups_in(text)
+                             ) if verdict == "PASS" else []
     if verdict == "PASS":
         record_flakes(lp.state, dw_log)
         if getattr(lp, "once_log", ""):
@@ -4425,7 +4452,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     if record:
         lp.state["round_summaries"].append(
             {"round": lp.rnd, "verdict": verdict, "done_when": ok,
-             "finding_count": finding_count(text),
+             "finding_count": len(submitted.findings) if submitted is not None else finding_count(text),
              "summary": summary.strip()[-4000:], **validation, **passed})
     lp.log(f"round {lp.rnd} verdict: {verdict}")
     lp.state["verdict"] = verdict

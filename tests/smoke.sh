@@ -2012,7 +2012,7 @@ PY
   ) || return 1
   skip_checks "$checks" "required model $model was refused: $why"
 }
-printf 'Create a file hello.txt containing exactly: hello\nThen reply with only the word DONE.\n' \
+printf 'Create a file hello.txt containing exactly: hello\nThen run %s hand-in finding hello.txt:1 "Smoke record" "Checks the hand-in channel" --quote hello, then %s hand-in done.\nThen reply with only the word DONE.\n' "$REPO/bin/ak" "$REPO/bin/ak" \
   >"$WORK/p-make.txt"
 printf 'What file did you just create? Answer with the filename only.\n' >"$WORK/p-ask.txt"
 WORD=PONG
@@ -2065,8 +2065,13 @@ os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
   fi
   CALLRC=$?
   if skip_refused 3a/3b "$M" "$CALLRC" "$WORK/o-$M"; then continue; fi
-  if [ "$CALLRC" = 0 ] && grep -qxF hello "$R/hello.txt" 2>/dev/null && [ -s "$WORK/o-$M/final.md" ]; then
-    ok "3a $M ($H): wrote hello.txt, final.md non-empty"
+  if [ "$CALLRC" = 0 ] && grep -qxF hello "$R/hello.txt" 2>/dev/null && [ -s "$WORK/o-$M/final.md" ] &&
+     PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import hand_in
+review = hand_in.read(sys.argv[1])
+assert review is not None and review.done and len(review.findings) == 1
+assert review.findings[0]["path"] == "hello.txt" and review.findings[0]["line"] == 1
+assert review.findings[0]["evidence"] == {"quote": "hello"}' "$WORK/o-$M/hand-in.jsonl"; then
+    ok "3a $M ($H): wrote hello.txt, final.md non-empty, handed in a checked record"
   else
     no "3a $M ($H): hello.txt=$([ -f "$R/hello.txt" ] && echo yes || echo no)"
     diagnose "$CALLRC" "$WORK/$M.log" ak worker "$M" "$WORK/p-make.txt" --workspace "$R" --out "$WORK/o-$M"
@@ -5711,7 +5716,7 @@ if { python3 "$REPO/tests/test_repo_suite.py" &&
 else
   no "49a repository suites and merge trailer"; tail -30 "$WORK/merge-trailer.log"
 fi
-if { python3 "$REPO/tests/test_regression_fails_before.py" &&
+if { python3 "$REPO/tests/test_hand_in.py" && python3 "$REPO/tests/test_regression_fails_before.py" &&
      python3 "$REPO/tests/test_probe_resume.py" &&
      python3 "$REPO/tests/test_followup_runs.py" && python3 "$REPO/tests/test_red_target.py" &&
      python3 "$REPO/tests/test_review_gate.py" && python3 "$REPO/tests/test_changed_checks.py" &&
