@@ -201,13 +201,12 @@ class OpensAtOnce(Sandbox):
     def test_a_notice_that_lands_at_once_waits_for_the_first_frame(self):
         self.slow, seen = 0, []           # every step done the moment it starts
 
-        def answer(screen, wake):
-            seen.append(len(self.said))
-            return Key("esc") if len(self.said) == 3 else None
+        def answer(screen, wake):           # Esc once all three are shown, in however many goes
+            seen.append(sum(map(len, self.said)))
+            return Key("esc") if seen[-1] == 3 else None
 
         self.assertEqual(self.menu(answer), 0)
         self.assertEqual(seen[0], 0)
-        self.assertEqual(len(self.said), 3)
 
     def test_an_update_fills_the_rule_while_a_key_answers_then_reopens_on_the_same_seat(self):
         self.ahead, rules, pressed = True, [], {}
