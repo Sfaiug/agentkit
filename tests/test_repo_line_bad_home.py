@@ -18,7 +18,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
-from agentkit import config, menu, orch, run, watch
+from agentkit import config, job as jobs, menu, orch, run, watch
 
 BAD = "~nosuch-acme-owner/acme"
 
@@ -70,7 +70,7 @@ class RepoLineBadHome(Sandbox):
         good = self.task(self.root / "fix-docs.md", self.acme)
         for argv in ([str(bad)], [str(good), str(bad)]):
             with self.subTest(argv=len(argv)), patch.object(run, "drive", return_value=0), \
-                    patch.object(run, "run_job_loop", return_value=0):
+                    patch.object(jobs, "run_job_loop", return_value=0):
                 with self.assertRaises(config.Error) as refused:
                     run.main(argv)
                 self.assertIn(f"repo {BAD}", str(refused.exception))

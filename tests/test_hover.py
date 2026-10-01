@@ -288,7 +288,8 @@ class Screens(Sandbox):
         screens = run(lambda: terminal.choose(choices, around=around), move(5, 5), move(*keys),
                       b"k", move(1, 2), ESC)[1]
         self.assertEqual([(marked(grid, "lit"), highlighted(grid)) for grid in screens[1:]],
-                         [({}, ["› Grok"]), ({keys[1]: "esc back"}, []), ({}, ["› ChatGPT"])])
+                         [({}, ["› Grok"]), ({keys[1]: "esc back"}, []),
+                          ({}, ["› ChatGPT"]), ({}, [])])
         # on nothing the highlight is out, Enter only brings it back, and the next one picks
         answer, screens = run(lambda: terminal.choose(choices, around=around), move(5, 5),
                               move(1, 2), b"\r", ESC)
@@ -324,6 +325,17 @@ class Screens(Sandbox):
         self.assertFalse(answer)                        # Esc keeps, wherever the pointer is
         self.assertEqual(len(highlighted(screens[-1])), 1)
         self.assertIn("Stop", highlighted(screens[-1])[0])
+
+    def test_header_motion_after_keyboard_navigation_clears_the_highlight(self):
+        def around():
+            terminal.frame("config · add a provider", [""] * 3, "↑↓ move   ⏎ add   esc back")
+            return 3
+
+        screens = run(lambda: terminal.choose(["Claude", "ChatGPT", "Grok"], around=around),
+                      move(5, 5), b"k", move(1, 2), ESC)[1]
+        self.assertOneHighlight(screens[1], "Grok")
+        self.assertOneHighlight(screens[2], "ChatGPT")
+        self.assertEqual(highlighted(screens[-1]), [])
 
     def test_add_a_model_and_a_models_own_screen(self):
         first = run(lambda: menu.config_add(self.cfg), ESC)[1][0]
