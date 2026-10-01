@@ -4326,7 +4326,8 @@ def rounds(lp, execv=None):
                         review_pending={"round": lp.rnd + 1,
                                         "summary": entries[-1]["summary"] if entries else "",
                                         "reason": "The saved reviewed commit changed; "
-                                                  "verify the current checkout."})
+                                                  "verify the current checkout.",
+                                        "passed_head_sha": passed_review_head(lp.state)})
         lp.save()
     if current_review(lp):
         lp.log(f"already passed at round {lp.rnd}/{lp.rounds}; going straight to the merge")
@@ -4937,7 +4938,8 @@ def integrate(lp, upstream):
                             lp.rnd = old_rnd
                             reason = f"Re-review after the {how} of {upstream}."
                             lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
-                                                          "reason": reason, "record": False}
+                                                          "reason": reason, "record": False,
+                                                          "passed_head_sha": passed_review_head(lp.state)}
                             lp.save()
                             drop_reserved_turn()    # the lap failed; the probe runs unheld
                             for attempt in range(CONFLICT_ROUNDS + 1):
