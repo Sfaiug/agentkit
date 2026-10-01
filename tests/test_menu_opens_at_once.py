@@ -17,7 +17,7 @@ import time
 from unittest.mock import patch
 import unittest
 
-from test_v4n import Sandbox
+from test_v4n import Sandbox, menu_input
 from agentkit import config, macbridge, menu, orch, terminal, watch
 
 SLOW = 2.0        # what maintenance and each seat's look take
@@ -78,7 +78,6 @@ class OpensAtOnce(Sandbox):
                 (menu, "show_notices", lambda messages: messages and self.said.append(
                     (time.monotonic(), messages))),
                 (menu.Live, "probe", lambda self, now=None: False),
-                (menu, "read", lambda prompt, default=None: default),
                 (menu, "update_first", lambda: None),
                 (macbridge, "start_background", lambda: None),
                 (watch, "resume_after_boot", lambda *args, **kwargs: None),
@@ -108,7 +107,7 @@ class OpensAtOnce(Sandbox):
 
         self.began = time.monotonic()
         self.live = menu.Live(self.cfg)
-        with patch.object(menu, "wait_key", side_effect=wait_key), \
+        with menu_input(wait=wait_key, return_value=""), \
                 patch.object(menu, "Live", return_value=self.live), \
                 redirect_stdout(io.StringIO()):
             return menu.main([])

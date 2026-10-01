@@ -11,7 +11,7 @@ import re
 from unittest.mock import patch
 import unittest
 
-from test_v4n import REPO, Sandbox
+from test_v4n import REPO, Sandbox, menu_input
 from agentkit import config, menu, notify, orch, run, terminal, watch
 
 NOW = 1_800_000_000
@@ -193,12 +193,9 @@ class MenuRows(Sandbox):
 
     def test_removed_keys_answer_not_a_key(self):
         self.seat("only-seat", "atoll", live="working")
-        answers = iter(["r", "p", "b", "s", "u", ""])
         with patch.object(orch, "listing", return_value=self.seats), \
                 patch.object(orch, "job_notices", return_value=[]), \
-                patch.object(menu, "read", side_effect=lambda *_: next(answers)), \
-                patch.object(menu, "wait_key", side_effect=lambda prompt, timeout=None,
-                             wake=None: menu.read(prompt, "")), \
+                menu_input(side_effect=["r", "p", "b", "s", "u", ""]), \
                 patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:

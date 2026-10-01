@@ -13,7 +13,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_v4n import Sandbox
+from test_v4n import Sandbox, menu_input
 from agentkit import config, menu, notify, orch, run, terminal, watch
 
 NOW = 1_800_000_000
@@ -176,10 +176,9 @@ class StatusBar(Sandbox):
             self.assertNotIn(gone, screen)
 
     def test_overlay_r_renames_x_stops_and_c_is_not_a_key(self):
-        answers = iter(["r", "x", "c", "i", ""])
         with patch.object(orch, "listing", return_value=[self.seat]), \
                 patch.object(orch, "job_notices", return_value=[]), \
-                patch.object(menu, "read", side_effect=lambda *_: next(answers)), \
+                menu_input(side_effect=["r", "x", "c", "i", ""]), \
                 patch.object(menu, "rename_this_session") as renamed, \
                 patch.object(menu, "stop_this_session") as stopped, \
                 patch.object(terminal, "width", return_value=100), \

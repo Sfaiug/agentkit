@@ -21,7 +21,7 @@ import time
 from unittest.mock import patch
 import unittest
 
-from test_v4n import Sandbox
+from test_v4n import Sandbox, menu_input
 from agentkit import config, menu, motion, orch, terminal
 
 Key = terminal.Key
@@ -162,8 +162,7 @@ class NewsMotion(Sandbox):
                 time.sleep(min(timeout, motion.FRAME))
             return step
 
-        with patch.object(menu, "wait_key", side_effect=wait_key), \
-                patch.object(menu, "read", return_value="q"), \
+        with menu_input(wait=wait_key, return_value="q"), \
                 patch("sys.stdout", out):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
         return waits, last["at"][0]
