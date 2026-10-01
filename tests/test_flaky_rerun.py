@@ -65,14 +65,26 @@ class FlakyRerun(unittest.TestCase):
     def count(self):
         return len(self.runs.read_text().splitlines())
 
+    def evidence(self, text, cmd):
+        record = text.split(f"flaky: {cmd} failed, then passed on its re-run\n", 1)[1]
+        record = record.split("\n\n")[0]
+        reference, _, excerpt = record.partition("\n")
+        self.assertTrue(reference.startswith("failed output: "), record)
+        saved = Path(reference.removeprefix("failed output: "))
+        self.assertEqual(saved.parent, self.run_dir)
+        return saved, excerpt
+
     def test_a_fail_then_a_pass_keeps_flaky_evidence_without_a_followup_file(self):
         cmd = self.check("echo all good")
         ok, text, logs = self.gate([cmd, "true"])
         self.assertTrue(ok, text)
         self.assertEqual(self.count(), 2)
+        saved, _ = self.evidence(text, cmd)
         self.assertIn(f"$ {cmd}\n[exit 0]\nall good\n\n"
                       f"flaky: {cmd} failed, then passed on its re-run\n"
+                      f"failed output: {saved}\n"
                       "starting\nFAIL: too slow under load\n\n$ true\n[exit 0]", text)
+        self.assertEqual(saved.read_text(), "starting\n\nFAIL: too slow under load\n")
         self.assertEqual(run.done_when_counts(text, [cmd, "true"]), (2, 2))
         self.assertEqual(run.failing_checks(text), [])
         self.assertEqual(logs, [f"done-when: flaky: {cmd} failed, then passed on its re-run"])
@@ -87,9 +99,45 @@ class FlakyRerun(unittest.TestCase):
         ok, text, logs = self.gate([cmd])
         self.assertTrue(ok, text)
         self.assertEqual(self.count(), 2)
+        _, excerpt = self.evidence(text, cmd)
+        self.assertEqual(excerpt, "FAIL: the one that broke")
+
+    def test_varying_timings_ids_and_paths_do_not_hide_the_failure(self):
+        def noise(seconds, session, hex_id, path):
+            return "\n".join(line for i in range(25) for line in (
+                f"Ran {i + 1} tests in {seconds}s",
+                f"session {session}",
+                f"build {hex_id}",
+                f"temporary output {path}/result.txt")) + "\n"
+
+        failed = (noise("3.748", "01a0f904-7abb-4f18-b7aa-12c34d56e789",
+                        "deadbeef", "/tmp/acme-failed-xyz") + "\nFAIL  tests/test_x.py\n\n")
+        passed = noise("12.5", "abcdefab-ccdf-4b12-abaa-abdefaaabcde",
+                       "cafefeed", "/tmp/acme-passed-qrs")
+        failed_path, passed_path = self.root / "failed.txt", self.root / "passed.txt"
+        failed_path.write_text(failed)
+        passed_path.write_text(passed)
+        q = shlex.quote
+        cmd = (f"echo ran >> {q(str(self.runs))}; if test -f {q(str(self.root / 'seen'))}; "
+               f"then cat {q(str(passed_path))}; else touch {q(str(self.root / 'seen'))}; "
+               f"cat {q(str(failed_path))}; exit 1; fi")
+        ok, text, logs = self.gate([cmd])
+        self.assertTrue(ok, text)
+        self.assertEqual(self.count(), 2)
         record = text.split(f"flaky: {cmd} failed, then passed on its re-run\n", 1)[1]
-        record = record.split("\n\n")[0]
-        self.assertEqual(record, "FAIL: the one that broke")
+        self.assertIn("FAIL  tests/test_x.py", record)
+        for label in ("Ran ", "session ", "build ", "temporary output "):
+            self.assertNotIn(label, record)
+        saved, _ = self.evidence(text, cmd)
+        self.assertEqual(saved.read_bytes(), failed.encode())
+        (self.root / "seen").unlink()
+        failed_path.write_text("a different failure\n")
+        ok, text, logs = self.gate([cmd])
+        self.assertTrue(ok, text)
+        later, _ = self.evidence(text, cmd)
+        self.assertNotEqual(later, saved)
+        self.assertEqual(later.read_text(), "a different failure\n")
+        self.assertEqual(saved.read_bytes(), failed.encode())
 
     def test_a_failure_above_a_tail_past_the_cap_still_names_it(self):
         q = shlex.quote
@@ -102,11 +150,12 @@ class FlakyRerun(unittest.TestCase):
         ok, text, logs = self.gate([cmd])
         self.assertTrue(ok, text)
         self.assertEqual(self.count(), 2)
-        record = text.split(f"flaky: {cmd} failed, then passed on its re-run\n", 1)[1]
-        record = record.split("\n\n")[0]
-        self.assertEqual(record, "FAIL: the one that broke")
+        saved, excerpt = self.evidence(text, cmd)
+        self.assertEqual(excerpt, "FAIL: the one that broke")
+        self.assertEqual(saved.read_text(), "FAIL: the one that broke\n" + "".join(
+            f"shared line {i} {pad}\n" for i in range(1, 301)))
 
-    def test_a_rerun_that_repeats_everything_keeps_the_last_lines(self):
+    def test_a_rerun_that_repeats_everything_keeps_only_the_file_reference(self):
         q = shlex.quote
         tail = "; ".join(f"echo repeat line {i}" for i in range(25))
         cmd = (f"echo ran >> {q(str(self.runs))}; if test -f {q(str(self.root / 'seen'))}; "
@@ -114,9 +163,9 @@ class FlakyRerun(unittest.TestCase):
         ok, text, logs = self.gate([cmd])
         self.assertTrue(ok, text)
         self.assertEqual(self.count(), 2)
-        record = text.split(f"flaky: {cmd} failed, then passed on its re-run\n", 1)[1]
-        record = record.split("\n\n")[0]
-        self.assertEqual(record, "\n".join(f"repeat line {i}" for i in range(5, 25)))
+        saved, excerpt = self.evidence(text, cmd)
+        self.assertEqual(excerpt, "")
+        self.assertEqual(saved.read_text(), "".join(f"repeat line {i}\n" for i in range(25)))
 
     def test_a_second_failure_fails_and_runs_exactly_twice(self):
         cmd = self.check("echo 'FAIL: still broken'; exit 1")

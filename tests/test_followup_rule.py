@@ -64,7 +64,12 @@ class FollowupRule(unittest.TestCase):
                                       self.lp.run_dir / "donewhen.log", set(),
                                       limit=30, run_dir=self.lp.run_dir)
         self.assertTrue(ok, output)
-        return output, f"flaky: {command} failed, then passed on its re-run\nbroken"
+        flake = next(record for record in output.split("\n\n") if record.startswith("flaky: "))
+        saved = Path(flake.splitlines()[1].removeprefix("failed output: "))
+        self.assertEqual(saved.parent, self.lp.run_dir)
+        self.assertEqual(saved.read_text(), "broken\n")
+        self.assertEqual(flake.splitlines()[2:], ["broken"])
+        return output, flake
 
     def assert_followups(self, items):
         self.assertEqual(self.lp.state["followups"], items)

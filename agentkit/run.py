@@ -2363,6 +2363,16 @@ def released_gate_turn():
     yield
 
 
+def flaky_key(line):
+    """Ignore varying values without depending on a suite's failure words.
+
+    Absolute paths can have a different temporary root on each run; relative test names stay.
+    """
+    return re.sub(r"(?<![\w.])/[^\s'\"`<>]+|"
+                  r"\b(?:0x[0-9a-f]+|[0-9a-f]{8,}(?:-[0-9a-f]+)*)\b|"
+                  r"\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", "<varying>", line, flags=re.I)
+
+
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False):
     """Run commands while they produce output, with a ceiling on the whole list.
@@ -2386,8 +2396,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     re-run decides it: under load a timing test fails by chance far more often than a change
     breaks it.  A pass that took the re-run is said, not hidden -- a `flaky:` record after
     the command's keeps the lines the failed run printed that its passing re-run did not,
-    in their order, at most 20 (its last lines when the re-run repeated them all), for the
-    run's follow-ups. A killed
+    comparing without numbers, hex ids or absolute paths, in their order, at most 20.
+    It names a file in the run directory holding the whole failed output for the run's
+    follow-ups. A killed
     command is not re-run: it spent the silence window or ceiling, which a second go would
     only spend again.
 
@@ -2459,14 +2470,22 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     failed = progress.read(first_span[1] - first_span[0])
                     progress.seek(offset)
                     rerun = progress.read(end - offset)
+                # The gate log is replaced below and can be reused by later checks;
+                # each flake needs a file of its own that a follow-up can still read.
+                with tempfile.NamedTemporaryFile(dir=run_dir or log_path.parent,
+                                                 prefix=f"{log_path.stem}-failed-",
+                                                 suffix=".log", delete=False) as saved:
+                    saved.write(failed)
+                failed_path = Path(saved.name).resolve()
                 lines = [line for line in failed.decode("utf-8", errors="replace").splitlines()
                          if line.strip()]
                 # the failure is what the failed run said that its passing re-run did not:
                 # a tally and a passing tail both repeat, so the last lines alone name neither
-                reran = set(rerun.decode("utf-8", errors="replace").splitlines())
-                diff = [line for line in lines if line not in reran][:20]
+                reran = {flaky_key(line) for line in
+                         rerun.decode("utf-8", errors="replace").splitlines()}
+                diff = [line for line in lines if flaky_key(line) not in reran][:20]
                 chunks.append("\n".join([f"flaky: {cmd} failed, then passed on its re-run",
-                                         *(diff or lines[-20:])]))
+                                         f"failed output: {failed_path}", *diff]))
                 if log is not None:
                     log(f"done-when: flaky: {cmd} failed, then passed on its re-run")
             if killed:
