@@ -3371,29 +3371,33 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     account = opening_account(cfg, model, providers, prompting)
     # where and when, because that is what opens the seat again once tmux has lost it -- and the
     # conversation it owns, written down before it starts wherever its harness can be told one.
-    # Not for a dry run: a conversation nothing ever opened is nobody's to be resumed into.
+    # Not for a dry run: a record of a seat nothing opened is one the next `ak orch` resumes.
     extra = {"cwd": str(cwd), "repo": str(repo) if repo else None, "created": time.time(),
              "account": account, "home_account": account}
     if len(selected) == 4:
         extra["reviewers"] = selected[3]
-    if unnamed:
+    if unnamed and not dry_run:
         # The adapter writes the rulebook while building its command, before the seat starts.
         extra["unnamed"] = True
         config.save_session(cfg, name, model, workers, extra)
-    else:
+    elif not dry_run:
         config.update_session(name, unnamed=None)
+    rulebook = config.rulebook_path(name)
+    kept = rulebook.exists()
     try:
         cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
     except Exception:
         if unnamed:
             config.session_path(name).unlink(missing_ok=True)
         raise
-    if conversation and not dry_run:
-        extra["conversation"] = conversation
-        extra["id_source"] = LAUNCHER
-    record = config.save_session(cfg, name, model, workers, extra)
+    finally:
+        if dry_run and not kept:
+            rulebook.unlink(missing_ok=True)   # the adapter wrote it for a seat that never opens
     if not dry_run:
-        config.remember_defaults(record)
+        if conversation:
+            extra["conversation"] = conversation
+            extra["id_source"] = LAUNCHER
+        config.remember_defaults(config.save_session(cfg, name, model, workers, extra))
     # a name may be used again once its seat is gone, and this seat has said nothing yet: the
     # last message of the one before it is not this one's state, and a question it left
     # standing on Discord is closed rather than dropped with its card -- by a start, never by
