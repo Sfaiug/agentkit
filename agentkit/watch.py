@@ -1047,7 +1047,7 @@ def _draft_text(raw, plain, composer):
     # starts at the prompt holds a draft. The harness's own composer pattern names
     # its empty box and placeholders, so no list of them lives here: a line the
     # pattern fullmatches holds nothing the owner typed.
-    found = re.match(r"(?:│\s*)?([❯›⟩>])\s*(.*)$", plain)
+    found = re.match(r"(?:│\s*)?([❯›⟩])\s*(.*)$", plain)
     if found and found.group(2).strip():
         if composer is not None and composer.fullmatch(plain):
             return ""
@@ -2282,15 +2282,15 @@ def composer_draft(harness, pane):
     chrome = screen(harness)
     raws, rows = _screen_rows(harness, pane_tail(pane))
     if chrome["draft"]:
-        # A composer with no prompt mark: its manifest finds each row of what it holds, and
-        # finding none reads as empty.
+        # A composer no `❯›⟩` mark finds: its manifest finds what it holds, a match a row or a
+        # block of them, and finding none reads as empty.
         return re.sub(r"\s+", "", "".join(chrome["draft"].findall("\n".join(rows))))
 
     def end(at):
         return next((row for row in range(at + 1, len(rows)) if chrome_line(chrome, rows[row])),
                     len(rows))
 
-    marked = [at for at in range(len(rows) - 1, -1, -1) if re.match(r"(?:│\s*)?[❯›⟩>]", rows[at])]
+    marked = [at for at in range(len(rows) - 1, -1, -1) if re.match(r"(?:│\s*)?[❯›⟩]", rows[at])]
     if chrome["ruled"]:
         # A pane's bottom row stands in where no composer has its own rule under it.
         closed = [at for at in marked if end(at) < len(rows) and re.fullmatch(RULE, rows[end(at)])]

@@ -25,6 +25,8 @@ from agentkit import config, notify, orch, watch
 PR = "https://example.test/acme/fix-api/pull/9"
 SHA = "abc123def4567890"
 QUESTION = "PR #9 by bob: Fix the api. Merge? yes/no"
+# wrapped at 65 columns, its continuation row starts on the question's own `>`
+QUOTED = "PR #9 by bob: Review the config comparison: keep the new defaults > earlier defaults. Merge? yes/no"
 FIX = REPO / "tests/fixtures"
 IDLE = "API Error: 500\n❯"
 
@@ -88,8 +90,8 @@ class AskInboxLock(unittest.TestCase):
             return 0, ""
         return 0, self.pane() if callable(self.pane) else self.pane
 
-    def ask(self):
-        return watch.ask_inbox({}, QUESTION, PR, SHA, self.logs.append)
+    def ask(self, question=QUESTION):
+        return watch.ask_inbox({}, question, PR, SHA, self.logs.append)
 
     def test_another_sender_waits_for_the_question_and_its_enter(self):
         reached = threading.Event()
@@ -163,14 +165,14 @@ class AskInboxLock(unittest.TestCase):
         def wrapped(line):
             # a long question wraps under a real composer, past the bottom rows of the pane
             return fixture("draft").replace("Fix the login redirect",
-                                            "\n  ".join(textwrap.wrap(line, 72)))
+                                            "\n  ".join(textwrap.wrap(line, 65)))
 
         def agy(line):
             # Antigravity's composer is a `>` between two rules
             if not line:
                 return (FIX / "antigravity-prompt-pane.txt").read_text(encoding="utf-8")
             return (FIX / "antigravity-draft-pane.txt").read_text(encoding="utf-8").replace(
-                "Please look at the failing test in the", line)
+                "Please look at the failing test in the", "\n  ".join(textwrap.wrap(line, 65)))
 
         def opencode(line):
             # OpenCode's is a `┃` box, wrapping a typed line on that edge over its model line
@@ -186,9 +188,11 @@ class AskInboxLock(unittest.TestCase):
                 return 1, "lost server"
             return self.tmux(*args, socket=socket, client=client)
 
-        for kind, harness, draw in (("unruled", "claude", unruled), ("wrapped", "claude", wrapped),
-                                    ("antigravity", "antigravity", agy),
-                                    ("opencode", "opencode", opencode)):
+        for kind, harness, draw, question in (
+                ("unruled", "claude", unruled, QUESTION), ("wrapped", "claude", wrapped, QUESTION),
+                ("quoted", "claude", wrapped, QUOTED), ("antigravity", "antigravity", agy, QUESTION),
+                ("antigravity quoted", "antigravity", agy, QUOTED),
+                ("opencode", "opencode", opencode, QUESTION)):
             with self.subTest(kind=kind), patch.object(orch, "tmux_out", side_effect=tmux), \
                     patch.object(watch.time, "sleep"), \
                     patch.object(watch, "seat_model", return_value=(harness, "example")):
@@ -197,9 +201,9 @@ class AskInboxLock(unittest.TestCase):
                 # the composer lets the question go only on the second Enter that arrives
                 self.pane = lambda: draw(self.sent[0] if self.sent and self.sent.count("Enter") < 2
                                          else "")
-                self.assertNotEqual(self.ask(), 0)
+                self.assertNotEqual(self.ask(question), 0)
                 self.pinged.assert_not_called()
-                self.assertEqual(self.ask(), 0)
+                self.assertEqual(self.ask(question), 0)
                 self.assertEqual([sent[:9] for sent in self.sent], [QUESTION[:9], "Enter", "Enter"])
                 self.pinged.assert_called_once()
 
