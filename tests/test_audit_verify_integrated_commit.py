@@ -105,6 +105,8 @@ class IntegratedCommit(unittest.TestCase):
         self.script(self.bin / "tmux", 'import sys\nassert sys.argv[1:3] == ["-L", "agentkit-test"]\nsys.exit(1)\n')
         self.script(self.bin / "gh", 'raise AssertionError("external GitHub call")\n')
         self.stack.enter_context(patch.object(run.notify, "shaped", side_effect=AssertionError("notification")))
+        # Another test can use the same run ID; cleanup must not scan or signal its workers.
+        self.stack.enter_context(patch.object(run.worker, "marked_pids", return_value=[]))
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))

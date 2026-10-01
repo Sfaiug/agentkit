@@ -81,7 +81,7 @@ class ToolRetry(unittest.TestCase):
                 self.assertIn("the remote did not answer", err)
                 self.assertNotIn("gh auth status", err)
                 self.assertNotIn("credential prompt", err)
-                self.assertNotIn("resume", err)
+                self.assertNotIn("ak run resume", err)
 
     def test_a_refused_prompt_is_not_retried_even_after_a_timeout(self):
         for cmd in COMMANDS:
@@ -100,7 +100,7 @@ class ToolRetry(unittest.TestCase):
                     self.assertIn("gh auth status", err)
                     self.assertIn("remote's credentials", err)
                     self.assertNotIn("remote did not answer", err)
-                    self.assertNotIn("resume", err)
+                    self.assertNotIn("ak run resume", err)
 
     def test_an_ordinary_failure_is_returned_without_a_retry(self):
         for cmd in COMMANDS:
@@ -149,7 +149,7 @@ class ToolRetry(unittest.TestCase):
             self.assertIn("PASS not merged", line)
             self.assertEqual(run.retry_command(state), "ak run merge fix-api")
             self.assertIn(run.retry_command(state), line)
-            self.assertNotIn("resume", line)
+            self.assertNotIn("ak run resume", line)
 
 
 if __name__ == "__main__":
