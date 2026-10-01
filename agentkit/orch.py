@@ -3276,7 +3276,7 @@ def _picking(cfg, providers, notes, selected):
                                          column, terminal.layout_width(), moves)
         said = [terminal.styled("  " + terminal.cut(note, terminal.layout_width() - 2), "dim")] \
             if note else []
-        room = max(1, terminal.height() - 6 - len(terminal.key_line(keys)) - len(said))
+        room = max(1, terminal.height() - 6 - terminal.key_height(keys, tips) - len(said))
         top = max(1, min(max(top, rows[at].stop - room), rows[at].start, len(body) - room))
         shown = body[top:top + room]
         lines = [terminal.header_line("new session", time.strftime("%H:%M")),
