@@ -78,7 +78,7 @@ class OpensAtOnce(Sandbox):
                 (menu, "show_notices", lambda messages: messages and self.said.append(
                     (time.monotonic(), messages))),
                 (menu.Live, "probe", lambda self, now=None: False),
-                (menu, "update_first", lambda: None),
+                (menu, "update_first", lambda live=None, **_kw: None),
                 (macbridge, "start_background", lambda: None),
                 (watch, "resume_after_boot", lambda *args, **kwargs: None),
                 (config, "server_alias", lambda: None),
@@ -168,6 +168,16 @@ class OpensAtOnce(Sandbox):
         self.assertEqual(len(self.reads), 2)
         self.assertLess(left - self.reads[1], READ, "the read is still going as the menu leaves")
         self.assertEqual(self.said, [])         # maintenance, too
+
+    def test_a_mocked_live_cannot_request_a_restart(self):
+        # Login and config tests stub Live without supplying any update messages.
+        with patch.object(menu, "Live", **{"return_value.heard.return_value": [],
+                                         "return_value.asking.return_value": None}), \
+                patch.object(menu, "wait_key", return_value=Key("esc")) as keys, \
+                patch.object(menu.os, "execve") as restart, redirect_stdout(io.StringIO()):
+            self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
+        self.assertEqual(restart.call_count, 0)
+        self.assertEqual(keys.call_count, 1)
 
 
 if __name__ == "__main__":

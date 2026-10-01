@@ -8,7 +8,7 @@ its rule on the clock's frames however fast keys come, and goes back on a click 
 the model-id step and `add a model`, waiting on a catalog at 80 columns, are laid out again at
 40: every line fits, and a click on the `esc back` drawn goes back.
 
-The update runs in-process against a temporary HOME, every command it would run answered by a
+The update's progress callback runs against a temporary HOME, every command answered by a
 fake `subprocess.run`, so no checkout moves.  The glide runs a project's feature switches screen
 in a child process on a pty of its own, the project's `list` and `set` a fake that sleeps as
 long as the test says, and so do the wait and a catalog, over a config built in the child;
@@ -202,15 +202,17 @@ class RuleProgress(unittest.TestCase):
             ran.append(cmd[3] if cmd[0] == "git" else Path(cmd[0]).name)
             return subprocess.CompletedProcess(cmd, 0, "", "")
 
+        def progress(done, total):
+            with redirect_stdout(out):
+                terminal.frame("updating", (), "", done / total)
+
         with patch.dict(os.environ, {"HOME": home.name, "COLUMNS": "60"}), \
                 patch.object(update, "agentkit_dir", return_value=config.REPO), \
                 patch.object(update, "left_as_is", return_value=""), \
-                patch.object(update, "behind", return_value=True), \
-                patch.object(update, "agentkit_version", return_value="abc1234 · 2026-09-30"), \
                 patch.object(config, "ensure_dirs"), patch.object(config, "TMP", Path(home.name)), \
                 patch.object(config, "STATE", Path(home.name)), \
-                patch.object(update.subprocess, "run", run), redirect_stdout(out):
-            menu.update_first()
+                patch.object(update.subprocess, "run", run), redirect_stdout(io.StringIO()):
+            update.update_agentkit(progress)
         self.assertEqual(ran, ["fetch", "pull", "install.sh"])
         lines = out.getvalue().splitlines()
         frames = [(lines[n - 1], line) for n, line in enumerate(lines) if set(line) <= set("━─")
