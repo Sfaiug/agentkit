@@ -2012,19 +2012,20 @@ def _acquire_gate_turn(run_dir, log_path, log):
     if not repo or os.environ.get("AK_MAX_RUNS") == "0":
         return None
     said_bad = []
-    def current_limit(running):
-        try:
-            return heavy_suite_limit(running=running)
-        except config.Error as exc:
-            if log is not None and not said_bad:
-                said_bad.append(True)
-                log(f"done-when: {exc} · the heavy suite takes a derived turn")
-            return derived_heavy_limit(running=running), False
     config.RUNS.mkdir(parents=True, exist_ok=True)
     files = ExitStack()
     try:
         slots = []
         def admit():
+            try:
+                pinned = config.max_gates()
+            except config.Error as exc:
+                if log is not None and not said_bad:
+                    said_bad.append(True)
+                    log(f"done-when: {exc} · the heavy suite takes a derived turn")
+                pinned = None
+            # CPU sampling sleeps; locking free slots across it would count them as running.
+            readings = host_readings() if pinned is None else None
             total = max(1, _heavy_max_existing() + 1, len(slots))
             while len(slots) < total:
                 slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
@@ -2036,7 +2037,7 @@ def _acquire_gate_turn(run_dir, log_path, log):
                     held += 1
                     continue
                 temp.append(fh)
-            new_limit, _ = current_limit(held)
+            new_limit = pinned if pinned is not None else derived_heavy_limit(readings, held)
             while len(slots) < new_limit:
                 slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
             candidate = take_slot(slots[:new_limit]) if held < new_limit else None
