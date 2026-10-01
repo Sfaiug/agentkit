@@ -2422,7 +2422,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     marks of `selected` -- a session's record, whose missing reviewers are its workers -- and
     its effort between the arrows that step it, then its strength, a bar a level it offers
     (terminal.signal, effort_levels); a model with one effort is its word alone.  With no
-    session, only the effort, still column 3.  `moves`, a list, is handed each effort's line,
+    session, only the effort, still column 3.  `moves`, a list, is handed each mark's line, key,
+    glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
     A model `providers` read as spent is dim, its reset note beside it or, on a
     phone, under it.  Under them `+ add a model`, `Providers`
@@ -2433,7 +2434,7 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     are a model row's (first, last, column), or Providers' acts, for a click, counted from 1 as
     the terminal counts. On a phone the harness gives way, then the bars, then the label.
     """
-    room, utf, colour = terminal.layout_width(), terminal.utf8(), terminal.colour_depth()
+    room, utf = terminal.layout_width(), terminal.utf8()
     marks = "●○■□" if utf else "*.x."
     names, models = config_models(cfg), cfg["models"]
     levels = {name: effort_levels(models[name]) for name in names}
@@ -2477,13 +2478,14 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                 line += "  " + terminal.styled(terminal.pad(str(models[name].get("harness", "")),
                                                             harness), "dim")
             for number, text, width in zip(range(4 - len(texts), 4), texts, widths):
-                shown, lead = (f" {text} ", (width - 3) // 2) if number < 3 else (text, 0)
                 kind = ("reverse" if at == ("model", name) and number == column else
                         "dim" if note or text in (marks[1], marks[3]) else None)
-                if kind == "reverse" and number < 3 and not colour:
-                    shown = f"[{text}]"        # with no colour to reverse, brackets say where
-                line += ("  " + " " * lead + (terminal.styled(shown, kind) if kind else shown)
-                         + " " * (width - lead - terminal.cells(shown)))
+                line += "  " + (terminal.toggle(text, width, kind) if number < 3 else
+                                (terminal.styled(text, kind) if kind else text)
+                                + " " * (width - terminal.cells(text)))
+                if number < 3 and moves is not None:
+                    moves.append((len(lines), ("mark", name, number), text, motion.toggled(
+                        text, width, kind, at == ("model", name), first + 2)))
                 # a mark is its whole column; an effort is its own text, arrows and all
                 cells.append((first + 2, first + 1 + (width if number < 3
                                                       else terminal.cells(text)), number))
@@ -2771,7 +2773,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
     `clock` moves what `moves` -- (line, key, value, start) -- says is news (`motion.Clock.look`)
     on the lines shown, each by `start(clock, row, since, before)`, its frames drawn while the
-    key is waited for.
+    key is waited for; a key, not the pointer, ends them on their last frames.
     """
     said = ["", *(terminal.styled("  " + part, "dim") for line in note.splitlines()
                   for part in terminal.wrap(line, terminal.layout_width() - 2))] if note else []
@@ -2782,23 +2784,21 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     spots = terminal.frame(title, shown + said, keys, places={
         line - top: place for line, place in places.items() if top <= line < top + room})
     if clock is not None:
-        clock.clear()
-        news = clock.look({key: value for _, key, value, _ in moves})
-        for line, key, _, start in moves:
-            if key in news and top <= line < top + room:
-                start(clock, 3 + line - top, *news[key])
-        sys.stdout.write(clock.frame())           # at the clock's phase, so nothing jumps
+        sys.stdout.write(clock.drawn(moves, lambda line: 3 + line - top
+                                     if top <= line < top + room else None))
         sys.stdout.flush()
     began = fetched and fetched()
-    if began is None and clock is not None and clock.wait() is not None:
-        key = moving(clock, timeout=timeout or TICK)
-    elif began is None:
+    if began is not None:     # on the screen's own clock, so what else moves goes on with it
+        clock = motion.fetching(clock or motion.Clock(), began)
+    if clock is None or clock.wait() is None:
         key = terminal.read_key(timeout)
     else:
-        key = moving(motion.fetching(motion.Clock(), began), timeout=timeout,
-                     going=lambda: fetched() == began)
+        key = moving(clock, timeout=timeout or TICK,
+                     going=None if began is None else lambda: fetched() == began)
     if key is None:
         return None, here, None, top
+    if clock is not None and key.name != "point":
+        clock.settle()                # a key ends what moves on its last frame
     act, column = key.name, None
     if act in ("click", "point"):
         spot = terminal.under(key, spots)
@@ -2826,7 +2826,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
 
     `selected` is `session`'s record, and its role marks are that seat's models: Enter, space or
     a click flips one (session_mark), the orchestrator moving the seat at once, the roles saved
-    to the record for the runs it launches next.  With no session there are no marks.
+    to the record for the runs it launches next, the mark filling or emptying over two frames
+    and one refused shaking (motion.toggled).  With no session there are no marks.
     ↑/↓, k/j and the wheel move between rows and ←/→ between columns, the effort's too.  Enter
     or space on an effort steps it up, from its highest round to its lowest, and a click on its
     arrow steps it that way: each change is saved and drawn at once, the bar it fills rising
@@ -2836,7 +2837,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     (config_model), and Esc there comes back to its row.  Enter or a click
     on `+ add a model` opens its screen (config_add), and a model added there is the row
     highlighted after it.  On `Providers` ←/→ move between `+ add` and `− remove`, and Enter or
-    a click on one runs it (config_add_provider, config_remove_provider); on `Discord` its two
+    a click on one runs it (config_add_provider, config_remove_provider); the row a model, a
+    provider or a subscription was just added on glows (motion.glowing); on `Discord` its two
     secrets are typed on the same keys (config_discord).  `Version` is read, and does nothing.
     On a screen too short for every row the part the highlight is on is shown, and what the
     last key could not do -- the last worker, a switch, a save or a catalog that failed -- has
@@ -2861,6 +2863,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         moves = []
         body, places = config_body(cfg, version, None if terminal.away() else here, column,
                                    selected, providers, moves)
+        moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
+                  for line, (row, _) in places.items() if row == here]
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top, note, keys,
                                             marks=3, clock=clock, moves=moves)
         column = column if clicked is None else clicked
@@ -2875,12 +2879,18 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if act in ("enter", "space"):
                 added = config_add(cfg)
                 here = ("model", added) if added else here    # the highlight on its new row
+                if added:
+                    clock.touch(here)
         elif here == PROVIDERS:
             if act in ("left", "right"):
                 column = 1 if act == "right" else 0
+            elif act in ("enter", "space") and column >= 1:
+                note = config_remove_provider(cfg)
             elif act in ("enter", "space"):
-                note = (config_remove_provider(cfg) if column >= 1
-                        else config_add_provider(cfg, keyboard))
+                before = copy.deepcopy(cfg["providers"])
+                note = config_add_provider(cfg, keyboard)
+                if cfg["providers"] != before:  # a provider or a subscription just added
+                    clock.touch(here)
         elif here[0] == "row":
             if here != VERSION and act in ("enter", "space"):
                 config_discord()
@@ -2898,6 +2908,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
         elif act in ("enter", "space") and column < 3:
             note = session_mark(cfg, session, selected, here[1], column, providers)
+            if note:
+                clock.touch(("mark", here[1], column))    # refused: the mark shakes
         elif act in ("enter", "space", "less", "more"):     # the effort column
             note = config_effort(cfg, here[1], -1 if act == "less" else 1,
                                  wrap=act in ("enter", "space"))
@@ -3453,15 +3465,16 @@ def _list_switches(checkout, entry):
         entry["error"] = "" if rows is not None else why or "list answered no list"
 
 
-def features_body(rows, at=None, column=0):
+def features_body(rows, at=None, column=0, moves=None):
     """A project's switches' lines, and where its features sit on them: {line: (row, cells)}.
 
     Every feature once, its name, then a mark under `you` and under `everyone`: `●` on and `○`
     (dim) off.  One on for everyone is on for you too, and one the project does not let you
     switch for yourself has `—` under `you`.  `at` is the highlighted feature's id and `column`
-    its cell the keys act on; `cells` are config_body's, for a click.
+    its cell the keys act on; `cells` are config_body's, for a click, and `moves` is handed its
+    marks as config_body hands its own.
     """
-    room, utf, colour = terminal.layout_width(), terminal.utf8(), terminal.colour_depth()
+    room, utf = terminal.layout_width(), terminal.utf8()
     on, off, fixed = ("●", "○", "—") if utf else ("*", ".", "-")
     widths = [terminal.cells(head) for head in FEATURES_HEADS]
     names = {row["id"]: str(row.get("name") or row["id"]) for row in rows}
@@ -3479,13 +3492,12 @@ def features_body(rows, at=None, column=0):
         line = "  " + shown + " " * (label - terminal.cells(shown))
         cells, first = [], 2 + label + 1
         for number, (text, width) in enumerate(zip(texts, widths)):
-            mark, lead = f" {text} ", (width - 3) // 2
             kind = ("reverse" if at == row["id"] and number == column else
                     "dim" if text in (off, fixed) else None)
-            if kind == "reverse" and not colour:
-                mark = f"[{text}]"        # with no colour to reverse, brackets say where
-            line += ("  " + " " * lead + (terminal.styled(mark, kind) if kind else mark)
-                     + " " * (width - lead - 3))
+            line += "  " + terminal.toggle(text, width, kind)
+            if moves is not None:
+                moves.append((len(lines), ("mark", row["id"], number), text, motion.toggled(
+                    text, width, kind, at == row["id"], first + 2)))
             cells.append((first + 2, first + 1 + width, number))
             first += 2 + width
         places[len(lines)] = (("feature", row["id"]), cells)
@@ -3528,15 +3540,15 @@ def show_features(checkout, dry_run=False):
     it; while it is asked the rule glides, where colour moves, and it is drawn within a frame
     of landing.  ↑/↓ move between features and ←/→ between `you` and `everyone`; Enter, space
     or a click flips a mark by calling the project's `set` at once, off the drawing thread, the
-    rule gliding the same way, and draws the row it answers with; a flip before that is let
-    go.  What a `set` could not do is one dim line under the rows, the mark as it was, until
-    the next key; a `list` that failed is one too, for as long as the rows drawn are older than
-    it.  A dry run draws it once.
+    rule gliding the same way, and draws the row it answers with, a mark it changed filling or
+    emptying; a flip before that is let go.  What a `set` could not do is one dim line under the
+    rows, the mark as it was and shaking, until the next key; a `list` that failed is one too,
+    for as long as the rows drawn are older than it.  A dry run draws it once.
     """
-    here, column, top, note = None, 0, 0, ""
+    here, column, top, note, clock = None, 0, 0, "", motion.Clock()
     keys = FEATURES_KEYS[0 if terminal.utf8() else 1] + "   esc back"
 
-    flip = None         # the `set` asked from here, till its answer is drawn
+    flip = flipped = None   # the `set` asked from here, till its answer is drawn, and its mark
 
     def fetched():      # when the `set` or else the list now going was asked, till it lands
         entry = _SWITCHES[str(checkout)]
@@ -3546,11 +3558,14 @@ def show_features(checkout, dry_run=False):
     while True:
         if flip and not flip.is_alive():
             note, flip = flip.answer(), None
+            if note:
+                clock.touch(flipped)  # refused: the mark shakes
         features = switches(checkout, TICK)
         rows = [("feature", row["id"]) for row in features or ()]
         here = here if here in rows else rows[0] if rows else None
-        body, places = (features_body(features, None if terminal.away() else here[1], column)
-                        if features else ([], {}))
+        moves = []
+        body, places = (features_body(features, None if terminal.away() else here[1], column,
+                                      moves) if features else ([], {}))
         # under the rows, not after them: scrolled to the last feature, a stale list still says
         # so; each one line whatever it says, so the rows stay where a click is read against them
         said = [terminal.cut(line, terminal.layout_width() - 2) for line in (
@@ -3562,7 +3577,8 @@ def show_features(checkout, dry_run=False):
                                                   for line in said], "esc back")
             return
         act, here, clicked, top = matrix_key(checkout.name, body, places, rows, here, top,
-                                             "\n".join(said), keys, STIR, fetched=fetched)
+                                             "\n".join(said), keys, STIR, fetched=fetched,
+                                             clock=clock, moves=moves)
         column = column if clicked is None else clicked
         if act is None:
             continue                  # a resize, the pointer, or a look at whether it landed
@@ -3572,6 +3588,7 @@ def show_features(checkout, dry_run=False):
         if act in ("left", "right"):
             column = 1 if act == "right" else 0
         elif act in ("enter", "space") and here and flip is None:
+            flipped = ("mark", here[1], column)
             flip = Fetch(lambda feature=here[1], column=column:
                          features_flip(checkout, feature, column))
 
