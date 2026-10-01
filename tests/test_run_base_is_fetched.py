@@ -20,7 +20,7 @@ class Cut(Exception):
 
 class RunBaseIsFetched(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".run-base-fetched-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-run-base-fetched-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
