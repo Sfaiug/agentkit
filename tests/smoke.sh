@@ -1913,20 +1913,26 @@ spent_until() {   # spent_until <model>: "<provider> <when it comes back>", or n
 import json, os, pathlib, sys, time
 from agentkit import config, usage
 cfg, model = config.load(), sys.argv[1]
+provider = config.model(cfg, model)["provider"]
 def providers_of(path):
     try:
         providers = json.loads(pathlib.Path(path).read_text())["providers"]
     except (OSError, ValueError, KeyError, TypeError):
         return None
+    record = providers.get(provider) if isinstance(providers, dict) else None
+    # Both reads judge the usual login the sandbox borrows; another subscription's
+    # room (or refusal) says nothing about this one.
+    if isinstance(record, dict) and isinstance(record.get("accounts"), dict):
+        record = record["accounts"].get(config.DEFAULT_ACCOUNT)
+        providers[provider] = record if isinstance(record, dict) else {}
     return providers if isinstance(providers, dict) else None
 def spent(providers):
     return providers is not None and usage.model_exhausted(cfg, model, providers)[0]
 providers = providers_of(sys.argv[2])
 if not spent(providers):
-    provider = config.model(cfg, model)["provider"]
     sandbox = providers.get(provider) if isinstance(providers, dict) else None
     if isinstance(sandbox, dict) and sandbox.get("meters"):
-        sys.exit(0)  # this read measured the provider itself; its room stands
+        sys.exit(0)  # this read measured the borrowed login; its room stands
     # The sandbox shares the host's probe cadence but not its answers: where the host
     # asked inside the cadence, this read is empty and knows nothing. Only then does
     # the host's own cache stand in -- the same account's spent-knowledge, read only,
@@ -1936,12 +1942,7 @@ if not spent(providers):
     providers = providers_of(host)
     record = providers.get(provider) if isinstance(providers, dict) else None
     if isinstance(record, dict):
-        # The sandbox borrows the usual login; the host may be using another
-        # subscription, whose room (or refusal) says nothing about this one.
-        if isinstance(record.get("accounts"), dict):
-            record = record["accounts"].get(config.DEFAULT_ACCOUNT)
-        providers = {**providers, provider: usage._without_past(
-            record, time.time(), "the host cache") if isinstance(record, dict) else {}}
+        providers[provider] = usage._without_past(record, time.time(), "the host cache")
     if not spent(providers):
         sys.exit(0)  # unknown usage cannot justify skipping a real call
 meters, _ = usage._gating_meters(cfg, model, providers)
@@ -1992,6 +1993,8 @@ except (OSError, ValueError, KeyError, TypeError):
     providers = {}
 providers = providers if isinstance(providers, dict) else {}
 record = providers.get(entry["provider"])
+if isinstance(record, dict) and isinstance(record.get("accounts"), dict):
+    record = record["accounts"].get(config.DEFAULT_ACCOUNT)
 record = record if isinstance(record, dict) else {}
 now, until = time.time(), run.try_again_at(said)
 if until is None or until <= now:
@@ -5672,6 +5675,11 @@ if lifecycle_check v4l >"$WORK/v4l.log" 2>&1; then
   ok "36 exact stall timing, attach races, quota windows, real Claude stream and narrow runs"
 else
   no "36 v4l regressions"; tail -30 "$WORK/v4l.log"
+fi
+if python3 "$REPO/tests/test_smoke_judges_the_borrowed_login.py" >"$WORK/borrowed-login.log" 2>&1; then
+  ok "3d real calls judge the borrowed login: sandbox and host cache skip its spent subscription, and its room permits a call"
+else
+  no "3d borrowed login"; tail -30 "$WORK/borrowed-login.log"
 fi
 if { python3 "$REPO/tests/test_smoke_target_pool.py" &&
      python3 "$REPO/tests/test_smoke_lock_scope.py"; } >"$WORK/smoke-targets.log" 2>&1; then
