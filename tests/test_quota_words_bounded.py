@@ -351,14 +351,23 @@ class SeatWordsBounded(unittest.TestCase):
         # As Claude 2.1.286 draws them, captured with attributes: the same `●` begins the
         # model's answer and its own notice, and only the notice's words are in a colour.
         dot = "\x1b[38;5;231m\x1b[49m●\x1b[39m "
-        for pane in (f"{dot}Added handling for Usage limit reached.",
-                     f"{dot}Done.\n  Added handling for Usage limit reached."):
+        said = "Added handling for Usage limit reached."
+        for harness, model, provider, pane in (
+                ("claude", "opus", "anthropic", f"{dot}{said}"),
+                ("claude", "opus", "anthropic", f"{dot}Done.\n  {said}"),
+                # a span it styles in colour, the same answer with no colour at all, and Codex's
+                ("claude", "opus", "anthropic",
+                 f"{dot}Added handling for \x1b[38;5;153mUsage limit reached\x1b[39m."),
+                ("claude", "opus", "anthropic", f"● {said}"),
+                ("codex", "astra", "openai", f"• {said}")):
             with self.subTest(pane=pane):
+                self.marked.clear()
+                self.window.reset_mock()
                 watch.seat_write("fix-api", usage_refusal=None, usage_wait=None)
-                self.seat_account("claude", "opus", "anthropic", pane)
+                self.seat_account(harness, model, provider, pane)
                 self.now += watch.STALL_WAIT
-                self.seat_account("claude", "opus", "anthropic", pane)
-                self.assertEqual(self.marked, [])
+                self.seat_account(harness, model, provider, pane)
+                self.assertEqual([call[1] for call in self.marked], [])
                 state = watch.load_state()
                 self.tick(state)
                 self.tick(state, watch.STALL_WAIT)
