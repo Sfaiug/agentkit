@@ -133,7 +133,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.assertIn("3 fixer rounds", state["merge_note"])
         self.assertIn("shared file needs fixed.txt", state["merge_note"])
 
-    def assert_parked_resume(self, spent, repaired=True):
+    def assert_parked_resume(self, spent, repaired=True, abort=None):
         self.history = self.history[:spent]
         self.lp.state["round_summaries"] = copy.deepcopy(self.history)
         self.lp.rnd = spent
@@ -143,7 +143,9 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.assertEqual(self.fixes, run.CONFLICT_ROUNDS)
         self.assertFalse(run.current_review(self.lp))
         before = len(self.events)
-        if repaired:
+        if abort:
+            self.commit(self.owner, "base.txt", "conflict\n2\n3\n4\ntarget\n")
+        elif repaired:
             self.commit(self.owner, "base.txt", "1\n2\n3\n4\ngreen\n")
         else:
             self.commit(self.owner, "other.txt", "target moved\n")
@@ -170,6 +172,31 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                 patch.object(run, "disk_pressure", return_value=False), \
                 patch.object(run.notify, "shaped", side_effect=AssertionError("notification")), \
                 patch.object(run, "merge", side_effect=deliver):
+            if abort:
+                head = run.git(self.wt, "rev-parse", "HEAD")
+                how = run.how_to_integrate(self.lp)
+
+                def unfinished(lp, role, text, name, **_kw):
+                    self.assertEqual((role, name), ("fixer", f"{how}-fixer"))
+                    self.assertTrue(run.in_progress(lp.wt, how))
+                    self.events.append(("conflict-fixer", lp.rnd))
+                    if abort == "exhausted":
+                        raise run.Exhausted("conflict fixer interrupted")
+                    return "## Summary\nCould not finish the conflict."
+
+                with patch.object(run, "execute", side_effect=unfinished):
+                    self.assertEqual(run.cmd_resume([self.run_dir.name]), 1)
+                state = run.read_state(self.run_dir)
+                self.assertEqual(state["state"], "exhausted" if abort == "exhausted" else "waiting")
+                attempts = 1 if abort == "exhausted" else run.CONFLICT_ROUNDS
+                self.assertEqual(self.events[before:], [("conflict-fixer", spent)] * attempts)
+                self.assertEqual(state["round_summaries"], self.history)
+                self.assertEqual(run.git(self.wt, "rev-parse", "HEAD"), head)
+                self.assertFalse(run.in_progress(self.wt, how))
+                self.commit(self.owner, "base.txt", "1\n2\n3\n4\ngreen\n")
+                run.git(self.owner, "push", "origin", "main")
+                tip = run.git(self.owner, "rev-parse", "HEAD")
+                before = len(self.events)
             self.assertEqual(run.cmd_resume([self.run_dir.name]), 0)
         state = run.read_state(self.run_dir)
         fixes = [] if repaired else [("gate", False), ("fixer", spent)]
@@ -191,6 +218,16 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
 
     def test_parked_retry_still_failing_gets_a_landing_fixer(self):
         self.assert_parked_resume(spent=3, repaired=False)
+
+    def test_parked_retry_survives_an_unfinished_rebase_conflict(self):
+        self.assert_parked_resume(spent=3, abort="unfinished")
+
+    def test_parked_retry_survives_an_unfinished_merge_conflict(self):
+        self.lp.state["merge_method"] = "merge"
+        self.assert_parked_resume(spent=3, abort="unfinished")
+
+    def test_parked_retry_survives_an_interrupted_conflict_fixer(self):
+        self.assert_parked_resume(spent=3, abort="exhausted")
 
     def test_interrupted_landing_review_resumes_at_the_same_round(self):
         with patch.object(run, "call_retrying", side_effect=run.Exhausted("review interrupted")):
