@@ -4,7 +4,7 @@ Offline: real local git repos, fake gates and workers, and an isolated HOME.
 Both sides edit the same file without a conflict; only their combined tree fails.
 """
 
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 import copy
 import os
 from pathlib import Path
@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, usage
+from agentkit import config, run, usage, watch
 from test_merge_step import make_loop, make_repos
 
 
@@ -133,7 +133,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.assertIn("3 fixer rounds", state["merge_note"])
         self.assertIn("shared file needs fixed.txt", state["merge_note"])
 
-    def assert_parked_resume(self, spent, repaired=True, abort=None):
+    def assert_parked_resume(self, spent, repaired=True, abort=None, unreachable=False):
         self.history = self.history[:spent]
         self.lp.state["round_summaries"] = copy.deepcopy(self.history)
         self.lp.rnd = spent
@@ -171,6 +171,11 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                 patch.object(usage, "pick_order", return_value=["opus", "astra"]), \
                 patch.object(run, "disk_pressure", return_value=False), \
                 patch.object(run.notify, "shaped", side_effect=AssertionError("notification")), \
+                patch.object(run, "launcher_world", return_value=nullcontext(True)), \
+                patch.object(run, "hand_back", return_value=True), \
+                patch.object(run, "stop_run_tree"), \
+                patch.object(run.history, "Sampler"), \
+                patch.object(run.history, "sample_rss", return_value=None), \
                 patch.object(run, "merge", side_effect=deliver):
             if abort:
                 head = run.git(self.wt, "rev-parse", "HEAD")
@@ -197,6 +202,36 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                 run.git(self.owner, "push", "origin", "main")
                 tip = run.git(self.owner, "rev-parse", "HEAD")
                 before = len(self.events)
+            if unreachable:
+                config.session_path("acme").write_text("{}")
+                parked = run.read_state(self.run_dir)
+                parked["launched_session"] = "acme"
+                pending = copy.deepcopy(parked["review_pending"])
+                for fault in ("fetch", "upstream"):
+                    with self.subTest(fault=fault):
+                        run.save_state(self.run_dir, copy.deepcopy(parked))
+                        if fault == "upstream":
+                            run.git(self.wt, "update-ref", "-d", "refs/remotes/origin/main")
+                        reason = ("git fetch origin failed" if fault == "fetch" else
+                                  "origin/main does not exist on origin")
+                        result = (1, "origin unavailable") if fault == "fetch" else (0, "")
+                        with patch.object(run, "fetch", return_value=result):
+                            try:
+                                run.cmd_resume([self.run_dir.name])
+                            except config.Error as exc:
+                                self.assertIn(reason, str(exc))
+                        state = run.read_state(self.run_dir)
+                        self.assertEqual(state["state"], "error")
+                        self.assertIn(reason, state["error"])
+                        self.assertEqual(state["review_pending"], pending)
+                        self.assertEqual(state["round_summaries"], self.history)
+                        self.assertEqual(len(self.events), before)
+                        self.assertTrue(run.going(state))
+                        with patch.object(run, "spawn_bg", return_value=0) as launch:
+                            watch.resume_errored(log=self.lp.log, now=state["error_retry_at"])
+                        launch.assert_called_once_with(
+                            self.run_dir, ["resume", self.run_dir.name],
+                            expected=run.read_state(self.run_dir), park_as=True)
             self.assertEqual(run.cmd_resume([self.run_dir.name]), 0)
         state = run.read_state(self.run_dir)
         fixes = [] if repaired else [("gate", False), ("fixer", spent)]
@@ -228,6 +263,9 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
 
     def test_parked_retry_survives_an_interrupted_conflict_fixer(self):
         self.assert_parked_resume(spent=3, abort="exhausted")
+
+    def test_unreachable_target_keeps_a_landing_retry_scheduled(self):
+        self.assert_parked_resume(spent=3, unreachable=True)
 
     def test_interrupted_landing_review_resumes_at_the_same_round(self):
         with patch.object(run, "call_retrying", side_effect=run.Exhausted("review interrupted")):

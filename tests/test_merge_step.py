@@ -536,6 +536,63 @@ class MergeStep(unittest.TestCase):
         self.assertIn("Another model started this round", asked[1][1])
         self.assertIn(f"handing executor to {lp.executor}", self.log_text(run_dir))
 
+    def test_an_exhausted_conflict_fixer_keeps_the_last_round_resumable(self):
+        _, owner, wt = make_repos(self.root)
+        conflict(owner, wt)
+        lp, run_dir, _ = make_loop(config.RUNS, wt, rounds=3, spent=3)
+        history = [dict(entry) for entry in lp.state["round_summaries"]]
+        head = run.git(wt, "rev-parse", "HEAD")
+        tip = run.git(owner, "rev-parse", "HEAD")
+        lp.state["state"] = "exhausted"
+        lp.save()
+        (run_dir / "task.md").write_text(
+            f"---\nrepo: {wt}\nrounds: 3\n---\n# Conflict retry\n\n"
+            "## Done when\n```bash\ntrue\n```\n")
+        binaries = self.root / "bin"
+        binaries.mkdir()
+        tmux = binaries / "tmux"
+        tmux.write_text("#!/bin/sh\nexit 1\n")
+        tmux.chmod(0o755)
+        turns = []
+
+        def fixer(lp, role, text, name, **_kw):
+            self.assertEqual((role, name), ("fixer", "rebase-fixer"))
+            turns.append(lp.rnd)
+            return resolve(wt)
+
+        def deliver(lp, **_kw):
+            if run.integrate(lp, "origin/main"):
+                self.assertTrue(run.current_review(lp))
+                self.assertTrue(run.integrated(wt, tip))
+                lp.state["merged"] = True
+
+        with patch.dict(os.environ, {"PATH": f"{binaries}:{os.environ['PATH']}",
+                                     "AGENTKIT_DISCORD_WEBHOOK": "off"}), \
+                patch.object(usage, "collect", return_value={}), \
+                patch.object(usage, "pick_order", return_value=["opus", "astra"]), \
+                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(run, "stop_run_tree"), \
+                patch.object(run.history, "Sampler"), \
+                patch.object(run.history, "sample_rss", return_value=None), \
+                patch.object(run, "merge", side_effect=deliver), \
+                patch.object(run, "execute", side_effect=fixer):
+            with patch.object(run, "execute", side_effect=run.QuotaDry("provider spent")):
+                self.assertEqual(run.cmd_resume([run_dir.name]), 1)
+            saved = run.read_state(run_dir)
+            self.assertEqual(saved["state"], "exhausted")
+            self.assertEqual(saved["review_pending"]["round"], 3)
+            self.assertIs(saved["review_pending"]["record"], False)
+            self.assertEqual(run.git(wt, "rev-parse", "HEAD"), head)
+            self.assertFalse(run.in_progress(wt, "rebase"))
+            self.assertEqual(run.cmd_resume([run_dir.name]), 0)
+        state = run.read_state(run_dir)
+        self.assertEqual(turns, [3])
+        self.assertEqual(state["round_summaries"], history)
+        self.assertEqual(state["rounds"], 3)
+        self.assertEqual(state["state"], "pass")
+        self.assertTrue(state["merged"])
+        self.assertNotIn("review_pending", state)
+
     def test_a_clean_rebase_failed_gate_spends_no_task_round(self):
         _, owner, wt = make_repos(self.root)
         lp, run_dir, _ = make_loop(self.root, wt, rounds=3, spent=3)
