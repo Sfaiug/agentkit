@@ -439,9 +439,9 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
                     selection=({}, ("opus", "chosen", ["astra"])))
             self.assertEqual(start.call_count, 2)
 
-    def codex_seat(self):
+    def codex_seat(self, account="default"):
         config.save_session(self.cfg, NAME, "astra", ["opus"], {
-            "cwd": str(self.root), "account": "default"})
+            "cwd": str(self.root), "account": account})
         transcript = self.root / "rollout.jsonl"
         transcript.write_text(json.dumps({"type": "session_meta", "payload": {
             "cwd": str(self.root), "id": CONVERSATION}}) + "\n")
@@ -517,6 +517,33 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
             self.now += usage.PROBE_EVERY + 1
             self.assertFalse(replenish(self.cfg, "openai", depleted=False)[0])
             adapter.assert_called_once_with("codex", "reset", 60, None)
+
+    def refused_on(self, account):
+        """A seat refused on `account`, spent, beside another subscription at 95%."""
+        self.codex_seat(account)
+        self.cfg["providers"]["openai"]["accounts"] = ["default", "second"]
+        def reading(used):
+            return {"provider": "openai", "harness": "codex", "resets": 2,
+                    "meters": [usage._normalized({"name": "primary_window", "used": used,
+                        "resets_at": self.now + 86400, "window_secs": 604800}, self.now)]}
+        readings = {"default": reading(95), "second": reading(95), account: reading(100)}
+        self.cached(lambda p: p.update(openai={**readings["default"], "accounts": readings}))
+        self.replenish.side_effect = replenish
+        self.pane = "You've hit your usage limit"
+        with patch.object(usage, "_probe", side_effect=lambda _cfg, _provider, _now, account=None:
+                          json.loads(json.dumps(readings[account]))), \
+                patch.object(usage, "_adapter_json", return_value={
+                    "code": "reset", "available": 1, "weekly_used": 5,
+                    "resets_at": self.now + 604800}) as adapter:
+            self.tick()
+        adapter.assert_called_once_with("codex", "reset", 60, account)
+        self.assertEqual(config.session_records()[NAME]["account"], account)
+
+    def test_reset_credit_refills_the_refused_subscription_not_the_next_one(self):
+        self.refused_on("default")
+
+    def test_a_named_subscription_spends_its_own_reset_credit(self):
+        self.refused_on("second")
 
     def test_codex_reset_during_meter_read_is_not_parked_on_the_old_refusal(self):
         self.codex_seat()
