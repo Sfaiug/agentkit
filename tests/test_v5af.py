@@ -209,6 +209,15 @@ class V5af(unittest.TestCase):
         self.assertEqual(self.counts("once"), 0)
         self.assertNotIn("final_check", state)
 
+    def test_v5af_no_merge_fails_when_a_task_once_check_fails(self):
+        code, state = self.launch("true", "false  # once", rounds=1, flags=("--no-merge",))
+        self.assertEqual(code, 1, self.log_text())
+        self.assertEqual(state["verdict"], "FAIL")
+        self.assertFalse(state["round_summaries"][0]["done_when"])
+        self.assertNotIn("final_check", state)
+        self.assertNotIn("run these once at landing", "\n".join(self.prompts()))
+        self.assertIn("false\n[exit 1]", (self.directory / "round-1" / "donewhen.log").read_text())
+
     def test_v5af_suite_runs_at_landing_on_the_pushed_commit(self):
         once = (f"echo \"once $(git rev-parse HEAD)\" >> {shlex.quote(str(self.counter))}"
                 "  # once")

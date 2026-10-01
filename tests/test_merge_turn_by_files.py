@@ -21,6 +21,49 @@ from agentkit import config, run, watch
 
 
 class MergeTurnByFiles(LandingCase):
+    def test_suite_holds_the_turn_until_delivery_while_disjoint_runs_wait(self):
+        remote, owner = make_origin(self.root)
+        one = make_run(self.root, remote, "acme", [
+            f'echo "once $(git rev-parse HEAD)" >> {self.counter} # once'])
+        two = make_run(self.root, remote, "bravo", ["true"])
+        three = make_run(self.root, remote, "charlie", ["true"])
+        commit(owner, "outside.txt", "outside")
+        run.git(owner, "push", "origin", "main")
+        checking, finish_check = threading.Event(), threading.Event()
+        real_checks = run.run_done_when
+
+        def checks(cmds, wt, *args, **kwargs):
+            if Path(wt) == one.wt and cmds == one.once:
+                checking.set()
+                self.assertTrue(finish_check.wait(30), "holder's suite was never released")
+            return real_checks(cmds, wt, *args, **kwargs)
+
+        results, threads = {}, []
+        with patch.object(run, "run_done_when", side_effect=checks):
+            try:
+                threads.append(self.land(one, results))
+                self.assertTrue(checking.wait(20), "holder never reached its suite")
+                self.assertTrue(run.merge_hold_note(run.read_state(one.run_dir) or {}),
+                                "the suite needs the turn through delivery")
+                for lp in (two, three):
+                    threads.append(self.land(lp, results))
+                    self.until(lambda lp=lp: run.merge_turn_note(run.read_state(lp.run_dir) or {}),
+                               "the disjoint run to wait for the suite holder")
+                self.assertEqual(self.merges, [])
+            finally:
+                finish_check.set()
+                for thread in threads:
+                    thread.join(30)
+                    self.assertFalse(thread.is_alive(), "a landing never finished")
+        self.assertEqual(results, {lp.state["run_id"]: True for lp in (one, two, three)})
+        self.assertEqual(self.merges[0], ("acme", True))
+        self.assertCountEqual(self.merges[1:], [("bravo", True), ("charlie", True)])
+        self.assertEqual(self.counter.read_text().splitlines(),
+                         [f"once {one.state['delivery_sha']}"])
+        self.assertEqual(one.state["final_check"]["sha"], one.state["delivery_sha"])
+        self.assertNotIn("verifying again", (one.run_dir / "log.txt").read_text())
+        self.assertFalse(list(config.RUNS.glob("*.hold")))
+
     def test_disjoint_runs_land_during_recheck_and_overlap_waits_for_holder(self):
         remote, owner = make_origin(self.root)
         one = make_run(self.root, remote, "acme", [

@@ -67,11 +67,12 @@ class SuiteInRound(unittest.TestCase):
         (out_dir / "final.md").write_text(text)
         return 0, text, "fixture-session", False
 
-    def launch(self, name, checks, rounds=1, gate=None):
+    def launch(self, name, checks, rounds=1, gate=None, scratch=False):
         directory = config.RUNS / name
         directory.mkdir()
         task = directory / "task.md"
-        task.write_text(f"---\nrepo: {self.repo}\nbase: main\nrounds: {rounds}\n---\n# Suite round\n\n"
+        repo = "none" if scratch else self.repo
+        task.write_text(f"---\nrepo: {repo}\nbase: main\nrounds: {rounds}\n---\n# Suite round\n\n"
                         "## Goal\nShip it.\n\n## Done when\n```bash\n"
                         + "\n".join(checks) + "\n```\n")
         real = run.run_done_when
@@ -163,6 +164,16 @@ class SuiteInRound(unittest.TestCase):
         self.assertEqual(self.gates, [("donewhen.log", ["true"])])
         self.assertNotIn("final_check", state)
         self.assertEqual(run.status_final_check(directory, state), "final check: not run")
+
+    def test_scratch_runs_task_once_checks_in_the_round(self):
+        directory, state = self.launch("scratch-once", ["true", "false  # once"],
+                                       scratch=True)
+        self.assertEqual(state["verdict"], "FAIL", self.logs)
+        self.assertEqual(self.gates, [("donewhen.log", ["true", "false"])])
+        self.assertFalse(state["round_summaries"][0]["done_when"])
+        self.assertNotIn("final_check", state)
+        self.assertNotIn("run once at landing", "\n".join(body for _, body in self.prompts))
+        self.assertIn("false", (directory / "result.md").read_text())
 
     def test_reviewer_is_told_the_suite_runs_at_landing(self):
         self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")
