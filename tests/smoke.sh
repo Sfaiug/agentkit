@@ -2377,7 +2377,10 @@ elif [ -n "$SEATWHY" ]; then
 else
 SEAT=$(newrepo seat)
 tm kill-session -t =smoke-astra 2>/dev/null    # a seat a previous, interrupted smoke left
-printf '\n' | ( cd "$SEAT" && ak orch --model astra smoke-astra ) >"$WORK/seat.log" 2>&1
+# Its remote control posts a pairing notice once it connects, and this HOME holds check 5's
+# copy of the owner's webhook: like check 4's run, the seat is aimed at none.  This command
+# starts the suite's tmux server, whose environment every seat on it is handed.
+printf '\n' | ( cd "$SEAT" && AGENTKIT_DISCORD_WEBHOOK=off ak orch --model astra smoke-astra ) >"$WORK/seat.log" 2>&1
 SEATRC=$?
 PANE=""
 for _ in $(seq 1 30); do
