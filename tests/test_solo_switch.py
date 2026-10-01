@@ -82,6 +82,20 @@ class SoloSwitch(Sandbox):
         self.assertEqual(review.call_args.args[2], url)
         self.assertTrue(config.load_session(self.cfg, "fix-api")["solo"])
 
+    def test_own_pr_review_does_not_start_followup_workers_while_solo_is_on(self):
+        directory = config.RUNS / "review"
+        directory.mkdir()
+        state = {"run_id": "review", "launched_session": "fix-api", "repo": str(self.root),
+                 "base": "main", "merged": True, "review_pr": "https://github.com/acme/api/pull/7",
+                 "own_pr": True, "followups": ["Fix the other endpoint"]}
+        run.save_state(directory, state)
+        with patch.object(run, "main_checkout") as checkout, \
+                patch.object(run, "spawn_bg") as spawn:
+            self.assertIsNone(run.start_followups(state, directory, lambda _: None, self.cfg))
+        checkout.assert_not_called()
+        spawn.assert_not_called()
+        self.assertEqual(list(config.RUNS.iterdir()), [directory])
+
     def test_command_sets_and_clears_only_this_sessions_switch(self):
         config.save_session(self.cfg, "other", "astra", ["opus"])
         before = config.load_session(self.cfg, "fix-api")

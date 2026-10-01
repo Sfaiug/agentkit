@@ -1481,7 +1481,7 @@ SH
   codex_model_flag_check || OFFLINE_RC=1
   for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_boundaries.py test_architecture.py test_docs.py \
               test_audit_phone_menu_recovery_layout.py test_choose_click.py \
-              test_audit_retry_required_notifications.py; do
+              test_audit_retry_required_notifications.py test_solo_switch.py; do
     case "$test" in
       test_notify.py) lifecycle_check notify || OFFLINE_RC=1 ;;
       test_v4l.py) lifecycle_check v4l || OFFLINE_RC=1 ;;
