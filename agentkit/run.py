@@ -1669,6 +1669,26 @@ def reset_checkout(wt, head, before, check=False):
         git(wt, "clean", "--quiet", "-fd", "--", *(f":(literal){p}" for p in new), check=check)
 
 
+def writable_review_dirs(path, log):
+    """Git does not record directory modes; the private copy must remain removable."""
+    path = Path(path)
+    if path.is_symlink():
+        return
+    try:
+        mode = path.stat().st_mode
+        if mode & 0o700 != 0o700:
+            path.chmod(mode | 0o700)
+            log(f"WARN made reviewer directory writable for cleanup: {path}")
+        with os.scandir(path) as entries:
+            for entry in entries:
+                if entry.is_dir(follow_symlinks=False):
+                    writable_review_dirs(entry.path, log)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        log(f"WARN skipped {path} during reviewer cleanup: {exc}")
+
+
 @contextmanager
 def reviewer_checkout(wt, out_dir, log):
     """Keep the reviewer's files and refs apart from the suite running in the task checkout."""
@@ -1700,12 +1720,15 @@ def reviewer_checkout(wt, out_dir, log):
                     pass
                 except OSError as exc:
                     log(f"WARN skipped {entry.path} in review checkout: {exc}")
-        shutil.copystat(source, destination)
+
+    def remove_checkout():
+        if checkout.exists():
+            writable_review_dirs(checkout, log)
+            shutil.rmtree(checkout)
 
     with ExitStack() as stack:
-        if checkout.exists():
-            shutil.rmtree(checkout)
-        stack.callback(shutil.rmtree, checkout, ignore_errors=True)
+        remove_checkout()
+        stack.callback(remove_checkout)
         # A mirror keeps the source's base refs but owns its refs and index; a linked
         # worktree would still let a reviewer move the task branch through shared refs.
         git(wt, "clone", "--quiet", "--shared", "--mirror", str(wt), str(checkout / ".git"))
@@ -1730,6 +1753,7 @@ def reviewer_checkout(wt, out_dir, log):
 @contextmanager
 def reviewer_changes(wt, out_dir, log):
     """A review turn's changes survive only in its round's patch, including on a failed turn."""
+    writable_review_dirs(wt, log)
     head = git(wt, "rev-parse", "HEAD")
     branch = git(wt, "symbolic-ref", "--quiet", "HEAD", check=False)
     before = set(dirty_paths(wt))
@@ -1739,21 +1763,34 @@ def reviewer_changes(wt, out_dir, log):
     with tempfile.TemporaryDirectory() as tmp:
         index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
         git(wt, "read-tree", head, env=index)
-        git(wt, "add", "-A", "--", ".", env=index)
-        tree = git(wt, "write-tree", env=index)
+        skipped = []
+
+        def snapshot():
+            try:
+                git(wt, "add", "--ignore-errors", "-A", "--", ".", env=index)
+            except Stopped:
+                raise
+            except config.Error as exc:
+                skipped.append(str(exc))
+                log(f"WARN skipped unreadable reviewer paths: {exc}")
+            return git(wt, "write-tree", env=index)
+
+        tree = snapshot()
         try:
             yield
         finally:
+            writable_review_dirs(wt, log)
             after = git(wt, "rev-parse", "HEAD")
             branch_after = git(wt, "symbolic-ref", "--quiet", "HEAD", check=False)
             staged_after = git(wt, "write-tree")
-            git(wt, "add", "-A", "--", ".", env=index)
-            tree_after = git(wt, "write-tree", env=index)
-            if (after, branch_after, staged_after, tree_after) != (head, branch, staged, tree):
+            tree_after = snapshot()
+            if skipped or (after, branch_after, staged_after, tree_after) != (head, branch, staged, tree):
                 path = Path(out_dir).parent / "reviewer-changes.patch"
-                paths, patches = set(), set()
+                paths, patches = set(dirty_paths(wt)) - before, set()
                 with path.open("a") as saved:
                     saved.write(f"# {Path(out_dir).name}: HEAD {head} -> {after}\n")
+                    for error in skipped:
+                        saved.write("# skipped: " + error.replace("\n", "\n# ") + "\n")
                     if branch_after != branch:
                         saved.write(f"# checkout: {branch or 'detached HEAD'} -> "
                                     f"{branch_after or 'detached HEAD'}\n")
@@ -1772,10 +1809,9 @@ def reviewer_changes(wt, out_dir, log):
                     git(wt, "update-ref", "--no-deref", "HEAD", head)
                 reset_checkout(wt, head, before, check=True)
                 if before:
-                    git(wt, "restore", f"--source={tree}", "--worktree", "--",
-                        *(f":(literal){p}" for p in sorted(before)))
+                    git(wt, "restore", f"--source={tree}", "--worktree", "--", ".")
                 git(wt, "read-tree", staged)
-                undone = ", ".join(sorted(paths))
+                undone = ", ".join(sorted(paths)) or "unreadable paths"
                 if after != head:
                     undone = f"commit {after[:12]} back to {head[:12]}" + (f"; {undone}" if undone else "")
                 if branch_after != branch:

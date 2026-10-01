@@ -398,6 +398,10 @@ class ReviewerEdits(unittest.TestCase):
         self.addCleanup(cache.chmod, 0o755)
         with (self.wt / ".git/info/exclude").open("a") as excluded:
             excluded.write("\ncache/\n")
+        stale = self.lp.round_dir / "review-checkout/cache/mod"
+        stale.mkdir(parents=True)
+        (stale / "go.mod").write_text("stale copy\n")
+        stale.chmod(0)
         real_call = worker.call
 
         def check_cache(cfg, name, body, workspace, out, role, session, **kwargs):
@@ -424,21 +428,46 @@ class ReviewerEdits(unittest.TestCase):
         self.assertFalse((self.lp.round_dir / "review-checkout").exists())
         self.assert_restored()
 
+    @unittest.skipIf(os.geteuid() == 0, "root can read mode-000 files")
     def test_unreadable_reviewer_files_are_skipped_without_losing_the_verdict(self):
         for name in ("secret.txt", "tracked.txt", "keep/existing.txt"):
             with self.subTest(name=name):
                 self.logs.clear()
+                files = {name: "unreadable edit\n"}
+                if name != "secret.txt":
+                    files["readable.txt"] = "readable edit\n"
                 self.assertEqual(self.review(
-                    {"files": {name: "unreadable edit\n", "readable.txt": "readable edit\n"},
+                    {"files": files,
                      "chmod": {name: 0}, "text": "Still reviewing."}, {}), "PASS")
                 saved = self.archive.read_text()
-                self.assertIn("+readable edit", saved)
+                if name != "secret.txt":
+                    self.assertIn("+readable edit", saved)
                 self.assertIn(name, saved)
                 self.assertTrue(any("WARN" in line and "skipped" in line and name in line
                                     for line in self.logs), self.logs)
                 self.assertEqual(json.loads((self.root / "responses.json").read_text()), [])
                 self.assertFalse((self.lp.round_dir / "review-checkout").exists())
                 self.assert_restored()
+
+    @unittest.skipIf(os.geteuid() == 0, "root can read mode-000 files")
+    def test_initial_snapshot_skips_unreadable_dirty_files(self):
+        real_changes = run.reviewer_changes
+
+        @contextmanager
+        def unreadable(wt, out, log, **_kw):
+            dirty = Path(wt) / "keep/existing.txt"
+            dirty.chmod(0)
+            with real_changes(wt, out, log):
+                dirty.chmod(0o644)
+                yield
+
+        with patch.object(run, "reviewer_changes", side_effect=unreadable):
+            self.assertEqual(self.review({}), "PASS")
+        self.assertIn("keep/existing.txt", self.archive.read_text())
+        self.assertTrue(any("WARN" in line and "skipped" in line and "keep/existing.txt" in line
+                            for line in self.logs), self.logs)
+        self.assertFalse((self.lp.round_dir / "review-checkout").exists())
+        self.assert_restored()
 
     def test_plain_reviewer_push_cannot_change_shared_refs(self):
         base = self.git("rev-parse", "HEAD~1")
