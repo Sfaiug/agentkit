@@ -143,22 +143,25 @@ class PickPerSubscription(unittest.TestCase):
         self.assert_parked_through_session_rollovers(4 * 3600, 4 * 3600, [
             (3700, usage.SESSION_SECS), (4300, None)])
 
-    def test_only_the_deadline_ends_a_refusal_no_meter_of_its_length_showed(self):
-        # refused for five days beside nothing but a session ending in an hour, short of 100%
-        # or spent, its length reported or not: a fresh session an hour before the deadline
-        # answers none of these refusals
+    def test_only_the_deadline_ends_a_refusal_no_spent_meter_of_its_length_showed(self):
+        # refused for five days beside nothing but one meter ending in an hour: a session short
+        # of 100% or spent, its length reported or not, or a week short of 100%.  That meter
+        # starting again with room an hour before the deadline answers none of these refusals
         self.stack.enter_context(patch.object(usage, "_probe", side_effect=self.fake_probe))
-        for used, length in ((30, usage.SESSION_SECS), (100, usage.SESSION_SECS), (100, None)):
+        for name, used, length in (("session", 30, usage.SESSION_SECS),
+                                   ("session", 100, usage.SESSION_SECS),
+                                   ("session", 100, None), ("weekly", 80, WEEK)):
             self.now += 6 * DAY
-            session = {"name": "session", "used": used, "resets_at": self.now + 3600}
-            self.meters = [{**session, "window_secs": length} if length else session]
+            meter = {"name": name, "used": used, "resets_at": self.now + 3600}
+            self.meters = [{**meter, "window_secs": length} if length else meter]
             until = usage.mark_exhausted(self.cfg, "beta", self.now + 5 * DAY)
             self.now = until - 3600
-            self.meters = [{"name": "session", "used": 0,
-                            "resets_at": self.now + usage.SESSION_SECS,
-                            "window_secs": usage.SESSION_SECS}]
+            fresh = length or usage.SESSION_SECS
+            self.meters = [{"name": name, "used": 0, "resets_at": self.now + fresh,
+                            "window_secs": fresh}]
             providers = usage.collect(self.cfg)
-            self.assertEqual(providers["beta"].get("exhausted_until"), until, (used, length))
+            self.assertEqual(providers["beta"].get("exhausted_until"), until,
+                             (name, used, length))
             self.assertNotIn("two", usage.pick_order(self.cfg, providers, ["two"], quiet=True))
 
 if __name__ == "__main__":
