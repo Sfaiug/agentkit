@@ -375,16 +375,6 @@ def estimate_seconds(repo):
     return float(median(values)) if len(values) >= 5 else None
 
 
-def estimate_memory_mb(repo):
-    rows = _rows(repo, "peak_rss_mb", limit=20)
-    values = sorted(float(row[_index()["peak_rss_mb"]]) for row in rows
-                    if row[_index()["peak_rss_mb"]] is not None)
-    if not values:
-        return None
-    rank = max(0, min(len(values) - 1, math.ceil(.9 * len(values)) - 1))
-    return values[rank]
-
-
 def _ensure_migrated():
     """Bring an old database up to the current schema, best effort.
 

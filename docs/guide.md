@@ -381,7 +381,7 @@ words, goal points, checks and files changed. Merged runs also keep additions pl
 `linguist-generated` in `.gitattributes`. Smoke and e2e runs are never recorded; an older agentkit's rows are read
 as written, never rewritten, and a median keeps a few that counted waits from pulling an estimate far. Statistics skip
 stopped runs and suite runs, by name or run record. History is best effort. The last twenty runs estimate a task's
-memory and active time. The own-PR size ceiling is 300 with fewer than 50 sized merged runs; after that, it is the
+active time. The own-PR size ceiling is 300 with fewer than 50 sized merged runs; after that, it is the
 smallest size above which fewer than half passed in their first round, across this host's history. Without such a
 drop there is no ceiling. `ak run status --history` shows the ceiling and whether it comes from history or the
 starting value, and one line per repository (`last 20 tasks: median N rounds ·
