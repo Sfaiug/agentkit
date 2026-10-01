@@ -101,7 +101,8 @@ def probe():
             blocked(event)()
         if event == "open" and isinstance(values[0], (str, bytes)):
             path = os.fsdecode(values[0])
-            if path.startswith("/proc/"):
+            # a worker turn looks for what it left running (#294); nothing else reads processes
+            if path.startswith("/proc/") and mode != "worker":
                 blocked("process inspection")()
             flags = values[2]
             if flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND):
