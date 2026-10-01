@@ -1153,8 +1153,40 @@ def last_paragraph(harness, tail):
     return "\n".join(reversed(block))
 
 
-def auth_expired_on(harness, tail):
-    """Match a harness's terminal auth message, including wrapped lines, never quoted prose."""
+def recorded_error(harness, name):
+    """The error that seat's harness recorded as its conversation's last event, "" where it
+    recorded none there, or None where it keeps no record to read, and only then is its screen.
+
+    A screen's last rows cannot tell a model's answer quoting a quota from the harness's own
+    notice, nor a wrapped error from two rows; the record the harness writes down can, since a
+    model's answer is never one of its error entries.
+    """
+    record = config.session_records().get(name) if name else None
+    if not record:
+        return None
+    plugin = orch.harness_plugin(harness)
+    cwd = record.get("cwd")
+    conversation = plugin.conversation(record, cwd)
+    if not plugin.transcript(record, cwd, conversation):
+        return None
+    try:
+        return plugin.error(record, cwd, conversation) or ""
+    except OSError:
+        return None
+
+
+def auth_expired_on(harness, tail, name=None):
+    """Match a harness's terminal auth message, including wrapped lines, never quoted prose.
+
+    Where that seat's harness keeps a record, the error it recorded last is read instead, in
+    the same words, anywhere in it: a record holds no prose to quote.
+    """
+    wrapper = (config.manifest(harness).get("auth") or {}).get("wrapper")
+    said = recorded_error(harness, name)
+    if said is not None:
+        found = re.search(wrapper, said, re.I) if wrapper else None
+        return next((mark for mark in auth_expiry(harness)[2] if says(said, mark)),
+                    found.group(0) if found else None)
     lines = content_lines(harness, tail)
     # A capacity error can accompany a logout; auth still wins over resuming that error.
     while lines and any(mark.lower() in lines[-1].lower() for mark in stalls(harness)):
@@ -1170,7 +1202,6 @@ def auth_expired_on(harness, tail):
     # A harness whose own auth wrapper precedes arbitrary 401/403 server text declares that
     # wrapper as `[auth] wrapper` in its manifest: matching a particular server message misses
     # real expired/revoked tokens and even new wording.
-    wrapper = (config.manifest(harness).get("auth") or {}).get("wrapper")
     if wrapper:
         found = re.search(wrapper, output_line(lines), re.I)
         if found:
@@ -1196,9 +1227,14 @@ def error_said(harness, lines):
     return lines[-1] if lines else ""
 
 
-def failed_on(harness, lines):
-    """What a seat's error says, read as a worker turn's failure is: (outcome, word)."""
-    return orch.harness_plugin(harness).failure(error_said(harness, lines)) if lines else (None, None)
+def failed_on(harness, lines, name=None):
+    """What a seat's error says, read as a worker turn's failure is: (outcome, word).
+
+    The error its harness recorded where it keeps a record, else the error line `lines` end on.
+    """
+    said = recorded_error(harness, name)
+    said = (error_said(harness, lines) if lines else "") if said is None else said
+    return orch.harness_plugin(harness).failure(said)
 
 
 def stalled_on(harness, pane, session, log):
@@ -1210,7 +1246,13 @@ def stalled_on(harness, pane, session, log):
     line -- since the answer styles a span of its own in colour too.  Where the pane has none,
     its own line begins with the stall word, behind whatever mark it is drawn with: the
     model's sentence about one names it further on.
+
+    None of that is guessed where the seat's harness keeps a record: the error it recorded
+    last, in the word `failure` reads it by, is the stall, and no error there is none.
     """
+    said = recorded_error(harness, session)
+    if said is not None:
+        return orch.harness_plugin(harness).failure(said)[1]
     lines = content_lines(harness, pane_tail(pane))
     last = lines[-1] if lines else ""
     block = config.manifest(harness).get("stall")
@@ -1236,9 +1278,13 @@ def stalled_on(harness, pane, session, log):
             else next(mark for mark in stalls(harness) if says(last, mark)))
 
 
-def stuck_on(harness, tail):
-    """Login trouble or a blocked operation, not a test summary or an error above progress."""
-    line = output_line(content_lines(harness, tail))
+def stuck_on(harness, tail, name=None):
+    """Login trouble or a blocked operation, not a test summary or an error above progress.
+
+    In the error that seat's harness recorded last, where it keeps a record.
+    """
+    said = recorded_error(harness, name)
+    line = output_line(content_lines(harness, tail)) if said is None else said
     return bool(LOGIN_HINT.search(line) or TERMINAL_FAILURE.search(line))
 
 
@@ -2929,15 +2975,19 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     def spent(account):
         return usage.model_exhausted(cfg, model, {provider: readings.get(account, {})})[0]
 
-    lines = content_lines(harness, pane_tail(pane))
-    line = output_line(lines)
-    # The pane and not the line: its colours say whose words they are.  What it ignores is
-    # health()'s to log, as before.
-    mark = stalled_on(harness, pane, name, lambda _: None) if line else None
-    if mark:
-        # A bare trailer (`Goal stalled`) is told apart, and dated, by the error line above it.
-        line = error_said(harness, lines[:-1] + [line])
-    outcome = failed_on(harness, [line])[0] if mark else None
+    line = recorded_error(harness, name)
+    if line is None:
+        lines = content_lines(harness, pane_tail(pane))
+        line = output_line(lines)
+        # The pane and not the line: its colours say whose words they are.  What it ignores is
+        # health()'s to log, as before.
+        mark = stalled_on(harness, pane, name, lambda _: None) if line else None
+        if mark:
+            # A bare trailer (`Goal stalled`) is told apart, and dated, by the error line above it.
+            line = error_said(harness, lines[:-1] + [line])
+        outcome = failed_on(harness, [line])[0] if mark else None
+    else:
+        outcome = orch.harness_plugin(harness).failure(line)[0]
     refusal = outcome in (SPENT, LIMITED)
     now = time.time()
     observed = live.get("usage_refusal") or {}
@@ -3192,7 +3242,7 @@ def health(cfg, state, dry_run, log):
             # -- back when the pane raised it, so there is no answer on record for it -- be
             # answered at all: without it the verb is never asked, the latch never clears,
             # and that seat keeps a card up and stays out of every recovery path for ever.
-            signature = None if blank else auth_expired_on(harness, tail)
+            signature = None if blank else auth_expired_on(harness, tail, name)
             if signature or stalls.get(name, {}).get("kind") == "auth":
                 record_auth(state, harness, fresh=bool(signature), now=now, answers=answers)
             # And which login is out for this seat: its own harness, as the verb answered it,
@@ -3263,7 +3313,8 @@ def health(cfg, state, dry_run, log):
             if blank:
                 continue        # no screen: nothing below this can be decided on one
             if entry.get("kind") == "quiet" and (entry.get("pane") != pane or
-                    session.get("legacy") or session.get("exited") or not stuck_on(harness, tail)):
+                    session.get("legacy") or session.get("exited")
+                    or not stuck_on(harness, tail, name)):
                 if entry.get("told") and not dry_run:
                     forget(name, acknowledge=False, notice=entry.get("notice", stuck_notice(name, harness)))
                     sync_seen(state, load_state())  # a stale save must not restore the quiet latch
@@ -3280,12 +3331,13 @@ def health(cfg, state, dry_run, log):
             # Suspected auth takes the quiet escalation path even when `API Error` coexists.
             # Only verified auth messages get an immediate needs-login notice, but neither
             # known nor unknown logout wording can receive a capacity nudge.
-            mark = (None if LOGIN_HINT.search(output_line(content_lines(harness, tail))) else
-                    stalled_on(harness, pane, name, log))
+            said = recorded_error(harness, name)
+            said = output_line(content_lines(harness, tail)) if said is None else said
+            mark = None if LOGIN_HINT.search(said) else stalled_on(harness, pane, name, log)
             if not mark:
                 if entry.get("signature"):
                     log(f"{name}: moving again")
-                if not stuck_on(harness, tail):
+                if not stuck_on(harness, tail, name):
                     stalls.pop(name, None)
                     stop_nudge(session, harness, pane, notice,
                                records if tallies is not None else None, dry_run, log)
@@ -3321,7 +3373,7 @@ def health(cfg, state, dry_run, log):
             entry["signature"] = mark
             stood = now - entry["since"]
             quiet = now - max(entry["stall_at"], entry["changed_at"])
-            quota = failed_on(harness, content_lines(harness, tail))[0] in (SPENT, LIMITED)
+            quota = failed_on(harness, content_lines(harness, tail), name)[0] in (SPENT, LIMITED)
             if not quota:
                 for key in ("resets_at", "status", "reset_nudged_at"):
                     entry.pop(key, None)
