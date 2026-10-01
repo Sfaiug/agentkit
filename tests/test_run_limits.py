@@ -215,7 +215,10 @@ class Limits(unittest.TestCase):
     def task(self, commands, front="", rounds=1):
         path = self.root / "task.md"
         path.write_text(f"---\nrepo: {self.work}\nbase: origin/main\nrounds: {rounds}\n{front}---\n"
-                        "# Limit fixture\n\n## Goal\nWrite work.txt.\n\n## Done when\n```bash\n"
+                        # the sandbox's own name keeps its run ids its own: a run's sweep ends
+                        # every process on the host carrying its id, a copy's in another checkout too
+                        f"# Limit fixture {self.root.name}\n\n## Goal\nWrite work.txt.\n\n"
+                        "## Done when\n```bash\n"
                         + "\n".join(commands) + "\n```\n")
         return path
 

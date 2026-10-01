@@ -3775,15 +3775,19 @@ def _dead_plan(state, run_dir, now):
     # record itself. Noticing the same dead pid again would launch a second loop.
     if _resume_ordered(state, now):
         return "skip", deaths, ""
+    recent = [death for death in deaths
+              if isinstance(death.get("at"), (int, float)) and not isinstance(death.get("at"), bool)
+              and now - death["at"] < DEAD_WINDOW]
     if last and last.get("pid") == pid and not last.get("parked") and not last.get("resumed_at"):
+        # A reap noticed this death first and recorded it, so it is already among the recent:
+        # the third inside the hour parks whoever noticed it.
+        if len(recent) >= 3:
+            return "park", [*deaths[:-1], {**last, "parked": True}], last.get("reason") or ""
         if now < _backoff_until(deaths):
             return "wait-quiet", deaths, last.get("reason") or ""
         return "resume-open", deaths, last.get("reason") or ""
     noticed = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
     reason = f"loop process {pid} gone, noticed {noticed}"
-    recent = [death for death in deaths
-              if isinstance(death.get("at"), (int, float)) and not isinstance(death.get("at"), bool)
-              and now - death["at"] < DEAD_WINDOW]
     entry = {"at": now, "pid": pid, "reason": reason}
     if len(recent) >= 2:
         return "park", [*deaths, {**entry, "parked": True}], reason
