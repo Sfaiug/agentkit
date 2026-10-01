@@ -661,6 +661,8 @@ class Phone(Sandbox):
         phone.press("r")
         phone.until("Name: new", prompt="Name: new")
         phone.type("Phone Audit")
+        phone.until("renamed new -> phone-audit", prompt="esc back")
+        phone.keys("Enter")
         screen = phone.until("esc leave", "1  phone-au", prompt="esc leave")
         record = json.loads(config.session_path("phone-audit").read_text())
         self.assertEqual((record["orchestrator"], record["workers"]),
