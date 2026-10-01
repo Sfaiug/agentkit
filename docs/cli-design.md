@@ -125,9 +125,13 @@ writing over the last draw line by line in one write, so it never flickers.
 It gives the terminal back exactly -- the very termios attributes it found,
 the main screen, the cursor, the pointer's reports off -- on Esc, on any exit or signal (a
 kill, a hang-up, `^\`, and `^Z`, which takes it again on `fg`), and before
-anything else takes it: a session, `ak update`, a harness's login, and a
-notice, whose `esc back` is still read a key at a time (`pause`), so Esc
-goes back from it at once. A question typed inside the menu -- the name `n`
+anything else takes it: a session, `ak update`, a harness's login. A note said
+while the menu holds the screen (`pause`) has its own `agentkit · note` frame:
+its lines wrap in the content column, with `esc back` beneath. Esc, Enter or a
+click on `esc back` returns to the screen it came from, drawn whole; a resize
+draws the note again at the new width. With the terminal given back, a note
+prints where the cursor stands as before, its `esc back` still read a key at a
+time, so Esc goes back at once. A question typed inside the menu -- the name `n`
 and `r` ask, the Discord secrets -- is no line: it is typed on the menu's keys
 (`terminal.field`), Enter answering, Backspace editing and Esc going back at
 once with nothing saved; an answer Enter takes with nothing typed (`auto`,

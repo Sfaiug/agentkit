@@ -26,7 +26,7 @@ class RepoSuite(unittest.TestCase):
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
-            config.SESSION_ENV: "", config.RUN_DIR_ENV: "", "AK_RUN_DEPTH": "0",
+            "HOME": str(self.root), config.SESSION_ENV: "", config.RUN_DIR_ENV: "", "AK_RUN_DEPTH": "0",
             "AK_MAX_RUNS": "0", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}))
         for name in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG"):
             os.environ.pop(name, None)
@@ -79,11 +79,11 @@ class RepoSuite(unittest.TestCase):
         (out_dir / "final.md").write_text(text)
         return 0, text, "fixture-session", False
 
-    def launch(self, name, checks, front="base: main\n"):
+    def launch(self, name, checks, front="base: main\n", from_branch=""):
         directory = config.RUNS / name
         directory.mkdir()
         task = directory / "task.md"
-        task.write_text(f"---\nrepo: {self.repo}\n{front}rounds: 1\n---\n# Suite once\n\n"
+        task.write_text(f"---\nrepo: {self.repo}\n{front}from: {from_branch}\nrounds: 1\n---\n# Suite once\n\n"
                         "## Goal\nShip it.\n\n## Done when\n```bash\n"
                         + "\n".join(checks) + "\n```\n")
         state = run.loop(self.cfg, directory, task, self.opts, self.logs.append)
@@ -135,11 +135,12 @@ class RepoSuite(unittest.TestCase):
         self.git("push", "-q", "-u", "origin", "main")
         self.git("fetch", "-q", "origin")
         self.commit("# acme\n\nNo front matter here.\n")
+        # Fresh runs start at origin/main; resume the local commit to exercise fallback.
         for name, line in (("fallback-plain", SUITE),
                            ("fallback-marked", f"{SUITE}  # once")):
             with self.subTest(line=line):
                 self.gates.clear()
-                self.launch(name, ["true", line])
+                self.launch(name, ["true", line], from_branch="main")
                 ran = [cmd for _, cmds in self.gates for cmd in cmds]
                 self.assertEqual(ran.count(SUITE), 1, self.gates)
                 self.assertTrue(all(SUITE not in cmds for cmds in self.rounds()),
