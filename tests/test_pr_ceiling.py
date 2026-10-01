@@ -145,6 +145,15 @@ class PrCeiling(unittest.TestCase):
         self.assertEqual(history.pr_ceiling(), (500, "history"))
         self.assertEqual(self.review()[0]["state"], "pass")
 
+    def test_half_passing_is_not_a_drop_and_the_smallest_ceiling_can_be_zero(self):
+        self.fabricated()
+        with closing(sqlite3.connect(history.path())) as db, db:
+            db.execute("UPDATE runs SET rounds_used=1 WHERE CAST(run_id AS INTEGER) BETWEEN 30 AND 39")
+        self.assertEqual(history.pr_ceiling(), (None, "history"))
+        with closing(sqlite3.connect(history.path())) as db, db:
+            db.execute("UPDATE runs SET rounds_used=2")
+        self.assertEqual(history.pr_ceiling(), (0, "history"))
+
     def test_merged_size_counts_additions_and_deletions_and_survives_collection(self):
         self.change(5)
         (self.repo / "old.txt").unlink()
