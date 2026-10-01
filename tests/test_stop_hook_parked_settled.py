@@ -25,7 +25,7 @@ SAID = "Here is my recommendation. Let me know if I should continue."
 
 class ParkedSettled(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".parked-settled-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-parked-settled-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.home = Path(tmp.name)
         self.state = self.home / ".agentkit/state"
