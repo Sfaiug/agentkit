@@ -1499,7 +1499,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     spots.update({row: (None, [(1, layout, ("usage", number))])
                   for number, (row, _, _, _) in bars.items()})
     spots.update(terminal.key_spots(key_lines, keys_top + 1))
-    spot, tip, glint = terminal.pointer_spot(spots), None, []
+    # a question under a row has the keys and the rows, and nothing is explained while it asks
+    spot, tip, glint = terminal.Spot() if asked else terminal.pointer_spot(spots), None, []
     kind = spot.cell[0] if isinstance(spot.cell, tuple) else None
     if kind == "usage":
         tip, pace = usage_tip(cfg, spot.cell[1])
@@ -1541,9 +1542,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             elif since is None:
                 continue
             elif key[0] == "under":
-                for n, animation in enumerate(motion.glinting(glint, since, shade)[0]
-                                              if shown else ()):
-                    clock.start([(cell[0], cell[1] + n)], animation, since + motion.SWEEP)
+                if shown:             # the pointer came onto its row: one light across its bar
+                    cells, until = motion.glinting(glint, since, shade)
+                    for n, animation in enumerate(cells):
+                        clock.start([(cell[0], cell[1] + n)], animation, until)
             elif shown in ("needs you", "done"):
                 clock.start([cell], *(motion.pulsing if shown == "needs you" else motion.settling)(
                     terminal.state_glyph(shown), shown, since, lit))
