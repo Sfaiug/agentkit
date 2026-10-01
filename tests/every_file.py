@@ -22,7 +22,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import run
+from agentkit import host, orch, run
 
 FILE_CPUS = 1.0     # one test file's cost: one Python process, one core busy at most,
 FILE_MEM_MB = 230   # and the largest file's measured peak with what it starts, 229 MB
@@ -70,7 +70,7 @@ def main(root):
     # a sweep of minutes to that moment; and no more than are idle, since a timing test on an
     # oversubscribed host fails by chance.  The heavy suites running already, this one among
     # them, are in that load: none is a file to add on top.
-    readings = run.host_readings()
+    readings = host.host_readings(slice_dir=orch.slice_cgroup)
     cores = readings.get("slice_cpu_quota") or readings.get("cpus")
     readings = dict(readings, slice_cpu_quota=None, cpus=cores)
     jobs = run.derived_heavy_limit(readings, running=0, job_cpus=FILE_CPUS,
