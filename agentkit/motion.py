@@ -3,13 +3,15 @@
 At rest one thing moves, a working session's `●` breathing; news moves once and is then still --
 a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright, a bar
 that changed value glides to it, an effort's bar a step filled rises into place and a step onto
-a model's highest effort sends a light through its word; a popup's content fades in once, as it
-opens; the rule under a screen's header glides while its content is fetched -- and every motion
-runs on this same clock (docs/cli-design.md, Motion).  A screen says which cells animate and how
-when it draws (`Clock.start`), asking first which of its values are news (`Clock.look`); the
-wait loop asks how long until the next frame (`Clock.wait`) and what to write then
-(`Clock.frame`).  No screen keeps a timer: time, easing and the running animations live here,
-and cells animated alike are in one phase because each reads one clock.
+a model's highest effort sends a light through its word, a mark set fills and one cleared
+empties, one whose change was refused shakes, a row just added glows; a popup's content fades in
+once, as it opens; the rule under a screen's header glides while its content is fetched -- and
+every motion runs on this same clock (docs/cli-design.md, Motion).  A screen says which cells
+animate and how when it draws (`Clock.start`), asking first which of its values are news
+(`Clock.look`); the wait loop asks how long until the next frame (`Clock.wait`) and what to
+write then (`Clock.frame`), and a key ends what moves on its last frame (`Clock.settle`).  No
+screen keeps a timer: time, easing and the running animations live here, and cells animated
+alike are in one phase because each reads one clock.
 """
 
 import math
@@ -27,6 +29,11 @@ LIT = 0.3           # ... a task bar's newly filled block stays lit after the gl
 SWEEP = 0.4         # ... the light takes across a bar that reached full, after the glide
 RISE = 0.15         # ... an effort's bar a step filled takes to rise into place, or to lower
 SHIMMER = 0.6       # ... the light takes through an effort's word that a step took to its highest
+TOGGLE = 0.08       # ... a mark takes to fill or to empty, half way for the first half of it
+SHAKE = 0.24        # ... a mark whose change was refused takes to nudge left, right, left and back
+GLOW = 1.0          # ... a row just added takes to fade from its glow into the highlight
+GLOWING = 0.6       # that glow at first: the accent that far toward the background
+HALF = {"□": "▣", "■": "▣", "○": "◉", "●": "◉"}     # a mark half way between empty and full
 BRIGHTER = 0.5      # how lit news is: half way from its colour to the foreground
 FADE = 0.12         # seconds a popup's content takes to come up out of the background
 WAIT = 0.15         # ... a screen's content is fetched for before its rule says so
@@ -152,6 +159,48 @@ def shimmering(word, began, kind=None, bright=False):
     return at, began + SHIMMER
 
 
+def toggled(mark, width, kind, bright, column):
+    """How a mark drawn `mark` -- terminal.toggle's, `width` cells from the screen's `column`, in
+    `kind` -- moves on a screen's clock once it is news: one set or cleared fills or empties
+    through its half (`□ ▣ ■`, `○ ◉ ●`) in TOGGLE seconds, two frames; one whose change was
+    refused, news that changed nothing (`Clock.touch`), nudges a cell left, right, left and back
+    in SHAKE seconds.  `bright` is the highlighted row, and the pointer's cell is lit as the draw
+    lit it (terminal.pointed).  A function of the clock, the screen row, when the news came and
+    the mark before it."""
+    def start(clock, row, since, before):
+        def drawn(text, first):     # as a draw shows it from column `first`
+            return terminal.pointed(row, first,
+                                    terminal.highlight(text, mark=False) if bright else text)
+        if before == mark:
+            def at(now):
+                shift = (-1, 1, -1, 0)[min(3, int(4 * (now - since) / SHAKE))]
+                return drawn(" " * (1 + shift) + terminal.toggle(mark, width, kind)
+                             + " " * (1 - shift), column - 1)
+            clock.start([(row, column - 1)], at, since + SHAKE)
+        elif before in HALF and mark in HALF:
+            def at(now):
+                return drawn(terminal.toggle(HALF[mark] if now - since < TOGGLE / 2 else mark,
+                                             width, kind), column)
+            clock.start([(row, column)], at, since + TOGGLE)
+    return start
+
+
+def glowing(line):
+    """How a row just added moves on a screen's clock, `line` as the draw wrote it: its cells on
+    a soft glow of the accent that fades into the background in GLOW seconds, and then as
+    drawn, the pointer's cell lit (terminal.pointed).  A function of the clock, the screen row,
+    when it was added and what it was before."""
+    def start(clock, row, since, _):
+        lit = terminal.pointed(row, 1, line)
+
+        def at(now):
+            x = eased((now - since) / GLOW)
+            rgb = terminal.faded("accent", GLOWING + (1 - GLOWING) * x)[1:]
+            return lit if x >= 1 else terminal.backed(lit, rgb, 1, terminal.cells(lit))
+        clock.start([(row, 1)], at, since + GLOW)
+    return start
+
+
 def fetching(clock, began):
     """The rule under a screen's header, its second row, animated on `clock` while the screen's
     content is fetched from `began`, a cell each; `clock`.
@@ -185,6 +234,7 @@ class Clock:
         self.last = None    # when the last frame was made
         self.seen = None    # key -> what the last draw showed, and since when and in place of
                             # what when that was news; None when no draw is to be compared with
+        self.touched = {}   # key -> since when it is news that changed nothing (`touch`)
         self.fade = fade    # what is drawn fades in over the first FADE seconds (`rise`): a popup
         self.opened = None  # ... from its first draw
         self.rising = None  # ... the lines drawn, top down, and that time, while they come up
@@ -196,14 +246,42 @@ class Clock:
 
         At first and after `forget` -- a resize, another screen -- every value is taken as it
         is, and so is one no draw before showed: only a change seen while the menu is up moves.
+        A key touched is news since then, what it showed before being what it shows.
         """
         now, seen, self.seen = time.monotonic(), self.seen or {}, {}
         for key, value in values.items():
             was = seen.get(key)
             self.seen[key] = ((value, None, None) if was is None else was if was[0] == value
                               else (value, now, was[0]))
-        return {key: (since, before) for key, (_, since, before) in self.seen.items()
+        news = {key: (since, before) for key, (_, since, before) in self.seen.items()
                 if since is not None}
+        news.update((key, (since, values[key])) for key, since in self.touched.items()
+                    if key in values)
+        return news
+
+    def touch(self, key):
+        """News at `key` from now that changed nothing: a mark whose change was refused, a row
+        just added."""
+        self.touched[key] = time.monotonic()
+
+    def settle(self):
+        """A key: whatever moves ends on its last frame, the next draw showing it still, and
+        only what the key itself changes is news."""
+        self.seen = self.seen and {key: (value, None, None)
+                                   for key, (value, _, _) in self.seen.items()}
+        self.touched = {}
+
+    def drawn(self, moves, row):
+        """A draw's frame: every cell it wrote over still, then each of its `moves` -- (line,
+        key, value, start) -- that is news (`look`) started on the screen row `row(line)` puts
+        it on, by `start(clock, row, since, before)`, None where it is not shown; the first
+        frame, at the clock's phase so nothing jumps."""
+        self.clear()
+        news = self.look({key: value for _, key, value, _ in moves})
+        for line, key, _, start in moves:
+            if key in news and row(line) is not None:
+                start(self, row(line), *news[key])
+        return self.frame()
 
     def start(self, cells, animation, until=None):
         """Animate `cells` by `animation`, a function of the clock's time to what a cell shows,
@@ -234,7 +312,7 @@ class Clock:
 
     def forget(self):
         """Nothing seen: the next draw's values are drawn as they are, no news in them."""
-        self.seen = None
+        self.seen, self.touched = None, {}
 
     def wait(self):
         """Seconds until the next frame is due, or None while nothing animates."""

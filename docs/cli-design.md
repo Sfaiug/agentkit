@@ -66,7 +66,7 @@ the project does not let you switch it, and one on for everyone on for you too.
 It is read with the `c` matrix's keys (`menu.matrix_key`): ↑/↓ move, ←/→ choose
 the column, Enter, space or a click flips through the project's `set` at once
 and draws the row it answers; a failure is one dim line under the rows, the mark
-unchanged. Its `list` runs in a thread with a 20 s timeout, asked every minute
+unchanged and shaking (Motion). Its `list` runs in a thread with a 20 s timeout, asked every minute
 and every ten seconds while the screen is open, so neither screen waits on it.
 Needing projects sort first, which is what carries the eye down to one. Under
 a heading seats sort needs you, then working, then done, then by name, and
@@ -234,14 +234,14 @@ lowest. The highlighted row
 is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
 drawn at once, the orchestrator only moves, and the last worker stays, saying
-so under the rows. Under the models `+ add a model`, `Providers` (the config's
+so under the rows, its mark shaking (Motion). Under the models `+ add a model`, `Providers` (the config's
 providers in their colours, then `+ add` and `− remove`, ←/→ choosing between
 the two, each a list opening in the frame), `Discord` (connected or not)
 and `Version` (the commit and its date; read, with no action). Enter
 or a click on `+ add a model` opens `config · add a model`: `harness`, then
 `model`, then `effort`, each a list opening under the one chosen above it, a
 chosen one kept as one line; Enter on the effort adds the model and highlights
-its row, Esc steps back one list. On `Discord` Enter or a click asks its two
+its row, glowing (Motion), Esc steps back one list. On `Discord` Enter or a click asks its two
 secrets on the same keys. The key
 line names what the keys do on the cell at hand (`⏎ mark`, `⏎ effort`,
 `⏎ open`) and ends `esc back`; Esc or a click on it returns. A
@@ -274,7 +274,7 @@ a spent model reads dim with `spent · resets <day HH:MM>`, on a line of its own
 where the row does not fit, and is never chosen for him. ↑/↓, k/j and the wheel move one
 highlight through both lists and scroll them on a short screen; space or a click chooses, Enter
 starts from anywhere -- or, with every model spent and a list still empty, takes the highlight to
-it -- Esc goes back, and the last worker stays chosen. At the Name question, a taken
+it -- Esc goes back, and the last worker stays chosen, its mark shaking (Motion). At the Name question, a taken
 name asks again and Esc goes back. Enter leaves `new`, then `new-2`, unnamed until its
 orchestrator knows the job and gives it the shortest name, at most three words, with
 `ak orch rename --auto <name>`. Once named, `--auto` changes nothing, prints the current name and exits 0;
@@ -283,7 +283,8 @@ former name stays reserved, with a variant chosen for a rename from Claude. From
 asks `Name (Enter: auto):`, `Orchestrator [opus]:` and `Workers [opus astra]:` a line at a time,
 Enter or EOF taking each default.
 
-Helpers: `terminal.Keyboard`, `terminal.read_key`, `terminal.highlight`, `terminal.key_spans`.
+Helpers: `terminal.Keyboard`, `terminal.read_key`, `terminal.highlight`, `terminal.key_spans`,
+`terminal.toggle` (every mark, here, on `c` and on a project's switches).
 
 Example: `› ● Opus 5.5     claude · xhigh`.
 
@@ -451,6 +452,18 @@ A step on an effort on `c` is news too: the bar it fills rises into place over
 model's highest level then sends one light through the word, a letter at a time
 left to right, over 600 ms -- once for each step onto it (`motion.rising`,
 `motion.shimmering`, `terminal.signal`).
+
+Every mark -- on `c`, on `n` and on a project's switches -- fills when set and
+empties when cleared over two frames, 80 ms in all: `□ ▣ ■`, `○ ◉ ●` and back,
+the new state saved at the key; without UTF-8 it lands at once. A change ak
+refuses -- the last executor or reviewer, a pair that is not allowed, a switch
+the project refused -- nudges its mark a cell left, right, left and back over
+240 ms, the reason under the rows. A model, provider or subscription just added
+on `c` returns highlighted on a soft glow of the accent that fades into the
+highlight over a second. Each moves on while the rule glides, and the cell under
+the pointer stays lit through it (`terminal.pointed`). A key during any of these
+ends it on its last frame and is answered within 100 ms (`terminal.toggle`,
+`motion.toggled`, `motion.glowing`, `motion.Clock.touch`, `settle`).
 
 The popup's content fades in once, as it opens: from the background to its
 colours over 120 ms, on the same clock. Whatever is drawn in that time -- a

@@ -5657,6 +5657,11 @@ else
 fi
 
 # --- result ----------------------------------------------------------------
+if python3 "$REPO/tests/test_files_scope.py" >"$WORK/files-scope.log" 2>&1; then
+  ok "50 task files scope: branch paths, leftovers, rebase, fixer and PASS override"
+else
+  no "50 task files scope"; tail -30 "$WORK/files-scope.log"
+fi
 if python3 "$REPO/tests/test_turn_leftover_processes.py" >"$WORK/turn-processes.log" 2>&1; then
   ok "worker turns stop their leftover processes on every harness and ask once to finish in the foreground"
 else
@@ -5685,7 +5690,8 @@ if seat_state_check >"$WORK/seat-state.log" 2>&1; then
 else
   no "42 seat states"; tail -30 "$WORK/seat-state.log"
 fi
-if lifecycle_check v4l >"$WORK/v4l.log" 2>&1; then
+if { lifecycle_check v4l &&
+     python3 "$REPO/tests/test_quota_words_bounded.py"; } >"$WORK/v4l.log" 2>&1; then
   ok "36 exact stall timing, attach races, quota windows, real Claude stream and narrow runs"
 else
   no "36 v4l regressions"; tail -30 "$WORK/v4l.log"
