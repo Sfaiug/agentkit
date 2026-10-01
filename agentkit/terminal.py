@@ -1138,6 +1138,18 @@ def lit(lines, spots):
     return _PAINTED
 
 
+def pointed(text, row, column):
+    """`text`, a frame of the clock's written from `row`, `column` over a screen `lit` lit, with
+    the cell under the pointer in it lit the same way, the keys' reverse given way to it: what
+    a frame writes is what the next draw would show."""
+    if _POINTED.cell is None or _POINTER.row != row or not colour_depth():
+        return text
+    first, last = max(1, _POINTED.first - column + 1), min(_POINTED.last - column + 1, cells(text))
+    if first > last:
+        return text
+    return backed(text.replace("\033[7m", ""), POINTED[_LIGHT], first, last)
+
+
 def backed(line, rgb, first, last):
     """`line` with its cells `first` to `last`, counted from 1, on the background `rgb`, every
     style in them kept and any past its end blank; reversed at eight colours."""

@@ -2795,13 +2795,13 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
                                      if top <= line < top + room else None))
         sys.stdout.flush()
     began = fetched and fetched()
-    if began is None and clock is not None and clock.wait() is not None:
-        key = moving(clock, timeout=timeout or TICK)
-    elif began is None:
+    if began is not None:     # on the screen's own clock, so what else moves goes on with it
+        clock = motion.fetching(clock or motion.Clock(), began)
+    if clock is None or clock.wait() is None:
         key = terminal.read_key(timeout)
     else:
-        key = moving(motion.fetching(motion.Clock(), began), timeout=timeout,
-                     going=lambda: fetched() == began)
+        key = moving(clock, timeout=timeout or TICK,
+                     going=None if began is None else lambda: fetched() == began)
     if key is None:
         return None, here, None, top
     if clock is not None and key.name != "point":
