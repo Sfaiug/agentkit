@@ -1,7 +1,7 @@
 """Whatever the pointer is over lights up, on every screen: the row under it takes the keys' own
 highlight, a key-line item or a cell a subtle background, and that goes when the pointer leaves;
-the keys and the pointer never show two highlights, a key brings back the one the pointer took
-away, and a flood of moves is one draw.
+the keys and the pointer never show two highlights, nothing is acted on while the pointer has
+the highlight out, and a flood of moves is one draw.
 
 The screens under the menu run in this process on the real `terminal.read_key`, the keyboard
 taken, their keys on a pipe written whole before they read, the way one read finds a flood:
@@ -189,19 +189,32 @@ class Screens(Sandbox):
         self.assertOneHighlight(last, "astra")
         self.assertEqual(marked(last, "lit"), {})
         self.assertEqual(marked(last, "reverse"), {mark[1]: "□"})
-        # off every row the row and its cell lose it, the key line's item lighting instead, and
-        # that goes when the pointer leaves for no row at all; the first key brings back the
-        # keys' highlight where the pointer left it, and acts only after that
+        # a key-line item lights and the row it acts on keeps the keys' highlight; on nothing
+        # at all the row and its cell lose it, and an arrow moves it on from where it was
         keys = at(first, "esc back")
         screens = self.matrix(move(*harness), move(*keys), move(1, len(texts(first)) + 2), RIGHT,
                               ESC)
         self.assertEqual(len(screens), 5)
         self.assertEqual(marked(screens[2], "lit"), {keys[1]: "esc back"})
-        self.assertEqual((highlighted(screens[2]), marked(screens[2], "reverse")), ([], {}))
+        self.assertOneHighlight(screens[2], "astra")
         self.assertEqual(marked(screens[3], "lit"), {})
         self.assertEqual((highlighted(screens[3]), marked(screens[3], "reverse")), ([], {}))
         self.assertOneHighlight(screens[4], "astra")
-        self.assertEqual(marked(screens[4], "reverse"), {mark[1]: "○"})
+        self.assertEqual(marked(screens[4], "reverse"), {mark[1]: "□"})
+
+    def test_moves_sent_while_the_rule_glides_are_one_draw(self):
+        checkout = self.root / "code" / "ACME"
+        entry = {"rows": FEATURES, "error": "", "asked": time.monotonic(), "going": True,
+                 "set": 0, "flips": {}}
+        with patch.object(menu, "switches", return_value=FEATURES), \
+                patch.dict(menu._SWITCHES, {str(checkout): entry}):
+            first = run(lambda: menu.show_features(checkout), ESC)[1][0]
+            dark, beta = at(first, "Dark mode"), at(first, "Beta search")
+            flood = b"".join(move(*(dark if n % 2 else beta)) for n in range(499))
+            screens = run(lambda: menu.show_features(checkout), flood + move(*dark) + ESC)[1]
+        self.assertEqual(len(screens), 2)               # the first draw, and one for them all
+        self.assertEqual(len(highlighted(screens[-1])), 1)
+        self.assertIn("Dark mode", highlighted(screens[-1])[0])
 
     def test_five_hundred_moves_in_one_read_draw_one_frame(self):
         first = self.matrix()[0]
@@ -257,16 +270,29 @@ class Screens(Sandbox):
         keys = at(screens[0], "esc back")
         last = run(lambda: terminal.choose(choices, around=around), move(*keys) + ESC)[1][-1]
         self.assertEqual(marked(last, "lit"), {keys[1]: "esc back"})
-        self.assertEqual(highlighted(last), [])
-        # a key puts the key line's light out with the rest of the screen, and brings the
-        # highlight back where it was; off every row it is lost, and a key brings it back there
-        last = run(lambda: terminal.choose(choices, around=around), move(*keys), DOWN,
-                   move(1, 2), ESC)[1][-1]
-        self.assertEqual((marked(last, "lit"), highlighted(last)), ({}, ["› Claude"]))
-        screens = run(lambda: terminal.choose(choices, around=around), move(5, 5), move(1, 2),
-                      DOWN, ESC)[1]
+        self.assertEqual(highlighted(last), ["› Claude"])
+        # a key moves the highlight on and puts the key line's light out with the rest of it
+        last = run(lambda: terminal.choose(choices, around=around), move(5, 5), move(*keys),
+                   b"k", move(1, 2), ESC)[1][-1]
+        self.assertEqual((marked(last, "lit"), highlighted(last)), ({}, ["› ChatGPT"]))
+        # on nothing the highlight is out, Enter only brings it back, and the next one picks
+        answer, screens = run(lambda: terminal.choose(choices, around=around), move(5, 5),
+                              move(1, 2), b"\r", ESC)
+        self.assertIsNone(answer)
         self.assertEqual([highlighted(grid) for grid in screens[1:]],
                          [["› Grok"], [], ["› Grok"]])
+        self.assertEqual(run(lambda: terminal.choose(choices, around=around), move(5, 5),
+                             move(1, 2), b"\r", b"\r")[0], "Grok")
+        # asked over a screen's own rows, the pointer on one of them is on nothing of the list's
+
+        def over():
+            terminal.frame("agentkit", ["  1  seat-a", "", ""], "esc back",
+                           places={0: ("seat-a", [])})
+            return 4
+
+        screens = run(lambda: terminal.choose(["Keep", "Stop"], around=over), move(5, 5),
+                      move(5, 3), ESC)[1]
+        self.assertEqual([highlighted(grid) for grid in screens[1:]], [["› Stop"], []])
         # what the pointer lit is what a click there picks
         self.assertEqual(run(lambda: terminal.choose(choices, around=around),
                              move(5, 4) + b"\x1b[<0;5;4M\x1b[<0;5;4m")[0], "ChatGPT")
@@ -379,17 +405,25 @@ class MainMenu(unittest.TestCase):
         menu.frame(lambda lines: "seat-c" in menu.highlighted(lines))
         keyline = (lines[-1].index("c config") + 1, len(lines))
         menu.send(move(*keyline))
-        menu.until(lambda text: marked(played(text), "lit") == {keyline[1]: "c config"}
-                   and not highlighted(played(text)), "c config lit, and no seat")
-        # a key brings the one highlight back where the pointer left it, the key line's light
-        # gone, and the next moves it on
+        menu.until(lambda text: marked(played(text), "lit") == {keyline[1]: "c config"},
+                   "c config lit")
+        # a key moves the one highlight on from the pointer's, and the key line's light goes
         menu.send(b"k")
-        menu.frame(lambda lines: any(line.startswith("› 3  seat-c") for line in lines))
+        menu.frame(lambda lines: "seat-b" in menu.highlighted(lines))
         menu.until(lambda text: marked(played(text), "lit") == {}, "nothing lit")
-        menu.send(b"k")
-        menu.frame(lambda lines: any(line.startswith("› 2  seat-b") for line in lines))
-        # five hundred moves at once are one draw, the highlight where they ended
+        # on nothing the highlight is out, and `x` only brings it back: no seat is acted on
+        # that is not seen
         top = next(number for number, line in enumerate(lines, 1) if "seat-a" in line)
+        mark = len(menu.text())
+        menu.send(move(20, top))
+        menu.frame(lambda lines: "seat-a" in menu.highlighted(lines))
+        menu.send(move(1, 2))
+        menu.until(lambda text: not highlighted(played(text)), "no seat highlighted")
+        menu.send(b"x")
+        menu.frame(lambda lines: any(line.startswith("› 1  seat-a") for line in lines))
+        time.sleep(0.3)
+        self.assertNotIn("everything it runs?", menu.text()[mark:])
+        # five hundred moves at once are one draw, the highlight where they ended
         drawn = menu.text().count("<drawing")
         menu.send(b"".join(move(1 + n % 90, top) for n in range(500)))
         menu.frame(lambda lines: "seat-a" in menu.highlighted(lines))

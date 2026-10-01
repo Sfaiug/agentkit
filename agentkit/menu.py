@@ -3662,6 +3662,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
             if terminal.is_sequence(key):
                 continue          # an arrow key is neither Esc nor a key: draw again, silently
             key = key.lower()
+            if key in ("x", "c") and not overlay and terminal.unseen():
+                continue          # it acts on the highlighted seat: brought back, to be seen first
             seat = own if overlay else cursor
             if key == "x" and isinstance(seat, Path):
                 continue          # a heading is no seat to stop

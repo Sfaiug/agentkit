@@ -170,19 +170,22 @@ highlight, which moves there, and a key-line item or a cell of a row (a mark, an
 effort, a model's label, `+ add`, an arrow on a model's own screen) a subtle
 background, in place of the reverse the keys give a cell, or at eight colours the
 reverse; the keys and the pointer never show two highlights. What lights is what a
-click there acts on. Each loses it when the pointer leaves: off every row no row or
-cell is highlighted until the pointer is on one again, or a key brings the keys'
-highlight back where it was -- a key that acts on it (an arrow, Enter, space) only
-brings it back, so nothing unseen is acted on. Any key puts out what the pointer lit,
-and a screen opens, or comes back, with nothing lit: the pointer lights nothing until
-it moves again. A question typed on a screen (`terminal.field`) lights its key line
-too. A move is drawn within a frame of the clock (Motion) of the pointer reaching
-another row, cell or item, and only then: the moves a terminal sends while the
-pointer travels are read through to where it ended first, for a frame at most, and a
-move within what is lit draws nothing. With no colour the rows still follow it, and
-nothing else lights. Helpers: `terminal.under`, the one reading of a position back to
-what a screen drew there, for a click and the pointer alike, `terminal.lit`,
-`terminal.relight`, `terminal.away`.
+click there acts on, and a key-line item acts on the highlighted row, which keeps
+the keys' highlight while the pointer is on the key line. Each loses it when the
+pointer leaves: on nothing at all no row or cell is highlighted until the pointer is
+on one again or a key brings it back where it was. An arrow moves it on from there,
+and a key that acts on it -- Enter, space, and the menu's `x` and `c` -- only brings
+it back, so nothing unseen is acted on. Any key puts out what the pointer lit, and a
+screen opens, or comes back, with nothing lit: the pointer lights nothing until it
+moves again. A question typed on a screen (`terminal.field`) lights its key line
+too, and one asked over a screen's rows (`x`'s) takes those rows for nothing. A move
+is drawn within a frame of the clock (Motion) of the pointer reaching another row,
+cell or item, and only then: the moves a terminal sends while the pointer travels
+are read through to where it ended first, for a frame at most, however soon a frame
+of the clock's falls due, and a move within what is lit draws nothing. With no
+colour the rows still follow it, and nothing else lights. Helpers: `terminal.under`,
+the one reading of a position back to what a screen drew there, for a click and the
+pointer alike, `terminal.lit`, `terminal.relight`, `terminal.away`, `terminal.unseen`.
 
 ## Questions
 
