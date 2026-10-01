@@ -83,6 +83,15 @@ class HandIn(unittest.TestCase):
         self.assertEqual(evidence["returncode"], 7)
         self.assertIn("wrong answer", evidence["output"])
 
+    def test_a_finding_with_a_zero_exit_proof_is_refused_during_the_turn(self):
+        before = self.file.read_bytes()
+        result = self.cli("finding", "api.py:2", "wrong result", "breaks callers",
+                          "--run", "echo wrong answer")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("fail while the defect exists", result.stderr)
+        self.assertIn("--quote", result.stderr)
+        self.assertEqual(self.file.read_bytes(), before)
+
     def test_a_followup_requires_and_keeps_its_preexisting_evidence(self):
         result = self.cli("follow-up", "api.py:2", "wrong result", "breaks callers",
                           "--quote", "wrong answer", "--before", "base abc123 has the same defect")

@@ -14,7 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import host, config, gc, run, usage
+from agentkit import host, config, gc, run, usage, worker
 
 URL = "https://github.com/fixture/repo/pull/1"
 
@@ -52,6 +52,8 @@ if reviewer:
         git(root / "target", "commit", "--allow-empty", "-m", "target metadata change")
         git(root / "target", "push", "origin", "main")
     text = "VERDICT: " + ("FAIL" if count and plan.get("reject") else "PASS")
+    if count and plan.get("reject"):
+        text += "\\n## Findings\\n- expected:1 - wrong expectation - breaks callers\\n"
     code = plan.get("review_code", 0) if count else 0
 elif "## Resolve the " in prompt:
     (cwd / "shared").write_text("both intents\\n")
@@ -106,6 +108,11 @@ class IntegratedCommit(unittest.TestCase):
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
+        # Gate evidence must not depend on the host's running processes or sweep them.
+        self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
+        self.stack.enter_context(patch.object(worker, "kill_marked", return_value=True))
+        self.stack.enter_context(patch.object(run, "marker_pids", return_value=[]))
+        self.stack.enter_context(patch.object(run.orch, "stop_scope"))
         self.stack.enter_context(patch.object(run.time, "sleep"))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -230,8 +237,10 @@ sys.exit(0 if ok else 1)
     def launch(self, rounds=3, method="squash", once=False):
         (self.root / "plan.json").write_text(json.dumps(self.plan))
         once = f"\n{self.command} once  # once" if once else ""
+        # Keep the unique suffix within the slug cap: process markers are host-wide.
+        title = f"Integrated fixture {self.root.name.rsplit('-', 1)[-1]}"
         self.task.write_text(f"---\nrepo: {self.wt}\nbase: origin/main\nrounds: {rounds}\n"
-                             f"merge: {method}\n---\n# Integrated fixture\n\n## Done when\n"
+                             f"merge: {method}\n---\n# {title}\n\n## Done when\n"
                              f"```bash\n{self.command}{once}\n```\n")
         code = run.main([str(self.task), "--exec", "opus", "--review", "astra", "--no-worktree"])
         dirs = run.run_dirs()

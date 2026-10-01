@@ -23,11 +23,12 @@ COMMANDS = {
                 "The loop names AK_HAND_IN; outside a turn this command is refused.\n"
                 "Paths and lines must exist in the checkout; a quote must occur in that file.\n"
                 "--run executes in the checkout and records bounded output excerpts and the exit status.\n"
+                "A finding's command must fail while the defect exists; ak re-runs it on commit and base.\n"
                 "--before proves a follow-up existed before the task.\n"
                 "done completes the review: any blocking finding means FAIL, otherwise PASS.",
                 'ak hand-in finding api.py:12 "Wrong result" "Breaks callers" --quote "return None"'),
     "hand-in finding": (f"usage: {HAND_IN_FINDING}",
-                        "Hand in a blocking finding with command or quoted evidence.",
+                        "Hand in a finding for ak to weigh, with a failing command or quoted evidence.",
                         'ak hand-in finding api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py"'),
     "hand-in follow-up": (f"usage: {HAND_IN_FOLLOWUP}",
                           "Hand in a proven defect that existed before the task; it cannot fail this review.",

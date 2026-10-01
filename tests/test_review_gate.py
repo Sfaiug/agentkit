@@ -155,7 +155,10 @@ sys.exit(1)
                               "ak hand-in follow-up", 'path:line "what" "why it matters"',
                               "never a reason to fail",
                               "however long the follow-ups list is",
-                              "for blocking findings only"):
+                              "for blocking findings only",
+                              "A `--run` proof must fail while the defect exists",
+                              "checkout of the commit and on the base",
+                              "use only files on the branch"):
                     self.assertIn(words, text)
         for role in ("executor", "fixer"):
             with self.subTest(role=role):

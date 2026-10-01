@@ -32,7 +32,7 @@ BLOCKED = ("If the task cannot be completed as written, end with a `## Blocked` 
            "`## Blocked` is only for a task that cannot be completed as written; never for a "
            "transient provider failure, a capacity refusal, or a check the loop runs later such "
            "as the `# once` suite.")
-# Only proven defects are reported; those already present before the task are follow-ups.
+# The reviewer supplies evidence; the loop weighs it outside the reviewer's editable copy.
 GATE = ("Hand in a **blocking** finding only for a correctness defect in "
         "the task's outcome, a safety or data-loss risk, a check the executor weakened or "
         "skipped, or a scope violation (work the task did not ask for, or asked-for work "
@@ -40,13 +40,18 @@ GATE = ("Hand in a **blocking** finding only for a correctness defect in "
         "reproduction, or quoted lines that show the defect. Use "
         "`ak hand-in finding path:line \"what\" \"why it matters\" --run 'command'` "
         "or `--quote 'lines from that file'` for blocking findings only. "
+        "A `--run` proof must fail while the defect exists. ak re-runs it on a clean "
+        "checkout of the commit and on the base with the branch's changed tests overlaid, "
+        "so use only files on the branch. After your turn ak weighs each finding: "
+        "an unproven defect is a note; a proven defect on a changed line or a regression "
+        "that passes on base blocks; a defect already present elsewhere is a follow-up. "
         "**Follow-ups** are defects "
         "of a kind that would fail a round, with that same evidence, that existed before this "
         "task: prove that by naming the base commit or quoting main as it was before the task. "
         "Hand in only these with `ak hand-in follow-up` using the same arguments plus "
         "`--before 'base commit or quoted main proving it existed before the task'`; "
         "they are never a reason to fail. Omit everything else everywhere. "
-        "Finish with `ak hand-in done`: the loop derives FAIL from any blocking finding, "
+        "Finish with `ak hand-in done`: the loop derives FAIL from any finding that stays blocking, "
         "otherwise PASS, however long the follow-ups list is. A refused hand-in explains "
         "what to correct; fix the call and try again before done.")
 # A repository whose AGENTS.md says `users: real` ships a new feature hidden until the owner
