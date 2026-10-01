@@ -2539,10 +2539,17 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
 
 
 def effort_levels(entry):
-    """The efforts a model's bars count and a step on it walks (config_effort), off the catalog
-    in hand: a draw asks no harness and waits on none; none where they cannot be read."""
+    """The efforts a model's bars count, as config.efforts gives them off the catalog its harness
+    last listed -- what a step on it walks once that is in hand (config_effort), and what `add a
+    model` and a model's own screen fetched -- else off its manifest's table.  Read from
+    config's own cache: asking catalog() could start the listing, and a draw asks no harness and
+    waits on none.  None where they cannot be read."""
+    harness, model = entry.get("harness"), entry.get("model")
     try:
-        return config.efforts(entry.get("harness"), entry.get("model"), now=True, ask=False)
+        cached = config._CATALOGS.get(harness)
+        listed = cached[1] if cached else config.catalog_table(harness)
+        return next((list(item["efforts"]) for item in listed
+                     if item["id"] == model and item["efforts"]), None) or config.efforts(harness)
     except config.Error:
         return []
 
@@ -2561,9 +2568,7 @@ def _effort_moves(levels, effort, kind, bright, word, bars):
             if (n < was) != (n < filled):
                 clock.start([(row, bars + n)], *motion.rising(bar, n < filled, since, bright))
         if effort == levels[-1]:
-            cells, until = motion.shimmering(effort, since, kind, bright)
-            for n, animation in enumerate(cells):
-                clock.start([(row, word + n)], animation, until)
+            clock.start([(row, word)], *motion.shimmering(effort, since, kind, bright))
     return start
 
 

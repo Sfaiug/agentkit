@@ -134,22 +134,22 @@ def rising(bar, up, began, bright=False):
 
 def shimmering(word, began, kind=None, bright=False):
     """An effort's `word` that a step at `began` took to its model's highest: one light through
-    it, a letter at a time left to right, in SHIMMER seconds; an animation for each letter, and
-    when it is still.  `kind` is how the draw styled the word -- `reverse` where the highlight's
-    cell is, `dim` on a spent model's row -- and `bright` is the highlighted row."""
+    it, a letter at a time left to right, in SHIMMER seconds, and then as the draw wrote it; and
+    when it is still.  The word is written whole from its first cell, so a letter two cells wide
+    keeps both.  `kind` is how the draw styled it -- `reverse` where the highlight's cell is,
+    `dim` on a spent model's row -- and `bright` is the highlighted row."""
     light = terminal.faded("working", -BRIGHTER)
 
-    def letter(n):
-        def at(now):
-            text = word[n]
-            if n == int(len(word) * (now - began) / SHIMMER):
-                text = terminal.styled(text, light)
-                text = terminal.styled(text, kind) if kind == "reverse" else text
-            elif kind:
-                text = terminal.styled(text, kind)
-            return terminal.highlight(text, mark=False) if bright else text
-        return at
-    return [letter(n) for n in range(len(word))], began + SHIMMER
+    def at(now):
+        lit = int(len(word) * (now - began) / SHIMMER)
+        dark, shone, rest = word[:lit], terminal.styled(word[lit:lit + 1], light), word[lit + 1:]
+        if kind:
+            dark, rest = terminal.styled(dark, kind), terminal.styled(rest, kind)
+        if kind == "reverse":
+            shone = terminal.styled(shone, kind)
+        text = dark + shone + rest
+        return terminal.highlight(text, mark=False) if bright else text
+    return at, began + SHIMMER
 
 
 def fetching(clock, began):

@@ -20,7 +20,7 @@ import unittest
 from unittest.mock import patch
 
 from test_config_matrix import DOWN, ENTER, EFFORT_KEYS, RIGHT, UP, Screen, row
-from agentkit import motion, terminal
+from agentkit import menu, motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
 BAR = re.compile(rf"(\x1b\[[0-9;]*m)?[{terminal.SIGNAL}]")
@@ -38,6 +38,12 @@ def filled(screen, name):
     line = next(line for line in drawn(screen)
                 if terminal.ANSI.sub("", line)[2:].split(" ")[0] == name)
     return BAR.findall(line).count("")
+
+
+def shone(written):
+    """Which letters of a word as written are in the light: those a colour of their own precedes."""
+    return [n for n, codes in enumerate(re.findall(r"((?:\x1b\[[0-9;]*m)*)[^\x1b]", written))
+            if LIT in codes]
 
 
 def moved(screen, keys):
@@ -117,22 +123,16 @@ class EffortBars(unittest.TestCase):
         self.assertLess(heights[0], 5, "risen")
         self.assertEqual(cells[-1][2], "▆")
         self.assertNotIn(LIT, cells[-1][3])
-        # up onto max, Opus's highest: its fifth bar rises, and one light crosses the word
+        # up onto max, Opus's highest: its fifth bar rises, and one light crosses the word,
+        # written whole from its first cell
         cells = moved(screen, ENTER)
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")
-        self.assertEqual({column for at, column, _, _ in cells if at == number},
-                         {bars + 4, word, word + 1, word + 2})
-        lit = {}
-        for order, (_, column, text, written) in enumerate(cells):
-            if column in (word, word + 1, word + 2):
-                self.assertEqual(text, "max"[column - word])
-                if LIT in written:
-                    lit.setdefault(column, []).append(order)
-        self.assertEqual([len(lit.get(column, [])) for column in (word, word + 1, word + 2)],
-                         [1, 1, 1], "each letter lit once")
-        self.assertLess(lit[word], lit[word + 1])       # left to right
-        self.assertLess(lit[word + 1], lit[word + 2])
-        self.assertNotIn(LIT, [cell for cell in cells if cell[1] == word + 2][-1][3])
+        self.assertEqual({column for at, column, _, _ in cells if at == number}, {bars + 4, word})
+        words = [cell for cell in cells if cell[1] == word]
+        self.assertEqual({text for _, _, text, _ in words}, {"max"})
+        self.assertEqual([n for *_, written in words for n in shone(written)], [0, 1, 2],
+                         "each letter lit once, left to right")
+        self.assertEqual(shone(words[-1][3]), [])
         # and once: drawn again, moving off it and back, it is still
         for keys in (DOWN, UP):
             cells = moved(screen, keys)
@@ -166,11 +166,19 @@ class EffortBars(unittest.TestCase):
             lower, _ = motion.rising("█", False, 10.0)
             self.assertEqual(lower(10.0), "█")
             self.assertEqual(lower(10.15), terminal.styled("█", "dim"))
-            letters, until = motion.shimmering("max", 10.0)
+            shimmer, until = motion.shimmering("max", 10.0)
             self.assertEqual(until, 10.6)
-            for t, at in ((0.1, 0), (0.3, 1), (0.5, 2), (0.65, None)):
-                self.assertEqual([LIT in letter(10.0 + t) for letter in letters],
-                                 [n == at for n in range(3)])
+            for t, lit in ((0.1, [0]), (0.3, [1]), (0.5, [2]), (0.65, [])):
+                self.assertEqual(shone(shimmer(10.0 + t)), lit)
+
+    def test_a_wide_word_shimmers_whole_from_its_first_cell(self):
+        with patch.object(terminal, "colour_depth", return_value=256):
+            clock = motion.Clock()
+            start = menu._effort_moves(["low", "最高"], "最高", None, False, 20, None)
+            start(clock, 5, time.monotonic(), "low")
+            frame = clock.frame()
+        self.assertEqual(PLACE.findall(frame), [("5", "20")])     # its two cells written as one
+        self.assertEqual(terminal.ANSI.sub("", frame), "最高")
 
 
 if __name__ == "__main__":

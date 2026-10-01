@@ -56,8 +56,8 @@ usage.collect = lambda cfg, **kwargs: down
 orch.switch_orchestrator = lambda cfg, name, model, providers=None: (
     config.update_session(name, orchestrator=model), "")[1]
 orch.fresh_command = lambda cfg, name, seat=None, account=None: (["harness"], None)
-config.catalog_now = lambda harness, **_kw: [{"id": "claude-fable-5-1", "label": "Fable 5.1",
-                                             "efforts": ["high", "xhigh", "max"]}]
+config.catalog_now = lambda harness: [{"id": "claude-fable-5-1", "label": "Fable 5.1",
+                                       "efforts": ["high", "xhigh", "max"]}]
 orch.launch = lambda name, model, *args, **kwargs: print(f"<launched {name} {model}>", flush=True)
 menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>",
                                                         flush=True)
@@ -296,7 +296,7 @@ class OneConfigScreen(unittest.TestCase):
         lines = menu.press(b"c", title("config"))
         self.assertEqual(lines[2].split(), ["effort"])
         self.assertEqual(model(lines, "fable").split(), ["›", "fable", "claude", "‹", "xhigh",
-                                                          "›", "▃▅█"])
+                                                          "›", "▂▃▅▆█"])
         self.assertFalse(any(marks(line) for line in lines), lines)
         self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ effort   esc back")
         menu.press(ESC)
