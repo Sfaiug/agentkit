@@ -147,10 +147,10 @@ class MergeTrailer(unittest.TestCase):
                     self.assertIn("Keep this explanation.", message)
 
     def test_without_declared_suite_has_no_trailer_even_with_once_check(self):
-        for once in (None, "true"):
-            with self.subTest(once=once):
+        for method, once in (("squash", None), ("squash", "true"), ("rebase", "true")):
+            with self.subTest(method=method, once=once):
                 self.git("checkout", "-q", "ak/fix-api")
-                lp = self.loop(suite=None, once=once)
+                lp = self.loop(suite=None, method=method, once=once)
                 self.assertTrue(run.final_check(lp, "origin/main"))
                 self.assertNotIn("Suite-Passed-Tree:", self.land(lp))
 
@@ -172,8 +172,26 @@ class MergeTrailer(unittest.TestCase):
         lp.state["delivery_sha"] = self.git("rev-parse", "HEAD")
         self.assertNotIn("Suite-Passed-Tree:", self.land(lp))
 
-    def test_own_pr_pass_names_the_suite_tree(self):
+    def test_carried_round_check_does_not_certify_a_different_tree(self):
         lp = self.loop()
+        lp.rnd = 1
+        self.assertTrue(run.verify_once(lp)[0])
+        tree = self.git("rev-parse", "HEAD^{tree}")
+        self.git("checkout", "-q", "main")
+        (self.repo / "other.txt").write_text("other work\n")
+        self.commit("Advance target")
+        self.git("update-ref", "refs/remotes/origin/main", self.git("rev-parse", "HEAD"))
+        self.git("checkout", "-q", "ak/fix-api")
+        with patch.object(run, "fetch", return_value=(0, "")):
+            self.assertTrue(run.integrate(lp, "origin/main"))
+        self.assertEqual(lp.state["final_check"]["tree_sha"], tree)
+        self.assertNotEqual(self.git("rev-parse", "HEAD^{tree}"), tree)
+        self.assertTrue(run.final_check(lp, "origin/main"))
+        lp.state["delivery_sha"] = self.git("rev-parse", "HEAD")
+        self.assertNotIn("Suite-Passed-Tree:", self.land(lp))
+
+    def own_pr(self, suite):
+        lp = self.loop(suite=suite)
         head, tree = self.git("rev-parse", "HEAD"), self.git("rev-parse", "HEAD^{tree}")
         lp.state.update(head_sha=head, own_pr=True, own_orchestrator="opus")
         lp.save()
@@ -181,8 +199,9 @@ class MergeTrailer(unittest.TestCase):
                 "title": "Fix API", "author": "acme", "body": "Fix the API"}
 
         def review(loop, summary, ok, dw_log, **_kw):
-            self.assertTrue(ok)
-            loop.state["review"] = lp.state["review"]
+            self.assertIs(ok, True if suite else None)
+            loop.state["review"] = {**lp.state["review"], "executor": None,
+                                    "executor_provider": None, "done_when": ok}
             loop.state["verdict"] = "PASS"
             return "PASS"
 
@@ -196,11 +215,22 @@ class MergeTrailer(unittest.TestCase):
                                 ("join_session_project", None), ("project_lessons", "")):
                 mocks.enter_context(patch.object(run, name, return_value=value))
             mocks.enter_context(patch.object(run, "review", side_effect=review))
-            mocks.enter_context(patch.object(run, "restore_review_checkout"))
             state = run.review_pr(self.cfg, self.directory, URL,
                                   {"--review": "astra"}, lambda line: None)
         self.assertTrue(state["merged"])
+        return tree
+
+    def test_own_pr_pass_names_the_suite_tree(self):
+        tree = self.own_pr(SUITE)
         self.assertIn(f"\nSuite-Passed-Tree: {tree}", self.git("log", "-1", "--format=%B"))
+
+    def test_own_pr_without_suite_has_no_trailer(self):
+        self.own_pr(None)
+        self.assertNotIn("Suite-Passed-Tree:", self.git("log", "-1", "--format=%B"))
+
+    def test_own_pr_suite_on_dirty_files_does_not_certify_the_commit(self):
+        self.own_pr("printf 'changed\\n' > work.txt")
+        self.assertNotIn("Suite-Passed-Tree:", self.git("log", "-1", "--format=%B"))
 
 
 if __name__ == "__main__":

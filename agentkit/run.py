@@ -3197,6 +3197,12 @@ def commit_identity(wt):
             "tree_sha": git(wt, "rev-parse", "HEAD^{tree}")}
 
 
+def suite_evidence(lp, cmds, identity):
+    """Keep the checked tree: integration can carry the SHA without running the suite again."""
+    suite = declared_suite(lp.wt, lp.target)
+    return {"suite": suite, "tree_sha": identity.get("tree_sha")} if suite and suite in cmds else {}
+
+
 def current_review(lp):
     """A successful review belongs to exactly the commit that was tested and reviewed."""
     if not review_pass(lp.state, lp.cfg):
@@ -3343,7 +3349,8 @@ def verify_once(lp):
     sha = pinned.get("head_sha", "") if pinned else ""
     if ok:
         lp.state["final_check"] = {"outcome": "passed", "sha": sha,
-                                   "where": "round", "round": lp.rnd}
+                                   "where": "round", "round": lp.rnd,
+                                   **suite_evidence(lp, lp.once, pinned or {})}
     else:
         lp.state["final_check"] = {"outcome": "failed", "sha": sha,
                                    "where": "round", "round": lp.rnd,
@@ -4978,6 +4985,22 @@ def push(lp):
     require_review_pass(lp)
     branch = lp.state["branch"]
     head = git(lp.wt, "rev-parse", "HEAD", check=False)
+    if lp.state.get("merge_method") == "rebase":
+        # Rebase merges preserve the branch's messages, ignoring a merge commit body.
+        # Change only the message: staged or untracked files cannot become checked code.
+        old = git(lp.wt, "show", "-s", "--format=%B", head)
+        message = re.sub(r"(?m)^Suite-Passed-Tree:.*\n?", "", old).rstrip()
+        body = merge_body(lp, head)
+        if body:
+            message += "\n\n" + body[-1]
+        if message != old.rstrip():
+            git(lp.wt, "-c", f"core.hooksPath={os.devnull}", "commit", "--amend", "--only",
+                "-m", message)
+            head = git(lp.wt, "rev-parse", "HEAD")
+            lp.state["review"]["head_sha"] = head
+            if body:
+                lp.state["final_check"]["sha"] = head
+            lp.write()
     # origin as integrate's pruning fetch saw it: a name another run pushed before that fetch
     # is refused here, unless it holds a commit this run pushed -- or set out to, since origin
     # may take a push that stops before it is recorded, and the retry may have rebased since
@@ -5269,6 +5292,16 @@ def fork_and_pr(lp, target_branch, upstream_repo, permission):
     return note(lp, "waiting for the maintainer")
 
 
+def merge_body(lp, head):
+    checked = lp.state.get("final_check") or {}
+    suite = declared_suite(lp.wt, lp.target)
+    if (suite and checked.get("suite") == suite and checked.get("outcome") == "passed"
+            and checked.get("sha") == head and checked.get("tree_sha")
+            and checked["tree_sha"] == git(lp.wt, "rev-parse", f"{head}^{{tree}}")):
+        return ["--body", f"Suite-Passed-Tree: {checked['tree_sha']}"]
+    return []
+
+
 def do_merge(lp, url, upstream):
     """Merge the PR, integrating once more if origin moved under it while the checks ran.
 
@@ -5289,8 +5322,9 @@ def do_merge(lp, url, upstream):
             if lp.state["review"].get("head_sha") != lp.state["delivery_sha"]:
                 return note(lp, "the delivery SHA is not the tested and reviewed commit", failed=True)
             if ready:
+                body = [] if method == "rebase" else merge_body(lp, lp.state["delivery_sha"])
                 rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method], "--delete-branch",
-                             "--match-head-commit", lp.state["delivery_sha"])
+                             "--match-head-commit", lp.state["delivery_sha"], *body)
             if rc == 0 or stopped(rc, out):
                 break
             if BASE_BRANCH_MODIFIED.search(out or ""):
@@ -5698,7 +5732,8 @@ def final_check(lp, upstream):
                           exc.section) from None
         if ok:
             lp.log("final check: all passed")
-            lp.state["final_check"] = {"outcome": "passed", "sha": sha, "where": "landing"}
+            lp.state["final_check"] = {"outcome": "passed", "sha": sha, "where": "landing",
+                                       **suite_evidence(lp, cmds_once, identity)}
             record_flakes(lp.state, text)
             lp.write()
             return True
@@ -13717,7 +13752,7 @@ def merge_own_pr(lp, url, head):
     with merge_turn(lp, upstream):
         for attempt in range(1, MERGE_RETRIES + 2):
             rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method],
-                         "--delete-branch", "--match-head-commit", head)
+                         "--delete-branch", "--match-head-commit", head, *merge_body(lp, head))
             if rc == 0:
                 lp.state["merged"] = True
                 lp.write()
@@ -13984,10 +14019,13 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     lp.rnd += 1
     lp.round_dir.mkdir(parents=True, exist_ok=True)
     if cmds:
-        lp.step("done-when")
-        ok, dw_log = run_done_when(cmds, wt, lp.round_dir / "donewhen.log", lp.artifacts,
-                                   lp.done_when_limit, log, silence=lp.turn_limit,
-                                   run_dir=lp.run_dir)
+        clean = git_out(wt, "diff", "--quiet", "HEAD")[0] == 0
+        ok, dw_log = verify_work(lp)
+        evidence = (suite_evidence(lp, cmds, lp.validation)
+                    if clean and git_out(wt, "diff", "--quiet", "HEAD")[0] == 0 else {})
+        state["final_check"] = {"outcome": "passed" if ok else "failed",
+                                "sha": lp.validation["head_sha"], "where": "round", "round": 1,
+                                **evidence}
         log(f"tests ({tests}): {'passed' if ok else 'FAILED'}")
     else:
         ok, dw_log = None, "(AGENTS.md declares no `tests:` command; nothing was run)"
