@@ -59,6 +59,9 @@ elif "## Resolve the " in prompt:
     else: git(cwd, "-c", "core.editor=true", "rebase", "--continue")
     record("conflict-fixer", cwd)
     text, code = "## Summary\\nResolved both sides.", 0
+elif "## The done-when commands failed." in prompt:
+    record("landing-fixer", cwd)
+    text, code = "## Summary\\nTried the failing gate.", 0
 else:
     (cwd / "expected").write_text("10\\n")
     if plan.get("conflict"): (cwd / "shared").write_text("task intent\\n")
@@ -88,6 +91,8 @@ class IntegratedCommit(unittest.TestCase):
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_NOSYSTEM": "1", "PYTHONDONTWRITEBYTECODE": "1",
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "INTEGRATION_FIXTURE": str(self.root)}))
         config.ensure_dirs()
         self.cfg = config.load()
@@ -286,16 +291,27 @@ sys.exit(0 if ok else 1)
         self.assertFalse([e for e in self.events() if e["kind"] in ("push", "pr", "merge")])
         self.assertEqual(run.git(self.remote, "branch", "--list", "ak/task"), "")
 
+    def assert_waiting_rerun(self, state):
+        self.assertEqual(state["state"], "waiting")
+        self.assertNotEqual(state["verdict"], "FAIL")
+        self.assertEqual(state["waiting_on"], {
+            "ref": "origin/main", "sha": run.git(self.target, "rev-parse", "HEAD")})
+        self.assertEqual(len(state["round_summaries"]), 1)
+        self.assertEqual(state["review_pending"]["round"], 1)
+        self.assertIs(state["review_pending"]["record"], False)
+        self.assertEqual(len(self.events("review")), 1)
+        self.assertEqual(len(self.events("landing-fixer")), 3)
+        self.assertEqual([e["ok"] for e in self.events("tests")], [True] + [False] * 4)
+        self.assertIn("3 fixer rounds", state["merge_note"])
+
     def test_clean_rebase_failure_never_delivers_without_required_ci(self):
         self.required = False
         self.plan = {"target": {"limit": "11"}}
         code, state = self.launch(rounds=2)
         self.assertEqual(code, 1)
-        self.assertEqual(state["verdict"], "FAIL")
+        self.assert_waiting_rerun(state)
         self.assertTrue(run.integrated(self.wt, "origin/main"))
-        self.assertEqual([e["ok"] for e in self.events("tests")], [True, False])
         self.assertNotEqual(self.events("tests")[0]["head_sha"], self.events("tests")[1]["head_sha"])
-        self.assert_bound(state, 2)
         self.assert_no_delivery()
 
     def test_changed_rebase_gets_new_tests_before_delivery(self):
@@ -324,9 +340,8 @@ sys.exit(0 if ok else 1)
         self.plan = {"target": {"limit": "11"}}
         code, state = self.launch(rounds=2, method="merge")
         self.assertEqual(code, 1)
-        self.assertEqual(state["verdict"], "FAIL")
+        self.assert_waiting_rerun(state)
         self.assertEqual(len(run.git(self.wt, "show", "-s", "--format=%P", "HEAD").split()), 2)
-        self.assert_bound(state, 2)
         self.assert_no_delivery()
 
     def test_changed_sha_with_identical_tree_still_gets_new_evidence(self):
@@ -358,24 +373,15 @@ sys.exit(0 if ok else 1)
         self.assert_bound(state, 2)
         self.assert_no_delivery()
 
-    def test_budget_exhaustion_invalidates_pass_and_resumes_only_with_more_rounds(self):
-        # v5ac: a clean rebase keeps the review; a failing done-when after it binds the budget.
+    def test_spent_budget_still_allows_three_landing_fixers(self):
         self.plan = {"target": {"limit": "11"}}
         code, state = self.launch(rounds=1)
         self.assertEqual(code, 1)
-        self.assertEqual(state["state"], "exhausted")
+        self.assert_waiting_rerun(state)
         self.assertIsNone(state["verdict"])
         self.assertIsNone(state["review"])
-        self.assertEqual(state["review_pending"]["round"], 2)
         self.assertEqual(state["rounds"], 1)
-        self.assertIn("--rounds 2", (self.directory / "result.md").read_text())
-        self.assert_no_delivery()
-        self.assertEqual(run.cmd_resume([self.directory.name]), 1)
-        self.assertEqual(len(self.events("tests")), 2)
-        self.assertEqual(run.cmd_resume([self.directory.name, "--rounds", "2"]), 1)
-        self.assertEqual(run.read_state(self.directory)["verdict"], "FAIL")
-        self.assertEqual([e["ok"] for e in self.events("tests")], [True, False, False])
-        self.assertEqual(len(self.events("review")), 2)
+        self.assertNotIn("--rounds", (self.directory / "result.md").read_text())
         self.assertEqual(len(self.events("executor")), 1)
         self.assert_no_delivery()
 
@@ -408,8 +414,7 @@ sys.exit(0 if ok else 1)
         self.merge_mode = "success"
         code, state = self.retry()
         self.assertEqual(code, 1)
-        self.assertEqual(state["verdict"], "FAIL")
-        self.assert_bound(state, 2)
+        self.assert_waiting_rerun(state)
         self.assertEqual(len(self.events("push")), 1)
         self.assertEqual(len(self.events("merge")), 1)
 
@@ -425,19 +430,16 @@ sys.exit(0 if ok else 1)
         self.retry_target = {"limit": "11"}
         code, state = self.launch(rounds=2)
         self.assertEqual(code, 1)
-        self.assertEqual(state["verdict"], "FAIL")
-        self.assert_bound(state, 2)
+        self.assert_waiting_rerun(state)
         self.assertEqual(len(self.events("push")), 1)
         self.assertEqual(len(self.events("merge")), 1)
 
-    def test_target_movement_during_retry_cannot_exceed_review_budget(self):
-        # v5ac: a failing done-when after the clean rebase binds the budget.
+    def test_target_movement_during_retry_spends_no_task_round(self):
         self.retry_target = {"limit": "11"}
         code, state = self.launch(rounds=1)
         self.assertEqual(code, 1)
-        self.assertEqual(state["state"], "exhausted")
+        self.assert_waiting_rerun(state)
         self.assertIsNone(state["review"])
-        self.assertEqual(state["review_pending"]["head_sha"], run.git(self.wt, "rev-parse", "HEAD"))
         self.assertEqual(len(self.events("push")), 1)
         self.assertEqual(len(self.events("merge")), 1)
 
@@ -482,20 +484,15 @@ sys.exit(0 if ok else 1)
                        for e in earlier),
                 f"push {event['head_sha']} has no once evidence, run or carried")
 
-    def test_saved_retry_budget_exhaustion_is_resumable(self):
-        # v5ac: a failing done-when after the clean rebase binds the budget.
+    def test_saved_retry_gate_failure_waits_without_task_rounds(self):
         self.merge_mode = "blocked"
         self.assertEqual(self.launch(rounds=1)[0], 1)
         self.move_target({"limit": "11"})
         code, state = self.retry()
         self.assertEqual(code, 1)
-        self.assertEqual(state["state"], "exhausted")
+        self.assert_waiting_rerun(state)
         self.assertIsNone(state["review"])
         self.assertEqual(state["rounds"], 1)
-        self.assertEqual(len(self.events("push")), 1)
-        self.merge_mode = "success"
-        self.assertEqual(run.cmd_resume([self.directory.name, "--rounds", "2"]), 1)
-        self.assertEqual(run.read_state(self.directory)["verdict"], "FAIL")
         self.assertEqual(len(self.events("push")), 1)
 
     def test_conflict_fixer_path_still_retests_and_reviews(self):

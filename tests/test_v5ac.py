@@ -55,6 +55,9 @@ elif "## Resolve the " in prompt:
     else: git(cwd, "-c", "core.editor=true", "rebase", "--continue")
     record("conflict-fixer", cwd)
     text, code = "## Summary\\nResolved both sides.", 0
+elif "## The done-when commands failed." in prompt:
+    record("landing-fixer", cwd, prompt=prompt)
+    text, code = "## Summary\\nTried the failing gate.", 0
 else:
     (cwd / "work.txt").write_text("branch\\n")
     if plan.get("executor_extra"): (cwd / "extra.txt").write_text("same\\n")
@@ -85,6 +88,8 @@ class V5ac(unittest.TestCase):
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_NOSYSTEM": "1", "PYTHONDONTWRITEBYTECODE": "1",
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "V5AC_FIXTURE": str(self.root), "INTEGRATION_FIXTURE": str(self.root)}))
         config.ensure_dirs()
         self.cfg = config.load()
@@ -281,24 +286,35 @@ sys.exit(0 if ok else 1)
         self.assertEqual(len(self.events("review")), 2)
         self.assertEqual((self.wt / "shared").read_text(), "both intents\n")
 
-    def test_v5ac_identical_patch_failed_donewhen_reviews_once(self):
-        # two rounds: the failed re-review lands on the budget rather than a fixer round.
+    def test_v5ac_identical_patch_failed_donewhen_uses_landing_fixers(self):
+        # The task budget is spent, but a failed landing gate still gets three
+        # fixers before it parks, with no reviewer judging a gate known to fail.
         # verify.py reads work.txt, which the target never has, so a probe of the target
         # always fails: the gate counts as the branch's own here, and the red-target park
         # is tests/test_red_target.py's
         self.plan = {"target": {"base.txt": "broken"}}
         with patch.object(run, "target_fails", return_value=""):
-            code, state = self.launch(rounds=2)
+            code, state = self.launch(rounds=1)
         self.assertEqual(code, 1)
-        self.assertEqual(state["verdict"], "FAIL")
+        self.assertEqual(state["state"], "waiting")
+        self.assertIsNone(state["verdict"])
+        self.assertEqual(state["waiting_on"], {
+            "ref": "origin/main", "sha": run.git(self.target, "rev-parse", "HEAD")})
+        self.assertEqual(state["rounds"], 1)
+        self.assertEqual(len(state["round_summaries"]), 1)
+        self.assertEqual(state["review_pending"]["round"], 1)
+        self.assertIs(state["review_pending"]["record"], False)
         tests, reviews = self.events("tests"), self.events("review")
-        self.assertEqual(len(tests), 2)
-        self.assertEqual(len(reviews), 2)
+        self.assertEqual([t["ok"] for t in tests], [True] + [False] * 4)
+        self.assertEqual(len(reviews), 1)
         rebased = [t for t in tests if t["head_sha"] != tests[0]["head_sha"]]
-        self.assertEqual(len(rebased), 1)
-        second_reviews = [r for r in reviews if r["head_sha"] == rebased[0]["head_sha"]]
-        self.assertEqual(len(second_reviews), 1)
-        self.assertIn("exit 1", second_reviews[0].get("prompt", ""))
+        self.assertEqual(len(rebased), 4)
+        fixers = self.events("landing-fixer")
+        self.assertEqual(len(fixers), 3)
+        for fixer in fixers:
+            self.assertEqual(fixer["head_sha"], rebased[0]["head_sha"])
+            self.assertIn("exit 1", fixer["prompt"])
+        self.assertIn("3 fixer rounds", state["merge_note"])
         self.assertTrue((self.directory / "round-2" / "donewhen.log").exists())
         self.assertFalse(state.get("merged"))
 

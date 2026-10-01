@@ -36,6 +36,23 @@ def transcript(record, cwd, conversation):
     return str(path) if path.exists() else None
 
 
+def error(record, cwd, conversation):
+    """The API error Claude Code recorded as that conversation's last message, or None.
+
+    A request that failed ends in an entry of its own, `isApiErrorMessage`, holding the text
+    the seat showed; a prompt or an answer after it is the conversation going on.  Its other
+    entries -- titles, modes, queue operations -- are bookkeeping and say neither.
+    """
+    from . import last_entry
+    path = transcript(record, cwd, conversation)
+    entry = path and last_entry(path, lambda entry: entry.get("type") in ("user", "assistant"))
+    message = entry.get("message") if entry and entry.get("isApiErrorMessage") is True else None
+    content = message.get("content") if isinstance(message, dict) else None
+    parts = content if isinstance(content, list) else [{"text": content}]
+    return "\n".join(part["text"] for part in parts if isinstance(part, dict)
+                     and isinstance(part.get("text"), str)).strip() or None
+
+
 def resumable(record, cwd, conversation):
     from . import LAUNCHER
     return bool(conversation) and record.get("id_source") in (LAUNCHER, SOURCE)

@@ -15,6 +15,7 @@ No module outside this package names a harness: the core asks
 """
 
 import importlib
+import json
 from pathlib import Path
 import re
 
@@ -88,6 +89,30 @@ def says(text, word):
 def limited(text):
     """Does `text` say a rate limit (`LIMITS`), whole?"""
     return any(says(text, word) for word in LIMITS)
+
+
+def last_entry(path, pick):
+    """The last line of that JSON-lines file `pick` takes, read back from its end, or None.
+
+    A conversation's file grows for as long as the conversation does, and a tick wants only
+    its last event: a line still being written, or one that is not JSON, is passed over.
+    """
+    with open(path, "rb") as fh:
+        end, rest = fh.seek(0, 2), b""
+        while end:
+            start = max(0, end - 65536)
+            fh.seek(start)
+            lines = (fh.read(end - start) + rest).split(b"\n")
+            rest = lines.pop(0) if start else b""     # the head of a line the next read ends
+            for line in reversed(lines):
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(entry, dict) and pick(entry):
+                    return entry
+            end = start
+    return None
 
 
 def _module(name):
@@ -299,6 +324,21 @@ class Harness:
         """
         hook = self._hook("transcript")
         return hook(record, cwd, conversation) if hook else None
+
+    def error(self, record, cwd, conversation):
+        """The error the harness recorded as that conversation's last event: the text it showed.
+
+        None where the conversation went on after it, or no record exists; OSError where one
+        exists and cannot be read.  Only the text: what it means is `failure`'s and the `[auth]`
+        words' to say, as for a screen's error line.
+        """
+        hook = self._hook("error")
+        return hook(record, cwd, conversation) if hook else None
+
+    @property
+    def keeps_errors(self):
+        """Whether `error` reads anything: a transcript alone may hold no error a reader knows."""
+        return self._hook("error") is not None
 
     # --- what its own installation and usage call know --------------------
 
