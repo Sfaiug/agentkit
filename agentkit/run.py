@@ -1208,19 +1208,6 @@ def record_text(node):
     return node if isinstance(node, str) else ""
 
 
-def refusal_event(node):
-    """Whether an event explicitly says the turn failed, rather than a stream warning."""
-    if isinstance(node, list):
-        return any(refusal_event(item) for item in node)
-    if not isinstance(node, dict):
-        return False
-    for key, value in node.items():
-        if key in EVENT_KINDS and isinstance(value, str) \
-                and value.lower() in ("turn.failed", "error"):
-            return True
-    return any(refusal_event(value) for value in node.values())
-
-
 def failures(chunk, terminal, terminal_only=False, handed_in=False):
     """The failure records of an event log, each minus the output of the work it quotes.
 
@@ -1231,9 +1218,9 @@ def failures(chunk, terminal, terminal_only=False, handed_in=False):
     failure is the harness speaking, whatever shape its text has; the answer-shape test
     decides only a terminal record that declares none, where an answer-shaped text is the
     worker's answer and never a refusal.  With ``terminal_only`` (the zero-exit path), only a
-    terminal record's explicit refusal or unanswered text is kept, so an earlier stream warning
-    cannot discard an answer.  A line that is not a JSON record is not one of the harness's events
-    and says nothing here.
+    terminal record's explicit failure or unanswered text is kept, so an earlier stream warning
+    cannot discard an answer. Handed-in records establish an answer without a text-shape test;
+    explicit terminal errors still speak. A line that is not a JSON record says nothing here.
     """
     records = []
     for line in chunk.splitlines():
@@ -1249,7 +1236,7 @@ def failures(chunk, terminal, terminal_only=False, handed_in=False):
         if terminal_only:
             terminal_record = is_terminal(record, terminal)
             failure = (terminal_record
-                       and (is_failure(record) or refusal_event(record)
+                       and (is_failure(record)
                             or (not handed_in and not answered(record_text(record)))))
         else:
             failure = (is_failure(record)
@@ -1286,12 +1273,12 @@ def harness_said(out_dir, text, harness, failures_only=False):
     # prompt is no longer in it character for character, and the marker would never match
     echo = first.split('"')[0].split("\\")[0].strip()
     echo = echo if len(echo) >= ECHO else ""
-    if failures_only and answered(text):
-        return ""
     submitted = hand_in.read(out_dir / hand_in.FILE)
     # Records establish the worker's answer without exposing their evidence as diagnostics.
     # An unfinished, failed call may still contain a real provider error in its final text.
     handed_in = submitted is not None and (submitted.done or (failures_only and bool(submitted.records)))
+    if failures_only and not handed_in and answered(text):
+        return ""
     terminal = watch.terminal(harness)
     parts = [] if failures_only or handed_in or answered(text) else [text]
     for path in sorted(out_dir.glob("*")):

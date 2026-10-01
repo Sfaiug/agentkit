@@ -239,15 +239,16 @@ sys.exit(row.get("code", 0))
         for harness in ("claude", "grokbuild", "muse"):
             with self.subTest(harness=harness):
                 terminal = run.watch.terminal(harness)
-                (self.root / "events.jsonl").write_text(json.dumps({"type": terminal, "result": text}) + "\n")
-                for failures_only in (False, True):
-                    said = run.harness_said(self.root, text, harness, failures_only=failures_only)
-                    self.assertEqual(run.harness_plugin(harness).failure(said), (None, None), said)
-                # A real terminal error still speaks, even after the worker handed in records.
-                (self.root / "events.jsonl").write_text(json.dumps({
-                    "type": terminal, "is_error": True, "error": "rate limit"}) + "\n")
-                said = run.harness_said(self.root, text, harness, failures_only=True)
-                self.assertIn("rate limit", said)
+                for closing in (text, "## Summary\n" + text):
+                    (self.root / "events.jsonl").write_text(json.dumps({"type": terminal, "result": closing}) + "\n")
+                    for failures_only in (False, True):
+                        said = run.harness_said(self.root, closing, harness, failures_only=failures_only)
+                        self.assertEqual(run.harness_plugin(harness).failure(said), (None, None), said)
+                    # A real terminal error still speaks, even after the worker handed in records.
+                    (self.root / "events.jsonl").write_text(json.dumps({
+                        "type": terminal, "is_error": True, "error": "rate limit"}) + "\n")
+                    said = run.harness_said(self.root, closing, harness, failures_only=True)
+                    self.assertIn("rate limit", said)
 
     def test_a_plain_closing_keeps_the_finding_without_parking_its_provider(self):
         finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
@@ -360,6 +361,9 @@ sys.exit(row.get("code", 0))
             self.assertTrue(run.post_review(lp, "https://github.com/acme/api/pull/1", "PASS"))
         self.assertLess(len((self.root / "review.md").read_text()), 65536)
         self.assertIn("truncated", (self.root / "review.md").read_text())
+        # Older text summaries and multibyte evidence must fit the same publication bound.
+        state["round_summaries"][0]["summary"] = "## Summary\n" + "\U0001f600" * 70000
+        self.assertLess(len(run.pr_body(state).encode("utf-8")), 65536)
 
     def test_all_reviewer_prompts_ask_only_for_hand_in(self):
         for role, text in worker.PREAMBLES.items():
@@ -369,6 +373,25 @@ sys.exit(row.get("code", 0))
                 self.assertIn("ak hand-in done", text)
                 for old in ("VERDICT:", "## Findings", "## Follow-ups"):
                     self.assertNotIn(old, text)
+
+    def test_smokes_shared_fake_reviewer_completes_the_record_channel(self):
+        source = (REPO / "tests/smoke.sh").read_text()
+        factory = source[source.index("fakeadapter()"):source.index('cat >"$WORK/retry-task.md"')]
+        adapters, out = self.root / "adapters", self.root / "out"
+        adapters.mkdir()
+        out.mkdir()
+        made = subprocess.run(["bash", "-c", factory + '\nfakeadapter "$1" claude pass\n',
+                               "fixture", str(adapters)], env={**self.env, "REPO": str(REPO)},
+                              capture_output=True, text=True, timeout=30)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        file = hand_in.start(out, self.workspace)
+        result = subprocess.run([str(adapters / "claude.sh"), "run", "fixture", "low", str(self.workspace),
+                                 str(out / "prompt.md"), str(out)], cwd=self.workspace,
+                                env={**self.env, "AK_HAND_IN": file},
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(hand_in.read(file).verdict, "PASS")
+        self.assertNotIn("VERDICT:", (out / "final.md").read_text())
 
 
 if __name__ == "__main__":
