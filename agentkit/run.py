@@ -1811,7 +1811,7 @@ def reviewer_changes(wt, out_dir, log):
                 if before:
                     git(wt, "restore", f"--source={tree}", "--worktree", "--", ".")
                 git(wt, "read-tree", staged)
-                undone = ", ".join(sorted(paths)) or "unreadable paths"
+                undone = ", ".join(sorted(paths)) or ("unreadable paths" if skipped else "")
                 if after != head:
                     undone = f"commit {after[:12]} back to {head[:12]}" + (f"; {undone}" if undone else "")
                 if branch_after != branch:

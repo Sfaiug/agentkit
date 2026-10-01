@@ -231,6 +231,7 @@ class ReviewerEdits(unittest.TestCase):
         self.assert_restored()
         self.assertIn(self.head, self.archive.read_text())
         self.assertTrue(any("WARN" in line and "commit" in line for line in self.logs))
+        self.assertFalse(any("unreadable" in line for line in self.logs), self.logs)
 
     def test_read_only_review_needs_no_archive_or_cleanup_warning(self):
         self.assertEqual(self.review({}), "PASS")
