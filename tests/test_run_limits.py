@@ -262,10 +262,16 @@ class Limits(unittest.TestCase):
         self.assertIn("begun", log)
         self.assertIn("[killed at the limit]", log)
         self.assertIn(f"done-when: stopped after 0.05 min of silence: {hang} (last output: begun)", log)
+        stopped = next(line for line in log.splitlines() if line.startswith("done-when: stopped"))
+        self.assertIn("; still running: sleep 600 (", stopped)
+        self.assertIn(stopped.removesuffix(", and the commands after it, if any, were not run."),
+                      (directory / "log.txt").read_text())
+        self.assertIn(stopped, (directory / "result.md").read_text())
         # and that is exactly what the fixer is handed
         fixer = (directory / "round-1" / "fixer" / "prompt.md").read_text()
         self.assertIn("The done-when commands failed", fixer)
         self.assertIn("stopped after 0.05 min", fixer)
+        self.assertIn(stopped, fixer)
         # nothing the command spawned outlived it
         self.assertTrue(self.gone(int(child.read_text().strip())))
         # a timeout is a failed check, never a PASS, whatever the reviewer said

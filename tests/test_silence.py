@@ -109,8 +109,9 @@ class Silence(unittest.TestCase):
         self.assertFalse(ok)
         self.assertGreaterEqual(clock.now, 60 * run.SILENCE_MINUTES)
         self.assertIn("[killed at the limit]", text)
-        self.assertEqual(logs, [f"done-when: stopped after 20 min of silence: {cmd} "
-                                "(last output: (no output))"])
+        self.assertEqual(len(logs), 1)
+        self.assertTrue(logs[0].startswith(f"done-when: stopped after 20 min of silence: {cmd} "
+                                           "(last output: (no output)); still running: "))
 
     def test_silent_command_keeps_its_last_output_line(self):
         cmd = self.command("import time; print('first'); print('last'); time.sleep(600)")
@@ -131,12 +132,34 @@ class Silence(unittest.TestCase):
         self.assertIn(logs[0], text)
         self.assertEqual(path.read_text(), text)
 
+    def test_running_commands_keeps_each_live_leaf_and_its_age(self):
+        long = "check " + "x" * 160
+        table = {
+            100: (90, "S", ["bash", "-c", "checks"]),
+            101: (100, "S", ["bash", "checks.sh"]),
+            102: (101, "S", ["python3", "tests/check.py"]),
+            103: (100, "S", [long]),
+            104: (103, "Z", ["finished"]),
+            105: (1, "S", ["sleep", "600"]),
+            106: (101, "S", ["detached", "check"]),
+            107: (90, "S", ["unrelated"]),
+            108: (100, "X", ["dead"]),
+        }
+        with patch.object(watch, "_proc_table", return_value=table), \
+                patch.object(os, "getpgid", side_effect=lambda pid: pid if pid >= 106 else 100), \
+                patch.object(run, "process_identity", side_effect=lambda pid: {"started_at": pid}), \
+                patch.object(run.time, "time", return_value=131):
+            self.assertEqual(run._running_commands(100), [
+                "python3 tests/check.py (29s)", f"{long[:159]}… (28s)",
+                "sleep 600 (26s)", "detached check (25s)"])
+
     def test_background_child_holding_output_does_not_escape_silence(self):
         child = self.root / "child.pid"
         cmd = f"sleep 600 & echo $! > {shlex.quote(str(child))}"
         ok, text, logs = self.gate([cmd], Clock(600))
         self.assertFalse(ok, text)
         self.assertIn("20 min of silence", logs[0])
+        self.assertRegex(logs[0], r"; still running: sleep 600 \(\d+s\)$")
         self.assertTrue(watch._gone(int(child.read_text())))
 
     def test_chatty_command_past_silence_total_is_not_killed(self):
@@ -157,6 +180,7 @@ class Silence(unittest.TestCase):
         self.assertGreaterEqual(clock.now, 3600 * run.CEILING_HOURS)
         self.assertIn("6h ceiling", logs[0])
         self.assertIn("last output: still going", logs[0])
+        self.assertIn("; still running: ", logs[0])
         self.assertNotIn("$ echo never", text)
 
     def test_silent_turn_is_retried_as_transport_death(self):
