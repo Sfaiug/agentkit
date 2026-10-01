@@ -157,7 +157,8 @@ class SeatErrorRecord(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AK_", "AGENTKIT_"))
                and k not in ("CLAUDE_CONFIG_DIR", "CODEX_HOME")}
         env.update(HOME=str(root), AK_RUN_DEPTH="0", AK_MAX_RUNS="0",
-                   AGENTKIT_DISCORD_WEBHOOK="off", PYTHONDONTWRITEBYTECODE="1")
+                   AGENTKIT_DISCORD_WEBHOOK="off", AGENTKIT_TMUX_SOCKET="agentkit-test",
+                   PYTHONDONTWRITEBYTECODE="1")
         self.stack.enter_context(patch.dict(os.environ, env, clear=True))
         config.ensure_dirs()
         self.cfg = config.load()
@@ -167,6 +168,8 @@ class SeatErrorRecord(unittest.TestCase):
         self.stack.enter_context(patch.object(watch.time, "time", lambda: self.now))
         self.seat = {"name": "fix-api"}
         self.stack.enter_context(patch.object(orch, "sessions", lambda: [self.seat]))
+        # Health also types titles and publishes bars, beyond the mocked stall nudge.
+        self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
         self.stack.enter_context(patch.object(watch, "seat_model",
                                               lambda *_: (self.harness, self.provider)))
         self.stack.enter_context(patch.object(watch, "pane_text", lambda _: self.pane))
