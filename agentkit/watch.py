@@ -4254,7 +4254,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
     A run a later merged run replaced is stood down, marked `replaced`, never
     resumed: its work is done, elsewhere, and no wait survives on it.
     """
-    from . import run as run_mod
+    from . import menu as menu_mod, run as run_mod
     now = time.time() if now is None else now
     if cfg is None:
         try:
@@ -4277,8 +4277,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
             return
     found = [(run_dir, run_mod.read_state(run_dir)) for run_dir in run_mod.run_dirs()]
     index = run_mod.supersession_index(
-        state for run_dir, state in found
-        if state and "smoke-" not in run_dir.name)
+        state for run_dir, state in found if state and not menu_mod.smoke_run(state))
     for run_dir, state in found:
         try:
             if not state or state.get("state") != "exhausted":
@@ -4431,12 +4430,11 @@ def resume_errored(dry_run=False, log=print, now=None):
     An error a later merged run replaced is retried never: its retry stamps go the
     way an inadmissible ending's do, and with them the wait they kept.
     """
-    from . import run as run_mod
+    from . import menu as menu_mod, run as run_mod
     now = time.time() if now is None else now
     found = [(run_dir, run_mod.read_state(run_dir)) for run_dir in run_mod.run_dirs()]
     index = run_mod.supersession_index(
-        state for run_dir, state in found
-        if state and "smoke-" not in run_dir.name)
+        state for run_dir, state in found if state and not menu_mod.smoke_run(state))
     for run_dir, state in found:
         try:
             if not state or state.get("state") != "error":
