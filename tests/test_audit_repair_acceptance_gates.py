@@ -22,6 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, terminal, update
+from test_v4n import menu_input
 
 SMOKE = (REPO / "tests/smoke.sh").read_text()
 FRESH = (REPO / "tests/e2e-fresh.sh").read_text()
@@ -402,12 +403,11 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
     def test_menu_answers_c_and_refuses_i_and_r_without_a_pager(self):
         self.assertFalse(hasattr(menu, "page"))
         self.assertFalse(hasattr(menu, "Feed"))
-        answers = iter(["c", "i", "r", "", ""])     # `c` reads no line of its own
+        # `c` reads no line of its own
         with patch.object(orch, "listing", return_value=[]), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "draw", return_value=(0, 1)), \
-                patch.object(menu, "read", side_effect=lambda *_: next(answers)), \
-                patch.object(menu, "wait_key", side_effect=lambda *_: next(answers)), \
+                menu_input(side_effect=["c", "i", "r", "", ""]), \
                 patch.object(menu, "Live", **{"return_value.heard.return_value": []}), \
                 patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \

@@ -19,7 +19,7 @@ import time
 from unittest.mock import patch
 import unittest
 
-from test_v4n import Sandbox
+from test_v4n import Sandbox, menu_input
 from agentkit import config, menu, motion, orch, terminal
 
 Key = terminal.Key
@@ -86,8 +86,7 @@ class Breathing(Sandbox):
             out.truncate()
             return answer(timeout)
 
-        with patch.object(menu, "wait_key", side_effect=wait_key), \
-                patch.object(menu, "read", return_value="q"), redirect_stdout(out):
+        with menu_input(wait=wait_key, return_value="q"), redirect_stdout(out):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
         return waits
 

@@ -30,7 +30,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
-from test_v4n import Sandbox
+from test_v4n import Sandbox, menu_input
 from agentkit import menu, orch, terminal
 
 # The child: the real loop, screens, fields and key reader; fakes for the seats and what acts.
@@ -335,14 +335,10 @@ class EscBack(unittest.TestCase):
 
 class Pipe(Sandbox):
     def test_from_a_pipe_q_is_no_key_and_an_empty_line_or_the_end_goes_back(self):
-        answers = iter(["q", ""])
         with patch.object(orch, "listing", return_value=[]), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "draw", return_value=(0, 1)), \
-                patch.object(menu.Live, "probe", lambda self, now=None: False), \
-                patch.object(menu, "wait_key", side_effect=lambda prompt, timeout=None,
-                             wake=None: next(answers)), \
-                patch.object(menu, "read", return_value=""), \
+                menu_input(side_effect=["q", ""]), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(menu.loop(self.cfg), 0)
         self.assertIn("not a key: 'q'", out.getvalue())
