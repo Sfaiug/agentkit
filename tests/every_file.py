@@ -68,11 +68,13 @@ def main(root):
     # The host's idle cores -- the slice's CPU quota where it sets one, less the minute's load
     # average -- and its free memory.  Not a tenth of a second's CPU reading, which would hold
     # a sweep of minutes to that moment; and no more than are idle, since a timing test on an
-    # oversubscribed host fails by chance.
+    # oversubscribed host fails by chance.  The heavy suites running already, this one among
+    # them, are in that load: none is a file to add on top.
     readings = run.host_readings()
     cores = readings.get("slice_cpu_quota") or readings.get("cpus")
     readings = dict(readings, slice_cpu_quota=None, cpus=cores)
-    jobs = run.derived_heavy_limit(readings, job_cpus=FILE_CPUS, job_mem_mb=FILE_MEM_MB)
+    jobs = run.derived_heavy_limit(readings, running=0, job_cpus=FILE_CPUS,
+                                   job_mem_mb=FILE_MEM_MB)
     began, failed = time.monotonic(), 0
     with ThreadPoolExecutor(jobs) as pool:
         running = {pool.submit(run_file, root, path, env): path for path in todo}
