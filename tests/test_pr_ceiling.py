@@ -162,7 +162,7 @@ class PrCeiling(unittest.TestCase):
         with patch.object(run, "refuse_unready", side_effect=config.Error("astra cannot run here")), \
                 self.assertRaisesRegex(config.Error, "astra cannot run here"):
             self.review(background=True, want_review="astra", launch_only=True)
-        config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra"], reviewers=["astra"])
+        config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra"], {"reviewers": ["astra"]})
         with self.assertRaisesRegex(config.Error, "not a reviewer"):
             self.review(background=True, want_review="opus", launch_only=True)
 
