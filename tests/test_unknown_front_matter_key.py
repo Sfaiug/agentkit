@@ -48,9 +48,9 @@ class UnknownFrontMatterKey(unittest.TestCase):
         path.write_text(f"---\n{front}---\n# Fix the api\n\n## Done when\n```bash\ntrue\n```\n")
         return path
 
-    def refuse(self, path, *args, key):
+    def refuse(self, *args, path, key):
         out, err = io.StringIO(), io.StringIO()
-        with patch.object(sys, "argv", [str(REPO / "bin/ak"), "run", str(path), *args]), \
+        with patch.object(sys, "argv", [str(REPO / "bin/ak"), "run", *map(str, args)]), \
                 redirect_stdout(out), redirect_stderr(err):
             code = AK_MAIN()
         self.assertEqual(code, 2, err.getvalue())
@@ -67,12 +67,12 @@ class UnknownFrontMatterKey(unittest.TestCase):
         for key, value in (("form", "ak/fix-api"), ("afer", "base.md"), ("future", "")):
             with self.subTest(key=key):
                 path = self.write(f"repo: none\n  {key} : {value} # comment\n")
-                self.refuse(path, "--anyway", key=key)
+                self.refuse(path, "--anyway", path=path, key=key)
 
     def test_unknown_key_refuses_a_job_before_any_receipt(self):
         first = self.write("repo: none\n", "base.md")
         second = self.write("repo: none\nafer: base.md\n")
-        self.refuse(second, str(first), key="afer")
+        self.refuse(first, second, path=second, key="afer")
 
     def test_all_existing_keys_and_repeated_lines_still_parse(self):
         path = self.write("".join(f"{key}: value\n" for key in KEYS)
