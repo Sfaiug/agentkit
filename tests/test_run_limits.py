@@ -271,7 +271,8 @@ class Limits(unittest.TestCase):
         fixer = (directory / "round-1" / "fixer" / "prompt.md").read_text()
         self.assertIn("The done-when commands failed", fixer)
         self.assertIn("stopped after 0.05 min", fixer)
-        self.assertIn(stopped, fixer)
+        # The fixer saw the first stop; the gate log holds a later stop with its own age.
+        self.assertIn(stopped.rsplit(" (", 1)[0] + " (", fixer)
         # nothing the command spawned outlived it
         self.assertTrue(self.gone(int(child.read_text().strip())))
         # a timeout is a failed check, never a PASS, whatever the reviewer said
