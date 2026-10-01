@@ -126,6 +126,34 @@ class SuiteInRound(unittest.TestCase):
             state = run.loop(self.cfg, directory, task, self.opts, self.logs.append)
         return directory, state
 
+    def test_two_rounds_run_suite_only_once_at_landing(self):
+        counter = self.root / "suite-counter"
+        suite = f"echo suite >> {counter}"
+        self.commit(f"---\ntests: {suite}\n---\n# acme\n")
+        reviews = []
+
+        def worker_call(cfg, name, body, workspace, out_dir, role, session, **kwargs):
+            code, text, sid, dead = self.worker(
+                cfg, name, body, workspace, out_dir, role, session, **kwargs)
+            if role.startswith("reviewer"):
+                reviews.append(role)
+                if len(reviews) == 1:
+                    text = "VERDICT: FAIL\n## Findings\n- AGENTS.md:4 - fixture finding"
+                    (out_dir / "final.md").write_text(text)
+            return code, text, sid, dead
+
+        with patch.object(worker, "call", side_effect=worker_call):
+            directory, state = self.launch("two-rounds", ["true", suite], rounds=2)
+        self.assertEqual(state["state"], "pass", self.logs)
+        self.assertEqual([entry["verdict"] for entry in state["round_summaries"]],
+                         ["FAIL", "PASS"])
+        self.assertEqual([(name, cmds) for name, cmds in self.gates if suite in cmds],
+                         [("final-check.log", [suite])])
+        self.assertEqual(counter.read_text().splitlines(), ["suite"])
+        self.assertEqual(state["final_check"]["where"], "landing")
+        self.assertIn("final check: passed at landing on ",
+                      (directory / "result.md").read_text())
+
     def test_suite_runs_in_the_round_and_landing_skips_on_a_still_target(self):
         self.commit(f"---\nusers: none\ntests: {SUITE}\n---\n# acme\n")
         directory, state = self.launch("in-round", ["true"])
