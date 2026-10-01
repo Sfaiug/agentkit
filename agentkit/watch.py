@@ -2777,9 +2777,10 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
                 mine.append((run_dir.name, record, run_mod.going(record)))
         except config.Error:
             continue    # a record whose seat cannot be resolved is nobody's run to wait on
-    # the hook's `parked`: `unfinished`, and not going -- or `stalled`, which nothing resumes
-    parked = [run for run, record, going in mine
-              if (not going or record.get("state") == "stalled") and run_mod.unfinished(record)]
+    # the hook's `parked`: `unfinished` over the records, so not a run a later merged run
+    # replaced, and not going -- or `stalled`, which nothing resumes
+    parked = [run for run, record, going in mine if (not going or record.get("state") == "stalled")
+              and run_mod.unfinished(record, records)]
     if not parked and any(going for *_, going in mine):
         return
     nudged = {}

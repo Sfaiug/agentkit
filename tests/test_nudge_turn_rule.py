@@ -214,6 +214,20 @@ class NudgeTurnRule(Sandbox):
                     self.stopped()
                     self.assertEqual(self.tick(), typed)
 
+    def test_e_a_run_a_later_merged_run_replaced_holds_nothing(self):
+        """Settled as `ak notify done` and the seat's state read it, on both sides of the rule."""
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                notify.record(SEAT, "done", "Shipped the parser")
+                self.receipt(PARKED, SEAT, "fail", recovery_pending=True, branch="ak/parked",
+                             finished_at=time.time() - 3600)
+                self.assertEqual(self.judged(), (True, ["continue"]))
+                self.receipt(LATER, SEAT, "pass", merged=True, finished_at=time.time() - 60,
+                             **{"from": "ak/parked"})
+                self.assertEqual(self.judged(), (False, []))
+
 
 if __name__ == "__main__":
     unittest.main()
