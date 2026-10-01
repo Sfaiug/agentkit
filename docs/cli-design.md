@@ -460,9 +460,10 @@ refuses -- the last executor or reviewer, a pair that is not allowed, a switch
 the project refused -- nudges its mark a cell left, right, left and back over
 240 ms, the reason under the rows. A model, provider or subscription just added
 on `c` returns highlighted on a soft glow of the accent that fades into the
-highlight over a second. A key during any of these ends it on its last frame and
-is answered within 100 ms (`terminal.toggle`, `motion.toggled`, `motion.glowing`,
-`motion.Clock.touch`, `settle`).
+highlight over a second. Each moves on while the rule glides, and the cell under
+the pointer stays lit through it (`terminal.pointed`). A key during any of these
+ends it on its last frame and is answered within 100 ms (`terminal.toggle`,
+`motion.toggled`, `motion.glowing`, `motion.Clock.touch`, `settle`).
 
 The popup's content fades in once, as it opens: from the background to its
 colours over 120 ms, on the same clock. Whatever is drawn in that time -- a
