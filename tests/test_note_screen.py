@@ -33,6 +33,7 @@ orch.listing = lambda **_kw: [
     for name in ("fix-api", "ship-docs")]
 orch.job_notices = lambda: []
 orch.taken_names = lambda: {"fix-api", "ship-docs"}
+orch.rename = lambda current, name, **_kw: name
 menu.seat_row_state = lambda cfg, session, **_kw: {
     "word": "working", "reason": "", "since": None}
 menu.usage_lines = lambda cfg, width: []
@@ -47,18 +48,20 @@ def open_session(cfg, session, dry_run, **_kw):
     menu.pause("resume: the invented conversation is unavailable", "try again later")
 
 menu.usage.collect, menu.open_session = collect, open_session
-sys.exit(menu.loop(cfg, dry_run=os.environ["MENU_KEYS_SAVED"] != "1"))
+sys.exit(menu.loop(cfg, dry_run=os.environ["MENU_KEYS_SAVED"] != "1",
+                   overlay=bool(os.environ.get("MENU_KEYS_OWN"))))
 """
 
 
 class Screen(test_menu_keys.Menu):
-    def __init__(self, case, dry_run=False, cols=100):
+    def __init__(self, case, dry_run=False, cols=100, own=None):
         # The helper supplies HOME; inherited worker and seat markers belong to no test.
         env = {name: "" for name in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG",
                                     "AGENTKIT_SESSION", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE")}
         env.update(AK_RUN_DEPTH="0", AK_MAX_RUNS="0")
         with patch.object(test_menu_keys, "CHILD", CHILD), patch.dict(os.environ, env):
-            super().__init__(case, ["fix-api", "ship-docs"], saved=not dry_run, cols=cols)
+            super().__init__(case, ["fix-api", "ship-docs"], saved=not dry_run, cols=cols,
+                             own=own)
 
     def screen(self, name, after=0, where=None):
         """A complete frame, including its header, content, blank line and keys."""
@@ -68,7 +71,8 @@ class Screen(test_menu_keys.Menu):
                     continue
                 lines = [terminal.ANSI.sub("", line).rstrip("\r")
                          for line in part.split("\x1b[J")[0].split("\n")[:-1]]
-                if (lines and re.fullmatch(rf"agentkit · {re.escape(name)} +\d\d:\d\d", lines[0])
+                if (lines and (name is None or re.fullmatch(
+                        rf"agentkit · {re.escape(name)} +\d\d:\d\d", lines[0]))
                         and (where is None or where(lines))):
                     return lines
             return None
@@ -90,6 +94,31 @@ class NoteScreen(unittest.TestCase):
         mark = len(screen.text())
         screen.send(key)
         self.assertEqual(screen.frame(after=mark)[1:], before[1:])
+
+    def test_popup_rename_confirmation_waits_for_back_in_dry_and_real_runs(self):
+        for dry_run, width, key in ((True, 100, ESC), (False, 40, ENTER)):
+            with self.subTest(dry_run=dry_run, width=width, key=key):
+                screen = Screen(self, dry_run=dry_run, cols=width, own="ship-docs")
+                before = screen.frame()
+                self.assertIn("fix-api", screen.highlighted(before))
+                screen.send(b"r")
+                screen.screen("rename")
+                mark = len(screen.text())
+                screen.send(b"acme-x\r")
+                lines = screen.screen(None, after=mark)
+                self.assertRegex(lines[0], r"^agentkit · note +\d\d:\d\d$")
+                message = f"{'would rename' if dry_run else 'renamed'} ship-docs -> acme-x"
+                self.note(screen, message, mark, width)
+                mark = len(screen.text())
+                screen.resize(40, 40)
+                self.note(screen, message, mark, 40)
+                mark = len(screen.text())
+                screen.send(key)
+                returned = screen.frame(after=mark)
+                self.assertIn("fix-api", screen.highlighted(returned))
+                self.assertTrue(any("ship-docs" in line for line in returned))
+                screen.leave()
+                self.assertEqual(termios.tcgetattr(screen.slave), screen.before)
 
     def test_dry_run_solo_note_and_both_back_keys_restore_the_highlighted_menu(self):
         for width, key in ((100, ESC), (40, ENTER)):

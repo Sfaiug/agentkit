@@ -1478,7 +1478,7 @@ SH
   python3 "$REPO/tests/test_notify_smoke.py" || OFFLINE_RC=1
   codex_model_flag_check || OFFLINE_RC=1
   for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_boundaries.py test_architecture.py test_docs.py \
-              test_audit_phone_menu_recovery_layout.py test_choose_click.py \
+              test_audit_phone_menu_recovery_layout.py test_choose_click.py test_note_screen.py \
               test_audit_retry_required_notifications.py test_solo_switch.py \
               test_from_run_takes_the_target.py test_repo_suite.py; do
     case "$test" in
@@ -1558,6 +1558,11 @@ if python3 "$REPO/tests/test_hover.py"; then
   ok "pointer highlights and keyboard navigation (offline)"
 else
   no "pointer highlights and keyboard navigation"
+fi
+if python3 "$REPO/tests/test_note_screen.py"; then
+  ok "menu notes wait for back, including popup rename confirmations (offline)"
+else
+  no "menu notes"
 fi
 # 41 reads no live meter -- its probes are mocked inside usage_fresh_check -- so a
 # throttled provider cannot fail it and it takes no meter-unavailable skip.
