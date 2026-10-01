@@ -91,6 +91,36 @@ class FlakyRerun(unittest.TestCase):
         record = record.split("\n\n")[0]
         self.assertEqual(record, "FAIL: the one that broke")
 
+    def test_varying_timings_ids_and_paths_do_not_hide_the_failure(self):
+        def noise(seconds, session, path):
+            return "\n".join(line for i in range(25) for line in (
+                f"Ran {i + 1} tests in {seconds}s",
+                f"session {session}",
+                f"temporary output {path}/result.txt")) + "\n"
+
+        failed = (noise("3.748", "01a0f904-7abb-4f18-b7aa-12c34d56e789",
+                        "/tmp/acme-failed-xyz") + "\nFAIL  tests/test_x.py\n\n")
+        passed = noise("12.5", "abcdefab-ccdf-4b12-abaa-abdefaaabcde",
+                       "/tmp/acme-passed-qrs")
+        failed_path, passed_path = self.root / "failed.txt", self.root / "passed.txt"
+        failed_path.write_text(failed)
+        passed_path.write_text(passed)
+        q = shlex.quote
+        cmd = (f"echo ran >> {q(str(self.runs))}; if test -f {q(str(self.root / 'seen'))}; "
+               f"then cat {q(str(passed_path))}; else touch {q(str(self.root / 'seen'))}; "
+               f"cat {q(str(failed_path))}; exit 1; fi")
+        ok, text, logs = self.gate([cmd])
+        self.assertTrue(ok, text)
+        self.assertEqual(self.count(), 2)
+        record = text.split(f"flaky: {cmd} failed, then passed on its re-run\n", 1)[1]
+        self.assertIn("FAIL  tests/test_x.py", record)
+        for label in ("Ran ", "session ", "temporary output "):
+            self.assertNotIn(label, record)
+        saved = Path(next(line.removeprefix("failed output: ") for line in record.splitlines()
+                          if line.startswith("failed output: ")))
+        self.assertEqual(saved.parent, self.run_dir)
+        self.assertEqual(saved.read_bytes(), failed.encode())
+
     def test_a_failure_above_a_tail_past_the_cap_still_names_it(self):
         q = shlex.quote
         pad = "x" * 72
