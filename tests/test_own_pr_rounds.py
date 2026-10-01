@@ -112,6 +112,8 @@ class OwnPrRounds(unittest.TestCase):
         return 0, text, f"review-{n}", False
 
     def push(self, seconds):
+        if seconds != run.SLOT_POLL:
+            return
         state = run.read_state(self.run_dir)
         self.waits.append(state)
         self.assertEqual(state["state"], "running")

@@ -3511,6 +3511,7 @@ def stall_clock(run_dir, state):
     """
     from . import run as run_mod
     if ((run_mod.merge_turn_note(state) or run_mod.dep_wait_note(state)
+            or run_mod.own_pr_wait_note(state)
             or run_mod.merge_retaking(state))
             and run_mod.process_active(state)):
         return time.time()

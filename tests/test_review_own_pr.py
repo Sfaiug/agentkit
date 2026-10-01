@@ -5,7 +5,7 @@ an invented acme/widget pull, the seat is fix-api, and nothing here touches the
 network, a real harness or a real checkout.
 """
 
-from contextlib import ExitStack, contextmanager, redirect_stdout
+from contextlib import ExitStack, contextmanager, nullcontext, redirect_stdout
 import io
 import os
 from pathlib import Path
@@ -60,7 +60,7 @@ class OwnPr(unittest.TestCase):
             run.capture_launch(run_dir, {"--review-pr": URL})
         return run_dir
 
-    def review_pass(self, lp, summary, ok, dw_log):
+    def review_pass(self, lp, summary, ok, dw_log, **_kw):
         head = lp.state["head_sha"]
         tree = "c" * 40
         lp.state["verdict"] = "PASS"
@@ -68,14 +68,14 @@ class OwnPr(unittest.TestCase):
                               "reviewer": lp.reviewer, "reviewer_provider": "openai",
                               "returncode": 0, "verdict": "PASS", "done_when": True,
                               "head_sha": head, "tree_sha": tree}
-        lp.state["round_summaries"] = [{"round": 1, "verdict": "PASS", "done_when": True,
-                                        "summary": summary, "head_sha": head, "tree_sha": tree}]
+        lp.state["round_summaries"].append({"round": lp.rnd, "verdict": "PASS", "done_when": True,
+                                           "summary": summary, "head_sha": head, "tree_sha": tree})
         lp.findings = "VERDICT: PASS\n"
         lp.state["findings"] = "VERDICT: PASS\n"
         lp.save()
         return "PASS"
 
-    def review_fail(self, lp, summary, ok, dw_log):
+    def review_fail(self, lp, summary, ok, dw_log, **_kw):
         head = lp.state["head_sha"]
         tree = "c" * 40
         text = ("VERDICT: FAIL\n\n## Findings\n"
@@ -87,8 +87,8 @@ class OwnPr(unittest.TestCase):
                               "reviewer": lp.reviewer, "reviewer_provider": "openai",
                               "returncode": 0, "verdict": "FAIL", "done_when": True,
                               "head_sha": head, "tree_sha": tree}
-        lp.state["round_summaries"] = [{"round": 1, "verdict": "FAIL", "done_when": True,
-                                        "summary": summary, "head_sha": head, "tree_sha": tree}]
+        lp.state["round_summaries"].append({"round": lp.rnd, "verdict": "FAIL", "done_when": True,
+                                           "summary": summary, "head_sha": head, "tree_sha": tree})
         lp.save()
         return "FAIL"
 
@@ -99,7 +99,7 @@ class OwnPr(unittest.TestCase):
             "FAIL": self.review_fail,
         }
         return [
-            patch.object(run, "pr_view", return_value=info(author)),
+            patch.object(run, "pr_view", side_effect=[info(author), info(author, state="CLOSED")]),
             patch.object(run, "viewer_login", return_value=LOGIN),
             patch.object(run, "checkout_for", return_value=self.repo),
             patch.object(run, "git", return_value=""),
@@ -110,6 +110,7 @@ class OwnPr(unittest.TestCase):
             patch.object(run.usage, "collect", return_value={}),
             patch.object(run, "review", side_effect=faces[reviewer]),
             patch.object(run, "restore_review_checkout", return_value=None),
+            patch.object(run, "launcher_world", side_effect=lambda *a, **k: nullcontext(False)),
         ]
 
     def posting_gh(self, events, merges=None):
