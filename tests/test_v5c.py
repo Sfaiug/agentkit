@@ -10,7 +10,6 @@ from contextlib import redirect_stdout
 import io
 import json
 import os
-import subprocess
 import sys
 import time
 from unittest.mock import patch
@@ -43,47 +42,24 @@ class UsageRow(Sandbox):
         path.write_text(json.dumps({"fetched_at": 10000, "providers": self.providers}))
         return path
 
-    def draw(self, seats, width, version="abc1234 · 12 Jan"):
+    def draw(self, seats, width):
         out = io.StringIO()
         with patch.object(terminal, "width", return_value=width), \
-                patch.object(menu, "installed", return_value=version), \
                 patch.object(menu.time, "strftime", wraps=time.strftime) as stamp, redirect_stdout(out):
             real = stamp._mock_wraps
             stamp.side_effect = lambda fmt, *args: "13:05" if not args else real(fmt, *args)
             menu.draw(self.cfg, seats)
         return out.getvalue()
 
-    def test_v5c_header_shows_short_sha_and_date_never_the_hostname(self):
-        calls = []
-
-        def git(argv, **kwargs):
-            calls.append(argv)
-            return subprocess.CompletedProcess(argv, 0, "abc1234 950400\n", "")
-        self.addCleanup(setattr, menu, "_INSTALLED", None)
-        with patch.object(menu.subprocess, "run", side_effect=git):
-            self.assertEqual(menu.installed(refresh=True), "abc1234 · 12 Jan")
-            self.assertEqual(menu.installed(), "abc1234 · 12 Jan")   # read once (v5g): no second call
-        self.assertEqual(calls, [["git", "-C", str(config.REPO), "log", "-1", "--format=%h %ct"]])
-        # no git, no checkout, or git that will not answer: the title is `agentkit` alone
-        failed = subprocess.CompletedProcess([], 128, "", "fatal: not a git repository")
-        with patch.object(menu.subprocess, "run", return_value=failed):
-            self.assertEqual(menu.installed(refresh=True), "")
-        for exc in (OSError("no git"), subprocess.TimeoutExpired("git", 10)):
-            with patch.object(menu.subprocess, "run", side_effect=exc):
-                self.assertEqual(menu.installed(refresh=True), "")
-        with patch.object(menu, "installed", return_value="v1234567890123456789"):
-            for version in ("abc1234 · 12 Jan", ""):
-                for width in (40, 100):
-                    screen = self.draw([], width, version)
-                    header = screen.splitlines()[0]
-                    # The commit hash leaves the header; the frame is agentkit and the clock.
-                    self.assertTrue(header.startswith("agentkit"))
-                    self.assertIn("13:05", header)
-                    self.assertNotIn("abc1234", header)
-                    self.assertNotIn("12 Jan", header)
-                    self.assertNotIn("v1234567890123456789", header)
-                    self.assertEqual(screen.splitlines()[1],
-                                     terminal.rule_line(width if width <= 120 else 120))
+    def test_v5c_header_is_agentkit_and_the_clock_never_the_hostname(self):
+        # the frame is agentkit and the clock, over one rule, and names no build
+        for width in (40, 100):
+            screen = self.draw([], width)
+            header = screen.splitlines()[0]
+            self.assertTrue(header.startswith("agentkit"))
+            self.assertIn("13:05", header)
+            self.assertEqual(screen.splitlines()[1],
+                             terminal.rule_line(width if width <= 120 else 120))
         self.assertNotIn("gethostname", (REPO / "agentkit/menu.py").read_text())
 
     def test_v5c_exhausted_provider_says_zero_left_and_when_it_is_back(self):

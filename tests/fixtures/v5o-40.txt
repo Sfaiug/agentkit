@@ -1,6 +1,14 @@
 agentkit                           14:02
 ────────────────────────────────────────
 
+  usage left
+  Claude   ███░░░░░░░░░   21% left
+  MiMo     —  no reading yet
+  Muse     ██████░░░░░░   50% left
+  Gemini   —  no reading yet
+  Grok     —  no reading yet
+  ChatGPT  ████████░░░░   69% left
+
 your projects · 2 need you
 
 agentkit
@@ -17,5 +25,4 @@ atoll
     tasks ██░░ 3/7
   2  atoll-solo   fable  ● working
 
-  n new   x stop   c config   i info
-  esc leave
+  n new   x stop   c config   esc leave

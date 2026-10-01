@@ -47,13 +47,6 @@ class Back(unittest.TestCase):
             menu.show_config(False)
         return out.getvalue(), read
 
-    def info_screen(self, *answers):
-        out = io.StringIO()
-        with patch.object(menu, "read", side_effect=list(answers)) as read, \
-                redirect_stdout(out):
-            menu.show_info(False)
-        return out.getvalue(), read
-
     def test_v5u_c_reads_no_line(self):
         # on a terminal `c` is read with the keys (tests/test_config_matrix.py); from a pipe it
         # is drawn, and the menu goes on
@@ -63,20 +56,11 @@ class Back(unittest.TestCase):
         # no seat is highlighted from a pipe, so the matrix is the efforts alone
         self.assertEqual(terminal.ANSI.sub("", screen).splitlines()[2].split(), ["effort"])
 
-    def test_v5u_i_reads_no_line(self):
-        # on a terminal `i` is read with the keys (tests/test_close_and_info.py); from a pipe
-        # it is drawn, and the menu goes on
-        screen, read = self.info_screen()
-        self.assertEqual(read.call_count, 0)
-        self.assertTrue(screen.startswith("agentkit · info"), screen)
-        self.assertIn("agentkit: you talk to one orchestrator", screen)
-
     def test_v5u_menu_arrow_sequence_is_no_key(self):
         out = io.StringIO()
         with patch.object(orch, "listing", return_value=[]), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "draw", return_value=(0, 1)), \
-                patch.object(menu, "installed", return_value=""), \
                 patch.object(menu, "read", side_effect=["\x1b[A", ""]) as read, \
                 redirect_stdout(out):
             self.assertEqual(menu.loop({}), 0)
@@ -87,7 +71,6 @@ class Back(unittest.TestCase):
         with patch.object(orch, "listing", return_value=[]), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "draw", return_value=(0, 1)), \
-                patch.object(menu, "installed", return_value=""), \
                 patch.object(menu, "read", side_effect=["\x1b"]) as read, \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(menu.loop({}), 0)
@@ -163,7 +146,7 @@ class Back(unittest.TestCase):
         self.assertNotIn("Enter to go back", (REPO / "agentkit" / "menu.py").read_text())
 
     def test_v5u_frame_headers_and_key_lines(self):
-        """`x`, `n`, `c` and `i`: framed, and the key line `esc back`."""
+        """`x`, `n` and `c`: framed, and the key line `esc back`."""
         screens = {}
         screens["stop"], _, _ = self.stop("\x1b")
         out = io.StringIO()
@@ -173,7 +156,6 @@ class Back(unittest.TestCase):
             menu.new_session({}, True)
         screens["new"] = out.getvalue()
         screens["config"], _ = self.config_screen("\x1b")
-        screens["info"], _ = self.info_screen("\x1b")
         for name, screen in screens.items():
             lines = screen.splitlines()
             with self.subTest(screen=name):
@@ -219,8 +201,7 @@ class Back(unittest.TestCase):
 
     def test_v5u_no_banned_strings_on_screens(self):
         """No screen prints `Enter to go back`, `Number [` or `1) ` any more."""
-        screens = [self.stop("\x1b")[0], self.config_screen("\x1b")[0],
-                   self.info_screen("\x1b")[0]]
+        screens = [self.stop("\x1b")[0], self.config_screen("\x1b")[0]]
         out = io.StringIO()
         with patch.object(orch, "taken_names", return_value=[]), \
                 patch.object(orch, "ask_name", return_value=None), \

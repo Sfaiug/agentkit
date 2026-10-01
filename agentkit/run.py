@@ -1655,7 +1655,7 @@ def dirty_paths(wt):
 def reset_checkout(wt, head, before, check=False):
     """Discard tracked changes and only paths created since the checkout was recorded."""
     git(wt, "reset", "--quiet", "--hard", head, check=check)
-    new = sorted(set(dirty_paths(wt)) - before)
+    new = sorted(set(dirty_paths(wt)) - set(before))
     if new:
         git(wt, "clean", "--quiet", "-fd", "--", *(f":(literal){p}" for p in new), check=check)
 
@@ -2797,6 +2797,9 @@ class Loop:
         # it: what `save` measures its own changes by.  Never read back off the disk, where a
         # key another writer set since would read as one this loop removed.
         self.written = copy.deepcopy(state)
+        if probe := state.get("probe_checkout"):
+            log("--- resuming: restoring the interrupted probe's checkout")
+            restore_probe_checkout(self, **probe)
 
     def role(self, name):
         """The preamble this run's workers get: a scratch run has no commits to talk about."""
@@ -3424,6 +3427,8 @@ def regression_fails_before(lp):
     base = lp.base_sha
     stop_check(lp.run_dir)
     probe_log = lp.run_dir / "regression-base.log"
+    label = f"regression.sh on base {base}"
+    save_probe_checkout(lp, head, branch, before, label)
     try:
         git(lp.wt, "checkout", "--quiet", "--detach", base)
         if paths:
@@ -3442,9 +3447,7 @@ def regression_fails_before(lp):
         memory_cap_note(lp.run_dir, lp.log)
         worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
     finally:
-        restored = restore_probe_checkout(lp, head, branch, before, f"regression.sh on base {base}")
-    if not restored:
-        return "regression.sh probe left the worktree off HEAD or dirty"
+        restore_probe_checkout(lp, head, branch, before, label)
     if killed or code < 0:
         return f"regression.sh did not finish on base {base}: it does not show the defect"
     if code == 0:
@@ -4831,8 +4834,8 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
             summary = execute(lp, "fixer", text, f"{how}-fixer")
         except (Dead, Blocked, Exhausted, Killed, worker.LoginExpired) as exc:
             pending = lp.state.get("review_pending")
-            if isinstance(exc, Exhausted) and pending:
-                # A dry conflict fixer retries landing even at the task round budget.
+            if isinstance(exc, (Exhausted, Killed, worker.LoginExpired)) and pending:
+                # A stopped conflict fixer retries landing even at the task round budget.
                 pending.update(round=lp.rnd, record=False)
             # whatever stops here, the retry starts from a clean tree: a rebase or merge
             # left in progress behind it would be a conflict round nobody asked for
@@ -5658,8 +5661,15 @@ def _branch_only_path(wt, cmd, head, tip):
     return None
 
 
+def save_probe_checkout(lp, head, branch, before, label):
+    """A hard exit skips finally: record recovery before Git can detach the checkout."""
+    lp.state["probe_checkout"] = {"head": head, "branch": branch,
+                                  "before": sorted(before), "label": label}
+    lp.write()
+
+
 def restore_probe_checkout(lp, head, branch, before, label):
-    """Discard a detached probe's edits and restore HEAD even if a cleanup step stops."""
+    """Discard probe edits; keep recovery pending until the original checkout is restored."""
     stopped = None
     restored = False
     try:
@@ -5671,15 +5681,22 @@ def restore_probe_checkout(lp, head, branch, before, label):
         if git(lp.wt, "rev-parse", "HEAD", check=False) != head:
             git(lp.wt, "checkout", "--quiet", head, check=False)
         restored = (git(lp.wt, "rev-parse", "HEAD", check=False) == head
-                    and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0)
+                    and (not branch or git(lp.wt, "symbolic-ref", "--quiet", "--short",
+                                           "HEAD", check=False) == branch)
+                    and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
+                    and not (set(dirty_paths(lp.wt)) - set(before)))
         if not restored:
-            lp.log(f"WARN the probe of {label} left the worktree off "
-                   f"{head[:12]} or dirty; the retry starts from whatever it left behind")
+            lp.log(f"WARN the probe of {label} did not restore {branch or head[:12]} "
+                   "cleanly; checkout recovery is still pending")
     except Stopped as exc:
         stopped = stopped or exc
+    if restored:
+        lp.state.pop("probe_checkout", None)
+        lp.write()
     if stopped is not None:
         raise stopped
-    return restored
+    if not restored:
+        raise config.Error(f"could not restore the checkout after the probe of {label}")
 
 
 def target_fails(lp, upstream, dw_log):
@@ -5734,16 +5751,12 @@ def target_fails(lp, upstream, dw_log):
     branch = git(lp.wt, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     stop_check(lp.run_dir)
     before = set(dirty_paths(lp.wt))
-    detached = False
+    label = f"`{cmd}` on {upstream}"
+    save_probe_checkout(lp, head, branch, before, label)
     try:
-        try:
-            rc, _ = git_out(lp.wt, "checkout", "--quiet", "--detach", tip)
-        except Stopped:
-            detached = True     # may have switched mid-apply; put it back below
-            raise
+        rc, _ = git_out(lp.wt, "checkout", "--quiet", "--detach", tip)
         if rc != 0:
             return ""
-        detached = True
         lp.log(f"--- merge: `{cmd}` failed; probing it once on {upstream} ({tip[:12]})")
         probe_log = lp.run_dir / "target-probe.log"
         heavy_probe = cmd in (getattr(lp, "once", None) or [])
@@ -5772,14 +5785,7 @@ def target_fails(lp, upstream, dw_log):
             said.seek(start)
             output = said.read().decode(errors="replace")
     finally:
-        if detached:
-            # the tree was clean when it was put aside, so every tracked edit and every
-            # new untracked path is the probe's own droppings: drop them first, so none
-            # of them can block the checkout back, and put the branch back on its head.
-            # Each half runs even when the other stopped -- a stop still ends the run,
-            # but only after the worktree is put back as far as git still goes -- and a
-            # worktree that is still not back is said so, never claimed clean.
-            restore_probe_checkout(lp, head, branch, before, f"`{cmd}` on {upstream}")
+        restore_probe_checkout(lp, head, branch, before, label)
     # indented, so nothing the command printed reads as a heading or a fence of the task
     printed = "\n".join("    " + line for line in output[-OUT_CAP:].splitlines())
     try:
@@ -6719,6 +6725,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         print(launch_line(run_dir.name, title, executor, reviewer,
                           self_review=same_model(cfg, executor, reviewer)))
 
+    # Recover an interrupted probe before reading the checkout's suite and worker rules.
+    lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, "", spares)
     if state.get("scratch"):
         where = (f"Workspace: {wt}\nThere is no git repository here: nothing to commit, no branch "
                  "and no PR. What you leave in the workspace is the deliverable.")
@@ -6743,7 +6751,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         # a handover on resume is the same handover as one mid-round, and the model taking over
         # is owed the same note: the round it is joining was already started by another
         context = f"{HANDOVER.format(before=handed)}\n\n{context}"
-    lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, context, spares)
+    lp.body, lp.cmds, lp.context = body, cmds, context
+    lp.every, lp.once = every, once
     try:
         rounds(lp)
         if review_pass(state, cfg) and not state.get("no_merge"):
