@@ -213,6 +213,7 @@ class Live:
         self.asked, self.looking = threading.Event(), False   # a read asked for, and a look
         self.last = None                 # where each read leaves the seats and their groups
         self.said = []                   # what maintenance said that no notice has shown yet
+        self.tidied = threading.Event()  # a notice can land before maintenance's effects do
 
     def close(self):
         """Give the pipe back, and wait on no thread: Esc leaves at once.
@@ -292,6 +293,7 @@ class Live:
         def run():
             work(self.say)
             self.ask()
+            self.tidied.set()
         threading.Thread(target=run, daemon=True).start()
 
     def say(self, message):

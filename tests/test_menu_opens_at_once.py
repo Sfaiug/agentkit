@@ -107,7 +107,9 @@ class OpensAtOnce(Sandbox):
             return key
 
         self.began = time.monotonic()
+        self.live = menu.Live(self.cfg)
         with patch.object(menu, "wait_key", side_effect=wait_key), \
+                patch.object(menu, "Live", return_value=self.live), \
                 redirect_stdout(io.StringIO()):
             return menu.main([])
 
@@ -116,7 +118,7 @@ class OpensAtOnce(Sandbox):
 
         def answer():
             waits.append(time.monotonic())
-            return Key("esc") if self.said else None
+            return Key("esc") if self.said and self.live.tidied.is_set() else None
 
         self.assertEqual(self.menu(answer), 0)
         self.assertLess(waits[0] - self.began, FRAME, "the first frame")
@@ -124,6 +126,29 @@ class OpensAtOnce(Sandbox):
         self.assertEqual(said, [REAPED])
         self.assertGreater(said_at, waits[0])
         self.assertGreater(len(waits), 10)      # the screen answered all along
+
+    def test_a_maintenance_notice_does_not_mean_its_effects_have_finished(self):
+        finish, effects = threading.Event(), []
+        self.addCleanup(finish.set)
+
+        def maintenance(log=print):
+            log(REAPED)
+            if finish.wait(10):
+                effects.append("finished")
+
+        def answer():
+            if self.said:
+                if not finish.is_set():
+                    self.assertFalse(self.live.tidied.is_set())
+                    finish.set()
+                if self.live.tidied.is_set():
+                    self.assertEqual(effects, ["finished"])
+                    return Key("esc")
+            return None
+
+        with patch.object(orch, "maintenance", side_effect=maintenance):
+            self.assertEqual(self.menu(answer), 0)
+        self.assertEqual([messages for _, messages in self.said], [[REAPED]])
 
     def test_esc_leaves_at_once_with_a_read_going(self):
         pressed = []

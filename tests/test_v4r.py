@@ -260,18 +260,19 @@ class UsageLeft(Sandbox):
         self.assertIn(directory, [path for path, _ in menu.run_records()])
         warning = "WARN could not check the runs: the run directory is unreadable"
         updates = [["agentkit: reaped a loop whose process was gone", warning], []]
-        real_maintenance, tidied = orch.maintenance, threading.Event()
+        real_maintenance = orch.maintenance
         def maintenance(log):
             for message in updates.pop(0):
                 log(message)
             real_maintenance(log)
-            tidied.set()
 
         def wait_key(prompt, timeout=None, wake=None):
-            if tidied.is_set():
-                return menu.read(prompt, "")
-            self.assertTrue(tidied.wait(10))   # maintenance runs behind the first frame
-            return None
+            nonlocal waited
+            if not waited:
+                self.assertTrue(live.tidied.wait(10))
+                waited = True
+                return None     # draw the notice even if maintenance finished before this wait
+            return menu.read(prompt, "")
         with patch.object(macbridge, "start_background"), \
                 patch.object(config, "server_alias", return_value=None), \
                 patch.object(orch, "maintenance", side_effect=maintenance), \
@@ -281,8 +282,9 @@ class UsageLeft(Sandbox):
                 patch.object(sys.stdin, "isatty", return_value=True):
             for first in (True, False):
                 out = io.StringIO()
-                tidied.clear()
+                live, waited = menu.Live(self.cfg), False
                 with redirect_stdout(out), patch.object(out, "isatty", return_value=True), \
+                        patch.object(menu, "Live", return_value=live), \
                         patch.object(menu, "read", side_effect=lambda prompt, default:
                                      "") as read:
                     self.assertEqual(menu.main([]), 0)

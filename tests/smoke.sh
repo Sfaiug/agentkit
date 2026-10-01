@@ -3787,9 +3787,9 @@ NOTICERC=0
 HOME="$NOTICEH" PYTHONPATH="$REPO" python3 - >"$WORK/menu-notice.log" 2>&1 <<'PY' || NOTICERC=1
 import io
 import re
-import threading
 import time
 from contextlib import redirect_stdout
+from unittest.mock import patch
 
 from agentkit import config, menu, orch, run
 
@@ -3828,22 +3828,14 @@ for name, extra in {
 
 WARNING = "WARN could not check the runs: a run record could not be read"
 starts = [["agentkit: reaped a loop whose process was gone", WARNING], []]
-real_maintenance, tidied, real_wait_key = orch.maintenance, threading.Event(), menu.wait_key
+real_maintenance, real_wait_key = orch.maintenance, menu.wait_key
 def maintenance(log):                          # the notices a menu opening prints, injected:
     for line in starts.pop(0):                 # nothing on this path touches git any more
         log(line)
     real_maintenance(log)
-    tidied.set()
 orch.maintenance = maintenance
 
 
-def wait_key(prompt, timeout=None, wake=None):
-    """Maintenance runs behind the first frame: the end of input is read once it has spoken."""
-    if tidied.is_set():
-        return real_wait_key(prompt, timeout, wake)
-    assert tidied.wait(30)
-    return None
-menu.wait_key = wait_key
 assert config.RUNS / "run-2-owned" in [path for path, _ in menu.run_records()]
 orch.sessions = lambda: [{"name": "orch-notice", "path": str(config.CODE), "attached": False,
                           "created": int(time.time()) - 600}]
@@ -3852,8 +3844,16 @@ orch.sessions = lambda: [{"name": "orch-notice", "path": str(config.CODE), "atta
 def menu_lines():
     """Every non-empty line one menu printed, the trailing `> ` prompt included."""
     out = io.StringIO()
-    tidied.clear()
-    with redirect_stdout(out):
+    live, waited = menu.Live(cfg), False
+    def wait_key(prompt, timeout=None, wake=None):
+        nonlocal waited
+        if not waited:
+            assert live.tidied.wait(30)
+            waited = True
+            return None     # draw the notice even if maintenance finished before this wait
+        return real_wait_key(prompt, timeout, wake)
+    with patch.object(menu, "Live", return_value=live), \
+            patch.object(menu, "wait_key", side_effect=wait_key), redirect_stdout(out):
         assert menu.main([]) == 0
     return [line for line in out.getvalue().splitlines() if line.strip()]
 
@@ -3884,19 +3884,20 @@ assert any(line.strip().startswith("1  orch-notice") for line in screen), screen
 assert any("usage left" in line for line in screen), screen
 # The menu at rest is the projects and their seats: a run of nobody's is neither a
 # heading nor a row, whatever its repository, and `ak run status` is where it is looked up.
-assert not any("scratch" in line for line in screen), screen
-assert not any("Launched by hand" in line or "\u21b3" in line for line in screen), screen
 assert any(line == "no project" for line in screen), screen
-assert not any("seats" in line for line in screen), screen
 # the count is said once, on the top line; each needing row says its own word
 assert sum(line.lstrip().startswith("your projects") and "need" in line
            for line in screen) <= 1, screen
 # a usage row with no reading is `—` and why (v5c); a receipt is `— PASS`, `— FAIL`, `— ERROR`
 RECEIPT = re.compile(r" — (?:PASS|FAIL|ERROR)\b")
-assert not any(RECEIPT.search(line) or "Rewrite the finished" in line
-               for line in screen), screen
 second = menu_lines()
-assert not [line for line in second if RECEIPT.search(line) or WARNING in line], second
+for frame in (screen, lines[again:], second):
+    assert not any("scratch" in line for line in frame), frame
+    assert not any("Launched by hand" in line or "\u21b3" in line for line in frame), frame
+    assert not any("seats" in line for line in frame), frame
+    assert not any(RECEIPT.search(line) or "Rewrite the finished" in line
+                   for line in frame), frame
+assert not any(WARNING in line for line in second), second
 assert not any("reaped a loop whose process was gone" in line for line in second), second
 # opening the menu tells nobody anything, so nothing on it is marked told: `r` still owes them
 assert not any(run.read_state(config.RUNS / n)["reported"] for n in
@@ -4297,24 +4298,40 @@ json.dump({"orchestrator": "fable", "workers": ["opus"], "cwd": "/tmp",
            "created": time.time() - 9 * 86400, "seen": time.time() - 8 * 86400,
            "conversation": "conv-old"}, open(sys.argv[1], "w"))
 STALE
-# maintenance runs behind the menu's first frame: the line that leaves goes in once it has spoken
-rm -f -- "$WORK/name-sweep.log"
-{ for _ in $(seq 300); do
-    grep -q 'forgot the session stale-seat' "$WORK/name-sweep.log" 2>/dev/null && break; sleep 0.1
-  done; printf '\n'; } | akn >"$WORK/name-sweep.log" 2>&1 || NAME=1
-# The sweep is reported once, as a notice after the first frame, and never on a frame.
-python3 - "$WORK/name-sweep.log" <<'SWEEP' || NAME=1
+# A sweep says it will forget a seat before unlinking it: wait for completion, then redraw.
+HOME="$NH" AGENTKIT_ADAPTER_DIR="$NAD" PYTHONPATH="$REPO" \
+  python3 - "$WORK/name-sweep.log" "$WORK/name-sweep-again.log" <<'SWEEP' || NAME=1
+from contextlib import redirect_stdout
+import io
 from pathlib import Path
 import sys
+from unittest.mock import patch
+
+from agentkit import config, menu
+
+for path in map(Path, sys.argv[1:]):
+    live, waited = menu.Live(config.load()), False
+    def wait_key(prompt, timeout=None, wake=None):
+        global waited
+        if not waited:
+            assert live.tidied.wait(30)
+            waited = True
+            return None     # a finished sweep may still have its notice queued
+        return ""
+    with patch.object(menu, "Live", return_value=live), \
+            patch.object(menu, "wait_key", side_effect=wait_key), redirect_stdout(io.StringIO()) as out:
+        assert menu.main([]) == 0
+    path.write_text(out.getvalue())
+
+# The sweep is reported once, as a notice after the first frame, and never on a frame.
 text = Path(sys.argv[1]).read_text()
 lines = text.splitlines()
 said = [i for i, line in enumerate(lines) if "forgot the session stale-seat" in line]
 assert lines[0].startswith("agentkit") and len(said) == 1, text
 assert lines[said[0]] == " forgot the session stale-seat, gone for 8d", text
+assert "forgot the session stale-seat" not in Path(sys.argv[2]).read_text()
+assert not config.session_path("stale-seat").exists()
 SWEEP
-printf '\n' | akn >"$WORK/name-sweep-again.log" 2>&1 || NAME=1
-grep -q 'forgot the session stale-seat' "$WORK/name-sweep-again.log" && NAME=1
-[ -e "$NH/.agentkit/state/session-stale-seat.json" ] && NAME=1
 for seat in my-big-task "$NSECOND" resume-seat by-hand pair-one pair-two old-seat old-renamed; do
   tm kill-session -t "=$seat" 2>/dev/null
 done
