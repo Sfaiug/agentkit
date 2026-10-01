@@ -5,7 +5,6 @@ no real login, provider or usage endpoint is reached.  Provider names are invent
 """
 
 from contextlib import ExitStack
-import json
 import os
 from pathlib import Path
 import sys
@@ -115,28 +114,34 @@ class PickPerSubscription(unittest.TestCase):
         # another account with known room goes first, as before
         self.assertEqual(rank(week(40), week(10)), "second")
 
-    def test_a_fresh_session_window_leaves_a_refusal_dated_later_in_force(self):
-        week = {"name": "weekly", "used": 80, "resets_at": NOW + 6 * DAY, "window_secs": WEEK}
+    def assert_parked_through_session_rollovers(self, until, week_end, reads):
+        """`beta`, refused at NOW until NOW + `until` beside a week ending at NOW + `week_end`,
+        still parked at each NOW + `at` of `reads` with a fresh session of `length` (None: of
+        no reported length) whose window has room: the week is the one the refusal was in."""
+        self.stack.enter_context(patch.object(usage, "_probe", side_effect=self.fake_probe))
+        week = {"name": "weekly", "used": 80, "resets_at": NOW + week_end, "window_secs": WEEK}
         self.meters = [{"name": "session", "used": 30, "resets_at": NOW + 3600,
                         "window_secs": usage.SESSION_SECS}, week]
-        self.stack.enter_context(patch.object(usage, "_probe", side_effect=self.fake_probe))
-        # refused "until Tue": a refusal the weekly meter does not show at 100%
-        until = NOW + 5 * DAY
-        usage.mark_exhausted(self.cfg, "beta", until)
-        # the session rolls over with room, early and an hour before the deadline with a window
-        # running past it; the week is still the one the refusal was made in
-        for now in (NOW + 3600 + usage.PROBE_EVERY + 1, until - 3600):
-            self.now = now
-            self.meters = [{"name": "session", "used": 0, "resets_at": now + usage.SESSION_SECS,
-                            "window_secs": usage.SESSION_SECS}, week]
-            cache = config.STATE / "usage.json"
-            blob = json.loads(cache.read_text())
-            blob["fetched_at"] = now - usage.CACHE_TTL - 1
-            cache.write_text(json.dumps(blob))
+        usage.mark_exhausted(self.cfg, "beta", NOW + until)
+        for at, length in reads:
+            self.now = NOW + at
+            session = {"name": "session", "used": 0, "resets_at": self.now + usage.SESSION_SECS}
+            self.meters = [{**session, "window_secs": length} if length else session, week]
             providers = usage.collect(self.cfg)
-            self.assertEqual(providers["beta"].get("exhausted_until"), until)
+            self.assertEqual(providers["beta"].get("exhausted_until"), NOW + until, at)
             self.assertNotIn("two", usage.pick_order(self.cfg, providers, ["two"], quiet=True))
 
+    def test_a_fresh_session_window_leaves_a_refusal_dated_later_in_force(self):
+        # refused "until Tue", a refusal the weekly meter does not show at 100%: the session
+        # rolls over early, and an hour before the deadline with a window running past it
+        self.assert_parked_through_session_rollovers(5 * DAY, 6 * DAY, [
+            (3700, usage.SESSION_SECS), (5 * DAY - 3600, usage.SESSION_SECS),
+            (5 * DAY - 3000, None)])
+
+    def test_a_fresh_session_window_leaves_a_refusal_shorter_than_it_in_force(self):
+        # refused for the week's last four hours, the session ending after the first
+        self.assert_parked_through_session_rollovers(4 * 3600, 4 * 3600, [
+            (3700, usage.SESSION_SECS), (4300, None)])
 
 if __name__ == "__main__":
     unittest.main()

@@ -600,8 +600,7 @@ def _gate_flags(providers, now, cfg):
         if recorded:
             prov.update(meters=[_normalized(meter, now) for meter in recorded], error=None)
         # a provider that refused a worker is parked until it said it would have
-        # capacity, or until its meters show a window that opened after the mark and is
-        # long enough to have held it
+        # capacity, or until the meter that shows the refusal opens a new window
         until = _number(prov.get("exhausted_until"))
         if until is None or until <= now or _fresh_window(prov, prov, now):
             prov.pop("exhausted_until", None)
@@ -766,21 +765,22 @@ def _patch(provider, prov, account=None, *, mark=None, spent=None):
 
 
 def _fresh_window(prov, mark, now):
-    """Whether a recorded meter now reports a later reset with room left, in a window long
-    enough to have held the refusal `mark` records, from when it was made to its deadline.
+    """Whether the meter that shows the refusal `mark` records now reports a later reset with
+    room left, in a window that runs to the deadline.
 
+    That meter is the one whose window, as recorded at marking, held the deadline: the first
+    to reset at or after it, or the last where every one reset before it.  Another meter's
+    new window says nothing of the refusal: the 5-hour session rolling over under a weekly
+    refusal leaves that week as spent as it was, whatever length the session reports.
     Only reported reset times identify a replacement: a window's nominal length says
     nothing about when it began.  Without a recorded reset there is nothing to compare.
-    The length says which meter can show the refusal: a shorter window is not the one that
-    refused -- the 5-hour session rolling over under a refusal dated next week leaves that
-    week as spent as it was -- and one of no reported length shows it only by running to
-    the deadline.
     """
     ends = mark.get("exhausted_ends") if isinstance(mark, dict) else None
     if not isinstance(prov, dict) or not isinstance(ends, dict):
         return False
     until = _number(mark.get("exhausted_until"))
-    since = _number(mark.get("exhausted_at")) or now
+    recorded = [end for end in map(_number, ends.values()) if end is not None]
+    shows = min([end for end in recorded if end >= until], default=max(recorded, default=None))
     for meter in prov.get("meters") or []:
         if not isinstance(meter, dict):
             continue
@@ -795,9 +795,8 @@ def _fresh_window(prov, mark, now):
         old = _number(ends.get(meter.get("name")))
         if old is None or resets_at <= old:
             continue          # the window the mark was made in, mismeasured or not
-        window = _number(meter.get("window_secs"))
-        if resets_at < until or (window is not None and window < until - since):
-            continue
+        if old != shows or resets_at < until:
+            continue          # another meter's window, or one closing before the deadline
         return True
     return False
 
@@ -808,8 +807,8 @@ def _carry_mark(old, prov, now):
     A provider that has just refused a worker is parked until it says it has capacity again,
     and the meters it reports meanwhile are not that answer: the one that is, is the time the
     refusal itself named.  Once that time is behind us the mark is gone and the probe decides.
-    A window that opened after the mark with room, long enough to have held it, ends it
-    sooner, and is that same answer.
+    A new window with room on the meter that shows the refusal ends it sooner, and is that
+    same answer.
 
     Every write carries the mark the file holds this way (`_onto`) but the credit's own: the
     meters a spend hands back are the capacity the mark said was missing, and re-applying it
@@ -1017,9 +1016,9 @@ def mark_exhausted(cfg, provider, until=None, account=None):
 
     The mark lives in the usage cache beside the meters, so `pick_order` excludes this
     provider for every later pick in every run, and it is dropped the moment the deadline has
-    passed, or a meter whose window is long enough to have held the refusal reports a later
-    reset than recorded at marking, with room.  An account's mark is its own: the provider
-    stays eligible on its other accounts.  Returns the deadline recorded.
+    passed, or the meter that shows the refusal reports a later reset than recorded at
+    marking, with room.  An account's mark is its own: the provider stays eligible on its
+    other accounts.  Returns the deadline recorded.
     """
     now = time.time()
     try:
