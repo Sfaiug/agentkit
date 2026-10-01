@@ -5660,6 +5660,12 @@ else
 fi
 
 # --- result ----------------------------------------------------------------
+if { python3 "$REPO/tests/test_task_file.py" && python3 "$REPO/tests/test_task_size.py" &&
+     python3 "$REPO/tests/test_unknown_front_matter_key.py"; } >"$WORK/task-file.log" 2>&1; then
+  ok "51 task files: parsing, size and unknown keys refused before receipts"
+else
+  no "51 task files"; tail -30 "$WORK/task-file.log"
+fi
 if python3 "$REPO/tests/test_files_scope.py" >"$WORK/files-scope.log" 2>&1; then
   ok "50 task files scope: branch paths, leftovers, rebase, fixer and PASS override"
 else

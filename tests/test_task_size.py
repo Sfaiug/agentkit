@@ -14,7 +14,7 @@ Offline: a temporary HOME with fabricated history rows, scratch (`repo: none`) t
 and a patched-out drive step so no model ever runs.
 """
 
-from contextlib import ExitStack, redirect_stderr, redirect_stdout
+from contextlib import ExitStack, closing, redirect_stderr, redirect_stdout
 import io
 import os
 from pathlib import Path
@@ -268,8 +268,8 @@ class Sandbox(unittest.TestCase):
         with redirect_stdout(out):
             self.assertEqual(run.cmd_status(["--history"]), 0)
         self.assertIn("atoll: last 20 tasks: median 3 rounds", out.getvalue())
-        columns = [row[1] for row in sqlite3.connect(database).execute(
-            "PRAGMA table_info(runs)")]
+        with closing(sqlite3.connect(database)) as connection:
+            columns = [row[1] for row in connection.execute("PRAGMA table_info(runs)")]
         self.assertIn("task_words", columns)
 
     def test_changed_files_records_every_file(self):
