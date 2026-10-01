@@ -1,10 +1,9 @@
 """Several task files are one job (v5q): its receipt, its scheduler and each task's ladder.
 
 `ak run a.md b.md` writes the job's receipt and starts each task as an ordinary run once its
-`after:` tasks landed, waits out spent budget and logins, gives a failed task its one merge or
-rerun, and hands the job's line back to the seat that launched it.  Every read, write, path
-and fingerprint of the receipt is this module's; a run itself is `run`'s, called through it
-so a test that patches the loop patches it here too.
+`after:` tasks landed, waits out spent budget and logins, finishes a passed task's delivery or
+reruns a failed one once, and hands the job's line back to the seat that launched it.  A run
+itself is `run`'s, called through the module so a test that patches the loop patches it here.
 """
 
 import json
