@@ -176,7 +176,7 @@ class SessionModels(Sandbox):
 
     def test_no_key_line_or_sentence_offers_m(self):
         self.assertEqual(menu.KEYS, "n new   x stop   c config   esc leave")
-        self.assertEqual([key for key in menu.TIPS if key.startswith("m ")], [])
+        self.assertEqual([key for key in terminal.TIPS if key.startswith("m ")], [])
 
 
 if __name__ == "__main__":

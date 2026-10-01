@@ -32,8 +32,8 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, terminal
+from agentkit.terminal import TIPS
 from test_config_matrix import Screen
-from agentkit.menu import TIPS
 from test_menu_keys import Menu
 from test_v4n import Sandbox
 

@@ -195,22 +195,41 @@ pointer alike, `terminal.lit`, `terminal.relight`, `terminal.away`, `terminal.un
 
 Nobody needs a manual: the key line is the tooltip. While the pointer rests on
 something that means more than its label -- a session row, a state word, a
-project's heading, a key-line item, a usage row, and on `c` a model, a mark, an
-effort or a provider's name -- the key line says what it is in one plain
+project's heading, a usage row, a key-line item on any screen, on `c` a model,
+a mark, an effort or a provider's name, on a model's own screen its id and its
+effort, on `n` a model or a role's mark, and a provider or a subscription in the
+lists `+ add` and `− remove` open -- the key line says what it is in one plain
 sentence, in place of the keys: on the same row, the same width, cut with one
 ellipsis, never a new line or a popup. The keys come back when the pointer
 leaves it, and any key brings them back too. A state word, a heading naming no
 switches, a usage row and a provider's name only explain: nothing lights on
 them and a click there does nothing of its own (`terminal.Spot`); a key-line
-item whose sentence stands in its place is not lit either. The sentences live
-in one table, `menu.TIPS`, filled in with what each is about:
+item whose sentence stands in its place is not lit either. `esc back` means
+just what it says, so it lights and explains nothing. The sentences live in
+one table, `terminal.TIPS`, filled in with what each is about; a key-line item
+is keyed by its own text, the same on every screen, and without UTF-8 by its
+UTF-8 key (`enter` is `⏎`):
 
-- `⏎ open`: `Enter opens the highlighted session; a click opens the one clicked`
+- `↑↓ move` (and `↑↓←→ move`): `the arrow keys, k and j, or the wheel move the highlight; so does the pointer`
+- `⏎ open`: `Enter or a click opens what is highlighted: a session, a model's own screen, a list`
+- `⏎ mark`: `Enter, space or a click flips the mark, saved to the session at once`
+- `⏎ effort`: `Enter or space steps the effort up, round from its highest; a click on an arrow steps it`
+- `⏎ remove`: `Enter asks Keep or Remove first, and the last model always stays`
+- `←→ choose`: `← and → step the value through what its harness's catalog offers, saved at once`
+- `⏎ choose`: `Enter or a click picks the highlighted one; Esc goes back with nothing done`
+- `⏎ add`: `Enter or a click adds the highlighted one to the config; Esc goes back with nothing added`
+- `⏎ flip`: `Enter or a click flips the switch through the project's own command, at once`
+- `space choose`: `space or a click marks or unmarks the model for the role the highlight is on`
+- `⏎ start`: `Enter starts the session on what is marked, wherever the highlight is`
 - `n new`: `n starts a session: you name it and pick the models that orchestrate, execute and review`
 - `x stop`: `x stops the highlighted session and everything it runs, asking first`
 - `x close`: `x closes the highlighted session, which is done: its runs, checkouts and files go`
 - `c config`: `c sets the highlighted session's models, every model's effort, the providers and Discord`
 - `esc leave`: `Esc leaves ak; the sessions go on working without it`
+- in the popup, `n start a session`: `n starts a session and switches this terminal to it, closing the popup`
+- `r rename this session`: `r renames this session: its record, its bar and its title follow`
+- `x stop this session`: `x stops this session and everything it runs, asking first`
+- `x close this session`: `x closes this session, which is done: its runs, checkouts and files go`
 - a session row: `{name}: Enter or a click opens it, where you talk to its orchestrator`
 - `needs you`: `needs you: it asked you something, or it cannot go on without you`
 - `working`: `working: a run of its own is going, or a turn is, or a session it waits on works`
@@ -218,20 +237,24 @@ in one table, `menu.TIPS`, filled in with what each is about:
 - a project's heading: `{name}: the project the sessions under it work in, those needing you first`
 - one naming feature switches: `{name}: Enter or a click opens the switches of its hidden features`
 - a usage row: its label, `NN% left`, `resets <when> (in 2 d 6 h)`, then `faster than time`, `slower than time` or `as fast as time`
-- a model: `{name}: {harness} runs it at {effort} effort; Enter on its name opens its screen`
-- `orch`: `orch: the model the session's orchestrator runs on; Enter moves the session to it`
-- `exec`: `exec: a model the session's runs may execute with; Enter adds or drops it`
-- `review`: `review: a model that may review the session's runs; Enter adds or drops it`
-- an effort: `effort: how hard {name} thinks; Enter steps it up, a click on an arrow that way`
-- a provider: `{name}: your subscription; its seats, runs and usage row use its login`
+- a usage row with no week to draw: `{name}: no week to draw, {why}; the bar comes with the first reading of one`
+- a model, on `c` and `n`: `{name}: {model} through {harness}, at {effort} effort`
+- its id, on its own screen: `model id: what {harness} is asked to run, one its catalog lists`
+- `orch`: `orch: the model the session's orchestrator runs on, one only`
+- `exec`: `exec: a model the session's runs may execute with; one at least`
+- `review`: `review: a model that may review the session's runs; one at least`
+- an effort: `effort: how hard {name} thinks, one of the efforts its harness takes for it`
+- a provider, or in `− remove` a subscription: `{name}: your subscription; its seats, runs and usage row use its login`
 - the provider a worker token is minted for: `{name}: its {note}`, the token's expiry
+- in `+ add`, another subscription: `{name}: another subscription of it, logged in on this terminal, then listed`
+- in `+ add`, a provider: `{name}: installed here if missing, logged in, and added with its first model`
 
 A usage row under the pointer shows the one thing the row cannot: whether it is
 spent faster than time passes. One glint of light crosses its bar, left to
 right in 400 ms (Motion), and a hairline tick stands in the bar at the share
 that would be left had it been spent as fast as time passes, from the meter's
 window and reset -- cut out of the fill's colour where the fill reaches past
-it -- until the pointer leaves; the key line reads
+it, and standing through a glide -- until the pointer leaves; the key line reads
 `Claude II · 68% left · resets Thu 20:00 (in 2 d 6 h) · slower than time`.
 Helpers: `terminal.pointed`, `terminal.lit`, `menu.usage_tip`, `motion.glinting`.
 

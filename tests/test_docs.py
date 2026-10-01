@@ -79,7 +79,7 @@ class Docs(unittest.TestCase):
             self.assertRegex(page, rf"(?m)^{re.escape(key)} +\S", f"README.md lacks `{key}`")
         self.assertNotRegex(page, r"(?m)^i +\S")
         for word in menu.STATE_ORDER:
-            self.assertIn(menu.TIPS[word].split(": ", 1)[1], page, word)
+            self.assertIn(terminal.TIPS[word].split(": ", 1)[1], page, word)
 
     def test_superseded_evidence_is_gone(self):
         self.assertFalse((REPO / "docs/verification-v4l-2.md").exists())

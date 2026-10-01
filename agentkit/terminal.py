@@ -478,6 +478,61 @@ def rule_line(term_width=None, filled=0):
     return styled("━" * done, "accent") + styled("─" * (room - done), "dim")
 
 
+# What the key line says in place of the keys while the pointer rests on something that means
+# more than its label, the keys back once it leaves (`lit`): the one table of those sentences,
+# each filled in with what it is about, and docs/cli-design.md lists them.  A key-line item is
+# keyed by its own text as UTF-8 draws it, and says the same on every screen; `esc back` means
+# just what it says, so it has none.
+TIPS = {
+    "↑↓ move": "the arrow keys, k and j, or the wheel move the highlight; so does the pointer",
+    "⏎ open": "Enter or a click opens what is highlighted: a session, a model's own screen, a list",
+    "⏎ mark": "Enter, space or a click flips the mark, saved to the session at once",
+    "⏎ effort": "Enter or space steps the effort up, round from its highest; a click on an arrow "
+                "steps it",
+    "⏎ remove": "Enter asks Keep or Remove first, and the last model always stays",
+    "←→ choose": "← and → step the value through what its harness's catalog offers, saved at once",
+    "⏎ choose": "Enter or a click picks the highlighted one; Esc goes back with nothing done",
+    "⏎ add": "Enter or a click adds the highlighted one to the config; Esc goes back with nothing "
+             "added",
+    "⏎ flip": "Enter or a click flips the switch through the project's own command, at once",
+    "space choose": "space or a click marks or unmarks the model for the role the highlight is on",
+    "⏎ start": "Enter starts the session on what is marked, wherever the highlight is",
+    "n new": "n starts a session: you name it and pick the models that orchestrate, execute "
+             "and review",
+    "x stop": "x stops the highlighted session and everything it runs, asking first",
+    "x close": "x closes the highlighted session, which is done: its runs, checkouts and files "
+               "go",
+    "c config": "c sets the highlighted session's models, every model's effort, the providers "
+                "and Discord",
+    "esc leave": "Esc leaves ak; the sessions go on working without it",
+    "n start a session": "n starts a session and switches this terminal to it, closing the popup",
+    "r rename this session": "r renames this session: its record, its bar and its title follow",
+    "x stop this session": "x stops this session and everything it runs, asking first",
+    "x close this session": "x closes this session, which is done: its runs, checkouts and files "
+                            "go",
+    "session": "{name}: Enter or a click opens it, where you talk to its orchestrator",
+    "needs you": "needs you: it asked you something, or it cannot go on without you",
+    "working": "working: a run of its own is going, or a turn is, or a session it waits on works",
+    "done": "done: it said so, and the row carries its summary",
+    "project": "{name}: the project the sessions under it work in, those needing you first",
+    "switches": "{name}: Enter or a click opens the switches of its hidden features",
+    "unread": "{name}: no week to draw, {why}; the bar comes with the first reading of one",
+    "faster": "faster than time", "slower": "slower than time", "even": "as fast as time",
+    "model": "{name}: {model} through {harness}, at {effort} effort",
+    "model id": "model id: what {harness} is asked to run, one its catalog lists",
+    "orch": "orch: the model the session's orchestrator runs on, one only",
+    "exec": "exec: a model the session's runs may execute with; one at least",
+    "review": "review: a model that may review the session's runs; one at least",
+    "effort": "effort: how hard {name} thinks, one of the efforts its harness takes for it",
+    "account": "{name}: your subscription; its seats, runs and usage row use its login",
+    "token": "{name}: its {note}",
+    "subscription": "{name}: another subscription of it, logged in on this terminal, then listed",
+    "provider": "{name}: installed here if missing, logged in, and added with its first model",
+}
+# A key the key line draws without UTF-8, as it is with it: what TIPS is keyed by.
+UTF8_KEYS = {"enter": "⏎", "j/k": "↑↓", "arrows": "↑↓", "↑↓←→": "↑↓", "left/right": "←→"}
+
+
 def key_parts(text):
     """(key, word) pairs for the key line: each key dim, its word plain."""
     parts = []
@@ -1127,15 +1182,22 @@ def lit(lines, spots, tips=None, keys=None):
     nothing is lit.
 
     `tips` are what the key line says in place of the keys while the pointer rests on something
-    that means more than its label, {(what, cell): one sentence} (menu.TIPS): on the key line's
-    own rows, from the screen's row `keys` down, the sentence cut to the layout with one
-    ellipsis and the rows under it blank, until the pointer leaves it.  What only explains -- a
-    cell that is a tuple -- is not lit, nor a key-line item whose sentence stands in its place.
+    that means more than its label, {(what, cell): one sentence} (TIPS), a row's own (what,
+    None) said of a cell of it with none of its own; a key-line item says its own (TIPS) on
+    every screen.  The sentence goes on the key line's own rows, from the screen's row `keys`
+    down, cut to the layout with one ellipsis and the rows under it blank, until the pointer
+    leaves it.  What only explains -- a cell that is a tuple -- is not lit, nor a key-line item
+    whose sentence stands in its place.
     """
     global _SPOTS, _POINTED, _SHOWN, _PAINTED, _TIPS, _KEYS
     _SPOTS, _POINTED, _TIPS, _KEYS = spots, pointer_spot(spots), tips or {}, keys
     _SHOWN = lines = list(lines)
-    tip = _TIPS.get(_POINTED[:2])
+    tip = _TIPS.get(_POINTED[:2]) or _TIPS.get((_POINTED.what, None))
+    if (not tip and _POINTED.what is None and isinstance(_POINTED.cell, str)
+            and 0 < _POINTER.row <= len(lines)):          # a key-line item: its own text
+        key, _, word = ANSI.sub("", lines[_POINTER.row - 1])[
+            _POINTED.first - 1:_POINTED.last].partition(" ")
+        tip = TIPS.get(f"{UTF8_KEYS.get(key, key)} {word}")
     if tip and keys:
         lines = [*lines[:keys - 1], "  " + cut(tip, layout_width() - 2),
                  *[""] * (len(lines) - keys)]
@@ -1186,13 +1248,14 @@ def backed(line, rgb, first, last):
     return out + (" " * (last - at) + f"\033[{off}m" if on else "")
 
 
-def relight():
+def relight(spots=None, tips=None):
     """Write again only the rows of the screen up whose light the pointer moved, the cursor
-    left where it was: what a question typed on that screen (`field`) draws over it."""
+    left where it was: what a question typed on that screen (`field`) draws over it, or a list
+    asked on it (`choose`), its own `spots` and `tips` read with the screen's."""
     before = _PAINTED
-    rows = "".join(f"\033[{row};1H\033[K{line}" for row, (line, was)
-                   in enumerate(zip(lit(_SHOWN, _SPOTS, _TIPS, _KEYS), before), 1)
-                   if line != was)
+    rows = "".join(f"\033[{row};1H\033[K{line}" for row, (line, was) in enumerate(zip(
+        lit(_SHOWN, _SPOTS, _TIPS, _KEYS) if spots is None else lit(_SHOWN, spots, tips, _KEYS),
+        before), 1) if line != was)
     if rows:
         sys.stdout.write(f"\0337{rows}\0338")
         sys.stdout.flush()
@@ -1271,7 +1334,7 @@ def field(prompt, placeholder=""):
 
 
 @clicks_its_own
-def choose(choices, default=None, several=False, around=None, wait=None, warn=None):
+def choose(choices, default=None, several=False, around=None, wait=None, warn=None, tips=None):
     """One of `choices` picked with the keys, or with `several` a list of them; None on Esc.
 
     The list is drawn where the cursor is and drawn over in place as the highlight moves.
@@ -1289,7 +1352,8 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
     the highlight to it, and its screen is drawn again for what else it lights.
     `wait`, where given, reads the key in `read_key`'s place, or None for a draw: the menu's own
     (`menu.moving`) keeps its dots breathing while the list is asked.  `warn` is a choice drawn
-    in the warn colour: the one of `confirm`'s that ends something.
+    in the warn colour: the one of `confirm`'s that ends something.  `tips` are what the key
+    line says of a choice while the pointer rests on it, {choice: sentence} (TIPS).
     """
     global _PRESSED
     marked = set(default or ()) if several else set()
@@ -1316,7 +1380,8 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
         rows = {top + number: (number, []) for number in range(len(choices))} if top else {}
         # its screen's key line and its own choices are what the pointer lands on; that
         # screen's rows -- the seats under a question -- are nothing while it is asked
-        lit(_SHOWN, {**{row: spot for row, spot in _SPOTS.items() if spot[0] is None}, **rows})
+        relight({**{row: spot for row, spot in _SPOTS.items() if spot[0] is None}, **rows},
+                {(number, None): (tips or {}).get(choice) for number, choice in enumerate(choices)})
         key = read_key() if wait is None else wait()
         again = around is not None        # its screen as well: a key puts out what was lit
         if key is None:
