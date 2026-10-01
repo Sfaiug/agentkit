@@ -1,9 +1,10 @@
 """A reviewer's edits are archived, then undone before any next turn or round."""
 
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, chdir, contextmanager
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
 import tempfile
@@ -331,6 +332,61 @@ class ReviewerEdits(unittest.TestCase):
                 self.assert_restored()
                 self.assertFalse(self.archive.exists())
                 self.assertFalse(any("WARN" in line for line in self.logs), self.logs)
+
+    def test_special_and_unreadable_files_do_not_abort_review(self):
+        artifacts = self.wt / "tmp"
+        artifacts.mkdir()
+        with (self.wt / ".git/info/exclude").open("a") as excluded:
+            excluded.write("\ntmp/\n")
+        (artifacts / "input.txt").write_text("review input\n")
+        for name, target in (("file.link", "input.txt"), ("dir.link", "."),
+                             ("broken.link", "missing")):
+            (artifacts / name).symlink_to(target)
+        real_call, real_copyfile = worker.call, run.shutil.copyfile
+
+        for name in ("server.sock", "events.fifo", "private.txt"):
+            with self.subTest(name=name):
+                skipped = artifacts / name
+                if name.endswith(".sock"):
+                    # A relative bind stays under the UNIX socket pathname limit.
+                    with chdir(artifacts), socket.socket(socket.AF_UNIX) as sock:
+                        sock.bind(name)
+                elif name.endswith(".fifo"):
+                    os.mkfifo(skipped)
+                else:
+                    skipped.write_text("unreadable\n")
+                    skipped.chmod(0)
+
+                def copyfile(src, dst, *args, **kwargs):
+                    # Inject the denial so the test also works when run as root.
+                    if Path(src) == skipped and name == "private.txt":
+                        raise PermissionError(f"cannot read {src}")
+                    return real_copyfile(src, dst, *args, **kwargs)
+
+                def check_input(cfg, model, body, workspace, out, role, session, **kwargs):
+                    copied = Path(workspace) / "tmp"
+                    self.assertFalse((copied / name).exists())
+                    self.assertEqual((copied / "input.txt").read_text(), "review input\n")
+                    for link, target in (("file.link", "input.txt"), ("dir.link", "."),
+                                         ("broken.link", "missing")):
+                        self.assertTrue((copied / link).is_symlink())
+                        self.assertEqual(os.readlink(copied / link), target)
+                    return real_call(cfg, model, body, workspace, out, role, session, **kwargs)
+
+                try:
+                    with patch.object(run.shutil, "copyfile", side_effect=copyfile), \
+                            patch.object(worker, "call", side_effect=check_input):
+                        self.assertEqual(self.review({"files": {"probe.txt": "reviewer edit\n"}}),
+                                         "PASS")
+                    self.assertTrue(any("WARN" in line and str(skipped) in line
+                                        for line in self.logs), self.logs)
+                    self.assertTrue(skipped.exists())
+                    self.assertIn("+reviewer edit", self.archive.read_text())
+                    self.assert_restored()
+                finally:
+                    if name == "private.txt":
+                        skipped.chmod(0o600)
+                    skipped.unlink()
 
     def test_plain_reviewer_push_cannot_change_shared_refs(self):
         base = self.git("rev-parse", "HEAD~1")
