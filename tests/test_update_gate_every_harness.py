@@ -34,13 +34,25 @@ BINARIES = {"claude": "claude", "codex": "codex", "muse": "muse", "grokbuild": "
 REST = ("grokbuild", "antigravity", "opencode")
 LOGGED_IN = {harness: "0 fixture: logged in" for harness in REST}
 SMALLEST = re.findall(r'"(\w+) (\w+) (\S+) (\w+)"', between("# --- 3:", "# --- 4:"))
+# each harness's event log for a turn that answered, and for one that said it failed
+ANSWERED = {"grokbuild": '{"type":"result","subtype":"success","is_error":false,"result":"Hello"}\n',
+            "opencode": '{"type":"text","part":{"type":"text","text":"Hello"}}\n',
+            "antigravity": '{"event":"result","result":{"status":"SUCCESS","response":"Hello"}}\n'}
+FAILED = {"grokbuild": '{"type":"result","subtype":"error_during_execution","is_error":true,'
+                       '"result":"Request failed: 503 Service Unavailable"}\n',
+          "opencode": ANSWERED["opencode"] + '{"type":"error","error":{"type":"provider.unknown",'
+                      '"message":"503 Service Unavailable","status":503}}\n',
+          "antigravity": '{"event":"result","result":{"status":"ERROR","response":"Hello"}}\n'}
+# A turn for a named account is refused, as OpenCode's adapter refuses one.
 ADAPTER = '''#!/bin/bash
 S=$FIXTURE/${0##*/}; S=${S%.sh}
 case $1 in
   auth) read -r rc line <"$S.auth"; echo "$line"; exit "$rc" ;;
-  run) printf '%s\\n' "${*:2:2}" >>"$S.runs"; cat "$5" >>"$S.prompts"; mkdir -p "$6"
+  run) [ -z "${AGENTKIT_ACCOUNT:-}" ] || { echo "fixture: account $AGENTKIT_ACCOUNT refused" >&2; exit 2; }
+       printf '%s\\n' "${*:2:2}" >>"$S.runs"; cat "$5" >>"$S.prompts"; mkdir -p "$6"
        read -r rc answer <"$S.turn"; printf '%b' "$answer" >"$6/final.md"
        cat "$S.said" >"$6/stderr.log" 2>/dev/null
+       cat "$S.events" >"$6/events.jsonl" 2>/dev/null
        echo fixture-session >"$6/session_id"; exit "$rc" ;;
 esac
 exit 97
@@ -64,9 +76,10 @@ class EveryHarness(unittest.TestCase):
             (self.adapters / f"{harness}.sh").write_text(ADAPTER)
             (self.adapters / f"{harness}.sh").chmod(0o755)
 
-    def gate(self, auth, turns=None, said=None):
-        """Check 3 where `auth` names each installed harness's answer, "<exit> <line>", and
-        `said` what a harness wrote to its diagnostics during its turn."""
+    def gate(self, auth, turns=None, said=None, events=None, env=None):
+        """Check 3 where `auth` names each installed harness's answer, "<exit> <line>", `said`
+        what a harness wrote to its diagnostics during its turn, `events` its event log, and
+        `env` what the caller's environment adds."""
         for harness, answer in auth.items():
             stub = self.bin / BINARIES[harness]
             stub.write_text('#!/bin/sh\necho "a harness binary was run: $0" >&2\nexit 97\n')
@@ -74,6 +87,8 @@ class EveryHarness(unittest.TestCase):
             (self.fixture / f"{harness}.auth").write_text(answer + "\n")
             (self.fixture / f"{harness}.turn").write_text((turns or {}).get(harness, "0 Hello") + "\n")
             (self.fixture / f"{harness}.said").write_text((said or {}).get(harness, ""))
+            (self.fixture / f"{harness}.events").write_text(
+                (events or {}).get(harness, ANSWERED.get(harness, "")))
         for runs in self.fixture.glob("*.runs"):
             runs.unlink()
         work = tempfile.mkdtemp(prefix="work-", dir=self.root)
@@ -81,7 +96,7 @@ class EveryHarness(unittest.TestCase):
                "REPO": str(REPO), "SMOKE_CALLER_HOME": str(self.root / "caller"),
                "AGENTKIT_ADAPTER_DIR": str(self.adapters), "FIXTURE": str(self.fixture),
                "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1", "AGENTKIT_DISCORD_WEBHOOK": "off",
-               "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+               "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", **(env or {})}
         result = subprocess.run([str(self.bin / "bash"), "-c", "set -uo pipefail\n" + CHECK],
                                 env=env, text=True, capture_output=True, timeout=300)
         self.assertNotIn("a harness binary was run", result.stderr)
@@ -133,6 +148,22 @@ class EveryHarness(unittest.TestCase):
                     self.assertRegex(result.stdout, rf"FAIL  3c \w+ \({harness}\): .* gave no "
                                      rf"answer: {re.escape(words)}")
                     self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
+
+    def test_a_turn_whose_events_say_it_failed_fails_the_gate(self):
+        # Exit 0 and an answer, beside a record in its event log saying the turn failed.
+        for harness in REST:
+            with self.subTest(harness=harness):
+                result = self.gate(LOGGED_IN, events={harness: FAILED[harness]})
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertRegex(result.stdout, rf"FAIL  3c \w+ \({harness}\): .* gave no "
+                                 r"answer: \{.*(ERROR|error)")
+                self.assertIn("2 passed, 1 failed, 0 skipped", result.stdout)
+
+    def test_a_named_account_in_the_callers_environment_never_reaches_a_turn(self):
+        # The turn runs on the login worker.auth_ok asked about, which no named account turns.
+        result = self.gate(LOGGED_IN, env={"AGENTKIT_ACCOUNT": "acme"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("3 passed, 0 failed, 0 skipped", result.stdout)
 
     def test_a_harness_with_no_login_is_not_checked_never_passed(self):
         token = self.home / ".gemini/antigravity-cli/antigravity-oauth-token"

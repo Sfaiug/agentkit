@@ -1971,16 +1971,25 @@ for pair in "${HARNESSES[@]}"; do
   R=$(newrepo "real-$M")
   if [ $# = 2 ]; then
     A="${AGENTKIT_ADAPTER_DIR:-$REPO/adapters}/$H.sh"
-    "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M" >"$WORK/$M.log" 2>&1
+    # In the environment worker.auth_ok asked for the login in, as a worker's turn gets it:
+    # a caller's AGENTKIT_ACCOUNT would turn the turn to a login this sandbox never borrowed.
+    PYTHONPATH="$REPO" python3 -c 'import os, sys; from agentkit import config
+os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
+      "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M" >"$WORK/$M.log" 2>&1
     CALLRC=$?
-    # A turn that wrote its harness's logout words never reached the model, whatever it
-    # exited with or answered beside them: judged by the scan a worker's turn is judged by.
-    LOGOUT=$(PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import worker
-print(worker.auth_scanner(sys.argv[1])(sys.argv[2]) or "")' "$H" "$WORK/o-$M")
-    if [ "$CALLRC" = 0 ] && [ -z "$LOGOUT" ] && grep -q '[^[:space:]]' "$WORK/o-$M/final.md" 2>/dev/null; then
+    # A turn that wrote its harness's logout words never reached the model, and one whose
+    # event log holds a record saying it failed (Grok's is_error result, OpenCode's error
+    # event) did not answer, whatever it exited with or answered beside them: judged by the
+    # scan and the records a worker's turn is judged by.
+    FAILED=$(PYTHONPATH="$REPO" python3 -c 'import sys; from pathlib import Path
+from agentkit import run, worker
+out = Path(sys.argv[2])
+print(worker.auth_scanner(sys.argv[1])(out)
+      or next(iter(run.failures(run.tail(out / "events.jsonl"), None)), ""))' "$H" "$WORK/o-$M")
+    if [ "$CALLRC" = 0 ] && [ -z "$FAILED" ] && grep -q '[^[:space:]]' "$WORK/o-$M/final.md" 2>/dev/null; then
       ok "3c $M ($H): $1 at $2 answered a one-word prompt"
     else
-      no "3c $M ($H): $1 at $2 gave no answer${LOGOUT:+: $LOGOUT}"
+      no "3c $M ($H): $1 at $2 gave no answer${FAILED:+: $FAILED}"
       diagnose "$CALLRC" "$WORK/$M.log" "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M"
       diagnose "$CALLRC" "$WORK/o-$M/stderr.log" "$H"
     fi
