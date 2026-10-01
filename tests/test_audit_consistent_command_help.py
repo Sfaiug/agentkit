@@ -101,8 +101,7 @@ def probe():
             blocked(event)()
         if event == "open" and isinstance(values[0], (str, bytes)):
             path = os.fsdecode(values[0])
-            # a worker turn looks for what it left running (#294); nothing else reads processes
-            if path.startswith("/proc/") and mode != "worker":
+            if path.startswith("/proc/"):
                 blocked("process inspection")()
             flags = values[2]
             if flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND):
@@ -115,6 +114,10 @@ def probe():
     sys.addaudithook(audit)
     with ExitStack() as stack:
         stack.enter_context(patch.object(urllib.request, "urlopen", side_effect=blocked("HTTP")))
+        if mode == "worker":
+            from agentkit import worker
+            # Fake adapters leave no children; keep the process guard on for worker turns too.
+            stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         if mode in ("help", "module"):
             for name in ("ensure_dirs", "load", "current_session", "resolve_session", "server_alias"):
                 stack.enter_context(patch.object(config, name, side_effect=blocked(f"config.{name}")))
