@@ -14,7 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import host, config, gc, run, usage
+from agentkit import host, config, gc, run, usage, worker
 
 URL = "https://github.com/fixture/repo/pull/1"
 
@@ -108,6 +108,11 @@ class IntegratedCommit(unittest.TestCase):
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
+        # Gate evidence must not depend on the host's running processes or sweep them.
+        self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
+        self.stack.enter_context(patch.object(worker, "kill_marked", return_value=True))
+        self.stack.enter_context(patch.object(run, "marker_pids", return_value=[]))
+        self.stack.enter_context(patch.object(run, "stop_orchestrator_marked"))
         self.stack.enter_context(patch.object(run.time, "sleep"))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,

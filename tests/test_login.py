@@ -165,6 +165,8 @@ class Login(unittest.TestCase):
         sockets.mkdir(mode=0o700)
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "AK_RUN_ROLE": "", "AGENTKIT_DISCORD_WEBHOOK": "off", "NO_COLOR": "1",
             "AGENTKIT_UNATTENDED": "",
             "AGENTKIT_TMUX_SOCKET": "agentkit-test", "TMUX_TMPDIR": str(sockets),
@@ -188,6 +190,11 @@ class Login(unittest.TestCase):
                                               return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(gc, "schedule_gc"))
+        # Login decisions must not depend on the host's running processes or sweep them.
+        self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
+        self.stack.enter_context(patch.object(worker, "kill_marked", return_value=True))
+        self.stack.enter_context(patch.object(run, "marker_pids", return_value=[]))
+        self.stack.enter_context(patch.object(run, "stop_orchestrator_marked"))
         self.sleep = self.stack.enter_context(patch.object(run.time, "sleep"))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
