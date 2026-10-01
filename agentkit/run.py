@@ -1780,29 +1780,37 @@ def reviewer_changes(wt, out_dir, log):
             yield
         finally:
             writable_review_dirs(wt, log)
-            after = git(wt, "rev-parse", "HEAD")
+            after = git(wt, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", check=False)
             branch_after = git(wt, "symbolic-ref", "--quiet", "HEAD", check=False)
-            staged_after = git(wt, "write-tree")
+            # A conflicted index has no tree, but its staged diff and entries remain readable.
+            index_diff = git(wt, "diff", "--cached", "--binary", staged)
             tree_after = snapshot()
-            if skipped or (after, branch_after, staged_after, tree_after) != (head, branch, staged, tree):
+            if skipped or index_diff or (after, branch_after, tree_after) != (head, branch, tree):
                 path = Path(out_dir).parent / "reviewer-changes.patch"
                 paths, patches = set(dirty_paths(wt)) - before, set()
                 with path.open("a") as saved:
-                    saved.write(f"# {Path(out_dir).name}: HEAD {head} -> {after}\n")
+                    saved.write(f"# {Path(out_dir).name}: HEAD {head} -> {after or 'unborn HEAD'}\n")
                     for error in skipped:
                         saved.write("# skipped: " + error.replace("\n", "\n# ") + "\n")
                     if branch_after != branch:
                         saved.write(f"# checkout: {branch or 'detached HEAD'} -> "
                                     f"{branch_after or 'detached HEAD'}\n")
-                    for label, old, new in (("checkout", tree, tree_after),
-                                            ("commits", head, after),
-                                            ("index", staged, staged_after)):
-                        diff = git(wt, "diff", "--binary", old, new)
+                    def save_diff(label, *args):
+                        diff = git(wt, "diff", "--binary", *args)
                         paths.update(p for p in git(wt, "diff", "--name-only", "-z",
-                                                   old, new).split("\0") if p)
+                                                   *args).split("\0") if p)
+                        diff = re.sub(r"^\* Unmerged path ", "# Unmerged path ", diff, flags=re.M)
                         if diff and diff not in patches:
                             saved.write(f"# {label}\n{diff}\n")
                             patches.add(diff)
+
+                    save_diff("checkout", tree, tree_after)
+                    if after:
+                        save_diff("commits", head, after)
+                    save_diff("index", "--cached", staged)
+                    unmerged = git(wt, "ls-files", "--unmerged")
+                    if unmerged:
+                        saved.write("# unmerged index\n# " + unmerged.replace("\n", "\n# ") + "\n")
                 if branch:
                     git(wt, "symbolic-ref", "HEAD", branch)
                 else:
@@ -1813,7 +1821,8 @@ def reviewer_changes(wt, out_dir, log):
                 git(wt, "read-tree", staged)
                 undone = ", ".join(sorted(paths)) or ("unreadable paths" if skipped else "")
                 if after != head:
-                    undone = f"commit {after[:12]} back to {head[:12]}" + (f"; {undone}" if undone else "")
+                    moved = f"commit {after[:12]}" if after else "unborn HEAD"
+                    undone = f"{moved} back to {head[:12]}" + (f"; {undone}" if undone else "")
                 if branch_after != branch:
                     undone = f"checkout back to {branch or 'detached HEAD'}" + (f"; {undone}" if undone else "")
                 log(f"WARN undid reviewer changes: {undone}; saved {path}")

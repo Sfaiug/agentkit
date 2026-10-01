@@ -572,10 +572,12 @@ class ReviewerEdits(unittest.TestCase):
                         patch.object(run, "reviewer_changes", side_effect=check_reset):
                     self.assertEqual(self.review(
                         {"git": setup, "conflict": command, "files": {"staged.txt": "index edit\n"},
-                         "stage": True, "text": "Still reviewing."}, {}), "PASS")
+                         "stage": True}), "PASS")
+                    self.assertEqual(self.review({}), "PASS")
                 saved = self.archive.read_text()
                 for content in ("<<<<<<<", "other work", "+index edit", "+working edit"):
                     self.assertIn(content, saved)
+                self.assertIn("# unmerged index", saved)
                 self.assertTrue(any("WARN" in line and "tracked.txt" in line
                                     for line in self.logs), self.logs)
                 self.assertEqual(json.loads((self.root / "responses.json").read_text()), [])
