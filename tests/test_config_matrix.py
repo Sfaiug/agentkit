@@ -72,10 +72,11 @@ INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", 
 
 
 class Screen:
-    """One child `c` screen on a pty: what it wrote so far, keys sent to it, the file it saves."""
+    """One child `c` screen on a pty: what it wrote so far, keys sent to it, the file it saves;
+    `env` over the child's own environment."""
 
     def __init__(self, case, workers=("opus", "astra"), rows=40, cols=100, child=CHILD, text=None,
-                 session="fix-api"):
+                 session="fix-api", env=None):
         self.case = case
         home = tempfile.TemporaryDirectory(prefix="config-matrix-")
         case.addCleanup(home.cleanup)
@@ -87,13 +88,13 @@ class Screen:
         self.path.write_text(text)
         self.master, self.slave = os.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
-        env = {key: value for key, value in os.environ.items() if key not in INHERITED}
-        env.update({"HOME": home.name, "TERM": "xterm-256color", "LANG": "C.UTF-8",
-                    "LC_ALL": "C.UTF-8", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
-                    "MATRIX_REPO": str(REPO), "MATRIX_SESSION": session or "",
-                    "MATRIX_WORKERS": json.dumps(list(workers))})
+        child_env = {key: value for key, value in os.environ.items() if key not in INHERITED}
+        child_env.update({"HOME": home.name, "TERM": "xterm-256color", "LANG": "C.UTF-8",
+                          "LC_ALL": "C.UTF-8", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
+                          "MATRIX_REPO": str(REPO), "MATRIX_SESSION": session or "",
+                          "MATRIX_WORKERS": json.dumps(list(workers)), **(env or {})})
         self.proc = subprocess.Popen([sys.executable, "-c", child], stdin=self.slave,
-                                     stdout=self.slave, stderr=self.slave, env=env,
+                                     stdout=self.slave, stderr=self.slave, env=child_env,
                                      start_new_session=True)
         self.output, self.lock = b"", threading.Lock()
         self.reader = threading.Thread(target=self._read, daemon=True)
@@ -196,9 +197,9 @@ class Matrix(unittest.TestCase):
         for heading in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
             self.assertIn(f"\n{heading}\n", body)
         self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "claude", "○", "□", "□",
-                                                          "‹", "xhigh", "›"])
+                                                          "‹", "xhigh", "›", "▂▃▅▆█"])
         self.assertEqual(row(lines, "opus")[1].split(), ["opus", "claude", "●", "■", "■",
-                                                         "‹", "xhigh", "›"])
+                                                         "‹", "xhigh", "›", "▂▃▅▆█"])
         self.assertEqual(row(lines, "haiku")[0], row(lines, "opus")[0] + 1)   # under Claude
         tail = [line.strip() for line in lines]
         self.assertIn("+ add a model", tail)
@@ -221,7 +222,7 @@ class Matrix(unittest.TestCase):
         self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
         self.assertEqual(lines[2].split(), ["effort"])
         self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "claude", "‹", "xhigh",
-                                                          "›"])
+                                                          "›", "▂▃▅▆█"])
         self.assertEqual(lines[-1], EFFORT_KEYS)          # the effort is the first cell
         self.assertFalse(any(mark in line for line in lines for mark in "●○■□"), lines)
         lines = screen.press(LEFT, lambda lines: lines[-1] == "  ↑↓←→ move   ⏎ open   esc back")
@@ -303,12 +304,13 @@ class Matrix(unittest.TestCase):
         self.assertEqual(effort()["opus"], "low")
         screen.press(b" ", lambda lines: "‹ medium ›" in row(lines, "opus")[1])
         self.assertEqual(effort()["opus"], "medium")
-        # haiku takes only none: from xhigh it lands there, and none is all there is
-        screen.press(DOWN + ENTER, lambda lines: "‹ none ›" in row(lines, "haiku")[1])
+        # haiku takes only none, its word alone: from xhigh it lands there, and none is all
+        # there is
+        screen.press(DOWN + ENTER, lambda lines: row(lines, "haiku")[1].endswith("  none"))
         self.assertEqual(effort()["haiku"], "none")
         before = screen.path.read_bytes()
         lines = screen.press(ENTER)
-        self.assertIn("‹ none ›", row(lines, "haiku")[1])
+        self.assertTrue(row(lines, "haiku")[1].endswith("  none"), row(lines, "haiku")[1])
         self.assertEqual(screen.path.read_bytes(), before)
         self.assertEqual(effort()["fable"], "xhigh")
         screen.leave()
@@ -367,7 +369,8 @@ class Matrix(unittest.TestCase):
         screen = Screen(self)
         lines = screen.frame()
         # past every model, `+ add a model` and Providers
-        down = sum(1 for line in lines if line.startswith(("  ", "›")) and "‹" in line) + 2
+        models = lines[3:next(n for n, line in enumerate(lines) if "+ add a model" in line)]
+        down = sum(1 for line in models if line.startswith(("  ", "›"))) + 2
         lines = screen.press(DOWN * down, lambda lines: highlighted(lines).startswith("› Discord"))
         self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")
         mark = len(screen.text())

@@ -602,6 +602,7 @@ def screen(harness):
     built = {"composer": _pattern(block.get("composer"), path),
              "footer": _pattern(f"(?:{footer})$" if footer else None, path, re.I),
              "ruled": bool(block.get("ruled")),
+             "draft": _pattern(block.get("draft"), path, re.M),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
     return built
@@ -2280,6 +2281,10 @@ def composer_draft(harness, pane):
     """
     chrome = screen(harness)
     raws, rows = _screen_rows(harness, pane_tail(pane))
+    if chrome["draft"]:
+        # A composer no `❯›⟩` mark finds: its manifest finds what it holds, a match a row or a
+        # block of them, and finding none reads as empty.
+        return re.sub(r"\s+", "", "".join(chrome["draft"].findall("\n".join(rows))))
 
     def end(at):
         return next((row for row in range(at + 1, len(rows)) if chrome_line(chrome, rows[row])),

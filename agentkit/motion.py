@@ -2,13 +2,14 @@
 
 At rest one thing moves, a working session's `●` breathing; news moves once and is then still --
 a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright, a bar
-that changed value glides to it; a popup's content fades in once, as it opens; the rule under a
-screen's header glides while its content is fetched -- and every motion runs on this same clock
-(docs/cli-design.md, Motion).  A screen says which cells animate and how when it draws
-(`Clock.start`), asking first which of its values are news (`Clock.look`); the wait loop asks
-how long until the next frame (`Clock.wait`) and what to write then (`Clock.frame`).  No screen
-keeps a timer: time, easing and the running animations live here, and cells animated alike are
-in one phase because each reads one clock.
+that changed value glides to it, an effort's bar a step filled rises into place and a step onto
+a model's highest effort sends a light through its word; a popup's content fades in once, as it
+opens; the rule under a screen's header glides while its content is fetched -- and every motion
+runs on this same clock (docs/cli-design.md, Motion).  A screen says which cells animate and how
+when it draws (`Clock.start`), asking first which of its values are news (`Clock.look`); the
+wait loop asks how long until the next frame (`Clock.wait`) and what to write then
+(`Clock.frame`).  No screen keeps a timer: time, easing and the running animations live here,
+and cells animated alike are in one phase because each reads one clock.
 """
 
 import math
@@ -24,6 +25,8 @@ SETTLE = 0.4        # ... a `✓` that turned `done` takes from bright to its co
 GLIDE = 0.3         # ... a bar takes from its old value to its new one
 LIT = 0.3           # ... a task bar's newly filled block stays lit after the glide
 SWEEP = 0.4         # ... the light takes across a bar that reached full, after the glide
+RISE = 0.15         # ... an effort's bar a step filled takes to rise into place, or to lower
+SHIMMER = 0.6       # ... the light takes through an effort's word that a step took to its highest
 BRIGHTER = 0.5      # how lit news is: half way from its colour to the foreground
 FADE = 0.12         # seconds a popup's content takes to come up out of the background
 WAIT = 0.15         # ... a screen's content is fetched for before its rule says so
@@ -109,6 +112,44 @@ def gliding(before, after, began, colour=None, bright=False, sweep=False):
         return at
     return ([cell(n) for n in range(size)],
             began + GLIDE + (SWEEP if sweep else LIT if new else 0))
+
+
+def rising(bar, up, began, bright=False):
+    """One of an effort's bars (terminal.signal), `bar` its glyph, that a step at `began` filled
+    -- `up` -- or emptied: it rises from nothing into place in RISE seconds, or lowers from its
+    height to nothing, and is then as the draw wrote it, dim where it is empty; and when it is
+    still.  `bright` on the highlighted row."""
+    height = terminal.SIGNAL.index(bar) + 1
+
+    def at(now):
+        x = eased((now - began) / RISE)
+        if x >= 1:
+            text = bar if up else terminal.styled(bar, "dim")
+        else:
+            eighths = round(height * (x if up else 1 - x))
+            text = terminal.SIGNAL[eighths - 1] if eighths else " "
+        return terminal.highlight(text, mark=False) if bright else text
+    return at, began + RISE
+
+
+def shimmering(word, began, kind=None, bright=False):
+    """An effort's `word` that a step at `began` took to its model's highest: one light through
+    it, a letter at a time left to right, in SHIMMER seconds, and then as the draw wrote it; and
+    when it is still.  The word is written whole from its first cell, so a letter two cells wide
+    keeps both.  `kind` is how the draw styled it -- `reverse` where the highlight's cell is,
+    `dim` on a spent model's row -- and `bright` is the highlighted row."""
+    light = terminal.faded("working", -BRIGHTER)
+
+    def at(now):
+        lit = int(len(word) * (now - began) / SHIMMER)
+        dark, shone, rest = word[:lit], terminal.styled(word[lit:lit + 1], light), word[lit + 1:]
+        if kind:
+            dark, rest = terminal.styled(dark, kind), terminal.styled(rest, kind)
+        if kind == "reverse":
+            shone = terminal.styled(shone, kind)
+        text = dark + shone + rest
+        return terminal.highlight(text, mark=False) if bright else text
+    return at, began + SHIMMER
 
 
 def fetching(clock, began):
