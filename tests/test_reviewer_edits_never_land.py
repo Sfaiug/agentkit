@@ -21,10 +21,12 @@ root = pathlib.Path(os.environ["REVIEW_FIXTURE"])
 wt, out = pathlib.Path(sys.argv[4]), pathlib.Path(sys.argv[6])
 def git(*args):
     return subprocess.check_output(["git", "-C", str(wt), *args], text=True).strip()
-assert git("rev-parse", "HEAD") == (root / "head").read_text()
-assert (wt / "tracked.txt").read_text() == "executor work\\n"
-assert (wt / "keep/existing.txt").read_text() == "suite artifact\\n"
-assert sorted(git("ls-files", "--others", "--exclude-standard").splitlines()) == ["keep/existing.txt"]
+if (git("rev-parse", "HEAD") != (root / "head").read_text()
+        or (wt / "tracked.txt").read_text() != "executor work\\n"
+        or (wt / "keep/existing.txt").read_text() != "suite artifact\\n"
+        or sorted(git("ls-files", "--others", "--exclude-standard").splitlines()) != ["keep/existing.txt"]):
+    (out / "final.md").write_text("VERDICT: FAIL\\n## Findings\\nThe previous turn's edits remain.")
+    sys.exit(0)
 plan = json.loads((root / "responses.json").read_text())
 row = plan.pop(0)
 (root / "responses.json").write_text(json.dumps(plan))
@@ -161,6 +163,22 @@ class ReviewerEdits(unittest.TestCase):
         self.assert_restored()
         self.assertIn("+silent edit", self.archive.read_text())
         self.assertIn("+extra ask edit", self.archive.read_text())
+
+    def test_foreground_retry_restores_before_the_next_adapter_call(self):
+        self.assertEqual(self.review(
+            {"files": {"tracked.txt": "background edit\n"},
+             "stderr": "Background tasks still running"},
+            {"files": {"foreground.txt": "foreground edit\n"}}), "PASS")
+        self.assert_restored()
+        self.assertIn("+background edit", self.archive.read_text())
+        self.assertIn("+foreground edit", self.archive.read_text())
+
+    def test_existing_dirty_files_are_restored_even_if_the_reviewer_commits_them(self):
+        self.assertEqual(self.review(
+            {"files": {"keep/existing.txt": "reviewer artifact edit\n",
+                       "keep/new.txt": "reviewer new\n"}, "commit": True}), "PASS")
+        self.assert_restored()
+        self.assertIn("+reviewer artifact edit", self.archive.read_text())
 
     def test_fallback_reviewer_starts_on_the_executor_commit(self):
         with patch.object(run, "collect_usage", return_value={}), \

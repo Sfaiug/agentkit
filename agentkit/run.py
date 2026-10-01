@@ -1458,8 +1458,10 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         began = time.time()
         named = env if account is None else {**env, **config.account_env(account)}
         try:
-            result = worker.call(cfg, name, text, workspace, target, role, session, env=named,
-                                 limit=limit)
+            with reviewer_checkout(workspace, target, log) if role in (
+                    "reviewer", "reviewer-pr") else nullcontext():
+                result = worker.call(cfg, name, text, workspace, target, role, session, env=named,
+                                     limit=limit)
         except worker.LoginExpired as expired:
             log(f"{role} {name} cannot authenticate: {expired.why}; the run waits for that "
                 "login rather than retrying into it")
@@ -1657,6 +1659,59 @@ def dirty_paths(wt):
     tracked = git(wt, "diff", "--name-only", "-z", "HEAD", check=False)
     untracked = git(wt, "ls-files", "--others", "--exclude-standard", "-z", check=False)
     return [p for p in f"{tracked}\0{untracked}".split("\0") if p]
+
+
+def reset_checkout(wt, head, before, check=False):
+    """Discard tracked changes and only paths created since the checkout was recorded."""
+    git(wt, "reset", "--quiet", "--hard", head, check=check)
+    new = sorted(set(dirty_paths(wt)) - before)
+    if new:
+        git(wt, "clean", "--quiet", "-fd", "--", *(f":(literal){p}" for p in new), check=check)
+
+
+@contextmanager
+def reviewer_checkout(wt, out_dir, log):
+    """A review turn's changes survive only in its round's patch, including on a failed turn."""
+    head = git(wt, "rev-parse", "HEAD")
+    before = set(dirty_paths(wt))
+    staged = git(wt, "write-tree")
+    # A private index records untracked files too, without staging artifacts for the next
+    # executor. Its tree also puts back existing dirty paths a reviewer edited or committed.
+    with tempfile.TemporaryDirectory() as tmp:
+        index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        git(wt, "read-tree", head, env=index)
+        git(wt, "add", "-A", "--", ".", env=index)
+        tree = git(wt, "write-tree", env=index)
+        try:
+            yield
+        finally:
+            after = git(wt, "rev-parse", "HEAD")
+            staged_after = git(wt, "write-tree")
+            git(wt, "add", "-A", "--", ".", env=index)
+            tree_after = git(wt, "write-tree", env=index)
+            if (after, staged_after, tree_after) != (head, staged, tree):
+                path = Path(out_dir).parent / "reviewer-changes.patch"
+                paths, patches = set(), set()
+                with path.open("a") as saved:
+                    saved.write(f"# {Path(out_dir).name}: HEAD {head} -> {after}\n")
+                    for label, old, new in (("checkout", tree, tree_after),
+                                            ("commits", head, after),
+                                            ("index", staged, staged_after)):
+                        diff = git(wt, "diff", "--binary", old, new)
+                        paths.update(p for p in git(wt, "diff", "--name-only", "-z",
+                                                   old, new).split("\0") if p)
+                        if diff and diff not in patches:
+                            saved.write(f"# {label}\n{diff}\n")
+                            patches.add(diff)
+                reset_checkout(wt, head, before, check=True)
+                if before:
+                    git(wt, "restore", f"--source={tree}", "--worktree", "--",
+                        *(f":(literal){p}" for p in sorted(before)))
+                git(wt, "read-tree", staged)
+                undone = ", ".join(sorted(paths))
+                if after != head:
+                    undone = f"commit {after[:12]} back to {head[:12]}" + (f"; {undone}" if undone else "")
+                log(f"WARN undid reviewer changes: {undone}; saved {path}")
 
 
 GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each rewrites its log line
@@ -4071,9 +4126,10 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                 "AK_RUN_LOG": str(out2.parent.parent / "log.txt")}
         stop_check(lp.run_dir)
         try:
-            code2, text2, sid2, killed2 = worker.call(lp.cfg, lp.reviewer, NO_VERDICT_ASK, lp.wt,
-                                                      out2, lp.role("reviewer"), lp.review_sid,
-                                                      env=env2, limit=lp.turn_limit)
+            with reviewer_checkout(lp.wt, out2, lp.log) if not lp.scratch else nullcontext():
+                code2, text2, sid2, killed2 = worker.call(lp.cfg, lp.reviewer, NO_VERDICT_ASK, lp.wt,
+                                                          out2, lp.role("reviewer"), lp.review_sid,
+                                                          env=env2, limit=lp.turn_limit)
             # The extra ask names no account, so it runs on the usual login: the turn's
             # own reading belongs to that login, and to no login nobody tracks.
             provider = config.model(lp.cfg, lp.reviewer)["provider"]
@@ -5434,10 +5490,7 @@ def target_fails(lp, upstream, dw_log):
             # worktree that is still not back is said so, never claimed clean.
             stopped = None
             try:
-                git(lp.wt, "reset", "--quiet", "--hard", "HEAD", check=False)
-                new = sorted(set(dirty_paths(lp.wt)) - before)
-                if new:
-                    git(lp.wt, "clean", "--quiet", "-fd", "--", *new, check=False)
+                reset_checkout(lp.wt, "HEAD", before)
             except Stopped as exc:
                 stopped = exc
             try:
