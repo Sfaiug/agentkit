@@ -60,6 +60,8 @@ if row.get("push"):
     pushed = subprocess.run(["git", "-C", str(wt), "push"], capture_output=True, text=True)
     (out / "push.json").write_text(json.dumps({"code": pushed.returncode,
                                               "stderr": pushed.stderr}))
+for name, mode in row.get("chmod", {}).items():
+    (wt / name).chmod(mode)
 (out / "final.md").write_text(row.get("text", "VERDICT: PASS"))
 (out / "stderr.log").write_text(row.get("stderr", ""))
 (out / "session_id").write_text("fixture-session")
@@ -387,6 +389,56 @@ class ReviewerEdits(unittest.TestCase):
                     if name == "private.txt":
                         skipped.chmod(0o600)
                     skipped.unlink()
+
+    def test_read_only_cache_does_not_block_the_next_turn(self):
+        cache = self.wt / "cache/mod"
+        cache.mkdir(parents=True)
+        (cache / "go.mod").write_text("module acme\n")
+        cache.chmod(0o555)
+        self.addCleanup(cache.chmod, 0o755)
+        with (self.wt / ".git/info/exclude").open("a") as excluded:
+            excluded.write("\ncache/\n")
+        real_call = worker.call
+
+        def check_cache(cfg, name, body, workspace, out, role, session, **kwargs):
+            self.assertEqual((Path(workspace) / "cache/mod/go.mod").read_text(), "module acme\n")
+            return real_call(cfg, name, body, workspace, out, role, session, **kwargs)
+
+        with patch.object(worker, "call", side_effect=check_cache):
+            self.assertEqual(self.review({"text": "Still reviewing."}, {}), "PASS")
+            self.assertEqual(self.review({"code": 1, "text": "",
+                                          "stderr": "HTTP 503 Service Unavailable"}, {}), "PASS")
+            self.assertEqual(self.review({}), "PASS")
+        self.assertEqual(cache.stat().st_mode & 0o777, 0o555)
+        self.assertEqual((cache / "go.mod").read_text(), "module acme\n")
+        self.assertFalse((self.lp.round_dir / "review-checkout").exists())
+        self.assert_restored()
+
+    def test_read_only_reviewer_directories_are_archived_and_removed(self):
+        self.assertEqual(self.review(
+            {"files": {"probe/go.mod": "module acme\n"}, "chmod": {"probe": 0o555},
+             "text": "Still reviewing."}, {}), "PASS")
+        self.assertIn("+module acme", self.archive.read_text())
+        self.assertTrue(any("WARN" in line and "probe" in line for line in self.logs), self.logs)
+        self.assertEqual(json.loads((self.root / "responses.json").read_text()), [])
+        self.assertFalse((self.lp.round_dir / "review-checkout").exists())
+        self.assert_restored()
+
+    def test_unreadable_reviewer_files_are_skipped_without_losing_the_verdict(self):
+        for name in ("secret.txt", "tracked.txt", "keep/existing.txt"):
+            with self.subTest(name=name):
+                self.logs.clear()
+                self.assertEqual(self.review(
+                    {"files": {name: "unreadable edit\n", "readable.txt": "readable edit\n"},
+                     "chmod": {name: 0}, "text": "Still reviewing."}, {}), "PASS")
+                saved = self.archive.read_text()
+                self.assertIn("+readable edit", saved)
+                self.assertIn(name, saved)
+                self.assertTrue(any("WARN" in line and "skipped" in line and name in line
+                                    for line in self.logs), self.logs)
+                self.assertEqual(json.loads((self.root / "responses.json").read_text()), [])
+                self.assertFalse((self.lp.round_dir / "review-checkout").exists())
+                self.assert_restored()
 
     def test_plain_reviewer_push_cannot_change_shared_refs(self):
         base = self.git("rev-parse", "HEAD~1")
