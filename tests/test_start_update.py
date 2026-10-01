@@ -46,7 +46,8 @@ CHILD = r'''
 import os, sys
 from pathlib import Path
 sys.path.insert(0, str(Path.home() / "agentkit"))
-from agentkit import BUILD, config, macbridge, menu, orch, terminal, watch
+# Load the listing's run helpers before the clock starts, as the other loop fixtures do.
+from agentkit import BUILD, config, macbridge, menu, orch, run, terminal, watch
 
 cfg = {"defaults": {"orchestrator": "acme", "workers": ["acme"]},
        "models": {"acme": {"harness": "claude", "model": "acme-model",
@@ -264,7 +265,8 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
                                       ("install", 2, b"\x1b[B", "web-portal")):
             self.wait_for(lambda: (self.root / f"{step}.started").exists())
             rule = "━" * (30 * done) + "─" * (90 - 30 * done)
-            screen.when(rule)
+            screen.when("━" * (30 * done) if done else "agentkit · updating")
+            self.assertIn(rule, ANSI.sub("", screen.text()))
             self.assertIn("agentkit · updating", screen.text())
             screen.key(key, f"<draw old {seat}>")
             self.release(step)
@@ -302,7 +304,8 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
     def test_esc_leaves_at_once_and_the_detached_install_finishes_once(self):
         self.release("ls-remote", "fetch", "pull")
         screen = self.opened()
-        screen.when("━" * 60 + "─" * 30)
+        screen.when("━" * 60)
+        self.assertIn("━" * 60 + "─" * 30, ANSI.sub("", screen.text()))
         self.wait_for(lambda: (self.root / "install.started").exists())
         screen.leave()
         self.assertTrue(running(self.updaters()[0]))
