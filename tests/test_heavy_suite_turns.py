@@ -69,7 +69,8 @@ class HeavySuiteTurns(unittest.TestCase):
         # a worker running this file carries its run's marker, which a killed command
         # would end, and the suites' AK_MAX_RUNS=0, under which no suite takes a turn
         self.stack.enter_context(patch.dict(os.environ, {"HOME": str(self.root),
-                                                          "AGENTKIT_RUN": "", "AK_RUN_DEPTH": "0"}))
+                                                          "AGENTKIT_RUN": "", "AK_PARENT_RUN": "",
+                                                          "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0"}))
         os.environ.pop("AK_MAX_RUNS", None)
         os.environ.pop("AK_HOST_READINGS", None)
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
@@ -123,6 +124,36 @@ class HeavySuiteTurns(unittest.TestCase):
             self.assertEqual((limit, pinned), (small, False))
             self.assertIn(f"heavy suites: {small} at once (derived)",
                           run.host_status_line())
+
+    def test_headroom_admits_a_fifth_suite_with_four_running(self):
+        for resource, readings in (
+                ("cpu", {**SMALL, "slice_cpu_used": 2.8 + 3}),
+                ("memory", {**SMALL, "slice_memory_used_mb": 2870})):
+            with self.subTest(resource=resource), ExitStack() as holders:
+                holders.enter_context(patch.dict(os.environ, {
+                    "AK_HOST_READINGS": json.dumps(readings)}))
+                holders.enter_context(patch.object(run.time, "sleep", side_effect=
+                    AssertionError("headroom for three more suites must admit a fifth")))
+                for index in range(4):
+                    holder = holders.enter_context(run.gate_lock(ACME, index).open("a"))
+                    fcntl.flock(holder, fcntl.LOCK_EX)
+                directory = self.record(resource, WIDGET)
+                hold = run._acquire_gate_turn(directory, directory / "donewhen.log", None)
+                self.assertIsNotNone(hold)
+                hold.release()
+
+    def test_memory_below_one_suite_waits_even_with_cpu_headroom(self):
+        readings = {**SMALL, "slice_memory_used_mb": 4100 - 409}
+        with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(readings)}), \
+                run.gate_lock(ACME, 0).open("a") as holder, \
+                patch.object(run.time, "sleep", side_effect=InterruptedError):
+            fcntl.flock(holder, fcntl.LOCK_EX)
+            directory = self.record("memory-full", WIDGET)
+            log_path = directory / "donewhen.log"
+            with self.assertRaises(InterruptedError):
+                run._acquire_gate_turn(directory, log_path, None)
+            self.assertEqual(log_path.read_text(),
+                             "waiting for a heavy suite turn · 1 running · 0 more fit\n")
 
     def test_a_saturated_slice_waits_yet_one_turn_is_always_free(self):
         self.assertEqual(run.derived_heavy_limit(dict(SATURATED)), 1)
