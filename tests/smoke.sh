@@ -772,10 +772,8 @@ class SessionState(unittest.TestCase):
             self.stack.enter_context(patch.object(module, name))
         self.stack.enter_context(patch.object(run, "run_dirs", return_value=[]))
         self.stack.enter_context(patch.object(watch, "gh_json", return_value=(None, "offline")))
-        # No command, network request or actual attach may escape this fixture; the title's
-        # version lookup is stubbed the way the seat listing is (v5c).
+        # No command, network request or actual attach may escape this fixture.
         self.stack.enter_context(patch.object(subprocess, "run", side_effect=AssertionError("subprocess")))
-        self.stack.enter_context(patch.object(menu, "installed", return_value="abc1234 · 12 Jan"))
         self.stack.enter_context(patch.object(notify.urllib.request, "urlopen",
                                              side_effect=AssertionError("network")))
         self.notice("needs", "May I merge?")
@@ -3747,16 +3745,14 @@ with open(sys.argv[1], "w") as fh:
 PY
 MENU=0
 printf '\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-q.log" 2>&1 || MENU=1
-# the key line is those five letter keys and nothing else; numbers open seats
-grep -q '^  n new   x stop   c config   i info   esc leave' "$WORK/menu-q.log" || MENU=1
+# the key line is those four letter keys and nothing else; numbers open seats
+grep -q '^  n new   x stop   c config   esc leave' "$WORK/menu-q.log" || MENU=1
 grep -q 'p preview\|b browser\|r runs\|u update\|s shell' "$WORK/menu-q.log" && MENU=1
-# `c` lists the config with its values, with no seat the efforts alone, and `i` is one screen;
-# `r`/`p`/`b`/`s`/`u` are not keys
+# `c` lists the config with its values, with no seat the efforts alone;
+# `i`/`r`/`p`/`b`/`s`/`u` are not keys
 printf 'c\n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-c.log" 2>&1 || MENU=1
 grep -qx ' *effort' "$WORK/menu-c.log" || MENU=1
-printf 'i\n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-i.log" 2>&1 || MENU=1
-grep -q '^agentkit: you talk to one orchestrator' "$WORK/menu-i.log" || MENU=1
-for key in r p b s u; do
+for key in i r p b s u; do
   printf "$key\n\n" | HOME="$MHOME" ak --dry-run >"$WORK/menu-$key.log" 2>&1 || MENU=1
   grep -q "not a key: '$key'" "$WORK/menu-$key.log" || MENU=1
 done
@@ -3776,7 +3772,7 @@ grep -q '^would start new' "$WORK/menu-n-eof.log" || MENU=1
 ls "$MHOME/.agentkit/state" | grep -qE '^(session|rulebook)-' && MENU=1
 printf 'zz\n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-bad.log" 2>&1 || MENU=1
 grep -q "not a key: 'zz'" "$WORK/menu-bad.log" || MENU=1
-[ "$MENU" = 0 ] && ok "20 the menu: numbers and n/x/c/i/esc on the line, c placeholder and i info, r/p/b/s/u refused, an empty line leaves, n asks Name, Orchestrator and Workers with defaults and would start ${MSESSION:-?} creating no session, and a stray key is refused" \
+[ "$MENU" = 0 ] && ok "20 the menu: numbers and n/x/c/esc on the line, c placeholder, i/r/p/b/s/u refused, an empty line leaves, n asks Name, Orchestrator and Workers with defaults and would start ${MSESSION:-?} creating no session, and a stray key is refused" \
               || no "20 the menu"; [ "$MENU" = 0 ] || sed 's/^/      /' "$WORK/menu-n.log" | head -12
 
 # --- 20c: the menu offers only what makes sense, and works from any terminal (offline) ---
@@ -5619,7 +5615,7 @@ def menu_lines(keys):
     return [line.rstrip() for line in out.getvalue().splitlines() if line.strip()]
 
 
-assert menu.KEYS == "n new   x stop   c config   i info   esc leave", menu.KEYS
+assert menu.KEYS == "n new   x stop   c config   esc leave", menu.KEYS
 assert not hasattr(menu, "runs_listing") and not hasattr(menu, "runs")
 assert not hasattr(menu, "recover_run") and not hasattr(menu, "watch_run")
 lines = menu_lines("\n")
@@ -5637,20 +5633,18 @@ assert SMOKE in status.getvalue(), status.getvalue()
 assert "Merge the MOV helper" in "\n".join(lines), lines
 assert "hero swapped" in "\n".join(lines), lines
 assert not any("press r" in line for line in lines), lines
-for key in ("r", "p", "b", "s", "u"):
+for key in ("i", "r", "p", "b", "s", "u"):
     out = menu_lines(f"{key}\n\n")
     assert any(f"not a key: {key!r}" in line for line in out), (key, out)
 shown = menu_lines("c\n\n")      # a pipe highlights no seat: the efforts alone
 assert any(line.strip() == "effort" for line in shown), shown
-info = menu_lines("i\n\n")
-assert any("agentkit: you talk to one orchestrator" in line for line in info), info
 assert watch.plan_progress("atoll-fix") == (2, 5)
 assert watch.plan_progress("no-such-seat") == (0, 0)
 print("ok")
 PY
 RENDERRC=$?
 if [ "$RENDERRC" = 0 ]; then
-  ok "35a menu renderer: projects, rows, plan bar, six keys, c/i, no runs"
+  ok "35a menu renderer: projects, rows, plan bar, five keys, c, no runs"
 else
   no "35a menu renderer"
   diagnose "$RENDERRC" "$WORK/runs.log" python3 'check 35 embedded fixture'

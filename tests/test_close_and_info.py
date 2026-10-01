@@ -1,5 +1,6 @@
-"""`x` acts on the highlighted seat and a done one closes with that one key; `i` is one calm screen
-read with the keys; a stopped seat leaves no rulebook, no idle-compact stamp and no open card.
+"""`x` acts on the highlighted seat and a done one closes with that one key; a press begun on one
+screen is no click on the next; a stopped seat leaves no rulebook, no idle-compact stamp and no
+open card.
 
 The menu tests run `menu.loop` in a child process on a pty of its own, the way
 tests/test_menu_keys.py does, with the seat listing, each seat's word, the usage rows and the
@@ -51,7 +52,6 @@ menu.seat_row_state = lambda cfg, session, **facts: {
 menu.usage_lines = lambda cfg, width: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
-menu.installed = lambda refresh=False: "abc1234 · 23 Sep"
 menu.stop_session_runs = lambda name, dry_run=False: None
 
 def cmd_stop(argv):
@@ -269,62 +269,6 @@ class CloseAndInfo(unittest.TestCase):
         self.assertIn("   x stop   ", lines[-1])
         menu.leave()
 
-    def test_info_is_one_screen_read_with_the_keys_and_esc_returns(self):
-        menu = Menu(self, {"alpha": "working"})
-        menu.frame()
-        mark = menu.mark()
-        menu.send(b"i")
-        info = menu.frame(keys="esc back", after=mark)
-        self.assertTrue(info[0].startswith("agentkit · info"), info)
-        body = "\n".join(info)
-        self.assertIn("agentkit: you talk to one orchestrator", body)
-        for line in (*menu_module_lines(), "agentkit abc1234 · 23 Sep"):
-            self.assertIn(line, body)
-        for gone in ("results:", "usage left", "q back"):
-            self.assertNotIn(gone, body)
-        self.assertEqual(info[-1], "  esc back")
-        time.sleep(0.3)                           # a line typed here would be read; none is
-        self.assertNotIn("\x1b[?1049l", menu.text()[mark:])   # the menu's screen, still taken
-        mark = menu.mark()
-        menu.send(ESC)
-        menu.frame(after=mark)
-        mark = menu.mark()
-        menu.send(b"i")
-        menu.frame(keys="esc back", after=mark)
-        mark = menu.mark()
-        menu.send(b"q")                           # `q` is no key here: the screen stays up
-        time.sleep(0.3)
-        self.assertNotIn("esc leave", menu.text()[mark:])
-        menu.send(ESC)
-        menu.frame(after=mark)
-        menu.leave()
-        self.assertNotIn("<opened", menu.text())
-
-    def test_info_scrolls_where_it_does_not_fit_and_a_click_on_esc_back_returns(self):
-        menu = Menu(self, {"alpha": "working"}, rows=12, cols=40)
-        menu.frame()
-        mark = menu.mark()
-        menu.send(b"i")
-        info = menu.frame(keys="esc back", after=mark)
-        self.assertLessEqual(len(info), 12)
-        self.assertEqual(info[-1], "  ↑↓ scroll   esc back")
-        self.assertTrue(info[2].startswith("agentkit: you talk"), info)
-        for line in info:
-            self.assertLessEqual(terminal.cells(line), 40, line)
-        mark = menu.mark()
-        menu.send(DOWN + DOWN)
-        info = menu.frame(lambda lines: not lines[2].startswith("agentkit: you"),
-                          keys="esc back", after=mark)
-        self.assertEqual(info[-1], "  ↑↓ scroll   esc back")
-        mark = menu.mark()
-        menu.send(b"\x1b[<65;5;5M" * 40)          # the wheel, down past the end: it stops there
-        info = menu.frame(lambda lines: "agentkit abc1234" in "\n".join(lines),
-                          keys="esc back", after=mark)
-        mark = menu.mark()
-        menu.click(info[-1].index("esc back") + 3, len(info))
-        menu.frame(after=mark)
-        menu.leave()
-
     def test_the_popup_closes_its_own_done_seat_and_asks_under_its_own_row(self):
         menu = Menu(self, {"alpha": "working", "omega": "done"}, own="omega")
         lines = menu.frame()
@@ -353,7 +297,7 @@ class CloseAndInfo(unittest.TestCase):
 
     def test_a_press_begun_on_another_screen_answers_nothing_on_this_one(self):
         """The button down on one screen and up on the next is no click: not on `Stop` under
-        the question, not on a seat once the question is gone, not on `esc back`."""
+        the question, not on a seat once the question is gone, not on `esc back` of `c`."""
         menu = Menu(self, {"alpha": "working", "beta": "working"})
         lines = menu.frame()
         seat = next(number for number, line in enumerate(lines, 1) if "beta" in line)
@@ -370,18 +314,18 @@ class CloseAndInfo(unittest.TestCase):
         menu.send(f"\x1b[<0;4;{top}M".encode() + ESC)        # down on `Keep`, and Esc
         menu.frame(after=mark)
         mark = menu.mark()
-        menu.send(f"\x1b[<0;4;{seat}m".encode() + b"i")      # up on beta's row: nothing opens
-        info = menu.frame(keys="esc back", after=mark)
+        menu.send(f"\x1b[<0;4;{seat}m".encode() + b"c")      # up on beta's row: nothing opens
+        config = menu.frame(keys="esc back", after=mark)
         mark = menu.mark()
-        column = info[-1].index("esc back") + 3
-        menu.send(f"\x1b[<0;{column};5M".encode() + ESC)      # down on the info screen, Esc
+        column = config[-1].index("esc back") + 3
+        menu.send(f"\x1b[<0;{column};5M".encode() + ESC)      # down on the config screen, Esc
         menu.frame(after=mark)
         mark = menu.mark()
-        menu.send(b"i")
-        info = menu.frame(keys="esc back", after=mark)
+        menu.send(b"c")
+        config = menu.frame(keys="esc back", after=mark)
         mark = menu.mark()
-        menu.send(f"\x1b[<0;{column};{len(info)}m".encode() + ESC)   # up on `esc back`: nothing
-        menu.frame(after=mark)                    # the Esc was the info screen's, not the menu's
+        menu.send(f"\x1b[<0;{column};{len(config)}m".encode() + ESC)  # up on `esc back`: nothing
+        menu.frame(after=mark)                    # the Esc was the config screen's, not the menu's
         menu.leave()
         self.assertNotIn("<stopped", menu.text())
         self.assertNotIn("<opened", menu.text())
@@ -410,33 +354,6 @@ class CloseAndInfo(unittest.TestCase):
         menu.saw(f"<stopped {long}>", after=mark)
         menu.frame(lambda lines: not any(long in line for line in lines), after=mark)
         menu.leave()
-
-    def test_a_resize_wraps_the_info_screen_anew(self):
-        menu = Menu(self, {"alpha": "working"}, rows=30, cols=100)
-        menu.frame()
-        mark = menu.mark()
-        menu.send(b"i")
-        info = menu.frame(keys="esc back", after=mark)
-        self.assertEqual(info[2], "agentkit: you talk to one orchestrator; it works until it is "
-                                  "done or it needs you.")
-        mark = menu.mark()
-        menu.resize(24, 40)
-        info = menu.frame(lambda lines: len(lines[0]) == 40, keys="esc back", after=mark)
-        self.assertLessEqual(len(info), 24)
-        self.assertEqual(info[2], "agentkit: you talk to one orchestrator;")
-        self.assertEqual(info[-1], "  ↑↓ scroll   esc back")
-        for line in info:
-            self.assertLessEqual(terminal.cells(line), 40, line)
-        mark = menu.mark()
-        menu.click(info[-1].index("esc back") + 3, len(info))
-        menu.frame(after=mark)
-        menu.leave()
-
-
-def menu_module_lines():
-    """The `i` screen's state and key lines, as the README prints them."""
-    with patch.dict(os.environ, {"LC_ALL": "C.UTF-8", "LANG": "C.UTF-8"}):
-        return [*menu.info_states(), *menu.INFO_KEYS]
 
 
 class ClosedSeat(Sandbox):

@@ -236,7 +236,6 @@ class Rendering(Sandbox):
         out = io.StringIO()
         with patch.object(terminal, "width", return_value=width), \
                 patch.object(menu, "row", side_effect=rows), \
-                patch.object(menu, "installed", return_value="abc1234 · 15 Sep"), \
                 patch.object(menu.time, "strftime", return_value="14:02"), redirect_stdout(out):
             (config.STATE / "usage.json").write_text(json.dumps(
                 {"fetched_at": 10000, "providers": providers}))

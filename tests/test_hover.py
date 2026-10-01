@@ -1,5 +1,6 @@
 """Whatever the pointer is over lights up, on every screen: the row under it takes the keys' own
 highlight, a key-line item or a cell a subtle background, and that goes when the pointer leaves;
+one whose key line says what it is in its place lights nothing (tests/test_hover_explains.py);
 the keys and the pointer never show two highlights, nothing is acted on while the pointer has
 the highlight out, and a flood of moves is one draw.
 
@@ -31,6 +32,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, terminal
+from agentkit.terminal import TIPS
 from test_config_matrix import Screen
 from test_menu_keys import Menu
 from test_v4n import Sandbox
@@ -103,6 +105,13 @@ def marked(grid, kind):
 def highlighted(grid):
     """The rows the keys' highlight is on: the ones starting with its `›`."""
     return [line for line in texts(grid) if line.startswith("›")]
+
+
+def on(menu, name):
+    """Wait for `menu` to show `name`'s row highlighted, whatever its key line says: resting on a
+    row, the pointer has it say what that row is (tests/test_hover_explains.py)."""
+    menu.until(lambda text: any(name in line for line in highlighted(played(text))),
+               f"{name} highlighted")
 
 
 def at(grid, text, nth=0):
@@ -376,19 +385,23 @@ class Screens(Sandbox):
                 click + ESC)
         self.assertEqual(stepped, [1])
 
-    def test_the_info_page_lights_the_key_line_item_under_the_pointer(self):
-        from agentkit import watch
-        with patch.object(menu, "installed", return_value="abc1234"), \
-                patch.object(watch, "worker_token_note", return_value=""):
-            first = run(menu.show_info, ESC)[1][0]
-            keys = at(first, "esc back")
-            screens = run(menu.show_info, move(*keys), move(keys[0] + 3, keys[1]), ESC)[1]
-            self.assertEqual(marked(screens[-1], "lit"), {keys[1]: "esc back"})
-            self.assertEqual(len(screens), 2)           # a move within the item draws nothing
-            screens = run(menu.show_info, move(*keys), move(1, 1), ESC)[1]
-            self.assertEqual(len(screens), 3)
-            self.assertEqual(marked(screens[-1], "lit"), {})    # and one off it puts it out
-            last = run(menu.show_info, move(*keys), ESC, depth=8)[1][-1]
+    def test_a_screens_key_line_lights_the_item_under_the_pointer(self):
+        def screen():
+            while True:
+                terminal.frame("acme", ["  nothing here"], "esc back")
+                key = terminal.read_key()
+                if key is not None and key.name in ("esc", "eof"):
+                    return
+
+        first = run(screen, ESC)[1][0]
+        keys = at(first, "esc back")
+        screens = run(screen, move(*keys), move(keys[0] + 3, keys[1]), ESC)[1]
+        self.assertEqual(marked(screens[-1], "lit"), {keys[1]: "esc back"})
+        self.assertEqual(len(screens), 2)           # a move within the item draws nothing
+        screens = run(screen, move(*keys), move(1, 1), ESC)[1]
+        self.assertEqual(len(screens), 3)
+        self.assertEqual(marked(screens[-1], "lit"), {})    # and one off it puts it out
+        last = run(screen, move(*keys), ESC, depth=8)[1][-1]
         self.assertEqual(marked(last, "reverse"), {keys[1]: "esc back"})    # eight colours
 
     def test_a_question_typed_on_a_screen_lights_its_key_line(self):
@@ -456,11 +469,12 @@ class MainMenu(unittest.TestCase):
         self.assertIn("\x1b[?1003h\x1b[?1006h", menu.text())     # every move, in SGR form
         row = next(number for number, line in enumerate(lines, 1) if "seat-c" in line)
         menu.send(move(20, row))
-        menu.frame(lambda lines: "seat-c" in menu.highlighted(lines))
+        on(menu, "seat-c")
         keyline = (lines[-1].index("c config") + 1, len(lines))
         menu.send(move(*keyline))
-        menu.until(lambda text: marked(played(text), "lit") == {keyline[1]: "c config"}
-                   and not highlighted(played(text)), "c config lit, and no seat")
+        menu.until(lambda text: texts(played(text))[keyline[1] - 1] == "  " + TIPS["c config"]
+                   and marked(played(text), "lit") == {} and not highlighted(played(text)),
+                   "c config explained, and no seat")
         # a key moves the one highlight on from the pointer's, and the key line's light goes
         menu.send(b"k")
         menu.frame(lambda lines: any(line.startswith("› 2  seat-b") for line in lines))
@@ -470,7 +484,7 @@ class MainMenu(unittest.TestCase):
         top = next(number for number, line in enumerate(lines, 1) if "seat-a" in line)
         mark = len(menu.text())
         menu.send(move(20, top))
-        menu.frame(lambda lines: "seat-a" in menu.highlighted(lines))
+        on(menu, "seat-a")
         menu.send(move(1, 2))
         menu.until(lambda text: not highlighted(played(text)), "no seat highlighted")
         menu.send(b"x")
@@ -480,7 +494,7 @@ class MainMenu(unittest.TestCase):
         # five hundred moves at once are one draw, the highlight where they ended
         drawn = menu.text().count("<drawing")
         menu.send(b"".join(move(1 + n % 90, top) for n in range(500)))
-        menu.frame(lambda lines: "seat-a" in menu.highlighted(lines))
+        on(menu, "seat-a")
         time.sleep(0.5)
         self.assertLessEqual(menu.text().count("<drawing") - drawn, 1)
         menu.leave()
@@ -491,12 +505,12 @@ class MainMenu(unittest.TestCase):
         menu = Menu(self, ["seat-a", "done-b"])
         lines = menu.frame()
         row = next(number for number, line in enumerate(lines, 1) if "done-b" in line)
+        keyline = (lines[-1].index("x stop") + 1, len(lines))     # where `x close` goes
         menu.send(move(20, row))
-        lines = menu.frame(lambda lines: "done-b" in menu.highlighted(lines))
-        keyline = (lines[-1].index("x close") + 1, len(lines))
+        on(menu, "done-b")
         menu.send(move(*keyline))
-        menu.until(lambda text: marked(played(text), "lit") == {keyline[1]: "x close"}
-                   and not highlighted(played(text)), "x close lit, and no seat")
+        menu.until(lambda text: texts(played(text))[keyline[1] - 1] == "  " + TIPS["x close"]
+                   and not highlighted(played(text)), "x close explained, and no seat")
         mark = len(menu.text())
         menu.send(b"x")
         menu.frame(lambda lines: any(line.startswith("› 2  done-b") for line in lines),

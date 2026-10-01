@@ -21,7 +21,6 @@ from test_v5y import offline
 from agentkit import config, menu, orch, run, terminal, watch
 
 NOW = 1_800_000_000      # what every draw and tally reads as the time
-INSTALLED = menu.installed   # the real title lookup, kept before the fixtures pin it
 DAY = 86400
 LONG_Q = ("Should the dashboard filter by workspace and show archived runs by default "
           "when there are more than twenty items, or keep the current filter behaviour for now?")
@@ -38,7 +37,6 @@ class Tallies(Sandbox):
                                        "since": seat.get("since"), "began": seat.get("since"),
                                        "evidence": seat.get("asked", "")}))
         self.stack.enter_context(patch.object(menu.time, "strftime", return_value="14:02"))
-        self.stack.enter_context(patch.object(menu, "installed", return_value="3de8bef · 14 Sep"))
         # A project is a checkout: `checkouts()` asks for a .git, and nothing else
         # under ~/code is ever a heading.
         for name in ("agentkit", "atoll"):
@@ -296,23 +294,18 @@ class Tallies(Sandbox):
         self.draw(100, 30)
         before = {path: path.read_bytes() for directory in (config.RUNS, config.STATE)
                   for path in directory.rglob("*") if path.is_file()}
-        # the real title lookup, as loop() reads it once before its first draw; every draw
-        # after that, of any size, goes back to git for nothing and starts no process
-        self.addCleanup(setattr, menu, "_INSTALLED", None)
-        menu._INSTALLED = None
-        with patch.object(menu, "installed", INSTALLED):
-            self.assertEqual(INSTALLED(), "14:02")
-            with patch.object(run, "read_state", wraps=run.read_state) as read, \
-                    patch.object(run, "reap", side_effect=AssertionError("draw reconciled a run")), \
-                    patch.object(run, "save_state", side_effect=AssertionError("draw wrote a record")), \
-                    patch.object(subprocess, "run", side_effect=self.no_git), \
-                    patch.object(subprocess, "Popen", side_effect=AssertionError("draw started a process")):
-                started = time.perf_counter()
-                screen, pages = self.draw(100, 30)
-                elapsed = time.perf_counter() - started
-                self.assertEqual(read.call_count, records)      # each record once for the draw
-                self.draw(40, 24)
-                self.assertEqual(read.call_count, 2 * records)  # and once again for the next
+        # every draw, of any size, goes back to git for nothing and starts no process
+        with patch.object(run, "read_state", wraps=run.read_state) as read, \
+                patch.object(run, "reap", side_effect=AssertionError("draw reconciled a run")), \
+                patch.object(run, "save_state", side_effect=AssertionError("draw wrote a record")), \
+                patch.object(subprocess, "run", side_effect=self.no_git), \
+                patch.object(subprocess, "Popen", side_effect=AssertionError("draw started a process")):
+            started = time.perf_counter()
+            screen, pages = self.draw(100, 30)
+            elapsed = time.perf_counter() - started
+            self.assertEqual(read.call_count, records)      # each record once for the draw
+            self.draw(40, 24)
+            self.assertEqual(read.call_count, 2 * records)  # and once again for the next
         self.assertLess(elapsed, 1.0, elapsed)
         self.assertTrue(screen.startswith("agentkit"), screen[:60])
         self.assertIn("14:02", screen.splitlines()[0])
