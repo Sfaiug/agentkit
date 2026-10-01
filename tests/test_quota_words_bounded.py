@@ -320,6 +320,20 @@ class SeatWordsBounded(unittest.TestCase):
         self.seat_account("claude", "opus", "anthropic", pane)
         self.assertEqual([call[1] for call in self.marked], ["anthropic"])
 
+    def test_a_spent_window_a_bare_trailer_closes_parks_the_account(self):
+        # `Goal stalled` and `Error ID:` name no failure: the error line drawn above them does
+        for harness, model, provider, pane in (
+                ("codex", "astra", "openai", "■ You've hit your usage limit.\nGoal stalled"),
+                ("antigravity", "gemini", "google",
+                 "⚠ You have exhausted your quota on this model.\nError ID: 4b2d-1")):
+            with self.subTest(harness=harness):
+                self.marked.clear()
+                watch.seat_write("fix-api", usage_refusal=None, usage_wait=None)
+                self.seat_account(harness, model, provider, pane)
+                self.now += watch.STALL_WAIT
+                self.seat_account(harness, model, provider, pane)
+                self.assertEqual([call[1] for call in self.marked], [provider])
+
 
 if __name__ == "__main__":
     unittest.main()
