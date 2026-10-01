@@ -182,6 +182,7 @@ class Wrapping(unittest.TestCase):
                     choices = [(number, (f"model-{number:02}",)) for number in range(40)]
                     with patch.object(sys, "stdout", out), \
                             patch.dict(os.environ, {"LC_ALL": "C.UTF-8"}), \
+                            patch.object(terminal.time, "strftime", return_value="14:06"), \
                             patch.object(terminal, "width", return_value=cols), \
                             patch.object(terminal, "height", return_value=rows), \
                             patch.object(terminal, "colour_depth", return_value=0), \
