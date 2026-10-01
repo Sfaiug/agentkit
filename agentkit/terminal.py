@@ -549,6 +549,17 @@ def signal(count, filled):
             for n, bar in enumerate(bars)]
 
 
+def toggle(mark, width, kind=None):
+    """A mark -- `●`, `■`, their open `○`, `□` -- in its column `width` cells wide, the one way a
+    screen draws one and its frames move it (motion.toggled): ` ■ ` from the column's middle in
+    `kind`, dim where it is off, reversed where the keys are, bracketed `[■]` where there is no
+    colour to reverse."""
+    shown, lead = f" {mark} ", (width - 3) // 2
+    if kind == "reverse" and not colour_depth():
+        shown = f"[{mark}]"
+    return " " * lead + (styled(shown, kind) if kind else shown) + " " * (width - lead - 3)
+
+
 ESC = "\x1b"   # what Esc alone reads as: the single byte with nothing after it
 
 
@@ -1121,7 +1132,8 @@ def lit(lines, spots):
     _SHOWN = _PAINTED = lines = list(lines)
     if _POINTED.cell is None or not colour_depth() or not 0 < _POINTER.row <= len(lines):
         return lines
-    _PAINTED = [*lines[:_POINTER.row - 1], _lighted(lines[_POINTER.row - 1], 0, True),
+    _PAINTED = [*lines[:_POINTER.row - 1],
+                backed(lines[_POINTER.row - 1], POINTED[_LIGHT], _POINTED.first, _POINTED.last),
                 *lines[_POINTER.row:]]
     return _PAINTED
 
@@ -1133,30 +1145,32 @@ def pointed(row, column, text):
     if (_POINTED.cell is None or _POINTER is None or row != _POINTER.row
             or column > _POINTED.last or not colour_depth()):
         return text
-    return _lighted(text, column - 1, False)
+    first, last = max(1, _POINTED.first - column + 1), min(_POINTED.last - column + 1, cells(text))
+    if first > last:
+        return text
+    # A shake's reverse can start before the cell under the pointer.
+    return backed(text.replace("\033[7m", ""), POINTED[_LIGHT], first, last)
 
 
-def _lighted(text, at, fill):
-    """`text`, its first cell `at` cells into the pointer's row, with what of it falls on the cell
-    under the pointer on the background, in place of any reverse; `fill` carries the background
-    on to the cell's end where `text` stops short of it."""
+def backed(line, rgb, first, last):
+    """`line` with its cells `first` to `last`, counted from 1, on the background `rgb`, every
+    style in them kept and any past its end blank; reversed at eight colours."""
     depth = colour_depth()
-    rgb = POINTED[_LIGHT]
     back, off = (("48;2;" + ";".join(str(int(rgb[i:i + 2], 16)) for i in (0, 2, 4)), "49")
                  if depth == 24 else (f"48;5;{xterm_colour(rgb)}", "49") if depth > 8
                  else ("7", "27"))
-    out, on = "", None             # on: None before the cell, True in it, False past it
-    for token in re.findall(f"{ANSI.pattern}|.", text, re.S):
-        if on is None and at + 1 >= _POINTED.first:
+    out, at, on = "", 0, None      # on: None before the cell, True in it, False past it
+    for token in re.findall(f"{ANSI.pattern}|.", line, re.S):
+        if on is None and at + 1 >= first:
             out, on = out + f"\033[{back}m", True
-        elif on and at >= _POINTED.last:
+        elif on and at >= last:
             out, on = out + f"\033[{off}m", False
         if on and token.startswith("\033") and token.endswith("m"):
             params = token[2:-1]        # what styles the cell keeps, on the background
             token = f"\033[{'' if params == '7' else (params or '0') + ';'}{back}m"
         out += token
         at += 0 if token.startswith("\033") else cells(token)
-    return out + (" " * (_POINTED.last - at) * fill + f"\033[{off}m" if on else "")
+    return out + (" " * (last - at) + f"\033[{off}m" if on else "")
 
 
 def relight():
@@ -1254,7 +1268,8 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
     `around` draws the screen a list is asked inside and returns the row its first choice goes
     on, and is called again whenever the screen wants drawing again -- a resize -- so the list
     and the rows a click is read against are always where that screen now puts them.  There a
-    click on a choice picks it, or with `several` marks it, and a click anywhere else goes back;
+    click on a choice picks it, or with `several` marks it; the key line's Enter answers as the
+    key does, and a click anywhere else goes back;
     a button that went down before the list moved is no click.  The pointer on a choice moves
     the highlight to it, and its screen is drawn again for what else it lights.
     `wait`, where given, reads the key in `read_key`'s place, or None for a draw: the menu's own
@@ -1291,6 +1306,8 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
         again = around is not None        # its screen as well: a key puts out what was lit
         if key is None:
             continue
+        if key.name == "click" and top and under(key, _SPOTS).cell in ("⏎", "enter"):
+            key = Key("enter")
         spot = under(key, rows)
         if key.name == "point":
             at = at if spot.what is None else spot.what

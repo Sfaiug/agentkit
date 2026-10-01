@@ -52,9 +52,9 @@ Each module: what it hides, offers and who uses it. Leaks are named;
 - `config.py`: every `~/.agentkit` path, config.toml, models, providers, accounts, adapter
   scripts and manifests, seat records, their rename chain and file names (`SEAT_FILES`), child
   env. Used by nearly everything.
-- `worker.py`: one headless turn: role preambles, the review gate text, the adapter `run`
-  call, silence watchdog, kills, auth check. Offers `call`, `kill_marked`,
-  `auth_ok`. Used by run, watch, usage, menu, harness. Leak: a Claude-only shell timeout.
+- `worker.py`: headless turns: role preambles, review gate, adapter calls, silence watchdog,
+  auth, process markers and cleanup. Offers `turn`, `call`, `kill_marked`, `auth_ok`.
+  Used by run, watch, usage, menu, harness. Leak: Claude shell timeout.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
   `usage.json`. Offers `collect`, `pick_order`, `mark_exhausted`, `render`. Used by run,
   orch, menu, watch, history. Leak: watch and the Muse plugin call its private helpers.
@@ -74,7 +74,7 @@ Each module: what it hides, offers and who uses it. Leaks are named;
   config formats; imports run back.
 - `terminal.py`: width, wrapping, colour, keys, `choose`/`ask`/`frame`, state styles, for
   every listing screen (docs/cli-design.md). Used by menu, usage, orch, watch, run, motion.
-- `motion.py`: the one clock: time, easing, what moves. Used by menu, terminal.
+- `motion.py`: one clock: time, easing, what moves; for menu, orch, terminal.
 - `command_help.py`: help text per verb, for bin/ak and each `main`; imports nothing.
 - `browser.py`: the shared Chromium stack: units, CDP, MCP, VNC, tab ownership. Used by run,
   watch. Leak: registers its MCP per harness by name.
