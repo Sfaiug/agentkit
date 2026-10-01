@@ -1480,7 +1480,7 @@ SH
   python3 "$REPO/tests/test_notify_smoke.py" || OFFLINE_RC=1
   codex_model_flag_check || OFFLINE_RC=1
   for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_boundaries.py test_architecture.py test_docs.py \
-              test_audit_phone_menu_recovery_layout.py \
+              test_audit_phone_menu_recovery_layout.py test_choose_click.py \
               test_audit_retry_required_notifications.py; do
     case "$test" in
       test_notify.py) lifecycle_check notify || OFFLINE_RC=1 ;;
@@ -5679,8 +5679,9 @@ if { python3 "$REPO/tests/test_smoke_target_pool.py" &&
 else
   no "4e smoke targets"; tail -30 "$WORK/smoke-targets.log"
 fi
-if python3 "$REPO/tests/test_v4n.py" >"$WORK/v4n.log" 2>&1; then
-  ok "37 readable menus at 40/80/100 columns, run reporting, Codex resume and launch/cache edges"
+if { python3 "$REPO/tests/test_v4n.py" &&
+     python3 "$REPO/tests/test_choose_click.py"; } >"$WORK/v4n.log" 2>&1; then
+  ok "37 readable menus at 40/80/100 columns, chooser Enter clicks, run reporting, Codex resume and launch/cache edges"
 else
   no "37 v4n regressions"; tail -30 "$WORK/v4n.log"
 fi
