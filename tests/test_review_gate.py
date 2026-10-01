@@ -105,6 +105,10 @@ sys.exit(1)
         self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
+        # Fixture cleanup must never scan or signal the host's processes or scopes.
+        self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
+        self.stack.enter_context(patch.object(run.orch, "stop_scope"))
+        self.stack.enter_context(patch.object(run.history, "sample_rss", return_value=None))
         config.ensure_dirs()
         self.cfg = config.load()
         for harness in {entry["harness"] for entry in self.cfg["models"].values()}:
@@ -126,7 +130,8 @@ sys.exit(1)
     def launch(self, rounds=None, *flags):
         """One scratch run, so the loop is the only thing under test: no repo, branch or PR."""
         front = f"---\nrepo: none\n{'' if rounds is None else f'rounds: {rounds}'}\n---\n"
-        self.task.write_text(f"{front}# Budget fixture\n\n"
+        # Run markers are host-wide: another suite's sandbox must name a different run.
+        self.task.write_text(f"{front}# {self.root.name}\n\n"
                              "## Done when\n```bash\ntest -f deliverable\n```\n")
         before = set(run.run_dirs())
         code = run.main([str(self.task), "--exec", self.executor, "--review", self.reviewer, *flags])
