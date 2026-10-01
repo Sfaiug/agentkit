@@ -503,7 +503,8 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
                     "code": "reset", "available": 1, "weekly_used": 5,
                     "resets_at": self.now + 604800}) as adapter:
             self.refusal_tick()
-            self.replenish.assert_called_once_with(self.cfg, "openai", depleted=False)
+            self.replenish.assert_called_once_with(self.cfg, "openai", depleted=False,
+                                                   account=None)
             adapter.assert_called_once_with("codex", "reset", 60, None)
             self.assertEqual(config.session_records()[NAME]["account"], "default")
             self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
