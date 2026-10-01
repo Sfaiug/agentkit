@@ -155,8 +155,6 @@ class Rulebook(unittest.TestCase):
         for heading, words in RULES:
             with self.subTest(words=words):
                 self.assertIn(words, sections[heading])
-        # 43 lines before these rules came in, and a page has room for twelve more at most
-        self.assertLessEqual(len(RULEBOOK.splitlines()), 55)
 
     # --- and the user's own harness files are theirs again -----------------------
 

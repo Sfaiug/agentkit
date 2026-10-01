@@ -26,3 +26,4 @@ tests: bash tests/smoke.sh
 - No `ak trial`, leaderboard or in-house skill test of models: public benchmarks judge general strength. [28 Sep, 29 Sep]
 - Every provider takes more than one subscription. A subscription is always shown by its provider's name, with a roman numeral as its number when there are several (Claude I, Claude II), never by its account name. [29 Sep]
 - The features screen has only `you` and `everyone`; grants for specific users live on the project's own owner page, never in ak. [23 Sep]
+- The orchestrator rulebook has no length cap: each line explains something ak checks or a judgement no check can make, and a rule ak comes to enforce shrinks to a mention. [1 Oct]
