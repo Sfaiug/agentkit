@@ -705,36 +705,24 @@ def project_run(directory, state, width):
 # lives in agentkit/terminal.py and is used here, never re-implemented.
 
 
-def jobs_root():
-    """Where job receipts live: ~/.agentkit/jobs/*/job.json (v5q)."""
-    return config.HOME / "jobs"
-
-
 def job_for_seat(seat_name):
     """(done, total, waiting_on) over the seat's unfinished jobs, or None without one. No fake bar.
 
-    Reads ~/.agentkit/jobs/*/job.json when present, nothing when absent. A job is the seat's
+    Reads each job's receipt through `job.read_jobs`, nothing without one. A job is the seat's
     until it records `finished_at`, when its `seat` -- that field alone, never the job's
     directory name -- leads here through rename pointers: an orchestrator renamed since
     launched it under its old name. `done` is
     tasks merged, passed or skipped of all those jobs' tasks; `waiting_on` is the first
     job's `waiting on <dep>` sentence. Unreadable or task-less jobs are no job at all.
     """
-    root = jobs_root()
+    from . import job as jobs   # here, not at the top: a job runs through run.py, the whole loop
     try:
-        candidates = sorted(root.iterdir()) if root.exists() else []
+        receipts = jobs.read_jobs()
     except OSError:
         return None
     done = total = 0
     waiting = ""
-    for entry in candidates:
-        path = entry / "job.json" if entry.is_dir() else entry
-        if path.suffix != ".json":
-            continue
-        try:
-            job = json.loads(path.read_text())
-        except (OSError, ValueError):
-            continue
+    for job in receipts:
         if not isinstance(job, dict) or job.get("finished_at"):
             continue
         try:

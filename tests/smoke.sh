@@ -1555,6 +1555,11 @@ if python3 "$REPO/tests/test_v4z.py"; then
 else
   no "43 project menus"
 fi
+if python3 "$REPO/tests/test_hover.py"; then
+  ok "pointer highlights and keyboard navigation (offline)"
+else
+  no "pointer highlights and keyboard navigation"
+fi
 # 41 reads no live meter -- its probes are mocked inside usage_fresh_check -- so a
 # throttled provider cannot fail it and it takes no meter-unavailable skip.
 if usage_fresh_check; then

@@ -26,7 +26,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 SLEEP = time.sleep                  # the real one, kept where a fixture needs to wait
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, notify, orch, run, terminal, usage, watch, worker
+from agentkit import config, job as jobs, menu, notify, orch, run, terminal, usage, watch, worker
 
 # A fake harness, in the two shapes a turn can take: one that authenticates and answers, and
 # one whose token is gone -- no events, empty stderr, over in a moment, which is exactly what
@@ -392,10 +392,10 @@ class Login(unittest.TestCase):
         job_dir.mkdir(parents=True)
         task = {"name": "one", "state": "running", "run_id": directory.name}
         job = {"job_id": "job-1", "tasks": [task]}
-        run.save_job(job_dir, job)
+        jobs.save_job(job_dir, job)
         logs, lock = [], threading.Lock()
         with patch.object(run, "cmd_resume", side_effect=AssertionError("resumed")):
-            run.job_adopt_worker(self.cfg, job_dir, job, task, directory, lock, logs.append)
+            jobs.job_adopt_worker(self.cfg, job_dir, job, task, directory, lock, logs.append)
         self.assertEqual(task["state"], "queued")           # waiting beside the run
         self.assertTrue(task.get("budget_wait"))
         self.assertGreater(task["retry_after"], time.time())
@@ -415,9 +415,9 @@ class Login(unittest.TestCase):
             with self.subTest(where=where):
                 task = {"name": "one", "state": "running", "run_id": directory.name}
                 job = {"job_id": "job-2", "tasks": [task]}
-                run.save_job(job_dir, job)
+                jobs.save_job(job_dir, job)
                 logs, lock = [], threading.Lock()
-                self.assertTrue(run.job_wait_login(job_dir, job, task, logs.append, lock,
+                self.assertTrue(jobs.job_wait_login(job_dir, job, task, logs.append, lock,
                                                    parked, where))
                 self.assertEqual(task["state"], "queued")
                 self.assertTrue(task["budget_wait"])
@@ -425,7 +425,7 @@ class Login(unittest.TestCase):
                 self.assertIn(where, " ".join(logs))
         # ... and anything else is none of its business
         task = {"name": "one", "state": "running"}
-        self.assertFalse(run.job_wait_login(job_dir, {"tasks": [task]}, task, print,
+        self.assertFalse(jobs.job_wait_login(job_dir, {"tasks": [task]}, task, print,
                                             threading.Lock(), {"state": "fail"}, "mid-run"))
         self.assertEqual(task["state"], "running")
 
@@ -443,7 +443,7 @@ class Login(unittest.TestCase):
         job_dir.mkdir(parents=True)
         task = {"name": "one", "state": "running", "run_id": directory.name}
         job = {"job_id": "job-3", "tasks": [task]}
-        run.save_job(job_dir, job)
+        jobs.save_job(job_dir, job)
 
         def park(argv):
             """what `ak run merge` leaves behind when a fixer turn cannot authenticate"""
@@ -454,7 +454,7 @@ class Login(unittest.TestCase):
 
         logs, lock = [], threading.Lock()
         with patch.object(run, "cmd_merge", side_effect=park):
-            run.job_ladder(self.cfg, job_dir, job, task, directory, delivered, 1,
+            jobs.job_ladder(self.cfg, job_dir, job, task, directory, delivered, 1,
                            logs.append, lock)
         self.assertEqual(task["state"], "queued")       # waiting, never failed
         self.assertTrue(task["budget_wait"])

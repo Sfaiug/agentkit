@@ -4047,7 +4047,7 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
 
 
 def resume_dead_jobs(dry_run=False, log=print, now=None):
-    """Relaunch a job whose launcher is gone, where `run.job_admission` lets the tick.
+    """Relaunch a job whose launcher is gone, where `job.job_admission` lets the tick.
 
     A job's launcher schedules its tasks, so without it the waiting ones never start: the
     dead-loop pass only carries the running one on, as a lone run.  The relaunch is the one
@@ -4055,23 +4055,23 @@ def resume_dead_jobs(dry_run=False, log=print, now=None):
     adopted where it stands -- in the job's own scope and for its own seat.  After the
     dead-loop pass, so the run it adopts is already on its way.
     """
-    from . import run as run_mod
+    from . import job as jobs
     now = time.time() if now is None else now
-    for job_dir in run_mod.job_dirs():
+    for job_dir in jobs.job_dirs():
         try:
-            job = run_mod.read_job(job_dir)
+            job = jobs.read_job(job_dir)
             if (not job or not isinstance(job.get("tasks"), list)
-                    or run_mod.reap_job(job_dir, job)
-                    or all(task.get("state") in run_mod.JOB_TERMINAL for task in job["tasks"])):
+                    or jobs.reap_job(job_dir, job)
+                    or all(task.get("state") in jobs.JOB_TERMINAL for task in job["tasks"])):
                 continue
-            admission = run_mod.job_admission(job_dir, job, now=now)
+            admission = jobs.job_admission(job_dir, job, now=now)
             if not admission:
                 continue
             if dry_run:
                 log(f"would relaunch job {job_dir.name}: launcher gone; {admission}")
                 continue
             with redirect_stdout(io.StringIO()):
-                run_mod.spawn_job_bg(job_dir, relaunch=job)
+                jobs.spawn_job_bg(job_dir, relaunch=job)
             line = f"relaunched job {job_dir.name}: launcher gone; {admission}"
             _note_run(job_dir, line)
             log(line)
@@ -5637,7 +5637,7 @@ def main(argv):
             except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
                 log(f"WARN the pre-existing sweep did not run: {exc}")
             # Detect lost loops even when no phone opens the menu and GitHub is unavailable.
-            from . import run
+            from . import job as jobs, run
             for run_dir in run.run_dirs():
                 try:
                     receipt = run.read_state(run_dir)
@@ -5671,7 +5671,7 @@ def main(argv):
             # A job that finished while its seat was mid-turn hands its line back at the next
             # quiet prompt, the way one of its runs does.
             try:
-                run.deliver_job_handbacks(log)
+                jobs.deliver_job_handbacks(log)
             except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
                 log(f"WARN a finished job was not handed back: {exc}")
             # ... and a seat whose `ak wait` names a session that has stopped is told so, at

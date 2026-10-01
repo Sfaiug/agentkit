@@ -971,7 +971,7 @@ def read_key(timeout=None, wake=None):
         elif key.name == "click":  # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
         elif key.name == "point":
-            moved = under(key, _SPOTS)[:2] != _POINTED[:2]
+            moved = _POINTER is None or under(key, _SPOTS)[:2] != _POINTED[:2]
             _HELD, key = (key, _HELD[1] if _HELD else time.monotonic()) if moved else None, None
         if key is None:
             now = time.monotonic()

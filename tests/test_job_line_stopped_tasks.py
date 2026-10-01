@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import config, job as jobs, run
 
 
 class JobLineStoppedTasks(unittest.TestCase):
@@ -35,7 +35,7 @@ class JobLineStoppedTasks(unittest.TestCase):
         self.handed = []
         self.cards = []
         stack.enter_context(patch.object(
-            run, "job_hand_back",
+            jobs, "job_hand_back",
             lambda seat, line, *args, **kwargs: self.handed.append(line) or "sent"))
         stack.enter_context(patch.object(
             run.notify, "shaped",
@@ -48,7 +48,7 @@ class JobLineStoppedTasks(unittest.TestCase):
                   "verdict_line": f"fix-api-{n}.md: {state}"}
                  for n, state in enumerate(states)]
         job = {"job_id": "job-acme", "seat": "seat-acme", "tasks": tasks}
-        return run.run_job_loop({}, self.job_dir, job, to_file=True)
+        return jobs.run_job_loop({}, self.job_dir, job, to_file=True)
 
     def test_a_job_whose_only_undelivered_tasks_were_stopped_needs_nobody(self):
         self.close("passed", "stopped", "stopped")

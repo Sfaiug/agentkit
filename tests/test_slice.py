@@ -22,7 +22,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import config, orch, run, watch
+from agentkit import config, job as jobs, orch, run, watch
 
 # One spy for every command the slice rests on: it records its argv and answers the way the
 # case under test needs it to, so nothing here can reach the account's own manager.
@@ -335,9 +335,9 @@ class Detached(Slice):
         self.assertEqual(run.read_state(run_dir)["pid"], 4242)
         job_dir = config.RUNS / "20260101-0900-job"
         job_dir.mkdir(parents=True)
-        with self.popen(pid=4343) as popen, patch.object(run, "read_job", return_value={}), \
-                patch.object(run, "save_job"), redirect_stdout(io.StringIO()):
-            run.spawn_job_bg(job_dir)
+        with self.popen(pid=4343) as popen, patch.object(jobs, "read_job", return_value={}), \
+                patch.object(jobs, "save_job"), redirect_stdout(io.StringIO()):
+            jobs.spawn_job_bg(job_dir)
         self.assertEqual(popen.call_args.args[0][:6],
                          ["systemd-run", "--user", "--slice=agentkit-test-runs.slice", "--scope",
                           "--quiet", f"--unit=agentkit-job-{job_dir.name}"])
@@ -399,10 +399,10 @@ class Detached(Slice):
         job_dir = config.RUNS / "20260101-0900-brief-job"
         job_dir.mkdir(parents=True)
         saved = []
-        with self.popen(pid=4343) as popen, patch.object(run, "read_job", return_value={}), \
-                patch.object(run, "save_job", side_effect=lambda _d, job: saved.append(job)), \
+        with self.popen(pid=4343) as popen, patch.object(jobs, "read_job", return_value={}), \
+                patch.object(jobs, "save_job", side_effect=lambda _d, job: saved.append(job)), \
                 redirect_stdout(io.StringIO()):
-            run.spawn_job_bg(job_dir)
+            jobs.spawn_job_bg(job_dir)
         self.assertEqual(popen.call_count, 1)
         self.assertEqual(saved[0]["pid"], 4343)
 

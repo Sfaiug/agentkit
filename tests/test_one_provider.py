@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, terminal, usage
+from agentkit import config, job as jobs, run, terminal, usage
 
 
 class OneProvider(unittest.TestCase):
@@ -395,7 +395,7 @@ class OneProvider(unittest.TestCase):
             self.assertEqual(run.verdict_word(state, self.cfg), "PASS")
             self.assertIn("PASS", run.summary_line(state, self.cfg))
             self.assertEqual(run.status_word(state, self.cfg), "delivered")
-            self.assertEqual(run.job_classify(state, self.cfg), "passed")
+            self.assertEqual(jobs.job_classify(state, self.cfg), "passed")
             with patch.object(run, "announce") as announce:
                 self.assertEqual(run.finish(state, lp.run_dir, self.logs.append, self.cfg), 0)
             announce.assert_called_once_with(state, lp.run_dir, self.logs.append, self.cfg)
@@ -434,9 +434,9 @@ class OneProvider(unittest.TestCase):
             job = {"opts": {"--review": reviewer}}
             with self.subTest(reviewer=reviewer, reviews_own_provider=reviews_own_provider), \
                     patch.object(run, "collect_usage", side_effect=AssertionError("no new probe")), \
-                    patch.object(run, "job_allocate_run_dir", return_value=rerun_dir), \
+                    patch.object(jobs, "job_allocate_run_dir", return_value=rerun_dir), \
                     patch.object(run, "prepare", side_effect=config.Error("fixture stop")) as prepare:
-                run.job_ladder(self.cfg, self.root, job, task, lp.run_dir, state,
+                jobs.job_ladder(self.cfg, self.root, job, task, lp.run_dir, state,
                                1, self.logs.append, threading.Lock())
                 prepare.assert_called_once()
                 opts = prepare.call_args.args[1]
@@ -452,9 +452,9 @@ class OneProvider(unittest.TestCase):
         task_path = self.root / "task.md"
         task_path.write_text("---\nrepo: none\n---\n# Fixture\n\n## Done when\n```bash\ntrue\n```\n")
         task = {"name": "fixture", "task_file": str(task_path), "review_override": None}
-        with patch.object(run, "job_allocate_run_dir", return_value=directory), \
+        with patch.object(jobs, "job_allocate_run_dir", return_value=directory), \
                 patch.object(run, "prepare"):
-            _, opts = run.job_start_task(self.cfg, self.root, task, {"--review": "gamma"},
+            _, opts = jobs.job_start_task(self.cfg, self.root, task, {"--review": "gamma"},
                                          self.logs.append)
         self.assertEqual(opts["--review"], "gamma")
 
