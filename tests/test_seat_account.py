@@ -605,6 +605,17 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertTrue(watch.seat_read(NAME).get("usage_wait"))
         self.assertEqual(self.commands, [])
 
+    def test_a_receipt_that_is_no_object_is_no_receipt(self):
+        path = config.STATE / "openai-reset.json"
+        for body in ("null", "[]", '"reset"', "7"):
+            path.write_text(body)
+            self.assertIsNone(usage._reset_applied_at(path))
+            self.assertIsNone(usage._reset_applied_at(path, "default"))
+        self.codex_seat()
+        self.pane = "You've hit your usage limit"
+        self.refusal_tick()
+        self.replenish.assert_called_once_with(self.cfg, "openai", depleted=False, account=None)
+
     def test_no_receipt_moves_so_no_second_credit_goes_inside_its_day(self):
         """A receipt from before receipts named theirs holds every subscription's day, and
         the usual login's own still holds it once the provider lists accounts."""

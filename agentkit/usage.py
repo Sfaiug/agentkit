@@ -439,7 +439,7 @@ def _reset_applied_at(path, account=None):
     try:
         blob = json.loads(path.read_text(encoding="utf-8"))
         return _number(blob["applied_at"]) if blob.get("account") == account else None
-    except (OSError, ValueError, TypeError, KeyError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):   # not an object
         return None
 
 
