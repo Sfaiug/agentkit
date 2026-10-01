@@ -640,7 +640,11 @@ def job_start_task(cfg, job_dir, task, opts, log):
             run_opts["--review"] = None
     run.prepare(run_dir, run_opts, run.logger(run_dir, True), cfg, job_id=job_dir.name, task_file=task_path)
     if task.get("from_pass"):
-        run.save_state(run_dir, {**(run.read_state(run_dir) or {}), "from_pass": task["from_pass"]})
+        # run.json is run.py's to write; a stop since preflight refuses the key as a save would
+        with run.record(run_dir) as state:
+            if state.stopped:
+                raise run.StopRequested(f"{run_dir.name} was stopped")
+            state["from_pass"] = task["from_pass"]
     log(f"{task['name']} start: {run_dir.name}")
     return run_dir, run_opts
 
