@@ -218,6 +218,35 @@ class HeavySuiteTurns(unittest.TestCase):
         self.assertEqual(seen, [f"waiting for a heavy suite turn · 4 running · {more} more fit\n"
                                 for more in (3, 2, 0)])
 
+    def test_sampling_headroom_leaves_free_slots_unlocked(self):
+        for name, config_text in (("derived", ""), ("fallback", 'max_gates = "bad"')):
+            (config.HOME / config.CONFIG_NAME).write_text(config_text)
+            for running in (0, 1):
+                with self.subTest(config=name, running=running), ExitStack() as holders:
+                    for index in range(6):
+                        run.gate_lock(ACME, index).touch()
+                    if running:
+                        holder = holders.enter_context(run.gate_lock(ACME, 0).open("a"))
+                        fcntl.flock(holder, fcntl.LOCK_EX)
+                    directory = self.record(f"{name}-{running}", WIDGET)
+                    log_path = directory / "donewhen.log"
+                    def sample():
+                        self.assertEqual(run._heavy_running(), running)
+                        self.assertEqual(run.derived_heavy_limit(SATURATED), 1)
+                        return SATURATED
+                    with patch.object(run, "host_readings", side_effect=sample) as readings, \
+                            patch.object(run.time, "sleep", side_effect=InterruptedError):
+                        if running:
+                            with self.assertRaises(InterruptedError):
+                                run._acquire_gate_turn(directory, log_path, None)
+                            self.assertEqual(log_path.read_text(),
+                                "waiting for a heavy suite turn · 1 running · 0 more fit\n")
+                        else:
+                            hold = run._acquire_gate_turn(directory, log_path, None)
+                            self.assertIsNotNone(hold)
+                            hold.release()
+                        self.assertEqual(readings.call_count, 1)
+
     def test_a_saturated_slice_waits_yet_one_turn_is_always_free(self):
         self.assertEqual(run.derived_heavy_limit(dict(SATURATED)), 1)
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(SATURATED)}):
@@ -243,7 +272,9 @@ class HeavySuiteTurns(unittest.TestCase):
 
     def test_a_waiter_picks_up_a_changed_limit_on_its_next_poll(self):
         self.gates(1)
-        with run.gate_lock(ACME, 0).open("a") as holder:
+        with run.gate_lock(ACME, 0).open("a") as holder, \
+                patch.object(run, "host_readings", side_effect=
+                    AssertionError("a pinned limit needs no host reading")):
             fcntl.flock(holder, fcntl.LOCK_EX)
             waiter = Gate(self, "waiter", ACME, [self.mark("waiter")])
             waiter.start()
