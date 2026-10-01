@@ -264,6 +264,33 @@ sys.exit(row.get("code", 0))
         self.assertEqual(len(calls), 1)
         parked.assert_not_called()
 
+    def test_an_empty_channel_ignores_successful_terminal_prose_and_keeps_explicit_errors(self):
+        text = "No blocking findings; the usage limit parsing looks correct."
+        for harness in ("claude", "grokbuild", "muse"):
+            with self.subTest(harness=harness):
+                terminal = run.watch.terminal(harness)
+                event = {"type": terminal, "result": text}
+                (self.root / "events.jsonl").write_text(json.dumps(event) + "\n")
+                self.assertEqual(run.harness_said(self.root, text, harness, failures_only=True), "")
+                event.update(is_error=True, error="usage limit reached")
+                (self.root / "events.jsonl").write_text(json.dumps(event) + "\n")
+                self.assertIn("usage limit reached", run.harness_said(
+                    self.root, text, harness, failures_only=True))
+
+    def test_no_records_and_no_done_reasks_the_same_reviewer_without_parking(self):
+        text = "No blocking findings; the usage limit parsing looks correct."
+        with patch.object(run.usage, "mark_exhausted", return_value=1) as parked, \
+                patch.object(run.usage, "replenish", return_value=(False, 0)):
+            verdict, lp, calls, logs = self.review(
+                {"text": text, "events": [{"type": "result", "subtype": "success", "result": text}]},
+                {"commands": [["done"]]}, reviewer="opus")
+        self.assertEqual(verdict, "PASS")
+        self.assertEqual(lp.reviewer, "opus")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1]["session"], ["fixture-session"])
+        self.assertTrue(any("asking once more" in line for line in logs), logs)
+        parked.assert_not_called()
+
     def test_same_session_retries_keep_findings_and_followups(self):
         finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
         followup = ["follow-up", "api.py:1", "old defect", "breaks callers", "--quote", "first line",
