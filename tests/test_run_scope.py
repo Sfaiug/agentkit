@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 from test_v4n import REPO
 import sys
 sys.path.insert(0, str(REPO))
-from agentkit import config, job as jobs, orch, run, task, watch
+from agentkit import host, config, job as jobs, orch, run, task, watch
 
 
 class RunScope(unittest.TestCase):
@@ -45,7 +45,7 @@ class RunScope(unittest.TestCase):
         cgroup = self.root / "cgroup"
         cgroup.write_text("0::/user.slice/user-1000.slice/user@1000.service/agentkit-test.slice/"
                           "agentkit-test-runs.slice/agentkit-job-20260923-2000-job.scope\n")
-        self.stack.enter_context(patch.object(orch, "OWN_CGROUP", cgroup))
+        self.stack.enter_context(patch.object(host, "OWN_CGROUP", cgroup))
         self.stack.enter_context(patch.dict(os.environ, {"AK_RUN_DEPTH": "0",
                                                          "AK_MAX_RUNS": "0"}))
         for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", config.RUN_DIR_ENV,

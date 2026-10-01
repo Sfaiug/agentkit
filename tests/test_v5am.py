@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job as jobs, menu, notify, orch, run, watch
+from agentkit import host, config, job as jobs, menu, notify, orch, run, watch
 
 ADAPTER = r'''import json, os, pathlib, sys, time
 if sys.argv[1] == "usage":
@@ -46,8 +46,8 @@ if role == "executor":
 (out / "session_id").write_text("fixture-" + role)
 '''
 LAUNCH = """import sys
-from agentkit import job as jobs, run
-run.host_readings = lambda: {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
+from agentkit import host, job as jobs, run
+host.host_readings = lambda **_kw: {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                              "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}
 run.SLOT_POLL = .03
 jobs.JOB_TICK = .03
@@ -90,7 +90,7 @@ class Slots(unittest.TestCase):
         # can keep every slot shut for good.
         for var in ("AK_MIN_FREE_MB", "AK_MAX_LOAD"):
             os.environ.pop(var, None)
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         # A handoff on a host with a user manager would put the child in a real scope, which

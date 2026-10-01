@@ -26,7 +26,7 @@ from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, orch, run, usage, watch
+from agentkit import host, config, notify, orch, run, usage, watch
 
 WEEK = 604800
 TASK = "---\nrepo: none\nrounds: 1\n---\n# Quota fixture\n\n## Done when\n```bash\ntest -f deliverable\n```\n"
@@ -83,7 +83,7 @@ class Quota(unittest.TestCase):
             # top-level runs, whatever run the suite itself is nested in: a nested
             # run's depth would claim a slot without the steady-readings poll pinned below
             "AK_RUN_ROLE": "orchestrator", "AK_RUN_DEPTH": "0"}))
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         self.stack.enter_context(patch.object(run, "SLOT_POLL", .01))
@@ -430,7 +430,7 @@ class QuotaDry(unittest.TestCase):
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "PYTHONDONTWRITEBYTECODE": "1",
             "QUOTA_FIXTURE": str(self.root), "AK_RUN_DEPTH": "0"}))
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         config.ensure_dirs()

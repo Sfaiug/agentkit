@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import config, orch, run, watch, worker
+from agentkit import host, config, orch, run, watch, worker
 
 
 class Fixture(Sandbox):
@@ -44,10 +44,10 @@ class Fixture(Sandbox):
 
 class LiveRun(Fixture):
     def test_freeze_marks_survive_the_loops_next_save(self):
-        with patch.object(watch, "frozen_cgroup", return_value="/agentkit.slice"):
+        with patch.object(host, "frozen_cgroup", return_value="/agentkit.slice"):
             watch.recover_runs({}, log=lambda _: None, now=5000)
         self.assertEqual(self.loop_saves("execute")["frozen_since"], 5000)
-        with patch.object(watch, "frozen_cgroup", return_value=None):
+        with patch.object(host, "frozen_cgroup", return_value=None):
             watch.recover_runs({}, log=lambda _: None, now=6000)
         state = self.loop_saves("done-when")
         self.assertEqual(state["thawed_at"], 6000)
@@ -85,7 +85,7 @@ class LiveRun(Fixture):
 
     def test_a_write_before_the_loop_is_built_survives_its_first_save(self):
         handed = run.read_state(self.run_dir)
-        with patch.object(watch, "frozen_cgroup", return_value="/agentkit.slice"):
+        with patch.object(host, "frozen_cgroup", return_value="/agentkit.slice"):
             watch.recover_runs({}, log=lambda _: None, now=5000)
         self.lp = run.Loop({}, self.run_dir, handed, {}, lambda _: None, self.root, "", [], "",
                            [])

@@ -30,7 +30,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import (command_help, config, gc, history, job as jobs, notify, orch, retention,
+from . import (command_help, config, gc, history, host, job as jobs, notify, orch, retention,
                task as taskfile, update, usage, watch, worker)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
@@ -2110,8 +2110,8 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     The slice's idle cores over one suite's 0.7, and its free memory over 0.4 GB,
     whichever fits fewer.  Headroom already excludes running suites, so add
     them once; a saturated slice starts one only when none run.  Both come
-    off the slice's own cgroup -- its CPU quota and use, its `memory.high` less
-    cache -- which a shell beside the slice reads like a worker inside it; where
+    off the slice's own cgroup -- its CPU room and the slice's memory headroom --
+    which a shell beside the slice reads like a worker inside it; where
     no slice answers, the host's idle cores and free memory stand in.  An
     unreadable gate fails open to the other resource, and to one suite where
     neither answers.  `job_cpus` and `job_mem_mb` are one job's cost, for jobs
@@ -2120,7 +2120,7 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     if running is None:
         running = _heavy_running()
     if readings is None:
-        readings = host_readings()
+        readings = host.host_readings(slice_dir=orch.slice_cgroup)
     cpu_quota = _reading(readings, "slice_cpu_quota")
     if cpu_quota is not None:
         used = _reading(readings, "slice_cpu_used")
@@ -2191,7 +2191,7 @@ def _acquire_gate_turn(run_dir, log_path, log):
                     log(f"done-when: {exc} · the heavy suite takes a derived turn")
                 pinned = None
             # CPU sampling sleeps; locking free slots across it would count them as running.
-            readings = host_readings() if pinned is None else None
+            readings = host.host_readings(slice_dir=orch.slice_cgroup) if pinned is None else None
             total = max(1, _heavy_max_existing() + 1, len(slots))
             while len(slots) < total:
                 slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
@@ -8625,279 +8625,12 @@ def slot_order(state):
             state.get("run_id") or "")
 
 
-def _number(value):
-    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
-
-
-def _read_number(path, *, bytes_to_mb=False):
-    try:
-        value = path.read_text().strip()
-    except OSError:
-        return None
-    if value == "max":
-        return None
-    try:
-        value = float(value)
-    except ValueError:
-        return None
-    return value / (1024 * 1024) if bytes_to_mb else value
-
-
-def _reclaimable_mb(path):
-    """Reclaimable file cache in MB from a cgroup's memory.stat, or None.
-
-    The kernel takes file cache back freely under pressure, so it is not use;
-    only what remains can stop a run. Older kernels name the counter
-    inactive_file where newer ones say file.
-    """
-    try:
-        text = path.read_text()
-    except OSError:
-        return None
-    values = {}
-    for line in text.splitlines():
-        key, _, rest = line.partition(" ")
-        if key in ("file", "inactive_file"):
-            try:
-                values[key] = float(rest.split()[0])
-            except (ValueError, IndexError):
-                continue
-    if "file" in values:
-        return values["file"] / (1024 * 1024)
-    if "inactive_file" in values:
-        return values["inactive_file"] / (1024 * 1024)
-    return None
-
-
-def _unit_memory_limits(cgroup_file=None, cgroup_root=None):
-    """The nearest ancestor with a finite memory.high, as one (used, high, raw, name).
-
-    Walking up from this run's own scope stops at the first limit -- the slice
-    holding the run, not the user unit above it -- and the used figure excludes
-    reclaimable file cache. An empty list means no limit or no answer, and the
-    gate fails open.
-    """
-    if cgroup_file is None:
-        cgroup_file = os.environ.get("AK_CGROUP_FILE", "/proc/self/cgroup")
-    if cgroup_root is None:
-        cgroup_root = os.environ.get("AK_CGROUP_ROOT", "/sys/fs/cgroup")
-    try:
-        relative = next(line.split("::", 1)[1] for line in
-                        Path(cgroup_file).read_text().splitlines()
-                        if "::" in line)
-    except (OSError, StopIteration, IndexError):
-        return []
-    root, current = Path(cgroup_root), Path(cgroup_root) / relative.lstrip("/")
-    while current == root or root in current.parents:
-        high = _read_number(current / "memory.high", bytes_to_mb=True)
-        if high is not None:
-            raw = _read_number(current / "memory.current", bytes_to_mb=True)
-            if raw is None:
-                return []
-            cache = _reclaimable_mb(current / "memory.stat")
-            if cache is None:
-                return []
-            return [(max(0.0, raw - cache), high, raw,
-                     current.name if current != root else "/")]
-        if current == root:
-            break
-        current = current.parent
-    return []
-
-
-CPU_PRESSURE_LIMIT = 40   # the slice's `some avg10` above this waits: ak's own
-                            # processes are stalled on CPU nearly half the time
-
-
-def _pressure_avg10(text):
-    """The `some avg10` percentage in a cpu.pressure body, or None when it says none."""
-    for line in text.splitlines():
-        if line.startswith("some "):
-            for part in line.split():
-                if part.startswith("avg10="):
-                    try:
-                        return float(part.split("=", 1)[1])
-                    except ValueError:
-                        return None
-    return None
-
-
-def _slice_cpu_pressure(slice_dir=None):
-    """The slice's own CPU pressure, or None where nothing answers.
-
-    The load average counts every process on the machine and lags by a
-    minute; the slice's `some avg10` says whether ak's own processes are
-    waiting on CPU right now. Unreadable fails open like every other gate
-    input: no slice on macOS, or no cgroup file in a container, must not
-    queue every run forever.
-    """
-    if slice_dir is None:
-        slice_dir = orch.slice_cgroup()
-    try:
-        return _pressure_avg10((slice_dir / "cpu.pressure").read_text())
-    except OSError:
-        return None
-
-
-def _slice_cpu_stat(slice_dir=None):
-    """The slice's cpu.stat counters as {name: value}, or None where nothing answers.
-
-    Carried for diagnosis -- throttled_usec and nr_throttled say whether the
-    slice has ever hit its CPU quota -- not for admission: the counters are
-    cumulative since the slice's first process, so one snapshot cannot say
-    whether the slice is saturated now. The pressure gate does not read them.
-    """
-    if slice_dir is None:
-        slice_dir = orch.slice_cgroup()
-    try:
-        text = (slice_dir / "cpu.stat").read_text()
-    except OSError:
-        return None
-    counters = {}
-    for line in text.splitlines():
-        key, _, rest = line.partition(" ")
-        if not key:
-            continue
-        try:
-            counters[key] = int(rest.split()[0])
-        except (ValueError, IndexError):
-            continue
-    return counters
-
-
-def _slice_cpu_quota(cgroup=None):
-    """The agentkit slice's CPU quota in cores, or None when it sets none.
-
-    Read off the slice's own directory, which `orch.slice_cgroup` finds from the
-    layout whether the caller runs inside the slice or beside it -- a status shell
-    outside reads the same CPU quota a worker inside does.  `max` sets none.
-    """
-    try:
-        parts = ((cgroup or orch.slice_cgroup()) / "cpu.max").read_text().split()
-        if len(parts) != 2 or parts[0] == "max":
-            return None
-        return int(parts[0]) / int(parts[1])
-    except (OSError, ValueError, ZeroDivisionError):
-        return None
-
-
-def _slice_cpu_used(cgroup=None, delay=0.1):
-    """The slice's current CPU use in cores, or None when it cannot be read.
-
-    Two samples of `cpu.stat`'s `usage_usec` around a tenth of a second of sleep:
-    the rate over the measured window.  A single sample is cumulative since the
-    slice was made, which says nothing live; dividing by the measured elapsed
-    rather than the requested sleep keeps a delayed wakeup from overestimating.
-    """
-    path = (cgroup or orch.slice_cgroup()) / "cpu.stat"
-    def _usage():
-        try:
-            for line in path.read_text().splitlines():
-                if line.startswith("usage_usec"):
-                    return float(line.split()[1])
-        except (OSError, ValueError, IndexError):
-            return None
-        return None
-    first = _usage()
-    if first is None:
-        return None
-    start = time.monotonic()
-    time.sleep(delay)
-    second = _usage()
-    if second is None:
-        return None
-    elapsed = time.monotonic() - start
-    if elapsed <= 0:
-        return None
-    return max(0.0, (second - first) / (elapsed * 1000000))
-
-
-def _slice_memory(cgroup=None):
-    """(used, high) of the agentkit slice in MB, used without reclaimable cache.
-
-    Read off the slice's own directory like the CPU quota, so a shell outside the
-    slice reads what a worker inside enforces.  `memory.high` first, `memory.max`
-    where high sets none; None where neither answers.
-    """
-    base = cgroup or orch.slice_cgroup()
-    try:
-        high = _read_number(base / "memory.high", bytes_to_mb=True)
-        if high is None:
-            high = _read_number(base / "memory.max", bytes_to_mb=True)
-        if high is None:
-            return None
-        raw = _read_number(base / "memory.current", bytes_to_mb=True)
-        if raw is None:
-            return None
-        cache = _reclaimable_mb(base / "memory.stat")
-        if cache is None:
-            return None
-        return (max(0.0, raw - cache), high)
-    except OSError:
-        return None
-
-
-def host_readings(source=None, cgroup_file=None, cgroup_root=None):
-    """Read the host gates once; ``source`` is an offline-test injectable mapping/callable."""
-    if source is not None:
-        readings = source() if callable(source) else source
-        return dict(readings or {})
-    injected = os.environ.get("AK_HOST_READINGS")
-    if injected:
-        try:
-            readings = json.loads(injected)
-            if isinstance(readings, dict):
-                return readings
-        except (json.JSONDecodeError, TypeError):
-            pass
-    meminfo = {}
-    try:
-        for line in Path("/proc/meminfo").read_text().splitlines():
-            key, _, value = line.partition(":")
-            fields = value.split()
-            if fields:
-                meminfo[key] = float(fields[0]) / 1024
-    except (OSError, ValueError, IndexError):
-        pass
-    try:
-        load = float(Path("/proc/loadavg").read_text().split()[0])
-    except (OSError, ValueError, IndexError):
-        load = None
-    limits = _unit_memory_limits(cgroup_file, cgroup_root)
-    readings = {"free_mb": meminfo.get("MemAvailable"), "mem_total_mb": meminfo.get("MemTotal"),
-                "load": load, "cpus": os.cpu_count() or 1, "unit_limits": limits,
-                "slice_cpu_pressure": _slice_cpu_pressure(),
-                "slice_cpu_stat": _slice_cpu_stat()}
-    if limits and isinstance(limits[0], (tuple, list)) and len(limits[0]) >= 4:
-        used, high, raw, name = limits[0][:4]
-        readings["unit_memory_current_mb"] = used
-        readings["unit_memory_high_mb"] = high
-        readings["unit_memory_raw_mb"] = raw
-        readings["unit_memory_name"] = name
-    try:
-        cpu_quota = _slice_cpu_quota()
-    except Exception:
-        cpu_quota = None
-    try:
-        cpu_used = _slice_cpu_used() if cpu_quota is not None else None
-    except Exception:
-        cpu_used = None
-    try:
-        mem = _slice_memory()
-    except Exception:
-        mem = None
-    readings["slice_cpu_quota"] = cpu_quota
-    readings["slice_cpu_used"] = cpu_used
-    if mem is not None:
-        readings["slice_memory_used_mb"], readings["slice_memory_high_mb"] = mem
-    else:
-        readings["slice_memory_used_mb"] = readings["slice_memory_high_mb"] = None
-    return readings
+CPU_PRESSURE_LIMIT = 40   # ak's own processes are stalled on CPU nearly half the time
 
 
 def _reading(readings, *names):
     for name in names:
-        value = _number(readings.get(name))
+        value = host._number(readings.get(name))
         if value is not None:
             return value
     return None
@@ -8934,7 +8667,7 @@ def host_status_line():
     `at most 4 runs at once`.  A pinned `max_load` keeps the old load wording;
     otherwise the CPU gate is the slice's own pressure.
     """
-    readings = host_readings()
+    readings = host.host_readings(slice_dir=orch.slice_cgroup)
     minimum, maximum = resource_limits(readings)
     cpus = _reading(readings, "cpus", "nproc") or 1
     gates = []
@@ -8975,11 +8708,6 @@ def host_status_line():
     return f"{first}\n{heavy}"
 
 
-def free_memory_mb():
-    """Compatibility reading retained for callers outside the slot gate."""
-    return history.available_memory_mb()
-
-
 def memory_requirement(repo):
     """Compatibility estimate retained; host readings now decide admission."""
     return history.memory_requirement(repo, MIN_FREE_MB)
@@ -9018,7 +8746,7 @@ def frozen_runs(state):
             continue
         if (other.get("state") == "running" and process_active(other)
                 and not merge_turn_note(other)
-                and watch.frozen_cgroup(other.get("pid"))):
+                and host.frozen_cgroup(other.get("pid"))):
             frozen += 1
     return frozen
 
@@ -9042,8 +8770,8 @@ def slot_note(state):
 def _unit_memory(readings):
     """(used, high, raw, name) for the cgroup the gate reads, or None.
 
-    ``used`` excludes reclaimable file cache; ``raw`` is memory.current with
-    it, and None where the readings predate it. A list carries the nearest
+    ``used`` excludes reclaimable file cache; ``raw`` includes it or is None
+    where the readings predate it. A list carries the nearest
     limit first, so the first valid entry wins.
     """
     limits = readings.get("unit_limits")
@@ -9053,16 +8781,16 @@ def _unit_memory(readings):
                 continue
             if len(entry) == 2:
                 used, high = entry
-                if (_number(used) is not None and _number(high) is not None
+                if (host._number(used) is not None and host._number(high) is not None
                         and high >= 0):
                     return (used, high, None, None)
             elif len(entry) >= 3:
                 used, high, raw = entry[0], entry[1], entry[2]
                 name = entry[3] if len(entry) > 3 else None
-                if (_number(used) is None or _number(high) is None
+                if (host._number(used) is None or host._number(high) is None
                         or high < 0):
                     continue
-                raw = _number(raw)
+                raw = host._number(raw)
                 name = name if isinstance(name, str) and name else None
                 return (used, high, raw, name)
     current = _reading(readings, "unit_memory_current_mb", "memory_current_mb")
@@ -9131,7 +8859,7 @@ def claim_slot(state, limit, readings=None):
         state["slot_wait_kind"] = "count"
         state["slot_healthy_polls"] = 0
         return False
-    readings = host_readings() if readings is None else readings
+    readings = host.host_readings(slice_dir=orch.slice_cgroup) if readings is None else readings
     minimum, maximum = resource_limits(readings)
     if is_first:
         maximum = 0
@@ -9473,26 +9201,6 @@ def _systemctl_fields(unit):
     return fields.get("Result", ""), fields.get("ControlGroup", ""), fields.get("OOMPolicy", "")
 
 
-def _oom_kill_count(cgroup):
-    """How many processes the kernel OOM-killed in that cgroup, or 0 if it cannot be read.
-
-    Read before the scope is stopped: stopping it is what gives the memory back,
-    and it may remove the cgroup the count lives in.
-    """
-    if not cgroup:
-        return 0
-    path = orch.CGROUP_ROOT / cgroup.lstrip("/") / "memory.events"
-    try:
-        text = path.read_text()
-    except OSError:
-        return 0
-    for line in text.splitlines():
-        key, _, value = line.partition(" ")
-        if key == "oom_kill" and value.strip().isdigit():
-            return int(value.strip())
-    return 0
-
-
 def _scope_oom_probe(state):
     """(systemd Result, oom_kill count) for the run's scope.  Either witness is enough.
 
@@ -9505,7 +9213,7 @@ def _scope_oom_probe(state):
         if shown is None:
             continue
         if policy != "continue":
-            kills = max(kills, _oom_kill_count(cgroup))
+            kills = max(kills, host._oom_kill_count(cgroup))
         if shown:
             result = shown
         if result == "oom-kill" or kills:
@@ -9553,18 +9261,16 @@ def memory_cap_note(run_dir, log):
     cap, scope = state.get("memory_cap_mb"), state.get("scope")
     if type(cap) is not int or cap <= 0 or not scope_is_real(scope):
         return
-    try:
-        line = next(row for row in orch.OWN_CGROUP.read_text().splitlines()
-                    if row.startswith("0::"))
-    except (OSError, StopIteration):
+    cgroup = host.process_cgroup()
+    if cgroup is None:
         return
-    cgroup = line[3:].strip().rstrip("/")
+    cgroup = cgroup.strip().rstrip("/")
     if cgroup.rsplit("/", 1)[-1] not in _scope_units(scope):
         return
     with _OOM_LOCK:
         where, _, said = os.environ.get(OOM_LOGGED, "").rpartition(" ")
         seen = int(said) if where == cgroup and said.isdigit() else 0
-        kills = _oom_kill_count(cgroup)
+        kills = host._oom_kill_count(cgroup)
         if kills > seen:
             os.environ[OOM_LOGGED] = f"{cgroup} {kills}"
     for _ in range(kills - seen):
@@ -10380,24 +10086,6 @@ def run_scope_dir(scope):
     return None
 
 
-def _scope_readings(scope_dir):
-    """(live processes, resident bytes) from a scope's cgroup files, or None.
-
-    `cgroup.procs` names every live process the kernel still holds there, one
-    pid a line; `memory.current` is their resident bytes.  Either file missing
-    or unreadable is no reading, never a zero.
-    """
-    try:
-        procs = (Path(scope_dir) / "cgroup.procs").read_text().split()
-        mem = (Path(scope_dir) / "memory.current").read_text().strip()
-    except OSError:
-        return None
-    try:
-        return len([line for line in procs if line.strip().isdigit()]), int(mem)
-    except (ValueError, TypeError):
-        return None
-
-
 def _marked_rss(pid, proc_root="/proc"):
     """Resident bytes for one pid from its statm, or None where unread."""
     try:
@@ -10424,7 +10112,7 @@ def scope_alive(state, scope_dir=None, _marker=None, _rss=None, _active=None):
     if scope_dir is None and (state or {}).get("scope"):
         scope_dir = run_scope_dir(state.get("scope"))
     if scope_dir is not None:
-        readings = _scope_readings(scope_dir)
+        readings = host._scope_readings(scope_dir)
         if readings is not None:
             return readings
     run_id = (state or {}).get("run_id")

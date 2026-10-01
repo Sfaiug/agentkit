@@ -386,17 +386,6 @@ def estimate_memory_mb(repo):
     return values[rank]
 
 
-def available_memory_mb():
-    """MemAvailable from procfs, or None on platforms without that file."""
-    try:
-        for line in Path("/proc/meminfo").read_text().splitlines():
-            if line.startswith("MemAvailable:"):
-                return float(line.split()[1]) / 1024
-    except (OSError, ValueError, IndexError):
-        return None
-    return None
-
-
 def memory_requirement(repo, min_free_mb=MIN_FREE_MB):
     estimate = estimate_memory_mb(repo) if repo else None
     return max(float(min_free_mb), 1.2 * estimate) if estimate is not None else None

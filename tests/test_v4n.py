@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, menu, orch, run, terminal, usage
+from agentkit import host, config, gc, menu, orch, run, terminal, usage
 from agentkit.harness import codex as codex_plugin
 
 
@@ -50,7 +50,7 @@ class Sandbox(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[]))
         self.stack.enter_context(patch.object(terminal, "height", return_value=24))
         self.stack.enter_context(patch.object(menu.time, "time", return_value=10000))
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         self.cfg = config.load()

@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, run, usage
+from agentkit import host, config, gc, run, usage
 
 URL = "https://github.com/fixture/repo/pull/7"
 BASE_RACE = ("GraphQL: Base branch was modified. Review and try the merge again. "
@@ -129,7 +129,7 @@ class MergeStep(unittest.TestCase):
             "PYTHONDONTWRITEBYTECODE": "1", "AGENTKIT_SESSION": "",
             "AGENTKIT_RUN_DIR": "", "AK_RUN_ROLE": "",
             "AGENTKIT_TMUX_SOCKET": "agentkit-test"}))
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         config.ensure_dirs()

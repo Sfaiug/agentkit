@@ -13,7 +13,7 @@ from unittest.mock import call, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, usage
+from agentkit import host, config, run, usage
 
 
 class ReviewContract(unittest.TestCase):
@@ -59,7 +59,7 @@ sys.exit(1)
         # The fixtures rewrite a delivered scratch run into an interrupted or older record, and
         # such a record always still has its workspace: settling the delivery must not take it.
         self.stack.enter_context(patch.object(run, "drop_checkout", return_value=False))
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         self.providers = {}

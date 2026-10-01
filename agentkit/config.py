@@ -12,6 +12,8 @@ import time
 import tomllib
 from pathlib import Path
 
+from . import host
+
 REPO = Path(__file__).resolve().parent.parent
 HOME = Path.home() / ".agentkit"
 RUNS, WT, STATE, SECRETS, TMP, ENV, WORK = (
@@ -133,20 +135,14 @@ def _resource_setting(key, environment, default):
 def min_free_mb(mem_total_mb=None):
     """Minimum MemAvailable, defaulting to the larger of 3072 MB and 20% of RAM."""
     if mem_total_mb is None:
-        try:
-            text = Path("/proc/meminfo").read_text()
-            mem_total_mb = next(float(line.split()[1]) / 1024
-                                for line in text.splitlines()
-                                if line.startswith("MemTotal:"))
-        except (OSError, StopIteration, ValueError, IndexError):
-            mem_total_mb = 0
+        mem_total_mb = host.memory_mb("MemTotal") or 0
     default = max(3072, mem_total_mb * 0.20)
     return _resource_setting("min_free_mb", "AK_MIN_FREE_MB", default)
 
 
 def max_load(cpus=None):
     """Maximum one-minute load, defaulting to the host's processor count."""
-    cpus = os.cpu_count() if cpus is None else cpus
+    cpus = host.cpu_count() if cpus is None else cpus
     default = max(1, cpus or 1)
     return _resource_setting("max_load", "AK_MAX_LOAD", default)
 

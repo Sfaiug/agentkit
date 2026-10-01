@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 import test_review_gate as gate
-from agentkit import browser, config, gc, job as jobs, menu, notify, orch, run, task, watch, worker
+from agentkit import host, browser, config, gc, job as jobs, menu, notify, orch, run, task, watch, worker
 
 
 DEFECT = "broken.py:1 - empty input crashes - base abc123: `first([])` raises IndexError"
@@ -263,7 +263,7 @@ class FollowupRuns(unittest.TestCase):
         directory, state = self.source(followups=[DEFECT, OTHER])
         readings = {"free_mb": 0, "mem_total_mb": 16384, "load": 0, "cpus": 8}
         with patch.dict(os.environ, {"AK_MAX_RUNS": "1"}), \
-                patch.object(run, "host_readings", return_value=readings), \
+                patch.object(host, "host_readings", return_value=readings), \
                 patch.object(config, "min_free_mb", return_value=1024):
             children = self.start(directory, state)
         receipts = [run.read_state(child) for child in children]
