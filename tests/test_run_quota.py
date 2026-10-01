@@ -403,6 +403,7 @@ class Quota(unittest.TestCase):
             return type("Proc", (), {"pid": 12345, "poll": lambda self: None})()
 
         with patch.object(run.subprocess, "Popen", side_effect=fake_popen), \
+                patch.object(orch, "user_manager", return_value=False), \
                 patch.object(orch, "scope_oom_policy", return_value=False), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.cmd_resume([run_dir.name, "--bg"]), 0)
