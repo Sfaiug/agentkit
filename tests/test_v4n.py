@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -24,6 +25,9 @@ class Sandbox(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        # a menu leaves its reads, looks and maintenance going: they end before this HOME goes
+        threads = set(threading.enumerate())
+        self.addCleanup(lambda: [thread.join(15) for thread in set(threading.enumerate()) - threads])
         self.stack.enter_context(patch.dict(os.environ, {"HOME": str(self.root),
                                  "NO_COLOR": "1", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
                                  # this HOME's OpenCode config, never the caller's: mimo is payg
