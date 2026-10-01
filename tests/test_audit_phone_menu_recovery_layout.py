@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -89,6 +90,9 @@ class Sandbox(unittest.TestCase):
             "TERM": "xterm-256color"})
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        # a menu leaves its reads and looks going: they end before this HOME goes
+        threads = set(threading.enumerate())
+        self.addCleanup(lambda: [thread.join(15) for thread in set(threading.enumerate()) - threads])
         self.stack.enter_context(patch.dict(os.environ, self.env, clear=True))
         self.stack.enter_context(patch.object(config, "HOME", self.home / ".agentkit"))
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
