@@ -190,7 +190,7 @@ def tool_env():
         # detached or timeout-surviving descendants die with the run like any child.
         # An inherited marker already comes through child_env; this is the loop's own
         # context, which the loop never exports.
-        env["AGENTKIT_RUN"] = run_id
+        env[worker.RUN_MARKER] = worker.run_marker(run_id)
     return env
 
 
@@ -2511,7 +2511,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     log_path.write_text(text)
     # The gate is over and its children are not the round's: a command that exited 0 may
     # still have left processes behind, and they die with the gate, however detached.
-    worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=log)
+    worker.kill_marked(run_child_env().get(worker.RUN_MARKER), log=log)
     artifacts.update(set(dirty_paths(cwd)) - before)
     return ok, text
 
@@ -3455,7 +3455,7 @@ def regression_fails_before(lp):
                 stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=suite_env())
             progress.write(f"\n[{'killed at the limit' if killed else f'exit {code}'}]\n".encode())
         memory_cap_note(lp.run_dir, lp.log)
-        worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
+        worker.kill_marked(run_child_env().get(worker.RUN_MARKER), log=lp.log)
     finally:
         restore_probe_checkout(lp, head, branch, before, label)
     if killed or code < 0:
@@ -3556,11 +3556,11 @@ def start_suite(lp):
     suite to report.  The reviewer joins it before judging, so the round still
     fails when the suite does, and the fixer still gets both outputs.
 
-    The thread marks its processes `<run_id>/suite`: the gate's end sweep then
+    The thread marks its processes `<marker>/suite`: the gate's end sweep then
     takes only the suite's leftovers, never the live reviewer, and the reviewer's
     own retry sweeps likewise leave the suite alone -- turn-level sweeps match
     their marker exactly.  A sweep of the whole run ends both -- the marker match
-    covers `<id>/...` -- so the run's end, a stall kill and a reap leave no suite
+    covers `<marker>/...` -- so the run's end, a stall kill and a reap leave no suite
     process behind.  Their parent marker stays the run's, so the stop sweep finds
     both.
     """
@@ -5908,7 +5908,7 @@ def target_fails(lp, upstream, dw_log):
                     began += busy_turn(lp.run_dir, probe_log, lp.log)
             memory_cap_note(lp.run_dir, lp.log)
             # as after a gate: a command that exited may still have left processes behind
-            worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
+            worker.kill_marked(run_child_env().get(worker.RUN_MARKER), log=lp.log)
             with probe_log.open("rb") as said:
                 said.seek(start)
                 output = said.read().decode(errors="replace")
@@ -8499,7 +8499,7 @@ def pickup_new_code(lp, execv=None, current=None, extra=None):
     if getattr(_PICKUP_HELD, "count", 0):
         return False
     try:
-        children = worker.marked_pids(lp.state.get("run_id"))
+        children = worker.marked_pids(worker.run_marker(lp.state.get("run_id")))
     except Exception:
         return False
     if children:
@@ -8569,7 +8569,7 @@ def run_child_env():
     if state.get("run_id"):
         # The marker every process of this run carries, so the run's end -- and every
         # killed turn, every retry and every finished gate -- finds them however detached.
-        env["AGENTKIT_RUN"] = state["run_id"]
+        env[worker.RUN_MARKER] = worker.run_marker(state["run_id"])
     return env
 
 
@@ -9283,12 +9283,12 @@ def stop_run_tree(state, log=lambda _: None, wait=False):
     it is asked.  A caller that is already outside the scope, the reaper after a
     memory-cap death, passes `wait` so the stop finishes and the memory is back.
     Never only a process group: a child that left its group is still the run's.
-    One sweep ends the suite too: the marker match covers `<id>/...` (see `start_suite`).
+    One sweep ends the suite too: the marker match covers `<marker>/...` (see `start_suite`).
     """
     scope = state.get("scope") if isinstance(state, dict) else None
     run_id = state.get("run_id") if isinstance(state, dict) else None
     if run_id:
-        worker.kill_marked(run_id, log=log)
+        worker.kill_marked(worker.run_marker(run_id), log=log)
     orch.stop_scope(scope, log, wait=wait)
 
 
@@ -10872,32 +10872,8 @@ def cmd_clean(argv):
 
 
 def marker_pids(run_id):
-    """Pids still carrying this run's marker in their environment, except this process.
-
-    Every worker turn and done-when command runs with `AK_PARENT_RUN` set to the run
-    that started it -- see `run_child_env` -- so a child that outlived its parent, or
-    was reparented away from the loop's own tree, still names the run it belongs to.
-    """
-    found = []
-    me = os.getpid()
-    try:
-        entries = list(Path("/proc").iterdir())
-    except OSError:
-        return []
-    for entry in entries:
-        if not entry.name.isdigit():
-            continue
-        pid = int(entry.name)
-        if pid == me or pid <= 0:
-            continue
-        try:
-            env = (entry / "environ").read_bytes().split(b"\0")
-        except OSError:
-            continue
-        needle = f"AK_PARENT_RUN={run_id}".encode()
-        if needle in env:
-            found.append(pid)
-    return found
+    """Pids still carrying this run's marker, except this process and its ancestors."""
+    return worker.marked_pids(worker.run_marker(run_id))
 
 
 def under_code(path):
@@ -11442,7 +11418,7 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
         if previous.get("followup"):
             # These are siblings owned by the seat, not descendants for the ending's
             # process sweep to kill or tests sharing its admission slot.
-            for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_SCOPE",
+            for key in (worker.RUN_MARKER, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_SCOPE",
                         config.UNATTENDED_ENV, config.JOB_DIR_ENV, "AK_RUN_ROLE"):
                 env.pop(key, None)
             env[config.SESSION_ENV] = launched_session(previous)

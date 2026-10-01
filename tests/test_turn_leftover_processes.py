@@ -60,9 +60,11 @@ class TurnLeftoverProcesses(unittest.TestCase):
             "AK_MAX_RUNS": "0", config.SESSION_ENV: "", config.RUN_DIR_ENV: ""}))
         for name in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG"):
             os.environ.pop(name, None)
-        self.marker = f"acme-turn-{self.root.name}"
+        self.stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
+        run_id = f"acme-turn-{self.root.name}"
+        self.marker = worker.run_marker(run_id)
         self.stack.enter_context(patch.object(run._RUN_CONTEXT, "state",
-                                              {"run_id": self.marker, "run_depth": 0},
+                                              {"run_id": run_id, "run_depth": 0},
                                               create=True))
         self.stack.enter_context(patch.object(run, "memory_cap_note"))
         self.stack.enter_context(patch.object(run, "note_turn_meters"))

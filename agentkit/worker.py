@@ -60,13 +60,18 @@ LEAST = ("Minimum change that solves the task completely; the best part is no pa
          "more: brutal elimination, the least possible steps.")
 TIMEOUT = 124       # what a turn killed for running past its limit exits with, as `timeout(1)` does
 KILL_GRACE = 5      # how long a killed process group is given to go quietly before SIGKILL
-RUN_MARKER = "AGENTKIT_RUN"   # the environment marker every process of a run carries: its id
+RUN_MARKER = "AGENTKIT_RUN"   # every process of a run carries its directory path
 MARK_KILL_GRACE = 10   # how long marked processes get to go quietly after TERM before KILL
 ACTIVITY_POLL = 1   # file-backed harness output has no portable readiness notification
 LIMIT_MAX = threading.TIMEOUT_MAX    # the longest wait a timer can actually be armed for
 AUTH_CAP = 20       # the `auth` verb reads a file; one still silent after this is not answering
 AUTH_GRACE = 60     # a turn that was over this fast and said nothing never reached the model
 STDERR_CHUNK = 64 * 1024   # how much of a turn's diagnostics is held in memory while scanning
+
+
+def run_marker(run_id):
+    """The run directory keeps equal ids in different ak homes distinct on one host."""
+    return str(config.RUNS / run_id) if run_id else None
 
 
 class LoginExpired(Exception):
@@ -118,7 +123,7 @@ def auth_ok(harness, seat=False, run_id=None, account=None):
         return None, ""
     env = config.child_env()
     if run_id:
-        env[RUN_MARKER] = run_id
+        env[RUN_MARKER] = run_marker(run_id)
     else:
         # no run to name means unmarked, even inside a run whose marker the child
         # would otherwise inherit -- a login probe is nobody's to sweep.
@@ -276,14 +281,14 @@ def _lineage():
 
 
 def marked_pids(run_id, exact=False):
-    """Every pid carrying AGENTKIT_RUN=<run_id> or below it, except this process and its ancestors.
+    """Every pid carrying the given marker or below it, except this process and its ancestors.
 
     Found by scanning /proc/*/environ, so a child that left its process group -- setsid,
     a double fork, a harness that starts each shell command as its own session leader --
     is still one of the run's.  The caller and its ancestors are never among them,
-    whatever marker they carry and whatever id was asked for: a kill from inside a run
-    must not take the run that asked for it.  Entries are matched whole, so one run id
-    is never a prefix of another's -- except below a slash: `<id>/suite` is the run's
+    whatever marker they carry and whatever marker was asked for: a kill from inside a run
+    must not take the run that asked for it.  Entries are matched whole, so one run marker
+    is never a prefix of another's -- except below a slash: `<marker>/suite` is the run's
     own suite, so a sweep of the run ends it too, while a sweep of the suite ends only
     the suite.  `exact` matches only the marker itself: a failed turn's cleanup ends
     the turn's own leftovers while the suite running beside it keeps going.
@@ -321,9 +326,9 @@ def kill_marked(run_id, grace=MARK_KILL_GRACE, log=None, exact=False):
 
     The scope's backstop, and the plain host's only net: what a run started is found by its
     environment, not by its parent or its group, so nothing detached outlives the run.  The
-    caller and its ancestors are not part of that, whatever id was given -- `marked_pids`
+    caller and its ancestors are not part of that, whatever marker was given -- `marked_pids`
     leaves them out -- so the loop's own end-of-run sweep still ends every process the run
-    started.  One sweep ends the run's sub-marked processes too (`<id>/suite`), so no sweep
+    started.  One sweep ends the run's sub-marked processes too (`<marker>/suite`), so no sweep
     of a run can miss its suite; `exact` sweeps only the marker itself, for a failed turn's
     cleanup while the suite beside it keeps running.  Polls for the exits and returns
     early; True when nothing marked is left.  Never raises: a cleanup that fails leaves
@@ -643,8 +648,8 @@ def turn(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     # Let call apply harness defaults over inheritance; pass only explicit overrides.
     env = dict(env or {})
     # A turn ends independently of the suite and the loop's helpers, even on a plain host.
-    run_id = env.get(RUN_MARKER) or os.environ.get(RUN_MARKER) or "worker"
-    marker = f"{run_id}/turn-{uuid.uuid4().hex}"
+    marker = env.get(RUN_MARKER) or os.environ.get(RUN_MARKER) or run_marker("worker")
+    marker = f"{marker}/turn-{uuid.uuid4().hex}"
     env[RUN_MARKER] = marker
     log = log or (lambda message: print(message, file=sys.stderr))
     try:

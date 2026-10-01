@@ -3,7 +3,7 @@
 On 2026-09-20 an executor's test survived three kills of the executor and grew
 to 21 GB, because each shell command ran as its own session leader and
 `os.killpg` on the worker's group never reached it. So every process of a run
-carries AGENTKIT_RUN=<id>, and the run's end -- like every killed turn, every
+carries AGENTKIT_RUN=<run directory>, and the run's end -- like every killed turn, every
 retry and every finished done-when gate -- stops the run's scope and then every
 process carrying the marker, found by scanning /proc/*/environ. Never only a
 process group.
@@ -14,6 +14,7 @@ safety net so a failing test never leaves one behind.
 """
 
 from contextlib import ExitStack
+import io
 import json
 import os
 import signal
@@ -31,7 +32,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, run, worker
+from agentkit import config, orch, run, watch, worker
 
 
 def fresh_id():
@@ -61,17 +62,24 @@ def wait_gone(pid, timeout=5):
 
 class RunTree(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix="run-tree-")
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-run-tree-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
+        stack.enter_context(patch.dict(os.environ, {
+            "HOME": str(self.root), worker.RUN_MARKER: "", "AK_PARENT_RUN": "",
+            "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         self.run_id = fresh_id()
+        self.marker = worker.run_marker(self.run_id)
 
     def spawn_marked(self, *argv, marker=None):
         """Start a child carrying the run's marker, with a SIGKILL safety net."""
         proc = subprocess.Popen(
             list(argv), start_new_session=True, stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            env={**os.environ, "AGENTKIT_RUN": self.run_id if marker is None else marker})
+            env={**os.environ, worker.RUN_MARKER: self.marker if marker is None else marker})
         self.addCleanup(self._reap, proc)
         return proc
 
@@ -130,7 +138,7 @@ class RunTree(unittest.TestCase):
         (fake / "systemctl").chmod(0o755)
         self.spawn_marked("setsid", "sleep", "100")
         time.sleep(0.5)
-        found = worker.marked_pids(self.run_id)
+        found = worker.marked_pids(self.marker)
         self.assertTrue(found)  # the detached sleeper is found by marker before the end
         state = {"run_id": self.run_id, "scope": f"agentkit-run-{self.run_id}"}
         with patch.dict(os.environ, {"PATH": f"{fake}:{os.environ['PATH']}",
@@ -145,7 +153,7 @@ class RunTree(unittest.TestCase):
         argv = calls.read_text().split()
         self.assertIn("stop", argv)
         self.assertIn(f"agentkit-run-{self.run_id}.scope", argv)
-        self.assertEqual(worker.marked_pids(self.run_id), [])
+        self.assertEqual(worker.marked_pids(self.marker), [])
         for pid in found:
             self.assertTrue(wait_gone(pid), f"{pid} outlived the run")
 
@@ -153,10 +161,10 @@ class RunTree(unittest.TestCase):
         # No manager on this host: the run still ends what it started, by marker,
         # and a neighbour run's child -- whose marker extends this one's -- survives.
         self.spawn_marked("setsid", "sleep", "100")
-        other = self.spawn_marked("sleep", "100", marker=self.run_id + "-other")
+        other = self.spawn_marked("sleep", "100", marker=self.marker + "-other")
         time.sleep(0.5)
         with patch.object(orch, "user_manager", return_value=False):
-            found = worker.marked_pids(self.run_id)
+            found = worker.marked_pids(self.marker)
             self.assertTrue(found)
             self.assertNotIn(other.pid, found)
             run.stop_run_tree({"run_id": self.run_id, "scope": "none",
@@ -168,6 +176,37 @@ class RunTree(unittest.TestCase):
             os.kill(other.pid, 0)
         except OSError:
             self.fail("the marker sweep took a process of another run")
+
+    def test_same_run_id_in_another_home_survives_sweeps(self):
+        other_runs = self.root / "other-home" / "runs"
+        other_marker = str(other_runs / self.run_id)
+        markers = {101: self.marker, 102: f"{self.marker}/suite",
+                   103: self.marker + "-other", 104: other_marker,
+                   105: f"{other_marker}/turn-1"}
+        signalled = []
+
+        def environ(path, _mode):
+            marker = markers[int(Path(path).parent.name)]
+            return io.BytesIO(f"{worker.RUN_MARKER}={marker}\0"
+                              f"AK_PARENT_RUN={self.run_id}\0".encode())
+
+        def kill(pid, _sig):
+            signalled.append(pid)
+            markers.pop(pid)
+
+        with patch.object(worker, "_lineage", return_value=set()), \
+                patch.object(worker.os, "listdir", side_effect=lambda _path: list(map(str, markers))), \
+                patch.object(worker, "open", side_effect=environ, create=True), \
+                patch.object(worker.os, "kill", side_effect=kill), \
+                patch.object(orch, "stop_scope", return_value=False):
+            self.assertEqual(set(run.marker_pids(self.run_id)), {101, 102})
+            run.stop_run_tree({"run_id": self.run_id})
+            self.assertEqual(signalled, [101, 102])
+            markers[106] = f"{self.marker}/turn-2"
+            with patch.object(config, "RUNS", other_runs):
+                watch.stop_run_scope({"run_id": self.run_id})
+            self.assertEqual(signalled, [101, 102, 104, 105])
+            self.assertEqual(set(markers), {103, 106})
 
     def test_retry_leaves_no_children_of_the_previous_attempt(self):
         # The first attempt fails on the provider after leaving a detached child;
@@ -187,7 +226,7 @@ class RunTree(unittest.TestCase):
                     stderr=subprocess.DEVNULL, env=env)
                 self.addCleanup(self._reap, survivor)
                 time.sleep(0.5)
-                left = worker.marked_pids(self.run_id)
+                left = worker.marked_pids(self.marker)
                 self.assertTrue(left)  # the failed attempt really left one behind
                 calls.append(left)
                 return 1, "API Error: the backend broke", None, False
@@ -201,10 +240,10 @@ class RunTree(unittest.TestCase):
                 "executor", None, lambda _: None)
         self.assertEqual(code, 0)
         self.assertFalse(dead)
-        self.assertTrue(calls[0].startswith(f"{self.run_id}/turn-"))
+        self.assertTrue(calls[0].startswith(f"{self.marker}/turn-"))
         for pid in calls[1]:
             self.assertTrue(wait_gone(pid), f"{pid} outlived the retry")
-        self.assertEqual(worker.marked_pids(self.run_id), [])
+        self.assertEqual(worker.marked_pids(self.marker), [])
 
     def test_done_when_command_children_die_with_the_round(self):
         # A gate command that backgrounds a detached sleeper and exits 0: the
@@ -220,14 +259,14 @@ class RunTree(unittest.TestCase):
             self.root, self.root / "donewhen.log", set(), limit=60, silence=60)
         self.assertTrue(ok, text)
         self.assertTrue((self.root / "kid.ready").exists())
-        self.assertEqual(worker.marked_pids(self.run_id), [])
+        self.assertEqual(worker.marked_pids(self.marker), [])
         self.assertEqual(self.sleepers(), [])
 
     def test_marker_is_set_on_every_child(self):
         # Worker turns and done-when gates -- the final check is a gate -- all
         # carry the run's marker in the environment they are started with.
         self.enter_run_context()
-        self.assertEqual(run.run_child_env().get("AGENTKIT_RUN"), self.run_id)
+        self.assertEqual(run.run_child_env().get(worker.RUN_MARKER), str(config.RUNS / self.run_id))
         cfg = {"models": {"w": {"harness": "claude", "model": "m", "effort": "e",
                                 "provider": "p"}},
                "providers": {"p": {}}}
@@ -241,7 +280,7 @@ class RunTree(unittest.TestCase):
         with patch.object(worker, "call", side_effect=attempt):
             run.call_retrying(cfg, "w", "do the thing", self.root, self.root / "out",
                               "executor", None, lambda _: None)
-        self.assertTrue(seen["worker"].startswith(f"{self.run_id}/turn-"))
+        self.assertTrue(seen["worker"].startswith(f"{self.marker}/turn-"))
 
         def gate(cmd, limit, **kwargs):
             seen["gate"] = (kwargs.get("env") or {}).get("AGENTKIT_RUN")
@@ -250,7 +289,7 @@ class RunTree(unittest.TestCase):
         with patch.object(worker, "limited", side_effect=gate):
             ok, _ = run.run_done_when(["true"], self.root, self.root / "dw.log", set())
         self.assertTrue(ok)
-        self.assertEqual(seen.get("gate"), self.run_id)
+        self.assertEqual(seen.get("gate"), self.marker)
 
     def test_merge_marks_and_stops_its_delivery_tree(self):
         # `ak run merge` delivers outside run_slot, but its fixer turns and gates
@@ -289,7 +328,7 @@ class RunTree(unittest.TestCase):
                 env={**os.environ, **marked})
             self.addCleanup(self._reap, kid)
             time.sleep(0.5)
-            seen["kid"] = worker.marked_pids(rid)
+            seen["kid"] = worker.marked_pids(worker.run_marker(rid))
             self.assertTrue(seen["kid"])  # the delivery really left one behind
             return True
 
@@ -299,11 +338,11 @@ class RunTree(unittest.TestCase):
                 patch.object(run, "merge", side_effect=fake_merge), \
                 patch.object(run, "finish", return_value=0) as done:
             self.assertEqual(run.cmd_merge([rid]), 0)
-        self.assertEqual(seen.get("marker"), rid)
+        self.assertEqual(seen.get("marker"), str(directory))
         self.assertEqual(done.call_count, 1)
         for pid in seen["kid"]:
             self.assertTrue(wait_gone(pid), f"{pid} outlived the delivery retry")
-        self.assertEqual(worker.marked_pids(rid), [])
+        self.assertEqual(worker.marked_pids(worker.run_marker(rid)), [])
         self.assertEqual(getattr(run._RUN_CONTEXT, "state", {}), before)
 
     def test_reap_stops_an_ended_run_whose_loop_died(self):
@@ -322,10 +361,10 @@ class RunTree(unittest.TestCase):
                     ["setsid", "sleep", "100"], start_new_session=True,
                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    env={**os.environ, "AGENTKIT_RUN": rid})
+                    env={**os.environ, worker.RUN_MARKER: worker.run_marker(rid)})
                 self.addCleanup(self._reap, kid)
                 time.sleep(0.5)
-                found = worker.marked_pids(rid)
+                found = worker.marked_pids(worker.run_marker(rid))
                 self.assertTrue(found)
                 with patch.object(worker, "kill_marked",
                                   wraps=worker.kill_marked) as swept:
@@ -358,11 +397,11 @@ class RunTree(unittest.TestCase):
             self.assertEqual(worker.auth_ok("claude"), (True, "fake adapter holds a token"))
             self.assertEqual(seen.read_text().split(), ["marker=unset"])
             self.assertTrue(worker.auth_ok("claude", run_id=self.run_id)[0])
-        self.assertIn(f"marker={self.run_id}", seen.read_text().split())
+        self.assertIn(f"marker={self.marker}", seen.read_text().split())
         time.sleep(0.5)
-        found = worker.marked_pids(self.run_id)
+        found = worker.marked_pids(self.marker)
         self.assertTrue(found)
-        self.assertTrue(worker.kill_marked(self.run_id))
+        self.assertTrue(worker.kill_marked(self.marker))
         for pid in found:
             self.assertTrue(wait_gone(pid))
 
@@ -378,14 +417,14 @@ class RunTree(unittest.TestCase):
                 patch.object(worker, "limited", return_value=(0, "", False)):
             code, _, _, killed = worker.call(
                 cfg, "w", "do the thing", self.root, self.root / "call-out", "executor",
-                None, env={**os.environ, "AGENTKIT_RUN": self.run_id}, limit=60)
+                None, env={**os.environ, worker.RUN_MARKER: self.marker}, limit=60)
         self.assertEqual(code, 0)
         self.assertFalse(killed)
         lines = seen.read_text().split()
         self.assertTrue(lines)  # the turn probed at least once
-        self.assertTrue(all(line == f"marker={self.run_id}" for line in lines), lines)
-        self.assertTrue(worker.kill_marked(self.run_id))
-        self.assertEqual(worker.marked_pids(self.run_id), [])
+        self.assertTrue(all(line == f"marker={self.marker}" for line in lines), lines)
+        self.assertTrue(worker.kill_marked(self.marker))
+        self.assertEqual(worker.marked_pids(self.marker), [])
 
     def test_tool_env_marks_run_owned_helpers(self):
         # git and gh the loop runs carry the run's marker, so detached or
@@ -398,14 +437,14 @@ class RunTree(unittest.TestCase):
             if saved is not None:
                 os.environ["AGENTKIT_RUN"] = saved
         self.enter_run_context()
-        self.assertEqual(run.tool_env().get("AGENTKIT_RUN"), self.run_id)
+        self.assertEqual(run.tool_env().get(worker.RUN_MARKER), self.marker)
         code, _, _ = run.tool_run(
             ["bash", "-c", "setsid sleep 100 </dev/null >/dev/null 2>&1 &"])
         self.assertEqual(code, 0)
         time.sleep(0.5)
-        found = worker.marked_pids(self.run_id)
+        found = worker.marked_pids(self.marker)
         self.assertTrue(found)
-        self.assertTrue(worker.kill_marked(self.run_id))
+        self.assertTrue(worker.kill_marked(self.marker))
         for pid in found:
             self.assertTrue(wait_gone(pid))
 
@@ -414,10 +453,10 @@ class RunTree(unittest.TestCase):
             ["setsid", "sleep", "100"], start_new_session=True,
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            env={**os.environ, "AGENTKIT_RUN": marker or self.run_id})
+            env={**os.environ, worker.RUN_MARKER: marker or self.marker})
         self.addCleanup(self._reap, kid)
         time.sleep(0.5)
-        found = worker.marked_pids(self.run_id)
+        found = worker.marked_pids(self.marker)
         self.assertTrue(found)  # the silent turn really left one behind
         left.extend(found)
 
@@ -446,7 +485,7 @@ class RunTree(unittest.TestCase):
             calls.append(name)
             out_dir.mkdir(parents=True, exist_ok=True)
             if name == "rev":
-                self.assertTrue(env["AGENTKIT_RUN"].startswith(f"{self.run_id}/turn-"))
+                self.assertTrue(env[worker.RUN_MARKER].startswith(f"{self.marker}/turn-"))
                 if foreground or len(calls) == 2:
                     self._leave_marked_sleep(left, env["AGENTKIT_RUN"])
                 if len(calls) == 2:
@@ -462,7 +501,7 @@ class RunTree(unittest.TestCase):
         self.assertEqual(calls, ["rev", "rev", "spare"])
         for pid in left:
             self.assertTrue(wait_gone(pid), f"{pid} outlived the reviewer fallback")
-        self.assertEqual(worker.marked_pids(self.run_id), [])
+        self.assertEqual(worker.marked_pids(self.marker), [])
 
     def test_no_verdict_fallback_leaves_no_children(self):
         # A reviewer that never gives a verdict falls back to a spare; the silent
@@ -482,7 +521,7 @@ class RunTree(unittest.TestCase):
 
         def watch():
             while not stop.is_set():
-                alive.extend(worker.marked_pids(self.run_id))
+                alive.extend(worker.marked_pids(self.marker))
                 time.sleep(0.05)
 
         watcher = threading.Thread(target=watch)
@@ -492,14 +531,14 @@ class RunTree(unittest.TestCase):
                 ["bash", "-c", "setsid sleep 100 </dev/null >/dev/null 2>&1 & "
                                "exec sleep 30"],
                 2, activity=log, stdin=subprocess.DEVNULL,
-                env={**os.environ, "AGENTKIT_RUN": self.run_id})
+                env={**os.environ, worker.RUN_MARKER: self.marker})
         finally:
             stop.set()
             watcher.join()
         self.assertEqual(code, worker.TIMEOUT)
         self.assertTrue(killed)
         self.assertTrue(alive, "the detached child was never observed mid-turn")
-        self.assertEqual(worker.marked_pids(self.run_id), [])
+        self.assertEqual(worker.marked_pids(self.marker), [])
 
 
 if __name__ == "__main__":

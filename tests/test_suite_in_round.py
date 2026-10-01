@@ -439,10 +439,11 @@ class SuiteInRound(unittest.TestCase):
                 thread, _ = run.start_suite(SimpleNamespace(rnd=1))
                 thread.join(timeout=30)
                 self.assertFalse(thread.is_alive())
-            self.assertEqual(run.run_child_env().get("AGENTKIT_RUN"), "acme-probe-1")
+            self.assertEqual(run.run_child_env().get(worker.RUN_MARKER),
+                             str(config.RUNS / "acme-probe-1"))
         finally:
             run._RUN_CONTEXT.state = previous
-        self.assertEqual(seen.get("run"), "acme-probe-1/suite")
+        self.assertEqual(seen.get("run"), str(config.RUNS / "acme-probe-1" / "suite"))
         self.assertEqual(seen.get("parent"), "acme-probe-1")
 
     def spawn_marked(self, marker):
@@ -457,12 +458,13 @@ class SuiteInRound(unittest.TestCase):
 
     def test_run_end_sweep_covers_the_suite_marker(self):
         rid = fresh_id()
-        self.spawn_marked(rid)
-        self.spawn_marked(f"{rid}/suite")
+        marker = worker.run_marker(rid)
+        self.spawn_marked(marker)
+        self.spawn_marked(f"{marker}/suite")
         time.sleep(0.5)
-        found = worker.marked_pids(rid)
+        found = worker.marked_pids(marker)
         self.assertEqual(len(found), 2)
-        suite_only = worker.marked_pids(f"{rid}/suite")
+        suite_only = worker.marked_pids(f"{marker}/suite")
         self.assertEqual(len(suite_only), 1)
         self.assertIn(suite_only[0], found)
         with patch.object(worker, "kill_marked",
@@ -471,7 +473,7 @@ class SuiteInRound(unittest.TestCase):
             run.stop_run_tree({"run_id": rid, "scope": None},
                               log=lambda m: None)
         self.assertEqual(swept.call_count, 1)
-        self.assertEqual(swept.call_args.args[0], rid)
+        self.assertEqual(swept.call_args.args[0], marker)
         for pid in found:
             self.assertTrue(wait_gone(pid), f"{pid} outlived the run-end sweep")
 
@@ -480,14 +482,15 @@ class SuiteInRound(unittest.TestCase):
         # suite's detached processes too, not only the run's own marker, with one
         # sweep -- the tree fallback never reaches what left the loop's tree.
         rid = fresh_id()
-        self.spawn_marked(rid)
-        self.spawn_marked(f"{rid}/suite")
+        marker = worker.run_marker(rid)
+        self.spawn_marked(marker)
+        self.spawn_marked(f"{marker}/suite")
         loop = subprocess.Popen(
             ["sleep", "100"], stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(_reap, loop)
         time.sleep(0.5)
-        found = worker.marked_pids(rid)
+        found = worker.marked_pids(marker)
         self.assertEqual(len(found), 2)
         state = {"run_id": rid, "scope": None}
         with patch.object(worker, "kill_marked",

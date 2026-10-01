@@ -103,7 +103,6 @@ class V5ac(unittest.TestCase):
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
-        self.stack.enter_context(patch.object(run.worker, "marked_pids", return_value=[]))
         self.stack.enter_context(patch.object(run.time, "sleep"))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -190,9 +189,8 @@ sys.exit(0 if ok else 1)
 
     def launch(self, rounds=3):
         (self.root / "plan.json").write_text(json.dumps(self.plan))
-        # Run markers are host-wide; concurrent suites need different fixture names.
         self.task.write_text(f"---\nrepo: {self.wt}\nbase: origin/main\nrounds: {rounds}\n"
-                             f"---\n# {self.root.name}\n\n## Done when\n"
+                             "---\n# Task fixture\n\n## Done when\n"
                              f"```bash\n{self.command}\n```\n")
         code = run.main([str(self.task), "--exec", "opus", "--review", "astra", "--no-worktree"])
         dirs = run.run_dirs()

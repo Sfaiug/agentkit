@@ -21,6 +21,12 @@ REPO = Path(__file__).resolve().parents[1]
 SCOPE = ("--", ".", ":!tests/", ":!*.md")
 
 RULES = [
+    # Process cleanup must use the worker's marker, so every ak home sweeps only its runs.
+    {"name": "run marker",
+     "flags": (),
+     "pattern": r"AGENTKIT_RUN\b",
+     "home": ("agentkit/worker.py",),
+     "max": 0},
     # Host and cgroup readings have one reader: paths and counter names in code or
     # comments outside host.py count as another copy of how the host reports them.
     {"name": "host readings",
