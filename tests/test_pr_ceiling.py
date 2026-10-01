@@ -61,7 +61,8 @@ class PrCeiling(unittest.TestCase):
         (self.repo / "work.txt").write_text("work\n" * lines)
         return self.commit()
 
-    def review(self, author="owner", seat="fix-api", background=False):
+    def review(self, author="owner", seat="fix-api", background=False,
+               want_review=None, launch_only=False):
         directory = config.RUNS / f"review-{len(list(config.RUNS.iterdir()))}"
         directory.mkdir()
         head = self.git("rev-parse", "HEAD")
@@ -76,7 +77,7 @@ class PrCeiling(unittest.TestCase):
             lp.state["merged"] = True
             return True
 
-        opts = {"--review": None, "--review-pr": URL}
+        opts = {"--review": want_review, "--review-pr": URL}
 
         def reviewed(directory, *_args, **_kw):
             return run.review_pr(self.cfg, directory, URL, opts, lambda _: None)
@@ -92,7 +93,7 @@ class PrCeiling(unittest.TestCase):
                                 ("checks", (True, "")), ("gh_json", (info, ""))):
                 mocks.enter_context(patch.object(run, name, return_value=value))
             for name in ("exclude_junk", "join_session_project", "restore_review_checkout",
-                         "write_result"):
+                         "write_result", "refused"):
                 mocks.enter_context(patch.object(run, name))
             reviewer = mocks.enter_context(patch.object(run, "review", side_effect=passed))
             usage = run.collect_usage
@@ -100,7 +101,8 @@ class PrCeiling(unittest.TestCase):
             mocks.enter_context(patch.object(run, "merge_own_pr", side_effect=merged))
             inbox = mocks.enter_context(patch.object(watch, "ask_inbox", return_value=0))
             if background:
-                mocks.enter_context(patch.object(run, "spawn_bg", side_effect=reviewed))
+                mocks.enter_context(patch.object(run, "spawn_bg", return_value=0,
+                                                 side_effect=None if launch_only else reviewed))
                 state = run.review_pr_main(self.cfg, opts, {"--bg": True},
                                            ["--review-pr", URL, "--bg"], None)
             else:
@@ -145,6 +147,49 @@ class PrCeiling(unittest.TestCase):
                 reviewer.assert_called_once()
                 inbox.assert_called_once()
 
+    def test_background_own_pr_keeps_the_parent_launch_line_and_self_review_mark(self):
+        self.change(40)
+        for reviewer, mark in ((None, "(astra review)"), ("opus", "(opus review, self-reviewed)")):
+            with self.subTest(reviewer=reviewer), redirect_stdout(io.StringIO()) as out, \
+                    patch.object(run, "refuse_unready"):
+                self.assertEqual(self.review(background=True, want_review=reviewer,
+                                             launch_only=True)[0], 0)
+                self.assertIn(f"launched: Review PR #7: Mend the fence {mark}", out.getvalue())
+                self.reviewer.assert_not_called()
+
+    def test_background_explicit_reviewer_is_refused_in_the_parent(self):
+        self.change(40)
+        with patch.object(run, "refuse_unready", side_effect=config.Error("astra cannot run here")), \
+                self.assertRaisesRegex(config.Error, "astra cannot run here"):
+            self.review(background=True, want_review="astra", launch_only=True)
+        config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra"], reviewers=["astra"])
+        with self.assertRaisesRegex(config.Error, "not a reviewer"):
+            self.review(background=True, want_review="opus", launch_only=True)
+
+    def test_git_without_check_attr_source_reviews_and_records_sizes_without_changing_index(self):
+        head = self.change(40)
+        (self.repo / "output.generated").write_text("generated\n" * 1000)
+        head = self.commit()
+        (self.repo / ".gitattributes").write_text("*.generated -linguist-generated\n")
+        self.git("add", ".gitattributes")
+        index = self.repo / ".git" / "index"
+        before = index.read_bytes()
+        real_tool = run.tool_run
+
+        def older_git(cmd, *args, **kwargs):
+            if "check-attr" in cmd and any(arg.startswith("--source=") for arg in cmd):
+                return 129, "", "error: unknown option 'source'"
+            return real_tool(cmd, *args, **kwargs)
+
+        with patch.object(run, "tool_run", side_effect=older_git):
+            state, reviewer, _, _ = self.review()
+            self.assertEqual(state["state"], "pass")
+            reviewer.assert_called_once()
+            state.update(delivery_sha=head, worktree=str(self.root / "gone"))
+            run.history_finish(state)
+            self.assertEqual(history.get(state["run_id"])["changed_lines"], 40)
+        self.assertEqual(index.read_bytes(), before)
+
     def test_ceiling_moves_with_host_history_and_requires_fifty_sized_merges(self):
         self.fabricated(count=49)
         self.assertEqual(history.pr_ceiling(), (300, "starting value"))
@@ -181,8 +226,16 @@ class PrCeiling(unittest.TestCase):
         run.history_finish(state)
         self.assertEqual(history.get("merged")["changed_lines"], 6)
         history.start_run("unmerged", repo=str(self.repo), started_at=1)
-        run.history_finish({**state, "run_id": "unmerged", "merged": False})
+        state = {**state, "run_id": "unmerged", "merged": False}
+        run.history_finish(state)
         self.assertIsNone(history.get("unmerged")["changed_lines"])
+        directory = config.RUNS / "unmerged"
+        directory.mkdir()
+        run.save_state(directory, state)
+        with patch.object(run, "start_followups"):
+            run.record_decision(directory, state, "merged by the maintainer", merged=True)
+        self.assertTrue(run.read_state(directory)["merged"])
+        self.assertEqual(history.get("unmerged")["changed_lines"], 6)
 
     def test_history_status_shows_ceiling_and_source(self):
         with redirect_stdout(io.StringIO()) as out, patch.object(run, "host_status_line"):
