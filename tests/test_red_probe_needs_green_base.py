@@ -180,6 +180,23 @@ class GreenBase(unittest.TestCase):
         self.assertNotEqual(run.read_state(run_dir)["state"], "waiting")
         self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
 
+    def test_a_changed_checkout_keeps_the_checked_head_without_a_round_row(self):
+        lp, owner, base, lines, _ = self.branch_unittest(self.root)
+        wt = lp.wt
+        lp.state["round_summaries"].clear()
+        tip = self.move_target(owner, wt)
+        run.git(wt, "rebase", tip)
+        run.set_base(lp, tip)
+
+        run.rounds(lp)
+        self.assertEqual(lp.state["verdict"], "PASS")
+        self.assertTrue(run.final_check(lp, "origin/main"))
+        self.assertEqual(self.turns, ["final-fixer"])
+        self.repair.assert_not_called()
+        self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))
+        self.assertNotEqual(run.read_state(lp.run_dir)["state"], "waiting")
+        self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
+
     def test_a_check_green_on_the_old_base_and_red_on_the_tip_still_parks(self):
         _, owner, wt = red.make_repos(self.root)
         cmd = "test ! -f breakage"
