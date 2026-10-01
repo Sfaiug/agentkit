@@ -96,7 +96,7 @@ class LeftoverStagedAndSandboxes(unittest.TestCase):
         lp = SimpleNamespace(wt=repo, scratch=False, state={}, every=["true"],
                              artifacts=set(), log=self.logs.append,
                              step=lambda *_a, **_kw: None, round_dir=round_dir,
-                             done_when_limit=60, turn_limit=60, run_dir=round_dir)
+                             done_when_limit=60, turn_limit=60, run_dir=self.root)
         return run.verify_work(lp)
 
     def test_staged_dependency_link_is_unstaged(self):

@@ -1459,8 +1459,10 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         began = time.time()
         named = env if account is None else {**env, **config.account_env(account)}
         try:
-            result = worker.turn(cfg, name, text, workspace, target, role, session, env=named,
-                                 limit=limit, log=log)
+            with reviewer_checkout(workspace, target, log) if role in (
+                    "reviewer", "reviewer-pr") else nullcontext(workspace) as cwd:
+                result = worker.turn(cfg, name, text.replace(str(Path(workspace).resolve()), str(cwd)), cwd,
+                                     target, role, session, env=named, limit=limit, log=log)
         except worker.LoginExpired as expired:
             log(f"{role} {name} cannot authenticate: {expired.why}; the run waits for that "
                 "login rather than retrying into it")
@@ -1648,6 +1650,186 @@ def dirty_paths(wt):
     tracked = git(wt, "diff", "--name-only", "-z", "HEAD", check=False)
     untracked = git(wt, "ls-files", "--others", "--exclude-standard", "-z", check=False)
     return [p for p in f"{tracked}\0{untracked}".split("\0") if p]
+
+
+def reset_checkout(wt, head, before, check=False):
+    """Discard tracked changes and only paths created since the checkout was recorded."""
+    git(wt, "reset", "--quiet", "--hard", head, check=check)
+    new = sorted(set(dirty_paths(wt)) - set(before))
+    if new:
+        git(wt, "clean", "--quiet", "-fd", "--", *(f":(literal){p}" for p in new), check=check)
+
+
+def writable_review_dirs(path, log):
+    """Git does not record directory modes; the private copy must remain removable."""
+    path = Path(path)
+    if path.is_symlink():
+        return
+    try:
+        mode = path.stat().st_mode
+        if mode & 0o700 != 0o700:
+            path.chmod(mode | 0o700)
+            log(f"WARN made reviewer directory writable for cleanup: {path}")
+        with os.scandir(path) as entries:
+            for entry in entries:
+                if entry.is_dir(follow_symlinks=False):
+                    writable_review_dirs(entry.path, log)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        log(f"WARN skipped {path} during reviewer cleanup: {exc}")
+
+
+@contextmanager
+def reviewer_checkout(wt, out_dir, log):
+    """Keep the reviewer's files and refs apart from the suite running in the task checkout."""
+    wt = Path(wt).resolve()
+    root = git(wt, "rev-parse", "--show-toplevel", check=False)
+    if not root or Path(root).resolve() != wt:
+        # Role-only callers can use a plain workspace inside some other repository.
+        yield wt
+        return
+    checkout = Path(out_dir).parent / "review-checkout"
+    checkout.parent.mkdir(parents=True, exist_ok=True)
+
+    def copy_files(source, destination):
+        destination.mkdir(exist_ok=True)
+        with os.scandir(source) as entries:
+            for entry in entries:
+                if source == wt and (entry.name == ".git" or entry.name.startswith(SANDBOX_PREFIX)):
+                    continue
+                target = destination / entry.name
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        copy_files(Path(entry.path), target)
+                    elif entry.is_file(follow_symlinks=False) or entry.is_symlink():
+                        shutil.copy2(entry.path, target, follow_symlinks=False)
+                    else:
+                        log(f"WARN skipped {entry.path} in review checkout: not a regular file or link")
+                except FileNotFoundError:
+                    # The live suite can remove listed files or directories before copying.
+                    pass
+                except OSError as exc:
+                    log(f"WARN skipped {entry.path} in review checkout: {exc}")
+
+    def remove_checkout():
+        if checkout.exists():
+            writable_review_dirs(checkout, log)
+            shutil.rmtree(checkout)
+
+    with ExitStack() as stack:
+        remove_checkout()
+        stack.callback(remove_checkout)
+        # A mirror keeps the source's base refs but owns its refs and index; a linked
+        # worktree would still let a reviewer move the task branch through shared refs.
+        git(wt, "clone", "--quiet", "--shared", "--mirror", str(wt), str(checkout / ".git"))
+        # Keep the copied refs without a mirror push destination back into the source.
+        git(checkout, "config", "--remove-section", "remote.origin")
+        git(checkout, "config", "core.bare", "false")
+        git(checkout, "read-tree", git(wt, "write-tree"))
+        copy_files(wt, checkout)
+        for key in ("user.name", "user.email"):
+            value = git(wt, "config", "--get", key, check=False)
+            if value:
+                git(checkout, "config", key, value)
+        exclude = Path(git(wt, "rev-parse", "--git-path", "info/exclude"))
+        if not exclude.is_absolute():
+            exclude = wt / exclude
+        if exclude.is_file():
+            shutil.copyfile(exclude, checkout / ".git/info/exclude")
+        with reviewer_changes(checkout, out_dir, log):
+            yield checkout
+
+
+@contextmanager
+def reviewer_changes(wt, out_dir, log):
+    """A review turn's changes survive only in its round's patch, including on a failed turn."""
+    writable_review_dirs(wt, log)
+    head = git(wt, "rev-parse", "HEAD")
+    branch = git(wt, "symbolic-ref", "--quiet", "HEAD", check=False)
+    before = set(dirty_paths(wt))
+    staged = git(wt, "write-tree")
+    # A private index records untracked files too, without staging artifacts for the next
+    # executor. Its tree also puts back existing dirty paths a reviewer edited or committed.
+    with tempfile.TemporaryDirectory() as tmp:
+        index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        git(wt, "read-tree", head, env=index)
+        skipped = []
+
+        def snapshot():
+            try:
+                git(wt, "add", "--ignore-errors", "-A", "--", ".", env=index)
+            except Stopped:
+                raise
+            except config.Error as exc:
+                skipped.append(str(exc))
+                log(f"WARN skipped unreadable reviewer paths: {exc}")
+            return git(wt, "write-tree", env=index)
+
+        tree = snapshot()
+        try:
+            yield
+        finally:
+            writable_review_dirs(wt, log)
+            after = git(wt, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", check=False)
+            branch_after = git(wt, "symbolic-ref", "--quiet", "HEAD", check=False)
+            # A conflicted index has no tree, but its staged diff and entries remain readable.
+            index_diff = git(wt, "diff", "--cached", "--binary", staged)
+            tree_after = snapshot()
+            if skipped or index_diff or (after, branch_after, tree_after) != (head, branch, tree):
+                path = Path(out_dir).parent / "reviewer-changes.patch"
+                paths, patches = set(dirty_paths(wt)) - before, set()
+                with path.open("a") as saved:
+                    saved.write(f"# {Path(out_dir).name}: HEAD {head} -> {after or 'unborn HEAD'}\n")
+                    for error in skipped:
+                        saved.write("# skipped: " + error.replace("\n", "\n# ") + "\n")
+                    if branch_after != branch:
+                        saved.write(f"# checkout: {branch or 'detached HEAD'} -> "
+                                    f"{branch_after or 'detached HEAD'}\n")
+                    def save_diff(label, *args):
+                        diff = git(wt, "diff", "--binary", *args)
+                        paths.update(p for p in git(wt, "diff", "--name-only", "-z",
+                                                   *args).split("\0") if p)
+                        diff = re.sub(r"^\* Unmerged path ", "# Unmerged path ", diff, flags=re.M)
+                        if diff and diff not in patches:
+                            saved.write(f"# {label}\n{diff}\n")
+                            patches.add(diff)
+
+                    save_diff("checkout", tree, tree_after)
+                    if after:
+                        save_diff("commits", head, after)
+                    save_diff("index", "--cached", staged)
+                    unmerged = git(wt, "ls-files", "--unmerged")
+                    if unmerged:
+                        saved.write("# unmerged index\n# " + unmerged.replace("\n", "\n# ") + "\n")
+                        # Unmerged blobs can differ from the worktree, especially binary files.
+                        entries = [entry.split("\t", 1) for entry in git(
+                            wt, "ls-files", "--unmerged", "-z").split("\0") if entry]
+                        empty = git(wt, "mktree")
+                        for stage in ("1", "2", "3"):
+                            git(wt, "read-tree", "--empty", env=index)
+                            for info, name in entries:
+                                mode, blob, entry_stage = info.split()
+                                if entry_stage == stage:
+                                    git(wt, "update-index", "--add", "--cacheinfo", mode, blob,
+                                        name, env=index)
+                            save_diff(f"unmerged stage {stage}", empty,
+                                      git(wt, "write-tree", env=index))
+                if branch:
+                    git(wt, "symbolic-ref", "HEAD", branch)
+                else:
+                    git(wt, "update-ref", "--no-deref", "HEAD", head)
+                reset_checkout(wt, head, before, check=True)
+                if before:
+                    git(wt, "restore", f"--source={tree}", "--worktree", "--", ".")
+                git(wt, "read-tree", staged)
+                undone = ", ".join(sorted(paths)) or ("unreadable paths" if skipped else "")
+                if after != head:
+                    moved = f"commit {after[:12]}" if after else "unborn HEAD"
+                    undone = f"{moved} back to {head[:12]}" + (f"; {undone}" if undone else "")
+                if branch_after != branch:
+                    undone = f"checkout back to {branch or 'detached HEAD'}" + (f"; {undone}" if undone else "")
+                log(f"WARN undid reviewer changes: {undone}; saved {path}")
 
 
 GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each rewrites its log line
@@ -4188,9 +4370,10 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                 "AK_RUN_LOG": str(out2.parent.parent / "log.txt")}
         stop_check(lp.run_dir)
         try:
-            code2, text2, sid2, killed2, unfinished2 = worker.turn(
-                lp.cfg, lp.reviewer, NO_VERDICT_ASK, lp.wt, out2, lp.role("reviewer"),
-                lp.review_sid, env=env2, limit=lp.turn_limit, log=lp.log)
+            with reviewer_checkout(lp.wt, out2, lp.log) if not lp.scratch else nullcontext(lp.wt) as cwd:
+                code2, text2, sid2, killed2, unfinished2 = worker.turn(
+                    lp.cfg, lp.reviewer, NO_VERDICT_ASK, cwd, out2, lp.role("reviewer"),
+                    lp.review_sid, env=env2, limit=lp.turn_limit, log=lp.log)
             # The extra ask names no account, so it runs on the usual login: the turn's
             # own reading belongs to that login, and to no login nobody tracks.
             provider = config.model(lp.cfg, lp.reviewer)["provider"]
@@ -5527,10 +5710,7 @@ def restore_probe_checkout(lp, head, branch, before, label):
     stopped = None
     restored = False
     try:
-        git(lp.wt, "reset", "--quiet", "--hard", "HEAD", check=False)
-        new = sorted(set(dirty_paths(lp.wt)) - set(before))
-        if new:
-            git(lp.wt, "clean", "--quiet", "-fd", "--", *new, check=False)
+        reset_checkout(lp.wt, "HEAD", before)
     except Stopped as exc:
         stopped = exc
     try:
