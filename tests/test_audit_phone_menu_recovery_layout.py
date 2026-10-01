@@ -725,7 +725,8 @@ class Phone(Sandbox):
         if narrow:
             screen = phone.until(STAND_IN, LONG_NAME[:20], "Ctrl-b m  menu")
         else:
-            screen = phone.until(STAND_IN, "Ctrl-b m  menu", "· astra")
+            # the menu's look at it publishes the words, behind the frame the key was read on
+            screen = phone.until(STAND_IN, "Ctrl-b m  menu", "· astra → opus · ! needs you")
         bar = screen[-1]
         self.fits(screen, width, height)
         if narrow:
