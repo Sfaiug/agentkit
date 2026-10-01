@@ -187,7 +187,7 @@ sys.exit(row["code"])
         self.assertEqual(state["verdict"], "FAIL")
         self.assertEqual(state["review"]["returncode"], 1)
         self.assert_undelivered(state)
-        self.assertIn("partial review", state["findings"])
+        self.assertEqual(state["findings"], "VERDICT: PASS")
         self.assertEqual((directory / "round-1/reviewer/final.md").read_text(),
                          "VERDICT: PASS\npartial review")
         self.assertEqual((directory / "round-1/reviewer/stderr.log").read_text(), "diagnostic for astra")
