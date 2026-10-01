@@ -296,8 +296,9 @@ class MergeTrailer(unittest.TestCase):
             mocks.enter_context(patch.object(run, "gh_json", side_effect=gh_json))
             mocks.enter_context(patch.object(run, "call_retrying", return_value=(
                 0, "VERDICT: PASS\n## Findings\n- none", "fixture-session", False)))
-            state = run.review_pr(self.cfg, self.directory, URL,
-                                  {"--review": "astra"}, lambda line: None)
+            # One round: a failed own-PR review now waits for the seat to push fixes.
+            state = run.review_pr_round(self.cfg, self.directory, URL,
+                                        {"--review": "astra"}, lambda line: None)
         return state, tree
 
     def test_own_pr_pass_names_the_suite_tree(self):
@@ -323,7 +324,7 @@ class MergeTrailer(unittest.TestCase):
         for own in (True, False):
             with self.subTest(own=own):
                 state, _ = self.review_pr("false", own=own)
-                self.assertEqual(state["state"], "fail")
+                self.assertEqual(state["state"], "running" if own else "fail")
                 self.assertFalse(state["merged"])
                 self.assertNotIn("final_check", state)
                 self.assertNotIn("once.log", run.handback_line(state, self.directory, self.cfg))
