@@ -752,6 +752,37 @@ smoke_home
                 server.shutdown()
                 thread.join()
 
+    def test_smoke_fails_a_webhook_it_cannot_use(self):
+        # Kept out of the suite's HOME, the webhook is still checked as it was there: a blank
+        # file is configured and fails check 5, and one that cannot be read ends the setup,
+        # whatever the environment names instead.
+        setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
+        check = SMOKE[SMOKE.index('# --- 5: notify'):SMOKE.index('# --- 5b:')]
+        cases = [('\n', '', 1, 'webhook configured but not reachable'),
+                 ('\0\n', '', 1, 'webhook configured but not reachable'),
+                 (Path('/nonexistent/hook'), 'https://example.invalid/env', 1, 'cannot read')]
+        if Path('/proc/self/mem').exists():
+            cases.append((Path('/proc/self/mem'), '', 1, ''))
+        for content, inherited, code, said in cases:
+            with self.subTest(content=content, inherited=inherited), \
+                    tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
+                webhook = Path(tmp) / 'caller/.agentkit/secrets/discord_webhook'
+                webhook.parent.mkdir(parents=True)
+                if isinstance(content, Path):
+                    webhook.symlink_to(content)
+                else:
+                    webhook.write_text(content)
+                env = {**os.environ, 'HOME': str(Path(tmp) / 'caller'), 'REPO': str(REPO),
+                       'WORK': str(Path(tmp) / 'work'), 'AK_NOTIFY_SINK': 'dry-run',
+                       'AGENTKIT_DISCORD_WEBHOOK': inherited,
+                       'PATH': f'{REPO / "bin"}:{os.environ["PATH"]}'}
+                result = subprocess.run(['bash', '-c', setup + '''
+smoke_home
+. "$REPO/tests/acceptance.sh"
+''' + check + '\nfinish'], env=env, text=True, capture_output=True, timeout=20)
+                self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                self.assertIn(said, result.stdout + result.stderr)
+
     def test_claude_stream_leaves_no_credential_links_in_output(self):
         start = SMOKE.index('smoke_share_probes()')
         stream = SMOKE[start:SMOKE.index('usage_fresh_check()', start)]

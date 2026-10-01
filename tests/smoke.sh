@@ -365,13 +365,14 @@ smoke_home() {
     smoke_source "$source" || continue
     mkdir -p -- "${target%/*}" && cp -p -- "$source" "$target" || exit 1
   done
-  # The owner's webhook, from the environment or its file, is check 5's alone: anything in this
-  # HOME may speak, a seat on a tmux server whose environment was never this command's too, and
-  # the sink diverting what was aimed at the owner fails the gate.
+  # The owner's webhook, from the environment or its file, is check 5's alone, in a HOME of its
+  # own: anything in this HOME may speak, a seat on a tmux server whose environment was never
+  # this command's too, and the sink diverting what was aimed at the owner fails the gate.
   SMOKE_WEBHOOK=${AGENTKIT_DISCORD_WEBHOOK:-}
   unset AGENTKIT_DISCORD_WEBHOOK
   source="$SMOKE_CALLER_HOME/.agentkit/secrets/discord_webhook"
-  [ -n "$SMOKE_WEBHOOK" ] || ! smoke_source "$source" || SMOKE_WEBHOOK=$(<"$source")
+  mkdir -p -- "$WORK/home-webhook/.agentkit/secrets" || exit 1
+  ! smoke_source "$source" || cp -p -- "$source" "$WORK/home-webhook/.agentkit/secrets/" || exit 1
   # Find installed executables without linking their writable install directories.
   export PATH="$PATH:$SMOKE_CALLER_HOME/.local/bin:$SMOKE_CALLER_HOME/.npm-global/bin:${GROK_BIN_DIR:-$SMOKE_CALLER_HOME/.grok/bin}:$SMOKE_CALLER_HOME/.opencode/bin"
   # Those binaries still belong to the caller; the sandbox must not auto-update them.
@@ -2172,8 +2173,8 @@ fi
 # --check, not a message: notifications are the orchestrator's and a smoke run is not a job.
 # It GETs the webhook, which Discord answers with the hook object without posting anything, so
 # a revoked hook or a 403 on a missing User-Agent fails here instead of sitting green for days.
-AGENTKIT_DISCORD_WEBHOOK=$SMOKE_WEBHOOK ak notify --check >"$WORK/notify.log" 2>&1; NRC=$?
-if [ -n "$SMOKE_WEBHOOK" ]; then
+HOME="$WORK/home-webhook" AGENTKIT_DISCORD_WEBHOOK=$SMOKE_WEBHOOK ak notify --check >"$WORK/notify.log" 2>&1; NRC=$?
+if [ -n "$SMOKE_WEBHOOK" ] || [ -s "$WORK/home-webhook/.agentkit/secrets/discord_webhook" ]; then
   if [ "$NRC" = 0 ] && grep -q '^notify: ok (200)$' "$WORK/notify.log"; then
     ok "5 ak notify --check: webhook configured and live ($(cat "$WORK/notify.log"))"
   else
