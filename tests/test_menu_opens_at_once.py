@@ -78,7 +78,7 @@ class OpensAtOnce(Sandbox):
                 (menu, "show_notices", lambda messages: messages and self.said.append(
                     (time.monotonic(), messages))),
                 (menu.Live, "probe", lambda self, now=None: False),
-                (menu, "update_first", lambda: None),
+                (menu, "update_first", lambda live=None, **_kw: None),
                 (macbridge, "start_background", lambda: None),
                 (watch, "resume_after_boot", lambda *args, **kwargs: None),
                 (config, "server_alias", lambda: None),

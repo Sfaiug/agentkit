@@ -45,7 +45,8 @@ STEP_CAP = 30 * 60          # an upgrade that is not done in half an hour is not
 SMOKE_CAP = 2 * 60 * 60     # the gate makes real model calls and waits out two retry backoffs
 E2E_CAP = 90 * 60           # a fresh account, three harness installs and one real merged run
 FETCH_CAP = 60              # the tick's look at origin; one not back by then is offline
-START_WAIT = 2              # `ak`'s look at origin; one not back by then opens it as it is
+START_WAIT = 2              # the detached start-up check's deadline for origin
+UPDATE_TAIL = 10            # how many of a failed start-up update's last lines the menu shows
 ASK_EVERY = 60 * 60         # how often the tick asks a harness's latest release, at most
 RETRY_AFTER = 24 * 60 * 60  # a gate can fail for what the release did not cause: try it daily
 
@@ -671,6 +672,32 @@ def left_as_is():
             else "dirty" if code or changes else "")
 
 
+def startup():
+    """The menu's detached check and update; JSON steps and a result on its pipe, no terminal.
+
+    A closed pipe means the menu left, not that the update should stop. Capturing command
+    output happens only here, so no thread in the menu redirects another screen's stdout.
+    """
+    def send(**news):
+        try:
+            os.write(sys.__stdout__.fileno(), (json.dumps(news) + "\n").encode("utf-8"))
+        except OSError:
+            pass            # the update still belongs to the checkout after its menu has gone
+
+    said, failed, moved = io.StringIO(), 0, False
+    with redirect_stdout(said), redirect_stderr(said):
+        try:
+            if agentkit_dir().resolve() == config.REPO and not left_as_is() and behind():
+                before = agentkit_version()
+                failed = update_agentkit(lambda done, total: send(progress=done / total))
+                moved = agentkit_version() != before   # even if install.sh then failed
+        except Exception as exc:    # detached: the notice is the only way to hear a failure
+            say(f"update: {exc!r}")
+            failed = 1
+    send(moved=moved, lines=said.getvalue().splitlines()[-UPDATE_TAIL:] if failed else [])
+    return failed
+
+
 def update_agentkit(progress=None, pull=True):
     """Fast-forward ~/agentkit and reinstall from it; the exit code.
 
@@ -1124,4 +1151,4 @@ def upgrade(plan, before):
 
 
 if __name__ == "__main__":
-    sys.exit(background(sys.argv[1]))
+    sys.exit(startup() if sys.argv[1:] == ["--agentkit"] else background(sys.argv[1]))
