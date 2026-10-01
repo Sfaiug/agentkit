@@ -83,6 +83,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assertFalse(ok, "exit 0 passed the regression gate")
         self.assertIn(f"regression.sh passes on base {self.base}: it does not show the defect", text)
         self.assert_restored(head)
+        lp.state["step"] = "reviewer"
         self.assertIsNone(run.settled_gate(lp))
         with patch.object(run, "call_retrying", return_value=(0, "VERDICT: PASS", None, False)):
             self.assertEqual(run.review(lp, "Fixture summary", ok, text), "FAIL")
@@ -113,6 +114,8 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assertIn("[exit 0]", text)
         self.assertIn("empty input passed", text)
         self.assert_restored(head)
+        lp.state["step"] = "reviewer"
+        self.assertEqual(run.settled_gate(lp), (True, text))
         resumed = self.loop(state=run.read_state(self.directory))
         with patch.object(worker, "limited", wraps=worker.limited) as limited:
             self.assertTrue(run.verify_work(resumed)[0])
