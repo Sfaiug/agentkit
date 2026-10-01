@@ -135,11 +135,13 @@ plain popup and says nothing (`orch.tmux_conf`, `terminal.inset`).
 `x` is the highlighted seat's, or in the popup the popup's own seat's. A done
 seat it closes at once, with no question: `orch.cmd_stop` takes its runs,
 checkouts, conversation, state files and tmux session. Any other it asks about
-inline, under that seat's row, as a two-item selector -- `Stop <name> and
-everything it runs?`, `Keep` preselected, then `Stop` -- where Enter or a click
-answers and Esc, or a click anywhere else, keeps; the key line reads `esc back`
-while it asks. The key line says `x close` while a done seat is highlighted (in
-the popup, while its own seat is done) and `x stop` otherwise, and a done
+on the question card (Questions), under that seat's row, the rows below moving
+down: `Stop <name> and everything it runs?`, then how many runs stop with it
+and that ak cannot reopen the session, its record gone; the key line reads `esc
+back` while it asks. The runs are counted off the draw, so the card is up at
+once: `Its runs stop` until the number lands. The key line says `x close` while
+a done seat is highlighted (in the popup, while its own seat is done) and
+`x stop` otherwise, and a done
 seat's tmux bar reads `Ctrl-b m  x close` on its right half.
 
 A stdin that is no terminal -- a pipe, a file, the smoke suite -- keeps the
@@ -160,6 +162,28 @@ new-session screen use them. A click belongs to the screen it began on: a button
 up on the question or on `i`, or the other way round, is no click.
 
 Example: `↑↓ move   ⏎ open   n new   x stop   c config   i info   esc leave`.
+
+## Questions
+
+Every yes-or-no question on a screen read with the keys -- `x` on a seat that
+is not done, in the menu and the popup, and `Remove` on a model, a provider or a
+subscription on the `c` screens -- is one card, `terminal.confirm`, drawn where
+its screen asks it: a blank line, the question in the normal colour, one dim
+line saying what the answer means, the two choices, and a blank line. The safe
+choice is first and highlighted, `✓ Keep`; the one that ends something follows,
+`✗ Stop` or `✗ Remove`, in the warn colour (`amber`). ↑/↓, k/j and the wheel
+move between them; Enter or a click answers, and Esc, or a click anywhere else,
+keeps. On a phone the question and its meaning wrap and a choice never does; a
+resize draws the card again where its screen now puts it. From a pipe a
+question is still a line ending `[y/N]`.
+
+Helpers: `terminal.confirm`, `terminal.choose`.
+
+Example:
+`  Stop fix-api and everything it runs?`
+`  2 runs stop with it; ak cannot reopen the session: Stop removes its record.`
+`› ✓ Keep`
+`  ✗ Stop`.
 
 ## The config and info screens
 
@@ -191,8 +215,8 @@ screen too short shows the part the highlight is on. From a pipe, and in a dry
 run, it is drawn once. ← from the marks reaches the label, and Enter or a click
 there opens `config · <label>`: `model id`, `effort` and `Reviews its own
 company's work` between the arrows ←→ step (the id and the effort only through
-what the harness's catalog lists, the effort following the id), then `Remove`, whose Enter asks `Keep` or
-`Remove` under it the way `x` asks, `Keep` picked; each value goes under its
+what the harness's catalog lists, the effort following the id), then `Remove`, whose Enter asks on the question
+card under it, `Keep` picked; each value goes under its
 label on a phone. Esc returns to the matrix on that model's row.
 `i` is one calm screen and reads no line: one line on what agentkit is, then
 `States` and `Keys` in the README's own lines, then `Installed`, the worker

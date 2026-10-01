@@ -1253,9 +1253,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     key-line item under each column; `words`, each seat's word.
 
     `x` acts on the highlighted seat, or on `own`, the popup's own, and the key line says
-    `x close` while that seat is done.  `ask` is the seat `x` is asking about: the question
-    is drawn under its row, its two answers left for `terminal.choose` to draw on the two
-    lines under that, and `drawn["ask"]` is the screen row of the first.
+    `x close` while that seat is done.  `ask` is the seat `x` is asking about and the card it
+    asks on (`terminal.confirm`): the card is drawn under its row, the rows below moving down,
+    and `drawn["ask"]` is the screen row of its first line.
 
     `look` is whether the seats are looked at for this draw or drawn as recorded, and
     `records` the run records it is drawn from, read here when they are not handed in;
@@ -1286,8 +1286,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                       order[0] if order else None)      # a seat before any heading
     if owned and words.get(own or cursor) == "done":
         keys = keys.replace("x stop", "x close", 1)
-    asked = ([f"  {line}" for line in terminal.wrap(STOP_ASK.format(ask), layout - 2)] + ["", ""]
-             if ask in words else [])
+    asking, card = ask or (None, ())
+    asked = list(card) if asking in words else []
     # Seat columns are sized once per draw from every row on screen, so the
     # sentence column starts at the same column under every project.
     widths = v5o_column_widths([seat for project in ordered
@@ -1438,7 +1438,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     else:
         out.append("")
     top, above = len(out), None
-    at = max((number for number, (_, name) in enumerate(body, 1) if name == ask), default=0)
+    at = max((number for number, (_, name) in enumerate(body, 1) if name == asking), default=0)
     if asked and at:
         body = body[:at] + [(line, None) for line in asked] + body[at:]
     else:
@@ -1494,7 +1494,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                      + "\033[J" + moved)
     sys.stdout.flush()
     drawn.update(order=order, cursor=cursor, words=words, rule=not compact,
-                 ask=top + at + len(asked) - 1 if at else None,
+                 ask=top + at + 1 if at else None,
                  rows={top + number: name for number, (_, name) in enumerate(body, 1) if name},
                  spans=[(keys_top + number, first, last, key)
                         for number, line in enumerate(key_lines, 1)
@@ -1510,24 +1510,7 @@ def stop_session_runs(name, dry_run=False):
     listing and the stop -- is named and left; the seat still ends.
     """
     from . import run as run_mod
-    try:
-        dirs = run_mod.run_dirs()
-    except OSError:
-        return
-    for run_dir in dirs:
-        try:
-            state = run_mod.read_state(run_dir)
-        except (OSError, ValueError):
-            continue
-        if not state:
-            continue
-        try:
-            if run_mod.launched_session(state) != name:
-                continue
-        except config.Error:
-            continue
-        if not run_mod.unfinished(state):
-            continue
+    for run_dir in session_runs(name):
         if dry_run:
             print(f"would stop {run_dir.name}")
             continue
@@ -1537,6 +1520,38 @@ def stop_session_runs(name, dry_run=False):
             print(f"could not stop {run_dir.name}: {exc}")
         except (OSError, ValueError, KeyError, TypeError):
             print(f"could not stop {run_dir.name}")
+
+
+def session_runs(name):
+    """Every run that seat launched which stopping it stops: what `run.cmd_stop` takes -- each
+    one not ended, as `orch.cmd_stop` stops them too, and an `error` still waiting on its
+    owner, which the tick would retry."""
+    from . import run as run_mod
+    try:
+        dirs = run_mod.run_dirs()
+    except OSError:
+        return []
+    found = []
+    for run_dir in dirs:
+        try:
+            state = run_mod.read_state(run_dir)
+            word = state and state.get("state")
+            if (state and run_mod.launched_session(state) == name
+                    and (word not in run_mod.ENDED
+                         or word == "error" and run_mod.unfinished(state))):
+                found.append(run_dir)
+        except (OSError, ValueError, config.Error):
+            continue
+    return found
+
+
+def stop_means(runs):
+    """What `Stop` means on the card `x` asks on: `runs`, how many runs stop with the seat, or
+    None while they are counted, and that ak cannot reopen it: `orch.cmd_stop` removes the
+    record a reopening would read."""
+    stop = ("Its runs stop" if runs is None else "No runs stop" if not runs
+            else "1 run stops" if runs == 1 else f"{runs} runs stop")
+    return f"{stop} with it; ak cannot reopen the session: Stop removes its record."
 
 
 def stop_question(name):
@@ -2351,8 +2366,11 @@ PROVIDER_ACTS = (("+ add", "+ add"), ("− remove", "- remove"))   # and each wi
 COMPANIES = {"anthropic": "Anthropic / Claude Code", "openai": "OpenAI / Codex",
              "meta": "Meta / Muse", "xai": "xAI / Grok Build", "google": "Google / Antigravity",
              "mimo": "Xiaomi / MiMo through OpenCode"}
-REMOVE_PROVIDER_ASK = "Remove {} and its models?"   # what `− remove` asks, `Keep` picked first
-REMOVE_SUBSCRIPTION_ASK = "Remove {}?"               # ... about one subscription of a provider
+# What `− remove` asks, and what it means; then the same about one subscription of a provider.
+REMOVE_PROVIDER_ASK = ("Remove {} and its models?",
+                       "Its models leave the config with it; its login stays on this machine.")
+REMOVE_SUBSCRIPTION_ASK = ("Remove {}?",
+                           "Nothing new starts on it; its login stays on this machine.")
 # Short headings leave room for both roles and the effort on a phone.
 CONFIG_HEADS = (*orch.ROLE_HEADS, "effort")
 # The key line for the cell the highlight is on, and the same without UTF-8.
@@ -2365,7 +2383,8 @@ CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mar
 MODEL_ROWS = ("model id", "effort", "Remove")
 MODEL_KEYS = {"step": ("↑↓ move   ←→ choose", "arrows move   left/right choose"),
               "remove": ("↑↓ move   ⏎ remove", "arrows move   enter remove")}
-REMOVE_ASK = "Remove {} from the config?"   # what `Remove` asks, `Keep` picked until moved
+REMOVE_ASK = ("Remove {} from the config?",   # what `Remove` asks, and what it means
+              "Nothing new starts on it; + add a model brings it back.")
 # Every effort word, weakest first -- the widest list a manifest names (adapters/muse.toml) --
 # so a new model id that does not take its model's effort takes the nearest one it does.
 EFFORT_RANK = ("none", "minimal", *config.EFFORTS)
@@ -2675,12 +2694,11 @@ def config_model(cfg, name):
                 note = "the config needs one model"
                 continue
 
-            def around():     # the screen around the question, drawn again on a resize
-                lines = [*model_body(cfg, name)[0], *(f"  {line}" for line in terminal.wrap(
-                    REMOVE_ASK.format(name), terminal.layout_width() - 2))]
-                terminal.frame(title, [*lines, "", ""], "esc back")
+            def around(card):     # the screen around the card, drawn again on a resize
+                lines = model_body(cfg, name)[0]
+                terminal.frame(title, [*lines, *card], "esc back")
                 return 3 + len(lines)
-            if terminal.choose(["Keep", "Remove"], "Keep", around=around) == "Remove":
+            if terminal.confirm(REMOVE_ASK[0].format(name), REMOVE_ASK[1], "Remove", around):
                 before = copy.deepcopy(cfg)
                 config.remove_model(cfg, name)
                 note = _saved(cfg, cfg, before)
@@ -3172,14 +3190,12 @@ def config_remove_provider(cfg):
     if picked is None:
         return ""
     name, account = labels[picked]
-    ask = REMOVE_PROVIDER_ASK if account is None else REMOVE_SUBSCRIPTION_ASK
+    question, means = REMOVE_PROVIDER_ASK if account is None else REMOVE_SUBSCRIPTION_ASK
 
-    def asked():
-        lines = [f"  {line}" for line in terminal.wrap(ask.format(picked),
-                                                      terminal.layout_width() - 2)]
-        terminal.frame(title, [*lines, "", ""], "esc back")
-        return 3 + len(lines)
-    if terminal.choose(["Keep", "Remove"], "Keep", around=asked) != "Remove":
+    def asked(card):
+        terminal.frame(title, card, "esc back")
+        return 3
+    if not terminal.confirm(question.format(picked), means, "Remove", asked):
         return ""
     before = copy.deepcopy(cfg)
     try:
@@ -3690,12 +3706,22 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                 if drawn["words"][seat] != "done":
                     cursor = seat
 
-                    def around():     # the menu around the question, drawn again on a resize
-                        draw(cfg, found, "esc back", page, cursor, drawn, own, ask=seat,
+                    # its runs are counted off the draw, so the card is up at once whatever
+                    # the disk; one counted within a frame is simply had, a later one drawn in
+                    runs, counted = Fetch(lambda: len(session_runs(seat))), [False]
+                    runs.join(motion.FRAME)
+
+                    def means():
+                        counted[0] = not runs.is_alive()
+                        return stop_means(runs.got.get("answer"))
+
+                    def around(card):     # the menu around the card, drawn again on a resize
+                        draw(cfg, found, "esc back", page, cursor, drawn, own, ask=(seat, card),
                              look=False, groups=groups, clock=clock)
                         return drawn["ask"]
-                    if terminal.choose(["Keep", "Stop"], "Keep", around=around,
-                                       wait=lambda: moving(clock)) != "Stop":
+                    if not terminal.confirm(
+                            STOP_ASK.format(seat), means, "Stop", around, wait=lambda: moving(
+                                clock, going=None if counted[0] else runs.is_alive)):
                         continue
                 keyboard.give()
                 close_seat(seat, dry_run)

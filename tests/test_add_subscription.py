@@ -152,8 +152,9 @@ class RemoveSubscription(unittest.TestCase):
         self.assertEqual(listed, ["› Claude", "  Claude II", "  Claude III", "  ChatGPT"])
         asked = screen.press(DOWN * 2 + ENTER, lambda lines: lines[-1] == KEYS["ask"])
         self.assertIn("  Remove Claude III?", asked)
+        self.assertIn("  Nothing new starts on it; its login stays on this machine.", asked)
         mark = screen.text().rindex("Remove Claude III?")
-        self.assertEqual(choices(screen, mark, 2), ["› Keep", "  Remove"])
+        self.assertEqual(choices(screen, mark, 2), ["› ✓ Keep", "  ✗ Remove"])
         screen.press(ENTER, lambda lines: title(lines) == MATRIX)          # Enter keeps
         self.assertEqual(screen.path.read_bytes(), before)
         pick(screen, ENTER, REMOVE, 4)

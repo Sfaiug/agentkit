@@ -212,12 +212,14 @@ class CloseAndInfo(unittest.TestCase):
         menu.send(b"x")
         asked = menu.frame(keys="esc back", after=mark)
         row = next(number for number, line in enumerate(asked, 1) if "beta" in line)
-        self.assertEqual(asked[row], "  Stop beta and everything it runs?")
+        self.assertEqual(asked[row:row + 3], ["", "  Stop beta and everything it runs?",
+                                              "  No runs stop with it; ak cannot reopen the "
+                                              "session: Stop removes its record."])
         self.assertFalse(any(line.startswith("›") for line in asked), asked)
         top, answers = menu.choices(after=mark)
-        self.assertEqual(top, row + 2)                      # the two lines under the question
-        self.assertEqual(answers, ["› Keep", "  Stop"])     # Keep is where the highlight starts
-        self.assertEqual(asked[top - 1:top + 1], ["", ""])
+        self.assertEqual(top, row + 4)                      # the two lines under what it means
+        self.assertEqual(answers, ["› ✓ Keep", "  ✗ Stop"])  # Keep is where the highlight starts
+        self.assertEqual(asked[top - 1:top + 2], ["", "", ""])
         self.assertEqual(asked[-1].strip(), "esc back")
         mark = menu.mark()
         menu.send(ESC)
@@ -239,7 +241,7 @@ class CloseAndInfo(unittest.TestCase):
         menu.choices(after=mark)
         moved = menu.mark()
         menu.send(DOWN)
-        self.assertEqual(menu.choices(after=moved)[1], ["  Keep", "› Stop"])
+        self.assertEqual(menu.choices(after=moved)[1], ["  ✓ Keep", "› ✗ Stop"])
         menu.send(ENTER)
         menu.saw("<stopped alpha>", after=mark)
         lines = menu.frame(lambda lines: not any("alpha" in line for line in lines),
@@ -341,7 +343,7 @@ class CloseAndInfo(unittest.TestCase):
         menu.send(b"x")
         asked = menu.frame(keys="esc back", after=mark)
         row = next(number for number, line in enumerate(asked, 1) if "alpha" in line)
-        self.assertEqual(asked[row], "  Stop alpha and everything it runs?")
+        self.assertEqual(asked[row + 1], "  Stop alpha and everything it runs?")
         mark = menu.mark()
         menu.send(ESC)
         menu.frame(after=mark)
@@ -392,12 +394,16 @@ class CloseAndInfo(unittest.TestCase):
         menu.send(b"x")
         before, _ = menu.choices(after=mark)
         mark = menu.mark()
-        menu.resize(24, 40)                       # the question now wraps onto three lines
+        menu.resize(24, 40)                       # the question now wraps onto three lines,
+                                                  # and what it means onto two
         asked = menu.frame(lambda lines: len(lines[0]) == 40, keys="esc back", after=mark)
         top, answers = menu.choices(after=mark)
         self.assertGreater(top, before)
-        self.assertEqual(asked[top - 4:top - 1], ["  Stop", f"  {long}", "  and everything it runs?"])
-        self.assertEqual(answers, ["› Keep", "  Stop"])
+        self.assertEqual(asked[top - 6:top - 1], ["  Stop", f"  {long}",
+                                                  "  and everything it runs?",
+                                                  "  No runs stop with it; ak cannot reopen",
+                                                  "  the session: Stop removes its record."])
+        self.assertEqual(answers, ["› ✓ Keep", "  ✗ Stop"])
         for line in asked:
             self.assertLessEqual(terminal.cells(line), 40, line)
         menu.click(4, top + 1)                    # `Stop`, where it is drawn now

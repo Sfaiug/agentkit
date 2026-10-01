@@ -227,10 +227,12 @@ class ProviderScreen(unittest.TestCase):
                                   "  MiMo"])
         self.assertEqual(lines[-1], KEYS["choose"])
         asked = screen.press(DOWN + ENTER, lambda lines: lines[-1] == KEYS["ask"])
-        self.assertIn("  Remove ChatGPT and its models?", asked)
+        self.assertEqual(asked[2:5], ["", "  Remove ChatGPT and its models?",
+                                      "  Its models leave the config with it; its login stays "
+                                      "on this machine."])
         self.assertFalse(any(line.startswith("›") for line in asked), asked)
         mark = screen.text().rindex("and its models?")          # the answers go under it
-        self.assertEqual(choices(screen, mark, 2), ["› Keep", "  Remove"])
+        self.assertEqual(choices(screen, mark, 2), ["› ✓ Keep", "  ✗ Remove"])
         lines = screen.press(ENTER, lambda lines: title(lines) == MATRIX)    # Enter keeps
         self.assertEqual(screen.path.read_bytes(), before)
         self.assertIn("ChatGPT", lines)
