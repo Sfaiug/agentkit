@@ -77,9 +77,9 @@ Five keys: the numbers, `n`, `x`, `c` (the highlighted seat's models, every mode
 providers, discord, version), and Esc, which leaves, as it goes back from every
 screen and question under it; `q` is no key.  Nothing needs a manual: while the pointer rests
 on a row, a state word, a heading, a usage row or a key-line item, the key line says what it
-is in one sentence (TIPS), and the keys come back when it leaves; a usage row under it sends
-one light across its bar and marks the share that would be left had it been spent as fast as
-time passes.  A question typed inside the menu is typed on its
+is in one sentence (terminal.TIPS), and the keys come back when it leaves; a usage row under
+it sends one light across its bar and marks the share that would be left had it been spent as
+fast as time passes.  A question typed inside the menu is typed on its
 keys (`terminal.field`), so Esc cancels it at once.  From a pipe an empty line or the end of
 input leaves, or goes back.
 On a terminal one seat row is highlighted as well: ↑/↓, k/j and the wheel move it, Enter or a
@@ -131,37 +131,6 @@ from . import command_help, config, history, motion, notify, orch, terminal, upd
 from .harness import load as harness_plugin
 
 KEYS = "n new   x stop   c config   esc leave"
-# What the key line says in place of the keys while the pointer rests on something that means
-# more than its label, the keys back once it leaves (`terminal.lit`): the one table of those
-# sentences, each filled in with what it is about, and docs/cli-design.md lists them.  A key-line
-# item is its own text; a usage row reads `<row> · NN% left · resets <when> (in <time>) · ` and
-# how it is spent against time.
-TIPS = {
-    "⏎ open": "Enter opens the highlighted session; a click opens the one clicked",
-    "enter open": "Enter opens the highlighted session; a click opens the one clicked",
-    "n new": "n starts a session: you name it and pick the models that orchestrate, execute "
-             "and review",
-    "x stop": "x stops the highlighted session and everything it runs, asking first",
-    "x close": "x closes the highlighted session, which is done: its runs, checkouts and files "
-               "go",
-    "c config": "c sets the highlighted session's models, every model's effort, the providers "
-                "and Discord",
-    "esc leave": "Esc leaves ak; the sessions go on working without it",
-    "session": "{name}: Enter or a click opens it, where you talk to its orchestrator",
-    "needs you": "needs you: it asked you something, or it cannot go on without you",
-    "working": "working: a run of its own is going, or a turn is, or a session it waits on works",
-    "done": "done: it said so, and the row carries its summary",
-    "project": "{name}: the project the sessions under it work in, those needing you first",
-    "switches": "{name}: Enter or a click opens the switches of its hidden features",
-    "faster": "faster than time", "slower": "slower than time", "even": "as fast as time",
-    "model": "{name}: {harness} runs it at {effort} effort; Enter on its name opens its screen",
-    "orch": "orch: the model the session's orchestrator runs on; Enter moves the session to it",
-    "exec": "exec: a model the session's runs may execute with; Enter adds or drops it",
-    "review": "review: a model that may review the session's runs; Enter adds or drops it",
-    "effort": "effort: how hard {name} thinks; Enter steps it up, a click on an arrow that way",
-    "account": "{name}: your subscription; its seats, runs and usage row use its login",
-    "token": "{name}: its {note}",
-}
 OVERLAY_KEYS = "n start a session   r rename this session   x stop this session   esc leave"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done
 PAGE_KEYS = "j more   k previous"   # added to the key line when the list runs to more pages
@@ -1272,9 +1241,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     key line's items (`terminal.under`), the one under the pointer lit; `words`, each seat's
     word.  A seat's state word, any other project's heading and a usage row are cells that only
     explain (`terminal.Spot`): with the pointer on one of those, a seat or a key-line item, the
-    key line says what it is (TIPS).  A usage row under it also has a hairline tick at the share
-    of its week that would be left had it been spent as fast as time passes (`usage_tip`), and
-    one light crosses its bar as the pointer comes onto it (`motion.glinting`).
+    key line says what it is (terminal.TIPS).  A usage row under it with a bar also has a
+    hairline tick at the share of its week that would be left had it been spent as fast as time
+    passes (`usage_tip`), standing through a glide, and one light crosses that bar as the
+    pointer comes onto it (`motion.glinting`).
 
     `x` acts on the highlighted seat, or on `own`, the popup's own, and the key line says
     `x close` while that seat is done.  `ask` is the seat `x` is asking about and the card it
@@ -1419,6 +1389,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # cell, highlighted, a bar's colour); a bar's news is its value, which rounding can hide
     moves = []
     bars = {}       # each usage row's number -> its screen row, blocks, first column and colour
+    rows = {}       # ... and each usage row's screen row, a bar on it or not
     explains = {}   # each seat row's state word, a cell that explains it
     if not compact:
         out += [terminal.header_line("", time.strftime("%H:%M"), width),
@@ -1428,6 +1399,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             out.append("")
         for number, line in enumerate(meters):
             out.append(line)
+            if number:            # its first line is the heading
+                rows[number] = len(out)
             text = terminal.ANSI.sub("", line)
             bar, left = re.search("[█░]+", text), re.search(r"(\d+)% left", text)
             if bar and left:
@@ -1502,14 +1475,14 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     spots = {top + number: ((None, [(1, layout, name)]) if isinstance(name, tuple)
                             else (name, explains.get(top + number, [])))
              for number, (_, name) in enumerate(body, 1) if name}
-    spots.update({row: (None, [(1, layout, ("usage", number))])
-                  for number, (row, _, _, _) in bars.items()})
+    spots.update({row: (None, [(1, layout, ("usage", number))]) for number, row in rows.items()})
     spots.update(terminal.key_spots(key_lines, keys_top + 1))
     # a question under a row has the keys and the rows, and nothing is explained while it asks
     spot, tip, glint = terminal.Spot() if asked else terminal.pointed(spots), None, []
-    kind = spot.cell[0] if isinstance(spot.cell, tuple) else None
+    kind, ticked = spot.cell[0] if isinstance(spot.cell, tuple) else None, None
     if kind == "usage":
         tip, pace = usage_tip(cfg, spot.cell[1])
+    if kind == "usage" and spot.cell[1] in bars:
         row, blocks, _, shade = bars[spot.cell[1]]
         glint = [terminal.styled(block, shade if block == "█" else "dim") for block in blocks]
         if pace is not None:
@@ -1518,19 +1491,17 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             mark = "│" if terminal.utf8() else "|"
             glint[tick] = (terminal.styled(mark, shade).replace("\033[", "\033[7;", 1)
                            if blocks[tick] == "█" else mark)
+            ticked = row, tick
             filled = blocks.count("█")
             out[row - 1] = out[row - 1].replace(
                 terminal.styled("█" * filled, shade)
                 + terminal.styled("░" * (len(blocks) - filled), "dim"), "".join(glint), 1)
     elif kind in ("state", "project"):
-        tip = TIPS[spot.cell[1]] if kind == "state" else TIPS[kind].format(name=spot.cell[1])
+        tip = terminal.TIPS[spot.cell[1] if kind == "state" else kind].format(name=spot.cell[1])
     elif isinstance(spot.what, Path):
-        tip = TIPS["switches"].format(name=spot.what.name)
+        tip = terminal.TIPS["switches"].format(name=spot.what.name)
     elif spot.what is not None:
-        tip = TIPS["session"].format(name=spot.what)
-    elif spot.cell is not None:
-        tip = TIPS.get(" ".join(next((part for part in terminal.key_parts(key_text)
-                                      if part[0] == spot.cell), ())))
+        tip = terminal.TIPS["session"].format(name=spot.what)
     for number, (row, _, first, shade) in bars.items():
         # whether the pointer is on it: coming onto it is news, the light's to cross
         moves.append((("under", number), kind == "usage" and spot.cell[1] == number,
@@ -1559,6 +1530,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 # a cell each, so a frame rewrites only the cells that moved
                 cells, until = motion.gliding(before[1], shown[1], since, shade, lit,
                                               sweep=shown[0] == 1 > before[0])
+                if ticked and cell[0] == ticked[0]:   # the pointer's tick stands through it
+                    cells[ticked[1]] = lambda now: glint[ticked[1]]
                 for n, animation in enumerate(cells):
                     clock.start([(cell[0], cell[1] + n)], animation, until)
         moved = clock.frame()
@@ -2058,9 +2031,10 @@ def usage_rows(cfg):
 
 
 def usage_tip(cfg, number, now=None):
-    """What the key line says of usage row `number`, from 1, while the pointer is on it, and the
-    share of its week that would be left had it been spent as fast as time passes, from the
-    meter's window and reset, or None where either is unknown: `Acme II · 68% left · resets Thu
+    """What the key line says of usage row `number`, from 1, while the pointer is on it -- why
+    it has no week to draw, where it has none -- and the share of its week that would be left
+    had it been spent as fast as time passes, from the meter's window and reset, or None where
+    there is no such week: `Acme II · 68% left · resets Thu
     20:00 (in 2 d 6 h) · slower than time`, more left than that share being slower."""
     now = time.time() if now is None else now
     rows = usage_rows(cfg)
@@ -2069,10 +2043,13 @@ def usage_tip(cfg, number, now=None):
     name, label, prov = rows[number - 1]
     try:
         week = usage.shared_week(cfg, name, prov, now)
+        why = week is None and unread(prov, [m for m in prov.get("meters") or []
+                                             if m.get("window_secs") != usage.SESSION_SECS],
+                                      usage.readable(prov, now), now)
     except (AttributeError, KeyError, TypeError, ValueError):
-        week = None
+        week, why = None, "bad reading"
     if week is None:
-        return None, None
+        return terminal.TIPS["unread"].format(name=terminal.plain(label), why=why), None
     elapsed, at = usage._elapsed(week, now), usage._number(week.get("resets_at"))
     pace = None if elapsed is None else 1 - elapsed / 100
     resets, left = resets_note(week, now), percent_left(week)
@@ -2081,8 +2058,9 @@ def usage_tip(cfg, number, now=None):
         resets += " (in " + (f"{secs // 86400} d {secs % 86400 // 3600} h" if secs >= 86400
                              else f"{secs // 3600} h" if secs >= 3600
                              else f"{max(1, secs // 60)} min") + ")"
-    spent = None if pace is None else TIPS["slower" if left > round(100 * pace) else
-                                           "faster" if left < round(100 * pace) else "even"]
+    spent = None if pace is None else terminal.TIPS["slower" if left > round(100 * pace) else
+                                                    "faster" if left < round(100 * pace) else
+                                                    "even"]
     return " · ".join(part for part in (terminal.plain(label), f"{left}% left", resets, spent)
                       if part), pace
 
@@ -2745,7 +2723,10 @@ def config_model(cfg, name):
         body, places = model_body(cfg, name, None if terminal.away() else here)
         shown = body + (["", *(terminal.styled("  " + part, "dim") for part in terminal.wrap(
             note, terminal.layout_width() - 2))] if note else [])
-        spots = terminal.frame(title, shown, keys, places=places)
+        entry = cfg["models"][name]
+        spots = terminal.frame(title, shown, keys, places=places, tips={
+            ("model id", None): terminal.TIPS["model id"].format(harness=entry.get("harness")),
+            ("effort", None): terminal.TIPS["effort"].format(name=name)})
         key = terminal.read_key()
         if key is None:
             continue                  # a resize: drawn again at the new size
@@ -2846,25 +2827,32 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     return act, here, column, top
 
 
+def model_tip(name, entry):
+    """What the key line says of model `name`, its config entry, on any screen listing it."""
+    return terminal.TIPS["model"].format(name=name, model=entry.get("model", "?"),
+                                         harness=entry.get("harness", "?"),
+                                         effort=entry.get("effort", "?"))
+
+
 def config_tips(cfg, token=None):
-    """What the `c` screen's key line says of what the pointer is on (TIPS), {(row, cell):
-    sentence}: each model's row and label, its marks and its effort, and each provider's name
-    on Providers -- `token`, the worker token's note, said of the provider whose harness it is
-    minted for."""
+    """What the `c` screen's key line says of what the pointer is on (terminal.TIPS), {(row,
+    cell): sentence}: each model's row, its label with it, its marks and its effort, and each
+    provider's name on Providers -- `token`, the worker token's note, said of the provider whose
+    harness it is minted for."""
     tips, harness = {}, token and token.split()[0]
     for name in config_models(cfg):
         entry, row = cfg["models"][name], ("model", name)
-        tips[row, None] = tips[row, -1] = TIPS["model"].format(
-            name=name, harness=entry.get("harness", "?"), effort=entry.get("effort", "?"))
-        tips.update({(row, column): TIPS[head] for column, head in enumerate(orch.ROLE_HEADS)})
-        tips[row, 3] = TIPS["effort"].format(name=name)
+        tips[row, None] = model_tip(name, entry)
+        tips.update({(row, column): terminal.TIPS[head]
+                     for column, head in enumerate(orch.ROLE_HEADS)})
+        tips[row, 3] = terminal.TIPS["effort"].format(name=name)
     for provider in cfg["providers"]:
         shown = NAMES.get(provider, provider.title())
         tips[PROVIDERS, ("account", provider)] = (
-            TIPS["token"].format(name=shown, note=token.split(" ", 1)[1])
+            terminal.TIPS["token"].format(name=shown, note=token.split(" ", 1)[1])
             if any(entry.get("provider") == provider and entry.get("harness") == harness
                    for entry in cfg["models"].values())
-            else TIPS["account"].format(name=shown))
+            else terminal.TIPS["account"].format(name=shown))
     return tips
 
 
@@ -3199,7 +3187,9 @@ def config_add_provider(cfg, keyboard):
     def around():     # the screen the list is drawn on, drawn again on a resize
         terminal.frame("config · add a provider", [""] * (len(labels) + len(more)), keys)
         return 3
-    picked = terminal.choose([*labels, *more], around=around)
+    picked = terminal.choose([*labels, *more], around=around, tips={
+        **{text: terminal.TIPS["provider"].format(name=text) for text in labels},
+        **{text: terminal.TIPS["subscription"].format(name=text) for text in more}})
     if picked is None:
         return ""
     if picked in more:
@@ -3258,7 +3248,8 @@ def config_remove_provider(cfg):
     def listed():     # the screens the two lists are drawn on, drawn again on a resize
         terminal.frame(title, [""] * len(labels), keys + "   esc back")
         return 3
-    picked = terminal.choose(list(labels), around=listed)
+    picked = terminal.choose(list(labels), around=listed, tips={
+        text: terminal.TIPS["account"].format(name=text) for text in labels})
     if picked is None:
         return ""
     name, account = labels[picked]
@@ -3652,7 +3643,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     move it and the page up follows it; Enter opens it.  A click on a row opens that seat and
     a click on the key line does what its key does, each once the button is up; the pointer
     on a row moves the highlight there, and on a key-line item lights it, the key line saying
-    what either means while it rests there (TIPS, `draw`).  A digit
+    what either means while it rests there (terminal.TIPS, `draw`).  A digit
     waits half a second for a second one, a resize or not, and a key read while it waits is
     kept for after, with the screen it was read on.  The highlight is the seat's name, so it
     stays on its seat whatever comes or goes above it.  A key that does nothing here is let

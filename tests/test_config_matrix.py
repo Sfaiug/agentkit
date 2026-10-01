@@ -321,7 +321,7 @@ class Matrix(unittest.TestCase):
                              lambda lines: "‹ high ›" in row(lines, "opus")[1])
         self.assertIn("opus", highlighted(lines))
         # the pointer rests on the effort it clicked: the key line says what that is
-        self.assertEqual(lines[-1], "  " + menu.TIPS["effort"].format(name="opus"))
+        self.assertEqual(lines[-1], "  " + terminal.TIPS["effort"].format(name="opus"))
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "high")
         screen.leave()
 

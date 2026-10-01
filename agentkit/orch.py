@@ -3202,10 +3202,15 @@ def pick(cfg, providers, default):
 
 @terminal.clicks_its_own
 def _picking(cfg, providers, notes, selected):
-    """`pick`'s screen, drawn over in place and read with the keys, the way `terminal.scroll`
-    is; the rows scroll to keep the highlight on a screen too short for every model.  The
-    pointer moves the highlight to the model and the role it is on, that mark lit."""
+    """`pick`'s screen, drawn over in place and read with the keys; the rows scroll to keep the
+    highlight on a screen too short for every model.  The pointer moves the highlight to the
+    model and the role it is on, that mark lit, and the key line says what either is."""
+    from . import menu   # here, not at the top: menu imports this module
     names = list(notes)
+    tips = {(hit, None): menu.model_tip(name, cfg["models"][name])
+            for hit, name in enumerate(names)}
+    tips.update({(hit, column): terminal.TIPS[head] for hit in range(len(names))
+                 for column, head in enumerate(ROLE_HEADS)})
     model = selected["orchestrator"]
     at, top, column, note = names.index(model) if model in names else 0, 0, 0, ""
     keys = (f"{'↑↓←→' if terminal.utf8() else 'arrows'} move   space choose   "
@@ -3224,7 +3229,7 @@ def _picking(cfg, providers, notes, selected):
         spots = {4 + line - top: (hit, cells[hit] if line == drawn.start else [])
                  for hit, drawn in enumerate(rows) for line in drawn if top <= line < top + room}
         spots.update(terminal.key_spots(terminal.key_line(keys), len(lines) + 1))
-        terminal.show(lines + terminal.key_line(keys), spots)
+        terminal.show(lines + terminal.key_line(keys), spots, tips, len(lines) + 1)
         key = terminal.read_key()
         if key is None:
             continue              # a resize: draw again

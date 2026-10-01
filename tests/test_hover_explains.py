@@ -1,16 +1,19 @@
 """Hovering explains: while the pointer rests on anything that means more than its label, the key
-line says what it is in one sentence (`menu.TIPS`), and the keys come back when it leaves; a usage
-row under it sends one glint across its bar and stands a hairline tick at the share that would be
-left had it been spent as fast as time passes; and `i` is no key, its page gone.
+line says what it is in one sentence (`terminal.TIPS`), and the keys come back when it leaves, on
+every screen; a usage row under it sends one glint across its bar and stands a hairline tick at
+the share that would be left had it been spent as fast as time passes, through a glide too; and
+`i` is no key, its page gone.
 
 The main menu runs as tests/test_close_and_info.py runs it, in a child process on a pty of its own,
 with the seats faked and its usage rows read from one fake meter in the child's own HOME: 40% of
-its week gone and 68% left.  The `c` screen runs in this process on the real `terminal.read_key`,
-its keys on a pipe (tests/test_hover.py's `run`).  A move of the pointer is the SGR report a
-terminal in modes 1003 and 1006 sends.  Nothing here reads the owner's ~/.agentkit, starts a
-session or reaches a provider; the only process signalled is the test's own child.
+its week gone and 68% left.  The screens under it -- `c`, a model's own, `n`, a list -- run in
+this process on the real `terminal.read_key`, their keys on a pipe (tests/test_hover.py's
+`run`).  A move of the pointer is the SGR report a terminal in modes 1003 and 1006 sends.
+Nothing here reads the owner's ~/.agentkit, starts a session or reaches a provider; the only
+process signalled is the test's own child.
 """
 
+import json
 import os
 from pathlib import Path
 import re
@@ -22,7 +25,8 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
-from agentkit import menu, motion, terminal, watch
+from agentkit import config, menu, motion, orch, terminal, watch
+from agentkit.terminal import TIPS
 import test_close_and_info
 from test_hover import ESC, at, move, played, run, texts
 from test_v4n import Sandbox
@@ -65,6 +69,19 @@ def menu_child(case):
         return test_close_and_info.Menu(case, SEATS)
 
 
+def explains(case, child, places, keys):
+    """Each (column, row) of `places` puts its sentence -- or what matches its pattern -- on the
+    key line of `child`'s screen while the pointer is there, and `keys` are back once it is on
+    nothing at all."""
+    for place, said in places:
+        with case.subTest(said=str(said)):
+            child.send(move(*place))
+            child.until(lambda text: (said.fullmatch(keyline(text)) if isinstance(said, re.Pattern)
+                                      else keyline(text) == said), f"the key line: {said}")
+            child.send(move(1, 2))            # the rule: on nothing at all
+            child.until(lambda text: keyline(text) == keys, "the keys back")
+
+
 def keys_of(grid):
     """The key line of a screen played onto `grid`: its last row with anything on it."""
     return [line for line in texts(grid) if line][-1]
@@ -84,22 +101,27 @@ class MainMenu(unittest.TestCase):
         seat = next(row for row, line in enumerate(lines, 1) if "fix-api" in line)
         heading = lines.index("acme") + 1
         usage = next(row for row, line in enumerate(lines, 1) if line.startswith("  Claude"))
+        unread = next(row for row, line in enumerate(lines, 1) if line.startswith("  MiMo"))
         places = [
             ((lines[seat - 1].index("fix-api") + 1, seat),
-             "  " + menu.TIPS["session"].format(name="fix-api")),
-            ((lines[seat - 1].index("needs you") + 1, seat), "  " + menu.TIPS["needs you"]),
-            ((3, heading), "  " + menu.TIPS["project"].format(name="acme")),
-            ((keys.index("n new") + 1, len(lines)), "  " + menu.TIPS["n new"]),
-            ((keys.index("c config") + 3, len(lines)), "  " + menu.TIPS["c config"]),
-            ((5, usage), USAGE)]
-        for place, said in places:
-            with self.subTest(said=str(said)):
-                child.send(move(*place))
-                child.until(lambda text: (said.fullmatch(keyline(text))
-                                          if isinstance(said, re.Pattern)
-                                          else keyline(text) == said), f"the key line: {said}")
-                child.send(move(1, 2))            # the rule: on nothing at all
-                child.until(lambda text: keyline(text) == keys, "the keys back")
+             "  " + TIPS["session"].format(name="fix-api")),
+            ((lines[seat - 1].index("needs you") + 1, seat), "  " + TIPS["needs you"]),
+            ((3, heading), "  " + TIPS["project"].format(name="acme")),
+            ((keys.index("n new") + 1, len(lines)), "  " + TIPS["n new"]),
+            ((keys.index("c config") + 3, len(lines)), "  " + TIPS["c config"]),
+            ((keys.index("↑↓ move") + 1, len(lines)), "  " + TIPS["↑↓ move"]),
+            ((5, usage), USAGE),
+            ((5, unread), "  " + TIPS["unread"].format(name="MiMo", why="no reading yet"))]
+        explains(self, child, places, keys)
+        child.leave()
+
+    def test_the_popups_own_keys_say_what_they_do(self):
+        child = test_close_and_info.Menu(self, {"alpha": "working"}, own="alpha")
+        keys = child.frame()[-1]
+        row = len(child.frame())
+        explains(self, child, [((keys.index(item) + 1, row), "  " + TIPS[item]) for item in
+                               ("n start a session", "r rename this session",
+                                "x stop this session")], keys)
         child.leave()
 
     def test_a_usage_row_glints_then_ticks_at_the_pace_share_until_the_pointer_leaves(self):
@@ -130,11 +152,22 @@ class MainMenu(unittest.TestCase):
         crossed = [place for place in places if place >= 0]
         self.assertGreaterEqual(len(crossed), 2, after[-2000:])
         self.assertEqual(crossed, sorted(crossed))
+        # a reading that moves glides there, and the tick stands through it: 58% left
+        week, now = 7 * 86400, time.time()
+        (child.seats.parent / ".agentkit/state/usage.json").write_text(json.dumps({
+            "fetched_at": now, "providers": {"anthropic": {"fetched_at": now, "meters": [
+                {"name": "weekly", "used": 42, "window_secs": week,
+                 "resets_at": now + 0.6 * week}]}}}))
+        child.until(lambda text: "58% left" in keyline(text), "the moved reading's sentence")
+        self.assertTrue(keyline(child.text()).endswith("· faster than time"))
+        time.sleep(motion.GLIDE + 0.3)                        # the glide is over
+        shown = "".join(cell.char for cell in played(child.text())[row][bar.start():bar.end()])
+        self.assertEqual(shown, "███████│░░░░")
         # off the row the tick goes, with the sentence
         child.send(move(1, 2))
         child.until(lambda text: keyline(text) == lines[-1], "the keys back")
         shown = "".join(cell.char for cell in played(child.text())[row][bar.start():bar.end()])
-        self.assertEqual(shown, "████████░░░░")
+        self.assertEqual(shown, "███████░░░░░")
         child.leave()
 
     def test_i_is_no_key_and_its_page_is_gone(self):
@@ -170,19 +203,46 @@ class ConfigScreen(Sandbox):
         # a mark is its whole column, under its heading; the effort starts under `effort`
         orch_mark, exec_mark, review_mark, effort = (
             (at(first, head)[0] + 1, label[1]) for head in ("orch", "exec", "review", "effort"))
-        entry = self.cfg["models"]["astra"]
-        said = {label: menu.TIPS["model"].format(name="astra", harness=entry["harness"],
-                                                 effort=entry["effort"]),
-                orch_mark: menu.TIPS["orch"], exec_mark: menu.TIPS["exec"],
-                review_mark: menu.TIPS["review"],
-                effort: menu.TIPS["effort"].format(name="astra"),
+        said = {label: menu.model_tip("astra", self.cfg["models"]["astra"]),
+                orch_mark: TIPS["orch"], exec_mark: TIPS["exec"],
+                review_mark: TIPS["review"],
+                effort: TIPS["effort"].format(name="astra"),
                 at(first, "Claude", 1): "Claude: its worker token expires 2027-09-22 (in 356 days)",
-                at(first, "ChatGPT", 1): menu.TIPS["account"].format(name="ChatGPT")}
+                at(first, "ChatGPT", 1): TIPS["account"].format(name="ChatGPT"),
+                at(first, "⏎ mark"): TIPS["⏎ mark"], at(first, "↑↓←→ move"): TIPS["↑↓ move"]}
         for place, sentence in said.items():
             with self.subTest(sentence=sentence):
                 screens = self.matrix(move(*place), move(1, 1), ESC)
                 self.assertEqual(keys_of(screens[1]), "  " + terminal.cut(sentence, 98))
                 self.assertRegex(keys_of(screens[2]), r"^  ↑↓(←→)? move   ⏎ \w+   esc back$")
+
+    def test_a_models_own_screen_the_new_session_screen_and_a_list_say_what_they_hold(self):
+        def said(screen, *places):
+            for place, sentence in places:
+                with self.subTest(sentence=sentence):
+                    screens = run(screen, move(*place), move(1, 1), ESC)[1]
+                    self.assertEqual(keys_of(screens[1]), "  " + terminal.cut(sentence, 98))
+                    self.assertTrue(keys_of(screens[2]).endswith("esc back"))
+
+        def own():
+            return menu.config_model(self.cfg, "opus")
+        first = run(own, ESC)[1][0]
+        said(own, (at(first, "model id"), TIPS["model id"].format(harness="claude")),
+             (at(first, "effort"), TIPS["effort"].format(name="opus")))
+        notes = {name: "" for name in config.offered(self.cfg)}
+
+        def picking():
+            return orch._picking(self.cfg, {}, notes, dict(self.selected))
+        first = run(picking, ESC)[1][0]
+        astra = at(first, "Astra")
+        said(picking, (astra, menu.model_tip("astra", self.cfg["models"]["astra"])),
+             ((at(first, "review")[0] + 3, astra[1]), TIPS["review"]))
+        self.cfg["providers"]["anthropic"]["accounts"] = ["default", "second"]
+
+        def removing():
+            return menu.config_remove_provider(self.cfg)
+        first = run(removing, ESC)[1][0]
+        said(removing, (at(first, "Claude II"), TIPS["account"].format(name="Claude II")))
 
     def test_the_worker_token_stands_under_the_rows_from_fourteen_days_out(self):
         later = "claude worker token expires 2027-09-22 (in 356 days)"
@@ -196,7 +256,7 @@ class ConfigScreen(Sandbox):
 class Table(unittest.TestCase):
     def test_docs_cli_design_lists_every_sentence(self):
         design = (REPO / "docs/cli-design.md").read_text()
-        for name, sentence in menu.TIPS.items():
+        for name, sentence in TIPS.items():
             self.assertIn(sentence, design, name)
 
 
