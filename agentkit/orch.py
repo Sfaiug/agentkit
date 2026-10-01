@@ -32,6 +32,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -152,6 +153,24 @@ def choose(cfg, providers):
         notes.append(f"skipped {name}: {why}")
     return default, (f"WARN {'; '.join(notes)}; every model is exhausted, "
                      f"launching {default} anyway")
+
+
+@contextmanager
+def scratch(dry_run):
+    """Where the adapters called inside write a seat's rulebook, and whatever they make beside it.
+
+    For a dry run, a directory of its own that is gone once the command is printed: a preview
+    changes no rules a seat was opened with, and leaves none for a seat it never opens.
+    """
+    if not dry_run:
+        yield
+        return
+    with tempfile.TemporaryDirectory(prefix="ak-dry-run-") as tmp:
+        os.environ[config.RULEBOOK_DIR_ENV] = tmp
+        try:
+            yield
+        finally:
+            del os.environ[config.RULEBOOK_DIR_ENV]
 
 
 @contextmanager
@@ -1838,11 +1857,12 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     if detached and (not record.get("cwd") or not ran_in.is_dir()):
         raise config.Error(f"{name}: recorded directory is unavailable: {ran_in}")
     cwd = ran_in if ran_in.is_dir() else seat_cwd()
-    if recorded:
-        cmd = resume_command(cfg, orchestrator, recorded, ran_in, seat=name, account=account)
-        conversation = recorded
-    else:
-        cmd, conversation = fresh_command(cfg, orchestrator, seat=name, account=account)
+    with scratch(dry_run):
+        if recorded:
+            cmd = resume_command(cfg, orchestrator, recorded, ran_in, seat=name, account=account)
+            conversation = recorded
+        else:
+            cmd, conversation = fresh_command(cfg, orchestrator, seat=name, account=account)
     where = "in the same window" if session else f"in {cwd}"
     log(f"orch: resuming {name} on {orchestrator} {where}"
         + (f" (conversation {recorded})" if recorded
@@ -3382,17 +3402,13 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
         config.save_session(cfg, name, model, workers, extra)
     elif not dry_run:
         config.update_session(name, unnamed=None)
-    rulebook = config.rulebook_path(name)
-    kept = rulebook.exists()
     try:
-        cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
+        with scratch(dry_run):
+            cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
     except Exception:
         if unnamed:
             config.session_path(name).unlink(missing_ok=True)
         raise
-    finally:
-        if dry_run and not kept:
-            rulebook.unlink(missing_ok=True)   # the adapter wrote it for a seat that never opens
     if not dry_run:
         if conversation:
             extra["conversation"] = conversation

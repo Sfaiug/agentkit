@@ -52,8 +52,7 @@ class SeatStates(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "listing", lambda *_a, **_k: self.seats))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.stack.enter_context(patch.object(orch, "inside", return_value=True))
-        # A tick reads the seat's meters (watch.seat_account): the host's own, spent, would
-        # park this seat as `needs you` whatever its screen says.  No meter here spends it.
+        # a tick reads the meters: the owner's real ones, spent or not, are no fact of this seat
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
 
     def fixture(self, harness, kind):

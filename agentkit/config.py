@@ -36,6 +36,7 @@ HARNESS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")   # a harness name is one pa
 RUN_DIR_ENV = "AGENTKIT_RUN_DIR"
 ADAPTER_DIR_ENV = "AGENTKIT_ADAPTER_DIR"   # adapters/ elsewhere: the offline smoke checks
 SESSION_ENV = "AGENTKIT_SESSION"
+RULEBOOK_DIR_ENV = "AGENTKIT_RULEBOOK_DIR"  # a dry run's: where rulebook.py writes instead of STATE
 ACCOUNT_ENV = "AGENTKIT_ACCOUNT"           # which of a provider's `accounts` an adapter call is for
 DEFAULT_ACCOUNT = "default"                # ... the login it has when it lists none: the empty name
 KEPT_LOGINS = "kept-logins.json"           # under STATE: the logins `− remove` left on disk

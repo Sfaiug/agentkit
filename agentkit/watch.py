@@ -1659,9 +1659,11 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * a harness turn is in flight, so the seat is working (a turn past three hours says so
       in its reason and keeps the word) -- parked run or not;
     * an error it launched is parked with no scheduled resume and still needs his
-      attention -- recent, unacknowledged, not handed back or superseded;
+      attention -- recent, unacknowledged, not handed back or superseded -- or a run
+      is stalled, or a merge wait only its age turned away;
     * nobody is in the seat any more and its number is the way back in;
-    * it said it was done itself, a job never says it for it, and nothing on its screen asks him;
+    * it said it was done itself, a job never says it for it, and nothing on its screen asks him
+      -- unless a run of its own still sits parked and undecided, which is him;
     * otherwise it is at its prompt with nothing running, which is him again -- with the
       question it asked, or the draft it never sent, for a reason.
 
@@ -1868,8 +1870,11 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             asked = f"unsent: {asked}"
         return {"word": "needs you", "reason": asked or "waiting for you",
                 "since": found.get("began")}
-    # 2. a run of its own is unfinished and resumes itself: the seat is working
-    going = [(run_dir, state) for run_dir, state in mine if run_mod.going(state, now=at)]
+    # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`
+    # is the exception, as in the stop hook's `parked`: `going` counts it, but only
+    # `ak run resume` moves one, so rung 3 has it.
+    going = [(run_dir, state) for run_dir, state in mine
+             if run_mod.going(state, now=at) and state.get("state") != "stalled"]
     if going:
         going.sort(key=lambda pair: (pair[1].get("started_at") or 0, pair[0].name))
 
@@ -1914,24 +1919,35 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # 3. ... or a run of its own is parked with no scheduled resume: then it is
     # him the run waits for, only while the same ending still counts in his tally.
     # An acknowledged, handed-back, superseded or aged-out error is nobody's new
-    # question. A merge wait whose admission expired is history, not a new error.
-    # An exhausted run the tick cannot resume is no ending: told or old, it
+    # question. An exhausted run the tick cannot resume is no ending: told or old, it
     # stays unfinished until he resumes or stops it, so it is his -- by the tally's own
     # test, which no hand-back or age ends, or rung 5 would call it recovering --
-    # unless a later merged run replaced it, which ends the question outright.
+    # unless a later merged run replaced it, which ends the question outright.  So is
+    # a stalled run, and a merge wait only its age turned away: nothing told him, and
+    # nothing but him will move it.
     # A gone seat still names its own number below instead: the number
     # is the way back to the run, never the run itself.
     if not gone:
         if index is None:
             index = run_mod.supersession_index(records)
         parked = [(run_dir, state) for run_dir, state in mine
-                  if state.get("state") in ("error", "exhausted")
-                  and menu_mod.v5o_needs_look(state, index=index, now=at)]
+                  if (state.get("state") in ("error", "exhausted")
+                      and menu_mod.v5o_needs_look(state, index=index, now=at))
+                  or (state.get("state") == "stalled" and run_mod.unfinished(state, index=index))
+                  or (state.get("state") == "waiting" and not run_mod.going(state, now=at)
+                      and run_mod.tick_admission({**state, "finished_at": at}, now=at)
+                      and not run_mod.is_superseded(state, None, index, merged_only=True))]
         if parked:
             run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
-            return {"word": "needs you", "since": first.get("finished_at"),
-                    "reason": run_mod.parked_line(first, run_dir.name, now=at)
-                    or f"run {run_dir.name} parked: {run_mod.handback_reason(first)}"}
+            name, reason = run_dir.name, run_mod.handback_reason(first)
+            if first.get("state") == "stalled":
+                # from its id, never its error: a long step cuts the command in that one short
+                reason = f"run {name} stalled: resume it with `ak run resume {name}`"
+            elif first.get("state") == "waiting":
+                reason = f"run {name} waits to merge: {reason}"
+            else:
+                reason = run_mod.parked_line(first, name, now=at) or f"run {name} parked: {reason}"
+            return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
     # 4. nobody is in it: its number is the way back into the conversation.
     # An ended run is its orchestrator's to act on -- the run handed its ending back to
     # the seat that launched it -- so no reason ever says `press r` or names a run.
@@ -1967,15 +1983,18 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if index is None:
             index = run_mod.supersession_index(records)
         failed = notify.failed_declaration(last, mine, index)
-        unfinished = [d.name for d, state in mine
+        unfinished = [(d, state) for d, state in mine
                       if run_mod.unfinished(state, index=index)]
         if failed:
             return {"word": "needs you", "reason":
                     f"run {failed[0]} failed; declaration dropped",
                     "since": last.get("time")}
+        # nothing above is going, so a run still undecided waits on him: the stop hook's
+        # third stop stands on it, and this is where he hears
         if unfinished:
-            return {"word": "working", "reason": f"run {unfinished[0]} awaits recovery",
-                    "since": last.get("time")}
+            run_dir, state = unfinished[0]
+            return {"word": "needs you", "since": last.get("time"), "reason":
+                    f"run {run_dir.name} parked: {run_mod.handback_reason(state)}"}
         line = next((piece for piece in str(last["text"]).splitlines() if piece.strip()), "")
         return {"word": "done", "reason": " ".join(line.split()), "since": last.get("time")}
     # 6. at its prompt with nothing running: the question it asked, or nothing at all
@@ -2708,16 +2727,22 @@ def window_ends(cfg, provider):
     return max(ends, default=None)
 
 
-def spend_reset(cfg, provider, log):
-    """Put a stalled provider to the usage-limit reset policy now, whatever its due clock says.
+def spend_reset(cfg, provider, name, log):
+    """Put the subscription that seat stalled on to the usage-limit reset policy now, whatever
+    its due clock says.
 
     The policy is `ak usage`'s own and its caps are its own too -- 90% of the week gone, and at
     most one reset a day -- so a seat that stalls again an hour later costs nothing here.  The
     adapter is asked at most once a minute like everywhere else, and the snapshot stays: deleting
-    it would cost every other provider its reading.
+    it would cost every other provider its reading.  The seat's own subscription is the one
+    asked, the usual login included: a credit spent on another leaves the stalled week as spent.
     """
+    account = None
+    if config.accounts(cfg, provider):
+        record = config.session_records().get(name) or {}
+        account = record.get("account") or config.DEFAULT_ACCOUNT
     try:
-        spent, left = usage.replenish(cfg, provider, depleted=False)
+        spent, left = usage.replenish(cfg, provider, depleted=False, account=account)
     except config.Error as exc:
         log(f"WARN could not read the {provider} meters: {exc}")
         return
@@ -2943,16 +2968,14 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if dry_run:
         log(f"would recover {name} on a {provider} account with room, or wait for its reset")
         return True
-    # Reset credits still belong to the usual login: named logins are seat-only.
     refilled = False
-    if (refusal and not waiting and reset_policy(harness) and current == config.DEFAULT_ACCOUNT
-            and (until is None or until > now)):
+    if refusal and not waiting and reset_policy(harness) and (until is None or until > now):
         applied = usage._reset_applied_at(reset_path)
         refilled = applied is not None and applied != observed.get("reset_at", reset_before)
         if refilled:
             log(f"{provider}: usage-limit reset applied")
         else:
-            refilled = spend_reset(cfg, provider, log) is True
+            refilled = spend_reset(cfg, provider, name, log) is True
         if refilled:
             fresh = usage.collect(cfg).get(provider) or {}
             readings = (fresh.get("accounts") or {}) if accounts else {current: fresh}
@@ -3301,7 +3324,7 @@ def health(cfg, state, dry_run, log):
             # wait on the persisted deadline, then resume once, without flushing usage every tick.
             if quota and not dry_run and ends is None and not throttled:
                 if reset_policy(harness):
-                    spend_reset(cfg, provider, log)
+                    spend_reset(cfg, provider, name, log)
                 ends = window_ends(cfg, provider)
                 if ends and ends > now:
                     entry["resets_at"] = ends
@@ -3813,10 +3836,16 @@ def _dead_plan(state, run_dir, now):
     # record itself. Noticing the same dead pid again would launch a second loop.
     if _resume_ordered(state, now):
         return "skip", deaths, ""
+    reaped = last and last.get("pid") == pid and not last.get("parked") and not last.get("resumed_at")
+    # The hour runs to the death being judged, not to the tick judging it: a tick that gets
+    # to a recorded death late must not age the first of three out of the window.
+    upto = last.get("at") if reaped else now
+    if not isinstance(upto, (int, float)) or isinstance(upto, bool):
+        upto = now
     recent = [death for death in deaths
               if isinstance(death.get("at"), (int, float)) and not isinstance(death.get("at"), bool)
-              and now - death["at"] < DEAD_WINDOW]
-    if last and last.get("pid") == pid and not last.get("parked") and not last.get("resumed_at"):
+              and upto - death["at"] < DEAD_WINDOW]
+    if reaped:
         # A reap noticed this death first and recorded it, so it is already among the recent:
         # the third inside the hour parks whoever noticed it.
         if len(recent) >= 3:
