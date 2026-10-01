@@ -1659,9 +1659,11 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * a harness turn is in flight, so the seat is working (a turn past three hours says so
       in its reason and keeps the word) -- parked run or not;
     * an error it launched is parked with no scheduled resume and still needs his
-      attention -- recent, unacknowledged, not handed back or superseded;
+      attention -- recent, unacknowledged, not handed back or superseded -- or a run
+      is stalled, or a merge wait only its age turned away;
     * nobody is in the seat any more and its number is the way back in;
-    * it said it was done itself, a job never says it for it, and nothing on its screen asks him;
+    * it said it was done itself, a job never says it for it, and nothing on its screen asks him
+      -- unless a run of its own still sits parked and undecided, which is him;
     * otherwise it is at its prompt with nothing running, which is him again -- with the
       question it asked, or the draft it never sent, for a reason.
 
@@ -1868,8 +1870,11 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             asked = f"unsent: {asked}"
         return {"word": "needs you", "reason": asked or "waiting for you",
                 "since": found.get("began")}
-    # 2. a run of its own is unfinished and resumes itself: the seat is working
-    going = [(run_dir, state) for run_dir, state in mine if run_mod.going(state, now=at)]
+    # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`
+    # is the exception, as in the stop hook's `parked`: `going` counts it, but only
+    # `ak run resume` moves one, so rung 3 has it.
+    going = [(run_dir, state) for run_dir, state in mine
+             if run_mod.going(state, now=at) and state.get("state") != "stalled"]
     if going:
         going.sort(key=lambda pair: (pair[1].get("started_at") or 0, pair[0].name))
 
@@ -1914,24 +1919,35 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # 3. ... or a run of its own is parked with no scheduled resume: then it is
     # him the run waits for, only while the same ending still counts in his tally.
     # An acknowledged, handed-back, superseded or aged-out error is nobody's new
-    # question. A merge wait whose admission expired is history, not a new error.
-    # An exhausted run the tick cannot resume is no ending: told or old, it
+    # question. An exhausted run the tick cannot resume is no ending: told or old, it
     # stays unfinished until he resumes or stops it, so it is his -- by the tally's own
     # test, which no hand-back or age ends, or rung 5 would call it recovering --
-    # unless a later merged run replaced it, which ends the question outright.
+    # unless a later merged run replaced it, which ends the question outright.  So is
+    # a stalled run, and a merge wait only its age turned away: nothing told him, and
+    # nothing but him will move it.
     # A gone seat still names its own number below instead: the number
     # is the way back to the run, never the run itself.
     if not gone:
         if index is None:
             index = run_mod.supersession_index(records)
         parked = [(run_dir, state) for run_dir, state in mine
-                  if state.get("state") in ("error", "exhausted")
-                  and menu_mod.v5o_needs_look(state, index=index, now=at)]
+                  if (state.get("state") in ("error", "exhausted")
+                      and menu_mod.v5o_needs_look(state, index=index, now=at))
+                  or (state.get("state") == "stalled" and run_mod.unfinished(state, index=index))
+                  or (state.get("state") == "waiting" and not run_mod.going(state, now=at)
+                      and run_mod.tick_admission({**state, "finished_at": at}, now=at)
+                      and not run_mod.is_superseded(state, None, index, merged_only=True))]
         if parked:
             run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
-            return {"word": "needs you", "since": first.get("finished_at"),
-                    "reason": run_mod.parked_line(first, run_dir.name, now=at)
-                    or f"run {run_dir.name} parked: {run_mod.handback_reason(first)}"}
+            name, reason = run_dir.name, run_mod.handback_reason(first)
+            if first.get("state") == "stalled":
+                # from its id, never its error: a long step cuts the command in that one short
+                reason = f"run {name} stalled: resume it with `ak run resume {name}`"
+            elif first.get("state") == "waiting":
+                reason = f"run {name} waits to merge: {reason}"
+            else:
+                reason = run_mod.parked_line(first, name, now=at) or f"run {name} parked: {reason}"
+            return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
     # 4. nobody is in it: its number is the way back into the conversation.
     # An ended run is its orchestrator's to act on -- the run handed its ending back to
     # the seat that launched it -- so no reason ever says `press r` or names a run.
@@ -1967,15 +1983,18 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if index is None:
             index = run_mod.supersession_index(records)
         failed = notify.failed_declaration(last, mine, index)
-        unfinished = [d.name for d, state in mine
+        unfinished = [(d, state) for d, state in mine
                       if run_mod.unfinished(state, index=index)]
         if failed:
             return {"word": "needs you", "reason":
                     f"run {failed[0]} failed; declaration dropped",
                     "since": last.get("time")}
+        # nothing above is going, so a run still undecided waits on him: the stop hook's
+        # third stop stands on it, and this is where he hears
         if unfinished:
-            return {"word": "working", "reason": f"run {unfinished[0]} awaits recovery",
-                    "since": last.get("time")}
+            run_dir, state = unfinished[0]
+            return {"word": "needs you", "since": last.get("time"), "reason":
+                    f"run {run_dir.name} parked: {run_mod.handback_reason(state)}"}
         line = next((piece for piece in str(last["text"]).splitlines() if piece.strip()), "")
         return {"word": "done", "reason": " ".join(line.split()), "since": last.get("time")}
     # 6. at its prompt with nothing running: the question it asked, or nothing at all
