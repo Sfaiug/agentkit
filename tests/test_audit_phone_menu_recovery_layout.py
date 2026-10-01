@@ -634,7 +634,7 @@ class Phone(Sandbox):
         self.whole_page(screen, width, height, "no sessions")
         # n asks a name, then one screen that fits: astra below opus and every worker added
         phone.press("n")
-        phone.until("Name: auto", prompt="Name: auto")
+        phone.until("Name: auto", prompt="esc back")
         phone.keys("Enter")
         screen = phone.until("agentkit · new session", "orch", "exec", "review",
                              prompt="esc back")
@@ -672,7 +672,7 @@ class Phone(Sandbox):
         phone.keys("C-b", "m")
         phone.until("esc leave", prompt="esc leave")
         phone.press("n")                     # the old placeholder is held by the rename alias
-        phone.until("Name: auto", prompt="Name: auto")
+        phone.until("Name: auto", prompt="esc back")
         phone.keys("Enter")
         phone.until("agentkit · new session", prompt="esc back")
         phone.keys("Enter")                  # what the last creation was given: astra

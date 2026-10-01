@@ -1750,8 +1750,7 @@ def new_session(cfg, dry_run, keyboard=None):
     created. Enter at the name leaves it for the orchestrator to choose, and a dry run only
     says what it would start: it creates no session, so neither its record nor its harness's
     rulebook. The terminal is given back once all is chosen, for the seat to open on."""
-    if not terminal.taken():
-        terminal.frame("new session")
+    terminal.frame("new session")
     if not cfg:
         return None               # no configuration means no models to offer
     cfg = config.load()           # the last creation's [defaults], whichever process made it
