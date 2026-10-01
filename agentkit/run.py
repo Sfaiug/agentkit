@@ -1752,7 +1752,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 continue
             if account is not None and next_account(try_again_at(said), message):
                 continue
-            spent, left = (usage.replenish(cfg, entry["provider"])
+            spent, left = (usage.replenish(cfg, entry["provider"], account=account)
                            if refills < MAX_REFILLS else (False, 0.0))
             if spent:
                 refills += 1

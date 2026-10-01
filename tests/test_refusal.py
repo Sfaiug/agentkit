@@ -38,7 +38,8 @@ class RefusalTests(unittest.TestCase):
         self.replenished = []
         self.stack.enter_context(patch.object(
             usage, "replenish",
-            side_effect=lambda cfg, provider: self.replenished.append(provider) or (False, 0.0)))
+            side_effect=lambda cfg, provider, **_kw: self.replenished.append(provider)
+            or (False, 0.0)))
         self.stack.enter_context(patch.object(
             usage, "mark_exhausted",
             side_effect=lambda cfg, provider, until=None: self.marked.append(

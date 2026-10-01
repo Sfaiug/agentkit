@@ -938,8 +938,9 @@ def harness_unready(harness):
     return f"{harness} is not logged in" if worker.auth_ok(harness)[0] is False else None
 
 
-def replenish(cfg, provider, depleted=True):
-    """Read this provider's meters again, and spend a usage-limit reset if it holds one.
+def replenish(cfg, provider, depleted=True, account=None):
+    """Read this provider's meters again -- or that account's of it -- and spend a usage-limit
+    reset if it holds one.
 
     The moment of need: a worker has just been refused, and that refusal is proof the window
     is spent whatever the cached used% said.  So the five-minute due clock and the 90%
@@ -948,11 +949,15 @@ def replenish(cfg, provider, depleted=True):
     adapter is still asked at most once in its harness's cadence, and the reading goes into the cache so
     the next pick ranks on what the provider says now.  A seat stalled on its quota is not
     that proof (`watch.spend_reset`): `depleted=False` keeps the threshold.
+    A refused `account` is the one whose credit goes: its week is the one that ran out, and
+    for none it is the one a turn runs on next, the usual login once every account is spent.
 
     Returns (was a credit really spent, the resets left in hand).
     """
     now = time.time()
-    prov = _without_past(_probe_gently(cfg, provider), now, "the adapter")
+    prov = _without_past(_probe_gently(cfg, provider, account), now, "the adapter")
+    if account is not None:
+        prov = {**prov, "account": account}
     # The probe and a credit each write their own reading as they get it.
     prov, spent = _reset_policy(cfg, provider, prov, now, depleted)
     return spent, _number(prov.get("resets")) or 0.0
