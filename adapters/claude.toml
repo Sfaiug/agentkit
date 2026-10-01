@@ -157,6 +157,10 @@ quotas = ["rate limit", "rate_limit_error", "Usage limit reached", "usage limit"
 # `terminal` is the event log's terminal record kind: the stream ends with a `result` event,
 # which is what adapters/claude.sh reads final.md out of, failure or not.
 terminal = "result"
+# `coloured`: behind the same `● `, it draws its own notice's words in a colour and the model's
+# answer in the terminal's own (captured with attributes, 2.1.286, in every theme), so on a
+# seat's screen a stall word counts only where it is drawn in colour.
+coloured = true
 
 [auth]
 title = "Claude Code"

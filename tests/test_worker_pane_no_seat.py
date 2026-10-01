@@ -19,7 +19,7 @@ from agentkit import config, notify, orch
 
 class WorkerPaneNoSeat(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".worker-pane-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-worker-pane-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

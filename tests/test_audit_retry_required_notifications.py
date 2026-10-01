@@ -151,7 +151,7 @@ def child():
 
 class RequiredNotifications(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".retry-notify-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-retry-notify-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         (self.root / "sockets").mkdir(mode=0o700)

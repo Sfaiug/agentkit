@@ -83,7 +83,7 @@ EVENTS_CONTINUED = """\
 
 class Antigravity(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix=".antigravity-", dir=REPO)
+        self.tmp = tempfile.TemporaryDirectory(prefix=".ak-test-antigravity-", dir=REPO)
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.home = self.root / "home"

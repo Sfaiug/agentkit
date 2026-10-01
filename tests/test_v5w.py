@@ -82,7 +82,7 @@ def clean(finished=True):
 
 class LongCommandsRunInTheForeground(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5w-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5w-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

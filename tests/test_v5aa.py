@@ -111,7 +111,7 @@ else:
 
 class V5aa(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5aa-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5aa-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

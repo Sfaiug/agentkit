@@ -24,7 +24,7 @@ from agentkit import config, menu, watch, worker
 
 class WorkerTokenBadBytes(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".token-bytes-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-token-bytes-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         stack = ExitStack()
         self.addCleanup(stack.close)

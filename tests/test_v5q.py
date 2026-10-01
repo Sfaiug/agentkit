@@ -53,7 +53,7 @@ FAIL = "VERDICT: FAIL\n\n## Findings\n- flaw.py:1 - pattern - why it matters\n"
 
 class JobFixture(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5q-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5q-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

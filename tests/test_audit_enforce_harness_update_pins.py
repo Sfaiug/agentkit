@@ -21,7 +21,7 @@ from agentkit import config, orch, update
 
 @pytest.fixture
 def pinned_home(monkeypatch):
-    with tempfile.TemporaryDirectory(prefix=".pins-", dir=REPO) as tmp:
+    with tempfile.TemporaryDirectory(prefix=".ak-test-pins-", dir=REPO) as tmp:
         root = Path(tmp)
         binaries = root / "bin"
         binaries.mkdir()

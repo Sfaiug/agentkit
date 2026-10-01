@@ -45,7 +45,7 @@ def held(harness):
 
 class V5p(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5p-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5p-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

@@ -83,7 +83,7 @@ def make_run(root, remote, name, cmds):
 
 class LandTipAtTurn(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".land-tip-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-land-tip-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

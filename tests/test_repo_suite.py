@@ -18,7 +18,7 @@ SUITE = "test -f AGENTS.md"
 
 class RepoSuite(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".repo-suite-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-repo-suite-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

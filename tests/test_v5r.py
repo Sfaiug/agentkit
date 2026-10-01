@@ -32,7 +32,7 @@ class ExhaustedResume(unittest.TestCase):
     """One patched home, the shipped default config, fake providers, a fake resume hook."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".run-v5r-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-run-v5r-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

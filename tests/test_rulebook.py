@@ -50,7 +50,7 @@ mode = "subscription"
 
 class Rulebook(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".rulebook-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-rulebook-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.home = Path(tmp.name)
         (self.home / ".claude").mkdir()

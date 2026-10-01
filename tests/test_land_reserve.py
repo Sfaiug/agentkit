@@ -104,7 +104,7 @@ def merge_held(wt):
 
 class LandingCase(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".land-reserve-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-land-reserve-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

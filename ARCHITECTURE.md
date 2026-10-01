@@ -32,7 +32,7 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
   Used by watch (about 60 functions), orch, menu, notify, usage, worker, retention and a hook.
   Leak: Claude temp-file gc.
 - `watch.py`: the tick. Hides watch.json, reading each manifest's screen rules and words
-  (`quotas`, `stalls`, `auth_expiry`), seat state (`session_state`, `waiting_on`), typing
+  (`stalls`, `auth_expiry`), seat state (`session_state`, `waiting_on`), typing
   into and reviving seats, resuming runs, PR scanning, `doctor`. Used by run, orch, menu,
   notify, update, usage, worker and both hooks. Leaks: run.json writes (stall ladder,
   freeze marks, resume passes; all through `run.record`), run states (`GOING`).
@@ -88,8 +88,8 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
 - `agentkit/harness/`: `load(name)` merges the manifest and an optional plugin module
   (`claude.py`, `codex.py`, `muse.py`, `opencode.py`, `grokbuild.py`) with a default for
   every hook: conversation, resume, launch, titles, usage, tokens; `failure` reads a failed
-  turn in whole `[stall]` words. Used by orch, usage, update, run, menu. Leak: orch and run
-  import `harness.claude`.
+  turn or seat in whole `[stall]` words. Used by orch, usage, update, run, menu, watch. Leak:
+  orch and run import `harness.claude`.
 
 ## hooks/, tools/, tests/
 

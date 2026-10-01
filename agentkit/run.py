@@ -21,6 +21,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import Counter
@@ -31,7 +32,7 @@ from urllib.parse import quote, urlsplit
 
 from . import (command_help, config, history, notify, orch, proc_snapshot, retention, update,
                usage, watch, worker)
-from .harness import FAULT, SPENT, load as harness_plugin, says
+from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 DIFF_CAP = 300 * 1024
 OUT_CAP = 20 * 1024
@@ -81,25 +82,11 @@ EVENT_OUTPUT = ("aggregated_output", "output", "stdout", "stderr", "command", "c
 JUNK = ("__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/",
         "node_modules/", ".DS_Store", "*.swp")
 # what the suites leave inside the checkout when a test is killed mid-way: every sandbox
-# tests/smoke.sh and the test_*.py files it runs create there (tests/acceptance.sh and
-# tests/e2e-fresh.sh only ever write under $WORK).  The leftover sweep never commits these
-# and the loop removes them before the next turn, whatever the repository's .gitignore says.
-SANDBOX_PREFIXES = (
-    ".acceptance-", ".auth-watch-", ".cards-", ".changed-checks-", ".codex-seat-",
-    ".command-help-", ".config-home-", ".deferred-checks-", ".deferred-result-",
-    ".gate-tolerance-", ".gate-turns-", ".handback-", ".lessons-", ".login-", ".macbridge-",
-    ".muse-probe-", ".no-sandbox-commit-", ".notify-", ".notify-smoke-",
-    ".one-provider-", ".one-rulebook-", ".phone-", ".pins-", ".recover-runs-", ".refusal-",
-    ".retention-", ".retry-notify-", ".review-contract-", ".review-gate-", ".rulebook-",
-    ".run-quota-", ".run-scope-", ".run-v5r-", ".seat-hook.", ".seat-state-",
-    ".session-state-", ".silence-", ".smoke-", ".stop-hook-", ".stop-nudge-",
-    ".task-size-", ".tick-health-", ".usage-banner-", ".usage-fresh-", ".usage-test-",
-    ".v4c-", ".v4l-", ".v4n-", ".v4z-no-history-", ".v5aa-", ".v5ab-", ".v5ac-",
-    ".v5ad-", ".v5ae-", ".v5af-", ".v5ah-", ".v5aj-", ".v5al-", ".v5am-", ".v5d-",
-    ".v5e-", ".v5e-list-", ".v5f-", ".v5l-", ".v5m-", ".v5p-", ".v5q-", ".v5w-",
-    ".v5x-", ".verify-integration-", ".resume-midturn-", "codex-mflag-", "phone-tmux-",
-    "v4l-tmux-",
-)
+# tests/smoke.sh and the test_*.py files create there is named under this one prefix, which
+# tests/test_leftover_staged_and_sandboxes.py holds every one of them to.  The leftover sweep
+# never commits these and the loop removes them before the next turn, whatever the
+# repository's .gitignore says.
+SANDBOX_PREFIX = ".ak-test-"
 MERGE_METHODS = {"squash": "--squash", "merge": "--merge", "rebase": "--rebase"}
 CHECKS_CAP = 60 * 60            # a check suite still running after an hour is not going to finish
 CHECKS_POLL = 10
@@ -228,7 +215,7 @@ def no_answer(cmd, what):
             "check `gh auth status` and the remote's credentials by hand, then resume the run")
 
 
-def tool_run(cmd, cwd=None, timeout=None):
+def tool_run(cmd, cwd=None, timeout=None, env=None):
     """(exit code, stdout, stderr) for every git and gh call this module makes.
 
     The code is None when the call ran out of time, and stderr says so: a tool that has not
@@ -242,7 +229,7 @@ def tool_run(cmd, cwd=None, timeout=None):
     try:
         proc = subprocess.run(cmd, cwd=None if cwd is None else str(cwd), capture_output=True,
                               encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
-                              timeout=timeout, env=tool_env())
+                              timeout=timeout, env={**tool_env(), **(env or {})})
     except subprocess.TimeoutExpired:
         return None, "", no_answer(cmd, f"was killed after {timeout:g}s")
     err = proc.stderr
@@ -372,14 +359,14 @@ def park_stalled(run_dir, state, entry):
     return state
 
 
-def git(repo, *args, check=True):
+def git(repo, *args, check=True, env=None):
     """The command's stdout, raising on failure unless `check` is off.
 
     `check=False` tolerates a git that said no, never one that never answered: a timeout, or a
     prompt it was refused, is not an empty result, and reading it as one is how a run loses the
     thing it was about to do.
     """
-    code, out, err = tool_run(["git", "-C", str(repo), *args])
+    code, out, err = tool_run(["git", "-C", str(repo), *args], env=env)
     halted = stopped(code, err)
     if (check or halted) and code != 0:
         raise (Stopped if halted else config.Error)(
@@ -1468,7 +1455,8 @@ def ran_dry(code, said, harness, refusal=False):
     """The harness's own word for a spent provider window in this exit, or None.
 
     Its words and not ours: they come from `[stall] quotas` in adapters/<harness>.toml, the
-    same list the babysitter reads off a seat's screen, each a whole word (`Harness.failure`).
+    same list the babysitter reads off a seat's screen, each a whole word (`Harness.failure`);
+    a LIMITED one parks a worker's account as a SPENT one does.
     A non-zero exit is as required here as it is for `transient`, because a worker that exited
     0 said what it meant to say.  The scoped terminal refusal path may pass ``refusal`` for an
     exit-zero turn that never answered.
@@ -1476,7 +1464,7 @@ def ran_dry(code, said, harness, refusal=False):
     if code == 0 and not refusal:
         return None
     outcome, word = harness_plugin(harness).failure(said)
-    return word if outcome == SPENT else None
+    return word if outcome in (SPENT, LIMITED) else None
 
 
 def try_again_at(said):
@@ -1716,7 +1704,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         said = harness_said(target, text, entry["harness"], failures_only=code == 0)
         outcome, mark = harness_plugin(entry["harness"]).failure(said)
         sig = killed_word(code) if not killed else None
-        if outcome == SPENT or (outcome and not sig):
+        if outcome in (SPENT, LIMITED) or (outcome and not sig):
             # The attempt is refused and its children are not the next one's: whatever
             # the dead turn left behind dies before the refill retry, the handover,
             # or the transient wait.
@@ -1751,7 +1739,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 continue
             if account is not None and next_account(try_again_at(said), message):
                 continue
-            spent, left = (usage.replenish(cfg, entry["provider"])
+            spent, left = (usage.replenish(cfg, entry["provider"], account=account)
                            if refills < MAX_REFILLS else (False, 0.0))
             if spent:
                 refills += 1
@@ -2087,10 +2075,10 @@ def derived_heavy_limit(readings=None):
     """
     if readings is None:
         readings = host_readings()
-    quota = _reading(readings, "slice_cpu_quota")
-    if quota is not None:
+    cpu_quota = _reading(readings, "slice_cpu_quota")
+    if cpu_quota is not None:
         used = _reading(readings, "slice_cpu_used")
-        cpu_free = quota - used if used is not None else float(quota)
+        cpu_free = cpu_quota - used if used is not None else float(cpu_quota)
     else:
         cpus = _reading(readings, "cpus", "nproc")
         load = _reading(readings, "load", "load1", "load_1m")
@@ -2484,7 +2472,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
 def leftover_junk(path):
     """Match names, not targets: a dependency symlink is junk even when Git ignores only directories."""
     parts = path.rstrip("/").split("/")
-    return (parts[0].startswith(SANDBOX_PREFIXES)
+    return (parts[0].startswith(SANDBOX_PREFIX)
             or any(part in ("recovery.lock", "delivery.lock", "node_modules", "venv", ".venv")
                    for part in parts))
 
@@ -2499,10 +2487,16 @@ def commit_leftovers(wt, log, artifacts):
     Everything the done-when commands generated is left alone.  Committing that instead earns
     a FAIL on junk the next round's commands recreate, so the fixer can never get out of it.
 
-    Test sandboxes, run locks and dependency trees are left alone too, including symlinks
-    and staged paths, whatever the repository's .gitignore says.  Anything `git check-ignore`
-    would ignore stays out as well.  Ignored junk is listed back for the count below, since
+    Test sandboxes, run locks and dependency trees are left alone too, including symlinks,
+    whatever the repository's .gitignore says.  Anything `git check-ignore` would ignore
+    stays out as well.  Ignored junk is listed back for the count below, since
     `dirty_paths` never sees it.
+
+    The done-when only verifies a checkout clean at HEAD, so nothing left out may stay
+    staged: a staged `venv` would fail every round as a changed checkout.  It is unstaged,
+    and a staged deletion of junk (`git rm --cached venv`) is committed with the rest.  The
+    commit is built in an index of its own: `git commit -- venv` would add the link back
+    from the worktree, and the real index keeps whatever else the executor staged.
     """
     paths = [p for p in dirty_paths(wt) if p not in artifacts]
     real, sandbox = [], []
@@ -2513,15 +2507,33 @@ def commit_leftovers(wt, log, artifacts):
             sandbox.append(path)
         else:
             real.append(path)
+    status = git(wt, "diff", "--cached", "--name-status", "--no-renames", "-z", "HEAD",
+                 check=False).split("\0")
+    staged = dict(zip(status[1::2], status[::2]))
+    junk = {p for p in sandbox if p in staged}
+    gone = sorted(p for p in junk if staged[p] == "D")
+    unstage = sorted(junk - set(gone))
     sandbox = sorted(set(sandbox) | set(ignored_sandbox_paths(wt, artifacts)))
     if sandbox:
         log(f"left {len(sandbox)} untracked sandbox files uncommitted: "
             f"{', '.join(sandbox[:3])}")
-    if not real:
-        return
     try:
-        git(wt, "add", "--", *real)
-        git(wt, "commit", "-m", "wip: uncommitted executor changes", "--", *real)
+        if unstage:
+            git(wt, "reset", "-q", "--", *unstage)
+            log(f"unstaged {len(unstage)} sandbox files the executor staged: "
+                f"{', '.join(unstage[:3])}")
+        if not real and not gone:
+            return
+        if real:
+            git(wt, "add", "--", *real)
+        with tempfile.TemporaryDirectory() as tmp:
+            index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
+            git(wt, "read-tree", "HEAD", env=index)
+            if real:
+                git(wt, "add", "--", *real, env=index)
+            if gone:
+                git(wt, "rm", "-q", "--cached", "--", *gone, env=index)
+            git(wt, "commit", "-m", "wip: uncommitted executor changes", env=index)
     except Stopped:
         # a git that stopped verifies nothing: the round ends on the stop, never on a review
         # of a diff the loop did not pin
@@ -2529,13 +2541,13 @@ def commit_leftovers(wt, log, artifacts):
     except config.Error as exc:
         log(f"WARN could not commit the executor's uncommitted changes: {exc}")
         return
-    log("WARN committed uncommitted executor changes: " + ", ".join(real))
+    log("WARN committed uncommitted executor changes: " + ", ".join(real + gone))
 
 
 def ignored_sandbox_paths(wt, artifacts):
     """Ignored sandbox files, run locks and dependencies: invisible to `dirty_paths`, still uncommitted.
 
-    Once the repository's .gitignore names the suite's sandbox prefixes, a killed test's
+    Once the repository's .gitignore names the suite's sandbox prefix, a killed test's
     sandbox never reaches the leftover sweep's classifier -- and without this listing its
     `left N ...` log line would never fire in a real checkout.  Collapsed directory
     entries are expanded to the files inside them, so the count is files, not sandboxes.
@@ -2566,11 +2578,11 @@ def sweep_sandboxes(wt, log):
 
     A test killed mid-way leaves its sandbox behind, and the next turn's executor would
     otherwise find stub binaries and fake adapters sitting in its checkout.  Only top-level
-    names under a suite sandbox prefix are touched; anything else is the work's own.
+    names under the suite sandbox prefix are touched; anything else is the work's own.
     """
     try:
         names = sorted(path.name for path in Path(wt).iterdir()
-                       if path.name.startswith(SANDBOX_PREFIXES))
+                       if path.name.startswith(SANDBOX_PREFIX))
     except OSError as exc:
         log(f"WARN could not list test sandboxes in {wt}: {exc}")
         return
@@ -8326,7 +8338,7 @@ def _slice_cpu_stat(slice_dir=None):
     """The slice's cpu.stat counters as {name: value}, or None where nothing answers.
 
     Carried for diagnosis -- throttled_usec and nr_throttled say whether the
-    slice has ever hit its quota -- not for admission: the counters are
+    slice has ever hit its CPU quota -- not for admission: the counters are
     cumulative since the slice's first process, so one snapshot cannot say
     whether the slice is saturated now. The pressure gate does not read them.
     """
@@ -8353,7 +8365,7 @@ def _slice_cpu_quota(cgroup=None):
 
     Read off the slice's own directory, which `orch.slice_cgroup` finds from the
     layout whether the caller runs inside the slice or beside it -- a status shell
-    outside reads the same quota a worker inside does.  `max` is no quota.
+    outside reads the same CPU quota a worker inside does.  `max` sets none.
     """
     try:
         parts = ((cgroup or orch.slice_cgroup()) / "cpu.max").read_text().split()
@@ -8458,18 +8470,18 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None):
         readings["unit_memory_raw_mb"] = raw
         readings["unit_memory_name"] = name
     try:
-        quota = _slice_cpu_quota()
+        cpu_quota = _slice_cpu_quota()
     except Exception:
-        quota = None
+        cpu_quota = None
     try:
-        cpu_used = _slice_cpu_used() if quota is not None else None
+        cpu_used = _slice_cpu_used() if cpu_quota is not None else None
     except Exception:
         cpu_used = None
     try:
         mem = _slice_memory()
     except Exception:
         mem = None
-    readings["slice_cpu_quota"] = quota
+    readings["slice_cpu_quota"] = cpu_quota
     readings["slice_cpu_used"] = cpu_used
     if mem is not None:
         readings["slice_memory_used_mb"], readings["slice_memory_high_mb"] = mem
@@ -9259,7 +9271,6 @@ def reap(run_dir, state, memory_probe=None):
         grace = (status == "queued" and
                  (state.get("launch_pending") or not state.get("process_identity")) and
                  time.time() - (state.get("queued_at") or state.get("started_at") or 0) < QUEUED_GRACE)
-        resuming = False
         if status in ("running", "queued") and not grace and not process_active(state):
             cap_reason = (memory_cap_reason(state, probe=memory_probe)
                           if status == "running" else None)
@@ -9273,11 +9284,13 @@ def reap(run_dir, state, memory_probe=None):
                 if status == "running":
                     stop_run_tree(state)
                 interrupt(state, reason)
-                resuming = tick_resumes(state)
-                if resuming:
+                last = (state.get("deaths") or [None])[-1]
+                if tick_resumes(state) and not (isinstance(last, dict) and not last.get("resumed_at")
+                                                and last.get("pid") == state.get("pid")):
                     # Whoever notices the death records it, so the tick's dead-loop pass reads
                     # this record as a loop to carry on rather than as an interruption somebody
-                    # was already told about -- and so it counts towards the third death.
+                    # was already told about -- and so it counts towards the third death. Once:
+                    # one the tick recorded and held for its backoff is already there.
                     state["deaths"] = [*(state.get("deaths") or []),
                                        {"at": time.time(), "pid": state.get("pid"),
                                         "reason": reason}]
@@ -9296,7 +9309,10 @@ def reap(run_dir, state, memory_probe=None):
                 stop_run_tree(state)
                 state["tree_stopped"] = swept
                 save_state(run_dir, state)
-        if needs_recovery(state) and not resuming:
+        # A death the tick resumes is nobody's news however many reaps see it before it does,
+        # the tick's own included while it waits out a backoff.
+        if needs_recovery(state) and not (state.get("state") == "interrupted" and state.get("deaths")
+                                          and tick_resumes(state)):
             notify_recovery(run_dir, state)
     return state
 
@@ -9364,11 +9380,10 @@ def superseded_by(state, records=None, index=None, merged_only=False):
         return max(later)[1] if later else None
     found = []
     if records is None:
+        from . import menu  # here, not at the top: the menu draws without the loop
         for run_dir in run_dirs():
-            if "smoke-" in run_dir.name:
-                continue
             other = read_state(run_dir)
-            if other:
+            if other and not menu.smoke_run(other):
                 found.append(other)
     else:
         for item in records:
@@ -10715,12 +10730,15 @@ def error_resumable(state, run_dir):
 
     The same checks `resume_run` refuses on, asked before anything is scheduled:
     a worktree that is still there, the keys a resume replays, and -- for a task
-    run -- a task that still parses with a done-when.  A run that fails any of
-    them is parked for a person, not for the tick: retrying a task nobody can run
-    would only fail on the hour, every hour, saying nothing new.
+    run -- a task that still parses with a done-when.  A job's run is its job's to
+    settle, never the tick's.  A run that fails any of the others is parked for a
+    person, not for the tick: retrying a task nobody can run would only fail on
+    the hour, every hour, saying nothing new.
     """
     if state.get("review_pr"):
         return False  # the watch relaunches the review itself; the run is never resumed
+    if state.get("job_id"):
+        return False  # its job settles it or reruns it elsewhere; a retry would race that
     wt = state.get("worktree")
     if not wt or not Path(wt).is_dir():
         return False
@@ -10850,8 +10868,11 @@ def parkable_conflict(state, run_dir=None, now=None):
     conflict FAIL at its budget is not one of these: more rounds are the owner's
     decision, never the tick's. Only an untold, unacknowledged ending under a
     day old from a session that still exists may be parked: anything the seat
-    moved past is history, and a by-hand run waits for a person.
+    moved past is history, and a by-hand run waits for a person.  A job's run is
+    never parked: its job has already settled that FAIL, and alone decides what next.
     """
+    if state.get("job_id"):
+        return False
     if not CONFLICT_NOTE.search(state.get("merge_note") or ""):
         return False  # cheap first: most FAILs never reach the log read below
     if len(state.get("round_summaries") or []) >= (state.get("rounds") or 0):
@@ -11172,6 +11193,36 @@ def unfinished(state, records=None, index=None):
     if records is None and index is None:
         return True
     return not is_superseded(state, records, index, merged_only=True)
+
+
+def stoppable(state):
+    """Whether `ak run stop` takes this run: unfinished work, or an `error`.
+
+    `error` reads ended but the tick retries it hourly: stopping one is its owner's off-switch
+    for the ladder, the way stopping a waiting run ends its wait.  Every other ending sits
+    inert, so there is nothing to stop.
+    """
+    return state.get("state") not in ENDED or state.get("state") == "error"
+
+
+def ways_out(state, run_dir):
+    """The commands that settle a parked run, each only where it is taken.
+
+    `ak run status` marks an ending looked at (`mark_looked_at`), `ak run stop` ends what is
+    `stoppable`, and `ak run resume` carries on what `resume_run` would: a FAIL at its round
+    budget only with the `--rounds` its `continue_line` names, and nothing whose checkout is
+    gone.
+    """
+    run_id = Path(run_dir).name
+    ways = [f"ak run status {run_id}"] if state.get("state") in ENDED else []
+    if failed_at_budget(state):
+        onward = continue_line(state, run_dir)
+        ways += [onward.removeprefix("continue: ")] if onward else []
+    elif not state.get("worktree") or Path(state["worktree"]).is_dir():
+        ways.append(f"ak run resume {run_id}")
+    if stoppable(state):
+        ways.append(f"ak run stop {run_id}")
+    return ways
 
 
 def actionable(state):
@@ -12270,10 +12321,7 @@ def cmd_stop(argv):
     if state.get("state") == "stopped":
         print(stop_line(run_id, state.get("branch"), state.get("stop_kept", False)))
         return 0
-    # `error` reads ended but the tick retries it hourly: stopping one is its
-    # owner's off-switch for the ladder, the way stopping a waiting run ends
-    # its wait.  Every other ending sits inert, so there is nothing to stop.
-    if state.get("state") in ENDED and state.get("state") != "error":
+    if not stoppable(state):
         raise config.Error(f"{run_id} is already {state.get('state')}; "
                            "only unfinished work can be stopped")
     log = note_in(run_dir / "log.txt")
@@ -12283,7 +12331,7 @@ def cmd_stop(argv):
             print(stop_line(run_id, current.get("branch"),
                             current.get("stop_kept", False)))
             return 0
-        if current.get("state") in ENDED and current.get("state") != "error":
+        if not stoppable(current):
             raise config.Error(f"{run_id} is already {current.get('state')}; "
                                "only unfinished work can be stopped")
         kept = bool(keep or not checkout_removable(current))
@@ -14774,10 +14822,15 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
     task["reviewer"] = run_state.get("reviewer") or task.get("reviewer")
     log(job_exit_line(task, run_dir, run_state, rc))
     if run_state.get("state") == "waiting":
-        # a PASS parked on the next merge to its target is no ending: the tick resumes it
-        # then, and the task follows it there, so its dependants wait instead of skipping
+        # a PASS parked on the next merge to its target is no ending: the job resumes it
+        # then, as the tick would a lone run, and the task follows it there, so its
+        # dependants wait instead of skipping
         log(f"{task['name']}: parked waiting ({run_state.get('error')}); following it")
+    asked = 0
     while run_state.get("state") == "waiting" and tick_admission(run_state):
+        if time.time() - asked >= JOB_PICKER_INTERVAL:
+            asked = time.time()   # each ask fetches: at the picker's rate, not every tick
+            watch.resume_waiting(log=log, run=run_dir)
         time.sleep(JOB_TICK)
         run_state = read_state(run_dir) or run_state
         if run_state.get("state") != "waiting":

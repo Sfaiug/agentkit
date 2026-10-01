@@ -18,7 +18,7 @@ from agentkit import config, run, usage
 
 class ReviewContract(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".review-contract-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-review-contract-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

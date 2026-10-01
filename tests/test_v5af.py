@@ -78,7 +78,7 @@ def task_body(*cmds):
 
 class V5af(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5af-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5af-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

@@ -29,7 +29,7 @@ READINGS = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
 
 class AdmissionSliceCpu(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".admission-slice-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-admission-slice-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

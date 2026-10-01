@@ -296,7 +296,7 @@ class OneConfigScreen(unittest.TestCase):
         lines = menu.press(b"c", title("config"))
         self.assertEqual(lines[2].split(), ["effort"])
         self.assertEqual(model(lines, "fable").split(), ["›", "fable", "claude", "‹", "xhigh",
-                                                          "›"])
+                                                          "›", "▂▃▅▆█"])
         self.assertFalse(any(marks(line) for line in lines), lines)
         self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ effort   esc back")
         menu.press(ESC)

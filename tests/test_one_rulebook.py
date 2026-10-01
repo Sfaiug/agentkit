@@ -86,7 +86,7 @@ printf '%s\\n' '{"stream":{"kind":"session","id":"fake-sid"},' \\
 
 class OneRulebook(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".one-rulebook-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-one-rulebook-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.home = Path(tmp.name)
         self.state = self.home / ".agentkit/state"
@@ -369,12 +369,14 @@ class OneRulebook(unittest.TestCase):
         """A full install.sh into that HOME, offline: under a HOME that is not the
         account's own it touches nothing outside it, and the python3 running this
         suite plus the system dirs are the whole PATH, so the real harnesses are
-        not found and nothing is registered with them."""
+        not found and nothing is registered with them.  The caller's GROK_HOME is
+        not passed on: the grok adapter writes its hooks into any it is given."""
         path = os.pathsep.join(dict.fromkeys(
             (os.path.dirname(sys.executable), "/usr/bin", "/bin")))
+        env = {**os.environ, "HOME": str(home), "PATH": path}
+        env.pop("GROK_HOME", None)
         proc = subprocess.run(["bash", str(REPO / "install.sh")], capture_output=True,
-                              text=True, env={**os.environ, "HOME": str(home),
-                                              "PATH": path})
+                              text=True, env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
         return proc
 
@@ -397,6 +399,17 @@ class OneRulebook(unittest.TestCase):
             path = home / rel
             self.assertTrue(path.is_file() and not path.is_symlink(), rel)
             self.assertEqual(path.read_text(), f"the user's own {rel}\n", rel)
+
+    def test_install_leaves_the_caller_s_grok_home_alone(self):
+        grok = self.home / "caller-grok"
+        (grok / "hooks").mkdir(parents=True)
+        (grok / "hooks/agentkit.json").write_text("the caller's own hooks\n")
+        home = self.home / "inheriting"
+        home.mkdir()
+        with patch.dict(os.environ, {"GROK_HOME": str(grok)}):
+            self.installed(home)
+        self.assertEqual([path.name for path in (grok / "hooks").iterdir()], ["agentkit.json"])
+        self.assertEqual((grok / "hooks/agentkit.json").read_text(), "the caller's own hooks\n")
 
     def adding_a_harness(self):
         """The adapter contract, from its heading to the next section's."""

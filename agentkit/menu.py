@@ -1253,9 +1253,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     key-line item under each column; `words`, each seat's word.
 
     `x` acts on the highlighted seat, or on `own`, the popup's own, and the key line says
-    `x close` while that seat is done.  `ask` is the seat `x` is asking about: the question
-    is drawn under its row, its two answers left for `terminal.choose` to draw on the two
-    lines under that, and `drawn["ask"]` is the screen row of the first.
+    `x close` while that seat is done.  `ask` is the seat `x` is asking about and the card it
+    asks on (`terminal.confirm`): the card is drawn under its row, the rows below moving down,
+    and `drawn["ask"]` is the screen row of its first line.
 
     `look` is whether the seats are looked at for this draw or drawn as recorded, and
     `records` the run records it is drawn from, read here when they are not handed in;
@@ -1286,8 +1286,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                       order[0] if order else None)      # a seat before any heading
     if owned and words.get(own or cursor) == "done":
         keys = keys.replace("x stop", "x close", 1)
-    asked = ([f"  {line}" for line in terminal.wrap(STOP_ASK.format(ask), layout - 2)] + ["", ""]
-             if ask in words else [])
+    asking, card = ask or (None, ())
+    asked = list(card) if asking in words else []
     # Seat columns are sized once per draw from every row on screen, so the
     # sentence column starts at the same column under every project.
     widths = v5o_column_widths([seat for project in ordered
@@ -1438,7 +1438,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     else:
         out.append("")
     top, above = len(out), None
-    at = max((number for number, (_, name) in enumerate(body, 1) if name == ask), default=0)
+    at = max((number for number, (_, name) in enumerate(body, 1) if name == asking), default=0)
     if asked and at:
         body = body[:at] + [(line, None) for line in asked] + body[at:]
     else:
@@ -1494,7 +1494,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                      + "\033[J" + moved)
     sys.stdout.flush()
     drawn.update(order=order, cursor=cursor, words=words, rule=not compact,
-                 ask=top + at + len(asked) - 1 if at else None,
+                 ask=top + at + 1 if at else None,
                  rows={top + number: name for number, (_, name) in enumerate(body, 1) if name},
                  spans=[(keys_top + number, first, last, key)
                         for number, line in enumerate(key_lines, 1)
@@ -1510,24 +1510,7 @@ def stop_session_runs(name, dry_run=False):
     listing and the stop -- is named and left; the seat still ends.
     """
     from . import run as run_mod
-    try:
-        dirs = run_mod.run_dirs()
-    except OSError:
-        return
-    for run_dir in dirs:
-        try:
-            state = run_mod.read_state(run_dir)
-        except (OSError, ValueError):
-            continue
-        if not state:
-            continue
-        try:
-            if run_mod.launched_session(state) != name:
-                continue
-        except config.Error:
-            continue
-        if not run_mod.unfinished(state):
-            continue
+    for run_dir in session_runs(name):
         if dry_run:
             print(f"would stop {run_dir.name}")
             continue
@@ -1537,6 +1520,38 @@ def stop_session_runs(name, dry_run=False):
             print(f"could not stop {run_dir.name}: {exc}")
         except (OSError, ValueError, KeyError, TypeError):
             print(f"could not stop {run_dir.name}")
+
+
+def session_runs(name):
+    """Every run that seat launched which stopping it stops: what `run.cmd_stop` takes -- each
+    one not ended, as `orch.cmd_stop` stops them too, and an `error` still waiting on its
+    owner, which the tick would retry."""
+    from . import run as run_mod
+    try:
+        dirs = run_mod.run_dirs()
+    except OSError:
+        return []
+    found = []
+    for run_dir in dirs:
+        try:
+            state = run_mod.read_state(run_dir)
+            word = state and state.get("state")
+            if (state and run_mod.launched_session(state) == name
+                    and (word not in run_mod.ENDED
+                         or word == "error" and run_mod.unfinished(state))):
+                found.append(run_dir)
+        except (OSError, ValueError, config.Error):
+            continue
+    return found
+
+
+def stop_means(runs):
+    """What `Stop` means on the card `x` asks on: `runs`, how many runs stop with the seat, or
+    None while they are counted, and that ak cannot reopen it: `orch.cmd_stop` removes the
+    record a reopening would read."""
+    stop = ("Its runs stop" if runs is None else "No runs stop" if not runs
+            else "1 run stops" if runs == 1 else f"{runs} runs stop")
+    return f"{stop} with it; ak cannot reopen the session: Stop removes its record."
 
 
 def stop_question(name):
@@ -1565,11 +1580,11 @@ def stop_session(found, dry_run):
 
     With the keyboard `x` is the highlighted seat's instead (`loop`, `close_seat`).  The seat is
     picked by number or by name; Esc and an empty Enter go back
-    to the menu, as does anything but `y` to the one question. Stopping is the only
-    thing that ends a seat: the conversation is saved, and the seat's number opens
-    it again later. Its runs stop first, the same way `ak run stop` stops one, so
-    none is left to read as an accident afterwards. `ak orch stop` then removes
-    the checkouts, the state files and the tabs.
+    to the menu, as does anything but `y` to the one question, which says, as the
+    keyboard's card does, that nothing reopens the seat afterwards. Its runs stop
+    first, the same way `ak run stop` stops one, so none is left to read as an
+    accident afterwards. `ak orch stop` then removes the checkouts, the state files
+    and the tabs.
     """
     if not found:
         pause("no session to stop")
@@ -1584,8 +1599,7 @@ def stop_session(found, dry_run):
         stop_session_runs(session["name"], dry_run=True)
         print(f"would stop {session['name']}")
         return
-    terminal.frame("stop", terminal.wrap("The conversation is saved and the seat's number "
-                                           "reopens it later.", terminal.width()))
+    terminal.frame("stop", terminal.wrap(stop_means(None), terminal.width()))
     if read(stop_question(session["name"]), "") != "y":
         return
     stop_session_runs(session["name"])
@@ -1627,8 +1641,7 @@ def stop_this_session(dry_run):
     if not current:
         pause("stop: this menu was not opened from a session")
         return
-    terminal.frame("stop", terminal.wrap("The conversation is saved and the seat's number "
-                                         "reopens it later.", terminal.width()))
+    terminal.frame("stop", terminal.wrap(stop_means(None), terminal.width()))
     if dry_run:
         stop_session_runs(current, dry_run=True)
         print(f"would stop {current}")
@@ -2351,8 +2364,11 @@ PROVIDER_ACTS = (("+ add", "+ add"), ("− remove", "- remove"))   # and each wi
 COMPANIES = {"anthropic": "Anthropic / Claude Code", "openai": "OpenAI / Codex",
              "meta": "Meta / Muse", "xai": "xAI / Grok Build", "google": "Google / Antigravity",
              "mimo": "Xiaomi / MiMo through OpenCode"}
-REMOVE_PROVIDER_ASK = "Remove {} and its models?"   # what `− remove` asks, `Keep` picked first
-REMOVE_SUBSCRIPTION_ASK = "Remove {}?"               # ... about one subscription of a provider
+# What `− remove` asks, and what it means; then the same about one subscription of a provider.
+REMOVE_PROVIDER_ASK = ("Remove {} and its models?",
+                       "Its models leave the config with it; its login stays on this machine.")
+REMOVE_SUBSCRIPTION_ASK = ("Remove {}?",
+                           "Nothing new starts on it; its login stays on this machine.")
 # Short headings leave room for both roles and the effort on a phone.
 CONFIG_HEADS = (*orch.ROLE_HEADS, "effort")
 # The key line for the cell the highlight is on, and the same without UTF-8.
@@ -2365,7 +2381,8 @@ CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mar
 MODEL_ROWS = ("model id", "effort", "Remove")
 MODEL_KEYS = {"step": ("↑↓ move   ←→ choose", "arrows move   left/right choose"),
               "remove": ("↑↓ move   ⏎ remove", "arrows move   enter remove")}
-REMOVE_ASK = "Remove {} from the config?"   # what `Remove` asks, `Keep` picked until moved
+REMOVE_ASK = ("Remove {} from the config?",   # what `Remove` asks, and what it means
+              "Nothing new starts on it; + add a model brings it back.")
 # Every effort word, weakest first -- the widest list a manifest names (adapters/muse.toml) --
 # so a new model id that does not take its model's effort takes the nearest one it does.
 EFFORT_RANK = ("none", "minimal", *config.EFFORTS)
@@ -2408,32 +2425,45 @@ def config_models(cfg):
     return config.offered(cfg)
 
 
-def config_body(cfg, version, at=None, column=0, selected=None, providers=None):
+def config_body(cfg, version, at=None, column=0, selected=None, providers=None, moves=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its provider's name: label, harness (dim), the three role
     marks of `selected` -- a session's record, whose missing reviewers are its workers -- and
-    its effort between the arrows that step it; with no session, only the effort, still
-    column 3.  A model `providers` read as spent is dim, its reset note beside it or, on a
+    its effort between the arrows that step it, then its strength, a bar a level it offers
+    (terminal.signal, effort_levels); a model with one effort is its word alone.  With no
+    session, only the effort, still column 3.  `moves`, a list, is handed each effort's line,
+    key, word and how its cells move once a step changed it (_effort_moves), for the clock.
+    A model `providers` read as spent is dim, its reset note beside it or, on a
     phone, under it.  Under them `+ add a model`, `Providers`
     (providers_lines), `Discord` and `Version` with their values. A row is
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
     `Discord` is still a model; `at` is the highlighted one and `column` the cell on it the keys
     act on, -1 its label, and on Providers 0 or less `+ add` and 1 or more `− remove`.  `cells`
     are a model row's (first, last, column), or Providers' acts, for a click, counted from 1 as
-    the terminal counts. On a phone the harness gives way, then the label.
+    the terminal counts. On a phone the harness gives way, then the bars, then the label.
     """
     room, utf, colour = terminal.layout_width(), terminal.utf8(), terminal.colour_depth()
     marks = "●○■□" if utf else "*.x."
     names, models = config_models(cfg), cfg["models"]
-    efforts = {name: ("‹ {} ›" if utf else "< {} >").format(models[name].get("effort", "?"))
-               for name in names}
+    levels = {name: effort_levels(models[name]) for name in names}
+    efforts, signals = {}, {}
+    for name in names:
+        effort, taken = models[name].get("effort", "?"), levels[name]
+        # one effort is nothing to step to and no strength to show
+        arrows = ("‹ {} ›" if utf else "< {} >") if len(taken) > 1 else "{}"
+        efforts[name] = arrows.format(effort)
+        signals[name] = terminal.signal(len(taken), taken.index(effort) + 1 if effort in taken
+                                        else 0) if len(taken) > 1 else []
     label = max(terminal.cells(name) for name in names)
     harness = max(terminal.cells(str(models[name].get("harness", ""))) for name in names)
     heads = CONFIG_HEADS if selected else CONFIG_HEADS[3:]
     widths = [terminal.cells(head) for head in heads[:-1]]
     widths.append(max(terminal.cells(text) for text in (heads[-1], *efforts.values())))
     rest = sum(2 + width for width in widths)
+    tall = max(len(bars) for bars in signals.values())    # the bars, a cell past the efforts
+    tall = tall if 2 + label + rest + 1 + tall <= room else 0
+    rest += 1 + tall if tall else 0
     label = min(label, max(1, room - 2 - rest))
     harness = min(harness, max(0, room - 2 - label - 2 - rest))
     left = 2 + label + (2 + harness if harness else 0)     # the columns before the marks
@@ -2467,7 +2497,14 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None):
                 # a mark is its whole column; an effort is its own text, arrows and all
                 cells.append((first + 2, first + 1 + (width if number < 3
                                                       else terminal.cells(text)), number))
+                if number == 3 and moves is not None and len(levels[name]) > 1:
+                    moves.append((len(lines), ("effort", name), models[name].get("effort"),
+                                  _effort_moves(levels[name], models[name].get("effort"), kind,
+                                                at == ("model", name), first + 4,
+                                                first + 3 + width if tall and utf else None)))
                 first += 2 + width
+            if tall and signals[name]:
+                line += " " + "".join(signals[name])
             parts = [line.rstrip()]
             if note and terminal.cells(parts[0]) + 2 + terminal.cells(note) <= room:
                 parts[0] += "  " + terminal.styled(note, "dim")
@@ -2497,6 +2534,40 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None):
             places[len(lines)] = (("row", row), [])
             lines.append(terminal.highlight(line, number == 0) if at == ("row", row) else line)
     return lines, places
+
+
+def effort_levels(entry):
+    """The efforts a model's bars count, as config.efforts gives them off the catalog its harness
+    last listed -- what a step on it walks once that is in hand (config_effort), and what `add a
+    model` and a model's own screen fetched -- else off its manifest's table.  Read from
+    config's own cache: asking catalog() could start the listing, and a draw asks no harness and
+    waits on none.  None where they cannot be read."""
+    harness, model = entry.get("harness"), entry.get("model")
+    try:
+        cached = config._CATALOGS.get(harness)
+        listed = cached[1] if cached else config.catalog_table(harness)
+        return next((list(item["efforts"]) for item in listed
+                     if item["id"] == model and item["efforts"]), None) or config.efforts(harness)
+    except config.Error:
+        return []
+
+
+def _effort_moves(levels, effort, kind, bright, word, bars):
+    """How an effort's cells move on the `c` screen's clock once a step changed it to `effort`:
+    each of its bars the step filled rises into place and each it emptied lowers
+    (motion.rising), where they stand from column `bars`, or None; and a step onto the model's
+    highest sends one light through the word from column `word` (motion.shimmering), `kind`
+    and `bright` as the draw styled it.  A function of the clock, the screen row, when the step
+    was and the effort before it."""
+    def start(clock, row, since, before):
+        was, filled = (levels.index(value) + 1 if value in levels else 0
+                       for value in (before, effort))
+        for n, bar in enumerate(terminal.signal(len(levels), len(levels)) if bars else ()):
+            if (n < was) != (n < filled):
+                clock.start([(row, bars + n)], *motion.rising(bar, n < filled, since, bright))
+        if effort == levels[-1]:
+            clock.start([(row, word)], *motion.shimmering(effort, since, kind, bright))
+    return start
 
 
 def providers_lines(cfg, wide, room, chosen=None):
@@ -2675,12 +2746,11 @@ def config_model(cfg, name):
                 note = "the config needs one model"
                 continue
 
-            def around():     # the screen around the question, drawn again on a resize
-                lines = [*model_body(cfg, name)[0], *(f"  {line}" for line in terminal.wrap(
-                    REMOVE_ASK.format(name), terminal.layout_width() - 2))]
-                terminal.frame(title, [*lines, "", ""], "esc back")
+            def around(card):     # the screen around the card, drawn again on a resize
+                lines = model_body(cfg, name)[0]
+                terminal.frame(title, [*lines, *card], "esc back")
                 return 3 + len(lines)
-            if terminal.choose(["Keep", "Remove"], "Keep", around=around) == "Remove":
+            if terminal.confirm(REMOVE_ASK[0].format(name), REMOVE_ASK[1], "Remove", around):
                 before = copy.deepcopy(cfg)
                 config.remove_model(cfg, name)
                 note = _saved(cfg, cfg, before)
@@ -2696,7 +2766,7 @@ def config_model(cfg, name):
 
 
 def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
-               fetched=None):
+               fetched=None, clock=None, moves=()):
     """One draw of a matrix screen and the key read on it: (act, here, column, top).
 
     The `c` screen and a project's feature switches are read this way: rows the highlight moves
@@ -2710,16 +2780,29 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     drawing again -- a resize, or `timeout` seconds with no key -- and the key's name otherwise.
     `fetched()` says since when the screen's content is being fetched, or None: while it is, the
     rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
+    `clock` moves what `moves` -- (line, key, value, start) -- says is news (`motion.Clock.look`)
+    on the lines shown, each by `start(clock, row, since, before)`, its frames drawn while the
+    key is waited for.
     """
-    said = ["", *(terminal.styled("  " + part, "dim")
-                  for part in terminal.wrap(note, terminal.layout_width() - 2))] if note else []
+    said = ["", *(terminal.styled("  " + part, "dim") for line in note.splitlines()
+                  for part in terminal.wrap(line, terminal.layout_width() - 2))] if note else []
     room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(said))
     drawn = [number for number, (row, _) in places.items() if row == here] or [0]
     top = max(0, min(max(top, drawn[-1] - room + 1), drawn[0], len(body) - room))
     shown = body[top:top + room]
     terminal.frame(title, shown + said, keys)     # its first line is the terminal's third
+    if clock is not None:
+        clock.clear()
+        news = clock.look({key: value for _, key, value, _ in moves})
+        for line, key, _, start in moves:
+            if key in news and top <= line < top + room:
+                start(clock, 3 + line - top, *news[key])
+        sys.stdout.write(clock.frame())           # at the clock's phase, so nothing jumps
+        sys.stdout.flush()
     began = fetched and fetched()
-    if began is None:
+    if began is None and clock is not None and clock.wait() is not None:
+        key = moving(clock, timeout=timeout or TICK)
+    elif began is None:
         key = terminal.read_key(timeout)
     else:
         key = moving(motion.fetching(motion.Clock(), began), timeout=timeout,
@@ -2759,7 +2842,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     to the record for the runs it launches next.  With no session there are no marks.
     ↑/↓, k/j and the wheel move between rows and ←/→ between columns, the effort's too.  Enter
     or space on an effort steps it up, from its highest round to its lowest, and a click on its
-    arrow steps it that way: each change is saved and drawn at once.
+    arrow steps it that way: each change is saved and drawn at once, the bar it fills rising
+    into place or the one it empties lowering, and a step onto the model's highest sends a
+    light through its word (config_body, on the clock); nothing replays after another screen.
     Enter or a click on a model's label, left of its marks, opens that model's own screen
     (config_model), and Esc there comes back to its row.  Enter or a click
     on `+ add a model` opens its screen (config_add), and a model added there is the row
@@ -2773,7 +2858,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     """
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
     title = f"config · {session}" if selected else "config"
-    here, column, top = None, columns[1], 0
+    here, column, top, clock = None, columns[1], 0, motion.Clock()
     while True:
         rows = [*(("model", name) for name in config_models(cfg)),
                 *(("row", row) for row in CONFIG_ROWS)]
@@ -2786,14 +2871,17 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                  if here[0] == "row" else "effort" if column == 3 else "label" if column < 0
                  else "mark")
         keys = CONFIG_KEYS[where][0 if terminal.utf8() else 1] + "   esc back"
-        body, places = config_body(cfg, version, here, column, selected, providers)
+        moves = []
+        body, places = config_body(cfg, version, here, column, selected, providers, moves)
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top, note, keys,
-                                            marks=3)
+                                            marks=3, clock=clock, moves=moves)
         if act is None:
             continue                  # a resize: drawn again at the new size
         note, column = "", column if clicked is None else clicked
         if act == "back":
             return cfg
+        if act in ("enter", "space") and (here[0] == "row" or column < 0):
+            clock.forget()            # another screen: the matrix back from it replays nothing
         if here == ("row", CONFIG_ROWS[0]):
             if act in ("enter", "space"):
                 added = config_add(cfg)
@@ -3172,14 +3260,12 @@ def config_remove_provider(cfg):
     if picked is None:
         return ""
     name, account = labels[picked]
-    ask = REMOVE_PROVIDER_ASK if account is None else REMOVE_SUBSCRIPTION_ASK
+    question, means = REMOVE_PROVIDER_ASK if account is None else REMOVE_SUBSCRIPTION_ASK
 
-    def asked():
-        lines = [f"  {line}" for line in terminal.wrap(ask.format(picked),
-                                                      terminal.layout_width() - 2)]
-        terminal.frame(title, [*lines, "", ""], "esc back")
-        return 3 + len(lines)
-    if terminal.choose(["Keep", "Remove"], "Keep", around=asked) != "Remove":
+    def asked(card):
+        terminal.frame(title, card, "esc back")
+        return 3
+    if not terminal.confirm(question.format(picked), means, "Remove", asked):
         return ""
     before = copy.deepcopy(cfg)
     try:
@@ -3473,18 +3559,18 @@ def show_features(checkout, dry_run=False):
         rows = [("feature", row["id"]) for row in features or ()]
         here = here if here in rows else rows[0] if rows else None
         body, places = features_body(features, here[1], column) if features else ([], {})
-        said = (_SWITCHES[str(checkout)]["error"] or ("" if features else "no features"
-                if features == [] else "asking for its features"))
-        if said:
-            body.append(terminal.styled("  " + terminal.cut(said, terminal.layout_width() - 2),
-                                        "dim"))
+        # under the rows, not after them: scrolled to the last feature, a stale list still says
+        # so; each one line whatever it says, so the rows stay where a click is read against them
+        said = [terminal.cut(line, terminal.layout_width() - 2) for line in (
+            _SWITCHES[str(checkout)]["error"] or ("" if features else "no features"
+                                                  if features == [] else "asking for its features"),
+            note) if line]
         if dry_run:
-            terminal.frame(checkout.name, body, "esc back")
+            terminal.frame(checkout.name, body + [terminal.styled("  " + line, "dim")
+                                                  for line in said], "esc back")
             return
-        # one line whatever it says, so the rows stay where a click is read against them
         act, here, clicked, top = matrix_key(checkout.name, body, places, rows, here, top,
-                                             terminal.cut(note, terminal.layout_width() - 2),
-                                             keys, STIR, fetched=fetched)
+                                             "\n".join(said), keys, STIR, fetched=fetched)
         if act is None:
             continue                  # a resize, or a look at whether the answer has landed
         note, column = "", column if clicked is None else clicked
@@ -3690,12 +3776,22 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                 if drawn["words"][seat] != "done":
                     cursor = seat
 
-                    def around():     # the menu around the question, drawn again on a resize
-                        draw(cfg, found, "esc back", page, cursor, drawn, own, ask=seat,
+                    # its runs are counted off the draw, so the card is up at once whatever
+                    # the disk; one counted within a frame is simply had, a later one drawn in
+                    runs, counted = Fetch(lambda: len(session_runs(seat))), [False]
+                    runs.join(motion.FRAME)
+
+                    def means():
+                        counted[0] = not runs.is_alive()
+                        return stop_means(runs.got.get("answer"))
+
+                    def around(card):     # the menu around the card, drawn again on a resize
+                        draw(cfg, found, "esc back", page, cursor, drawn, own, ask=(seat, card),
                              look=False, groups=groups, clock=clock)
                         return drawn["ask"]
-                    if terminal.choose(["Keep", "Stop"], "Keep", around=around,
-                                       wait=lambda: moving(clock)) != "Stop":
+                    if not terminal.confirm(
+                            STOP_ASK.format(seat), means, "Stop", around, wait=lambda: moving(
+                                clock, going=None if counted[0] else runs.is_alive)):
                         continue
                 keyboard.give()
                 close_seat(seat, dry_run)

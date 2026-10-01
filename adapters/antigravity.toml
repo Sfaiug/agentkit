@@ -46,6 +46,10 @@ composer = '^>$'
 # and effort (`Gemini 3.8 Flash · low`), or, on a seat opened with `--agent`, the agent with
 # them once agy has resolved the model (`agentkit (Gemini 3.8 Flash · low)  /agents`).
 footer = ['(?:\? for shortcuts|esc to cancel)?\s*(?:[^·]+ · (?:low|medium|high)|[\w.-]+(?: \([^)]*\))?\s+/agents)']
+# What the composer holds: everything after its `>` down to the last rule on the screen, so a
+# `>` in a wrapped line is the line's own and a chooser's `> /usage` under that rule is not it,
+# and nor is a prompt the transcript echoes under an earlier rule.
+draft = '^─+\n> ?(.*(?:\n(?!─+$).*)*)\n─+$(?![\s\S]*^─)'
 
 # Read in file order, first match wins: the dialogs before the spinner, the spinner before the
 # prompt, because the composer is still drawn while a turn runs.
@@ -113,6 +117,9 @@ refusals = ["RESOURCE_EXHAUSTED", "exhausted your quota", "Quota exhausted", "(c
   "(code 500)", "(code 502)", "(code 503)", "(code 504)", "Internal server error",
   "overloaded", "at capacity"]
 quotas = ["RESOURCE_EXHAUSTED", "exhausted your quota", "Quota exhausted", "(code 429)"]
+# `error_marks` begin the `⚠ <message>` line an `Error ID:` closes on a seat's screen, which is
+# read with it; a line above drawn any other way is not agy's.
+error_marks = ["⚠ "]
 # `outages` say the provider is down, and the turn is waited out even beside one of the
 # `faults`, which say the harness never ran it and hand it to another at once.  A worker turn
 # reads these, `refusals` and `quotas` only as whole words, in what the harness itself said,

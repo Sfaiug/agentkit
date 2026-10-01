@@ -62,7 +62,7 @@ def reported(task):
 
 class StopHook(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".stop-hook-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-stop-hook-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.home = Path(tmp.name)
         self.state = self.home / ".agentkit/state"
@@ -331,7 +331,7 @@ class StopNudge(unittest.TestCase):
     """
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".stop-nudge-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-stop-nudge-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
         self.stack = ExitStack()

@@ -55,9 +55,13 @@ STALL = {"refusals": ("API Error", "529", "unexpected status"),
                     "please~run~log~in", "unauthorized", "unauthorised",
                     "authentication~failed", "authentication~required", "authentication~error",
                     "invalid~api~key", "invalid~x~api~key")}
+# A rate limit, in any harness's words: HTTP's 429 and the provider asking to slow down, which
+# alone never says the window is spent.  A quota word that says one of these is only a limit.
+LIMITS = ("429", "too many requests", "rate~limit", "rate~limited", "rate~limit~error")
 # What a failed turn's own output says, as `Harness.failure` reads it: the account's window is
-# spent, the provider declined the turn or is down, or the harness never ran the turn at all.
-SPENT, REFUSAL, OUTAGE, FAULT = "spent", "refusal", "outage", "fault"
+# spent, or only rate limited, the provider declined the turn or is down, or the harness never
+# ran the turn at all.
+SPENT, LIMITED, REFUSAL, OUTAGE, FAULT = "spent", "limited", "refusal", "outage", "fault"
 
 _LOADED = {}
 
@@ -79,6 +83,11 @@ def says(text, word):
         + (r"(?!\w)(?!\.\d)" if re.search(r"[\w#]$", part) else "")
         for part in parts)
     return re.search(pattern, text, re.I) is not None
+
+
+def limited(text):
+    """Does `text` say a rate limit (`LIMITS`), whole?"""
+    return any(says(text, word) for word in LIMITS)
 
 
 def _module(name):
@@ -134,25 +143,30 @@ class Harness:
         """What a failed turn's own output says, in its `[stall]` words: (outcome, word).
 
         `said` is the harness's own -- its stderr, its failure events, a final.md nothing
-        answered (`run.harness_said`) -- never the model's answer, and a word counts only
-        standing on its own (`says`).  A spent window (`quotas`) outranks a refusal
-        (`refusals`), and a refusal an outage (`outages`).  In a turn that never `ran` -- it
-        left no answer at all -- a `faults` word says the harness could not run it, and that
-        outranks the rest, unless an outage word says the provider was down beside it.
-        (None, None) where it said none of them.
+        answered (`run.harness_said`), a seat's error line -- never the model's answer, and a
+        word counts only standing on its own (`says`).  A spent window (`quotas`) outranks a
+        refusal (`refusals`), and a refusal an outage (`outages`); where every quota word said
+        is only a rate limit (`limited`), the window is LIMITED rather than SPENT, with the
+        same first word.  In a turn that never `ran` -- it left no answer at all -- a `faults`
+        word says the harness could not run it, and that outranks the rest, unless an outage
+        word says the provider was down beside it.  (None, None) where it said none of them.
         """
         block = config.manifest(self.name).get("stall")
         block = block if isinstance(block, dict) else {}
 
-        def first(key):
+        def heard(key):
             listed = block.get(key)
             words = (listed if isinstance(listed, list) else []) + list(STALL.get(key, ()))
-            return next((word for word in words if isinstance(word, str) and says(said, word)),
-                        None)
+            return (word for word in words if isinstance(word, str) and says(said, word))
+
+        def first(key):
+            return next(heard(key), None)
 
         outage = first("outages")
         fault = None if ran or outage else first("faults")
-        for outcome, word in ((FAULT, fault), (SPENT, first("quotas")),
+        quotas = list(heard("quotas"))
+        spent = LIMITED if all(limited(word) for word in quotas) else SPENT
+        for outcome, word in ((FAULT, fault), (spent, quotas[0] if quotas else None),
                               (REFUSAL, first("refusals")), (OUTAGE, outage)):
             if word:
                 return outcome, word

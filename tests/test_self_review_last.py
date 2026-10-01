@@ -27,7 +27,7 @@ from agentkit import config, menu, run, usage
 
 class SelfReviewLast(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".self-review-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-self-review-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

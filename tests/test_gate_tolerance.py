@@ -61,7 +61,7 @@ def refused(provider, reason):
 
 class GateTolerance(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".gate-tolerance-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-gate-tolerance-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.adapters = self.root / "adapters"

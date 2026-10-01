@@ -29,7 +29,7 @@ def write_cgroup(root, rel, high=None, current=None, stat=None):
 
 def fixture(files, rel):
     """(cgroup_file, cgroup_root) under a fresh temp dir; the caller owns cleanup."""
-    tmp = tempfile.mkdtemp(dir=REPO)
+    tmp = tempfile.mkdtemp(prefix=".ak-test-memory-gate-", dir=REPO)
     root = Path(tmp) / "cgroup"
     root.mkdir()
     for relpath, content in files.items():
@@ -174,7 +174,7 @@ class MemoryGate(unittest.TestCase):
         self.assertIn("4 of 10 G in use", line)
 
     def test_slice_cpu_divides_by_measured_elapsed_not_requested_sleep(self):
-        with tempfile.TemporaryDirectory(dir=REPO) as temp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-memory-gate-", dir=REPO) as temp:
             cgroup = Path(temp)
             (cgroup / "cpu.stat").write_text("usage_usec 0\n")
             def fake_sleep(delay):

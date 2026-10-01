@@ -529,6 +529,21 @@ def progress_bar(done, total, narrow=False):
     return f"{bar} {done}/{total}"
 
 
+SIGNAL = "▁▂▃▄▅▆▇█"   # a bar of an effort's strength one to eight eighths high
+
+
+def signal(count, filled):
+    """An effort's strength beside its word, a cell a level: `count` bars rising to a full one
+    (`▂▃▅▆█` for five), the first `filled` of them in the foreground and the rest dim, or blank
+    where nothing can dim them; without UTF-8 only the filled ones, `|` each."""
+    if not utf8():
+        return ["|"] * filled
+    dim = colour_depth()
+    bars = [SIGNAL[max(0, round(8 * (n + 1) / count) - 1)] for n in range(count)]
+    return [bar if n < filled else styled(bar, "dim") if dim else " "
+            for n, bar in enumerate(bars)]
+
+
 ESC = "\x1b"   # what Esc alone reads as: the single byte with nothing after it
 
 
@@ -1051,7 +1066,7 @@ def field(prompt, placeholder=""):
 
 
 @clicks_its_own
-def choose(choices, default=None, several=False, around=None, wait=None):
+def choose(choices, default=None, several=False, around=None, wait=None, warn=None):
     """One of `choices` picked with the keys, or with `several` a list of them; None on Esc.
 
     The list is drawn where the cursor is and drawn over in place as the highlight moves.
@@ -1063,22 +1078,29 @@ def choose(choices, default=None, several=False, around=None, wait=None):
     `around` draws the screen a list is asked inside and returns the row its first choice goes
     on, and is called again whenever the screen wants drawing again -- a resize -- so the list
     and the rows a click is read against are always where that screen now puts them.  There a
-    click on a choice picks it, or with `several` marks it, and a click anywhere else goes back.
+    click on a choice picks it, or with `several` marks it, and a click anywhere else goes back;
+    a button that went down before the list moved is no click.
     `wait`, where given, reads the key in `read_key`'s place, or None for a draw: the menu's own
-    (`menu.moving`) keeps its dots breathing while the list is asked.
+    (`menu.moving`) keeps its dots breathing while the list is asked.  `warn` is a choice drawn
+    in the warn colour: the one of `confirm`'s that ends something.
     """
+    global _PRESSED
     marked = set(default or ()) if several else set()
     at = choices.index(default) if not several and default in choices else 0
     drawn, top, again = 0, None, around is not None
     while True:
         if again:
-            top, again = around(), False
+            moved, again = around(), False
+            if moved != top:
+                _PRESSED = False  # a press where a choice was is no click on what is there now
+            top = moved
             if not top:
                 return None       # the screen it is asked on has no row for it any more
         lines = []
         for number, choice in enumerate(choices):
             box = ("[x] " if choice in marked else "[ ] ") if several else ""
-            line = "  " + cut(box + str(choice), width() - 3)
+            line = cut(box + str(choice), width() - 3)
+            line = "  " + (styled(line, "amber") if choice == warn else line)
             lines.append(highlight(line) if number == at else line)
         sys.stdout.write((f"\033[{top};1H" if top else f"\033[{drawn}A" if drawn else "") +
                          "".join(f"\r{line}\033[K\n" for line in lines))
@@ -1103,6 +1125,29 @@ def choose(choices, default=None, several=False, around=None, wait=None):
             return [choice for choice in choices if choice in marked] if several else choices[at]
         elif key.name in ("esc", "eof"):
             return None
+
+
+def confirm(question, meaning, answer, around, wait=None):
+    """Whether `answer` -- `Stop`, `Remove` -- was picked on the one card every yes-or-no question
+    is asked on; False, kept, on Esc.
+
+    The card is a blank line, the question, what the answer means dim, the two choices and a
+    blank line: `✓ Keep` first and highlighted, then `✗ <answer>` in the warn colour, read as
+    `choose` reads them, so Enter or a click answers.  `around(card)` draws the screen it is
+    asked on with the card's lines where they go and returns the row the first one landed on, or
+    None when there is none any more; it is called again on a resize, the card wrapped anew, and
+    whenever `wait` answers None: a `meaning` that is a function is asked again on each draw.
+    """
+    keep, act = f"{glyph('done')} Keep", f"{glyph('FAIL')} {answer}"
+
+    def drawn():
+        room = layout_width() - 2
+        card = ["", *(f"  {line}" for line in wrap(question, room)),
+                *(styled(f"  {line}", "dim") for line in wrap(
+                    meaning() if callable(meaning) else meaning, room)), "", "", ""]
+        top = around(card)
+        return top and top + len(card) - 3     # the choices' rows, the two before the last
+    return choose([keep, act], keep, around=drawn, wait=wait, warn=act) == act
 
 
 @clicks_its_own

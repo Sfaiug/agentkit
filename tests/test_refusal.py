@@ -17,7 +17,7 @@ from agentkit import config, run, usage, watch  # noqa: E402
 
 class RefusalTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix=".refusal-", dir=REPO)
+        self.tmp = tempfile.TemporaryDirectory(prefix=".ak-test-refusal-", dir=REPO)
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
         self.root = root
@@ -38,7 +38,8 @@ class RefusalTests(unittest.TestCase):
         self.replenished = []
         self.stack.enter_context(patch.object(
             usage, "replenish",
-            side_effect=lambda cfg, provider: self.replenished.append(provider) or (False, 0.0)))
+            side_effect=lambda cfg, provider, **_kw: self.replenished.append(provider)
+            or (False, 0.0)))
         self.stack.enter_context(patch.object(
             usage, "mark_exhausted",
             side_effect=lambda cfg, provider, until=None: self.marked.append(

@@ -26,7 +26,7 @@ CONVERSATION = "d6fae368-678c-444e-8032-9c5c5338c84e"
 
 class UsualAccountFirst(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".usual-first-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-usual-first-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

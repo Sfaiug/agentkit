@@ -35,7 +35,7 @@ CFG = {"models": {}, "providers": {}}
 
 class Sandbox(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".task-size-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-task-size-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

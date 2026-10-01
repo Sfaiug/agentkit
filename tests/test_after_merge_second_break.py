@@ -22,7 +22,7 @@ A, B = "a" * 40, "b" * 40
 
 class SecondBreak(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".after-merge-second-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-after-merge-second-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
         stack = ExitStack()
