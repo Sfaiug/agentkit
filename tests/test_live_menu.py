@@ -59,6 +59,7 @@ class LiveMenu(Sandbox):
     def run_menu(self, answers, collect=None):
         """`menu.loop` driven by a scripted read; returns the screen drawn before each answer.
 
+        Only the usage probe may wake these scripted redraws; seat reads share the pipe.
         Each entry of `answers` is called with the wake fd the loop is waiting on and returns
         what `wait_key` would: a key, or None for a wait that ended with nothing typed.
         """
@@ -72,7 +73,8 @@ class LiveMenu(Sandbox):
             out.truncate()
             return next(script)(wake)
 
-        with patch.object(menu, "wait_key", side_effect=wait_key), \
+        with patch.object(menu.Live, "watch"), \
+                patch.object(menu, "wait_key", side_effect=wait_key), \
                 patch.object(sys.stdin, "isatty", return_value=True), \
                 patch.object(menu.usage, "collect",
                              side_effect=collect or (lambda cfg, **kw: {})), \
