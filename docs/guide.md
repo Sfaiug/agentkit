@@ -20,6 +20,8 @@ counting a run from its launch, still queued for a slot or not, for the checkout
 one it merely inherits, and a worktree, sandbox or scratch workspace for nothing; a tie keeps its project. A seat with no
 project is filed at the next menu draw or `ak watch` tick once one of its runs counts. `c` on its row opens the config with that session's orchestrator, executors and reviewers as its marks (on a heading only efforts): the arrow keys move, Enter, space or a click on the orchestrator moves the seat to that model at once under the same name, its runs, plan and record staying with a handover as the new one's first prompt, and on a role flips a mark and saves it to the session's record at once for the runs it launches next, Esc goes back; each group keeps one model, a choice leaving no allowed pair is refused in one line, and so is a model whose harness is not installed or not logged in, or whose meter is spent.
 
+`ak orch solo <session> on|off` saves solo across restarts and model changes: on refuses task launches before a run is created, still allows its own `ak run --review-pr`, and shows `solo` on its menu row; `s` on that row toggles it.
+
 The orchestrator is launched with `orchestrator.md` as its rulebook, plus `~/.agentkit/rules.md` where you wrote one on
 this host, handed over by its adapter for that launch only (Antigravity's as the body of an `--agent` definition in
 `~/.agentkit/state/antigravity`) and never written into your own `~/.claude`, `~/.codex` or `~/.gemini`. A project's own
@@ -84,7 +86,7 @@ Under a systemd older than 253 the whole run ends `fail` with `killed: memory ca
 A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run scope and cap; one run from a terminal runs its tasks in its own process.
 
 The worktree is `~/.agentkit/wt/<id>` on branch `ak/<slug>`, the first name free locally and on `origin`. The executor
-writes and commits, its commands in the foreground. The loop runs the checks itself and hands the diff and their output
+writes and commits, its commands in the foreground. Every turn has its own process marker: ak logs and stops any leftovers, then asks once to finish in the foreground; the suite and loop helpers keep running. The loop runs the checks itself and hands the diff and their output
 to the reviewer, another model where the workers allow one, else the executor's own. Task reviewers may run whatever is needed to prove or dismiss a finding, except done-when commands, the repository's `tests:` suite, and checks marked deferred, which run alongside the review.
 They keep the work under review read-only; probes leave nothing behind outside a temporary directory. Reviewers of others' PRs stay read-only and may run tests and commands.
 A reviewer answers `VERDICT: PASS` or `VERDICT: FAIL`; one with no verdict is asked once more, never failed. A round passes only when the reviewer says PASS and the suite passes; a failing suite fails the round and its output goes to the fixer with the findings. A round is FAIL only for a blocking finding: a correctness defect, a safety
@@ -94,7 +96,7 @@ number limit; everything else is omitted everywhere. A fixer is handed the revie
 passing review's list, plus checks that passed only on re-run with their `flaky:` evidence. Earlier reviews' items
 are discarded. Nothing reads or writes `~/.agentkit/followups/`; existing files and archives are left alone.
 On merge each follow-up starts an ordinary run of the same session, with the executors and reviewers the session's record holds at that moment (the discovering run's if the session has no record), and a fresh checkout of the merged target. Its task is the defect and evidence. An open fix at the same site in that session prevents a duplicate. There is no setting or backlog.
-The executor first checks the current target and other open runs. A defect already gone or being fixed ends `not needed: <why>` (optionally under `## Summary`): done, no PR, checks or review. Otherwise it adds a regression test, shows failure before and success after, and writes the run's `regression.sh` to invoke it; the loop runs that check. An owner-only decision ends `## Blocked` with the question.
+The executor first checks the current target and other open runs. A defect already gone or being fixed ends `not needed: <why>` (optionally under `## Summary`): done, no PR, checks or review. Otherwise it adds a regression test, shows failure before and success after, and writes the run's `regression.sh` to invoke it. After done-when passes, the loop runs it detached on the base commit with changed tests overlaid; a pass there fails the gate. A successful base failure is recorded once per run, and the checkout returns to the branch head, clean. An owner-only decision ends `## Blocked` with the question.
 The merged run's ending names its fix runs. The session stays working until they end; stopping or closing it stops them. Their follow-ups start runs the same way. Runs without a session, scratch runs and reviews of other people's PRs start none.
 A FAIL starts a fix round: the fixer fixes every undisputed finding, or lists a finding and evidence that it is wrong under `## Disputed` in its summary.
 Re-review rules on each dispute first, upheld or dropped, and says why. Three rounds is the budget: at the third FAIL the run ends
@@ -130,8 +132,9 @@ passed review in its repository: cut from that reviewed tip, which it records, i
 its own commits (`git rebase --onto <target> <tip>`), so a squash merge cannot conflict. A dependency parked `waiting`
 keeps it waiting; one ending unmerged skips it (`skipped: <dep> did not merge`), its branch kept. `repo: none` delivers
 files in `~/.agentkit/work/<id>`, which its hand-back names, not a PR. `ak run --review-pr URL` reviews a PR with
-no executor and posts the verdict as a GitHub review: a seat's own PR merges on PASS with green checks, anyone
-else's asks the inbox. `ak run status` lists every run of the last seven days but the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
+no executor and posts the verdict as a GitHub review: a seat's own PR over the size ceiling is refused before any
+model runs, with its size and ceiling and an instruction to split it; one that fits merges on PASS with green checks.
+Anyone else's PR asks the inbox and is never refused for size. `ak run status` lists every run of the last seven days but the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
 `workspace:` and `continue:` lines. An ending handed back, acknowledged or superseded (by a later merged run of its
 title, or a relaunch `from:` its branch) reads `done`, as does a parked run a later merged run replaced, and a job's tasks read their runs as they are now. `ak run` exits 0 on PASS, 1 on FAIL, `exhausted`, `blocked` or an unfinished merge, 2 on error.
 
@@ -272,7 +275,7 @@ A model's own screen sets its `model` from the harness's catalog (the effort fol
 
 - `max_runs` (0, no count cap; `ak run status` names the cap in force), `min_free_mb`, `max_load` (unset: ak's CPU pressure
   gates; pinned: the host load check, 0 disables it), `run_memory_max_mb` (one run's cap in MiB); `AK_MAX_RUNS`, `AK_MIN_FREE_MB` and `AK_MAX_LOAD` override them.
-- `max_gates` (unset; 0 no cap): heavy suites at once, host-wide, derived from the slice's live CPU and memory headroom unless pinned; the rest wait, shown `waiting for a heavy suite turn`, the wait charged to neither silence window nor ceiling; `ak run status` names the count in force and whether it is derived or pinned; a `config.toml` a suite cannot read means derived, named in the run log. A suite holding a turn runs with `AK_HEAVY_TURN=1`; one that runs one copy at a time behind a host-wide lock of its own should then not wait for that lock but exit 75 (EX_TEMPFAIL) at once while another copy holds it: that is no failed check and no re-run, the turn goes back and the suite runs again each poll until it starts, the polls charged to its ceiling and the turn waits not.
+- `max_gates` (unset; 0 no cap): a pinned host-wide count of heavy suites. Unset, a suite starts when the slice's live CPU and memory headroom fit one more, or none run. Waiters show `waiting for a heavy suite turn · N running · M more fit` from the admission reading, the wait charged to neither silence window nor ceiling; `ak run status` names the count in force and whether it is derived or pinned; a `config.toml` a suite cannot read means derived, named in the run log. A suite holding a turn runs with `AK_HEAVY_TURN=1`; one that runs one copy at a time behind a host-wide lock of its own should then not wait for that lock but exit 75 (EX_TEMPFAIL) at once while another copy holds it: that is no failed check and no re-run, the turn goes back and the suite runs again each poll until it starts, the polls charged to its ceiling and the turn waits not.
 - `pace_margin` (10): the picker's pay-as-you-go margin above. `[defaults]`: `orchestrator`, `workers`, optional `reviewers`, the last created session's, what `n` starts from; an older
   file's `[tiers]` reads as the first of `A` over `B` without it, and the next save writes `[defaults]`.
 - `[models.<name>]`: `harness`, `model`, `effort` (one that model takes, per `adapters/<h>.sh models`, or `none`), `provider`,
@@ -281,7 +284,7 @@ A model's own screen sets its `model` from the harness's catalog (the effort fol
   `accounts = ["default", "second"]` lists subscriptions, `default` the usual login; Claude keeps another's token in
   `secrets/claude_oauth_token.second` or its login in `~/.claude-second`. Every provider's subscriptions work for seats, workers and meters, each adapter keeping a named one's login apart (Codex's in `~/.codex-second`); turns use the account with most room, then the next. The menu shows one usage row per subscription in config order, numbered in roman numerals (`Claude I`, `Claude II`), each with its week's bar and its 5-hour note (`5h 40% left`, or `5h spent until 14:00` once spent).
   `seat_account = "second"` names the subscription new seats open on while it has room, then the others by room (without it, `default`); a seat's record keeps the one it opened on as `home_account` (`default` when absent), and an idle seat moves back only to that one once it has room.
-  A seat whose subscription runs out tries its provider's reset-credit policy, then resumes its conversation on the next account of the same provider with room and a working seat login (`auth seat`, or the named Codex account's own `auth.json`); new seats also check the login when choosing among configured accounts, and accounts with only a worker token serve workers. A manual new seat can open the configured usual login to sign in when none passes. If none is available during recovery, it reads `needs you` with `<provider> out of usage until <time>` once and recovers when usage returns; a refilled account keeps its login without another auth check (without a proven conversation id, the seat continues in place). Opening it to look keeps recovery active, drafts and questions defer it, closed seats stay closed, and idle prompts stay idle.
+  A seat whose subscription runs out (its harness's refusal is read off its screen, with or without a status line under the composer) tries its provider's reset-credit policy, then resumes its conversation on the next account of the same provider with room and a working seat login (`auth seat`, or the named Codex account's own `auth.json`); new seats also check the login when choosing among configured accounts, and accounts with only a worker token serve workers. A manual new seat can open the configured usual login to sign in when none passes. If none is available during recovery, it reads `needs you` with `<provider> out of usage until <time>` once and recovers when usage returns; a refilled account keeps its login without another auth check (without a proven conversation id, the seat continues in place). Opening it to look keeps recovery active, drafts and questions defer it, closed seats stay closed, and idle prompts stay idle.
 
 Secrets are in `~/.agentkit/secrets/`: `discord_webhook`, `discord_user_id` and `claude_oauth_token` (the worker token
 `claude setup-token` mints, dated a year from its file). A repository's `AGENTS.md` front matter holds `tests:`, its
@@ -368,10 +371,14 @@ The tick closes a tab idle for an hour or past twelve open, and one a run or sea
 Every run is recorded in `~/.agentkit/history.db`: repository, models and the launching seat's orchestrator, rounds,
 verdict, timestamps, active seconds per step (checkpointed every 30 s; parks, slot, login, retry and merge-turn waits
 are no step's), tokens where the harness reports them (else unknown), peak process-tree memory, session, and the task's
-words, goal points, checks and files changed. Smoke and e2e runs are never recorded; an older agentkit's rows are read
+words, goal points, checks and files changed. Merged runs also keep additions plus deletions, excluding files marked
+`linguist-generated` in `.gitattributes`. Smoke and e2e runs are never recorded; an older agentkit's rows are read
 as written, never rewritten, and a median keeps a few that counted waits from pulling an estimate far. Statistics skip
 stopped runs and suite runs, by name or run record. History is best effort. The last twenty runs estimate a task's
-memory and active time. `ak run status --history` prints one line per repository (`last 20 tasks: median N rounds ·
+memory and active time. The own-PR size ceiling is 300 with fewer than 50 sized merged runs; after that, it is the
+smallest size above which fewer than half passed in their first round, across this host's history. Without such a
+drop there is no ceiling. `ak run status --history` shows the ceiling and whether it comes from history or the
+starting value, and one line per repository (`last 20 tasks: median N rounds ·
 over 400 words: median M rounds …`) for the orchestrator to size tasks by. Neither it nor `ak usage` prints per-model
 success rates: a run's verdict describes the task, not the quality of its models. A run's own directory is
 `~/.agentkit/runs/<YYYYMMDD-HHMM>-<slug>/`: `task.md`, `run.json`, `log.txt` (the whole loop, with a `WARN` line per

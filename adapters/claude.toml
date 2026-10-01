@@ -74,8 +74,9 @@ kinds = ["idle_prompt"]
 [screen]
 # Queued session messages sit below dialogs and composers; they are neither controls nor drafts.
 inbound = '› Message from @[^:]+: .* \(ctrl\+o to expand\)'
-# fullmatch against a bottom line: the input box, which is chrome and not anything Claude said
-composer = '(?:(?:│\s*)?[>❯](?:\s+Try ["“].*["”])?\s*(?:│)?|⏵⏵ bypass permissions on(?: \(shift\+tab to cycle\))?(?: · \d+ \w+)? · ← for agents|● \w+ · /effort|[✻✽✶✳✢] \w+ for .+ · done .+)$'
+# fullmatch against a bottom line: the input box, which is chrome and not anything Claude said;
+# a renamed session's name sits in the box's top rule
+composer = '(?:(?:│\s*)?[>❯](?:\s+Try ["“].*["”])?\s*(?:│)?|⏵⏵ bypass permissions on(?: \(shift\+tab to cycle\))?(?: · \d+ \w+)? · ← for agents|● \w+ · /effort|[✻✽✶✳✢] \w+ for .+ · done .+|─{3,} \S.* ─+)$'
 # and the key hints under it, on top of the box-drawing and prompt footer every harness shares
 footer = [
   '\? for shortcuts',
@@ -83,6 +84,8 @@ footer = [
   '\d+% context left(?:\s*·\s*\? for shortcuts)?',
   # a narrow pane cuts the mode line wherever its width ends, with or without an ellipsis
   '⏵⏵\s*bypass\b.*',
+  # the hint drawn under its own usage-limit notice (2.1.286), which is what was said
+  '/usage-credits to finish what you.re working on\.',
 ]
 # its composer always has its own rule under it: a prompt-marked line right on the footer is a
 # user's status line, never the composer, even with no composer drawn, as under a picker
