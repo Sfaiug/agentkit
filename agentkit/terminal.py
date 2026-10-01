@@ -711,7 +711,8 @@ _KEYED = b""       # what a keyboard sent past the key it was read for, or while
 _PRESSED = False   # the left button went down and has not been read coming up
 _ASKED = False     # a resize or a return from ^Z asked for a draw (`asked_again`)
 _POINTER = None    # where the pointer is, a `point` or a click; None until it moves, after a key
-_AWAY = False      # ... off every row of a screen that has rows: the keys' highlight not drawn
+_AWAY = False      # ... on nothing of a screen that has rows: the keys' highlight not drawn
+_UNSEEN = False    # the key read last was pressed while it was (`unseen`)
 _SPOTS = {}        # what the screen up has where (`lit`), the pointer read against it
 _SHOWN = []        # ... its lines as drawn, and with the pointer's light (`relight`)
 _PAINTED = []
@@ -728,9 +729,17 @@ def taken():
 
 
 def away():
-    """Whether the pointer moved off every row of the screen up, which then draws no row or cell
-    the keys' highlight is on: it lost it when the pointer left, and a key brings it back."""
+    """Whether the pointer moved onto nothing of the screen up -- no row and no key-line item, which
+    acts on the highlighted row -- which then draws no row or cell the keys' highlight is on: it
+    lost it when the pointer left, and a key brings it back."""
     return _AWAY
+
+
+def unseen():
+    """Whether the key read last was pressed while the keys' highlight was not drawn (`away`): a
+    key acting on what it is on then only brings it back -- Enter and space, which `read_key`
+    answers as a draw, and a screen's own, such as the menu's `x`."""
+    return _UNSEEN
 
 
 def asked_again():
@@ -923,13 +932,13 @@ def read_key(timeout=None, wake=None):
     within one is read and let go, keeping to `timeout` however long the pointer goes on.  A
     move is answered once a frame of the clock's (motion.FRAME) is due since the last, and once
     what was sent after it is read through to where the pointer ended, or a frame after the
-    first of them, whichever is sooner: a flood of moves is one draw, never a draw each.  One a
-    read's time ran out on is answered by a read after it; a key read past one, next.  Every
-    other key hands the highlight to the keys, so the pointer lights nothing until it moves
-    again, and one that acts on the highlight while the pointer is off every row (`away`) only
-    brings it back, answered as a draw.
+    first of them, whichever is sooner, however soon the read's own time runs out: a flood of
+    moves is one draw, never a draw each.  One that is not due when nothing more is sent is
+    answered by a read after it; a key read past one, next.  Every other key hands the
+    highlight to the keys, so the pointer lights nothing until it moves again, and Enter or
+    space while the pointer is on nothing (`away`) only brings it back, answered as a draw.
     """
-    global _PRESSED, _ASKED, _POINTER, _MOVED, _NEXT, _HELD, _AWAY
+    global _PRESSED, _ASKED, _POINTER, _MOVED, _NEXT, _HELD, _AWAY, _UNSEEN
     key, _NEXT = _NEXT, None
     fd = sys.stdin.fileno()
     until = None if timeout is None else time.monotonic() + timeout
@@ -964,22 +973,21 @@ def read_key(timeout=None, wake=None):
             _HELD, key = (key, _HELD[1] if _HELD else time.monotonic()) if moved else None, None
         if key is None:
             now = time.monotonic()
-            if _HELD is not None and now >= _MOVED + motion.FRAME and (
-                    now >= _HELD[1] + motion.FRAME or until is not None and now >= until):
-                break              # a frame's worth read through, or the read's time is up
-            if until is not None and now >= until:
-                return None
+            if _HELD is not None and now >= _HELD[1] + motion.FRAME:
+                break              # a frame's worth read through: what is sent after, next
+            if _HELD is None and until is not None and now >= until:
+                return None        # moves within one spot keep to the read's time
         elif _HELD is not None:
             key, _NEXT = None, key
             break
     if key is None:                # the pointer's move
         (key, _), _HELD, _MOVED = _HELD, None, time.monotonic()
-        _POINTER, _AWAY = key, under(key, _SPOTS).what is None and any(
+        _POINTER, _AWAY = key, under(key, _SPOTS)[:2] == (None, None) and any(
             what is not None for what, _ in _SPOTS.values())
         return key
-    shown = _AWAY and (step(key) or key.name in ("enter", "space", "left", "right"))
-    _POINTER, _AWAY = key if key.name == "click" else None, False
-    if shown:
+    _UNSEEN, _AWAY = _AWAY, False
+    _POINTER = key if key.name == "click" else None
+    if _UNSEEN and key.name in ("enter", "space"):
         _ASKED = True
         return None                # the highlight back where the keys left it, and drawn
     return key
@@ -1256,7 +1264,9 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
         sys.stdout.flush()
         drawn = len(lines)
         rows = {top + number: (number, []) for number in range(len(choices))} if top else {}
-        lit(_SHOWN, {**_SPOTS, **rows})   # the choices are where the pointer lands too
+        # its screen's key line and its own choices are what the pointer lands on; that
+        # screen's rows -- the seats under a question -- are nothing while it is asked
+        lit(_SHOWN, {**{row: spot for row, spot in _SPOTS.items() if spot[0] is None}, **rows})
         key = read_key() if wait is None else wait()
         again = around is not None        # its screen as well: a key puts out what was lit
         if key is None:
