@@ -2,20 +2,21 @@
 
 README.md is one page a stranger understands, docs/guide.md is under 400 lines and free of
 every word for a state or a remedy that no longer exists, `ak --help` fits one screen, and
-the `i` screen says the README's own key and state lines.  Offline: files and rendered text.
+the README lists the menu's keys and says what each state means in the words the key line
+says it in.  Offline: files and rendered text.
 """
 
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import unittest
-from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from agentkit import command_help, menu  # noqa: E402
+from agentkit import command_help, menu, terminal  # noqa: E402
 
 README = REPO / "README.md"
 GUIDE = REPO / "docs/guide.md"
@@ -72,13 +73,13 @@ class Docs(unittest.TestCase):
             self.assertIn(f" {name}", internal[0])
             self.assertNotIn(f"\n  {name} ", text)
 
-    def test_info_screen_and_readme_agree_on_the_key_and_state_lines(self):
-        with patch.dict(os.environ, {"LC_ALL": "C.UTF-8", "LANG": "C.UTF-8"}):
-            info = [*menu.INFO_KEYS, *menu.info_states()]
-        page = lines(README)
-        for line in info:
-            self.assertIn(line, page, f"README.md lacks the `i` screen's line {line!r}")
-        self.assertEqual(len(info), 10)
+    def test_readme_lists_the_keys_and_says_each_state_as_the_key_line_does(self):
+        page = README.read_text()
+        for key, _ in terminal.key_parts(menu.KEYS + "   s solo"):
+            self.assertRegex(page, rf"(?m)^{re.escape(key)} +\S", f"README.md lacks `{key}`")
+        self.assertNotRegex(page, r"(?m)^i +\S")
+        for word in menu.STATE_ORDER:
+            self.assertIn(menu.TIPS[word].split(": ", 1)[1], page, word)
 
     def test_superseded_evidence_is_gone(self):
         self.assertFalse((REPO / "docs/verification-v4l-2.md").exists())
