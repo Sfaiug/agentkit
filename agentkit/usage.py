@@ -578,14 +578,17 @@ def _gate_flags(providers, now, cfg):
             # worker turn runs on next -- another account with room before the usual login,
             # the usual one only when none of them has any, then the most budget, then the
             # order the config lists them in -- so it is spent only when all of them are.
+            # An account nobody could read ranks with the usual login and after it: its
+            # login may be the very thing that failed, and a turn there parks on it.
             accounts = _gate_flags({account: accounts[account] for account in listed
                                     if isinstance(accounts.get(account), dict)}, now, cfg)
             if accounts:
                 def rank(account):
                     spent = accounts[account]["exhausted"]
-                    group = 1 if account == config.DEFAULT_ACCOUNT else (0 if not spent else 2)
-                    return (group, spent, accounts[account]["budget_reason"] is not None,
-                            -accounts[account]["budget"])
+                    unknown = accounts[account]["budget_reason"] is not None
+                    usual = account == config.DEFAULT_ACCOUNT or (unknown and not spent)
+                    group = 1 if usual else (0 if not spent else 2)
+                    return (group, spent, unknown, -accounts[account]["budget"])
                 best = min(accounts, key=rank)
                 prov.clear()
                 prov.update(accounts[best], accounts=accounts, account=best)
@@ -597,10 +600,11 @@ def _gate_flags(providers, now, cfg):
         if recorded:
             prov.update(meters=[_normalized(meter, now) for meter in recorded], error=None)
         # a provider that refused a worker is parked until it said it would have
-        # capacity, or until its meters show a window that opened after the mark
+        # capacity, or until its meters show a window that opened after the mark and runs
+        # to that time
         until = _number(prov.get("exhausted_until"))
         ends = prov.get("exhausted_ends")
-        if until is None or until <= now or _fresh_window(prov, ends, now):
+        if until is None or until <= now or _fresh_window(prov, ends, now, until):
             prov.pop("exhausted_until", None)
             prov.pop("exhausted_at", None)
             prov.pop("exhausted_ends", None)
@@ -762,11 +766,14 @@ def _patch(provider, prov, account=None, *, mark=None, spent=None):
         return change({}, time.time())   # a cache that cannot be written costs a re-probe
 
 
-def _fresh_window(prov, ends, now):
-    """Whether a recorded meter now reports a later reset with room left.
+def _fresh_window(prov, ends, now, until):
+    """Whether a recorded meter now reports a later reset with room left, in a window that
+    runs to the mark's deadline `until`.
 
     Only reported reset times identify a replacement: a window's nominal length says
     nothing about when it began.  Without a recorded reset there is nothing to compare.
+    A window that closes before the deadline is not the one the refusal named: the 5-hour
+    session rolling over under a refusal dated next week leaves that week as spent as it was.
     """
     if not isinstance(prov, dict) or not isinstance(ends, dict):
         return False
@@ -784,6 +791,8 @@ def _fresh_window(prov, ends, now):
         old = _number(ends.get(meter.get("name")))
         if old is None or resets_at <= old:
             continue          # the window the mark was made in, mismeasured or not
+        if resets_at < until:
+            continue
         return True
     return False
 
@@ -794,7 +803,8 @@ def _carry_mark(old, prov, now):
     A provider that has just refused a worker is parked until it says it has capacity again,
     and the meters it reports meanwhile are not that answer: the one that is, is the time the
     refusal itself named.  Once that time is behind us the mark is gone and the probe decides.
-    A window that opened after the mark with room ends it sooner, and is that same answer.
+    A window that opened after the mark with room and runs to that time ends it sooner, and is
+    that same answer.
 
     Every write carries the mark the file holds this way (`_onto`) but the credit's own: the
     meters a spend hands back are the capacity the mark said was missing, and re-applying it
@@ -805,7 +815,7 @@ def _carry_mark(old, prov, now):
         return prov
     marked_at = _number((old or {}).get("exhausted_at"))
     ends = (old or {}).get("exhausted_ends")
-    if _fresh_window(prov, ends, now):
+    if _fresh_window(prov, ends, now, until):
         return prov
     mark = {**prov, "exhausted_until": until}
     if marked_at is not None:
@@ -913,19 +923,24 @@ def readiness(cfg, providers):
         return providers
     read = Readings(providers)
     read.harnesses, read.asked_at = {}, time.time()
+    logins = {}   # by harness: the accounts its providers list, None for one that lists none
     for name in config.offered(cfg):
-        harness = cfg["models"][name]["harness"]
-        if harness not in read.harnesses:
-            read.harnesses[harness] = harness_unready(harness)
+        entry = cfg["models"][name]
+        listed = logins.setdefault(entry["harness"], [])
+        listed += [account for account in config.accounts(cfg, entry["provider"]) or [None]
+                   if account not in listed]
+    for harness, accounts in logins.items():
+        read.harnesses[harness] = harness_unready(harness, accounts=accounts)
     return read
 
 
-def harness_unready(harness):
+def harness_unready(harness, accounts=(None,)):
     """Why this harness cannot run a turn here, or None when nothing says it cannot.
 
     Not installed is its adapter missing, or its program nowhere to be found: the one its
     `[update] version` runs, else the adapter's own name, as `orch.agent_programs` reads them.
-    Not logged in is its own `auth` verb saying no.  No answer withholds nothing.
+    Not logged in is its own `auth` verb saying no for every one of `accounts`, the usual
+    login for None: a turn runs on any of them.  No answer withholds nothing.
     """
     try:
         config.adapter(harness)
@@ -935,7 +950,10 @@ def harness_unready(harness):
     named = isinstance(version, list) and version and isinstance(version[0], str) and version[0]
     if not config.harness_binary(version[0] if named else harness):
         return f"{harness} is not installed"
-    return f"{harness} is not logged in" if worker.auth_ok(harness)[0] is False else None
+    if all((worker.auth_ok(harness) if account is None
+            else worker.auth_ok(harness, account=account))[0] is False for account in accounts):
+        return f"{harness} is not logged in"
+    return None
 
 
 def replenish(cfg, provider, depleted=True, account=None):
@@ -989,9 +1007,9 @@ def mark_exhausted(cfg, provider, until=None, account=None):
 
     The mark lives in the usage cache beside the meters, so `pick_order` excludes this
     provider for every later pick in every run, and it is dropped the moment the deadline has
-    passed, or a meter with room reports a later reset than recorded at marking.  An account's
-    mark is its own: the provider stays eligible on its other accounts.  Returns the deadline
-    recorded.
+    passed, or a meter with room reports a later reset than recorded at marking, at or after
+    the deadline.  An account's mark is its own: the provider stays eligible on its other
+    accounts.  Returns the deadline recorded.
     """
     now = time.time()
     try:
@@ -1314,7 +1332,7 @@ def model_exhausted(cfg, name, providers):
     now = time.time()
     if until is not None and until > now:
         ends = prov.get("exhausted_ends")
-        if not _fresh_window(prov, ends, now):
+        if not _fresh_window(prov, ends, now, until):
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until))
             return True, f"{provider} ran dry; nothing is picked on it until {when}"
     spent = [m for m in meters if m["used"] >= 100]
