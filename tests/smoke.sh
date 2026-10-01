@@ -1936,8 +1936,12 @@ if not spent(providers):
     providers = providers_of(host)
     record = providers.get(provider) if isinstance(providers, dict) else None
     if isinstance(record, dict):
+        # The sandbox borrows the usual login; the host may be using another
+        # subscription, whose room (or refusal) says nothing about this one.
+        if isinstance(record.get("accounts"), dict):
+            record = record["accounts"].get(config.DEFAULT_ACCOUNT)
         providers = {**providers, provider: usage._without_past(
-            record, time.time(), "the host cache")}
+            record, time.time(), "the host cache") if isinstance(record, dict) else {}}
     if not spent(providers):
         sys.exit(0)  # unknown usage cannot justify skipping a real call
 meters, _ = usage._gating_meters(cfg, model, providers)
