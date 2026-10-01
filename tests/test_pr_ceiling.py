@@ -134,7 +134,7 @@ class PrCeiling(unittest.TestCase):
                 state, reviewer, usage, _ = self.review(background=background)
                 self.assertEqual(state["state"], "pass")
                 reviewer.assert_called_once()
-                usage.assert_called_once()
+                self.assertEqual(usage.call_count, 2 if background else 1)
         self.change(300)
         self.assertEqual(self.review()[0]["state"], "pass")
 
@@ -167,7 +167,7 @@ class PrCeiling(unittest.TestCase):
             self.review(background=True, want_review="opus", launch_only=True)
 
     def test_git_without_check_attr_source_reviews_and_records_sizes_without_changing_index(self):
-        head = self.change(40)
+        self.change(40)
         (self.repo / "output.generated").write_text("generated\n" * 1000)
         head = self.commit()
         (self.repo / ".gitattributes").write_text("*.generated -linguist-generated\n")

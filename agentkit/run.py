@@ -6678,13 +6678,24 @@ def diff_lines(repo, base, head="HEAD"):
             if added != "-":
                 changes.append((name, int(added) + int(deleted)))
         if changes:
-            attrs = git(repo, "check-attr", "-z", f"--source={source}", "linguist-generated",
-                        "--", *(name for name, _ in changes)).split("\0")[2::3]
+            # Older Git has no check-attr --source; a private index reads the same tree.
+            with tempfile.TemporaryDirectory(dir=config.TMP) as tmp:
+                index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
+                git(repo, "read-tree", source, env=index)
+                attrs = git(repo, "check-attr", "--cached", "-z", "linguist-generated",
+                            "--", *(name for name, _ in changes), env=index).split("\0")[2::3]
             if len(attrs) != len(changes):
                 raise config.Error("git did not report generated attributes for the PR diff")
             total += sum(lines for (_, lines), attr in zip(changes, attrs)
                          if attr.lower() not in ("set", "true"))
     return total
+
+
+def refuse_pr_size(repo, base, head):
+    size = diff_lines(repo, base, head)
+    ceiling, _ = history.pr_ceiling()
+    if ceiling is not None and size > ceiling:
+        raise config.Error(f"PR has {size} changed lines, over the {ceiling}-line ceiling; split it.")
 
 
 def history_finish(state, log=None):
@@ -6699,7 +6710,7 @@ def history_finish(state, log=None):
             present = wt and Path(wt).is_dir()
             repo = wt if present else state.get("repo")
             review = state.get("review") or {}
-            head = "HEAD" if present else state.get("delivery_sha") or review.get("head_sha")
+            head = state.get("delivery_sha") or review.get("head_sha") or ("HEAD" if present else None)
             if repo and head:
                 size = diff_lines(repo, state["base_sha"], head)
         except (config.Error, OSError, ValueError, TypeError, AttributeError, StopIteration):
@@ -7069,6 +7080,7 @@ def record_decision(run_dir, state, reason, merged=False):
         state["merged"] = True
     save_state(run_dir, state)
     if merged:
+        history_finish(state)
         start_followups(state, run_dir, logger(run_dir, True))
     result = run_dir / "result.md"
     try:
@@ -13649,10 +13661,7 @@ def review_pr(cfg, run_dir, url, opts, log):
     git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}")
     base_sha = git(repo, "merge-base", f"origin/{base}", head)
     if is_own:
-        size = diff_lines(repo, base_sha, head)
-        ceiling, _ = history.pr_ceiling()
-        if ceiling is not None and size > ceiling:
-            raise config.Error(f"PR has {size} changed lines, over the {ceiling}-line ceiling; split it.")
+        refuse_pr_size(repo, base_sha, head)
     if prior.get("worktree"):
         wt, branch = Path(prior["worktree"]), prior["branch"]
     else:
@@ -13987,11 +13996,15 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
         if flags["--bg"]:
             try:
                 receipt = read_state(run_dir) or {}
-                # Usage probes can spend model calls: own PRs check size in the child first.
-                reviewer = None
-                if not receipt.get("own_pr"):
-                    reviewer = preset_review_model(cfg, opts, run_workers(cfg, receipt),
-                                                   reviewers=receipt.get("reviewers"))
+                # Usage probes can spend model calls: check own PR size before the pick.
+                if receipt.get("own_pr"):
+                    info = pr_view(url)
+                    repo = checkout_for(f"{owner}/{name}", logger(run_dir, True))
+                    base, head = info["baseRefName"], info["headRefOid"]
+                    fetch(repo, "origin", f"pull/{number}/head", base, check=True)
+                    refuse_pr_size(repo, git(repo, "merge-base", f"origin/{base}", head), head)
+                reviewer = preset_review_model(cfg, opts, run_workers(cfg, receipt),
+                                               reviewers=receipt.get("reviewers"))
             except config.Error as exc:
                 refused(run_dir, exc, logger(run_dir, True), cfg)
                 raise
