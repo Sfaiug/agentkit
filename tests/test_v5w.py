@@ -176,7 +176,9 @@ sys.exit(1)
 
     def launch(self, rounds=1, done_when="test -f deliverable"):
         """One scratch run, so the loop is the only thing under test: no repo, branch or PR."""
-        self.task.write_text(f"---\nrepo: none\nrounds: {rounds}\n---\n# Budget fixture\n\n"
+        # A title no other test file launches: side by side, two runs of one title in one minute
+        # share a run id, and each one's sweep ends the other's processes.
+        self.task.write_text(f"---\nrepo: none\nrounds: {rounds}\n---\n# Foreground fixture\n\n"
                              f"## Done when\n```bash\n{done_when}\n```\n")
         before = set(run.run_dirs())
         code = run.main([str(self.task), "--exec", self.executor, "--review", self.reviewer])
