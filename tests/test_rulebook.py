@@ -150,7 +150,7 @@ class Rulebook(unittest.TestCase):
                 with self.subTest(role=role, words=words):
                     self.assertIn(words, worker.PREAMBLES[role])
 
-    def test_the_rulebook_carries_every_standing_rule_and_stays_one_page(self):
+    def test_the_rulebook_carries_every_standing_rule(self):
         sections = dict(re.findall(r"^## (.+?)\n(.*?)(?=^## |\Z)", RULEBOOK, re.S | re.M))
         for heading, words in RULES:
             with self.subTest(words=words):
