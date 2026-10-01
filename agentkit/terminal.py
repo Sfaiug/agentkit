@@ -504,8 +504,7 @@ TIPS = {
                "go",
     "c config": "c sets the highlighted session's models, every model's effort, the providers "
                 "and Discord",
-    "s solo": "s toggles solo for the session: task launches are refused while on; its own PR "
-              "reviews still run",
+    "s solo": "s toggles solo: no task launches while on; its own PR reviews still run",
     "esc leave": "Esc leaves ak; the sessions go on working without it",
     "n start a session": "n starts a session and switches this terminal to it, closing the popup",
     "r rename this session": "r renames this session: its record, its bar and its title follow",

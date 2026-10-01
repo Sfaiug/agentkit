@@ -118,11 +118,11 @@ class MainMenu(unittest.TestCase):
 
     def test_the_popups_own_keys_say_what_they_do(self):
         child = test_close_and_info.Menu(self, {"alpha": "working"}, own="alpha")
-        keys = child.frame()[-1]
-        row = len(child.frame())
-        explains(self, child, [((keys.index(item) + 1, row), "  " + TIPS[item]) for item in
+        child.frame()
+        first = played(child.text())
+        explains(self, child, [(at(first, item), "  " + TIPS[item]) for item in
                                ("n start a session", "r rename this session",
-                                "x stop this session", "s solo")], keys)
+                                "x stop this session", "s solo")], keys_of(first))
         child.leave()
 
     def test_a_usage_row_glints_then_ticks_at_the_pace_share_until_the_pointer_leaves(self):

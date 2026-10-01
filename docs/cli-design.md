@@ -225,7 +225,7 @@ UTF-8 key (`enter` is `⏎`):
 - `x stop`: `x stops the highlighted session and everything it runs, asking first`
 - `x close`: `x closes the highlighted session, which is done: its runs, checkouts and files go`
 - `c config`: `c sets the highlighted session's models, every model's effort, the providers and Discord`
-- `s solo`: `s toggles solo for the session: task launches are refused while on; its own PR reviews still run`
+- `s solo`: `s toggles solo: no task launches while on; its own PR reviews still run`
 - `esc leave`: `Esc leaves ak; the sessions go on working without it`
 - in the popup, `n start a session`: `n starts a session and switches this terminal to it, closing the popup`
 - `r rename this session`: `r renames this session: its record, its bar and its title follow`
