@@ -868,8 +868,8 @@ else
   mem_high=60% mem_max=70%
   cpus=$(nproc 2>/dev/null || echo 1)
   case "$cpus" in ''|*[!0-9]*) cpus=1 ;; esac
-  quota=$(( (cpus - 1) * 100 )); [ "$quota" -ge 100 ] || quota=100
-  cpu_quota=${quota}%
+  cpu_quota=$(( (cpus - 1) * 100 )); [ "$cpu_quota" -ge 100 ] || cpu_quota=100
+  cpu_quota=${cpu_quota}%
   if pin=$(slice_pin slice_tasks_max); then slice_tasks=$pin; fi
   if pin=$(slice_pin slice_memory_high); then mem_high=$pin; fi
   if pin=$(slice_pin slice_memory_max); then mem_max=$pin; fi

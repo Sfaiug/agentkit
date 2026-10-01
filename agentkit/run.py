@@ -31,7 +31,7 @@ from urllib.parse import quote, urlsplit
 
 from . import (command_help, config, history, notify, orch, proc_snapshot, retention, update,
                usage, watch, worker)
-from .harness import FAULT, SPENT, load as harness_plugin, says
+from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 DIFF_CAP = 300 * 1024
 OUT_CAP = 20 * 1024
@@ -1468,7 +1468,8 @@ def ran_dry(code, said, harness, refusal=False):
     """The harness's own word for a spent provider window in this exit, or None.
 
     Its words and not ours: they come from `[stall] quotas` in adapters/<harness>.toml, the
-    same list the babysitter reads off a seat's screen, each a whole word (`Harness.failure`).
+    same list the babysitter reads off a seat's screen, each a whole word (`Harness.failure`);
+    a LIMITED one parks a worker's account as a SPENT one does.
     A non-zero exit is as required here as it is for `transient`, because a worker that exited
     0 said what it meant to say.  The scoped terminal refusal path may pass ``refusal`` for an
     exit-zero turn that never answered.
@@ -1476,7 +1477,7 @@ def ran_dry(code, said, harness, refusal=False):
     if code == 0 and not refusal:
         return None
     outcome, word = harness_plugin(harness).failure(said)
-    return word if outcome == SPENT else None
+    return word if outcome in (SPENT, LIMITED) else None
 
 
 def try_again_at(said):
@@ -1716,7 +1717,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         said = harness_said(target, text, entry["harness"], failures_only=code == 0)
         outcome, mark = harness_plugin(entry["harness"]).failure(said)
         sig = killed_word(code) if not killed else None
-        if outcome == SPENT or (outcome and not sig):
+        if outcome in (SPENT, LIMITED) or (outcome and not sig):
             # The attempt is refused and its children are not the next one's: whatever
             # the dead turn left behind dies before the refill retry, the handover,
             # or the transient wait.
@@ -2087,10 +2088,10 @@ def derived_heavy_limit(readings=None):
     """
     if readings is None:
         readings = host_readings()
-    quota = _reading(readings, "slice_cpu_quota")
-    if quota is not None:
+    cpu_quota = _reading(readings, "slice_cpu_quota")
+    if cpu_quota is not None:
         used = _reading(readings, "slice_cpu_used")
-        cpu_free = quota - used if used is not None else float(quota)
+        cpu_free = cpu_quota - used if used is not None else float(cpu_quota)
     else:
         cpus = _reading(readings, "cpus", "nproc")
         load = _reading(readings, "load", "load1", "load_1m")
@@ -8326,7 +8327,7 @@ def _slice_cpu_stat(slice_dir=None):
     """The slice's cpu.stat counters as {name: value}, or None where nothing answers.
 
     Carried for diagnosis -- throttled_usec and nr_throttled say whether the
-    slice has ever hit its quota -- not for admission: the counters are
+    slice has ever hit its CPU quota -- not for admission: the counters are
     cumulative since the slice's first process, so one snapshot cannot say
     whether the slice is saturated now. The pressure gate does not read them.
     """
@@ -8353,7 +8354,7 @@ def _slice_cpu_quota(cgroup=None):
 
     Read off the slice's own directory, which `orch.slice_cgroup` finds from the
     layout whether the caller runs inside the slice or beside it -- a status shell
-    outside reads the same quota a worker inside does.  `max` is no quota.
+    outside reads the same CPU quota a worker inside does.  `max` sets none.
     """
     try:
         parts = ((cgroup or orch.slice_cgroup()) / "cpu.max").read_text().split()
@@ -8458,18 +8459,18 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None):
         readings["unit_memory_raw_mb"] = raw
         readings["unit_memory_name"] = name
     try:
-        quota = _slice_cpu_quota()
+        cpu_quota = _slice_cpu_quota()
     except Exception:
-        quota = None
+        cpu_quota = None
     try:
-        cpu_used = _slice_cpu_used() if quota is not None else None
+        cpu_used = _slice_cpu_used() if cpu_quota is not None else None
     except Exception:
         cpu_used = None
     try:
         mem = _slice_memory()
     except Exception:
         mem = None
-    readings["slice_cpu_quota"] = quota
+    readings["slice_cpu_quota"] = cpu_quota
     readings["slice_cpu_used"] = cpu_used
     if mem is not None:
         readings["slice_memory_used_mb"], readings["slice_memory_high_mb"] = mem

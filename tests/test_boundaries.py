@@ -2,11 +2,14 @@
 
 A rule names the knowledge, a pattern `git grep` finds it by, the path prefixes that are its
 home, and `max`: the count of matching lines outside that home on the day the rule was written.
+A rule's `names` are ak's own that the pattern also finds: a line counts only if the pattern
+still finds something once they are taken out of it.
 A count above `max` fails with every path:line; a count below it passes and says which `max`
 to lower.  Any task may lower a `max` in the area it touches, and no task raises one.
 Offline: `git grep` over the tracked files of this checkout.
 """
 
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -29,11 +32,16 @@ RULES = [
      "max": 304},
     # What a refusal from a provider looks like is the harness's to say (adapters/*.toml,
     # its plugin): a copy in the loop or the watcher is a second classifier to keep in step.
+    # Every provider word counts, in code or comment, but none of ak's own names: the
+    # `quota_dry` mark and its `QuotaDry` stop, the tests' `.run-quota-` dirs, the cgroup CPU
+    # quota (`cpu_quota`, systemd's `CPUQuota`, the user unit's `unit_quota`), and the
+    # usage-limit reset and its credits as the name of a feature.
     {"name": "provider failure words",
      "flags": ("-i",),
      "pattern": "rate[ _-]?limit|quota|capacity|overload|usage[ _-]?limit",
+     "names": r"quota[_-]?dry|run-quota|(cpu|unit)[ _]?quota|usage[ -]limit (reset|credit)",
      "home": ("adapters/", "agentkit/harness/"),
-     "max": 140},
+     "max": 66},
     # run.json has one writer, so its keys and their transitions can be read in one file.
     # Called through the module (`run.save_state`); watch.py's own `save_state` writes the
     # watcher's state, not a run record.
@@ -67,7 +75,11 @@ def outside(rule):
                           capture_output=True, text=True)
     if proc.returncode not in (0, 1):     # 1 is no match at all
         raise AssertionError(f"git grep failed: {proc.stderr}")
-    return [line for line in proc.stdout.splitlines() if not line.startswith(rule["home"])]
+    found = [line for line in proc.stdout.splitlines() if not line.startswith(rule["home"])]
+    if rule.get("names"):
+        found = [line for line in found if re.search(
+            rule["pattern"], re.sub(rule["names"], "", line.split(":", 2)[2], flags=re.I), re.I)]
+    return found
 
 
 class Boundaries(unittest.TestCase):
