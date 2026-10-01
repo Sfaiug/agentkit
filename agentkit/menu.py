@@ -3739,7 +3739,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             cursor = drawn["cursor"] if drawn else cursor   # the seat he sees highlighted
             live.probe()                  # after the draw, never before it: the cache is enough
             if tidy is not None:
-                live.tidy(tidy)           # so is maintenance: the records as they stand
+                live.tidy(tidy)           # maintenance too: the first draw is as recorded
                 tidy = None
             asking = live.asking()        # once: the probe may land between two asks
             if asking is not None and drawn and drawn["rule"]:
