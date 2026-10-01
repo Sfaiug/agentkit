@@ -491,7 +491,7 @@ def waited(work, title, body=list, keys="esc back", keyboard=None):
     taken for the wait -- the screen is drawn, and again after a resize, and its rule glides
     once the fetch is past motion.WAIT (motion.fetching), on the clock's own frames.  Esc, the
     end of input or a click on `esc back` raises Back, `work` left to finish on its own
-    and its answer unused; any other key is let go.
+    and its answer unused; any other key is let go, and the pointer draws it again.
     """
     fetch = Fetch(work)
     fetch.join(motion.FRAME)
@@ -500,15 +500,12 @@ def waited(work, title, body=list, keys="esc back", keyboard=None):
     try:
         while fetch.is_alive() and terminal.taken():
             lines = body()            # laid out again after a resize: no line wider than it
-            terminal.frame(title, lines, keys)
+            spots = terminal.frame(title, lines, keys)
             clock = motion.fetching(motion.Clock(), fetch.began)
             key = moving(clock, timeout=TICK, going=fetch.is_alive)
-            while key is not None:        # a key is read, and the rule glides on as it was
-                if (key.name in ("esc", "eof") or key.name == "click" and any(
-                            (4 + len(lines) + number, item) == (key.row, "esc")
-                            and first <= key.col <= last
-                            for number, text in enumerate(terminal.key_line(keys))
-                            for first, last, item in terminal.key_spans(text))):
+            while key is not None and key.name != "point":    # the rule glides on as it was
+                if (key.name in ("esc", "eof")
+                        or key.name == "click" and terminal.under(key, spots).cell == "esc"):
                     raise Back
                 key = moving(clock, timeout=TICK, going=fetch.is_alive)
     finally:
@@ -1247,10 +1244,11 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     `drawn` is handed in only while the menu has the keyboard: then the seat named `cursor`
     -- or the first one, when there is no such seat any more -- is highlighted, the page up is
     the one it is on, the screen is written over in place instead of cleared, and `drawn` is
-    filled with what a key or a click is read against: `order`, the seats' names top to
-    bottom, with the checkout of a project naming its feature switches where its heading is;
-    `cursor`, the one highlighted; `rows`, the seat or heading on each screen row; `spans`, the
-    key-line item under each column; `words`, each seat's word.
+    filled with what a key, a click or the pointer is read against: `order`, the seats' names
+    top to bottom, with the checkout of a project naming its feature switches where its heading
+    is; `cursor`, the one highlighted; `spots`, the seat or heading on each screen row and the
+    key line's items (`terminal.under`), the one under the pointer lit; `words`, each seat's
+    word.
 
     `x` acts on the highlighted seat, or on `own`, the popup's own, and the key line says
     `x close` while that seat is done.  `ask` is the seat `x` is asking about and the card it
@@ -1466,6 +1464,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     if not owned:
         print("\n".join(out))
         return page, (len(pages) if ordered else 1)
+    spots = {top + number: (name, []) for number, (_, name) in enumerate(body, 1) if name}
+    spots.update(terminal.key_spots(key_lines, keys_top + 1))
+    out = terminal.lit(out, spots)
     moved, rising = "", False
     if clock is not None:
         clock.clear()
@@ -1494,11 +1495,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                      + "\033[J" + moved)
     sys.stdout.flush()
     drawn.update(order=order, cursor=cursor, words=words, rule=not compact,
-                 ask=top + at + 1 if at else None,
-                 rows={top + number: name for number, (_, name) in enumerate(body, 1) if name},
-                 spans=[(keys_top + number, first, last, key)
-                        for number, line in enumerate(key_lines, 1)
-                        for first, last, key in terminal.key_spans(line)])
+                 ask=top + at + 1 if at else None, spots=spots)
     return page, (len(pages) if ordered else 1)
 
 
@@ -2620,8 +2617,8 @@ def config_model_id(cfg, name, step, screen):
 
 
 def model_body(cfg, name, at=None):
-    """A model's own screen's lines, and where its rows sit on them: {line: (row, first,
-    last)}, the columns of the value on that line, counted from 1, for a click.
+    """A model's own screen's lines, and where its rows sit on them: {line: (row, cells)}, the
+    cells `left` and `right` the arrows of the value on that line, counted from 1 (`under`).
 
     Its model id and its effort, each between the arrows that step it, then `Remove`;
     `at` is the highlighted row.  On a phone, where a label and its value do not fit on
@@ -2639,9 +2636,10 @@ def model_body(cfg, name, at=None):
         first = 5 + (0 if under else wide)
         parts = ([f"  {row}", f"    {value}"] if under and value
                  else [f"  {terminal.pad(row, wide)}  {value}".rstrip()])
+        last = first + terminal.cells(value) - 1
         for number, line in enumerate(parts):
-            places[len(lines)] = ((row, first, first + terminal.cells(value) - 1)
-                                  if number == len(parts) - 1 else (row, 0, -1))
+            places[len(lines)] = (row, [(first, first + 1, "left"), (last - 1, last, "right")]
+                                  if number == len(parts) - 1 and value else [])
             lines.append(terminal.highlight(line, number == 0) if row == at else line)
     return lines, places
 
@@ -2665,25 +2663,22 @@ def config_model(cfg, name):
         body, places = model_body(cfg, name, here)
         shown = body + (["", *(terminal.styled("  " + part, "dim") for part in terminal.wrap(
             note, terminal.layout_width() - 2))] if note else [])
-        terminal.frame(title, shown, keys)
+        spots = terminal.frame(title, shown, keys, places=places)
         key = terminal.read_key()
         if key is None:
             continue                  # a resize: drawn again at the new size
+        spot = terminal.under(key, spots)
+        if key.name == "point":
+            here = spot.what or here  # the highlight on the pointer's row, an arrow lit
+            continue
         act, note = key.name, ""
         if act == "click":
-            place = places.get(key.row - 3)
-            if place is None:
-                if any((4 + len(shown) + number, item) == (key.row, "esc")
-                       and first <= key.col <= last
-                       for number, text in enumerate(terminal.key_line(keys))
-                       for first, last, item in terminal.key_spans(text)):
+            if spot.what is None:
+                if spot.cell == "esc":
                     return
                 continue
-            here, first, last = place
-            inside = first <= key.col <= last     # on the value: an arrow steps it
-            act = ("enter" if here == "Remove"
-                   else "left" if inside and key.col <= first + 1
-                   else "right" if inside and key.col >= last - 1 else "")
+            here = spot.what          # on the value an arrow steps it
+            act = "enter" if here == "Remove" else spot.cell or ""
         if act in ("esc", "eof"):
             return
         if terminal.step(key):
@@ -2724,8 +2719,9 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     whatever the height.  ↑/↓, k/j and the wheel move `here` through `rows`.  A click on a row
     makes it `here`, and one on a cell makes that the column, acting `enter` on the first
     `marks` columns and `less` or `more` on another's arrows; `column` is None where no cell was
-    clicked.  `act` is `back` for Esc or a click on `esc back`, None when the screen wants
-    drawing again -- a resize, or `timeout` seconds with no key -- and the key's name otherwise.
+    clicked.  The pointer does the same and acts on nothing, the cell it is on lit.  `act` is
+    `back` for Esc or a click on `esc back`, None when the screen wants drawing again -- a
+    resize, the pointer, or `timeout` seconds with no key -- and the key's name otherwise.
     `fetched()` says since when the screen's content is being fetched, or None: while it is, the
     rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
     """
@@ -2735,7 +2731,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     drawn = [number for number, (row, _) in places.items() if row == here] or [0]
     top = max(0, min(max(top, drawn[-1] - room + 1), drawn[0], len(body) - room))
     shown = body[top:top + room]
-    terminal.frame(title, shown + said, keys)     # its first line is the terminal's third
+    spots = terminal.frame(title, shown + said, keys, places={
+        line - top: place for line, place in places.items() if top <= line < top + room})
     began = fetched and fetched()
     if began is None:
         key = terminal.read_key(timeout)
@@ -2745,22 +2742,19 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     if key is None:
         return None, here, None, top
     act, column = key.name, None
-    if act == "click":
-        place = places.get(top + key.row - 3) if 0 <= key.row - 3 < len(shown) else None
-        if place is None:
-            back = any((row, item) == (key.row, "esc") and first <= key.col <= last
-                       for row, first, last, item in (
-                           (4 + len(shown) + len(said) + number, *span)
-                           for number, text in enumerate(terminal.key_line(keys))
-                           for span in terminal.key_spans(text)))
-            return "back" if back else "", here, None, top
+    if act in ("click", "point"):
+        spot = terminal.under(key, spots)
+        if spot.what is not None:
+            here, column = spot.what, spot.cell
+        if act == "point":
+            return None, here, column, top
+        if spot.what is None:
+            return "back" if spot.cell == "esc" else "", here, None, top
         # a row runs its step; on Providers only a click on one of its two acts does
-        here, act = place[0], "enter" if place[0][0] == "row" and place[0] != PROVIDERS else ""
-        for first, last, number in place[1]:
-            if first <= key.col <= last:
-                column = number
-                act = ("enter" if number < marks else "less" if key.col <= first + 1
-                       else "more" if key.col >= last - 1 else "")
+        act = "enter" if here[0] == "row" and here != PROVIDERS else ""
+        if column is not None:
+            act = ("enter" if column < marks else "less" if key.col <= spot.first + 1
+                   else "more" if key.col >= spot.last - 1 else "")
     if act in ("esc", "eof"):
         return "back", here, column, top
     if terminal.step(key) and rows:
@@ -2807,9 +2801,10 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         body, places = config_body(cfg, version, here, column, selected, providers)
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top, note, keys,
                                             marks=3)
+        column = column if clicked is None else clicked
         if act is None:
-            continue                  # a resize: drawn again at the new size
-        note, column = "", column if clicked is None else clicked
+            continue                  # a resize or the pointer: drawn again
+        note = ""
         if act == "back":
             return cfg
         if here == ("row", CONFIG_ROWS[0]):
@@ -2961,19 +2956,21 @@ def config_add(cfg):
         drawn = next((line for line, number in places.items() if number == at), len(body) - 1)
         top = max(0, min(max(top, drawn - room + 1), drawn, len(body) - room))
         shown = body[top:top + room]
-        terminal.frame("config · add a model", shown + said, keys)
+        spots = terminal.frame("config · add a model", shown + said, keys, places={
+            line - top: (number, []) for line, number in places.items()
+            if top <= line < top + room})
         key = terminal.read_key()
         if key is None:
             continue                  # a resize: drawn again at the new size
+        spot = terminal.under(key, spots)
+        if key.name == "point":
+            ats[-1] = at if spot.what is None else spot.what     # the highlight on its choice
+            continue
         act, note = key.name, ""
         if act == "click":
-            number = places.get(top + key.row - 3) if 0 <= key.row - 3 < len(shown) else None
-            if number is not None:
-                at, act = number, "enter"
-            elif any((4 + len(shown) + len(said) + line, item) == (key.row, "esc")
-                     and first <= key.col <= end
-                     for line, text in enumerate(terminal.key_line(keys))
-                     for first, end, item in terminal.key_spans(text)):
+            if spot.what is not None:
+                at, act = spot.what, "enter"
+            elif spot.cell == "esc":
                 act = "esc"
         if act == "eof":
             return None
@@ -3457,9 +3454,10 @@ def show_features(checkout, dry_run=False):
         act, here, clicked, top = matrix_key(checkout.name, body, places, rows, here, top,
                                              terminal.cut(note, terminal.layout_width() - 2),
                                              keys, STIR, fetched=fetched)
+        column = column if clicked is None else clicked
         if act is None:
-            continue                  # a resize, or a look at whether the answer has landed
-        note, column = "", column if clicked is None else clicked
+            continue                  # a resize, the pointer, or a look at whether it landed
+        note = ""
         if act == "back":
             return
         if act in ("left", "right"):
@@ -3522,10 +3520,10 @@ def pressed(key, drawn, found):
     def opens(name):
         return name if isinstance(name, Path) else numbers.get(name, "")
     if key.name == "click":
-        if key.row in drawn["rows"]:
-            return opens(drawn["rows"][key.row])
-        item = next((item for row, first, last, item in drawn["spans"]
-                     if row == key.row and first <= key.col <= last), "")
+        spot = terminal.under(key, drawn["spots"])
+        if spot.what is not None:
+            return opens(spot.what)
+        item = spot.cell or ""
         if item not in ("⏎", "enter", "esc"):
             return item if len(item) == 1 else ""
         key = terminal.Key({"⏎": "enter"}.get(item, item))
@@ -3568,7 +3566,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
     On a terminal the menu has the keyboard (`terminal.Keyboard`) and there are no lines: a
     key acts the moment it is pressed.  One seat row is highlighted; ↑/↓, k/j and the wheel
     move it and the page up follows it; Enter opens it.  A click on a row opens that seat and
-    a click on the key line does what its key does, each once the button is up.  A digit
+    a click on the key line does what its key does, each once the button is up; the pointer
+    on a row moves the highlight there, and on a key-line item lights it.  A digit
     waits half a second for a second one, a resize or not, and a key read while it waits is
     kept for after, with the screen it was read on.  The highlight is the seat's name, so it
     stays on its seat whatever comes or goes above it.  A key that does nothing here is let
@@ -3618,6 +3617,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
             look = True
             if isinstance(key, terminal.Key):
                 order = drawn["order"]
+                if key.name == "point":
+                    cursor = terminal.under(key, shown["spots"]).what or cursor
+                    look = False          # the highlight moves over what is in hand
+                    continue
                 if terminal.step(key):
                     if order:
                         at = order.index(cursor) + terminal.step(key)
@@ -3637,7 +3640,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                     more, until = None, time.monotonic() + 0.5
                     while more is None and time.monotonic() < until:
                         more = moving(clock, timeout=until - time.monotonic())
-                        if more is None and time.monotonic() < until:
+                        if more is not None and more.name == "point":
+                            more = None           # the pointer cuts no wait short
+                        elif more is None and time.monotonic() < until:
                             # a resize: drawn anew, so the dots breathe on where they now are
                             page, pages = draw(cfg, found, listed, page, cursor, drawn, own,
                                                look=False, groups=groups, clock=clock)
