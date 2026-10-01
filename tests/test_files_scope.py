@@ -131,9 +131,11 @@ class FilesScope(unittest.TestCase):
     def test_git_literal_specs_preserve_whitespace_and_unicode_paths(self):
         lp = self.loop("files: :(literal) leading ü[1].txt\n")
         self.write(" leading ü[1].txt")
+        self.commit("add literal path")
         ok, text = self.verify(lp)
         self.assertTrue(ok, text)
         self.write(" leading ü1.txt")
+        self.commit("add outside path")
         ok, text = self.verify(lp)
         self.assertFalse(ok, text)
         self.assertEqual(text.splitlines()[-1], "outside files:  leading ü1.txt")
