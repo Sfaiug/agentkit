@@ -267,8 +267,8 @@ class EscBack(unittest.TestCase):
         menu_.back("new_session", title("new session"))
         # the name Enter takes is in the field, dim, until a key replaces it
         typed = menu_.text()[mark:]
-        self.assertRegex(typed, r"Name: \x1b\[[\d;]*mauto\x1b\[0m")
-        self.assertRegex(typed, r"Name: q\x1b\[K")
+        self.assertRegex(typed, r"  Name: \x1b\[[\d;]*mauto\x1b\[0m")
+        self.assertRegex(typed, r"  Name: q\r?\n")
         mark = len(menu_.text())
         menu_.press(b"n", title("new session"))
         menu_.send(ENTER)                           # auto: the models, on the same keys
