@@ -260,11 +260,16 @@ class UsageLeft(Sandbox):
         self.assertIn(directory, [path for path, _ in menu.run_records()])
         warning = "WARN could not check the runs: the run directory is unreadable"
         updates = [["agentkit: reaped a loop whose process was gone", warning], []]
-        real_maintenance = orch.maintenance
+        real_maintenance, real_show_notices = orch.maintenance, menu.show_notices
         def maintenance(log):
             for message in updates.pop(0):
                 log(message)
             real_maintenance(log)
+
+        def show_notices(messages):
+            # A warning drawn after its notice must still be in the screen output.
+            with redirect_stdout(notices), patch.object(notices, "isatty", return_value=True):
+                real_show_notices(messages)
 
         def wait_key(prompt, timeout=None, wake=None):
             nonlocal waited
@@ -278,10 +283,11 @@ class UsageLeft(Sandbox):
                 patch.object(orch, "maintenance", side_effect=maintenance), \
                 patch.object(orch, "sessions", return_value=[{"name": "atoll-fix", "created": 9100}]), \
                 patch.object(orch, "job_notices", return_value=[]), \
+                patch.object(menu, "show_notices", side_effect=show_notices), \
                 patch.object(menu, "wait_key", side_effect=wait_key), \
                 patch.object(sys.stdin, "isatty", return_value=True):
             for first in (True, False):
-                out = io.StringIO()
+                out, notices = io.StringIO(), io.StringIO()
                 live, waited = menu.Live(self.cfg), False
                 with redirect_stdout(out), patch.object(out, "isatty", return_value=True), \
                         patch.object(menu, "Live", return_value=live), \
@@ -292,14 +298,16 @@ class UsageLeft(Sandbox):
                 before, screen = out.getvalue().split("agentkit ", 1)
                 self.assertEqual(before, "")       # the menu's first frame, before any notice
                 if first:
-                    self.assertIn("agentkit: reaped a loop whose process was gone", screen)
-                    self.assertIn(warning, screen)
+                    self.assertIn("agentkit: reaped a loop whose process was gone", notices.getvalue())
+                    self.assertIn(warning, notices.getvalue())
                     self.assertEqual([call.args[0] for call in read.call_args_list],
                                      ["esc back ", "> "])
                 else:
-                    self.assertNotIn(warning, screen)
+                    self.assertNotIn(warning, notices.getvalue())
                     self.assertEqual([call.args[0] for call in read.call_args_list], ["> "])
                 self.assertNotIn("Finished old-owned", screen)
+                self.assertNotIn("Finished old-owned", notices.getvalue())
+                self.assertNotIn(warning, screen)
                 self.assertFalse(run.read_state(directory)["reported"])
 
     def test_notice_pause_wraps_complete_messages_on_a_phone(self):
