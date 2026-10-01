@@ -546,6 +546,40 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
     def test_a_named_subscription_spends_its_own_reset_credit(self):
         self.refused_on("second")
 
+    def test_another_subscription_s_reset_never_resumes_the_refused_one(self):
+        """Only second is refilled, between the refusal and its recovery: default's own
+        reset is tried, and default is parked, not resumed on second's receipt."""
+        self.codex_seat()
+        self.cfg["providers"]["openai"]["accounts"] = ["default", "second"]
+        def reading(used, resets):
+            return {"provider": "openai", "harness": "codex", "resets": resets,
+                    "meters": [usage._normalized({"name": "primary_window", "used": used,
+                        "resets_at": self.now + 86400, "window_secs": 604800}, self.now)]}
+        readings = {"default": reading(95, 0), "second": reading(100, 2)}
+        self.cached(lambda p: p.update(openai={**readings["default"], "accounts": readings}))
+        self.replenish.side_effect = replenish
+        self.pane = "You've hit your usage limit"
+        with patch.object(usage, "_probe", side_effect=lambda _cfg, _provider, _now, account=None:
+                          json.loads(json.dumps(readings[account]))), \
+                patch.object(usage, "_adapter_json", return_value={
+                    "code": "reset", "available": 1, "weekly_used": 5,
+                    "resets_at": self.now + 604800}) as adapter:
+            self.tick()
+            self.assertTrue(replenish(self.cfg, "openai", account="second")[0])
+            self.now += watch.STALL_WAIT
+            self.tick()
+        adapter.assert_called_once_with("codex", "reset", 60, "second")
+        self.replenish.assert_any_call(self.cfg, "openai", depleted=False, account="default")
+        cached = json.loads((config.STATE / "usage.json").read_text())["providers"]["openai"]
+        self.assertGreater(cached["accounts"]["default"]["exhausted_until"], self.now)
+        # the credit refilled second, so that is where the conversation goes on
+        self.assertEqual(config.session_records()[NAME]["account"], "second")
+        self.assertEqual(len(self.commands), 1)
+
+    def test_the_fallback_deadline_is_the_refused_subscription_s_own(self):
+        self.meters(100, 95)
+        self.assertEqual(watch.window_ends(self.cfg, "anthropic", NAME), self.now + 86400)
+
     def test_codex_reset_during_meter_read_is_not_parked_on_the_old_refusal(self):
         self.codex_seat()
         self.pane = "You've hit your usage limit"
