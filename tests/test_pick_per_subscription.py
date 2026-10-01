@@ -145,19 +145,20 @@ class PickPerSubscription(unittest.TestCase):
 
     def test_only_the_deadline_ends_a_refusal_no_meter_of_its_length_showed(self):
         # refused for five days beside nothing but a session ending in an hour, short of 100%
-        # or spent: a fresh session an hour before the deadline answers neither refusal
+        # or spent, its length reported or not: a fresh session an hour before the deadline
+        # answers none of these refusals
         self.stack.enter_context(patch.object(usage, "_probe", side_effect=self.fake_probe))
-        for used in (30, 100):
+        for used, length in ((30, usage.SESSION_SECS), (100, usage.SESSION_SECS), (100, None)):
             self.now += 6 * DAY
-            self.meters = [{"name": "session", "used": used, "resets_at": self.now + 3600,
-                            "window_secs": usage.SESSION_SECS}]
+            session = {"name": "session", "used": used, "resets_at": self.now + 3600}
+            self.meters = [{**session, "window_secs": length} if length else session]
             until = usage.mark_exhausted(self.cfg, "beta", self.now + 5 * DAY)
             self.now = until - 3600
             self.meters = [{"name": "session", "used": 0,
                             "resets_at": self.now + usage.SESSION_SECS,
                             "window_secs": usage.SESSION_SECS}]
             providers = usage.collect(self.cfg)
-            self.assertEqual(providers["beta"].get("exhausted_until"), until, used)
+            self.assertEqual(providers["beta"].get("exhausted_until"), until, (used, length))
             self.assertNotIn("two", usage.pick_order(self.cfg, providers, ["two"], quiet=True))
 
 if __name__ == "__main__":
