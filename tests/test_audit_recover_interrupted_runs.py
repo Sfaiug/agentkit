@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import scripted
 from agentkit import config, gc, job as jobs, menu, notify, orch, run, terminal, watch
 
 
@@ -110,7 +111,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         self.addCleanup(self.finish_children)
 
     def script(self, path, body):
-        path.write_text(f"#!{sys.executable}\n{body}")
+        path.write_text(f"#!{sys.executable}\n{scripted(body)}")
         path.chmod(0o755)
 
     def finish_children(self):
