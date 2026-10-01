@@ -89,8 +89,12 @@ class PickPerSubscription(unittest.TestCase):
     def test_a_provider_is_not_logged_in_only_when_none_of_its_accounts_is(self):
         # the usual login has expired and `second` still works: its models can run
         self.logged_in("second")
-        read = usage.readiness(self.cfg, usage.Readings({}))
-        self.assertIsNone(usage.unready(self.cfg, "one", read))
+        for listed in ([], ["default"]):
+            self.cfg["providers"]["beta"]["accounts"] = listed
+            read = usage.readiness(self.cfg, usage.Readings({}))
+            self.assertIsNone(usage.unready(self.cfg, "one", read))
+            # ... and another provider's on the same harness, which is no login of beta's
+            self.assertEqual(usage.unready(self.cfg, "two", read), "fake is not logged in")
         self.logged_in()
         read = usage.readiness(self.cfg, usage.Readings({}))
         self.assertEqual(usage.unready(self.cfg, "one", read), "fake is not logged in")
@@ -119,17 +123,19 @@ class PickPerSubscription(unittest.TestCase):
         # refused "until Tue": a refusal the weekly meter does not show at 100%
         until = NOW + 5 * DAY
         usage.mark_exhausted(self.cfg, "beta", until)
-        # the session rolls over with room; the week is the one the refusal was made in
-        self.now = NOW + 3600 + usage.PROBE_EVERY + 1
-        self.meters = [{"name": "session", "used": 0, "resets_at": self.now + usage.SESSION_SECS,
-                        "window_secs": usage.SESSION_SECS}, week]
-        cache = config.STATE / "usage.json"
-        blob = json.loads(cache.read_text())
-        blob["fetched_at"] = self.now - usage.CACHE_TTL - 1
-        cache.write_text(json.dumps(blob))
-        providers = usage.collect(self.cfg)
-        self.assertEqual(providers["beta"].get("exhausted_until"), until)
-        self.assertNotIn("two", usage.pick_order(self.cfg, providers, ["two"], quiet=True))
+        # the session rolls over with room, early and an hour before the deadline with a window
+        # running past it; the week is still the one the refusal was made in
+        for now in (NOW + 3600 + usage.PROBE_EVERY + 1, until - 3600):
+            self.now = now
+            self.meters = [{"name": "session", "used": 0, "resets_at": now + usage.SESSION_SECS,
+                            "window_secs": usage.SESSION_SECS}, week]
+            cache = config.STATE / "usage.json"
+            blob = json.loads(cache.read_text())
+            blob["fetched_at"] = now - usage.CACHE_TTL - 1
+            cache.write_text(json.dumps(blob))
+            providers = usage.collect(self.cfg)
+            self.assertEqual(providers["beta"].get("exhausted_until"), until)
+            self.assertNotIn("two", usage.pick_order(self.cfg, providers, ["two"], quiet=True))
 
 
 if __name__ == "__main__":
