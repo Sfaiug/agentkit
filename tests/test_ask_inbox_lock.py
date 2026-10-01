@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import textwrap
 import threading
 import unittest
 from unittest.mock import patch
@@ -154,6 +155,37 @@ class AskInboxLock(unittest.TestCase):
             self.assertEqual(self.ask(), 0)
         self.assertEqual([sent[:9] for sent in self.sent], [QUESTION[:9], "Enter", "Enter"])
         self.assertIn(f"asked the inbox seat: {QUESTION}", self.logs)
+
+    def test_a_question_whose_enter_failed_is_sent_by_the_next_try(self):
+        def unruled(line):
+            return IDLE + (" " + line if line else "")
+
+        def wrapped(line):
+            # a long question wraps under a real composer, past the bottom rows of the pane
+            return fixture("draft").replace("Fix the login redirect",
+                                            "\n  ".join(textwrap.wrap(line, 72)))
+
+        lost = []
+
+        def tmux(*args, socket=None, client=False):
+            if args[0] == "send-keys" and args[-1] == "Enter" and not lost:
+                lost.append(True)     # the one Enter that never arrives
+                return 1, "lost server"
+            return self.tmux(*args, socket=socket, client=client)
+
+        for kind, draw in (("unruled", unruled), ("wrapped", wrapped)):
+            with self.subTest(kind=kind), patch.object(orch, "tmux_out", side_effect=tmux), \
+                    patch.object(watch.time, "sleep"):
+                del self.sent[:], lost[:]
+                self.pinged.reset_mock()
+                # the composer lets the question go only on the second Enter that arrives
+                self.pane = lambda: draw(self.sent[0] if self.sent and self.sent.count("Enter") < 2
+                                         else "")
+                self.assertNotEqual(self.ask(), 0)
+                self.pinged.assert_not_called()
+                self.assertEqual(self.ask(), 0)
+                self.assertEqual([sent[:9] for sent in self.sent], [QUESTION[:9], "Enter", "Enter"])
+                self.pinged.assert_called_once()
 
     def test_an_owner_question_stops_it_and_an_earlier_merge_question_does_not(self):
         with patch.object(watch.time, "sleep"):
