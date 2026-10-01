@@ -3866,9 +3866,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     that suite passed, and the reviewer is told its absence from the input is by design
     -- the output does not exist yet when the review starts.
 
-    `record` is off for a merge pipeline's conflict rounds only: they are not task rounds
-    and must not spend one, so no summary of them enters the rounds' own history -- see
-    `resolve_conflicts`.  The verdict is recorded either way, because delivery is decided
+    `record` is off for the merge pipeline's fixer rounds: they are not task rounds
+    and must not spend one, so no summary of them enters the rounds' own history.
+    The verdict is recorded either way, because delivery is decided
     on it.
     """
     lp.state.update(verdict=None, review=None,
@@ -4467,8 +4467,7 @@ def abort_integration(lp, how):
     lp.write()
 
 
-CONFLICT_ROUNDS = 3      # the merge pipeline's own fixer rounds per conflicted rebase or merge,
-                         # and per final check that keeps failing
+CONFLICT_ROUNDS = 3      # the merge pipeline's own fixer rounds per conflict or failing re-run
 
 
 def fix_after_failed_review(lp, upstream, how):
@@ -4788,19 +4787,43 @@ def integrate(lp, upstream):
                                 lp.rnd = old_rnd
                                 lp.lap_every_sha = new_identity["head_sha"]
                         else:
+                            # The target moved under work that already passed: fix the
+                            # gate before reviewing it, without spending task rounds.
+                            lp.rnd = old_rnd
+                            reason = f"Re-review after the {how} of {upstream}."
+                            lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
+                                                          "reason": reason, "record": False}
+                            lp.save()
                             drop_reserved_turn()    # the lap failed; the probe runs unheld
-                            said = target_fails(lp, upstream, dw_log)
-                            if said:
-                                return park_waiting(
-                                    lp, f"{upstream} itself fails: {said}", upstream, tip)
-                            if not lp.state.get("review_pending"):
-                                pending_review(lp, f"Re-review after the {how} of {upstream}.")
-                            with released_gate_turn():
-                                passed = (resume_review(lp, verified=(ok, dw_log)) == "PASS"
-                                          or fix_after_failed_review(lp, upstream, how))
-                            if not passed:
-                                return note(lp, f"done-when or review after the {how} of {upstream} "
-                                                "did not pass")
+                            for attempt in range(CONFLICT_ROUNDS + 1):
+                                said = target_fails(lp, upstream, dw_log)
+                                if said:
+                                    return park_waiting(
+                                        lp, f"{upstream} itself fails: {said}", upstream, tip)
+                                if attempt == CONFLICT_ROUNDS:
+                                    return park_waiting(
+                                        lp, f"done-when after the {how} still fails after "
+                                            f"{CONFLICT_ROUNDS} fixer rounds: {first_failure(dw_log)}",
+                                        upstream, tip)
+                                lp.log(f"--- merge: re-run round {attempt + 1}/{CONFLICT_ROUNDS}: "
+                                       f"fixer {lp.executor} (done-when after the {how})")
+                                fix = (f"{lp.context}\n\n## The done-when commands failed. "
+                                       f"Fix the root cause.\n```\n{dw_log[-OUT_CAP:]}\n```")
+                                with released_gate_turn():
+                                    summary = execute(lp, "fixer", fix, "rerun-fixer")
+                                    lp.state["review_pending"]["summary"] = summary
+                                    lp.save()
+                                    lp.round_dir.mkdir(parents=True, exist_ok=True)
+                                    ok, dw_log = verify_work(lp)
+                                    lp.log(f"done-when after the fix: {'all passed' if ok else 'FAILED'}")
+                                    if ok:
+                                        passed = (review(lp, summary, ok, dw_log, reason,
+                                                         record=False) == "PASS"
+                                                  or fix_after_failed_review(lp, upstream, how))
+                                        if not passed:
+                                            return note(lp, f"done-when or review after the {how} "
+                                                            f"of {upstream} did not pass")
+                                        break
                             lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
                 else:
                     if not lp.state.get("review_pending"):
