@@ -1479,7 +1479,7 @@ SH
   codex_model_flag_check || OFFLINE_RC=1
   for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_boundaries.py test_architecture.py test_docs.py \
               test_audit_phone_menu_recovery_layout.py test_choose_click.py \
-              test_audit_retry_required_notifications.py test_solo_switch.py; do
+              test_audit_retry_required_notifications.py test_solo_switch.py test_from_run_takes_the_target.py; do
     case "$test" in
       test_notify.py) lifecycle_check notify || OFFLINE_RC=1 ;;
       test_v4l.py) lifecycle_check v4l || OFFLINE_RC=1 ;;
@@ -5728,7 +5728,8 @@ if { python3 "$REPO/tests/test_regression_fails_before.py" &&
      python3 "$REPO/tests/test_probe_resume.py" &&
      python3 "$REPO/tests/test_followup_runs.py" && python3 "$REPO/tests/test_red_target.py" &&
      python3 "$REPO/tests/test_review_gate.py" && python3 "$REPO/tests/test_changed_checks.py" &&
-     python3 "$REPO/tests/test_landing_review_spends_no_round.py"; } >"$WORK/regression-base.log" 2>&1; then
+     python3 "$REPO/tests/test_landing_review_spends_no_round.py" &&
+     python3 "$REPO/tests/test_from_run_takes_the_target.py"; } >"$WORK/regression-base.log" 2>&1; then
   ok "50 fix runs: regression fails on base and passes on HEAD, changed checks reach review, probes restore the branch"
 else
   no "50 fix runs and regression on base"; tail -30 "$WORK/regression-base.log"
