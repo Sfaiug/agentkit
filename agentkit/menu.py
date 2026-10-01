@@ -1694,7 +1694,7 @@ def rename_this_session(dry_run):
     if name is None or name is orch.BACK:
         return
     if dry_run:
-        print(f"would rename {current} -> {name}")
+        pause(f"would rename {current} -> {name}")
         return
     try:
         renamed = orch.rename(current, name)
@@ -1702,7 +1702,7 @@ def rename_this_session(dry_run):
         pause(f"rename: {exc}")
         return
     os.environ[config.SESSION_ENV] = renamed
-    print(f"renamed {current} -> {renamed}")
+    pause(f"renamed {current} -> {renamed}")
 
 
 def stop_this_session(dry_run):
