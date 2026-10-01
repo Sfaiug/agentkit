@@ -263,9 +263,9 @@ class Limits(unittest.TestCase):
         self.assertIn("[killed at the limit]", log)
         self.assertIn(f"done-when: stopped after 0.05 min of silence: {hang} (last output: begun)", log)
         stopped = next(line for line in log.splitlines() if line.startswith("done-when: stopped"))
+        stopped = stopped.removesuffix(", and the commands after it, if any, were not run.")
         self.assertIn("; still running: sleep 600 (", stopped)
-        self.assertIn(stopped.removesuffix(", and the commands after it, if any, were not run."),
-                      (directory / "log.txt").read_text())
+        self.assertIn(stopped, (directory / "log.txt").read_text())
         self.assertIn(stopped, (directory / "result.md").read_text())
         # and that is exactly what the fixer is handed
         fixer = (directory / "round-1" / "fixer" / "prompt.md").read_text()

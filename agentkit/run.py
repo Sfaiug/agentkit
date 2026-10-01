@@ -7681,6 +7681,16 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
         parts += ["", state["blocked"], ""]
     parts += ["", "## Done-when", "```", "\n".join(result_done_when(cmds, state)), "```", ""]
     parts += [final_check_line(state, cmds), ""]
+    # A model's summary need not repeat a stop; a fix started from this result
+    # still needs the diagnostic the gate recorded before ending the children.
+    try:
+        with (run_dir / "log.txt").open(errors="replace") as progress:
+            stopped = [line.rstrip().split("] ", 1)[1] for line in progress
+                       if re.match(r"^\[\d\d:\d\d:\d\d\] done-when: stopped ", line)]
+    except OSError:
+        stopped = []
+    if stopped:
+        parts += ["## Stopped checks", "", "```", *stopped, "```", ""]
     for entry in state["round_summaries"]:
         dw = {True: "done-when passed", False: "done-when failed"}.get(
             entry["done_when"], "done-when not run")
