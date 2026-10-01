@@ -52,7 +52,9 @@ if role == "reviewer":
     seen = sum(1 for line in (root / "calls.jsonl").read_text().splitlines()
                if json.loads(line)["role"] == "reviewer")
     word = verdicts[seen - 1] if seen <= len(verdicts) else verdicts[-1]
-    text = f"VERDICT: {word}\\n\\n## Findings\\n- deliverable.txt:1 - say it again - the task asks"
+    text = f"VERDICT: {word}"
+    if word == "FAIL":
+        text += "\\n\\n## Findings\\n- deliverable.txt:1 - say it again - the task asks"
 else:
     (workspace / "deliverable.txt").write_text(role + "\\n")
     text = f"## Summary\\nThe {role} wrote the deliverable."
