@@ -46,6 +46,10 @@ composer = '^>$'
 # and effort (`Gemini 3.8 Flash · low`), or, on a seat opened with `--agent`, the agent with
 # them once agy has resolved the model (`agentkit (Gemini 3.8 Flash · low)  /agents`).
 footer = ['(?:\? for shortcuts|esc to cancel)?\s*(?:[^·]+ · (?:low|medium|high)|[\w.-]+(?: \([^)]*\))?\s+/agents)']
+# What the composer holds: everything after its `>` down to the last rule on the screen, so a
+# `>` in a wrapped line is the line's own and a chooser's `> /usage` under that rule is not it,
+# and nor is a prompt the transcript echoes under an earlier rule.
+draft = '^─+\n> ?(.*(?:\n(?!─+$).*)*)\n─+$(?![\s\S]*^─)'
 
 # Read in file order, first match wins: the dialogs before the spinner, the spinner before the
 # prompt, because the composer is still drawn while a turn runs.
