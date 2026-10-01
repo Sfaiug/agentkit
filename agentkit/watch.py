@@ -4431,8 +4431,9 @@ def resume_errored(dry_run=False, log=print, now=None):
     started stays `error`: still waiting, still silent, never a notification.
 
     Only a resumable error is scheduled at all: a worktree still there, the keys
-    a resume replays, a task that still parses.  Anything else was never stamped,
-    or loses its stamp here with one WARN, and reads parked for a person.
+    a resume replays, a task that still parses, and no job of its own to settle it.
+    Anything else was never stamped, or loses its stamp here with one WARN, and
+    reads parked for a person.
     A handed-back, carded or acknowledged ending, one at least a day old, or one
     with no launch session still on record loses its stamp and waits for a person.
     An error a later merged run replaced is retried never: its retry stamps go the
