@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import reported, scripted
+from fixtures.hand_in import scripted
 from agentkit import config, notify, run, task, worker
 
 
@@ -79,6 +79,10 @@ class ReviewGate(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
+        self.stack.enter_context(patch.object(worker, "kill_marked", return_value=True))
+        self.stack.enter_context(patch.object(run, "marker_pids", return_value=[]))
+        self.stack.enter_context(patch.object(run.orch, "stop_scope"))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         sockets = self.root / "sockets"
@@ -173,7 +177,7 @@ sys.exit(1)
             with self.subTest(role=role):
                 text = worker.PREAMBLES[role].format(workspace=self.root)
                 self.assertIn("A blocking finding must include evidence: a command that fails, "
-                              "a reproduction, or quoted diff lines that show the defect.", text)
+                  "a reproduction, or quoted lines that show the defect.", text)
                 self.assertIn("In a re-review, first rule on each disputed finding: upheld or "
                               "dropped, and why; then say which earlier findings are fixed and "
                               "which are not, then anything new.", text)

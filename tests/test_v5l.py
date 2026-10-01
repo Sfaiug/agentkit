@@ -78,6 +78,10 @@ class BudgetRuns(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
+        self.stack.enter_context(patch.object(worker, "kill_marked", return_value=True))
+        self.stack.enter_context(patch.object(run, "marker_pids", return_value=[]))
+        self.stack.enter_context(patch.object(run.orch, "stop_scope"))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         sockets = self.root / "sockets"
@@ -89,6 +93,8 @@ class BudgetRuns(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "PATH": f"{self.bin}:{os.environ['PATH']}",
             "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "", "AK_RUN_ROLE": "",
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "TMUX": "", "NO_COLOR": "1",
             "PYTHONDONTWRITEBYTECODE": "1", config.ADAPTER_DIR_ENV: str(adapters),
@@ -233,7 +239,7 @@ sys.exit(1)
         """A run that ended `fail` with its whole budget spent and its work still there."""
         self.reviews(fail(3), fail(2), PASS)
         code, directory, state = self.launch(rounds=2)
-        self.assertEqual((code, state["state"], state["rounds"]), (1, "fail", 2))
+        self.assertEqual((code, state["state"], state["rounds"]), (1, "fail", 2), self.log(directory))
         return directory, state
 
     def test_v5l_resume_with_a_larger_budget_continues_a_fail_at_its_next_round(self):

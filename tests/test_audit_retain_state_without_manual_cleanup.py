@@ -23,7 +23,7 @@ from unittest.mock import patch
 REAL_TMUX = shutil.which("tmux")
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import reported, scripted
+from fixtures.hand_in import scripted
 from agentkit import host, config, gc, menu, notify, orch, retention, run, update, watch
 
 DAY = 86400

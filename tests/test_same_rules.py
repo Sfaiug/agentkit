@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import reported, scripted
+from fixtures.hand_in import scripted
 from agentkit import config, gc, run
 
 TASK = "# Acme rules\n\n## Goal\nTouch acme.txt.\n\n## Done when\n```bash\ntrue\n```\n"

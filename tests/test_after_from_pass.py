@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import reported, scripted
+from fixtures.hand_in import scripted
 from agentkit import host, config, job as jobs, notify, orch, run
 
 URL = "https://github.com/acme/widget/pull"
