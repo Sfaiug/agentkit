@@ -84,10 +84,12 @@ business.
 Six keys and nothing else: the numbers, `n`, `x`, `c`, `i`, Esc. Esc is the one way
 back on every screen and at every question under the menu, and on the main
 screen it leaves at once, whatever is still going behind it; `q` is no key
-anywhere, and at a question it is a letter. The menu opens on the seats'
-records as they stand: each seat's look and the maintenance run behind the
-first frame, a look that lands draws the seats again, and what maintenance says
-is a notice once it lands.
+anywhere, and at a question it is a letter. On a terminal the menu opens on the
+seats' records as they stand: each seat's look and the maintenance run behind
+the first frame, a look that lands draws the seats again, and what maintenance
+says is a notice once it lands. From a pipe nobody presses a key and the one
+frame is what is read, so maintenance runs first, its notices above the menu,
+and the frame waits up to half a second for the looks.
 
 On a terminal the main menu has the keyboard and reads it a key at a time
 (cbreak): a key acts the moment it is pressed, with no Enter, and no redraw

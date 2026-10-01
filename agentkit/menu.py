@@ -158,6 +158,7 @@ NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Gro
          "google": "Gemini", "mimo": "MiMo"}
 TICK = 10.0              # the longest the main screen waits for a key before drawing itself again
 STIR = 1.0               # ... and how often it looks for a seat's word or the meters having moved
+LOOK_WAIT = 0.5          # ... and, from a pipe, the longest a read waits for the looks it began
 ESTIMATE_EVERY = 60      # how long a repo's estimate is kept before its history is asked again
 # What the `—` says, from the error the last probe left; the first match wins.  No pattern here
 # guesses at a login: `token`, `401` and `login` turn up in lines a logged-in seat produces too,
@@ -213,6 +214,7 @@ class Live:
         self.asked, self.looking = threading.Event(), False   # a read asked for, and a look
         self.last = None                 # where each read leaves the seats and their groups
         self.said = []                   # what maintenance said that no notice has shown yet
+        self.look_wait = 0               # how long a read waits for its look (`loop`)
 
     def close(self):
         """Give the pipe back, and wait on no thread: Esc leaves at once.
@@ -265,17 +267,21 @@ class Live:
         self._wake()
 
     def look(self, found):
-        """Look at every seat again, off the read, and wait for none of it.
+        """Look at every seat again, off the read, and wait `look_wait` for that at most.
 
         The looks are `v5o_groups`' own -- each seat captured, decided, and written to its record
         and its bar -- in a thread of their own, so a seat whose capture hangs holds up no read
-        and no draw: the read is the records as they stand, and a look landing has them read
-        again (`ask`) for its words to be drawn.  One pass at a time; one still going is not
-        doubled, and a menu that has left starts none.
+        and no draw: on a terminal the read is the records as they stand, and a look landing has
+        them read again (`ask`) for its words to be drawn.  From a pipe the one frame read is
+        all there is, so the read waits LOOK_WAIT for the looks' words.  One pass at a time; one
+        still going is waited on, not doubled, and a menu that has left starts none.
         """
-        if not self.done.is_set() and (self.looker is None or not self.looker.is_alive()):
+        if self.done.is_set():
+            return
+        if self.looker is None or not self.looker.is_alive():
             self.looker = threading.Thread(target=self._look, args=(found,), daemon=True)
             self.looker.start()
+        self.looker.join(self.look_wait)
 
     def _look(self, found):
         try:
@@ -3691,6 +3697,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     a look landing has them read and drawn again.  The first draw's meters are the cache's, and
     the probe that follows it runs in a thread and asks for one more draw when it lands.  So
     does `tidy`, `main`'s maintenance (`Live.tidy`): what it says is a notice as it lands.
+    From a pipe nobody presses a key and its one frame is all it reads, so there maintenance
+    runs first, said above the menu, and each read waits LOOK_WAIT for its looks.
     Nothing here waits on an adapter, and a key typed during a draw is read by the next wait.
     Between draws the working seats' dots breathe, and what changed since the draw before moves
     once, a frame whenever the clock says one is due and no key is waiting (`moving`), so a key
@@ -3721,7 +3729,16 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
         if keyboard.take():
             terminal.sense()              # true colour and the background, once, before a draw
-        live.watch(last)                  # read once before the first draw, looked at behind it
+        else:
+            # from a pipe nobody presses a key, and the one frame is what it reads: maintenance
+            # first, said above the menu, and the looks waited for
+            live.look_wait = LOOK_WAIT
+            if tidy is not None:
+                said = []
+                tidy(said.append)
+                show_notices(said)
+                tidy = None
+        live.watch(last)                  # read once before the first draw
         while True:
             if look:
                 live.ask(look=True)       # read and looked at again, off the draw
@@ -3929,6 +3946,6 @@ def main(argv):
     watch.resume_after_boot(config.load(), dry_run=flags["--dry-run"], log=messages.append)
     show_notices(messages)
     # what `ak orch` does on the way into a seat, gc and the runs nobody was told about, run
-    # behind the menu's first frame
+    # behind the menu's first frame on a terminal (`loop`)
     tidy = None if flags["--dry-run"] or flags["--overlay"] else orch.maintenance
     return loop(config.load(), flags["--client"], flags["--dry-run"], flags["--overlay"], tidy)
