@@ -2891,10 +2891,11 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     model = record["orchestrator"]
     waiting = live.get("usage_wait")
     # Reading the meters can itself spend a reset. Keep that receipt so the old
-    # refusal cannot park the capacity it just restored -- this subscription's own,
-    # because another's credit restores nothing here.
-    reset_path = usage._reset_file(provider, current if accounts else None)
-    reset_before = usage._reset_applied_at(reset_path)
+    # refusal cannot park the capacity it just restored -- one naming this subscription,
+    # because another's credit, or one a receipt cannot say whose, restores nothing here.
+    mine = current if accounts else config.DEFAULT_ACCOUNT
+    reset_path = usage._reset_file(provider, mine)
+    reset_before = usage._reset_applied_at(reset_path, mine)
     from . import run
     try:
         prov = (run._cached_providers() if dry_run else usage.collect(cfg)).get(provider) or {}
@@ -2960,7 +2961,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         return True
     refilled = False
     if refusal and not waiting and reset_policy(harness) and (until is None or until > now):
-        applied = usage._reset_applied_at(reset_path)
+        applied = usage._reset_applied_at(reset_path, mine)
         refilled = applied is not None and applied != observed.get("reset_at", reset_before)
         if refilled:
             log(f"{provider}: usage-limit reset applied")

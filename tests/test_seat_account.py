@@ -580,20 +580,56 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.meters(100, 95)
         self.assertEqual(watch.window_ends(self.cfg, "anthropic", NAME), self.now + 86400)
 
-    def test_codex_reset_during_meter_read_is_not_parked_on_the_old_refusal(self):
+    def receipt_during_meter_read(self, receipt):
         self.codex_seat()
         self.pane = "You've hit your usage limit"
         collect = usage.collect
         def readings(cfg):
-            usage._write_reset_state(config.STATE / "openai-reset.json", {"applied_at": self.now})
+            usage._write_reset_state(config.STATE / "openai-reset.json",
+                                     {"applied_at": self.now, **receipt})
             return collect(cfg)
         with patch.object(usage, "collect", side_effect=readings):
             self.tick()
         self.now += watch.STALL_WAIT
         self.tick()
+
+    def test_codex_reset_during_meter_read_is_not_parked_on_the_old_refusal(self):
+        self.receipt_during_meter_read({"account": "default"})
         self.replenish.assert_not_called()
         self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
         self.assertEqual(len(self.commands), 1)
+
+    def test_a_receipt_that_names_no_subscription_is_no_recovery(self):
+        self.receipt_during_meter_read({})
+        self.replenish.assert_called_once_with(self.cfg, "openai", depleted=False, account=None)
+        self.assertTrue(watch.seat_read(NAME).get("usage_wait"))
+        self.assertEqual(self.commands, [])
+
+    def test_no_receipt_moves_so_no_second_credit_goes_inside_its_day(self):
+        """A receipt from before receipts named theirs holds every subscription's day, and
+        the usual login's own still holds it once the provider lists accounts."""
+        reading = {"provider": "openai", "harness": "codex", "resets": 2,
+                   "meters": [usage._normalized({"name": "primary_window", "used": 95,
+                       "resets_at": self.now + 86400, "window_secs": 604800}, self.now)]}
+        listed = ["default", "second"]
+        with patch.object(usage, "_probe", side_effect=lambda *_a, **_kw: json.loads(
+                json.dumps(reading))), \
+                patch.object(usage, "_adapter_json", return_value={
+                    "code": "reset", "available": 1}) as adapter:
+            usage._write_reset_state(config.STATE / "openai-reset.json",
+                                     {"applied_at": self.now - 60})
+            self.cfg["providers"]["openai"]["accounts"] = listed
+            for account in listed:
+                self.assertFalse(replenish(self.cfg, "openai", account=account)[0])
+            adapter.assert_not_called()
+            self.now += usage.RESET_EVERY_SECS
+            del self.cfg["providers"]["openai"]["accounts"]
+            self.assertTrue(replenish(self.cfg, "openai")[0])
+            self.cfg["providers"]["openai"]["accounts"] = listed
+            self.now += 60
+            self.assertFalse(replenish(self.cfg, "openai", account="default")[0])
+            self.assertTrue(replenish(self.cfg, "openai", account="second")[0])
+        self.assertEqual([c.args[-1] for c in adapter.call_args_list], [None, "second"])
 
     def scoped_meters(self):
         def add(providers):
