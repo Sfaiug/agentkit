@@ -271,9 +271,9 @@ class Live:
         and its bar -- in a thread of their own, so a seat whose capture hangs holds up no read
         and no draw: the read is the records as they stand, and a look landing has them read
         again (`ask`) for its words to be drawn.  One pass at a time; one still going is not
-        doubled.
+        doubled, and a menu that has left starts none.
         """
-        if self.looker is None or not self.looker.is_alive():
+        if not self.done.is_set() and (self.looker is None or not self.looker.is_alive()):
             self.looker = threading.Thread(target=self._look, args=(found,), daemon=True)
             self.looker.start()
 
