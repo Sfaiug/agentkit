@@ -96,8 +96,9 @@ class MergeTurnByFiles(LandingCase):
         self.assertEqual(results, {lp.state["run_id"]: True for lp in (one, two, three, overlap)})
         self.assertEqual(self.merges, [("bravo", True), ("charlie", True),
                                       ("acme", True), ("overlap", True)])
-        self.assertEqual(self.counter.read_text().splitlines(), ["every", "once"] * 2)
-        self.assertIn("none touching this branch's files; landing on the verified checks",
+        self.assertEqual(self.counter.read_text().splitlines(), ["every", "once"] * 2 + ["once"])
+        self.assertEqual(one.state["final_check"]["sha"], one.state["delivery_sha"])
+        self.assertIn("this branch's files, reusing done-when and review evidence",
                       (one.run_dir / "log.txt").read_text())
         self.assertNotIn("waiting for the merge turn", (two.run_dir / "log.txt").read_text())
         self.assertFalse(list(config.RUNS.glob("*.hold")))
@@ -177,10 +178,11 @@ class MergeTurnByFiles(LandingCase):
                     self.assertFalse(thread.is_alive(), "a landing never finished")
         self.assertEqual(results, {lp.state["run_id"]: True for lp in (one, two)})
         self.assertEqual(self.merges, [("bravo", True), ("acme", True)])
-        self.assertEqual(self.counter.read_text().splitlines(), ["every", "once"] * 2)
+        self.assertEqual(self.counter.read_text().splitlines(), ["every", "once"] * 2 + ["once"])
+        self.assertEqual(one.state["final_check"]["sha"], one.state["delivery_sha"])
         self.assertIn("taking back the merge turn of acme main",
                       (one.run_dir / "log.txt").read_text())
-        self.assertIn("none touching this branch's files; landing on the verified checks",
+        self.assertIn("this branch's files, reusing done-when and review evidence",
                       (one.run_dir / "log.txt").read_text())
         self.assertNotIn("merge_retake", run.read_state(one.run_dir))
         self.assertFalse(list(config.RUNS.glob("*.hold")))

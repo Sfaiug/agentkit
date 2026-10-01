@@ -1,5 +1,6 @@
 """Suite commands deferred to landing are explained to reviewers and in result.md."""
 
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -16,6 +17,9 @@ class DeferredChecks(unittest.TestCase):
     def review_fixture(self, once=()):
         root = Path(tempfile.mkdtemp(prefix=".ak-test-deferred-checks-", dir=REPO))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        self.enterContext(patch.dict(os.environ, {
+            "HOME": str(root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         workspace = root / "workspace"
         workspace.mkdir()
         round_dir = root / "round-1"
