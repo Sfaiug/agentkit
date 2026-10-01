@@ -3409,6 +3409,7 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     if dry_run:
         print(f"orch: {model} ({reason})")
         print(f"session {name} in {cwd} (new)")
+        print(f"workers {' '.join(workers)}")
         # before printing the tmux command, check infocmp "$TERM" the same way starting or
         # attaching would: an unknown type is exported as xterm-256color for the tmux command
         note = fix_term()

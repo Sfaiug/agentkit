@@ -29,7 +29,7 @@ echo "fake-tui --rules $rb"
 
 class DryRun(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".dry-run-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-dry-run-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
         stack = ExitStack()
