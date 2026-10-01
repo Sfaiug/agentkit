@@ -53,6 +53,9 @@ class LiveStatus(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        # a menu leaves its reads and looks going: they end before this HOME goes
+        threads = set(threading.enumerate())
+        self.addCleanup(lambda: [thread.join(15) for thread in set(threading.enumerate()) - threads])
         # laid out the way a process whose HOME this is lays it out, so the hook's own
         # process and this one read and write the same files
         self.stack.enter_context(patch.dict(os.environ, {
@@ -199,6 +202,7 @@ class LiveStatus(unittest.TestCase):
         def news(change):
             def answer(wake):
                 time.sleep(menu.STIR + 0.2)             # whatever the last draw stirred has landed
+                captures.append(self.pane.call_count)   # the first draw's look among it
                 try:
                     os.read(wake, 4096)
                 except BlockingIOError:
@@ -209,12 +213,15 @@ class LiveStatus(unittest.TestCase):
                 return None
             return answer
 
-        answers = iter([news(flip), news(touch), lambda wake: ""])
+        def leave(wake):
+            captures.append(self.pane.call_count)
+            return ""
+
+        answers = iter([news(flip), news(touch), leave])
 
         def wait_key(prompt, timeout=None, wake=None):
             self.assertEqual(timeout, menu.TICK)
             screens.append(terminal.plain(out.getvalue()))
-            captures.append(self.pane.call_count)
             out.seek(0)
             out.truncate()
             return next(answers)(wake)
@@ -342,7 +349,7 @@ class LiveStatus(unittest.TestCase):
                 patch.object(menu, "wait_key", side_effect=wait_key), \
                 redirect_stdout(out):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
-        self.assertLess(drawn[0], 2.0)                  # the first draw waited LOOK_WAIT at most
+        self.assertLess(drawn[0], 2.0)                  # the first draw waits on no look
         self.assertEqual([ready for ready, _ in woke], [True])
         self.assertLess(woke[0][1], 2.0)
         rows = [[line for line in screen.splitlines() if " herdr " in line] for screen in screens]
@@ -385,7 +392,6 @@ class LiveStatus(unittest.TestCase):
                           side_effect=lambda *a, **k: [dict(self.seat, repo=self.repo)]), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu.Live, "probe", return_value=False), \
-                patch.object(menu, "LOOK_WAIT", 10), \
                 patch.object(menu, "wait_key",
                              side_effect=lambda prompt, timeout=None, wake=None:
                              next(answers)(wake)), \
