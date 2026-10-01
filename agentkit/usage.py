@@ -893,9 +893,10 @@ class Readings(dict):
 
     An attribute and not a key, so the providers stay exactly the providers for everything
     that compares, stores or prints them.  `collect` leaves it empty; a pick's `readiness`
-    fills it.
+    fills it, and `asked_at` with when it began asking.
     """
     harnesses = {}
+    asked_at = 0.0
 
 
 def readiness(cfg, providers):
@@ -910,7 +911,7 @@ def readiness(cfg, providers):
     if not isinstance(providers, Readings):
         return providers
     read = Readings(providers)
-    read.harnesses = {}
+    read.harnesses, read.asked_at = {}, time.time()
     for name in config.offered(cfg):
         harness = cfg["models"][name]["harness"]
         if harness not in read.harnesses:

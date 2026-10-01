@@ -388,6 +388,10 @@ PY
     [ ! -f "$SMOKE_CALLER_HOME/.agentkit/state/$path" ] ||
       cp -p "$SMOKE_CALLER_HOME/.agentkit/state/$path" "$HOME/.agentkit/state/$path"
   done
+  # The sandbox runs the caller's harness installs, so the host's install or revert of one is
+  # a swap here too: link its record live, one the host may have yet to write.
+  ln -s -- "$SMOKE_CALLER_HOME/.agentkit/state/harness-swaps.json" \
+    "$HOME/.agentkit/state/harness-swaps.json" || exit 1
   # The cadence and Retry-After belong to the host: share its probe ages live, so every
   # sandbox ask obeys them through _cooling itself, at every check and for every provider.
   smoke_share_probes
