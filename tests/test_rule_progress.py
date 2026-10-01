@@ -335,7 +335,9 @@ class RuleProgress(unittest.TestCase):
         screen.when(GLIDE.pattern, after)
         after = len(screen.text())
         click_back_at_forty(self, screen)
-        screen.when(r"⏎\S* choose", after)             # back one list, to the harnesses
+        # back one list, to the harnesses: the pointer rests where it clicked, so the key line
+        # may say what is under it there, and the list is known by its heading
+        screen.when(r"\x1b\[K  harness\r\n", after)
         os.write(screen.master, b"\x1b")
         screen.when("<went back>")
         self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
