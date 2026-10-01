@@ -68,7 +68,7 @@ def timed(module, name):
 
 for module, name in ((menu, "config_matrix"), (menu, "config_model"), (menu, "config_add"),
                      (menu, "config_add_provider"), (menu, "config_remove_provider"),
-                     (menu, "config_discord"), (menu, "show_session_models"),
+                     (menu, "config_discord"),
                      (menu, "show_info"), (menu, "show_features"), (menu, "new_session"),
                      (menu, "rename_this_session"), (menu, "pause"), (terminal, "choose")):
     timed(module, name)
@@ -228,8 +228,6 @@ class EscBack(unittest.TestCase):
         menu_.highlight("alpha")
         menu_.send(b"i")
         menu_.back("show_info", title("info"))
-        menu_.send(b"m")
-        menu_.back("show_session_models", title("alpha models"))
         menu_.send(b"x")                                  # alpha is working: asked under its row
         menu_.back("choose", lambda lines: lines[-1].strip() == "esc back")
         self.assertNotIn("<stopped", menu_.text())
@@ -242,7 +240,7 @@ class EscBack(unittest.TestCase):
     def test_the_config_screen_and_every_row_it_opens_go_back_on_esc(self):
         menu_ = Menu(self)
         menu_.screen()
-        config_ = title("config")
+        config_ = title("config · alpha")        # the highlighted seat's
         menu_.press(b"c", config_)
 
         def model(lines):             # the first model's own screen, opened from its label

@@ -177,9 +177,12 @@ class Defaults(unittest.TestCase):
         self.assertNotIn("anthropic", cfg["providers"])
         self.assertNotIn("fable", cfg["models"])
         self.assertNotIn("opus", cfg["models"])
-        # the orchestrator went with it, so the first model left takes its place; astra stays
-        self.assertEqual(cfg["defaults"], {"orchestrator": "astra", "workers": ["astra"]})
+        # [defaults] stays the last creation's, in the file too; reading it passes over opus,
+        # so the first model left takes the orchestrator's place, and astra stays
+        before = {"orchestrator": "opus", "workers": ["opus", "astra"]}
+        self.assertEqual(cfg["defaults"], before)
         config.save(cfg)
+        self.assertEqual(tomllib.loads(self.path.read_text())["defaults"], before)
         cfg = config.load()
         self.assertEqual(cfg["defaults"], {"orchestrator": "astra", "workers": ["astra"]})
         # a fresh cache still holding the provider shows it nowhere and reads it again nowhere
@@ -219,7 +222,7 @@ class Defaults(unittest.TestCase):
         for name in ("openai", "meta", "xai", "mimo", "google"):
             config.remove_provider(cfg, name)
         self.assertEqual(list(cfg["providers"]), ["anthropic"])
-        self.assertEqual(cfg["defaults"], {"orchestrator": "opus", "workers": ["opus"]})
+        self.assertEqual(cfg["defaults"], {"orchestrator": "opus", "workers": ["opus", "astra"]})
         kept = copy.deepcopy(cfg)
         with self.assertRaisesRegex(config.Error, "last provider"):
             config.remove_provider(cfg, "anthropic")

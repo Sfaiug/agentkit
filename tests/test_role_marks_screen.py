@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -25,64 +26,22 @@ class RoleMarks(Sandbox):
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AGENTKIT_SESSION": "", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
 
-    def test_reading_legacy_defaults_does_not_write_and_both_roles_match(self):
+    def test_without_a_session_no_marks_are_drawn_and_nothing_is_written(self):
         config.save(self.cfg)
         path = config.HOME / config.CONFIG_NAME
         before = path.read_bytes()
         with patch.object(terminal, "layout_width", return_value=80):
             lines, places = menu.config_body(self.cfg, "fixture")
-        self.assertEqual(lines[0].split(), ["orch", "exec", "review", "effort"])
+        self.assertEqual(lines[0].split(), ["effort"])
         for number, (model, cells) in places.items():
             if model[0] == "model":
-                self.assertEqual(marks(lines[number])[1:],
-                                 "■■" if model[1] in self.cfg["defaults"]["workers"] else "□□")
-                self.assertEqual([cell[2] for cell in cells], [-1, 0, 1, 2, 3])
+                self.assertEqual(marks(lines[number]), "")
+                self.assertEqual([cell[2] for cell in cells], [-1, 3])
         self.assertEqual(path.read_bytes(), before)
         self.assertNotIn("reviewers", self.cfg["defaults"])
 
-    def test_first_executor_flip_snapshots_reviewers_before_the_change(self):
-        self.assertEqual(menu.config_mark(self.cfg, "opus", 1), "")
-        saved = config.load()["defaults"]
-        self.assertEqual(saved["workers"], ["astra"])
-        self.assertEqual(saved["reviewers"], ["opus", "astra"])
-        self.assertEqual(menu.config_mark(self.cfg, "astra", 2), "")
-        self.assertEqual(config.load()["defaults"]["reviewers"], ["opus"])
-        self.assertEqual(self.cfg["defaults"]["workers"], ["astra"])
-
-    def test_first_reviewer_or_orchestrator_flip_materializes_reviewers(self):
-        for name, column in (("opus", 2), ("astra", 0)):
-            with self.subTest(column=column):
-                self.cfg["defaults"] = {"orchestrator": "opus", "workers": ["opus", "astra"]}
-                self.assertEqual(menu.config_mark(self.cfg, name, column), "")
-                self.assertEqual(config.load()["defaults"]["workers"], ["opus", "astra"])
-                self.assertEqual(config.load()["defaults"]["reviewers"],
-                                 ["astra"] if column == 2 else ["opus", "astra"])
-
-    def test_last_member_and_save_failure_leave_both_groups_unchanged(self):
-        self.cfg["defaults"].update(workers=["opus"], reviewers=["astra"])
-        config.save(self.cfg)
-        before = copy.deepcopy(self.cfg)
-        for name, column in (("opus", 1), ("astra", 2)):
-            self.assertEqual(menu.config_mark(self.cfg, name, column),
-                             f"{orch.ROLE_HEADS[column]} needs one model")
-            self.assertEqual(self.cfg, before)
-        with patch.object(config, "save", side_effect=OSError("read only")):
-            self.assertEqual(menu.config_mark(self.cfg, "fable", 2), "config: read only")
-        self.assertEqual(self.cfg, before)
-        self.assertEqual(config.load()["defaults"], before["defaults"])
-        self.cfg["defaults"].pop("reviewers")
-        with patch.object(config, "save", side_effect=OSError("read only")):
-            menu.config_mark(self.cfg, "astra", 1)
-        self.assertNotIn("reviewers", self.cfg["defaults"])
-
-    def test_only_a_pair_no_run_could_start_from_is_refused_without_a_save(self):
-        self.cfg["defaults"].update(workers=["opus"], reviewers=["opus", "astra"])
-        # Opus reviewing itself could start -- one worker reviews its own work -- so it saves.
-        with patch.object(config, "save") as save:
-            self.assertEqual(menu.config_mark(self.cfg, "astra", 2), "")
-            save.assert_called_once()
-        self.assertEqual(self.cfg["defaults"]["reviewers"], ["opus"])
-        # Nothing runnable refuses, without touching the saved groups.
+    def test_only_a_pair_no_run_could_start_from_is_refused(self):
+        # Nothing runnable refuses, without touching the groups.
         down = usage.Readings({})
         down.harnesses = {"claude": "claude is not logged in",
                           "codex": "codex is not logged in"}
@@ -115,7 +74,7 @@ class RoleMarks(Sandbox):
                              "no allowed executor/reviewer pair")
             self.assertTrue(run.pair_refusal(self.cfg, down, ["opus"], reviewers=[reviewer]))
 
-    def test_create_records_the_screen_reviewers_without_changing_defaults(self):
+    def test_create_records_the_screen_reviewers_and_they_are_what_n_starts_from(self):
         self.cfg["defaults"]["reviewers"] = ["astra"]
         before = copy.deepcopy(self.cfg)
         with patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
@@ -124,7 +83,32 @@ class RoleMarks(Sandbox):
             orch.create(self.cfg, "fix-api", self.root, unnamed=True,
                         selection=({}, ("opus", "selected", ["opus"], ["fable"])))
         self.assertEqual(config.load_session(self.cfg, "fix-api")["reviewers"], ["fable"])
+        self.assertEqual(config.load()["defaults"],
+                         {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["fable"]})
         self.assertEqual(self.cfg, before)
+
+    def test_a_creation_keeps_what_a_file_from_before_the_models_set(self):
+        path = config.HOME / config.CONFIG_NAME
+        path.write_text("max_runs = 3\nmax_gates = 2\nrun_memory_max_mb = 512\n")
+        with patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
+                patch.object(orch, "launch"), patch.object(orch.shutil, "which", return_value="fake"), \
+                patch.object(orch, "refuse_held"), patch.object(orch, "alias_names", return_value=set()):
+            orch.create(config.load(), "fix-api", self.root, unnamed=True,
+                        selection=({}, ("opus", "selected", ["opus"], ["fable"])))
+        saved = tomllib.loads(path.read_text())
+        self.assertEqual((saved["max_runs"], saved["max_gates"], saved["run_memory_max_mb"]),
+                         (3, 2, 512))
+        self.assertEqual(saved["defaults"],
+                         {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["fable"]})
+
+    def test_a_seat_ensure_starts_is_what_n_starts_from_too(self):
+        with patch.object(orch, "select", return_value=("astra", "opus is spent", ["fable"])), \
+                patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
+                patch.object(orch, "launch"), patch.object(orch, "refuse_held"), \
+                patch.object(orch.usage, "collect", return_value={}), \
+                patch.object(orch, "find", return_value=None):
+            self.assertTrue(orch.ensure(self.cfg, "watcher", log=lambda line: None))
+        self.assertEqual(config.load()["defaults"], {"orchestrator": "astra", "workers": ["fable"]})
 
     def test_ascii_and_phone_keep_three_columns_and_click_targets(self):
         selected = {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["astra"]}
@@ -196,24 +180,25 @@ class RoleMarksScreen(unittest.TestCase):
         screen.leave()
 
     def test_config_reviewer_click_saves_self_pair_and_last_one_is_one_line(self):
-        text = (REPO / "config.default.toml").read_text().replace(
-            'workers = ["opus", "astra"]', 'workers = ["opus"]\nreviewers = ["opus", "astra"]')
-        screen = ConfigScreen(self, text=text, cols=40, rows=24)
+        screen = ConfigScreen(self, workers=["opus"], cols=40, rows=24)
         lines = screen.frame()
         number, line = row(lines, "astra")
         first = lines[2].index("review") + 1
+        lines = screen.click(first, number,
+                             lambda lines: marks(row(lines, "astra")[1]) == "○□■")
+        self.assertEqual(screen.record()["reviewers"], ["opus", "astra"])
         # Opus reviewing itself could start, so removing Astra saves.
         lines = screen.click(first, number,
                              lambda lines: marks(row(lines, "astra")[1]) == "○□□")
-        self.assertEqual(screen.saved()["defaults"]["reviewers"], ["opus"])
+        self.assertEqual(screen.record()["reviewers"], ["opus"])
         self.assertFalse(any("no allowed" in line for line in lines))
-        before = screen.path.read_bytes()
+        before = screen.session.read_bytes()
         number, line = row(lines, "opus")
         lines = screen.click(first + 4, number,
                              lambda lines: any("needs one model" in line for line in lines))
         self.assertEqual([line.strip() for line in lines if "needs one model" in line],
                          ["review needs one model"])
-        self.assertEqual(screen.path.read_bytes(), before)
+        self.assertEqual(screen.session.read_bytes(), before)
         screen.leave()
 
     def test_new_session_copies_explicit_defaults_and_creates_with_changed_reviewers(self):

@@ -147,6 +147,7 @@ class LaunchAndCache(Sandbox):
                     self.assertEqual(run.read_state(directory)["launched_session"], "seat")
                     return None
                 with patch.object(run, "preflight", side_effect=preflight), \
+                        patch.object(orch, "scope_oom_policy", return_value=False), \
                         patch.object(run.subprocess, "Popen", **{"return_value.pid": 99999999}), \
                         redirect_stdout(io.StringIO()):
                     run.main(args)

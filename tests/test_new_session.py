@@ -208,6 +208,7 @@ class NewSession(Sandbox):
         with patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "checkout_for", return_value=checkout), \
                 patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "git", return_value="f" * 40), \
                 patch.object(run, "make_worktree", return_value=(self.root / "review", "ak/pr-7")), \
                 patch.object(run, "exclude_junk"), \

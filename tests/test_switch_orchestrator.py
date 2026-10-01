@@ -1,6 +1,6 @@
 """An open session moves to another orchestrator from the menu, its runs untouched.
 
-Picking another model in the `m` screen's orchestrator column moves the seat to it at
+Picking another model in the `c` screen's orchestrator column moves the seat to it at
 once under the same name: the old harness process ends, the new one starts in the seat's
 directory, and the runs, plan file and record stay, with the new orchestrator in the
 record. The handover -- from which model, the plan file, `ak run status`, and the old
@@ -123,9 +123,6 @@ class Switch(Sandbox):
         if "reviewers" in record:
             found["reviewers"] = list(record["reviewers"])
         return found
-
-    def notes(self):
-        return {name: "" for name in config.offered(self.cfg)}
 
     def test_switch_moves_the_seat_at_once_and_keeps_runs_plan_and_record(self):
         before = config.load_session(self.cfg, "fix-api")
@@ -322,28 +319,28 @@ class Switch(Sandbox):
         self.assertIsNone(plugin("muse").transcript({}, None, None))
         self.assertIsNone(plugin("opencode").transcript({}, None, None))
 
-    def test_the_body_holds_the_orchestrator_and_a_dry_run_draws_it(self):
+    def test_the_config_screen_holds_the_orchestrator_and_a_dry_run_draws_it(self):
         with patch.object(terminal, "layout_width", return_value=100):
-            lines, _ = menu.session_models_body(self.cfg, self.selected(), self.notes(),
-                                                "opus", 0)
-        self.assertEqual(lines[0].split(), ["orch", "exec", "review"])
-        rows = {terminal.plain(line): "".join(char for char in terminal.plain(line)
-                                              if char in "●○■□") for line in lines
+            lines, _ = menu.config_body(self.cfg, "fixture", ("model", "opus"), 0,
+                                        self.selected())
+        self.assertEqual(lines[0].split(), ["orch", "exec", "review", "effort"])
+        rows = {terminal.plain(line).lstrip("› ").split()[0]: "".join(
+            char for char in terminal.plain(line) if char in "●○■□") for line in lines
                 if any(char in terminal.plain(line) for char in "●○■□")}
-        self.assertEqual(rows[next(line for line in rows if "Opus 5.5" in line)], "●■□")
-        self.assertEqual(rows[next(line for line in rows if "Astra" in line)], "○■■")
-        with patch.object(menu.usage, "collect", return_value={}), \
+        self.assertEqual(rows["opus"], "●■□")
+        self.assertEqual(rows["astra"], "○■■")
+        with patch.object(menu.update, "agentkit_version", return_value="fixture"), \
+                patch.object(menu.usage, "collect", return_value={}), \
                 patch.object(terminal, "layout_width", return_value=100), \
                 redirect_stdout(io.StringIO()) as out:
-            menu.show_session_models("fix-api", dry_run=True)
+            menu.show_config(dry_run=True, session="fix-api")
         screen = out.getvalue()
-        self.assertIn("agentkit · fix-api models", screen)
+        self.assertIn("agentkit · config · fix-api", screen)
         self.assertIn("orch", screen)
         self.assertIn("exec", screen)
         self.assertIn("review", screen)
         with patch.object(terminal, "layout_width", return_value=40):
-            lines, _ = menu.session_models_body(self.cfg, self.selected(), self.notes(),
-                                                None, 0)
+            lines, _ = menu.config_body(self.cfg, "fixture", selected=self.selected())
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
 
 

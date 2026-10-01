@@ -40,15 +40,15 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename`. Used by menu, watch, run, notify, usage, update.
   Leaks: rename rewrites watch.json and run.json; binds Claude panes by name.
-- `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`/`m`/`i`. Also owns run listing
+- `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`/`i`. Also owns run listing
   (`run_records`, `tally`) and the seat status bar (`redress`) that watch, run, orch and
   notify import. Leaks: provider colour and name tables; reads `usage.json` itself.
 - `config.py`: every `~/.agentkit` path, config.toml, models, providers, accounts, adapter
   scripts and manifests, seat records, their rename chain and file names (`SEAT_FILES`), child
   env. Used by nearly everything. Leaks: the shell hooks rebuild seat file names.
 - `worker.py`: one headless turn: role preambles and the review gate text, the adapter `run`
-  call, silence watchdog, process kills, auth check. Offers `call`, `kill_marked`,
-  `auth_ok`. Used by run, watch, usage, harness. Leak: a Claude-only shell timeout.
+  call, silence watchdog, kills, auth check. Offers `call`, `kill_marked`,
+  `auth_ok`. Used by run, watch, usage, menu, harness. Leak: a Claude-only shell timeout.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
   `usage.json`. Offers `collect`, `pick_order`, `mark_exhausted`, `render`. Used by run,
   orch, menu, watch, history. Leak: watch and the Muse plugin call its private helpers.

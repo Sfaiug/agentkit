@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import textwrap
 import threading
 import unittest
 from unittest.mock import patch
@@ -78,7 +79,7 @@ class AskInboxLock(unittest.TestCase):
         stack.enter_context(patch.object(orch, "ensure", return_value=False))
         stack.enter_context(patch.object(orch, "find", return_value={"name": "inbox"}))
         stack.enter_context(patch.object(watch, "seat_model", return_value=("claude", "anthropic")))
-        stack.enter_context(patch.object(notify, "shaped", return_value=0))
+        self.pinged = stack.enter_context(patch.object(notify, "shaped", return_value=0))
 
     def tmux(self, *args, socket=None, client=False):
         if args[0] == "send-keys":
@@ -130,9 +131,10 @@ class AskInboxLock(unittest.TestCase):
             with self.subTest(kind=kind), patch.object(watch.time, "sleep"):
                 del self.sent[:], self.logs[:]
                 self.pane = pane
-                self.assertEqual(self.ask(), 0)
+                self.assertNotEqual(self.ask(), 0)
                 self.assertEqual(self.sent, [])
                 self.assertIn("WARN could not type the question into the inbox seat", self.logs)
+                self.pinged.assert_not_called()     # nor is the user asked what the seat was not
 
     def test_an_empty_composer_takes_it_under_a_status_line_or_a_queued_message(self):
         for kind, pane in EMPTY.items():
@@ -154,10 +156,41 @@ class AskInboxLock(unittest.TestCase):
         self.assertEqual([sent[:9] for sent in self.sent], [QUESTION[:9], "Enter", "Enter"])
         self.assertIn(f"asked the inbox seat: {QUESTION}", self.logs)
 
+    def test_a_question_whose_enter_failed_is_sent_by_the_next_try(self):
+        def unruled(line):
+            return IDLE + (" " + line if line else "")
+
+        def wrapped(line):
+            # a long question wraps under a real composer, past the bottom rows of the pane
+            return fixture("draft").replace("Fix the login redirect",
+                                            "\n  ".join(textwrap.wrap(line, 72)))
+
+        lost = []
+
+        def tmux(*args, socket=None, client=False):
+            if args[0] == "send-keys" and args[-1] == "Enter" and not lost:
+                lost.append(True)     # the one Enter that never arrives
+                return 1, "lost server"
+            return self.tmux(*args, socket=socket, client=client)
+
+        for kind, draw in (("unruled", unruled), ("wrapped", wrapped)):
+            with self.subTest(kind=kind), patch.object(orch, "tmux_out", side_effect=tmux), \
+                    patch.object(watch.time, "sleep"):
+                del self.sent[:], lost[:]
+                self.pinged.reset_mock()
+                # the composer lets the question go only on the second Enter that arrives
+                self.pane = lambda: draw(self.sent[0] if self.sent and self.sent.count("Enter") < 2
+                                         else "")
+                self.assertNotEqual(self.ask(), 0)
+                self.pinged.assert_not_called()
+                self.assertEqual(self.ask(), 0)
+                self.assertEqual([sent[:9] for sent in self.sent], [QUESTION[:9], "Enter", "Enter"])
+                self.pinged.assert_called_once()
+
     def test_an_owner_question_stops_it_and_an_earlier_merge_question_does_not(self):
         with patch.object(watch.time, "sleep"):
             notify.record("inbox", "needs", "Which branch should I use?")
-            self.assertEqual(self.ask(), 0)
+            self.assertNotEqual(self.ask(), 0)
             self.assertEqual(self.sent, [])
             notify.record("inbox", "needs", "PR #8 by bob: Fix the cli. Merge? yes/no",
                           source=f"inbox:{PR[:-1]}8:{SHA}")

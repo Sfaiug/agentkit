@@ -86,6 +86,10 @@ class Slots(unittest.TestCase):
                                              "load": 1, "cpus": 8,
                                              "unit_memory_current_mb": 100,
                                              "unit_memory_high_mb": 1000})}))
+        # A caller's AK_MIN_FREE_MB or AK_MAX_LOAD, judged against the fixed readings here,
+        # can keep every slot shut for good.
+        for var in ("AK_MIN_FREE_MB", "AK_MAX_LOAD"):
+            os.environ.pop(var, None)
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))

@@ -840,8 +840,18 @@ def ready_order(cfg, providers, workers=None, log=None, **kwargs):
 
 
 def refuse_unready(cfg, providers, name):
-    """A model named outright whose harness cannot run here is refused, in one sentence."""
+    """A model named outright whose harness cannot run here is refused, in one sentence.
+
+    Not on an answer an install or revert of that harness overlapped: its command was missing
+    then, so the swap is waited out and the harness asked again, as a failed turn's is.
+    """
     why = usage.unready(cfg, name, providers)
+    harness = config.model(cfg, name)["harness"]
+    if why and update.swap_end(harness, providers.asked_at, time.time()):
+        while (end := update.swap_end(harness, providers.asked_at, time.time()) or 0) > (
+                now := time.time()):
+            time.sleep(min(SWAP_POLL, end - now))
+        why = usage.harness_unready(harness)
     if why:
         raise config.Error(f"{name} cannot run here: {why}")
 
@@ -1646,7 +1656,10 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 "login rather than retrying into it")
             expired.session = expired.session or session
             raise
-        span = (began, time.time())
+        else:
+            span = (began, time.time())
+        finally:
+            memory_cap_note(out_dir.parent.parent, log)     # however the turn ended
         note_turn_meters(cfg, name, target, account)
         return result
 
@@ -2437,6 +2450,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         on_timeout=reason.append, cwd=str(cwd), output=progress,
                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=suite_env())
                     end = progress.tell()
+                if log is not None and run_dir is not None:
+                    memory_cap_note(run_dir, log)
                 with log_path.open("rb") as progress:
                     progress.seek(max(offset, log_path.stat().st_size - OUT_CAP))
                     out = progress.read().decode("utf-8", errors="replace")
@@ -4255,6 +4270,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         finally:
             history_role_tokens(lp.state.get("run_id"), "reviewer", out2, lp.log,
                                 lp.cfg, lp.reviewer)
+            memory_cap_note(lp.run_dir, lp.log)
         lp.review_sid = sid2 or lp.review_sid
         if code2 != 0:
             lp.log(f"WARN reviewer {killed_word(code2) or f'exited {code2}'}; "
@@ -4780,12 +4796,15 @@ def target_disjoint_from_branch(wt, base, head_before, tip):
     parent, so the round's checks still verify the rebased commit.  Anything git
     cannot compare is overlapping: the checks run again.
     """
-    try:
-        ours = git(wt, "diff", "--no-renames", "--name-only", base, head_before).splitlines()
-        theirs = git(wt, "diff", "--no-renames", "--name-only", base, tip).splitlines()
-    except (Stopped, config.Error):
-        return False
-    return not (set(ours) & set(theirs))
+    sides = []
+    for end in (head_before, tip):
+        # `git()` strips whitespace, and with it the space a first name can start with
+        code, out, _ = tool_run(["git", "-C", str(wt), "diff", "--no-renames",
+                                 "--name-only", "-z", base, end])
+        if code != 0:
+            return False
+        sides.append(set(out.split("\0")) - {""})
+    return not (sides[0] & sides[1])
 
 
 def integrate(lp, upstream):
@@ -5579,6 +5598,7 @@ def target_fails(lp, upstream, dw_log):
                         or time.monotonic() - began > lp.done_when_limit):
                     break
                 began += busy_turn(lp.run_dir, probe_log, lp.log)
+        memory_cap_note(lp.run_dir, lp.log)
         # as after a gate: a command that exited may still have left processes behind
         worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
         if not (killed or code != 0):
@@ -6331,13 +6351,27 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             wt = config.WORK / run_dir.name
             wt.mkdir(parents=True, exist_ok=True)
         else:
-            if receipt.get("followup"):
-                fetch(repo, "origin", "--prune", check=True)
+            # cut from the base as origin has it now: a local branch, or a tracking ref nothing
+            # has fetched lately, can stand merges behind, and a round spent there is spent on
+            # code that no longer exists.  Offline, the local ref is the best there is.
+            try:
+                code, out = fetch(repo, "origin", "--prune")
+            except Stopped as stop:
+                code, out = None, str(stop)
             base = meta.get("base") or default_base(repo, log)
             # where the PR goes: a run cut from `dev` can still be meant for `main`
             target = meta.get("target") or base
+            ref = base
+            if code != 0:
+                log(f"WARN git fetch origin failed; basing this run on the local {base}: "
+                    f"{out[-400:]}")
+            elif git_out(repo, "show-ref", "--verify", "--quiet", f"refs/heads/{base}",
+                         f"refs/remotes/origin/{base}")[0] == 0:
+                # only a local branch gives way to origin's, named in full: `origin/main` could
+                # be a tag, and a base already on origin could be a branch called `origin/main`
+                ref = f"refs/remotes/origin/{base}"
             # a branch name moves with the executor's commits, so pin the diff to the commit it names
-            base_sha = git(repo, "rev-parse", "--verify", f"{base}^{{commit}}")
+            base_sha = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
             from_branch = (meta.get("from") or "").strip()
             if from_branch and opts["--no-worktree"]:
                 raise config.Error(f"{task_path}: from: needs a worktree; "
@@ -9009,13 +9043,17 @@ def run_scope_limits(ceiling_mb=None):
 
     CPU and I/O weight stay below the seats' 100, and the memory cap is applied
     as both MemoryMax and MemorySwapMax: the same number, so a leak cannot trade
-    one for the other and keep going.  The properties are what `systemd-run -p`
-    takes; the cap is what the receipt records, so the reason can still name the
-    number after the process that knew it is gone.
+    one for the other and keep going.  OOMPolicy=continue, where the manager takes
+    it, has the kernel end only the process that grew, not the whole scope: the
+    loop, its harness session and its worktree go on, and `memory_cap_note` says
+    so.  The properties are what `systemd-run -p` takes; the cap is what the
+    receipt records, so the reason can still name the number after the process
+    that knew it is gone.
     """
     cap = memory_cap_mb(ceiling_mb)
     return cap, ("-p", "CPUWeight=40", "-p", "IOWeight=40",
-                 "-p", f"MemoryMax={cap}M", "-p", f"MemorySwapMax={cap}M")
+                 "-p", f"MemoryMax={cap}M", "-p", f"MemorySwapMax={cap}M",
+                 *(("-p", "OOMPolicy=continue") if orch.scope_oom_policy() else ()))
 
 
 def remember_memory_cap(state, placement, cap):
@@ -9038,7 +9076,8 @@ def _scope_units(scope):
 
 
 def _systemctl_fields(unit):
-    """(Result, ControlGroup) for `unit`, or (None, "") when the manager cannot be asked.
+    """(Result, ControlGroup, OOMPolicy) for `unit`, or (None, "", "") when the manager
+    cannot be asked.
 
     A unit it does not have is an empty Result, not a failure to ask: the caller
     tries the other suffix.  The labelled properties are parsed by name because
@@ -9047,21 +9086,21 @@ def _systemctl_fields(unit):
     try:
         proc = subprocess.run(
             ["systemctl", "--user", "show", unit, "-p", "Result", "-p", "ControlGroup",
-             "-p", "LoadState"],
+             "-p", "LoadState", "-p", "OOMPolicy"],
             capture_output=True, encoding="utf-8", errors="replace",
             env=orch.bus_env(), timeout=5)
     except (OSError, subprocess.SubprocessError):
-        return None, ""
+        return None, "", ""
     if proc.returncode != 0:
-        return None, ""
+        return None, "", ""
     fields = {}
     for line in proc.stdout.splitlines():
         key, sep, value = line.partition("=")
         if sep:
             fields[key.strip()] = value.strip()
     if fields.get("LoadState") == "not-found":
-        return "", ""
-    return fields.get("Result", ""), fields.get("ControlGroup", "")
+        return "", "", ""
+    return fields.get("Result", ""), fields.get("ControlGroup", ""), fields.get("OOMPolicy", "")
 
 
 def _oom_kill_count(cgroup):
@@ -9085,13 +9124,18 @@ def _oom_kill_count(cgroup):
 
 
 def _scope_oom_probe(state):
-    """(systemd Result, oom_kill count) for the run's scope.  Either witness is enough."""
+    """(systemd Result, oom_kill count) for the run's scope.  Either witness is enough.
+
+    A scope that goes on past a kill (OOMPolicy=continue) counts none: the kill ended one
+    process, and a loop dead in it later died of something else.
+    """
     result, kills = "", 0
     for unit in _scope_units(state.get("scope")):
-        shown, cgroup = _systemctl_fields(unit)
+        shown, cgroup, policy = _systemctl_fields(unit)
         if shown is None:
             continue
-        kills = max(kills, _oom_kill_count(cgroup))
+        if policy != "continue":
+            kills = max(kills, _oom_kill_count(cgroup))
         if shown:
             result = shown
         if result == "oom-kill" or kills:
@@ -9118,6 +9162,44 @@ def memory_cap_reason(state, probe=None):
     if result == "oom-kill" or (type(kills) is int and kills > 0):
         return memory_cap_line(cap)
     return None
+
+
+# "<cgroup> <oom_kill count>" this loop has logged.  In the environment, because a loop that
+# picks up new code replaces its interpreter (`pickup_new_code`) in the same scope, and must
+# not say those kills again; a resume in a new scope is a new process that starts without it.
+OOM_LOGGED = "AK_MEMORY_CAP_LOGGED"
+_OOM_LOCK = threading.Lock()   # a reviewer and a suite can end on two threads at once
+
+
+def memory_cap_note(run_dir, log):
+    """Log each process the kernel ended at this run's memory cap since the last look.
+
+    Called as each worker turn and each done-when command ends.  That is all it does: the
+    turn or command the kill ended goes on or ends the run as any failed command or killed
+    worker does.  The count is the cgroup's this loop runs in, and only when that is the
+    run's own scope: a run from a seat's shell sits in the seat's, whose kills are not its.
+    """
+    state = read_state(Path(run_dir)) or {}
+    cap, scope = state.get("memory_cap_mb"), state.get("scope")
+    if type(cap) is not int or cap <= 0 or not scope_is_real(scope):
+        return
+    try:
+        line = next(row for row in orch.OWN_CGROUP.read_text().splitlines()
+                    if row.startswith("0::"))
+    except (OSError, StopIteration):
+        return
+    cgroup = line[3:].strip().rstrip("/")
+    if cgroup.rsplit("/", 1)[-1] not in _scope_units(scope):
+        return
+    with _OOM_LOCK:
+        where, _, said = os.environ.get(OOM_LOGGED, "").rpartition(" ")
+        seen = int(said) if where == cgroup and said.isdigit() else 0
+        kills = _oom_kill_count(cgroup)
+        if kills > seen:
+            os.environ[OOM_LOGGED] = f"{cgroup} {kills}"
+    for _ in range(kills - seen):
+        log(f"{memory_cap_line(cap).removeprefix('killed: ')} hit: "
+            "the process that grew was ended")
 
 
 def conclude_memory_cap(run_dir, state, reason):
@@ -13775,11 +13857,13 @@ def review_pr(cfg, run_dir, url, opts, log):
                 merge_own_pr(lp, url, head)
             else:
                 question = f"PR #{number} by {info['author']}: {info['title']}. Merge? yes/no"
-                if watch.ask_inbox(cfg, question, url, head, log) == 0:
+                pending = {"question": question, "url": url, "sha": head, "asked": False}
+                if watch.ask_inbox(cfg, question, url, head, log,
+                                   typed=lambda: pending.update(asked=True)) == 0:
                     state["merge_note"] = f"offered to the {watch.inbox()} session at {head[:12]}"
                 else:
-                    state["merge_note"] = "merge question notification requires retry"
-                    state["pending_inbox"] = {"question": question, "url": url, "sha": head}
+                    state["merge_note"] = "merge question requires retry"
+                    state["pending_inbox"] = pending
         else:
             if green:
                 why = "the PR head changed, closed, or could not be verified after the checks"

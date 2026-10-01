@@ -2,8 +2,9 @@
 
 `update.swapping` records an install or revert of a harness; `call_retrying` waits out one that
 overlapped a failed turn and starts the turn again on its session, instead of reading the
-missing command as a harness that cannot run.  Offline: the worker is a fake, the swap is
-the record alone, and every wait is patched to return at once.
+missing command as a harness that cannot run.  A launch naming a model is not refused for a
+harness asked mid-swap either: `refuse_unready` waits the swap out and asks again.  Offline:
+the worker is a fake, the swap is the record alone, and every wait is patched to return at once.
 """
 
 from contextlib import ExitStack
@@ -17,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, update  # noqa: E402
+from agentkit import config, run, update, usage  # noqa: E402
 
 MISSING = "adapters/claude.sh: line 70: claude: command not found\n"
 
@@ -150,6 +151,37 @@ class HarnessSwap(unittest.TestCase):
                 self.assertRaises(run.CannotRun):
             self.call([(127, "", MISSING)])
         self.assertEqual(len(self.calls), 1)
+
+    def test_a_launch_naming_a_model_asked_mid_swap_waits_for_the_swap_and_asks_again(self):
+        swap = update.swapping("claude")
+        self.addCleanup(swap.__exit__, None, None, None)
+        swap.__enter__()
+        # the pick's read asked the harness while its command was moved aside
+        read = usage.Readings({})
+        read.harnesses, read.asked_at = {"claude": "claude is not installed"}, time.time()
+
+        def sleep(delay):
+            self.sleeps.append(delay)
+            swap.__exit__(None, None, None)
+
+        with patch.object(run.usage, "harness_unready", return_value=None) as asked, \
+                patch.object(run.time, "sleep", side_effect=sleep):
+            run.refuse_unready(self.cfg, read, "opus")
+        self.assertEqual(len(self.sleeps), 1)
+        self.assertTrue(0 < self.sleeps[0] <= run.SWAP_POLL, self.sleeps)
+        asked.assert_called_once_with("claude")
+        # a swap that ended between the read and the pick is asked about again at once, and
+        # one still missing its command after the swap is refused in the harness's own words
+        with patch.object(run.usage, "harness_unready", return_value="claude is not installed"), \
+                patch.object(run.time, "sleep", side_effect=AssertionError("waited")), \
+                self.assertRaisesRegex(config.Error, "^opus cannot run here: claude is not installed$"):
+            run.refuse_unready(self.cfg, read, "opus")
+        # a read taken after the swap ended is the answer: nothing is waited for or asked again
+        read.asked_at = time.time() + 1
+        with patch.object(run.usage, "harness_unready", side_effect=AssertionError("asked")), \
+                patch.object(run.time, "sleep", side_effect=AssertionError("waited")), \
+                self.assertRaisesRegex(config.Error, "^opus cannot run here"):
+            run.refuse_unready(self.cfg, read, "opus")
 
 
 if __name__ == "__main__":

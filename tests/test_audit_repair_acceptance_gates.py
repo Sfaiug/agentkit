@@ -406,7 +406,7 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(menu.loop({}), 0)
         screen = out.getvalue()
-        self.assertIn("orch  exec  review  effort", screen)
+        self.assertRegex(screen, r"(?m)^ *effort$")     # no seat is highlighted: the efforts alone
         self.assertIn("you talk to one orchestrator", screen)
         self.assertIn("not a key: 'r'", screen)
 
