@@ -1153,20 +1153,23 @@ def auth_expired_on(harness, tail):
     return None
 
 
-def failed_on(harness, lines):
-    """What a seat's error line says, read as a worker turn's failure is: (outcome, word).
+def error_said(harness, lines):
+    """A seat's error, as its harness drew it.
 
     The last line is the error line.  One that names no failure of its own -- `Goal stalled`,
     `Error ID: ...` -- is read with the line above it only where the harness drew that line as
     its own error (`[stall] error_marks`); nothing else above is read, so a word in the model's
     answer is never the provider's.
     """
-    plugin = orch.harness_plugin(harness)
-    found = plugin.failure(lines[-1]) if lines else (None, None)
-    if found[0] is None and len(lines) > 1 and lines[-2].startswith(
-            _words(harness, "stall", "error_marks")):
-        return plugin.failure("\n".join(lines[-2:]))
-    return found
+    if (len(lines) > 1 and orch.harness_plugin(harness).failure(lines[-1])[0] is None
+            and lines[-2].startswith(_words(harness, "stall", "error_marks"))):
+        return "\n".join(lines[-2:])
+    return lines[-1] if lines else ""
+
+
+def failed_on(harness, lines):
+    """What a seat's error says, read as a worker turn's failure is: (outcome, word)."""
+    return orch.harness_plugin(harness).failure(error_said(harness, lines)) if lines else (None, None)
 
 
 def stalled_on(harness, tail, session, log):
@@ -2852,8 +2855,12 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     def spent(account):
         return usage.model_exhausted(cfg, model, {provider: readings.get(account, {})})[0]
 
-    line = output_line(content_lines(harness, pane_tail(pane)))
+    lines = content_lines(harness, pane_tail(pane))
+    line = output_line(lines)
     mark = stalled_on(harness, line, name, log) if line else None
+    if mark:
+        # A bare trailer (`Goal stalled`) is told apart, and dated, by the error line above it.
+        line = error_said(harness, lines[:-1] + [line])
     outcome = failed_on(harness, [line])[0] if mark else None
     refusal = outcome in (SPENT, LIMITED)
     now = time.time()
