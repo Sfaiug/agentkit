@@ -33,7 +33,7 @@ class RefreshErrorShown(unittest.TestCase):
         """Each screen show_features drew while `keys` were read, its lines as shown."""
         screens, keys = [], iter(keys)
 
-        def frame(name, body=(), keyline="esc back", filled=0):
+        def frame(name, body=(), keyline="esc back", filled=0, **_kw):
             screens.append([terminal.ANSI.sub("", line) for line in body])
         with mock.patch.object(terminal, "height", lambda: 12), \
                 mock.patch.object(terminal, "layout_width", lambda *_: 80), \

@@ -2,9 +2,9 @@
 the arrows and stays on its seat, Enter and a click open, and the terminal comes back exactly.
 
 Each test runs `menu.loop` in a child process on a pty of its own, with the seat listing, the
-seats' words, the usage rows and the probe faked, and opening a seat reduced to a line saying
-which one.  Nothing here starts a session, a tmux server or a probe; the only process signalled
-is the test's own child.
+seats' words, the usage rows and the probe faked, and opening or closing a seat reduced to a
+line saying which one.  Nothing here starts a session, a tmux server or a probe; the only
+process signalled is the test's own child.
 """
 
 from contextlib import redirect_stdout
@@ -39,7 +39,9 @@ SEATS = Path(os.environ["MENU_KEYS_SEATS"])
 orch.listing = lambda reconcile=True: [
     {"name": name, "repo": None, "path": "/", "created": 0} for name in json.loads(SEATS.read_text())]
 orch.job_notices = lambda: []
-menu.seat_row_state = lambda cfg, session, **facts: {"word": "working", "reason": "", "since": None}
+menu.seat_row_state = lambda cfg, session, **facts: {
+    "word": "done" if session["name"].startswith("done-") else "working", "reason": "",
+    "since": None}
 menu.usage_lines = lambda cfg, width: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
@@ -60,6 +62,9 @@ def open_session(cfg, session, dry_run):
         typed = re.sub(rb"\x1b\[<\d+;\d+;\d+[Mm]", b"", os.read(0, 1024))
         print(f"<session read {typed!r}>", flush=True)
 
+def close_seat(name, dry_run, **_kw):
+    print(f"<closed {name}>", flush=True)
+
 def ask_name(taken, auto=False):
     cooked = bool(termios.tcgetattr(0)[3] & termios.ICANON) if os.isatty(0) else None
     print(f"<lines {cooked}>", flush=True)
@@ -68,10 +73,11 @@ def ask_name(taken, auto=False):
 
 orch.taken_names = lambda: set()
 menu.draw, menu.open_session, orch.ask_name = draw, open_session, ask_name
+menu.close_seat = close_seat
 sys.exit(menu.loop(config.load(), dry_run=True))
 """
 DOWN, ENTER = b"\x1b[B", b"\r"
-GIVEN = ("\x1b[?1006l", "\x1b[?1000l", "\x1b[?25h", "\x1b[?1049l")
+GIVEN = ("\x1b[?1006l", "\x1b[?1003l", "\x1b[?25h", "\x1b[?1049l")
 
 
 class Menu:
@@ -401,7 +407,7 @@ class MenuKeys(unittest.TestCase):
         self.assertIn("<lines None>", out)
         self.assertIn("<answered 'q'>", out)
         self.assertIn("<opened seat-b>", out)
-        for taken in ("\x1b[?1049h", "\x1b[?1000h", "›", "↑↓ move"):
+        for taken in ("\x1b[?1049h", "\x1b[?1003h", "›", "↑↓ move"):
             self.assertNotIn(taken, out)
 
     def test_the_list_selector_picks_one_or_several_and_esc_goes_back(self):
