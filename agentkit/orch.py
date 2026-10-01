@@ -1324,14 +1324,14 @@ def project_name(repo, fallback="no project"):
 
 def session_projects(kept):
     """Infer old records once, from launched runs; ties use the checkout's name."""
-    from . import run
+    from . import menu, run   # here, not at the top: menu imports this module
     missing = {name for name, record in kept.items() if "repo" not in record}
     votes = {name: Counter() for name in missing}
     if missing:
         for directory in run.run_dirs():
-            if "smoke-" in directory.name:
-                continue
             state = run.read_state(directory) or {}
+            if menu.smoke_run(state):
+                continue
             name = run.launched_session(state)
             repo = state.get("repo")
             if name in votes and isinstance(repo, str) and repo:
