@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, orch, run
+from agentkit import config, job as jobs, notify, orch, run
 
 URL = "https://github.com/acme/widget/pull"
 
@@ -91,8 +91,8 @@ class AfterFromPass(unittest.TestCase):
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
         self.stack.enter_context(patch.object(orch, "watching", return_value=True))
-        self.stack.enter_context(patch.object(run, "JOB_TICK", 0.05))
-        self.stack.enter_context(patch.object(run, "JOB_PICKER_INTERVAL", 0))
+        self.stack.enter_context(patch.object(jobs, "JOB_TICK", 0.05))
+        self.stack.enter_context(patch.object(jobs, "JOB_PICKER_INTERVAL", 0))
         self.stack.enter_context(patch.object(run, "SLOT_POLL", .01))
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -269,7 +269,7 @@ class AfterFromPass(unittest.TestCase):
                          beta["round_summaries"][0]["head_sha"])
         self.assertTrue(Path(beta["worktree"]).is_dir())
         # `ak run status` reads the run's own word the same way once its launcher is gone
-        now = run.job_now({"tasks": [{**tasks["beta.md"], "state": "running"}]}, False, self.cfg)
+        now = jobs.job_now({"tasks": [{**tasks["beta.md"], "state": "running"}]}, False, self.cfg)
         self.assertEqual((now["tasks"][0]["state"], now["tasks"][0]["verdict_line"]),
                          ("skipped", "beta.md: skipped: alpha.md did not merge"))
 

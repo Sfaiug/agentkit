@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 import test_review_gate as gate
-from agentkit import browser, config, menu, notify, orch, run, task, watch, worker
+from agentkit import browser, config, job as jobs, menu, notify, orch, run, task, watch, worker
 
 
 DEFECT = "broken.py:1 - empty input crashes - base abc123: `first([])` raises IndexError"
@@ -316,7 +316,7 @@ class FollowupRuns(unittest.TestCase):
             self.assertEqual(menu.run_state_word(ended), "done")
             self.assertFalse(menu.v5o_needs_look(ended))
             self.assertFalse(run.needs_recovery({**ended, "recovery_pending": True}))
-            self.assertEqual(run.job_classify(ended, self.cfg), "passed")
+            self.assertEqual(jobs.job_classify(ended, self.cfg), "passed")
             self.assertFalse(run.review_pass(ended, self.cfg))
             self.assertIn("DONE", run.summary_line(ended, self.cfg))
             self.assertIsNone(ended["pr"])
