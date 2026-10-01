@@ -194,10 +194,17 @@ class Back(unittest.TestCase):
         self.assertTrue(any(line.startswith("  esc back") for line in lines))
 
     def test_v5u_x_asks_through_terminal_ask(self):
-        with patch.object(terminal, "ask", return_value="atoll-fix") as ask, \
-                redirect_stdout(io.StringIO()):
-            menu.stop_session([dict(seat) for seat in SEATS], True)
+        with patch.object(terminal, "ask", return_value="atoll-fix") as ask:
+            self.stop(dry_run=True)
         self.assertEqual(ask.call_args[0][:3], ("Stop", "atoll-fix", ["atoll-fix", "parser"]))
+
+    def test_v5u_x_dry_run_reads_no_real_run(self):
+        # The dry run lists the seat's runs through the fixture's mock too: the real listing
+        # reads ~/.agentkit/runs, a state this file promised never to touch.
+        with patch.object(run, "run_dirs", return_value=[Path("fake-active-run")]), \
+                patch.object(run, "read_state") as read_state:
+            self.test_v5u_x_asks_through_terminal_ask()
+        self.assertEqual(read_state.call_count, 0)
 
     def test_v5u_ask_takes_a_number_or_a_name(self):
         def ask(answer):
