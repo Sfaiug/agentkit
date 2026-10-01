@@ -144,7 +144,7 @@ RUNS_RECENT = 6 * 3600   # how long a finished run stays recent for `ak run stat
 # provider's `colour` key in config.toml wins, and a provider named in neither is the accent.
 COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3",
            "google": "#203B9B", "mimo": "#FB8046"}
-# Each company's own name, on its usage row and over its models on the `c` screen; any other
+# Each company's own name, on its usage row and over its models on `c` and `n`; any other
 # provider is its own name, capitalised.
 NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok",
          "google": "Gemini", "mimo": "MiMo"}
@@ -1750,11 +1750,12 @@ def new_session(cfg, dry_run, keyboard=None):
     created. Enter at the name leaves it for the orchestrator to choose, and a dry run only
     says what it would start: it creates no session, so neither its record nor its harness's
     rulebook. The terminal is given back once all is chosen, for the seat to open on."""
-    terminal.frame("new session")
+    if not terminal.taken():
+        terminal.frame("new session")
     if not cfg:
         return None               # no configuration means no models to offer
     cfg = config.load()           # the last creation's [defaults], whichever process made it
-    name = orch.ask_name(orch.taken_names(), auto=True)
+    name = orch.ask_name(orch.taken_names(), auto=True, screen="new session")
     if name is orch.BACK:
         return None
     unnamed = name is None
@@ -2511,6 +2512,16 @@ def config_models(cfg):
     return config.offered(cfg)
 
 
+def model_label(name, width):
+    """The configured name on `c` and `n`, cut only to the space its row has."""
+    return terminal.cut(name, width)
+
+
+def model_heading(provider):
+    """The same provider heading over the models on `c` and `n`."""
+    return terminal.styled(NAMES.get(provider, provider.title()), "accent")
+
+
 def config_body(cfg, version, at=None, column=0, selected=None, providers=None, moves=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
@@ -2558,14 +2569,14 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
         "  " + terminal.pad(head, width) for head, width in zip(heads, widths))).rstrip(), "dim")]
     places = {}
     for provider in dict.fromkeys(models[name]["provider"] for name in names):
-        lines.append(terminal.styled(NAMES.get(provider, provider.title()), "accent"))
+        lines.append(model_heading(provider))
         for name in (name for name in names if models[name]["provider"] == provider):
             texts = ((marks[0] if selected["orchestrator"] == name else marks[1],
                       marks[2] if name in selected["workers"] else marks[3],
                       marks[2] if name in selected.get("reviewers", selected["workers"])
                       else marks[3]) if selected else ()) + (efforts[name],)
             note = orch.spent_note(cfg, name, providers) if providers else ""
-            shown = terminal.cut(name, label)
+            shown = model_label(name, label)
             kind = "reverse" if at == ("model", name) and column < 0 else "dim" if note else None
             line = "  " + (terminal.styled(shown, kind) if kind else shown) + " " * (
                 label - terminal.cells(shown))

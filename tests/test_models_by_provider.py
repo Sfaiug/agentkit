@@ -47,14 +47,12 @@ class ModelsByProvider(unittest.TestCase):
         config_ = cfg()
         notes = {name: "" for name in config.offered(config_)}   # as `n` builds them
         selected = {"orchestrator": "fable", "workers": ["fable"], "reviewers": ["astra"]}
-        lines = orch.picker_lines(config_, notes, selected, "fable", 0, 40)[0]
-        body = menu.config_body(config_, "fixture", ("model", "fable"), 0, selected)[0]
-        row = lambda cfg, name: f"{name} {cfg['models'][name]['harness']} "   # label, harness
-        for drawn, label in ((lines, orch.model_title), (body, row)):
-            text = "\n".join(terminal.plain(line) for line in drawn)
-            places = [text.find(label(config_, name)) for name in ORDER]
-            self.assertTrue(all(place >= 0 for place in places), text)
-            self.assertEqual(places, sorted(places), text)
+        lines, rows, _ = orch.picker_lines(config_, notes, selected, None, 0, 40)
+        body, places = menu.config_body(config_, "fixture", selected=selected)
+        for drawn, positions in ((lines, [row.start for row in rows]),
+                                 (body, [line for line, (hit, _) in places.items()
+                                         if hit[0] == "model"])):
+            self.assertEqual([terminal.plain(drawn[line]).split()[0] for line in positions], ORDER)
 
 
 if __name__ == "__main__":
