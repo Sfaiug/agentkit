@@ -2,7 +2,8 @@
 
 A dry run only looks: no session record and no rulebook stay for a seat it never opened, so
 the next real `ak orch NAME` creates that seat instead of resuming a record nobody launched;
-and no rulebook a seat was opened with, nor what an adapter makes beside one, is changed.
+and no rulebook a seat was opened with, nor what an adapter makes beside one, is changed, nor
+the last notification a seat of that name sent, which only a start clears.
 
 Offline: a temporary HOME, a tmux that holds no session, and fake adapters that write the
 rulebook through the real tools/rulebook.py the way every adapter's `interactive` does.
@@ -108,6 +109,12 @@ class DryRun(unittest.TestCase):
             self.assertEqual(orch.main(["acme-fix", "--model", "gemini", "--dry-run"]), 0)
         self.assertIn("--agent agentkit", out.getvalue())
         self.assertEqual(self.state(), before)
+
+    def test_a_dry_run_keeps_the_last_notification(self):
+        notice = config.notify_path("acme-fix")
+        notice.write_text('{"kind": "question", "summary": "merge acme?"}\n')
+        self.dry_run(["acme-fix"], "acme-fix")
+        self.assertEqual(notice.read_text(), '{"kind": "question", "summary": "merge acme?"}\n')
 
 
 if __name__ == "__main__":
