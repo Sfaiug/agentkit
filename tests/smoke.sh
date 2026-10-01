@@ -1901,9 +1901,9 @@ fi
 # the rest make the smallest turn they allow (3c): the cheapest model their catalog lists
 # at its lowest effort, asked for a fixed word that needs no tool, through the adapter with
 # the flags a worker's turn gets, since those are what an upgrade breaks.  The adapter's own
-# verdict judges it: exit 0 and the word in final.md, which holds the model's text alone.  No
-# error words are read: a warning the turn recovered from passes, and a turn cut short -- no
-# text, or partial text without the word -- fails whatever it exited with.
+# verdict judges it: exit 0 and the word in final.md, which holds the model's text alone.
+# A failed call refused for quota skips even when its last meter was below 100%; a warning
+# the turn recovered from passes, and every other failed or incomplete turn fails.
 # A missing harness or login is reported as not checked: never a pass, and never a skip
 # that holds the gate.  Broken saved logins still fail.  One harness installed with its
 # login is what the suite needs, and with none here it fails rather than skipping everything.
@@ -1946,7 +1946,8 @@ if not spent(providers):
         sys.exit(0)  # unknown usage cannot justify skipping a real call
 meters, _ = usage._gating_meters(cfg, model, providers)
 ends = max((m["resets_at"] for m in meters if m.get("exhausted")
-            and isinstance(m.get("resets_at"), (int, float))), default=None)
+            and isinstance(m.get("resets_at"), (int, float))),
+           default=providers.get(config.model(cfg, model)["provider"], {}).get("exhausted_until"))
 when = time.strftime("%Y-%m-%d %H:%M:%S %Z", time.localtime(ends)) if ends else "unknown"
 print(config.model(cfg, model)["provider"], when)
 PY
@@ -1963,6 +1964,45 @@ skip_spent() {   # skip_spent <check labels> <required models...>
     skip_unavailable "$checks" "$model" && return 0
   done
   return 1
+}
+skip_refused() {   # skip_refused <check labels> <model> <exit> <out-dir or MCP log>
+  local checks=$1 model=$2 rc=$3 out=$4 why
+  [ "$rc" != 0 ] || return 1
+  # A provider's refusal is newer than its meter. Keep that fact in this suite's
+  # snapshot so its later checks skip too, without another probe or a host write.
+  why=$(PYTHONPATH="$REPO" python3 - "$model" "$rc" "$out" "$WORK/usage-real.json" <<'PY'
+import json, pathlib, sys, time
+from agentkit import config, run, usage
+cfg = config.load()
+entry = config.model(cfg, sys.argv[1])
+out, snapshot = map(pathlib.Path, sys.argv[3:])
+text = run.tail(out / "final.md" if out.is_dir() else out)
+said = text if not run.answered(text) else ""
+if out.is_dir():
+    # Terminal errors count; earlier warnings and the work's own output do not.
+    said += "\n" + run.harness_said(out, text, entry["harness"], failures_only=True)
+    if not text.strip():
+        said += "\n" + run.harness_said(out, text, entry["harness"])
+word = run.ran_dry(int(sys.argv[2]), said, entry["harness"])
+if not word:
+    sys.exit(1)
+try:
+    providers = json.loads(snapshot.read_text())["providers"]
+except (OSError, ValueError, KeyError, TypeError):
+    providers = {}
+providers = providers if isinstance(providers, dict) else {}
+record = providers.get(entry["provider"])
+record = record if isinstance(record, dict) else {}
+now, until = time.time(), run.try_again_at(said)
+if until is None or until <= now:
+    until = usage._next_window(record, now) or now + usage.DRY_FOR
+providers[entry["provider"]] = {**{k: v for k, v in record.items() if k not in usage.MARK},
+                                "exhausted_until": until}
+snapshot.write_text(json.dumps({"providers": providers}))
+print(text.strip() or word)
+PY
+  ) || return 1
+  skip_checks "$checks" "required model $model was refused: $why"
 }
 printf 'Create a file hello.txt containing exactly: hello\nThen reply with only the word DONE.\n' \
   >"$WORK/p-make.txt"
@@ -1999,6 +2039,7 @@ for pair in "${HARNESSES[@]}"; do
 os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
       "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M" >"$WORK/$M.log" 2>&1
     CALLRC=$?
+    if skip_refused 3c "$M" "$CALLRC" "$WORK/o-$M"; then continue; fi
     if [ "$CALLRC" = 0 ] && grep -qiwF "$WORD" "$WORK/o-$M/final.md" 2>/dev/null; then
       ok "3c $M ($H): $1 at $2 replied $WORD"
     else
@@ -2015,6 +2056,7 @@ os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
     ak worker "$M" "$WORK/p-make.txt" --workspace "$R" --out "$WORK/o-$M" >"$WORK/$M.log" 2>&1
   fi
   CALLRC=$?
+  if skip_refused 3a/3b "$M" "$CALLRC" "$WORK/o-$M"; then continue; fi
   if [ "$CALLRC" = 0 ] && grep -qxF hello "$R/hello.txt" 2>/dev/null && [ -s "$WORK/o-$M/final.md" ]; then
     ok "3a $M ($H): wrote hello.txt, final.md non-empty"
   else
@@ -2027,6 +2069,7 @@ os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
     ak worker "$M" "$WORK/p-ask.txt" --workspace "$R" --out "$WORK/o-$M-2" --session "$SID" \
       >"$WORK/$M-2.log" 2>&1
     RESUMERC=$?
+    if skip_refused 3b "$M" "$RESUMERC" "$WORK/o-$M-2"; then continue; fi
     if [ "$RESUMERC" = 0 ] && grep -qi 'hello\.txt' "$WORK/o-$M-2/final.md" 2>/dev/null; then
       ok "3b $M ($H): resumed session $SID recalled hello.txt"
     else
@@ -5172,6 +5215,8 @@ except Exception:
   MCPRC=$?
   if [ "$MCPRC" = 0 ] && grep -qE 'BROWSER_TABS=[0-9]+ DESKTOP=ok' "$WORK/mcp-claude.txt"; then
     ok "31d claude reached the shared browser and the desktop over MCP: $(grep -oE 'BROWSER_TABS=[0-9]+ DESKTOP=ok' "$WORK/mcp-claude.txt" | tail -1)"
+  elif skip_refused 31d opus "$MCPRC" "$WORK/mcp-claude.txt"; then
+    :
   else
     no "31d claude over MCP: $(tail -c 200 "$WORK/mcp-claude.txt")"
   fi
@@ -5189,6 +5234,8 @@ except Exception:
   MCPRC=$?
   if [ "$MCPRC" = 0 ] && grep -qE 'BROWSER_TABS=[0-9]+' "$WORK/mcp-codex.txt"; then
     ok "31e codex reached the shared browser over MCP: $(grep -oE 'BROWSER_TABS=[0-9]+' "$WORK/mcp-codex.txt" | tail -1)"
+  elif skip_refused 31e astra "$MCPRC" "$WORK/mcp-codex.txt"; then
+    :
   else
     no "31e codex over MCP: $(tail -c 200 "$WORK/mcp-codex.txt")"
   fi
