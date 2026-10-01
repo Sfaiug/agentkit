@@ -213,10 +213,8 @@ sys.exit(item.get("rc", 0))
                 log.write_text(text)
                 (run_dir / "log.txt").write_text(run_log or "")
                 script = f'. "{REPO}/tests/acceptance.sh"\n' + block + '\nfinish\n'
-                # an outer gate's diversion log is not this fixture's: empty falls back to $WORK's
                 result = subprocess.run(["bash", "-c", script],
                                         env=dict(os.environ, WORK=str(self.root), RC=str(run_rc),
-                                                 AK_NOTIFY_SINK_LOG="",
                                                  RUNDIR=str(run_dir) if run_log is not None else "",
                                                  AGENTKIT_ACCEPTANCE_REQUIRED="1"),
                                         capture_output=True, text=True)

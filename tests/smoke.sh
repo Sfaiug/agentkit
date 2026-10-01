@@ -2209,21 +2209,20 @@ fi
 NGH="$WORK/home-guard"
 mkdir -p -- "$NGH"
 GUARD=0
-# this check is the one diversion the gate expects, so it keeps its own log; every other one
-# lands in $AK_NOTIFY_SINK_LOG, which `finish` fails on
-HOME="$NGH" AGENTKIT_DISCORD_WEBHOOK='http://127.0.0.1:1/hook' AGENTKIT_SESSION=smoke-guard \
-  AK_NOTIFY_SINK_LOG="$WORK/guard-diversions.log" \
-  ak notify done "a test must never reach the user" >"$WORK/guard.log" 2>&1
-[ "$?" = 0 ] || GUARD=1
-grep -q 'AK_NOTIFY_SINK is set' "$WORK/guard.log" || GUARD=1
-grep -q 'went to the test sink and not to the configured webhook' "$WORK/guard.log" || GUARD=1
-grep -q 'webhook POST failed' "$WORK/guard.log" && GUARD=1     # nothing was even attempted
+# this check is the one diversion the gate expects, so it is a suite of its own in $NGH, with
+# its own log and `finish`; every other one lands in this suite's log, which `finish` fails on
+( WORK="$NGH"; . "$REPO/tests/acceptance.sh"
+  HOME="$NGH" AGENTKIT_DISCORD_WEBHOOK='http://127.0.0.1:1/hook' AGENTKIT_SESSION=smoke-guard \
+    ak notify done "a test must never reach the user" >"$WORK/guard.log" 2>&1 || exit 2
+  finish >"$WORK/guard-finish.log" 2>&1 )
+[ "$?" = 1 ] || GUARD=1
+grep -q 'AK_NOTIFY_SINK is set' "$NGH/guard.log" || GUARD=1
+grep -q 'went to the test sink and not to the configured webhook' "$NGH/guard.log" || GUARD=1
+grep -q 'webhook POST failed' "$NGH/guard.log" && GUARD=1     # nothing was even attempted
 # the diversion is a fact the gate's own accounting fails on, not only a line on stderr
-[ "$(wc -l <"$WORK/guard-diversions.log")" -eq 1 ] || GUARD=1
-grep -q 'went to the test sink and not to the configured webhook' "$WORK/guard-diversions.log" || GUARD=1
-( NFAIL=0; AK_NOTIFY_SINK_LOG="$WORK/guard-diversions.log" WORK="$WORK"; finish >"$WORK/guard-finish.log" 2>&1
-  [ "$?" = 1 ] ) || GUARD=1
-grep -q 'FAIL  a notification was aimed at the configured webhook' "$WORK/guard-finish.log" || GUARD=1
+[ "$(wc -l <"$NGH/notify-diversions.log")" -eq 1 ] || GUARD=1
+grep -q 'went to the test sink and not to the configured webhook' "$NGH/notify-diversions.log" || GUARD=1
+grep -q 'FAIL  a notification was aimed at the configured webhook' "$NGH/guard-finish.log" || GUARD=1
 HOME="$NGH" AK_NOTIFY_SINK= AGENTKIT_DISCORD_WEBHOOK='http://127.0.0.1:1/hook' \
   AGENTKIT_SESSION=smoke-guard-nosink ak notify done "the same words with no marker" \
   >"$WORK/guard-nosink.log" 2>&1
@@ -2235,7 +2234,7 @@ if [ "$GUARD" = 0 ]; then
   ok "5d the test sink outranks the configured webhook and fails the gate on the diversion, and is the only reason nothing was attempted: disabled with the marker, queued against the webhook without it"
 else
   no "5d the test notification sink"
-  sed 's/^/      /' "$WORK/guard.log" "$WORK/guard-nosink.log" | head -8
+  sed 's/^/      /' "$NGH/guard.log" "$WORK/guard-nosink.log" | head -8
 fi
 
 # --- 6: orch selection -----------------------------------------------------
