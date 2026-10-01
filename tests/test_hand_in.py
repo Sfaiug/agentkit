@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, worker
+from agentkit import config, hand_in, run, worker
 
 
 class HandIn(unittest.TestCase):
@@ -106,7 +106,7 @@ class HandIn(unittest.TestCase):
         self.assertIn("done", result.stderr)
         self.assertEqual(self.file.read_bytes(), before)
 
-    def review(self, *plan, ok=True, once_ok=True):
+    def review(self, *plan, ok=True, once_ok=True, reviewer="astra", prior=(), overrides=()):
         """The adapter invokes bin/ak, so these turns cross the real record-file boundary."""
         directory = self.root / "run"
         directory.mkdir()
@@ -127,7 +127,8 @@ for args in row.get("commands", []):
     subprocess.run([sys.executable, {str(REPO / "bin/ak")!r}, "hand-in", *args], check=True)
 (out / "final.md").write_text(row.get("text", "Handed in."))
 (out / "session_id").write_text("fixture-session")
-(out / "events.jsonl").write_text('{{"type":"complete"}}\\n')
+(out / "events.jsonl").write_text("".join(json.dumps(event) + "\\n"
+                                        for event in row.get("events", [{{"type":"complete"}}])))
 sys.exit(row.get("code", 0))
 ''')
         adapter.chmod(0o755)
@@ -142,16 +143,27 @@ sys.exit(row.get("code", 0))
                                         (worker, "marked_pids", []), (run, "collect_usage", {}),
                                         (run, "ready_order", ["spark"]), (run, "note_turn_meters", None),
                                         (run, "history_role_tokens", None), (run, "memory_cap_note", None),
+                                        (run, "transient_wait", None), (run.update, "swap_end", None),
                                         (run.usage, "account", (None, True)), (run.history, "update_run", None)):
                 stack.enter_context(patch.object(module, name, return_value=value))
+            for override in overrides:
+                stack.enter_context(override)
             state = {"run_id": directory.name, "title": "Hand-in fixture", "state": "running",
                      "base": "origin/main", "base_sha": "abc123", "branch": "ak/fix-api",
-                     "rounds": 3, "round_summaries": [], "executor": "opus", "reviewer": "astra",
+                     "rounds": 3, "round_summaries": [], "executor": "opus", "reviewer": reviewer,
                      "scratch": True, "repo": str(self.workspace), "worktree": str(self.workspace)}
             lp = run.Loop(cfg, directory, state, {}, logs.append, self.workspace,
                           "# Fixture", ["true"], "", ["spark"])
             lp.rnd = 1
             lp.once_ok = once_ok
+            if prior:
+                previous = directory / "round-1/reviewer"
+                previous.mkdir(parents=True)
+                file = hand_in.start(previous, self.workspace)
+                for args in prior:
+                    result = self.cli(*args, AK_HAND_IN=file)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                (previous / "session_id").write_text("fixture-session")
             lp.save()
             verdict = run.review(lp, "## Summary\nFixture", ok, "$ true\n[exit 0]")
         calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
@@ -215,6 +227,115 @@ sys.exit(row.get("code", 0))
             said = run.harness_said(self.root, "", "codex", failures_only=code)
             self.assertNotIn("API Error", said)
             self.assertNotIn("quota exceeded", said)
+
+    def test_plain_closings_are_answers_when_records_were_handed_in(self):
+        self.cli("finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer")
+        self.cli("done")
+        text = "Handed in one finding about the rate limit parsing at api.py:500, then ran ak hand-in done."
+        for harness in ("claude", "grokbuild", "muse"):
+            with self.subTest(harness=harness):
+                terminal = run.watch.terminal(harness)
+                (self.root / "events.jsonl").write_text(json.dumps({"type": terminal, "result": text}) + "\n")
+                for failures_only in (False, True):
+                    said = run.harness_said(self.root, text, harness, failures_only=failures_only)
+                    self.assertEqual(run.harness_plugin(harness).failure(said), (None, None), said)
+                # A real terminal error still speaks, even after the worker handed in records.
+                (self.root / "events.jsonl").write_text(json.dumps({
+                    "type": terminal, "is_error": True, "error": "rate limit"}) + "\n")
+                said = run.harness_said(self.root, text, harness, failures_only=True)
+                self.assertIn("rate limit", said)
+
+    def test_a_plain_closing_keeps_the_finding_without_parking_its_provider(self):
+        finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
+        text = "Handed in one finding about the rate limit parsing, then ran ak hand-in done."
+        with patch.object(run.usage, "mark_exhausted", return_value=1) as parked, \
+                patch.object(run.usage, "replenish", return_value=(False, 0)):
+            verdict, lp, calls, _ = self.review(
+                {"commands": [finding, ["done"]], "text": text,
+                 "events": [{"type": "result", "result": text}]},
+                {"commands": [["done"]]}, reviewer="opus")
+        self.assertEqual(verdict, "FAIL")
+        self.assertEqual(lp.state["round_summaries"][0]["finding_count"], 1)
+        self.assertEqual(len(calls), 1)
+        parked.assert_not_called()
+
+    def test_same_session_retries_keep_findings_and_followups(self):
+        finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
+        followup = ["follow-up", "api.py:1", "old defect", "breaks callers", "--quote", "first line",
+                    "--before", "base abc123"]
+        for reason in ("transient", "account", "refill", "swap", "signal", "foreground"):
+            with self.subTest(reason=reason):
+                case = self.root / reason
+                case.mkdir()
+                original = self.root
+                self.root = case
+                try:
+                    code, text, overrides = 1, "API Error: 529 Overloaded", []
+                    if reason in ("account", "refill"):
+                        text = "Usage limit reached"
+                        overrides.append(patch.object(run.usage, "mark_exhausted", return_value=1))
+                        if reason == "account":
+                            overrides.append(patch.object(run.usage, "account", side_effect=[
+                                ("default", True), ("second", True), ("second", True)]))
+                        else:
+                            overrides.append(patch.object(run.usage, "replenish", return_value=(True, 1)))
+                    elif reason == "swap":
+                        overrides.append(patch.object(run.update, "swap_end", side_effect=[1, 0]))
+                    elif reason == "signal":
+                        code, text = -15, ""
+                    elif reason == "foreground":
+                        code, text = 0, "Handed in."
+                        overrides.append(patch.object(run, "turn_unfinished", side_effect=[True, False]))
+                    verdict, lp, calls, _ = self.review(
+                        {"commands": [finding, followup], "text": text, "code": code},
+                        {"commands": [["done"]]}, overrides=overrides)
+                    self.assertEqual(verdict, "FAIL")
+                    self.assertEqual(lp.state["round_summaries"][0]["finding_count"], 1)
+                    self.assertEqual(calls[1]["session"], ["fixture-session"])
+                    submitted = hand_in.read(calls[1]["records"])
+                    self.assertEqual(len(submitted.followups), 1)
+                finally:
+                    self.root = original
+
+    def test_a_host_ended_resume_keeps_the_records_of_its_session(self):
+        finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
+        verdict, lp, calls, _ = self.review({"commands": [["done"]]}, prior=[finding])
+        self.assertEqual(verdict, "FAIL")
+        self.assertEqual(lp.state["round_summaries"][0]["finding_count"], 1)
+        self.assertEqual(calls[0]["session"], ["fixture-session"])
+
+    def test_an_abandoned_resume_starts_with_no_records(self):
+        finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
+        verdict, _, calls, logs = self.review({"text": "", "code": 1, "events": []},
+                                            {"commands": [["done"]]}, prior=[finding])
+        self.assertEqual(verdict, "PASS")
+        self.assertEqual(calls[1]["session"], [])
+        self.assertTrue(any("fresh conversation" in line for line in logs), logs)
+
+    def test_run_evidence_and_published_bodies_are_bounded(self):
+        command = "for ((i=0; i<3000; i++)); do printf 'evidence line %04d: wrong answer repeated\\n' \"$i\"; done; exit 7"
+        result = self.cli("follow-up", "api.py:2", "wrong result", "breaks callers", "--run", command,
+                          "--before", "base abc123")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        evidence = self.rows()[1]["evidence"]
+        self.assertLess(len(evidence["output"]), 10000)
+        self.assertIn("truncated", evidence["output"])
+        self.assertIn("0000", evidence["output"])
+        self.assertIn("2999", evidence["output"])
+        self.assertEqual(evidence["returncode"], 7)
+        item = hand_in.item_text(self.rows()[1])
+        state = {"round_summaries": [{"summary": "## Summary\nFixed the API"}], "verdict": "PASS",
+                 "rounds": 1, "executor": "opus", "reviewer": "astra", "run_id": "fixture",
+                 "followups": [item] * 30, "head_sha": "abc123"}
+        self.assertLess(len(run.pr_body(state)), 65536)
+        self.assertIn("truncated", run.pr_body(state))
+        lp = run.Loop({}, self.root, state, {}, lambda *_: None, self.workspace, "", [], "", [])
+        lp.findings = hand_in.Review([self.rows()[1]] * 30 + [{"kind": "done"}]).text
+        with patch.object(run, "gh_json", return_value=({"headRefOid": "abc123", "state": "OPEN"}, "")), \
+                patch.object(run, "gh", return_value=(0, "")), patch.object(lp, "write"):
+            self.assertTrue(run.post_review(lp, "https://github.com/acme/api/pull/1", "PASS"))
+        self.assertLess(len((self.root / "review.md").read_text()), 65536)
+        self.assertIn("truncated", (self.root / "review.md").read_text())
 
     def test_all_reviewer_prompts_ask_only_for_hand_in(self):
         for role, text in worker.PREAMBLES.items():
