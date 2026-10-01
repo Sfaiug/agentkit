@@ -14,7 +14,7 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
   going. Tests never touch the real ones.
 - A harness is meant to be a plugin: an adapter pair, an optional plugin module and one
   config entry. Its names and failure words also live in some twenty other files today.
-- `run.py` (14.7k lines) holds nearly the whole run side.
+- `run.py` (15.5k lines) holds nearly the whole run side.
 
 ## Entry points
 
@@ -24,13 +24,17 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
 
 ## agentkit/
 
-- `run.py`: the run loop. Hides task parsing, staffing, turns, the done-when gate, review
-  rounds, landing, hand-back, run.json and its stop-safe write, provider-failure
+- `run.py`: the run loop. Hides staffing, turns, the done-when gate, review rounds,
+  landing, hand-back, run.json and its stop-safe write, provider-failure
   handling, slots and host admission, worktrees, gc and jobs. Offers `main`,
   `save_state`/`read_state`, `record` (read-change-write under its lock, never over a record
   it cannot read; the loop and the tick change records through it), `going`, `pick_models`.
   Used by watch (about 60 functions), orch, menu, notify, usage, worker, retention and a hook.
   Leak: Claude temp-file gc.
+- `task.py`: the task file. One front-matter reader gives the meta, the title and every
+  `after:`; also the done-when commands and their `# once` groups, the size and round-budget
+  refusals and their limits. Imports only config. Used by run (as `taskfile`: a job's
+  `task` there is its entry).
 - `watch.py`: the tick. Hides watch.json, reading each manifest's screen rules and words
   (`stalls`, `auth_expiry`), seat state (`session_state`, `waiting_on`), typing
   into and reviving seats, resuming runs, PR scanning, `doctor`. Used by run, orch, menu,
@@ -110,7 +114,6 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
 Planned work, each its own task; none of it is true today.
 
 Run side, out of `run.py`:
-- `task`: the task file, front matter, done-when groups, size refusal.
 - `record`: sole owner of run.json: keys, the stop-safe write, a transition table.
 - `turn`: one model turn, branching on the harness's `failure` and login words.
 - `staffing`: who executes and who reviews, from budgets.

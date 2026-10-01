@@ -65,6 +65,16 @@ RULES = [
                 r"|len\([\"'](session|notify|card|seat|hook|compact|stop|plan)-[\"']\)",
      "home": ("agentkit/config.py",),
      "max": 11},
+    # A task file's format is read in one module: a pattern for its front-matter fence
+    # (`^---\n`) or its `## Done when` heading is a second reader to keep in step.  A task
+    # written out (`## Done when\n```bash`) is no reader, and `FRONT` reads AGENTS.md's front
+    # matter, the repository's declarations, not a task's.
+    {"name": "task file format",
+     "flags": (),
+     "pattern": r"\^---\\n|Done when\\s",
+     "names": r"FRONT = re\.compile\(r\"\^---\\n",
+     "home": ("agentkit/task.py",),
+     "max": 0},
 ]
 
 

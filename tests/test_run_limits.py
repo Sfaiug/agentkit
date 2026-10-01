@@ -22,6 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, notify, orch, run, usage, watch, worker
+from agentkit import task as taskfile
 
 URL = "https://github.com/fixture/repo/pull/7"
 SLEEP = time.sleep                  # the real one, kept for the waits the fixture itself needs
@@ -462,7 +463,7 @@ class Limits(unittest.TestCase):
     def test_v5f_the_step_is_recorded_in_run_json_as_it_changes(self):
         self.repo()
         task = self.task(["true"])
-        _, body, _ = run.parse_task(task)
+        _, body, _ = taskfile.parse_task(task)
         directory = config.RUNS / "20260914-1100-steps"
         directory.mkdir(parents=True)
         state = {"run_id": directory.name, "state": "running", "round_summaries": [],
