@@ -77,7 +77,11 @@ class FromRunTakesTheTarget(unittest.TestCase):
             task = directory / "task.md"
         opts = {"--rounds": "1", "--no-worktree": False, "--no-merge": True,
                 "--exec": None, "--review": None}
-        with patch.object(run, "rounds", side_effect=AtRound):
+
+        def rounds(lp, **_kw):
+            raise AtRound(lp)
+
+        with patch.object(run, "rounds", side_effect=rounds):
             with self.assertRaises(AtRound) as caught:
                 run.loop(self.cfg, directory, task, opts, self.logs.append, prior)
         return caught.exception.lp
@@ -86,6 +90,7 @@ class FromRunTakesTheTarget(unittest.TestCase):
         fresh = self.commit(self.origin, "fixed.txt", "target fix\n")
         self.assertEqual(self.git(self.repo, "rev-parse", "origin/main"), self.base)
         lp = self.start()
+        self.assertTrue((lp.wt / "fixed.txt").is_file(), "round 1 lacks the target's fix")
         self.assertEqual((lp.wt / "fixed.txt").read_text(), "target fix\n")
         self.assertEqual((lp.wt / "carried.txt").read_text(), "saved work\n")
         self.git(lp.wt, "merge-base", "--is-ancestor", fresh, "HEAD")
@@ -102,6 +107,7 @@ class FromRunTakesTheTarget(unittest.TestCase):
         for target in ("dev", "origin/dev", "refs/heads/dev", "refs/remotes/origin/dev"):
             with self.subTest(target=target):
                 lp = self.start(target)
+                self.assertTrue((lp.wt / "fixed.txt").is_file(), "round 1 lacks dev's fix")
                 self.git(lp.wt, "merge-base", "--is-ancestor", fresh, "HEAD")
                 self.assertEqual((lp.wt / "fixed.txt").read_text(), "dev fix\n")
                 self.assertTrue(any("merged origin/dev" in line for line in self.logs))
