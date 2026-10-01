@@ -18,7 +18,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from test_v4n import Sandbox
+from test_v4n import Sandbox, menu_input
 from agentkit import config, gc, menu, orch, run, terminal, watch
 
 
@@ -85,10 +85,8 @@ class QueuedRunFilesSeat(Sandbox):
         self.assertIsNone(self.repo())
         # Filed from the records the draw reads anyway: no run.json twice.
         with patch.object(run, "read_state", wraps=run.read_state) as read, \
-                patch.object(menu, "wait_key", return_value=""), \
-                patch.object(menu, "read", return_value=""), \
+                menu_input(return_value=""), \
                 patch.object(menu.Live, "look"), \
-                patch.object(menu.Live, "probe", return_value=False), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(terminal, "width", return_value=100), \
                 redirect_stdout(io.StringIO()) as out:

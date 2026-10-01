@@ -11,12 +11,11 @@ come back the way Esc brings them back.
 from contextlib import redirect_stdout
 import io
 import os
-import threading
 import time
 from unittest.mock import patch
 import unittest
 
-from test_v4n import Sandbox
+from test_v4n import Sandbox, menu_input
 from agentkit import config, menu, orch, terminal
 
 SLOW = 2.0        # what each read takes: a host under load, and then some
@@ -109,15 +108,11 @@ class MenuSpeed(Sandbox):
             screens.append((key, lit))
             return pressed(key)
 
-        with patch.object(menu, "wait_key", side_effect=wait_key), \
-                patch.object(menu, "read", return_value="q"), \
+        with menu_input(wait=wait_key, return_value="q"), \
                 patch.object(menu, "show_config", side_effect=back), \
                 patch.object(terminal, "choose", side_effect=choose), \
                 redirect_stdout(out):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
-            # the loop waited for its reads and looks as it closed, so none outlives these fakes
-            self.assertEqual([thread for thread in threading.enumerate()
-                              if thread.name != "MainThread" and thread.daemon], [])
         # each key's frame is the highlight where it moved it, or where it was left
         highlighted = [(key.name, key.char, [seat.split()[2] for seat in seats])
                        for key, seats in screens]

@@ -1,6 +1,6 @@
 """Menu fixtures, run reporting, Codex rollouts and launch/cache regressions; offline."""
 
-from contextlib import ExitStack, redirect_stdout
+from contextlib import ExitStack, contextmanager, redirect_stdout
 import io
 import json
 import os
@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -17,6 +18,19 @@ from agentkit import config, gc, menu, orch, run, terminal, usage
 from agentkit.harness import codex as codex_plugin
 
 
+@contextmanager
+def menu_input(*, wait=None, **read_kw):
+    """Scripted reads also answer waits; a silent open stdin must never strand the menu."""
+    def read_key(prompt, *_args, **_kw):
+        return menu.read(prompt, "")
+
+    # A probe thread could call usage.collect after the test's mocks have gone.
+    with patch.object(menu, "read", **read_kw) as read, \
+            patch.object(menu, "wait_key", side_effect=wait if wait is not None else read_key), \
+            patch.object(menu.Live, "probe", return_value=False):
+        yield read
+
+
 class Sandbox(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v4n-", dir=REPO)
@@ -24,6 +38,9 @@ class Sandbox(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        # a menu leaves its reads, looks and maintenance going: they end before this HOME goes
+        threads = set(threading.enumerate())
+        self.addCleanup(lambda: [thread.join(15) for thread in set(threading.enumerate()) - threads])
         self.stack.enter_context(patch.dict(os.environ, {"HOME": str(self.root),
                                  "NO_COLOR": "1", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
                                  # this HOME's OpenCode config, never the caller's: mimo is payg
@@ -286,7 +303,7 @@ class Rendering(Sandbox):
         notice = f"update: FAILED ({self.root}/.agentkit/tmp/update-20260910-140200.log)"
         with patch.object(terminal, "width", return_value=100), \
                 patch.object(menu.orch, "job_notices", return_value=[notice]), \
-                patch.object(menu, "read", return_value=""), redirect_stdout(io.StringIO()) as out:
+                menu_input(return_value=""), redirect_stdout(io.StringIO()) as out:
             menu.loop(self.cfg, dry_run=True)
         self.assertIn("update: FAILED (~/.agentkit/tmp/update-20260910-140200.log)", out.getvalue())
         self.assertTrue(all(terminal.cells(line) <= 100 for line in out.getvalue().splitlines()))

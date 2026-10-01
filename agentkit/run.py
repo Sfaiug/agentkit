@@ -3404,13 +3404,27 @@ def join_suite(lp):
                  compare=getattr(lp, "suite_compare", True))
 
 
+def passed_review_head(state):
+    """The last reviewed head whose checks passed, before landing reviews skip the suite."""
+    reviewed = state.get("review") or {}
+    passed_head = ((state.get("review_pending") or {}).get("passed_head_sha")
+                   or reviewed.get("passed_head_sha"))
+    if not passed_head and reviewed.get("verdict") == "PASS" and reviewed.get("done_when"):
+        passed_head = reviewed.get("rebased_from") or reviewed.get("head_sha")
+    return passed_head or next((entry.get("passed_head_sha") or entry.get("head_sha")
+        for entry in reversed(state.get("round_summaries") or [])
+        if entry.get("verdict") == "PASS" and entry.get("done_when") and entry.get("head_sha")), None)
+
+
 def pending_review(lp, reason):
     """Invalidate before delivery; landing review spends no round, only fixing findings does."""
     entries = lp.state["round_summaries"]
+    passed_head = passed_review_head(lp.state)
     lp.state.update(verdict=None, review=None,
                     review_pending={"round": lp.rnd, "record": False,
                                     "summary": entries[-1]["summary"] if entries else "",
-                                    "reason": reason})
+                                    "reason": reason,
+                                    **({"passed_head_sha": passed_head} if passed_head else {})})
     lp.save()
 
 
@@ -3971,8 +3985,10 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     The verdict is recorded either way, because delivery is decided
     on it.
     """
+    passed_head = passed_review_head(lp.state)
     lp.state.update(verdict=None, review=None,
-                    review_pending={"round": lp.rnd, "summary": summary})
+                    review_pending={"round": lp.rnd, "summary": summary,
+                                    **({"passed_head_sha": passed_head} if passed_head else {})})
     if not record:
         lp.state["review_pending"]["record"] = False
     if hasattr(lp, "step"):
@@ -4222,16 +4238,23 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         record_flakes(lp.state, dw_log)
         if getattr(lp, "once_log", ""):
             record_flakes(lp.state, lp.once_log)
+        checked = lp.state.get("final_check") or {}
+        # Landing re-reviews pass only the every-commands; they cannot move the suite's base.
+        if (not getattr(lp, "once", ()) or
+                (not lp.state.get("landing") and checked.get("outcome") == "passed"
+                 and checked.get("sha") == validation.get("head_sha"))):
+            passed_head = validation.get("head_sha")
+    passed = {"passed_head_sha": passed_head} if passed_head else {}
     if record:
         lp.state["round_summaries"].append(
             {"round": lp.rnd, "verdict": verdict, "done_when": ok,
              "finding_count": finding_count(text),
-             "summary": summary.strip()[-4000:], **validation})
+             "summary": summary.strip()[-4000:], **validation, **passed})
     lp.log(f"round {lp.rnd} verdict: {verdict}")
     lp.state["verdict"] = verdict
     lp.state["review"] = {"executor": lp.executor, "executor_provider": exec_provider,
                           "reviewer": lp.reviewer, "reviewer_provider": review_provider,
-                          "returncode": code, "verdict": verdict, "done_when": ok, **validation,
+                          "returncode": code, "verdict": verdict, "done_when": ok, **validation, **passed,
                           **({"overridden": overridden} if overridden else {})}
     lp.state.pop("review_pending", None)
     lp.save()
@@ -4282,6 +4305,11 @@ def rounds(lp, execv=None):
     lp.rounds = lp.state["rounds"]
     lp.save()
     pending = lp.state.get("review_pending")
+    if (pending and "record" not in pending and pending.get("round") == lp.rnd + 1
+            and pending.get("reason", "").startswith("Re-review after the ")):
+        # Older landing receipts reserved the next round before record=False existed.
+        pending.update(round=lp.rnd, record=False)
+        lp.save()
     if pending and pending.get("record") is False:
         # A landing gate may be waiting on a changed target, not another task
         # round. Bring that target in before verifying or reviewing the fixes.
@@ -4297,7 +4325,8 @@ def rounds(lp, execv=None):
                         review_pending={"round": lp.rnd + 1,
                                         "summary": entries[-1]["summary"] if entries else "",
                                         "reason": "The saved reviewed commit changed; "
-                                                  "verify the current checkout."})
+                                                  "verify the current checkout.",
+                                        "passed_head_sha": passed_review_head(lp.state)})
         lp.save()
     if current_review(lp):
         lp.log(f"already passed at round {lp.rnd}/{lp.rounds}; going straight to the merge")
@@ -4618,8 +4647,9 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
     handed back with them, never a wait that could only end in the same one.
 
     `upstream` names the branch for messages; every check uses `tip`, never the moving name
-    again.  A re-test that fails on the target's own tip too parks `waiting` on it at
-    once, spending no round: the target is red, and the branch has nothing to fix.
+    again.  A re-test that fails on the target's tip but passes on the last reviewed
+    head's target base parks `waiting`, spending no round.  An unchanged base needs
+    only the tip probe.
     """
     tip = tip or upstream
     conflicts = [p for p in git(lp.wt, "diff", "--name-only", "--diff-filter=U",
@@ -4662,9 +4692,10 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
         return park_waiting(lp, f"the fixer did not finish {what}; it was aborted",
                             upstream, tip)
     set_base(lp, tip)
-    # Verification or review can park on a provider too. Its resume must keep the
-    # conflict round out of the task budget just as the uninterrupted path does.
-    lp.state["review_pending"] = {"round": lp.rnd, "summary": summary,
+    # Keep the passed head for target probes; a provider wait also resumes as a
+    # conflict round, outside the task budget.
+    lp.state["review_pending"] = {**(lp.state.get("review_pending") or {}),
+                                  "round": lp.rnd, "summary": summary,
                                   "reason": f"Re-review after {what}.", "record": False}
     lp.save()
     ok, dw_log = verify_work(lp)
@@ -4743,8 +4774,9 @@ def integrate(lp, upstream):
     during its check, and `land` carries those over under the delivery turn without
     another re-check.  Otherwise, when origin moved while the lap landed, the lap goes
     round again, at most three laps; a move still unlanded after the third parks the run
-    `waiting`, as a conflict does, and never ends it FAIL.  A re-check that fails on the
-    target's own tip too parks on it at once, spending no fixer round.  A branch left
+    `waiting`, as a conflict does, and never ends it FAIL.  A re-check red on the target's
+    tip and green on the old base parks without a fixer round (only the tip is probed
+    when those commits are the same).  A branch left
     with no diff is False too, a PASS noted as already on the target, so no caller
     pushes it.  A commit whose checks pass here is marked on the loop, so the final
     check runs only what has not run on it yet, once.
@@ -4837,6 +4869,7 @@ def integrate(lp, upstream):
                            "this branch's files, landing on the round's checks")
                     lp.state["review"] = {**saved, "head_sha": new_identity["head_sha"],
                                           "tree_sha": new_identity["tree_sha"],
+                                          "passed_head_sha": passed_review_head(lp.state),
                                           "rebased_from": old_head,
                                           "patch_id": patch_id(lp.wt, tip)}
                     lp.state["verdict"] = saved_verdict
@@ -4889,6 +4922,7 @@ def integrate(lp, upstream):
                                        "done-when passed again, review kept")
                                 lp.state["review"] = {**saved, "head_sha": new_identity["head_sha"],
                                                       "tree_sha": new_identity["tree_sha"],
+                                                      "passed_head_sha": passed_review_head(lp.state),
                                                       "rebased_from": old_head,
                                                       "patch_id": patch_id(lp.wt, tip)}
                                 lp.state["verdict"] = saved_verdict
@@ -4903,7 +4937,8 @@ def integrate(lp, upstream):
                             lp.rnd = old_rnd
                             reason = f"Re-review after the {how} of {upstream}."
                             lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
-                                                          "reason": reason, "record": False}
+                                                          "reason": reason, "record": False,
+                                                          "passed_head_sha": passed_review_head(lp.state)}
                             lp.save()
                             drop_reserved_turn()    # the lap failed; the probe runs unheld
                             for attempt in range(CONFLICT_ROUNDS + 1):
@@ -5511,16 +5546,16 @@ def restore_probe_checkout(lp, head, branch, before, label):
 
 
 def target_fails(lp, upstream, dw_log):
-    """What the landing check's first failing command says on the target's own tip, when it
-    fails there too; "" when it does not.
+    """What the first failing landing command says on a red target tip with a green old
+    base; "" when it needs the branch.  An unchanged base needs only the tip probe.
 
     Runs land in parallel, and one whose target moved only under other files lands on its
     earlier checks without running them on the combined commit -- so the target can be red
     while every run in flight passed alone.  A landing check failing on that red tip is not
-    the branch's to fix: the first failing command runs once, detached on the tip in this
-    worktree, and a failure there parks the run `waiting` on the target instead of spending
-    fixer rounds editing code its task never touched.  A pass means the branch broke it, and
-    the fixer rounds run as today.  The failure is the probe's own, in `first_failure`'s
+    the branch's to fix only if it passes on the target commit the branch last passed on:
+    the merge-base of its last reviewed head and the tip.  After a failed tip probe, that
+    old base is probed too unless it is the tip.  Failure on both means the command needs
+    the branch, so the fixer runs.  The failure is the tip probe's own, in `first_failure`'s
     words: a suite can fail on the target at another check than it did on the branch.
 
     Nobody else repairs a red target: the first run to find it starts one repair run on it,
@@ -5534,7 +5569,7 @@ def target_fails(lp, upstream, dw_log):
     log names the file the target lacks.
 
     "" when the check names no failing command, when the tree is dirty, and when the tip
-    cannot be resolved or checked out: all of those leave the tree alone and run the fixer
+    or old base cannot be resolved or checked out: those run the fixer
     rounds as today.  A stop propagates, after the worktree is put back on the branch head,
     clean.  A probe of a `# once` command takes a heavy-suite turn; any other probe runs
     light, as the check it repeats did.
@@ -5562,41 +5597,65 @@ def target_fails(lp, upstream, dw_log):
     branch = git(lp.wt, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     stop_check(lp.run_dir)
     before = set(dirty_paths(lp.wt))
-    label = f"`{cmd}` on {upstream}"
-    save_probe_checkout(lp, head, branch, before, label)
+    probe_log = lp.run_dir / "target-probe.log"
+    heavy_probe = cmd in (getattr(lp, "once", None) or [])
+
+    def probe(sha, where):
+        label = f"`{cmd}` on {where}"
+        save_probe_checkout(lp, head, branch, before, label)
+        try:
+            rc, _ = git_out(lp.wt, "checkout", "--quiet", "--detach", sha)
+            if rc != 0:
+                return None
+            lp.log(f"--- merge: `{cmd}` failed; probing it once on {where} ({sha[:12]})")
+            with gate_turn(lp.run_dir, probe_log, lp.log) if heavy_probe else nullcontext():
+                began = time.monotonic()    # from the turn, not the wait
+                while True:
+                    with probe_log.open("ab") as progress:
+                        progress.write(f"$ {cmd} (on {where} {sha})\n".encode())
+                        progress.flush()
+                        start = progress.tell()
+                        code, _, killed = worker.limited(
+                            ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
+                            activity=probe_log, output=progress, stderr=subprocess.STDOUT,
+                            stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=suite_env())
+                    # busy is no answer: the turn goes back until the suite runs
+                    if (not heavy_probe or code != SUITE_BUSY or killed
+                            or time.monotonic() - began > lp.done_when_limit):
+                        break
+                    began += busy_turn(lp.run_dir, probe_log, lp.log)
+            memory_cap_note(lp.run_dir, lp.log)
+            # as after a gate: a command that exited may still have left processes behind
+            worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
+            with probe_log.open("rb") as said:
+                said.seek(start)
+                output = said.read().decode(errors="replace")
+            return code, output, killed
+        finally:
+            restore_probe_checkout(lp, head, branch, before, label)
+
+    result = probe(tip, upstream)
+    if result is None:
+        return ""
+    code, output, killed = result
+    if not (killed or code != 0):
+        return ""
+    passed_head = passed_review_head(lp.state)
+    if not passed_head:
+        return ""
     try:
-        rc, _ = git_out(lp.wt, "checkout", "--quiet", "--detach", tip)
-        if rc != 0:
+        old_base = git(lp.wt, "merge-base", passed_head, tip)
+    except Stopped:
+        raise
+    except config.Error:
+        return ""
+    if old_base != tip:
+        previous = probe(old_base, "old base")
+        if previous is None:
             return ""
-        lp.log(f"--- merge: `{cmd}` failed; probing it once on {upstream} ({tip[:12]})")
-        probe_log = lp.run_dir / "target-probe.log"
-        heavy_probe = cmd in (getattr(lp, "once", None) or [])
-        with gate_turn(lp.run_dir, probe_log, lp.log) if heavy_probe else nullcontext():
-            began = time.monotonic()    # as `run_done_when`'s ceiling: from the turn, not the wait
-            while True:
-                with probe_log.open("ab") as progress:
-                    progress.write(f"$ {cmd} (on {upstream} {tip})\n".encode())
-                    progress.flush()
-                    start = progress.tell()
-                    code, _, killed = worker.limited(
-                        ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
-                        activity=probe_log, output=progress, stderr=subprocess.STDOUT,
-                        stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=suite_env())
-                # busy is no answer: as in `run_done_when`, the turn goes back until it runs
-                if (not heavy_probe or code != SUITE_BUSY or killed
-                        or time.monotonic() - began > lp.done_when_limit):
-                    break
-                began += busy_turn(lp.run_dir, probe_log, lp.log)
-        memory_cap_note(lp.run_dir, lp.log)
-        # as after a gate: a command that exited may still have left processes behind
-        worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
-        if not (killed or code != 0):
+        if previous[2] or previous[0] != 0:
+            lp.log(f"--- merge: `{cmd}` fails on {old_base[:12]} too: needs this branch")
             return ""
-        with probe_log.open("rb") as said:
-            said.seek(start)
-            output = said.read().decode(errors="replace")
-    finally:
-        restore_probe_checkout(lp, head, branch, before, label)
     # indented, so nothing the command printed reads as a heading or a fence of the task
     printed = "\n".join("    " + line for line in output[-OUT_CAP:].splitlines())
     try:
@@ -5635,8 +5694,8 @@ def final_check(lp, upstream):
     findings, within the round budget it may spend, and once that is spent a review FAIL
     handed back with them.  Still failing after the last one, the run parks `waiting`
     with the check's first failing line, retried after the next merge to `upstream`.
-    A failing command that fails on the target's own tip too parks on it at once,
-    spending no fixer round: the target is red, and the branch has nothing to fix.
+    A command red on the target's tip and green on the old base parks without a
+    fixer round.  When those commits are the same, only the tip is probed.
     """
     if not lp.once:
         return True
@@ -5703,6 +5762,8 @@ def final_check(lp, upstream):
         if ok:
             lp.log("final check: all passed")
             lp.state["final_check"] = {"outcome": "passed", "sha": sha, "where": "landing"}
+            if current_review(lp):
+                lp.state["review"]["passed_head_sha"] = sha
             record_flakes(lp.state, text)
             lp.write()
             return True
@@ -5732,6 +5793,7 @@ def final_check(lp, upstream):
         # never as a task round, and never as a run with its budget spent and nothing pending
         lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
                                       "reason": "Re-review after the final check.",
+                                      "passed_head_sha": passed_review_head(lp.state),
                                       "record": False}
         lp.save()
         with released_gate_turn():
@@ -5902,6 +5964,7 @@ def disjoint_move(lp, upstream, verified, tip):
         if rc == 0:
             landed = commit_identity(lp.wt)
             kept["review"] = {**kept["review"], **landed,
+                              "passed_head_sha": passed_review_head(lp.state),
                               "rebased_from": old_head, "patch_id": patch_id(lp.wt, tip)}
             carried = lp.state.get("final_check")
             if (isinstance(carried, dict) and carried.get("outcome") == "passed"

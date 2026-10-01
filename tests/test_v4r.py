@@ -11,7 +11,7 @@ import time
 from unittest.mock import patch
 import unittest
 
-from test_v4n import REPO, Sandbox
+from test_v4n import REPO, Sandbox, menu_input
 from agentkit import config, macbridge, menu, orch, run, terminal, usage
 
 
@@ -133,14 +133,9 @@ class UsageLeft(Sandbox):
                 self.cache()
                 return "\x1b[A"          # an arrow: no key, only a draw
             return "\x1b"
-        # The wait is mocked beside the read: the real one selects on stdin, and a
-        # stdin that never delivers EOF -- a backgrounded run's open pipe -- would redraw
-        # into `out` every TICK forever, growing without bound instead of finishing.
         with patch.object(menu.orch, "listing", return_value=seats), \
                 patch.object(menu.orch, "job_notices", return_value=[]), \
-                patch.object(menu, "read", side_effect=answer), \
-                patch.object(menu, "wait_key", side_effect=lambda prompt, timeout=None,
-                             wake=None: menu.read(prompt, "")), \
+                menu_input(side_effect=answer), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
         self.assertIn("69%", out.getvalue())
@@ -253,43 +248,57 @@ class UsageLeft(Sandbox):
                 patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
             self.assertTrue(menu.usage_lines(self.cfg, 40)[0].startswith("\033[2m"))
 
-    def test_startup_pauses_for_warnings_and_never_for_receipts_before_drawing_once(self):
+    def test_startup_pauses_for_warnings_and_never_for_receipts_after_drawing_once(self):
         # A live seat's ending is that seat's to report, so the menu opens on the seats
         directory = self.ended("old-owned", owner="atoll-fix", finished_at=10000 - 8 * 3600)
         self.assertIn(directory, [path for path, _ in menu.run_records()])
         warning = "WARN could not check the runs: the run directory is unreadable"
         updates = [["agentkit: reaped a loop whose process was gone", warning], []]
-        real_maintenance = orch.maintenance
+        real_maintenance, real_show_notices = orch.maintenance, menu.show_notices
         def maintenance(log):
             for message in updates.pop(0):
                 log(message)
             real_maintenance(log)
+
+        def show_notices(messages):
+            # A warning drawn after its notice must still be in the screen output.
+            with redirect_stdout(notices), patch.object(notices, "isatty", return_value=True):
+                real_show_notices(messages)
+
+        def wait_key(prompt, timeout=None, wake=None):
+            nonlocal waited
+            if not waited:
+                self.assertTrue(live.tidied.wait(10))
+                waited = True
+                return None     # draw the notice even if maintenance finished before this wait
+            return menu.read(prompt, "")
         with patch.object(macbridge, "start_background"), \
                 patch.object(config, "server_alias", return_value=None), \
                 patch.object(orch, "maintenance", side_effect=maintenance), \
                 patch.object(orch, "sessions", return_value=[{"name": "atoll-fix", "created": 9100}]), \
                 patch.object(orch, "job_notices", return_value=[]), \
-                patch.object(menu, "wait_key", side_effect=lambda prompt, timeout=None,
-                             wake=None: menu.read(prompt, "")), \
+                patch.object(menu, "show_notices", side_effect=show_notices), \
                 patch.object(sys.stdin, "isatty", return_value=True):
             for first in (True, False):
-                out = io.StringIO()
+                out, notices = io.StringIO(), io.StringIO()
+                live, waited = menu.Live(self.cfg), False
                 with redirect_stdout(out), patch.object(out, "isatty", return_value=True), \
-                        patch.object(menu, "read", side_effect=lambda prompt, default:
-                                     "") as read:
+                        menu_input(wait=wait_key, return_value="") as read, \
+                        patch.object(menu, "Live", return_value=live):
                     self.assertEqual(menu.main([]), 0)
                 # The header carries no hash; split on it, not on the update notice.
                 before, screen = out.getvalue().split("agentkit ", 1)
+                self.assertEqual(before, "")       # the menu's first frame, before any notice
                 if first:
-                    self.assertIn("agentkit: reaped a loop whose process was gone", before)
-                    self.assertIn(warning, before)
-                    self.assertEqual(before.count("Finished old-owned"), 0)
+                    self.assertIn("agentkit: reaped a loop whose process was gone", notices.getvalue())
+                    self.assertIn(warning, notices.getvalue())
                     self.assertEqual([call.args[0] for call in read.call_args_list],
                                      ["esc back ", "> "])
                 else:
-                    self.assertEqual(before, "")
+                    self.assertNotIn(warning, notices.getvalue())
                     self.assertEqual([call.args[0] for call in read.call_args_list], ["> "])
                 self.assertNotIn("Finished old-owned", screen)
+                self.assertNotIn("Finished old-owned", notices.getvalue())
                 self.assertNotIn(warning, screen)
                 self.assertFalse(run.read_state(directory)["reported"])
 
