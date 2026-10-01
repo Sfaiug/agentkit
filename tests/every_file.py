@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The rest of the `tests:` suite: every tests/test_*.py a plain smoke.sh run does not run.
+"""The rest of the `tests:` suite: every tests/test_*.py the smoke.sh run before it did not.
 
 AGENTS.md runs this after smoke.sh, so a file no task happened to list cannot go red on main
 unseen.  It is no part of smoke.sh and never touches its lock: it holds no smoke target and
@@ -29,16 +29,23 @@ FILE_MEM_MB = 230   # and the largest file's measured peak with what it starts, 
 TAIL = 30           # a failing file's last lines: unittest ends on the traceback and tally
 
 
-def smoke_runs(smoke):
-    """The test modules a plain `bash tests/smoke.sh` runs: every one it names outside a
-    comment and outside its AGENTKIT_SMOKE_OFFLINE block, which that run never enters."""
-    names, offline = set(), False
+def smoke_runs(smoke, offline):
+    """The test modules `bash tests/smoke.sh` runs in its plain mode or, `offline`, in the one
+    AGENTKIT_SMOKE_OFFLINE=1 selects: every one it names outside a comment and outside the
+    blocks that mode skips.  Both skip the argument blocks above the offline block; the plain
+    mode skips the offline block, and the offline mode exits at its end."""
+    names, block, below = set(), None, False
     for line in smoke.splitlines():
-        if line.startswith("if ") and "AGENTKIT_SMOKE_OFFLINE" in line:
-            offline = True
-        elif line == "fi":
-            offline = False
-        elif not offline and not line.lstrip().startswith("#"):
+        opens = block is None and not below and line.startswith("if ") and line.endswith("then")
+        if opens and "AGENTKIT_SMOKE_OFFLINE" in line:
+            block, below = "offline", True
+        elif opens and '"${1:-}"' in line:
+            block = "argument"
+        elif block and line == "fi":
+            if block == "offline" and offline:
+                break
+            block = None
+        elif (block is None or block == "offline" and offline) and not line.lstrip().startswith("#"):
             names.update(re.findall(r"\btest_\w+", line))
     return names
 
@@ -53,7 +60,9 @@ def run_file(root, path, env):
 
 def main(root):
     tests = root / "tests"
-    skip = smoke_runs((tests / "smoke.sh").read_text())
+    # smoke.sh ran in the mode this caller's environment gave it
+    skip = smoke_runs((tests / "smoke.sh").read_text(),
+                      os.environ.get("AGENTKIT_SMOKE_OFFLINE", "0") == "1")
     todo = sorted(path for path in tests.glob("test_*.py") if path.stem not in skip)
     env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
     # The host's idle cores -- the slice's CPU quota where it sets one, less the minute's load

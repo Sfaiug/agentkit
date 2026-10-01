@@ -23,6 +23,10 @@ CLEAN = ('import os, sys\n'
          'sys.exit(f"leaked: {leaked}" if leaked or os.environ.get("ACME_KEPT") != "1" else 0)\n')
 SMOKE = '''#!/usr/bin/env bash
 # test_comment.py is named in a comment only
+if [ "${1:-}" = --acme ]; then
+  python3 "$REPO/tests/test_argument.py"
+  exit $?
+fi
 python3 "$REPO/tests/test_smoke.py"
 lifecycle() {
   python3 - <<'PY'
@@ -31,7 +35,9 @@ PY
 }
 if [ "${AGENTKIT_SMOKE_OFFLINE:-0}" = 1 ]; then
   python3 "$REPO/tests/test_offline.py"
+  exit 0
 fi
+python3 "$REPO/tests/test_plain.py"
 '''
 
 
@@ -47,10 +53,11 @@ class SuiteRunsEveryFile(unittest.TestCase):
         self.log = root / "ran.log"
         return root
 
-    def suite(self, root):
+    def suite(self, root, offline="0"):
         env = dict(os.environ, ACME_LOG=str(self.log), ACME_KEPT="1", AGENTKIT_RUN="acme-run",
                    AK_RUN_DEPTH="2", AK_PARENT_RUN="acme-parent", AK_RUN_LOG="/nonexistent",
-                   AK_HOST_READINGS='{"cpus": 2, "load": 0, "free_mb": 4096}')
+                   AK_HOST_READINGS='{"cpus": 2, "load": 0, "free_mb": 4096}',
+                   AGENTKIT_SMOKE_OFFLINE=offline)
         return subprocess.run([sys.executable, str(RUNNER), str(root)], env=env,
                               stdin=subprocess.DEVNULL, capture_output=True, text=True,
                               timeout=120)
@@ -80,11 +87,16 @@ class SuiteRunsEveryFile(unittest.TestCase):
         self.assertIn("PASS  tests/test_clean.py", proc.stdout)
 
     def test_every_file_smoke_does_not_run_runs_once(self):
-        names = ("test_smoke", "test_lifecycle", "test_comment", "test_offline", "test_acme")
-        root = self.checkout(dict.fromkeys(names, PASSES), smoke=SMOKE)
-        proc = self.suite(root)
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertEqual(self.ran(), ["test_acme", "test_comment", "test_offline"])
+        # smoke.sh's offline mode runs its offline block and exits there; the plain mode skips it
+        names = ("test_smoke", "test_lifecycle", "test_comment", "test_offline", "test_acme",
+                 "test_argument", "test_plain")
+        for offline, ran in (("0", ["test_acme", "test_argument", "test_comment", "test_offline"]),
+                             ("1", ["test_acme", "test_argument", "test_comment", "test_plain"])):
+            with self.subTest(offline=offline):
+                root = self.checkout(dict.fromkeys(names, PASSES), smoke=SMOKE)
+                proc = self.suite(root, offline)
+                self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+                self.assertEqual(self.ran(), ran)
 
 
 if __name__ == "__main__":
