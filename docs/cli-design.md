@@ -91,7 +91,8 @@ can wipe, merge or drop one. One seat row is highlighted -- it starts with `›`
 in the accent colour and its text is bright -- and ↑/↓, `k`/`j` and the wheel
 move it; Enter opens it. A click on any line of a seat opens that seat, and a
 click on a key-line item does what its key does, read against the layout that
-draw used (SGR mouse mode 1006, on only while the menu has the terminal). A
+draw used (the pointer's every move, mode 1003, in SGR form, 1006, on only while
+the menu has the terminal). A
 click acts when the button comes up, so nothing it opens is handed the rest
 of it. A key pressed while the button is down acts at once and the menu reads
 nothing past it, so all he typed after it goes to whatever takes the
@@ -112,7 +113,7 @@ without UTF-8 -- and never offers `j` or `k` for pages.
 The menu draws on the alternate screen with the cursor hidden, going home and
 writing over the last draw line by line in one write, so it never flickers.
 It gives the terminal back exactly -- the very termios attributes it found,
-the main screen, the cursor, clicks off -- on Esc, on any exit or signal (a
+the main screen, the cursor, the pointer's reports off -- on Esc, on any exit or signal (a
 kill, a hang-up, `^\`, and `^Z`, which takes it again on `fg`), and before
 anything else takes it: a session, `ak update`, a harness's login, and a
 notice, whose `esc back` is still read a key at a time (`pause`), so Esc
@@ -162,6 +163,22 @@ new-session screen use them. A click belongs to the screen it began on: a button
 up on the question or on `i`, or the other way round, is no click.
 
 Example: `↑↓ move   ⏎ open   n new   x stop   c config   i info   esc leave`.
+
+Whatever the pointer is over lights up, on every screen, as it would in a window:
+a row under it -- a seat, a model, a feature, a choice -- takes the keys' own
+highlight, which moves there, and a key-line item or a cell of a row (a mark, an
+effort, a model's label, `+ add`, an arrow on a model's own screen) a subtle
+background, in place of the reverse the keys give a cell; the keys and the pointer
+never show two highlights. What lights is what a click there acts on. A cell or an
+item loses its light when the pointer leaves it; a row keeps the highlight until
+the pointer is on another row or a key moves it, as it is also what Enter acts on,
+and any key hands the highlight back to the keys, the pointer lighting nothing until
+it moves again. A move is drawn within a frame of the clock (Motion) of the pointer
+reaching another row, cell or item, and only then: the moves a terminal sends while
+the pointer travels are read through to where it ended first, and a move within what
+is lit draws nothing. Where colour is eight or none the rows still follow it, and
+nothing else lights. Helpers: `terminal.under`, the one reading of a position back
+to what a screen drew there, for a click and the pointer alike, `terminal.lit`.
 
 ## Questions
 
@@ -398,7 +415,9 @@ clock, `motion.Clock`, and no screen keeps a timer: a screen hands the clock the
 cells that move when it draws, and each of the menu's waits -- for a key, for a
 second digit, for the stop question's answer -- draws a frame only while
 something animates and no key is waiting, at most twenty a second, rewriting only
-the cells that changed, so a key is still answered within 100 ms. A resize
+the cells that changed, so a key is still answered within 100 ms. The pointer
+moving onto another row, cell or key-line item is answered at most once a frame
+on the same clock, so a flood of its moves is one draw (Keys). A resize
 draws the whole screen again before another frame. Nothing moves off a
 terminal, under `NO_COLOR` or at eight colours: there the dot stands still.
 
