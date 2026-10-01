@@ -1444,7 +1444,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     for line, name in body:
         # while a question is up its first answer carries the mark, and the seat only its light;
         # a heading is flush left, so its mark goes in front of it
-        lit = owned and name is not None and name == cursor
+        lit = owned and name is not None and name == cursor and not terminal.away()
         out.append(terminal.highlight(("  " if isinstance(name, Path) else "") + line,
                                       mark=name != above and not at) if lit else line)
         above = name
@@ -2712,7 +2712,7 @@ def config_model(cfg, name):
     while name in cfg["models"]:
         keys = (MODEL_KEYS["remove" if here == "Remove" else "step"][0 if terminal.utf8() else 1]
                 + "   esc back")
-        body, places = model_body(cfg, name, here)
+        body, places = model_body(cfg, name, None if terminal.away() else here)
         shown = body + (["", *(terminal.styled("  " + part, "dim") for part in terminal.wrap(
             note, terminal.layout_width() - 2))] if note else [])
         spots = terminal.frame(title, shown, keys, places=places)
@@ -2866,7 +2866,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                  else "mark")
         keys = CONFIG_KEYS[where][0 if terminal.utf8() else 1] + "   esc back"
         moves = []
-        body, places = config_body(cfg, version, here, column, selected, providers, moves)
+        body, places = config_body(cfg, version, None if terminal.away() else here, column,
+                                   selected, providers, moves)
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top, note, keys,
                                             marks=3, clock=clock, moves=moves)
         column = column if clicked is None else clicked
@@ -3019,7 +3020,7 @@ def config_add(cfg):
         adding = len(picked) == len(ADD_STEPS) - 1
         keys = ADD_KEYS["add" if adding else "choose"][0 if terminal.utf8() else 1] + "   esc back"
         at = min(ats[-1], max(0, len(choices) - 1))
-        body, places = add_body(picked, choices, at)
+        body, places = add_body(picked, choices, None if terminal.away() else at)
         said = ["", *(terminal.styled("  " + part, "dim")
                       for part in terminal.wrap(note, terminal.layout_width() - 2))] if note else []
         room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(said))
@@ -3555,7 +3556,8 @@ def show_features(checkout, dry_run=False):
         features = switches(checkout, TICK)
         rows = [("feature", row["id"]) for row in features or ()]
         here = here if here in rows else rows[0] if rows else None
-        body, places = features_body(features, here[1], column) if features else ([], {})
+        body, places = (features_body(features, None if terminal.away() else here[1], column)
+                        if features else ([], {}))
         # under the rows, not after them: scrolled to the last feature, a stale list still says
         # so; each one line whatever it says, so the rows stay where a click is read against them
         said = [terminal.cut(line, terminal.layout_width() - 2) for line in (
@@ -3754,10 +3756,11 @@ def loop(cfg, client=False, dry_run=False, overlay=False):
                     more, until = None, time.monotonic() + 0.5
                     while more is None and time.monotonic() < until:
                         more = moving(clock, timeout=until - time.monotonic())
-                        if more is not None and more.name == "point":
-                            more = None           # the pointer cuts no wait short
-                        elif more is None and time.monotonic() < until:
-                            # a resize: drawn anew, so the dots breathe on where they now are
+                        if more is not None and more.name == "point":    # cuts no wait short
+                            cursor, more = terminal.under(more, drawn["spots"]).what or cursor, None
+                        if more is None and time.monotonic() < until:
+                            # a resize or the pointer: drawn anew, so the dots breathe on where
+                            # they now are
                             page, pages = draw(cfg, found, listed, page, cursor, drawn, own,
                                                look=False, groups=groups, clock=clock)
                     if isinstance(more, terminal.Key) and "0" <= more.char[:1] <= "9":

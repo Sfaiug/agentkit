@@ -3260,7 +3260,8 @@ def _picking(cfg, providers, notes, selected):
     keys = (f"{'↑↓←→' if terminal.utf8() else 'arrows'} move   space choose   "
             f"{'⏎' if terminal.utf8() else 'enter'} start   esc back")
     while True:
-        body, rows, cells = picker_lines(cfg, notes, selected, at, column, terminal.layout_width())
+        body, rows, cells = picker_lines(cfg, notes, selected, None if terminal.away() else at,
+                                         column, terminal.layout_width())
         said = [terminal.styled("  " + terminal.cut(note, terminal.layout_width() - 2), "dim")] \
             if note else []
         room = max(1, terminal.height() - 6 - len(terminal.key_line(keys)) - len(said))
