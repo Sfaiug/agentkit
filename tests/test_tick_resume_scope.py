@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, watch
+from agentkit import config, job as jobs, run, watch
 
 CONFLICT_NOTE = "the fixer did not finish the rebase of origin/main; it was aborted"
 TASK = "# Fix the parser\n\n## Done when\n\n```bash\ntest -f deliverable\n```\n"
@@ -101,9 +101,9 @@ class TickResumeScope(unittest.TestCase):
             self.assertEqual([call.args[0] for call in spawn.call_args_list], [lone])
             # the job follows its own wait and resumes it once main moved
             with patch.object(run.time, "sleep"), \
-                    patch.object(run, "job_await", side_effect=run.read_state), \
-                    patch.object(run, "job_wait_login", return_value=True):
-                run.job_ladder(self.cfg, None, {}, {"name": "fix-api"}, mine,
+                    patch.object(jobs, "job_await", side_effect=run.read_state), \
+                    patch.object(jobs, "job_wait_login", return_value=True):
+                jobs.job_ladder(self.cfg, None, {}, {"name": "fix-api"}, mine,
                                run.read_state(mine), 0, self.logs.append, None)
             self.assertEqual([call.args[0] for call in spawn.call_args_list], [lone, mine])
 

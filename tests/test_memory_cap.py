@@ -25,7 +25,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, run, worker
+from agentkit import config, job as jobs, orch, run, worker
 
 
 # The allocator refuses to touch a page unless its own cgroup is the throwaway
@@ -281,7 +281,7 @@ class MemoryCap(unittest.TestCase):
                     else ("success", 0))), \
                 patch.object(run.time, "sleep", side_effect=finish), \
                 redirect_stdout(io.StringIO()):
-            self.assertTrue(run.job_scoped(job))
+            self.assertTrue(jobs.job_scoped(job))
             for name in (leaking, steady):
                 directory = config.RUNS / name
                 directory.mkdir()
@@ -290,8 +290,8 @@ class MemoryCap(unittest.TestCase):
                                            "slot_waiting": False, "job_id": job["job_id"],
                                            "pid": os.getpid()})
                 boxes[name] = {}
-                run.job_drive(config.load(), directory, {"--no-merge": True}, boxes[name],
-                              run.job_scoped(job))
+                jobs.job_drive(config.load(), directory, {"--no-merge": True}, boxes[name],
+                              jobs.job_scoped(job))
         self.assertEqual([unit for unit, _ in placed],
                          [f"agentkit-run-{leaking}", f"agentkit-run-{steady}"])
         for _unit, properties in placed:

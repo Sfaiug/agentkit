@@ -971,7 +971,7 @@ def read_key(timeout=None, wake=None):
         elif key.name == "click":  # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
         elif key.name == "point":
-            moved = under(key, _SPOTS)[:2] != _POINTED[:2]
+            moved = _POINTER is None or under(key, _SPOTS)[:2] != _POINTED[:2]
             _HELD, key = (key, _HELD[1] if _HELD else time.monotonic()) if moved else None, None
         if key is None:
             now = time.monotonic()
@@ -1254,7 +1254,8 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
     `around` draws the screen a list is asked inside and returns the row its first choice goes
     on, and is called again whenever the screen wants drawing again -- a resize -- so the list
     and the rows a click is read against are always where that screen now puts them.  There a
-    click on a choice picks it, or with `several` marks it, and a click anywhere else goes back;
+    click on a choice picks it, or with `several` marks it; the key line's Enter answers as the
+    key does, and a click anywhere else goes back;
     a button that went down before the list moved is no click.  The pointer on a choice moves
     the highlight to it, and its screen is drawn again for what else it lights.
     `wait`, where given, reads the key in `read_key`'s place, or None for a draw: the menu's own
@@ -1291,6 +1292,8 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
         again = around is not None        # its screen as well: a key puts out what was lit
         if key is None:
             continue
+        if key.name == "click" and top and under(key, _SPOTS).cell in ("⏎", "enter"):
+            key = Key("enter")
         spot = under(key, rows)
         if key.name == "point":
             at = at if spot.what is None else spot.what
