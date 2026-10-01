@@ -31,7 +31,7 @@ Each module: what it hides, offers and who uses it. Leaks are named;
   job, gc, orch, menu, notify, usage, worker, retention and a hook.
 - `gc.py`: what may go: seat files, compact stamps, temp entries, worktrees, runs and jobs;
   planner, sweep, schedule and `cmd_gc`. Asks each harness's `tmp_rule` for temp ownership
-  and live sessions; deletes through retention. Used by bin/ak, run, watch and retention.
+  and live sessions; retention deletes. Used by bin/ak, run, menu, watch and retention.
 - `task.py`: the task file's front matter, done-when groups, size and round refusals; for
   run and job.
 - `job.py`: several task files as one job. Hides the receipt (`job.json`), the scheduler,
