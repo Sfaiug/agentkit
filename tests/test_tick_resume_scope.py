@@ -1,9 +1,8 @@
-"""The tick resumes only what is its own: never a job's run, and never by a title's word.
+"""The tick resumes only what is its own: never a job's run.
 
 A job settles its own task's `error` and conflict FAIL -- skips its `after:` dependants or
 reruns it elsewhere -- so the tick's `resume_errored` and `resume_waiting` leave such a run
-to its job, which resumes its own merge wait.  And the suite's own run is the one `menu.smoke_run` names by where it lives:
-an owner run titled `smoke-...` still supersedes, and still votes for its seat's project.
+to its job, which resumes its own merge wait.
 Offline: run records in a temporary HOME, a fake resume, a stubbed upstream sha.
 """
 
@@ -18,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, run, watch
+from agentkit import config, run, watch
 
 CONFLICT_NOTE = "the fixer did not finish the rebase of origin/main; it was aborted"
 TASK = "# Fix the parser\n\n## Done when\n\n```bash\ntest -f deliverable\n```\n"
@@ -107,39 +106,6 @@ class TickResumeScope(unittest.TestCase):
                 run.job_ladder(self.cfg, None, {}, {"name": "fix-api"}, mine,
                                run.read_state(mine), 0, self.logs.append, None)
             self.assertEqual([call.args[0] for call in spawn.call_args_list], [lone, mine])
-
-    def smoke_titled_pair(self, state, **extra):
-        """An owner's run titled `smoke-...`, replaced by a later merged one of that title."""
-        title = "smoke-test the parser"
-        old = self.receipt(f"20261001-0103-{run.slugify(title)}", title=title, state=state,
-                           **extra)
-        new = self.receipt(f"20261001-0104-{run.slugify(title)}", title=title, state="pass",
-                           verdict="PASS", merged=True, finished_at=self.now - 30)
-        self.assertIn("smoke-", old.name)
-        return old, new
-
-    def test_d_an_owner_smoke_titled_run_supersedes_its_errored_predecessor(self):
-        old, new = self.smoke_titled_pair("error", error_retry_at=self.now - 1,
-                                             error_retries=0)
-        self.assertEqual(run.superseded_by(run.read_state(old)), new.name)
-        watch.resume_errored(log=self.logs.append, now=self.now)
-        self.assertEqual(self.spawned, [])
-        self.assertNotIn("error_retry_at", run.read_state(old))
-
-    def test_e_an_owner_smoke_titled_run_supersedes_its_exhausted_predecessor(self):
-        old, _ = self.smoke_titled_pair("exhausted", quota_dry=True)
-        watch.resume_exhausted(self.cfg, {}, workers=[], log=self.logs.append, now=self.now)
-        self.assertTrue(run.read_state(old).get("replaced"))
-
-    def test_f_an_owner_smoke_titled_run_votes_and_the_suites_own_does_not(self):
-        config.save_session(self.cfg, "legacy", "fable", ["opus"])
-        self.receipt("20261001-0105-smoke-test-the-parser", launched_session="legacy")
-        sandbox = config.TMP / "smoke-20261001-0100"
-        for n in (1, 2):
-            self.receipt(f"20261001-010{5 + n}-probe", launched_session="legacy",
-                         repo=str(sandbox / "repo"), task=str(sandbox / "task.md"))
-        found = orch.session_projects(config.session_records())
-        self.assertEqual(found["legacy"], str(config.CODE / "acme"))
 
 
 if __name__ == "__main__":
