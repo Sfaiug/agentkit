@@ -141,6 +141,7 @@ class GreenBase(unittest.TestCase):
 
                 def fix(lp, role, text, name, **_kw):
                     self.turns.append(name)
+                    lp.round_dir.mkdir(parents=True, exist_ok=True)
                     if run.in_progress(wt, how):
                         (wt / "work.txt").write_text("both intents\n")
                         run.git(wt, "add", "work.txt")
