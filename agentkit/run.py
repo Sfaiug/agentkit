@@ -9977,7 +9977,7 @@ def gc_candidates(now=None):
         yield from candidates
     if retention.safe(config.JOBS):
         for directory in retention.children(config.JOBS):
-            job = retention.read_json(jobs.receipt_path(directory))
+            job = jobs.read_job_safely(directory)
             finished = (job or {}).get("finished_at")
             if (not job or not isinstance(job.get("tasks"), list) or not job["tasks"]
                     or not all(task.get("state") in jobs.JOB_TERMINAL for task in job["tasks"])
@@ -9988,7 +9988,7 @@ def gc_candidates(now=None):
                 continue
             yield {"action": "remove", "kind": "finished-job", "path": str(directory),
                    "job": str(directory),
-                   "state_identity": retention.fingerprint(jobs.receipt_path(directory))}
+                   "state_identity": jobs.job_fingerprint(directory)}
     yield from retention.ephemeral_plan(now, pressure, paths)
     yield from stale_worktrees(now, paths)
     yield from stale_seat_files(now)
@@ -10160,9 +10160,9 @@ def gc(report, automatic=False):
                             continue
                         paths = retention.process_paths()
                         with recovery_lock(directory):
-                            job = retention.read_json(jobs.receipt_path(directory))
+                            job = jobs.read_job_safely(directory)
                             tasks = (job or {}).get("tasks")
-                            if (retention.fingerprint(jobs.receipt_path(directory)) != item["state_identity"]
+                            if (jobs.job_fingerprint(directory) != item["state_identity"]
                                     or retention.writer_active(job or {})
                                     or retention.busy(directory, paths)
                                     or not isinstance(tasks, list) or not tasks

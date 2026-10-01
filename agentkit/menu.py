@@ -708,7 +708,7 @@ def project_run(directory, state, width):
 def job_for_seat(seat_name):
     """(done, total, waiting_on) over the seat's unfinished jobs, or None without one. No fake bar.
 
-    Reads each job's receipt through `job.read_job`, nothing without one. A job is the seat's
+    Reads each job's receipt through `job.read_jobs`, nothing without one. A job is the seat's
     until it records `finished_at`, when its `seat` -- that field alone, never the job's
     directory name -- leads here through rename pointers: an orchestrator renamed since
     launched it under its old name. `done` is
@@ -717,13 +717,12 @@ def job_for_seat(seat_name):
     """
     from . import job as jobs   # here, not at the top: a job runs through run.py, the whole loop
     try:
-        receipts = jobs.job_dirs()
+        receipts = jobs.read_jobs()
     except OSError:
         return None
     done = total = 0
     waiting = ""
-    for job_dir in receipts:
-        job = jobs.read_job(job_dir)
+    for job in receipts:
         if not isinstance(job, dict) or job.get("finished_at"):
             continue
         try:

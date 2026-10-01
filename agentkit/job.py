@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import config, notify, orch, run, task as taskfile, watch
+from . import config, notify, orch, retention, run, task as taskfile, watch
 
 JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at most this often
 JOB_TICK = 2              # seconds between scheduler passes over the job receipt
@@ -43,6 +43,32 @@ def read_job(job_dir):
         return state if isinstance(state, dict) else None
     except (OSError, ValueError):
         return None
+
+
+def read_jobs():
+    """Every receipt under `config.JOBS` that parses, for the menu's job bar; OSError when the
+    directory cannot be listed.  A flat `<name>.json` beside the job directories counts too,
+    as the menu has always read one."""
+    found = []
+    for entry in sorted(config.JOBS.iterdir()) if config.JOBS.exists() else []:
+        path = receipt_path(entry) if entry.is_dir() else entry
+        if path.suffix != ".json":
+            continue
+        try:
+            found.append(json.loads(path.read_text()))
+        except (OSError, ValueError):
+            continue
+    return found
+
+
+def read_job_safely(job_dir):
+    """gc's read of a receipt: retention's, which never follows a link or reads what is not ours."""
+    return retention.read_json(receipt_path(job_dir))
+
+
+def job_fingerprint(job_dir):
+    """The receipt's identity, which gc's plan records and its removal compares."""
+    return retention.fingerprint(receipt_path(job_dir))
 
 
 def save_job(job_dir, job):
