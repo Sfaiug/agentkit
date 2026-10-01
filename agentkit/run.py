@@ -4200,7 +4200,9 @@ def rounds(lp, execv=None):
         # A landing gate may be waiting on a changed target, not another task
         # round. Bring that target in before verifying or reviewing the fixes.
         upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
-        integrate(lp, upstream)
+        if not integrate(lp, upstream) and lp.state.get("merge_failed"):
+            # An unreachable target needs the tick's error retry, not a task verdict.
+            raise config.Error(lp.state["merge_note"])
         return
     if review_pass(lp.state, lp.cfg) and not current_review(lp):
         pending_review(lp, "The saved reviewed commit changed; verify the current checkout.")
@@ -4545,7 +4547,11 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
                f"fixer {lp.executor} ({how} conflict)")
         try:
             summary = execute(lp, "fixer", text, f"{how}-fixer")
-        except (Dead, Blocked, Exhausted, Killed, worker.LoginExpired):
+        except (Dead, Blocked, Exhausted, Killed, worker.LoginExpired) as exc:
+            pending = lp.state.get("review_pending")
+            if isinstance(exc, Exhausted) and pending:
+                # A dry conflict fixer retries landing even at the task round budget.
+                pending.update(round=lp.rnd, record=False)
             # whatever stops here, the retry starts from a clean tree: a rebase or merge
             # left in progress behind it would be a conflict round nobody asked for
             abort_integration(lp, how)

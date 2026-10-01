@@ -163,7 +163,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         def deliver(lp, **_kw):
             self.assertTrue(run.current_review(lp))
             self.assertTrue(run.integrated(lp.wt, tip))
-            lp.state["merged"] = True
+            lp.state.update(merged=True, merge_failed=False, merge_note=None)
 
         with patch.dict(os.environ, {"PATH": f"{binaries}:{os.environ['PATH']}",
                                      "AGENTKIT_DISCORD_WEBHOOK": "off"}), \

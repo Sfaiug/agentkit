@@ -107,7 +107,7 @@ queued for the turn, which goes to `--first` runs first and then in the order th
 dead holder's turn passes on. A failed integration, conflict or final-check review gets a fixer with the whole review
 (and a failing done-when's output) while rounds are left, and at the budget ends `fail` with its findings, or with why
 the loop overrode a PASS. A clean rebase's failing done-when gets landing fixers before any reviewer; once it passes,
-re-review runs at the current round without recording a task round. A base-branch merge race re-fetches, rechecks the PR head and target, verifies and pushes
+re-review runs at the current round without recording a task round. An unreachable target parks a pending landing review as a retryable error; an exhausted conflict fixer keeps its pending review at the current round even when the task budget is spent. A base-branch merge race re-fetches, rechecks the PR head and target, verifies and pushes
 changes and retries three times with growing waits before parking. Without push rights it forks, opens the PR upstream
 and ends `PASS, not merged: waiting for the maintainer`, exiting 0; the tick follows the PR and hands the decision to the seat. `--no-merge` stops at the verdict. Other ended `merged: no` runs name their reason and exit 1.
 Before each round and each landing lap's verify, a run whose installed agentkit moved replaces itself in place with
