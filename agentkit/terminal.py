@@ -1114,15 +1114,17 @@ def show(lines, spots):
 def clicks_its_own(read):
     """A screen read with the keys over the menu's own: a click belongs to the screen it began
     on, so a button that went down before this one was drawn, or goes down on it and comes up
-    after it, is no click -- nothing is picked, closed or opened by a press meant elsewhere."""
+    after it, is no click -- nothing is picked, closed or opened by a press meant elsewhere.
+    Nor does the pointer light anything on it, or back on the screen under it, until it moves:
+    a cell it rests on is no row the keys' highlight is on."""
     @wraps(read)
     def reading(*args, **kwargs):
-        global _PRESSED
-        _PRESSED = False
+        global _PRESSED, _POINTER
+        _PRESSED, _POINTER = False, None
         try:
             return read(*args, **kwargs)
         finally:
-            _PRESSED = False
+            _PRESSED, _POINTER = False, None
     return reading
 
 

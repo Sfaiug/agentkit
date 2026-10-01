@@ -171,9 +171,9 @@ effort, a model's label, `+ add`, an arrow on a model's own screen) a subtle
 background, in place of the reverse the keys give a cell; the keys and the pointer
 never show two highlights. What lights is what a click there acts on. A cell or an
 item loses its light when the pointer leaves it; a row keeps the highlight until
-the pointer is on another row or a key moves it, as it is also what Enter acts on,
-and any key hands the highlight back to the keys, the pointer lighting nothing until
-it moves again. A move is drawn within a frame of the clock (Motion) of the pointer
+the pointer is on another row or a key moves it, as it is also what Enter acts on.
+Any key hands the highlight back to the keys, and a screen opens, or comes back,
+with nothing lit: the pointer lights nothing until it moves again. A move is drawn within a frame of the clock (Motion) of the pointer
 reaching another row, cell or item, and only then: the moves a terminal sends while
 the pointer travels are read through to where it ended first, and a move within what
 is lit draws nothing. Where colour is eight or none the rows still follow it, and
