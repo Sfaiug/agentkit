@@ -122,12 +122,10 @@ run details and blue usage bars; at 40 columns run details and usage fold to pre
 project headers and seat rows. The suite also checks collapsed project pages, stable
 numbers, project selection/inference, colour and locale fallbacks, and an isolated tmux bar.
 The older v4n/v4r exact snapshots are replaced; their width and usage regression tests remain.
-Since v5k nothing in these snapshots is read from git: the suite patches `menu.installed`,
-the checkout's short commit and date, to a fixed `abc1234 · 15 Sep`, and points `config.REPO`
-at a directory with no history, so the same screens are drawn in a fresh clone, in a tarball
-and in a checkout with commits.  The pinned value reaches no fixture -- the header is
-`agentkit` and the clock, pinned to `14:02`, over one dim rule -- and usage rows read
-`NN% left`.
+Since v5k nothing in these snapshots is read from git: the suite points `config.REPO` at a
+directory with no history, so the same screens are drawn in a fresh clone, in a tarball and in
+a checkout with commits.  The header is `agentkit` and the clock, pinned to `14:02`, over one
+dim rule, and usage rows read `NN% left`.
 Since v5g the 100-column screen carries each seat's tally of runs after its state
 (`1 running · 0 merged`, `0 running · 1 needs a look`, `no runs yet`); at 40 columns the tally
 is the first column dropped, so `v4z-40.txt` is unchanged.

@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -89,6 +90,9 @@ class Sandbox(unittest.TestCase):
             "TERM": "xterm-256color"})
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        # a menu leaves its reads and looks going: they end before this HOME goes
+        threads = set(threading.enumerate())
+        self.addCleanup(lambda: [thread.join(15) for thread in set(threading.enumerate()) - threads])
         self.stack.enter_context(patch.dict(os.environ, self.env, clear=True))
         self.stack.enter_context(patch.object(config, "HOME", self.home / ".agentkit"))
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
@@ -219,7 +223,6 @@ class Pages(Sandbox):
     def draw(self, seats, width, height, page=0, keys=menu.KEYS):
         with patch.object(terminal, "width", return_value=width), \
                 patch.object(terminal, "height", return_value=height), \
-                patch.object(menu, "installed", return_value="abc1234 · 15 Sep"), \
                 redirect_stdout(io.StringIO()) as out:
             drawn = menu.draw(self.cfg, seats, keys, page)
         return out.getvalue().splitlines(), drawn
@@ -320,6 +323,8 @@ class Pages(Sandbox):
                 patch.object(menu.orch, "job_notices", return_value=[]), \
                 patch.object(menu, "draw", return_value=(0, 1)), \
                 patch.object(menu, "read", side_effect=lambda *_: next(answers)), \
+                patch.object(menu, "wait_key", side_effect=lambda prompt, timeout=None,
+                             wake=None: menu.read(prompt, "")), \
                 patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:
@@ -725,7 +730,8 @@ class Phone(Sandbox):
         if narrow:
             screen = phone.until(STAND_IN, LONG_NAME[:20], "Ctrl-b m  menu")
         else:
-            screen = phone.until(STAND_IN, "Ctrl-b m  menu", "· astra")
+            # the menu's look at it publishes the words, behind the frame the key was read on
+            screen = phone.until(STAND_IN, "Ctrl-b m  menu", "· astra → opus · ! needs you")
         bar = screen[-1]
         self.fits(screen, width, height)
         if narrow:
@@ -758,15 +764,13 @@ class Phone(Sandbox):
         phone.settled()                      # its screen goes before its process does
         phone.keys("C-b", "d")
         phone.until("your projects", prompt="esc leave")
-        # `c` lists the config, `i` is one screen, `r` is no key and says nothing
+        # `c` lists the config, `i` and `r` are no keys and say nothing
         phone.press("c")
         phone.until("add a model", "esc back")
         phone.keys("Escape")
         phone.until("your projects", "esc leave", prompt="esc leave")
         phone.press("i")
-        phone.until("you talk to one orchestrator", "esc back")
-        phone.keys("Escape")
-        phone.until("your projects", "esc leave", prompt="esc leave")
+        phone.until("your projects", "esc leave", absent=["not a key"], prompt="esc leave")
         phone.press("r")
         screen = phone.until("your projects", "esc leave", absent=["not a key"], prompt="esc leave")
         # the terminal turned, then held short: the layout follows on the next redraw

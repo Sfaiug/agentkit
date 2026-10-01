@@ -536,7 +536,7 @@ class MergeStep(unittest.TestCase):
         self.assertIn("Another model started this round", asked[1][1])
         self.assertIn(f"handing executor to {lp.executor}", self.log_text(run_dir))
 
-    def test_an_exhausted_conflict_fixer_keeps_the_last_round_resumable(self):
+    def assert_stopped_conflict_fixer_resumes(self, stop, parked, how="rebase"):
         _, owner, wt = make_repos(self.root)
         conflict(owner, wt)
         lp, run_dir, _ = make_loop(config.RUNS, wt, rounds=3, spent=3)
@@ -544,6 +544,8 @@ class MergeStep(unittest.TestCase):
         head = run.git(wt, "rev-parse", "HEAD")
         tip = run.git(owner, "rev-parse", "HEAD")
         lp.state["state"] = "exhausted"
+        if how == "merge":
+            lp.state["merge_method"] = "merge"
         lp.save()
         (run_dir / "task.md").write_text(
             f"---\nrepo: {wt}\nrounds: 3\n---\n# Conflict retry\n\n"
@@ -556,9 +558,14 @@ class MergeStep(unittest.TestCase):
         turns = []
 
         def fixer(lp, role, text, name, **_kw):
-            self.assertEqual((role, name), ("fixer", "rebase-fixer"))
+            self.assertEqual((role, name), ("fixer", f"{how}-fixer"))
             turns.append(lp.rnd)
-            return resolve(wt)
+            if how == "rebase":
+                return resolve(wt)
+            (wt / "shared").write_text("both intents\n")
+            run.git(wt, "add", "shared")
+            run.git(wt, "commit", "--no-edit")
+            return "## Summary\nResolved both sides."
 
         def deliver(lp, **_kw):
             if run.integrate(lp, "origin/main"):
@@ -571,27 +578,52 @@ class MergeStep(unittest.TestCase):
                 patch.object(usage, "collect", return_value={}), \
                 patch.object(usage, "pick_order", return_value=["opus", "astra"]), \
                 patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(run, "launcher_world", return_value=nullcontext(True)), \
+                patch.object(run, "hand_back", return_value=True), \
+                patch.object(run.notify, "shaped", side_effect=AssertionError("notification")), \
                 patch.object(run, "stop_run_tree"), \
                 patch.object(run.history, "Sampler"), \
                 patch.object(run.history, "sample_rss", return_value=None), \
                 patch.object(run, "merge", side_effect=deliver), \
                 patch.object(run, "execute", side_effect=fixer):
-            with patch.object(run, "execute", side_effect=run.QuotaDry("provider spent")):
+            with patch.object(run, "execute", side_effect=stop):
                 self.assertEqual(run.cmd_resume([run_dir.name]), 1)
             saved = run.read_state(run_dir)
-            self.assertEqual(saved["state"], "exhausted")
-            self.assertEqual(saved["review_pending"]["round"], 3)
-            self.assertIs(saved["review_pending"]["record"], False)
+            self.assertEqual(saved["state"], parked)
             self.assertEqual(run.git(wt, "rev-parse", "HEAD"), head)
-            self.assertFalse(run.in_progress(wt, "rebase"))
-            self.assertEqual(run.cmd_resume([run_dir.name]), 0)
+            self.assertFalse(run.in_progress(wt, how))
+            code = run.cmd_resume([run_dir.name])
         state = run.read_state(run_dir)
+        print(f"{type(stop).__name__} ({how}): stopped={saved['state']} "
+              f"review_pending={saved.get('review_pending')}; resumed={code} "
+              f"state={state['state']} merged={state['merged']}", flush=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(saved["review_pending"]["round"], 3)
+        self.assertIs(saved["review_pending"]["record"], False)
         self.assertEqual(turns, [3])
         self.assertEqual(state["round_summaries"], history)
         self.assertEqual(state["rounds"], 3)
         self.assertEqual(state["state"], "pass")
         self.assertTrue(state["merged"])
         self.assertNotIn("review_pending", state)
+
+    def test_an_exhausted_conflict_fixer_keeps_the_last_round_resumable(self):
+        self.assert_stopped_conflict_fixer_resumes(run.QuotaDry("provider spent"), "exhausted")
+
+    def test_an_expired_login_on_a_conflict_fixer_keeps_the_last_round_resumable(self):
+        self.assert_stopped_conflict_fixer_resumes(
+            run.worker.LoginExpired("claude", "sign in again"), "waiting_login")
+
+    def test_a_killed_conflict_fixer_keeps_the_last_round_resumable(self):
+        self.assert_stopped_conflict_fixer_resumes(run.Killed("signal 15"), "interrupted")
+
+    def test_an_expired_login_on_a_merge_conflict_fixer_keeps_the_last_round_resumable(self):
+        self.assert_stopped_conflict_fixer_resumes(
+            run.worker.LoginExpired("claude", "sign in again"), "waiting_login", how="merge")
+
+    def test_a_killed_merge_conflict_fixer_keeps_the_last_round_resumable(self):
+        self.assert_stopped_conflict_fixer_resumes(
+            run.Killed("signal 15"), "interrupted", how="merge")
 
     def test_a_clean_rebase_failed_gate_spends_no_task_round(self):
         _, owner, wt = make_repos(self.root)

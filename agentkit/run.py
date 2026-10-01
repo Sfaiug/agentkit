@@ -4658,8 +4658,8 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
             summary = execute(lp, "fixer", text, f"{how}-fixer")
         except (Dead, Blocked, Exhausted, Killed, worker.LoginExpired) as exc:
             pending = lp.state.get("review_pending")
-            if isinstance(exc, Exhausted) and pending:
-                # A dry conflict fixer retries landing even at the task round budget.
+            if isinstance(exc, (Exhausted, Killed, worker.LoginExpired)) and pending:
+                # A stopped conflict fixer retries landing even at the task round budget.
                 pending.update(round=lp.rnd, record=False)
             # whatever stops here, the retry starts from a clean tree: a rebase or merge
             # left in progress behind it would be a conflict round nobody asked for

@@ -170,11 +170,14 @@ class RoleMarksScreen(unittest.TestCase):
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
         row = lines.index(highlighted(lines)) + 1
         col = lines[2].index("review") + 3
+        # `⏎ start` where the key line draws it: once the mark is clicked the pointer rests on
+        # it, and the key line says what that mark is
+        start = next((number, line.index("⏎") + 1) for number, line in enumerate(lines, 1)
+                     if "⏎ start" in line)
         screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
-        lines = screen.picker(lambda lines: "Mimo" in highlighted(lines)
-                              and marks(highlighted(lines)) == "○□■")
-        row = next(number for number, line in enumerate(lines, 1) if "⏎ start" in line)
-        col = lines[row - 1].index("⏎") + 1
+        screen.picker(lambda lines: "Mimo" in highlighted(lines)
+                      and marks(highlighted(lines)) == "○□■")
+        row, col = start
         screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
         screen.saw("<created new opus opus,astra opus,astra,mimo>")
         screen.leave()

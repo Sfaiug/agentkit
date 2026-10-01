@@ -11,7 +11,6 @@ come back the way Esc brings them back.
 from contextlib import redirect_stdout
 import io
 import os
-import threading
 import time
 from unittest.mock import patch
 import unittest
@@ -112,13 +111,9 @@ class MenuSpeed(Sandbox):
         with patch.object(menu, "wait_key", side_effect=wait_key), \
                 patch.object(menu, "read", return_value="q"), \
                 patch.object(menu, "show_config", side_effect=back), \
-                patch.object(menu, "show_info", side_effect=back), \
                 patch.object(terminal, "choose", side_effect=choose), \
                 redirect_stdout(out):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
-            # the loop waited for its reads and looks as it closed, so none outlives these fakes
-            self.assertEqual([thread for thread in threading.enumerate()
-                              if thread.name != "MainThread" and thread.daemon], [])
         # each key's frame is the highlight where it moved it, or where it was left
         highlighted = [(key.name, key.char, [seat.split()[2] for seat in seats])
                        for key, seats in screens]
@@ -129,7 +124,7 @@ class MenuSpeed(Sandbox):
                                        ("char", "i", ["tidy-docs"]),
                                        ("char", "x", ["tidy-docs"]),
                                        ("esc", "", ["tidy-docs"])], screens)
-        self.assertEqual(marks, [(True,), (True,)])   # `c` and `i`; `m` is no key
+        self.assertEqual(marks, [(True,)])   # `c`; `m` and `i` are no keys
         self.assertEqual(self.estimates, [str(config.CODE / "acme")])   # once, not once a draw
 
 

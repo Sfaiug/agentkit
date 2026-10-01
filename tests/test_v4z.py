@@ -24,16 +24,14 @@ class Projects(Sandbox):
         self.stack.enter_context(patch("agentkit.watch.live_state", side_effect=lambda seat, *a, **kw:
                                       {"state": seat.get("live", "working"), "rule": "fixture",
                                        "since": 9100, "began": 9100, "evidence": ""}))
-        # Nothing here reads the checkout's git history.  `menu.installed` -- what the menu's
-        # loop reads on the way in -- is pinned to a fixed string, and `config.REPO` is a
-        # directory with no history at all: an unpacked tarball outside this one, holding the
+        # Nothing here reads the checkout's git history: `config.REPO` is a directory with no
+        # history at all: an unpacked tarball outside this one, holding the
         # `config.default.toml` `config.load` falls back to and nothing else.  The screens are
         # the same in a fresh clone, in a tarball and in a checkout with commits.
         no_history = tempfile.TemporaryDirectory(prefix=".v4z-no-history-")
         self.addCleanup(no_history.cleanup)
         shutil.copy(REPO / "config.default.toml", Path(no_history.name) / "config.default.toml")
         self.stack.enter_context(patch.object(config, "REPO", Path(no_history.name)))
-        self.stack.enter_context(patch.object(menu, "installed", return_value="abc1234 · 15 Sep"))
         self.stack.enter_context(patch.object(menu.time, "strftime", return_value="14:02"))
         for name in ("ATOLL", "agentkit", "newsletter-tool"):
             directory = config.CODE / name

@@ -73,10 +73,9 @@ class UsageLeft(Sandbox):
                    **run.process_owner(), started_at=9900, finished_at=None)
         return seats
 
-    def draw(self, seats, width, version="abc1234 · 12 Jan"):
+    def draw(self, seats, width):
         out = io.StringIO()
         with patch.object(terminal, "width", return_value=width), \
-                patch.object(menu, "installed", return_value=version), \
                 patch.object(menu.time, "strftime", wraps=time.strftime) as stamp, redirect_stdout(out):
             real = stamp._mock_wraps
             stamp.side_effect = lambda fmt, *args: "13:05" if not args else real(fmt, *args)
@@ -254,43 +253,59 @@ class UsageLeft(Sandbox):
                 patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
             self.assertTrue(menu.usage_lines(self.cfg, 40)[0].startswith("\033[2m"))
 
-    def test_startup_pauses_for_warnings_and_never_for_receipts_before_drawing_once(self):
+    def test_startup_pauses_for_warnings_and_never_for_receipts_after_drawing_once(self):
         # A live seat's ending is that seat's to report, so the menu opens on the seats
         directory = self.ended("old-owned", owner="atoll-fix", finished_at=10000 - 8 * 3600)
         self.assertIn(directory, [path for path, _ in menu.run_records()])
         warning = "WARN could not check the runs: the run directory is unreadable"
         updates = [["agentkit: reaped a loop whose process was gone", warning], []]
-        real_maintenance = orch.maintenance
+        real_maintenance, real_show_notices = orch.maintenance, menu.show_notices
         def maintenance(log):
             for message in updates.pop(0):
                 log(message)
             real_maintenance(log)
+
+        def show_notices(messages):
+            # A warning drawn after its notice must still be in the screen output.
+            with redirect_stdout(notices), patch.object(notices, "isatty", return_value=True):
+                real_show_notices(messages)
+
+        def wait_key(prompt, timeout=None, wake=None):
+            nonlocal waited
+            if not waited:
+                self.assertTrue(live.tidied.wait(10))
+                waited = True
+                return None     # draw the notice even if maintenance finished before this wait
+            return menu.read(prompt, "")
         with patch.object(macbridge, "start_background"), \
                 patch.object(config, "server_alias", return_value=None), \
                 patch.object(orch, "maintenance", side_effect=maintenance), \
                 patch.object(orch, "sessions", return_value=[{"name": "atoll-fix", "created": 9100}]), \
                 patch.object(orch, "job_notices", return_value=[]), \
-                patch.object(menu, "wait_key", side_effect=lambda prompt, timeout=None,
-                             wake=None: menu.read(prompt, "")), \
+                patch.object(menu, "show_notices", side_effect=show_notices), \
+                patch.object(menu, "wait_key", side_effect=wait_key), \
                 patch.object(sys.stdin, "isatty", return_value=True):
             for first in (True, False):
-                out = io.StringIO()
+                out, notices = io.StringIO(), io.StringIO()
+                live, waited = menu.Live(self.cfg), False
                 with redirect_stdout(out), patch.object(out, "isatty", return_value=True), \
+                        patch.object(menu, "Live", return_value=live), \
                         patch.object(menu, "read", side_effect=lambda prompt, default:
                                      "") as read:
                     self.assertEqual(menu.main([]), 0)
                 # The header carries no hash; split on it, not on the update notice.
                 before, screen = out.getvalue().split("agentkit ", 1)
+                self.assertEqual(before, "")       # the menu's first frame, before any notice
                 if first:
-                    self.assertIn("agentkit: reaped a loop whose process was gone", before)
-                    self.assertIn(warning, before)
-                    self.assertEqual(before.count("Finished old-owned"), 0)
+                    self.assertIn("agentkit: reaped a loop whose process was gone", notices.getvalue())
+                    self.assertIn(warning, notices.getvalue())
                     self.assertEqual([call.args[0] for call in read.call_args_list],
                                      ["esc back ", "> "])
                 else:
-                    self.assertEqual(before, "")
+                    self.assertNotIn(warning, notices.getvalue())
                     self.assertEqual([call.args[0] for call in read.call_args_list], ["> "])
                 self.assertNotIn("Finished old-owned", screen)
+                self.assertNotIn("Finished old-owned", notices.getvalue())
                 self.assertNotIn(warning, screen)
                 self.assertFalse(run.read_state(directory)["reported"])
 
