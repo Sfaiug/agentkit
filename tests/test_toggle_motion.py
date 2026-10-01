@@ -66,11 +66,14 @@ def click(column, number):
 
 
 def lit_through(case, cells, number):
-    """The last frame on screen row `number` shows the clicked cell as the draw did: in the
+    """Every frame on screen row `number` shows the clicked cell as the draw did: in the
     pointer's light, the keys' reverse given way to it."""
-    last = [written for at, _, _, written in cells if at == number][-1]
-    case.assertIn(LIT, last)
-    case.assertNotIn("\x1b[7m", last)
+    frames = [written for at, _, _, written in cells if at == number]
+    case.assertTrue(frames)
+    for frame, written in enumerate(frames):
+        with case.subTest(frame=frame):
+            case.assertIn(LIT, written)
+            case.assertNotIn("\x1b[7m", written)
 
 
 def mark_column(line, number):

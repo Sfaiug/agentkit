@@ -1146,7 +1146,10 @@ def pointed(row, column, text):
             or column > _POINTED.last or not colour_depth()):
         return text
     first, last = max(1, _POINTED.first - column + 1), min(_POINTED.last - column + 1, cells(text))
-    return backed(text, POINTED[_LIGHT], first, last) if first <= last else text
+    if first > last:
+        return text
+    # A shake's reverse can start before the cell under the pointer.
+    return backed(text.replace("\033[7m", ""), POINTED[_LIGHT], first, last)
 
 
 def backed(line, rgb, first, last):
