@@ -17,13 +17,34 @@ CONTINUE = "AK_HAND_IN_CONTINUE"
 OUTPUT_CAP = 8 * 1024
 
 
+def output_excerpt(output, start=0):
+    size = output.tell() - start
+    output.seek(start)
+    if size > OUTPUT_CAP:
+        head = output.read(OUTPUT_CAP // 2).decode("utf-8", "replace")
+        output.seek(-OUTPUT_CAP // 2, os.SEEK_END)
+        return (head + "\n[output truncated; rerun the command for full evidence]\n"
+                + output.read(OUTPUT_CAP // 2).decode("utf-8", "replace"))
+    return output.read(OUTPUT_CAP).decode("utf-8", "replace")
+
+
+def proof_text(proof):
+    status = "did not finish" if proof.get("killed") or proof["returncode"] < 0 else f"exit {proof['returncode']}"
+    return f"[{status}]\n{proof['output']}"
+
+
 def item_text(row):
     text = f"{row['path']}:{row['line']} - {row['what']} - {row['why']}"
     evidence = row["evidence"]
     if "quote" in evidence:
         text += "\nQuote:\n" + evidence["quote"]
     else:
-        text += f"\n$ {evidence['run']}\n[exit {evidence['returncode']}]\n{evidence['output']}"
+        text += f"\n$ {evidence['run']}\n"
+        if "commit" in evidence:
+            text += f"Commit {evidence['commit']}:\n"
+        text += proof_text(evidence)
+        if "base" in evidence:
+            text += f"\nBase {evidence['base']['sha']}:\n" + proof_text(evidence["base"])
     if row["kind"] == "follow-up":
         text += "\nBefore the task: " + row["before"]
     return text.strip()
@@ -50,9 +71,13 @@ class Review:
         return [item_text(row) for row in self.records if row["kind"] == "follow-up"]
 
     @property
+    def notes(self):
+        return [item_text(row) for row in self.records if row["kind"] == "note"]
+
+    @property
     def text(self):
         parts = [f"VERDICT: {self.verdict}"] if self.done else []
-        for kind, heading in (("finding", "Findings"), ("follow-up", "Follow-ups")):
+        for kind, heading in (("finding", "Findings"), ("follow-up", "Follow-ups"), ("note", "Notes")):
             items = ["- " + item_text(row).replace("\n", "\n  ")
                      for row in self.records if row["kind"] == kind]
             if items:
@@ -129,7 +154,6 @@ def checked(argv, workspace):
             raise config.Error("use a quote found verbatim in the named file")
         evidence = {"quote": flags["--quote"]}
     else:
-        # A reproduction may exit zero while printing the wrong result; retain both facts.
         env = dict(os.environ)
         env.pop(ENV, None)
         env.pop(CONTINUE, None)
@@ -137,15 +161,9 @@ def checked(argv, workspace):
         with tempfile.TemporaryFile(dir=root) as output:
             result = subprocess.run(["bash", "-c", flags["--run"]], cwd=root, env=env,
                                     stdout=output, stderr=subprocess.STDOUT)
-            size = output.tell()
-            output.seek(0)
-            if size > OUTPUT_CAP:
-                head = output.read(OUTPUT_CAP // 2).decode("utf-8", "replace")
-                output.seek(-OUTPUT_CAP // 2, os.SEEK_END)
-                text = (head + "\n[output truncated; rerun the command for full evidence]\n"
-                        + output.read(OUTPUT_CAP // 2).decode("utf-8", "replace"))
-            else:
-                text = output.read(OUTPUT_CAP).decode("utf-8", "replace")
+            text = output_excerpt(output)
+        if kind == "finding" and result.returncode == 0:
+            raise config.Error("the command exited 0; write it to fail while the defect exists, or use --quote")
         evidence = {"run": flags["--run"], "returncode": result.returncode,
                     "output": text}
     row = {"kind": kind, "path": str(path.relative_to(root)), "line": line,

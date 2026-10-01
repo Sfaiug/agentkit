@@ -197,7 +197,7 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.review(finding("api.py:1", "proof makes files", command)), "FAIL")
         self.assertEqual((self.wt / "keep.txt").read_text(), "keep\n")
         self.assertFalse((self.wt / "proof-output").exists())
-        self.assertGreaterEqual(self.lp.findings.count("\nkeep\n"), 2)
+        self.assertGreaterEqual(self.lp.findings.count("\n  keep\n"), 2)
 
     def test_interrupted_probes_restore_the_branch_before_propagating(self):
         original = worker.limited

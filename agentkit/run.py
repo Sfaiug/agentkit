@@ -125,6 +125,7 @@ FRONT = re.compile(r"^---\n(.*?)\n---", re.S)
 FINDINGS = re.compile(r"^(#+)[ \t]*Findings\b[^\n]*$", re.M | re.I)
 FINDING_ITEM = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+\S", re.M)
 FOLLOWUPS = re.compile(r"^(#+)[ \t]*Follow-ups\b[^\n]*$", re.M | re.I)
+NOTES = re.compile(r"^(#+)[ \t]*Notes\b[^\n]*$", re.M | re.I)
 FOLLOWUP_ITEM = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(\S.*)$", re.M)
 # The two headings a worker's turn ends with: `## Summary` is the work, `## Blocked` is the
 # task itself refusing to be done.  Only a heading on its own line counts, so a preamble
@@ -3741,14 +3742,15 @@ def review_records(out, text):
     return hand_in.read(written_answer(out, text).parent / hand_in.FILE)
 
 
-def record_findings(lp, out, text):
+def record_findings(lp, out, text, submitted=None):
     """What the reviewer said, and where the whole of it is.
 
     Written together everywhere, because a `findings_file` left pointing at another answer
     would hand the next fixer the wrong review -- worse than the tail it replaces.
     """
     source = written_answer(out, text)
-    submitted = hand_in.read(source.parent / hand_in.FILE)
+    if submitted is None:
+        submitted = hand_in.read(source.parent / hand_in.FILE)
     if submitted is not None:
         text = submitted.text
         source = source.parent / hand_in.REPORT
@@ -3809,18 +3811,19 @@ def findings_section(text):
 
 
 def without_followups(text):
-    """The reviewer's answer as its fixer gets it: everything but the `## Follow-ups` section.
+    """The reviewer's answer as its fixer gets it, without follow-ups or unproven notes.
 
     Follow-ups predate the task and start runs of their own once this one merges; handed to
     a fixer told to address every finding below, they become out-of-scope work.  Bounded
     as `followups_in` reads the section.
     """
-    heading = FOLLOWUPS.search(text or "")
-    if not heading:
-        return text
-    section = text[heading.end():]
-    end = re.search(rf"^#{{1,{len(heading.group(1))}}}[ \t]", section, re.M)
-    return text[:heading.start()] + (section[end.start():] if end else "")
+    for pattern in (FOLLOWUPS, NOTES):
+        heading = pattern.search(text or "")
+        if heading:
+            section = text[heading.end():]
+            end = re.search(rf"^#{{1,{len(heading.group(1))}}}[ \t]", section, re.M)
+            text = text[:heading.start()] + (section[end.start():] if end else "")
+    return text
 
 
 def followups_in(text):
@@ -4187,6 +4190,94 @@ def changed_test_paths(lp, head="HEAD"):
         or any(p in cmd for cmd in getattr(lp, "cmds", [])))]
 
 
+def changed_line(lp, row, head):
+    diff = git(lp.wt, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames",
+               "--unified=0", f"{lp.base_sha}...{head}", "--", f":(literal){row['path']}")
+    for hunk in re.finditer(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", diff, re.M):
+        start, count = int(hunk[1]), int(hunk[2] or 1)
+        # A pure removal leaves an anchor between the two surviving neighbouring lines.
+        if (start <= row["line"] < start + count if count else row["line"] in (start, start + 1)):
+            return True
+    return False
+
+
+def proof_on(lp, command, log_path, revision=None, tests_from=None):
+    """Replay evidence with the regression probe's overlay and crash-safe checkout recovery."""
+    stop_check(lp.run_dir)
+    if not lp.scratch:
+        head = git(lp.wt, "rev-parse", "HEAD")
+        branch = git(lp.wt, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
+        before = set(dirty_paths(lp.wt))
+        paths = changed_test_paths(lp, tests_from) if tests_from else []
+        save_probe_checkout(lp, head, branch, before, f"proof on {revision}")
+    try:
+        if not lp.scratch:
+            reset_checkout(lp.wt, head, before)
+            git(lp.wt, "checkout", "--quiet", "--detach", revision)
+            if paths:
+                git(lp.wt, "restore", f"--source={tests_from}", "--staged", "--worktree", "--",
+                    *(f":(literal){p}" for p in paths))
+        stop_check(lp.run_dir)
+        lp.log(f"--- review proof: checking {revision or 'workspace'}")
+        env = suite_env()
+        env.pop(hand_in.ENV, None)
+        env.pop(hand_in.CONTINUE, None)
+        with log_path.open("w+b") as progress:
+            progress.write(f"$ {command} (on {revision or 'workspace'})\n".encode())
+            progress.flush()
+            start = progress.tell()
+            code, _, killed = worker.limited(
+                ["bash", "-c", command], lp.done_when_limit, silence=lp.turn_limit,
+                activity=log_path, output=progress, stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=env)
+            output = hand_in.output_excerpt(progress, start)
+            progress.write(f"\n[{'did not finish' if killed or code < 0 else f'exit {code}'}]\n".encode())
+        memory_cap_note(lp.run_dir, lp.log)
+        return {"returncode": code, "output": output, "killed": killed}
+    finally:
+        try:
+            worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
+        finally:
+            if not lp.scratch:
+                restore_probe_checkout(lp, head, branch, before, f"proof on {revision}")
+
+
+def weigh_review(lp, submitted, head=None):
+    """The reviewer's editable copy cannot decide what blocks the reviewed commit."""
+    if not submitted.findings:
+        return submitted
+    head = None if lp.scratch else head or git(lp.wt, "rev-parse", "HEAD")
+    records = []
+    for index, row in enumerate(submitted.records, 1):
+        if row["kind"] != "finding":
+            records.append(row)
+            continue
+        evidence = row["evidence"]
+        kind = "finding"
+        if "run" in evidence:
+            command = evidence["run"]
+            evidence = {"run": command, "commit": head or "workspace",
+                        **proof_on(lp, command, lp.round_dir / f"proof-{index}-commit.log", head)}
+            if not lp.scratch:
+                evidence["base"] = {"sha": lp.base_sha, **proof_on(
+                    lp, command, lp.round_dir / f"proof-{index}-base.log", lp.base_sha, head)}
+            if evidence["returncode"] == 0 or evidence["killed"] or evidence["returncode"] < 0:
+                kind = "note"
+            elif not lp.scratch and not changed_line(lp, row, head):
+                base = evidence["base"]
+                if base["returncode"] != 0 or base["killed"]:
+                    kind = "follow-up"
+        elif not lp.scratch and not changed_line(lp, row, head):
+            kind = "follow-up"
+        row = {**row, "kind": kind, "evidence": evidence}
+        if kind == "follow-up":
+            row["before"] = f"base {lp.base_sha}: " + (
+                "the proof does not pass there either" if "run" in evidence
+                else "quoted lines outside the change")
+        records.append(row)
+    return hand_in.Review(records)
+
+
 def review(lp, summary, ok, dw_log, preface="", record=True):
     """Commit what the executor left, hand the work to the reviewer, record the round's verdict.
 
@@ -4197,7 +4288,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     commit under review; it is told so, with the commit and the exit counts, and not to run
     the commands again.  The `# once` suite runs at the same time on the same commit:
     the caller starts it with `start_suite`, the reviewer works while it runs, and this
-    joins it before judging.  The round is PASS only when the reviewer says PASS and
+    joins it before weighing the findings. The round is PASS only when none block and
     that suite passed, and the reviewer is told its absence from the input is by design
     -- the output does not exist yet when the review starts.
 
@@ -4438,6 +4529,11 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
 
     # the suite ran alongside the reviewer above; its verdict lands here, before judging
     join_suite(lp)
+    checkout_changed = not lp.scratch and (
+        identity != validation or commit_identity(lp.wt) != identity
+        or (not lp.state.get("review_pr") and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))
+    if submitted is not None:
+        submitted = weigh_review(lp, submitted, identity.get("head_sha"))
     verdict = submitted.verdict if submitted is not None else review_verdicts(text)[-1].upper()
     overridden = None       # why the loop failed what the reviewer passed, for the hand-back
     if code != 0 and verdict == "PASS":
@@ -4452,13 +4548,14 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         verdict = "FAIL"
         overridden = "the reviewer said PASS while the suite is failing"
         lp.log(f"WARN {overridden}; overriding to FAIL")
-    if not lp.scratch and (identity != validation or commit_identity(lp.wt) != identity
+    if checkout_changed or (not lp.scratch and (identity != validation or commit_identity(lp.wt) != identity
                            or (not lp.state.get("review_pr") and
-                               git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0)):
+                               git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))):
         verdict = "FAIL"
         overridden = "the checkout changed after verification"
         lp.log(f"WARN {overridden}; overriding to FAIL")
-    record_findings(lp, out, text)
+    record_findings(lp, out, text, submitted=submitted)
+    lp.state["notes"] = submitted.notes if submitted is not None else []
     lp.state["followups"] = (submitted.followups if submitted is not None else followups_in(text)
                              ) if verdict == "PASS" else []
     if verdict == "PASS":
@@ -5290,6 +5387,9 @@ def pr_body(state):
     if state.get("followups"):
         lines += ["", "## Follow-ups", "",
                   *("- " + item.replace("\n", "\n  ") for item in state["followups"])]
+    if state.get("notes"):
+        lines += ["", "## Notes", "",
+                  *("- " + item.replace("\n", "\n  ") for item in state["notes"])]
     return github_body("\n".join(lines + [""]), state["run_id"])
 
 
@@ -7557,6 +7657,8 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
         parts += ["## Why this run stopped", "", state["error"], ""]
     if state["verdict"] != "PASS" and state["findings"]:
         parts += ["## Reviewer findings", "", state["findings"], ""]
+    if state.get("notes"):
+        parts += ["## Notes", "", *("- " + item.replace("\n", "\n  ") for item in state["notes"]), ""]
     onward = continue_line(state, run_dir)
     if onward:
         parts += [onward, ""]
