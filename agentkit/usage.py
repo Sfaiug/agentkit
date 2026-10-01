@@ -422,6 +422,12 @@ def _write_reset_state(path, blob):
     tmp.replace(path)
 
 
+def _reset_file(provider, account=None):
+    """Where one subscription's reset receipt is kept: its own, as its credits and week are."""
+    return config.STATE / (f"{provider}-reset.json" if account is None
+                           else f"{provider}.{account}-reset.json")
+
+
 def _reset_applied_at(path):
     """When the last reset was spent, or None when none was, or the file cannot be read."""
     try:
@@ -461,7 +467,7 @@ def _reset_policy(cfg, provider, prov, now, depleted):
     weekly = _worst([m for m in prov.get("meters") or [] if m.get("window_secs") != SESSION_SECS])
     if not depleted and (weekly is None or weekly["used"] < RESET_AT_USED):
         return prov, False
-    path = config.STATE / f"{provider}-reset.json"
+    path = _reset_file(provider, prov.get("account"))
     applied = _reset_applied_at(path)
     if applied is not None and 0 <= now - applied < RESET_EVERY_SECS:
         return prov, False
