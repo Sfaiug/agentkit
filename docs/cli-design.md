@@ -170,12 +170,13 @@ highlight, which moves there, and a key-line item or a cell of a row (a mark, an
 effort, a model's label, `+ add`, an arrow on a model's own screen) a subtle
 background, in place of the reverse the keys give a cell, or at eight colours the
 reverse; the keys and the pointer never show two highlights. What lights is what a
-click there acts on, and a key-line item acts on the highlighted row, which keeps
-the keys' highlight while the pointer is on the key line. Each loses it when the
-pointer leaves: on nothing at all no row or cell is highlighted until the pointer is
-on one again or a key brings it back where it was. An arrow moves it on from there,
-and a key that acts on it -- Enter, space, and the menu's `x` and `c` -- only brings
-it back, so nothing unseen is acted on. Any key puts out what the pointer lit, and a
+click there acts on. Each loses it when the pointer leaves: off every row -- on a
+key-line item, a header or blank space -- no row or cell is highlighted, a key-line
+item alone lit, until the pointer is on a row again or a key brings the highlight
+back on the row it was last on. The keys go on from there: an arrow moves it on, and
+a key that acts on it -- Enter, space, their key-line items, the menu's `x` and `c`,
+←/→ on a model's own screen -- only brings it back, so nothing unseen is acted on; a
+digit names its own row and acts at once. Any key puts out what the pointer lit, and a
 screen opens, or comes back, with nothing lit: the pointer lights nothing until it
 moves again. A question typed on a screen (`terminal.field`) lights its key line
 too, and one asked over a screen's rows (`x`'s) takes those rows for nothing. A move

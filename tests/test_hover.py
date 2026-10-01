@@ -189,14 +189,14 @@ class Screens(Sandbox):
         self.assertOneHighlight(last, "astra")
         self.assertEqual(marked(last, "lit"), {})
         self.assertEqual(marked(last, "reverse"), {mark[1]: "□"})
-        # a key-line item lights and the row it acts on keeps the keys' highlight; on nothing
-        # at all the row and its cell lose it, and an arrow moves it on from where it was
+        # off every row the row and its cell lose it, a key-line item lighting alone and
+        # nothing on no item at all, and an arrow moves it on from where it was
         keys = at(first, "esc back")
         screens = self.matrix(move(*harness), move(*keys), move(1, len(texts(first)) + 2), RIGHT,
                               ESC)
         self.assertEqual(len(screens), 5)
         self.assertEqual(marked(screens[2], "lit"), {keys[1]: "esc back"})
-        self.assertOneHighlight(screens[2], "astra")
+        self.assertEqual((highlighted(screens[2]), marked(screens[2], "reverse")), ([], {}))
         self.assertEqual(marked(screens[3], "lit"), {})
         self.assertEqual((highlighted(screens[3]), marked(screens[3], "reverse")), ([], {}))
         self.assertOneHighlight(screens[4], "astra")
@@ -269,12 +269,13 @@ class Screens(Sandbox):
         self.assertEqual(highlighted(screens[-1]), ["› Grok"])
         keys = at(screens[0], "esc back")
         last = run(lambda: terminal.choose(choices, around=around), move(*keys) + ESC)[1][-1]
-        self.assertEqual(marked(last, "lit"), {keys[1]: "esc back"})
-        self.assertEqual(highlighted(last), ["› Claude"])
-        # a key moves the highlight on and puts the key line's light out with the rest of it
-        last = run(lambda: terminal.choose(choices, around=around), move(5, 5), move(*keys),
-                   b"k", move(1, 2), ESC)[1][-1]
-        self.assertEqual((marked(last, "lit"), highlighted(last)), ({}, ["› ChatGPT"]))
+        self.assertEqual((marked(last, "lit"), highlighted(last)), ({keys[1]: "esc back"}, []))
+        # from Grok onto `esc back` only that is lit; `k` goes on from Grok, the key line's
+        # light out with the rest of it
+        screens = run(lambda: terminal.choose(choices, around=around), move(5, 5), move(*keys),
+                      b"k", move(1, 2), ESC)[1]
+        self.assertEqual([(marked(grid, "lit"), highlighted(grid)) for grid in screens[1:]],
+                         [({}, ["› Grok"]), ({keys[1]: "esc back"}, []), ({}, ["› ChatGPT"])])
         # on nothing the highlight is out, Enter only brings it back, and the next one picks
         answer, screens = run(lambda: terminal.choose(choices, around=around), move(5, 5),
                               move(1, 2), b"\r", ESC)
@@ -405,11 +406,11 @@ class MainMenu(unittest.TestCase):
         menu.frame(lambda lines: "seat-c" in menu.highlighted(lines))
         keyline = (lines[-1].index("c config") + 1, len(lines))
         menu.send(move(*keyline))
-        menu.until(lambda text: marked(played(text), "lit") == {keyline[1]: "c config"},
-                   "c config lit")
+        menu.until(lambda text: marked(played(text), "lit") == {keyline[1]: "c config"}
+                   and not highlighted(played(text)), "c config lit, and no seat")
         # a key moves the one highlight on from the pointer's, and the key line's light goes
         menu.send(b"k")
-        menu.frame(lambda lines: "seat-b" in menu.highlighted(lines))
+        menu.frame(lambda lines: any(line.startswith("› 2  seat-b") for line in lines))
         menu.until(lambda text: marked(played(text), "lit") == {}, "nothing lit")
         # on nothing the highlight is out, and `x` only brings it back: no seat is acted on
         # that is not seen
@@ -432,6 +433,27 @@ class MainMenu(unittest.TestCase):
         menu.leave()
         self.assertEqual(termios.tcgetattr(menu.slave), menu.before)
         self.assertIn("\x1b[?1006l\x1b[?1003l", menu.text().rsplit("\x1b[J", 1)[-1])
+
+    def test_x_on_a_seat_the_pointer_left_brings_it_back_and_only_the_next_closes_it(self):
+        menu = Menu(self, ["seat-a", "done-b"])
+        lines = menu.frame()
+        row = next(number for number, line in enumerate(lines, 1) if "done-b" in line)
+        menu.send(move(20, row))
+        lines = menu.frame(lambda lines: "done-b" in menu.highlighted(lines))
+        keyline = (lines[-1].index("x close") + 1, len(lines))
+        menu.send(move(*keyline))
+        menu.until(lambda text: marked(played(text), "lit") == {keyline[1]: "x close"}
+                   and not highlighted(played(text)), "x close lit, and no seat")
+        mark = len(menu.text())
+        menu.send(b"x")
+        menu.frame(lambda lines: any(line.startswith("› 2  done-b") for line in lines),
+                   after=mark)
+        time.sleep(0.3)
+        self.assertNotIn("<closed", menu.text())
+        menu.send(b"x")
+        menu.saw("<closed done-b>")
+        menu.leave()
+        self.assertEqual(menu.text().count("<closed"), 1)
 
     def test_the_pointer_moves_the_highlight_while_a_digit_waits_for_a_second(self):
         menu = Menu(self, [f"seat-{n:02d}" for n in range(1, 13)])
