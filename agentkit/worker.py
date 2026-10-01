@@ -638,9 +638,11 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
 def turn(cfg, model_name, body, workspace, out_dir, role="executor", session=None, env=None,
          limit=None, log=None):
     """One call and its cleanup; the fifth result says whether it left processes running."""
-    env = {**config.seatless_env(), **(env or {})}
+    # Let call apply harness defaults over inheritance; pass only explicit overrides.
+    env = dict(env or {})
     # A turn ends independently of the suite and the loop's helpers, even on a plain host.
-    marker = f"{env.get(RUN_MARKER) or 'worker'}/turn-{uuid.uuid4().hex}"
+    run_id = env.get(RUN_MARKER) or os.environ.get(RUN_MARKER) or "worker"
+    marker = f"{run_id}/turn-{uuid.uuid4().hex}"
     env[RUN_MARKER] = marker
     log = log or (lambda message: print(message, file=sys.stderr))
     try:
