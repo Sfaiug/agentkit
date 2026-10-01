@@ -594,7 +594,7 @@ ak() { printf '%s\\n' "$ROW"; }
     def test_gates_pass_or_fail_on_their_own_under_an_outer_suites_diversion(self):
         # Run inside a running suite, each check inherits that suite's diversion log; its own
         # `finish` reads only what this check diverted.
-        with tempfile.TemporaryDirectory(prefix=".open-gates-outer-", dir=REPO) as outer:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-outer-", dir=REPO) as outer:
             log = Path(outer) / 'notify-diversions.log'
             log.write_text("an outer suite's diversion\n")
             with patch.dict(os.environ, {'AK_NOTIFY_SINK_LOG': str(log)}):
