@@ -79,11 +79,11 @@ class RepoSuite(unittest.TestCase):
         (out_dir / "final.md").write_text(text)
         return 0, text, "fixture-session", False
 
-    def launch(self, name, checks):
+    def launch(self, name, checks, front="base: main\n"):
         directory = config.RUNS / name
         directory.mkdir()
         task = directory / "task.md"
-        task.write_text(f"---\nrepo: {self.repo}\nbase: main\nrounds: 1\n---\n# Suite once\n\n"
+        task.write_text(f"---\nrepo: {self.repo}\n{front}rounds: 1\n---\n# Suite once\n\n"
                         "## Goal\nShip it.\n\n## Done when\n```bash\n"
                         + "\n".join(checks) + "\n```\n")
         state = run.loop(self.cfg, directory, task, self.opts, self.logs.append)
@@ -152,9 +152,12 @@ class RepoSuite(unittest.TestCase):
         self.add_origin()
         self.commit(f"---\ntests: {origin_suite}\n---\n# acme\n")
         self.git("push", "-q", "-u", "origin", "main")
-        self.git("fetch", "-q", "origin")
+        # a run is cut from its base as origin has it, so the checkout's own line is its
+        # base branch's, and its target's is another
+        self.git("checkout", "-q", "-b", "feature")
         self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")
-        self.launch("own-wins", ["true"])
+        self.git("push", "-q", "-u", "origin", "feature")
+        self.launch("own-wins", ["true"], front="base: feature\ntarget: main\n")
         self.assertTrue(self.rounds())
         self.assertTrue(all(SUITE not in cmds for cmds in self.rounds()), self.gates)
         self.assertEqual(self.suites(), [[SUITE]])
