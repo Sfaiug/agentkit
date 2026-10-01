@@ -709,8 +709,8 @@ class Parked(unittest.TestCase):
                                  error=CONFLICT_NOTE, merge_note=CONFLICT_NOTE,
                                  waiting_on={"ref": "origin/main", "sha": "0" * 40})
         original = run.read_state(directory)
-        for extra in ({"finished_at": self.now - 25 * 3600},
-                      {"handed_back": self.now - 30}, {"recovery_notified": "discord"},
+        # one only its age turned away is his: test_seat_needs_you_for_parked_runs.py
+        for extra in ({"handed_back": self.now - 30}, {"recovery_notified": "discord"},
                       {"recovery_acknowledged_at": self.now - 30},
                       {"launched_session": None}, {"launched_session": "gone"}):
             state = {**original, **extra}
@@ -809,7 +809,8 @@ class Parked(unittest.TestCase):
                     token_out={}, previous={})
                 self.assertEqual(found["word"], "needs you")
                 self.assertEqual(found["reason"], run.parked_line(state, now=self.now)
-                                 if word == "error" else "waiting for you")
+                                 if word == "error" else f"run {directory.name} waits to "
+                                 f"merge: {run.handback_reason(state)}")
                 self.assertEqual(menu.v5o_needs_look(state, now=self.now), word == "error")
                 run.save_state(directory, {**state, "finished_at": self.now - run.GC_AGE - 1})
                 with redirect_stdout(io.StringIO()) as out:

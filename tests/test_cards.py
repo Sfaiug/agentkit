@@ -179,10 +179,11 @@ class Cards(unittest.TestCase):
     def test_done_card_waits_on_a_run_awaiting_recovery(self):
         directory = self.run_fixture("job", "interrupted")
         self.assertEqual(notify.main(["done", "Finished", "--session", "seat"]), 0)
-        self.assertEqual(self.posts, [])   # the word is working while recovery is pending
+        self.assertEqual(self.posts, [])   # the word is his while recovery is pending
         word = watch.session_state("seat")
-        self.assertEqual(word["word"], "working")
-        self.assertEqual(word["reason"], "run job awaits recovery")
+        self.assertEqual(word["word"], "needs you")
+        self.assertEqual(word["reason"],
+                         "run job parked: The run stopped before recording completion")
         record = json.loads((directory / "run.json").read_text())
         record["recovery_acknowledged_at"] = time.time()
         (directory / "run.json").write_text(json.dumps(record))
