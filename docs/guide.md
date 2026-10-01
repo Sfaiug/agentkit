@@ -68,6 +68,7 @@ scratch workspace), `base` (the repo's default branch), `target` (the branch the
 dependency, repeatable). A check ending in `# once` runs alongside the review on the commit under review; the executor is told not to run it,
 its absence from the reviewer's input by design. The full suite a repository names as `tests:` in its `AGENTS.md` front matter is such a check in every run
 there, from the target branch where the checkout predates it, and a done-when line with the same command runs once with it, so a task lists only the checks for its change.
+`files:` (repeatable, comma-separated Git pathspecs) limits the branch's own changed paths after rebasing; an unmatched path fails the gate with `outside files: <paths>`, goes to the fixer and overrides reviewer PASS. Without it there is no limit.
 A command that fails runs once more at once, within the same ceiling, and passes if the re-run does: the output keeps the lines the failed run printed that its passing re-run did not, at most 20 (its last lines when the re-run repeated them all), under `flaky:`, which joins the run's follow-ups as evidence.
 The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt, up to 4 KB; past
 that, the run's hand-back names the file and asks the orchestrator to tighten it. Every prompt also carries the body of the repository's `AGENTS.md` as on the base commit, front matter removed, up to 8 KB. A worker's harness loads no instruction file of its own where it has a switch for that; its adapter's manifest says in one line what no switch reaches.
@@ -134,7 +135,7 @@ keeps it waiting; one ending unmerged skips it (`skipped: <dep> did not merge`),
 files in `~/.agentkit/work/<id>`, which its hand-back names, not a PR. `ak run --review-pr URL` reviews a PR with
 no executor and posts the verdict as a GitHub review: a seat's own PR over the size ceiling is refused before any
 model runs, with its size and ceiling and an instruction to split it; one that fits merges on PASS with green checks.
-Anyone else's PR asks the inbox and is never refused for size. `ak run status` lists every run of the last seven days but the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
+FAIL sends findings back to the seat and waits for its push, shown by `ak run status`; the next head is reviewed with the previous findings first. The third FAIL or a closed PR ends the run. Anyone else's PR gets one review, asks the inbox on PASS and is never refused for size. `ak run status` lists every run of the last seven days but the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
 `workspace:` and `continue:` lines. An ending handed back, acknowledged or superseded (by a later merged run of its
 title, or a relaunch `from:` its branch) reads `done`, as does a parked run a later merged run replaced, and a job's tasks read their runs as they are now. `ak run` exits 0 on PASS, 1 on FAIL, `exhausted`, `blocked` or an unfinished merge, 2 on error.
 
