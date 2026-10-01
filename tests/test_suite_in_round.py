@@ -156,10 +156,10 @@ class SuiteInRound(unittest.TestCase):
         self.assertEqual([cmds for _, cmds in self.gates if SUITE in cmds], [[SUITE]])
         self.assertIn("already passed at landing", "\n".join(self.logs))
 
-    def test_rounds_without_landing_never_run_the_suite(self):
+    def test_rounds_without_landing_do_not_add_the_declared_suite(self):
         self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")
         self.opts["--no-merge"] = True
-        directory, state = self.launch("no-landing", ["true  # once", SUITE])
+        directory, state = self.launch("no-landing", ["true  # once"])
         self.assertEqual(state["state"], "pass", self.logs)
         self.assertEqual(self.gates, [("donewhen.log", ["true"])])
         self.assertNotIn("final_check", state)
@@ -167,6 +167,23 @@ class SuiteInRound(unittest.TestCase):
                          "final check: none (no once-commands)")
         self.assertNotIn("runs these once at landing", "\n".join(body for _, body in self.prompts))
         self.assertNotIn(SUITE, (directory / "result.md").read_text())
+
+    def test_no_merge_keeps_explicit_suite_checks_and_fails_when_they_fail(self):
+        bare = "test -f MISSING"
+        suite = f"{bare} && true"
+        self.commit(f"---\ntests: {suite}\n---\n# acme\n")
+        self.opts["--no-merge"] = True
+        for index, check in enumerate((suite, bare, f"{suite}  # once", f"{bare}  # once")):
+            with self.subTest(check=check):
+                before = len(self.gates)
+                directory, state = self.launch(f"explicit-suite-{index}", ["true", check])
+                self.assertEqual(state["verdict"], "FAIL", self.logs)
+                command = (suite, bare)[index % 2]
+                self.assertEqual(self.gates[before:],
+                                 [("donewhen.log", ["true", command])] * 2)
+                self.assertFalse(state["round_summaries"][0]["done_when"])
+                self.assertNotIn("final_check", state)
+                self.assertIn(command, (directory / "result.md").read_text())
 
     def test_scratch_runs_task_once_checks_in_the_round(self):
         directory, state = self.launch("scratch-once", ["true", "false  # once"],
