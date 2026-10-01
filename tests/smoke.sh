@@ -3983,10 +3983,9 @@ assert not any("reaped a loop whose process was gone" in line for line in second
 # opening the menu tells nobody anything, so nothing on it is marked told: `r` still owes them
 assert not any(run.read_state(config.RUNS / n)["reported"] for n in
                ("run-1-by-hand", "run-2-owned", "run-3-broken", "run-4-huge", "run-5-path"))
-print("\n".join(notices))
 PY
-[ "$NOTICERC" = 0 ] && ok "20d warnings shown once, after the menu's first frame; a live seat's endings -- an eight-hour-old result included -- are nowhere on it and stay unreported, and the notice line keeps its phone shape" \
-                  || { no "20d the menu's finished-run notice"; sed 's/^/      /' "$WORK/menu-notice.log" | head -14; }
+[ "$NOTICERC" = 0 ] && ok "20d warnings shown once, after the menu's first frame; a live seat's endings -- an eight-hour-old result included -- are nowhere on it and stay unreported" \
+                  || { no "20d warnings and hidden finished-run receipts"; sed 's/^/      /' "$WORK/menu-notice.log" | head -14; }
 
 # --- 20e: the menu as a popup inside a seat (offline, real tmux seats) --------
 # Every seat `ak orch` starts is dressed on the way up, out of agentkit's own tmux config and
@@ -5350,7 +5349,7 @@ grep -q "^# PASS, delivered — Smoke scratch workspace $$\$" "$SCRDIR/result.md
 grep -q 'not merged' "$SCRDIR/result.md" && DEL=1
 HOME="$SCRH" ak run status --plain "$SCRID" >"$WORK/delivered-scratch.log" 2>&1 || DEL=1
 grep -q ' scratch  delivered$' "$WORK/delivered-scratch.log" || DEL=1
-[ "$DEL" = 0 ] && ok "33 a run with no repository is delivered: result.md, \`ak run status\` and the finished-run notice all say it, while merged and \`not merged: <reason>\` stay the repository run's answers" \
+[ "$DEL" = 0 ] && ok "33 a run with no repository is delivered: result.md and \`ak run status\` both say it, while merged and \`not merged: <reason>\` stay the repository run's answers" \
               || { no "33 delivered instead of not merged"; sed 's/^/      /' "$WORK/delivered.log" "$WORK/delivered-status.log" | head -10; }
 # --- 34: the session babysitter types the stalled seats back into motion (offline) ------------
 # Six real seats on a tmux server of this check's own, replaying captured TUI panes and writing

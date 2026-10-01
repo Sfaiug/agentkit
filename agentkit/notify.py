@@ -27,7 +27,6 @@ import fcntl
 import hashlib
 import json
 import math
-import mimetypes
 import os
 import secrets
 import stat

@@ -141,8 +141,6 @@ LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after |
 # on, long before the tally it ends with.  See `first_failure`.
 FAILURE_LINE = re.compile(r"^(?:FAIL(?:ED)?|ERROR|not ok)\b")
 ENDED = ("pass", "fail", "error", "blocked", "stopped", "not_needed")
-NOTICE = 100                    # a finished-run notice is one line, this wide: what a phone shows
-                                # -- the menu's leading space included, so the line itself is 99
 QUEUED_GRACE = 30               # old launchers did not record the background child's identity
 try:
     SLOT_POLL = float(os.environ.get("AK_SLOT_POLL", "30"))
@@ -7803,19 +7801,6 @@ def notice_title(state):
     """
     words = (state.get("title") or state.get("run_id") or "agentkit run").split()
     return " ".join(word for word in words if "/" not in word and "~" not in word)
-
-
-def fit(title, tail, room):
-    """`<title> — <tail>` inside `room` characters, or None when the tail alone will not fit.
-
-    Only the title gives way: first shortened, then dropped altogether.
-    """
-    if len(tail) > room:
-        return None
-    left = room - len(tail) - 3            # the ` — ` that joins the title to the rest
-    if len(title) > left:
-        title = title[:left - 3] + "..." if left >= 4 else ""
-    return f"{title} — {tail}" if title else tail
 
 
 @contextmanager

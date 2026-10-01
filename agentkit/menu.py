@@ -2095,9 +2095,6 @@ def usage_lines(cfg, width):
     return lines
 
 
-RUNS_HEADERS = ["#", "title", "seat", "worker", "round", "age", "state"]
-
-
 def run_state_word(state):
     """The listings' word for a run, read from terminal.STATES.
 
