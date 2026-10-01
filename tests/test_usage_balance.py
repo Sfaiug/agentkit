@@ -453,8 +453,6 @@ class WeeklyBalance(unittest.TestCase):
                 self.assertEqual(prov["headroom"], (100 - max(all_used, scoped)) / 100)
                 self.assertEqual(prov["pace"], max(all_used, scoped) - 50)
                 for name, used in (("opus", all_used), ("fable", max(all_used, scoped))):
-                    self.assertEqual(usage.model_headroom(self.cfg, name, providers),
-                                     (100 - used) / 100)
                     self.assertEqual(usage.model_pace(self.cfg, name, providers)[0], used - 50)
                     self.assertFalse(usage.model_exhausted(self.cfg, name, providers)[0])
                 self.assertEqual(usage.pick_order(self.cfg, providers, self.workers), order)
@@ -494,7 +492,6 @@ class WeeklyBalance(unittest.TestCase):
         providers["anthropic"]["meters"].append(self.meter("session", 99, usage.SESSION_SECS))
         usage._gate_flags(providers, self.now, self.cfg)
         self.assertEqual(usage.model_pace(self.cfg, "opus", providers)[0], 49)
-        self.assertEqual(usage.model_headroom(self.cfg, "opus", providers), 0.6)
         self.assertEqual(orch.choose(self.cfg, providers)[0], "fable")
         providers["anthropic"]["meters"][-1]["used"] = 100
         usage._gate_flags(providers, self.now, self.cfg)
@@ -513,7 +510,6 @@ class WeeklyBalance(unittest.TestCase):
         prov = providers["openai"]
         self.assertNotIn("effective_used", prov)
         self.assertEqual(usage.provider_headroom(prov, self.cfg), 0.5)
-        self.assertEqual(usage.model_headroom(self.cfg, "astra", providers), 0.5)
         self.assertEqual(usage.model_pace(self.cfg, "astra", providers)[0], 0)
         self.assertEqual(usage.outlook(prov), "on track")
         self.assertEqual(usage.outlook(providers["anthropic"]), "runs out in ~2d")
@@ -536,7 +532,6 @@ class WeeklyBalance(unittest.TestCase):
                 entry["provider"] = "renamed"
         self.cfg["models"]["fable"]["meter"] = "private_week"
         prov["meters"][1]["name"] = "private_week"
-        self.assertEqual(usage.model_headroom(self.cfg, "opus", providers), 0.3)
         self.assertEqual(usage.pick_order(self.cfg, providers)[0], "astra")
         for missing in ("weekly_all", "private_week"):
             partial = {**prov, "meters": [m for m in prov["meters"] if m["name"] != missing]}
@@ -546,7 +541,6 @@ class WeeklyBalance(unittest.TestCase):
         usage._gate_flags(providers, self.now, self.cfg)
         self.assertNotIn("effective_used", prov)
         self.assertNotIn("gap", prov)
-        self.assertEqual(usage.model_headroom(self.cfg, "opus", providers), 0.3)
 
     def test_cached_and_fresh_reads_drop_effective_without_changing_real_meters(self):
         providers = self.providers(70, 41)
@@ -624,7 +618,6 @@ class WeeklyBalance(unittest.TestCase):
     def test_behind_keeps_opus_selectable_for_normal_cross_provider_pick(self):
         providers = self.providers(80, 53)
         self.assertFalse(usage.model_exhausted(self.cfg, "opus", providers)[0])
-        self.assertEqual(usage.model_headroom(self.cfg, "opus", providers), 0.2)
         self.assertIn("opus", usage.pick_order(self.cfg, providers))
         session = {"name": "astra-seat", "orchestrator": "astra", "workers": ["astra", "opus"]}
         with patch.object(config, "active_session", return_value=session):

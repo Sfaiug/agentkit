@@ -45,7 +45,6 @@ class DesktopAndBoot(Sandbox):
         fake.chmod(0o755)
         self.stack.enter_context(patch.dict(os.environ, {"PATH": f"{binaries}:{os.environ['PATH']}"}))
         self.stack.enter_context(patch.object(watch, "boot_id", return_value="fake-boot-new"))
-        self.stack.enter_context(patch.object(notify, "session_number", return_value=1))
         self.stack.enter_context(patch.object(orch, "attach", side_effect=AssertionError("attached")))
         self.posts = []
         self.stack.enter_context(patch.object(notify, "post", side_effect=self.post))

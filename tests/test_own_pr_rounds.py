@@ -273,8 +273,6 @@ class OwnPrRounds(unittest.TestCase):
                 bare = {**state, "own_pr_wait": None}
                 self.assertEqual(menu.silent_for_run(self.run_dir, bare), "2h")
                 self.assertIsNone(menu.silent_for_run(self.run_dir, state))
-                for shown in (state, {**state, "stalls": [{"time": time.time() - 7200}]}):
-                    self.assertEqual(menu.run_progress(shown)[:3], (1, 3, "waiting"))
                 with patch.object(run, "process_active", return_value=False):
                     self.assertEqual(menu.silent_for_run(self.run_dir, state), "2h")
                 for silent in (None, {self.run_dir.name: "2h"}):

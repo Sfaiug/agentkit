@@ -415,40 +415,11 @@ class V5X(unittest.TestCase):
         self.assertIn("● working", body)
         self.assertIn(f"continue: ak run resume {parked_dir.name}", body)
 
-    def test_v5x_menu_words_for_silent_and_stalled(self):
-        from agentkit import terminal
-        run_dir, _ = self.make_run(
-            "20260916-0000-v5x-menu", pid=2 ** 30,
-            stalls=[{"time": time.time() - 7200, "round": 2,
-                     "step": "done-when: bash tests/smoke.sh", "action": "killed step"}])
-        self.age_run(run_dir, 120)
-        state = self.read_state(run_dir)
-        _, _, word, _ = menu.run_progress(state)
-        self.assertTrue(word.startswith("silent "), word)
-        self.assertIn("2h", word)
-        # The words have to survive the paths that render them: the rollup
-        # (STATE_ORDER) and the coloured draws (STATE_STYLES), plain and coloured.
+    def test_v5x_runs_do_not_make_projects(self):
+        self.make_run("20260916-0000-v5x-menu", pid=2 ** 30)
         # No run ever makes a project now.
         groups = menu.projects({}, [])
         self.assertEqual(groups, [])
-        for words in (menu.run_style(word), menu.run_style("interrupted")):
-            self.assertIn(words, menu.STATE_ORDER)
-            self.assertIn(words, terminal.STATE_STYLES)
-        with patch.object(terminal, "colour_depth", return_value=24):
-            menu.project_run(run_dir, state, 100)
-            for group in groups:
-                menu.project_header(group, 100)
-            menu.run_row(1, run_dir, state)
-        # Progress since the stall reads working again, while the status keeps
-        # the recovered counts.
-        (run_dir / "round-1" / "worker-note.txt").write_text("the fixer wrote back\n")
-        _, _, word, _ = menu.run_progress(self.read_state(run_dir))
-        self.assertEqual(word, "working")
-        parked = dict(state, state="stalled")
-        self.assertEqual(menu.run_progress(parked)[2], "stalled")
-        self.assertEqual(menu.run_style("stalled"), "needs you")
-        with patch.object(terminal, "colour_depth", return_value=24):
-            menu.project_run(run_dir, parked, 100)
 
     def test_v5x_only_argv0_names_a_worker_turn(self):
         cfg = {"models": {"m": {"harness": "fakeharness", "model": "m",

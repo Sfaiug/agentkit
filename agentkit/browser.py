@@ -222,35 +222,6 @@ def _read_tabs():
     return stored if isinstance(stored, dict) else {}
 
 
-def note_opener(target_id, *, run=None, session=None):
-    """Remember who opened a tab, so it can be closed when that run or seat ends.
-
-    A tab with no recorded opener is left to the idle rule. Either name may be set;
-    a run's tab also names its seat when the opener knew both.
-    """
-    if not isinstance(target_id, str) or not target_id or (not run and not session):
-        return
-    opener = {}
-    if isinstance(run, str) and run:
-        opener["run"] = run
-    if isinstance(session, str) and session:
-        opener["session"] = session
-    if not opener:
-        return
-    stored = _read_tabs()
-    record = stored.get(target_id)
-    if not isinstance(record, dict):
-        now = time.time()
-        record = {"first_seen": now, "last_change": now, "url": "", "title": ""}
-    previous = record.get("opener") if isinstance(record.get("opener"), dict) else {}
-    record["opener"] = {**previous, **opener}
-    stored[target_id] = record
-    try:
-        _write_tabs(stored)
-    except (OSError, ValueError):
-        return
-
-
 def _owned(record, *, run=None, session=None, runs=()):
     """Whether this record's opener is the run or the seat being closed.
 

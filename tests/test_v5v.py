@@ -68,11 +68,6 @@ class Picker(NewSession):
         self.assertEqual(self.new(["", "", "2 1"]), "new")
         self.assertEqual(config.load_session(self.cfg, "new")["workers"], ["opus", "fable"])
 
-    def test_name_default_follows_orchestrator_and_taken_names(self):
-        self.assertEqual(orch.default_name("fable", set()), "fable")
-        self.assertEqual(orch.default_name("fable", {"fable"}), "fable-2")
-        self.assertEqual(orch.default_name("fable", {"fable", "fable-2"}), "fable-3")
-
     def test_direct_orch_keeps_cwd_without_a_project_question(self):
         cwd = self.root / "outside"
         cwd.mkdir()

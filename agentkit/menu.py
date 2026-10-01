@@ -689,35 +689,6 @@ def projects(cfg, found):
     return [groups[name] for name in sorted(groups)]
 
 
-def project_header(project, width):
-    amounts = ((len(project["rows"]), "seat"), (len(project["runs"]), "run"))
-    counts = " · ".join(f"{n} {label}{'' if n == 1 else 's'}" for n, label in amounts)
-    suffix = f" · {terminal.state_label(project['word'])} · {counts}"
-    room = width - terminal.cells(suffix)
-    if room < terminal.cells(project["name"]):
-        counts = " · ".join(f"{n} {label}{'' if n == 1 else 's'}" for n, label in amounts if n)
-        suffix = f" · {terminal.state_label(project['word'])} · {counts}"
-        room = width - terminal.cells(suffix)
-    if room < 1:
-        counts = f"{len(project['rows'])}s/{len(project['runs'])}r"
-        suffix = f" {terminal.state_label(project['word'])} {counts}"
-        room = width - terminal.cells(suffix)
-    text = terminal.cut(project["name"], max(1, room)) + suffix
-    return terminal.styled(terminal.cut(text, width), project["word"])
-
-
-def project_run(directory, state, width):
-    rnd, total, word, elapsed = run_progress(state)
-    filled = min(4, round(4 * rnd / total)) if total else 0
-    bar = ("█" * filled + "░" * (4 - filled)) if terminal.utf8() else ("#" * filled + "-" * (4 - filled))
-    suffix = (f" · {state.get('executor') or '?'}/{state.get('reviewer') or '?'}"
-              f" · {bar} {rnd}/{total or '?'} · {elapsed} · {terminal.state_label(word)}")
-    prefix = "    ↳ " if terminal.utf8() else "    > "
-    title = terminal.cut(state.get("title") or directory.name,
-                         width - terminal.cells(prefix + suffix))
-    return terminal.styled(prefix + title + suffix, run_style(word))
-
-
 # --- v5o: the menu at rest answers one question ---------------------------------
 #
 # The menu at rest is the header, the usage block and the keys line exactly as
@@ -964,13 +935,6 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
             "sentence": sentence, "bar": bar, "estimate": estimate,
             "needs": reason if word == "needs you" else "",
             "word": word, "since": found["since"], "repo": session.get("repo")}
-
-
-def _progress_text(info, narrow=False):
-    if not info.get("bar"):
-        return ""
-    text = terminal.progress_bar(info["bar"][0], info["bar"][1], narrow=narrow)
-    return f"{text} · {info['estimate']}" if info.get("estimate") else text
 
 
 def v5o_groups(cfg, found, records=None, now=None, look=True):
@@ -1227,19 +1191,6 @@ def v5o_seat_blocks(infos, term_width, widths=None):
             block.append("    " + cont)
         blocks.append(block)
     return [[line.rstrip() for line in block] for block in blocks]
-
-
-def v5o_format_seats(infos, term_width, widths=None):
-    """Rows are tables: number, name, orchestrator, state, one last column.
-
-    Fixed columns with two-space gutters, sized once per draw from the rows on
-    screen. Content is capped at 100 columns. A long last column wraps at word
-    boundaries onto one indented line, ending in ` …` only when more was cut.
-    On a narrow phone the last column goes on its own line and the bar shortens
-    to 4 cells. Never cut inside a glyph or a colour sequence.
-    """
-    return [line for block in v5o_seat_blocks(infos, term_width, widths)
-            for line in block]
 
 
 def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=None, look=True,
@@ -1827,63 +1778,6 @@ def run_records():
     return found
 
 
-def run_style(word):
-    """The vocabulary word a run's own progress word draws as.
-
-    `run_progress` says how a run is getting on -- `waiting`, `silent 4m`, `stalled`,
-    `FAIL` -- and rollups and coloured draws read that as one of the three words
-    everything here says: work still moving is `working`, an ending nobody can take
-    up again is his. The row itself keeps saying the run's own word.
-    """
-    if word in ("done", "needs you", "working"):
-        return word
-    if word in ("FAIL", "interrupted", "stalled"):
-        return "needs you"
-    return "working"
-
-
-def run_progress(state):
-    """Round, budget, state and elapsed for one run's drill-down."""
-    from . import run
-    going = state.get("state") in ("queued", "running")
-    started = state.get("started_at") or 0
-    finished = state.get("finished_at") or 0
-    done = len(state.get("round_summaries") or [])
-    total = state.get("rounds")
-    # a running run is in the round after the last one it finished, and never past its budget
-    rnd = min(done + 1, total) if going and total else done
-    wait = run.own_pr_wait_note(state)
-    if wait or state.get("own_pr_round_pending"):
-        rnd = state.get("own_pr_round_pending") or done
-    if state.get("state") == "queued" or (wait and run.process_active(state)):
-        word = "waiting"
-    elif state.get("state") == "stalled":
-        word = "stalled"
-    elif going and state.get("stalls"):
-        word = "working"
-        stalls = state["stalls"]
-        last = stalls[-1].get("time") if isinstance(stalls[-1], dict) else None
-        if isinstance(last, (int, float)) and not isinstance(last, bool):
-            try:
-                from . import watch
-                wrote = watch.run_last_write(config.RUNS / state["run_id"])
-            except (OSError, ValueError, KeyError, AttributeError):
-                wrote = 0.0
-            # The tick stamps each entry off its own finished writes, so anything newer
-            # is the run's own progress since: recovered, and working again. (A second
-            # covers mtime granularity.)
-            if not wrote or wrote <= last + 1:
-                word = f"silent {orch.span(time.time() - last)}"
-    else:
-        word = ("working" if going else "done" if state.get("state") in ("pass", "stopped", "not_needed") else
-                "interrupted" if state.get("state") == "interrupted" else "FAIL")
-    elapsed = (orch.span(time.time() - (state.get("interrupted_at") or started)
-                         if run.needs_recovery(state) else time.time() - started
-                         if going else max(0.0, finished - started))
-               if started else "-")
-    return rnd, total, word, elapsed
-
-
 def unread(prov, weekly, readable, now):
     """Why a usage row has no reading to draw: the two or three words after the `—`.
 
@@ -2247,200 +2141,9 @@ def run_age_secs(state):
     return max(0.0, (state.get("finished_at") or 0) - started)
 
 
-def run_cells(number, run_dir, state, providers=None, cfg=None):
-    """One run's table cells: number, title, seat, worker, round, age, state word.
-
-    The number, title and seat are run_row's own cells, so the row the tests
-    pin feeds the table the screen draws; the worker and round split out of
-    run_progress, the age reads format_age like every listing, and the state
-    reads the table's word from terminal.STATES. `providers` and `cfg` are one
-    draw's usage cache and config, handed down so a waiting run's drill-down
-    does not re-read them per row.
-    """
-    from . import run
-    row = run_row(number, run_dir, state, providers=providers, cfg=cfg)
-    rnd, total, _, _ = run_progress(state)
-    return [row[0], row[1], "—" if row[2] == "-" else row[2],
-            f"{state.get('executor') or '?'}/{state.get('reviewer') or '?'}",
-            f"{rnd}/{total or '?'}", terminal.format_age(run_age_secs(state)),
-            runs_word(state)]
-
-
-def runs_word(state):
-    """`r`'s word for a run, which is `run_state_word`'s and nobody else's.
-
-    A run sitting out a provider window resumes itself when the window refills, and a
-    stalled one is the tick's or the seat's to recover: both are still `working`, and
-    what each waits for is on its note line. A run parked on an expired login says so
-    in the column instead. `ak run status` reads the same word.
-    """
-    return run_state_word(state)
-
-
-def run_row(number, run_dir, state, providers=None, cfg=None):
-    """One run on the list: what it is, whose it is, who is on it, and how far it has got.
-
-    `providers` and `cfg` are one draw's usage cache and config; a caller
-    drawing many rows hands them down so an exhausted run's waiting word does
-    not re-read both per row. Left out, the row reads them itself.
-    """
-    from . import run
-    rnd, total, word, elapsed = run_progress(state)
-    details = (f"{state.get('executor') or '?'}/{state.get('reviewer') or '?'} "
-               f"{rnd}/{total or '?'}")
-    outcome = (run.whereabouts(state, short=True) if word == "done" else
-               state.get("state") or "" if word != "working" else "")
-    if state.get("state") in ("exhausted", "waiting_login"):
-        # the run waits for a provider window, a reviewer or an expired login and lifts by
-        # itself -- or, exhausted with nothing to resume it, for him; its drill-down keeps
-        # the state word
-        outcome = run.waiting_word(state, providers=providers, cfg=cfg)
-    elif state.get("state") == "queued":
-        # The host reason belongs to `ak run status`; menu rows retain only `waiting`.
-        outcome = "waiting"
-    if outcome:
-        details += f" · {outcome}"
-    return [str(number), state.get("title") or run_dir.name,
-            run.launched_session(state) or "-", word, details,
-            elapsed]
-
-
 def table(rows):
     """The same six columns as the sessions, with details below on a phone."""
     print("\n".join(terminal.seats(rows, terminal.width())))
-
-
-def _runs_table(found, width, room):
-    """The runs table: a dim column-header line, then one row per run.
-
-    Fixed columns with two-space gutters, sized once from the rows on screen:
-    number, title (all the remaining width, wrapped once at a word onto an
-    indented continuation, cut with ` \u2026` only past that), seat (the full name;
-    `\u2014` for a run of nobody's), worker, round, age, state (glyph and word from
-    terminal.STATES, on every row because the list exists to show it). A run
-    that needs a look keeps one dim line under its row saying what and what to
-    do about it, never the whole diagnostic: the number is the way to that.
-    A blocked run's line says why instead, because it has no resume to offer.
-    A failed run a later run merged names its replacement as
-    `superseded by <run id>`.
-
-    Returns (header, blocks): the header drawn above the listing, each block
-    one run's lines. `room` gates the notes, like the menu's
-    rows always did: a note is kept where the page has more lines than the row.
-    """
-    from . import run
-    # one draw's usage cache and config for the waiting notes and drill-downs:
-    # read once here, never per row. Nothing is read when no run waits.
-    if any(run.needs_recovery(state) for _, state in found):
-        try:
-            scope_cfg = config.load()
-        except config.Error:
-            scope_cfg = None
-        scope_providers = run._cached_providers()
-    else:
-        scope_cfg, scope_providers = None, {}
-    rows = [run_cells(n, run_dir, state, providers=scope_providers, cfg=scope_cfg)
-            for n, (run_dir, state) in enumerate(found, 1)]
-    texts = [terminal.state_text(row[6]) for row in rows]
-    natural = [max([terminal.cells(row[i]) for row in rows] + [terminal.cells(RUNS_HEADERS[i])])
-               if i != 1 else 0 for i in range(7)]
-    natural[6] = max([terminal.cells(line) for line in texts] +
-                     [terminal.cells(RUNS_HEADERS[6])])
-    # The seat and the state stay whole; the title takes all the remaining width.
-    gutter, indent = 2, "  "
-    fixed = sum(natural[i] for i in (0, 2, 3, 4, 5, 6)) + gutter * 6 + len(indent)
-    title_room = width - fixed
-    narrow = title_room < 12
-    if not narrow:
-        natural[1] = title_room
-    kinds = ["dim", None, None, None, None, None, None]
-    first_room = max(1, width - len(indent) - natural[0] - gutter)
-    if narrow:
-        # The seven columns cannot stand side by side here: the header names
-        # the number and the title, and the seat, worker, round, age and state
-        # ride on their own lines under each title.
-        header = terminal.table_row(RUNS_HEADERS[:2], [natural[0], first_room],
-                                    indent, ["dim"] * 2)
-    else:
-        header = terminal.table_row(RUNS_HEADERS, [natural[0], max(1, title_room),
-                                                   natural[2], natural[3], natural[4],
-                                                   natural[5], natural[6]],
-                                    indent, ["dim"] * 7)
-    all_states = [state for _, state in found]
-    blocks = []
-    for (run_dir, state), row in zip(found, rows):
-        word = row[6]
-        kinds[6] = terminal.state_colour(word)
-        if not narrow:
-            titled = terminal.title_lines(row[1], title_room)
-            cells = [row[0], titled[0], row[2], row[3], row[4], row[5],
-                     terminal.state_text(word)]
-            block = [terminal.table_row(cells, natural, indent, kinds, right=(0,))]
-            if len(titled) > 1:
-                block.append(" " * (len(indent) + natural[0] + gutter) + titled[1])
-        else:
-            titled = terminal.title_lines(row[1], first_room)
-            block = [terminal.table_row([row[0], titled[0]], [natural[0], first_room],
-                                        indent, kinds[:2], right=(0,))]
-            if len(titled) > 1:
-                block.append(" " * (len(indent) + natural[0] + gutter) + titled[1])
-            # cells() skips ANSI escapes, so the state cell is coloured before
-            # measuring; a cut below only ever touches the plain seat
-            tail = [row[2], row[3], row[4], row[5], terminal.state_cell(word)]
-            line = "  " + "  ".join(tail)
-            if terminal.cells(line) > width:
-                # The tail cannot stand on one line here: seat and worker above,
-                # round, age and state below, every name whole on a phone.
-                head = [row[2], row[3]]
-                rest = [row[4], row[5], terminal.state_cell(word)]
-                head_line = "  " + "  ".join(head)
-                if terminal.cells(head_line) > width:
-                    over = terminal.cells(head_line) - width
-                    head[0] = terminal.cut(head[0], max(1, terminal.cells(head[0]) - over))
-                    head_line = ("  " + "  ".join(head)).rstrip()
-                block.append(head_line)
-                block.append(("  " + "  ".join(rest)).rstrip())
-            else:
-                block.append(line)
-        if len(block) < room:
-            replacement = run.superseded_by(state, all_states)
-            if replacement:
-                block.append("  " + terminal.cut(f"superseded by {replacement}",
-                                                 max(1, width - 2)))
-            if state.get("state") == "blocked":
-                # a blocked run is final: the line says what stopped it, and offers no number
-                # to resume from, because `ak run resume` refuses it
-                block.append("  " + terminal.styled(
-                    terminal.cut(run.blocked_note(state), max(1, width - 2)), "dim"))
-            elif run.needs_recovery(state) or state.get("state") == "queued":
-                number = row[0]
-                # A queued run is in line, not to recover: its note is the bare
-                # waiting word, and the reason stays in `ak run status`.
-                wait = ("waiting" if state.get("state") == "queued" else
-                        run.waiting(state, providers=scope_providers, cfg=scope_cfg))
-                # one shape for every note here: glyph, word, then what the
-                # number is for. A run sitting out a provider window resumes
-                # itself, so its line carries the provider and the hour where
-                # another run's offers resume -- and the note's glyph and word
-                # are the row's own, so it never contradicts the column above it.
-                note = (f"{terminal.state_glyph(word)} {wait}" if wait else
-                        f"{terminal.state_glyph(word)} {word} \u00b7 "
-                        f"{number} offers resume")
-                block.append("  " + terminal.styled(
-                    terminal.cut(note, max(1, width - 2)), "dim"))
-        blocks.append(block)
-
-    return header, blocks
-
-
-def run_blocks(found, width, room):
-    """The lines each run takes on the list: its row, the note of one to recover,
-    and the replacement a later run merged.
-
-    A failed run a later run merged names its replacement as `superseded by <run id>`.
-    The last six hours are today's runs.
-    """
-    return _runs_table(found, width, room)[1]
 
 
 def show_notices(messages):

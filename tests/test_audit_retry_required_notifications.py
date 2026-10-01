@@ -67,7 +67,6 @@ def child():
         stack.enter_context(patch.object(notify.time, "time", return_value=args.get("now", 10000)))
         stack.enter_context(patch.object(notify.urllib.request, "urlopen", side_effect=http))
         if not args.get("real_number"):
-            stack.enter_context(patch.object(notify, "session_number", return_value=2))
         stack.enter_context(patch.object(orch, "sessions", return_value=[]))
         if args.get("persist_error"):
             stack.enter_context(patch.object(notify, "_write_event", side_effect=OSError("disk full")))

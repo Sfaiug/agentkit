@@ -58,10 +58,6 @@ def _mem_total_mb(meminfo=None):
     return memory_mb("MemTotal", meminfo, whole=True)
 
 
-def available_memory_mb():
-    return memory_mb("MemAvailable")
-
-
 def cgroup_tasks(cgroup):
     """(tasks running, ceiling), with None for each missing or unreadable counter."""
     numbers = []

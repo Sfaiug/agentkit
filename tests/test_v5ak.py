@@ -252,7 +252,6 @@ class Projects(Sandbox):
         for name in ("parked", "stuck-run"):
             state = run.read_state(config.RUNS / name)
             self.assertFalse(menu.v5o_needs_look(state, now=NOW), name)
-            self.assertEqual(menu.runs_word(state), "working")
         # ak run status reads the same word from the same table.
         self.assertEqual(menu.run_state_word(run.read_state(config.RUNS / "parked")),
                          "working")

@@ -398,13 +398,6 @@ class Slots(unittest.TestCase):
         with redirect_stdout(out):
             self.assertEqual(run.cmd_status([]), 0)
         self.assertIn("waiting for a slot · limit full (1 running) · 0 ahead", out.getvalue())
-        self.assertEqual(menu.run_cells(1, directory, state)[-1], "working")
-        screen = "\n".join(line for block in menu.run_blocks([(directory, state)], 100, 30)
-                           for line in block)
-        self.assertIn("● waiting", screen)
-        self.assertNotIn("waiting for a slot · limit full (1 running) · 0 ahead", screen)
-        self.assertNotIn("offers resume", screen)
-        self.assertNotIn("needs you", screen)
         self.assertFalse(menu.v5o_needs_look(state))
         self.assertEqual(menu.bar_tally((1, 0, 0), [state]), "1 waiting")
         self.assertEqual(len(self.calls()), 1)

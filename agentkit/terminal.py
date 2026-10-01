@@ -173,38 +173,6 @@ def fade(text, amount):
     return out + text[at:] + "\033[0m"
 
 
-def tmux_state(option, colour=False):
-    """A dynamic label for a plain-word tmux option; tmux adapts RGB to its client."""
-    result = f"#{{{option}}}"
-    for word in reversed(STATES):
-        _, _, rgb, _, emphasis = STATE_STYLES[word]
-        label = state_label(word)
-        if colour and "NO_COLOR" not in os.environ and os.environ.get("TERM") != "dumb":
-            attrs = ",bold" if emphasis == "1" else ",dim" if emphasis == "2" else ""
-            # Commas inside a conditional's result must be escaped as tmux format literals.
-            label = f"#[fg=#{rgb}{attrs}]{label}#[default]".replace(",", "#,")
-        matches = f"#{{==:#{{{option}}},{word}}}"
-        result = f"#{{?{matches},{label},{result}}}"
-    return result
-
-
-def tmux_runs(option):
-    """A dynamic tally label for a plain-words tmux option, read when the bar is drawn.
-
-    A tally is unbounded -- `2 running · 1 needs you` for every count -- so no table
-    maps it the way `tmux_state` maps one word; instead the whole tally takes the
-    attention colour while it carries a figure that needs the owner, exactly the figure
-    the menu draws in it, and stays plain otherwise.
-    """
-    plain = f"#{{{option}}}"
-    rgb = STATE_STYLES["needs you"][2]
-    if "NO_COLOR" in os.environ or os.environ.get("TERM") == "dumb":
-        return plain
-    # Commas inside a conditional's result must be escaped as tmux format literals.
-    coloured = f"#[fg=#{rgb},bold]{plain}#[default]".replace(",", "#,")
-    return f"#{{?#{{m:*needs you*,{plain}}},{coloured},{plain}}}"
-
-
 def width():
     return max(1, shutil.get_terminal_size((100, 24)).columns - 2 * _PAD)
 

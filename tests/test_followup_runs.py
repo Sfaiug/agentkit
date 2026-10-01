@@ -318,7 +318,6 @@ class FollowupRuns(unittest.TestCase):
             self.assertFalse(run.needs_recovery({**ended, "recovery_pending": True}))
             self.assertEqual(jobs.job_classify(ended, self.cfg), "passed")
             self.assertFalse(run.review_pass(ended, self.cfg))
-            self.assertIn("DONE", run.summary_line(ended, self.cfg))
             self.assertIsNone(ended["pr"])
             self.assertIn("not needed: ", (child / "result.md").read_text())
             self.assertIn("finished DONE: not needed:", self.endings[-1])
@@ -515,18 +514,6 @@ class FollowupRuns(unittest.TestCase):
             children = self.start(directory, state)
         self.assertEqual(children, [])
         self.assertTrue(any("could not start" in line for line in self.logs))
-
-    def test_menu_shows_not_needed_as_done(self):
-        state = {"state": "not_needed", "not_needed": "already fixed", "started_at": 1,
-                 "finished_at": 2, "round_summaries": [], "executor": "e", "reviewer": "r",
-                 "run_id": "quiet"}
-        _, _, word, _ = menu.run_progress(state)
-        self.assertEqual(word, "done")
-        row = menu.run_row(1, Path("quiet"), state)
-        text = " ".join(str(cell) for cell in row)
-        self.assertNotIn("not_needed", text)
-        self.assertIn("not needed", text)
-        self.assertEqual(menu.runs_word(state), "done")
 
 
 if __name__ == "__main__":

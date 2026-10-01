@@ -334,10 +334,6 @@ class Seats(Fixture):
         self.assertEqual(orch.state_word(rows["codex-unbound"], self.cfg), "needs you")
         # the guessed id is dropped from the record rather than offered back
         self.assertFalse(config.session_records()["echo-guessed"].get("conversation"))
-        # and the menu's numbering agrees with the rows the notifications name
-        self.assertEqual(notify.session_number("codex-unbound"), 1)
-        self.assertEqual(notify.session_number("echo-owned"), 2)
-        self.assertIsNone(notify.session_number("claude-fresh"))
 
     def test_v5al_orch_dry_run_plans_a_seat_on_the_fifth_harness(self):
         out = io.StringIO()

@@ -392,8 +392,6 @@ class OneProvider(unittest.TestCase):
             # No task file: the fallback writer must use the same config as the full report.
             run.record_result(lp.run_dir, state, cfg=self.cfg)
             self.assertTrue((lp.run_dir / "result.md").read_text().startswith("# PASS, delivered"))
-            self.assertEqual(run.verdict_word(state, self.cfg), "PASS")
-            self.assertIn("PASS", run.summary_line(state, self.cfg))
             self.assertEqual(run.status_word(state, self.cfg), "delivered")
             self.assertEqual(jobs.job_classify(state, self.cfg), "passed")
             with patch.object(run, "announce") as announce:

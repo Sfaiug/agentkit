@@ -310,17 +310,10 @@ class UsageLeft(Sandbox):
         self.assertEqual(" ".join(out.getvalue().split()), message)
         self.assertTrue(all(terminal.cells(line) <= 40 for line in out.getvalue().splitlines()))
 
-    def test_records_retain_rounds_recovery_and_hide_smoke_runs(self):
+    def test_records_hide_smoke_runs_and_status_lists_runs(self):
         self.fixtures()
         listing = list(menu.run_records())
         self.assertFalse(any("smoke" in directory.name for directory, _ in listing))
-        for directory, record in listing:
-            if directory.name == "active":
-                row = menu.run_row(1, directory, record)
-                self.assertEqual((row[3], row[5]), ("working", "15m"))
-                self.assertIn("2/3", row[4])
-            elif directory.name == "interrupted":
-                self.assertEqual(menu.run_progress(record)[2:], ("interrupted", "1m"))
         self.assertFalse(hasattr(menu, "runs"))
         # `ak run status` is where runs are listed now.
         with redirect_stdout(io.StringIO()) as out:

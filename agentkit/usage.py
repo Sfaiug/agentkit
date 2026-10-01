@@ -1261,17 +1261,6 @@ def provider_headroom(prov, cfg, provider=None):
     return _headroom(_weekly(prov), _number(prov.get("resets")) or 0.0)
 
 
-def model_headroom(cfg, name, providers):
-    """This worker's headroom, or None when nothing is reported.
-
-    Count the model's own real weekly meters. Resets belong to the provider.
-    """
-    meters, _ = _gating_meters(cfg, name, providers)
-    provider = config.model(cfg, name)["provider"]
-    resets = _number(providers.get(provider, {}).get("resets")) or 0.0
-    return _headroom(_worst([m for m in meters if m.get("window_secs") != SESSION_SECS]), resets)
-
-
 def _stale(prov, now):
     """Whether a reading no probe has been able to refresh has stopped answering for anything.
 

@@ -211,12 +211,12 @@ class V5oMenu(Sandbox):
                 "orchestrator": "fable", "worker": "fable",
                 "sentence": "word " * 120, "bar": None, "running": 0,
                 "word": "needs you"}
-        lines = menu.v5o_format_seats([info], 100)
+        lines = menu.v5o_seat_blocks([info], 100)[0]
         self.assertEqual(len(lines), 2)
         self.assertTrue(lines[1].strip().endswith("…"))
         # Wrapping never splits a word: the break is at a space.
         self.assertNotRegex(lines[0], r"\S…$")
-        narrow = menu.v5o_format_seats([info], 40)
+        narrow = menu.v5o_seat_blocks([info], 40)[0]
         self.assertGreaterEqual(len(narrow), 2)
         self.assertTrue(any("…" in line for line in narrow))
 
@@ -320,13 +320,9 @@ class V5oMenu(Sandbox):
         # Not in the reason either: the solo seat is still working, not needing him.
         solo = next(line for line in screen.splitlines() if "atoll-solo" in line)
         self.assertIn("● working", solo)
-        # The table still says superseded by for whoever reads runs by id.
         found = list(menu.run_records())
         by_name = {d.name: s for d, s in found}
         self.assertIn("old-first-pass", by_name)
-        blocks = menu.run_blocks(found, 100, 20)
-        flat = "\n".join(line for block in blocks for line in block)
-        self.assertIn("superseded by new-merged-pass", flat)
 
     def test_v5o_i_snapshots_match_byte_for_byte(self):
         for width, height in ((40, 30), (100, 30), (170, 30)):
@@ -483,10 +479,6 @@ class V5oMenu(Sandbox):
         screen, _ = self.draw(100, 30)
         for rendered in ("! needs you", "● working"):
             self.assertIn(rendered, screen)
-        # `ak run status` reads the same table, and a run parked on a window is working.
-        parked = next(state for d, state in menu.run_records()
-                      if d.name == "solo-parked")
-        self.assertEqual(menu.runs_word(parked), "working")
         ghost = {"name": "ghost-seat", "repo": self.seats[0]["repo"],
                  "path": self.seats[0]["path"], "live": "at_prompt", "since": NOW - 60,
                  "created": NOW - 5 * DAY, "resumable": True}

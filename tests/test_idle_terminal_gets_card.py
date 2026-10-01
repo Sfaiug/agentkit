@@ -24,7 +24,6 @@ class IdleTerminalGetsCard(Sandbox):
         self.posts, self.edits = [], []
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.stack.enter_context(patch.object(notify, "terminal_notice"))
-        self.stack.enter_context(patch.object(notify, "session_number", return_value=1))
         self.stack.enter_context(patch.object(notify, "post", side_effect=self.post))
         self.stack.enter_context(patch.object(notify, "close_needs", side_effect=self.close))
 
