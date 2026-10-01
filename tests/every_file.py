@@ -24,8 +24,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import run
 
-FILE_CPUS = 1.0     # one test file's measured cost: one Python process busy on one core,
-FILE_MEM_MB = 230   # and the largest file's peak memory with what it starts, 229 MB
+FILE_CPUS = 1.0     # one test file's cost: one Python process, one core busy at most,
+FILE_MEM_MB = 230   # and the largest file's measured peak with what it starts, 229 MB
 TAIL = 30           # a failing file's last lines: unittest ends on the traceback and tally
 
 
