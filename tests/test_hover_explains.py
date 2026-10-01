@@ -112,6 +112,16 @@ class UsagePace(unittest.TestCase):
                 self.assertIn(f"{100 - used}% left", sentence)
                 self.assertAlmostEqual(pace, 0.6)
 
+    def test_a_spent_meter_has_no_pace_words(self):
+        now, week = 1_800_000_000, 7 * 86400
+        prov = {"meters": [{"name": "weekly", "used": 100, "window_secs": week,
+                            "resets_at": now + 0.6 * week}]}
+        with patch.object(menu, "usage_rows", return_value=[("acme", "Acme II", prov)]):
+            sentence, pace = menu.usage_tip({"models": {}}, 1, now)
+        self.assertIn("0% left", sentence)
+        self.assertTrue(sentence.endswith(" (in 4 d 4 h)"), sentence)
+        self.assertAlmostEqual(pace, 0.6)
+
 
 class Wrapping(unittest.TestCase):
     def test_key_line_contains_only_keys_and_key_height_reserves_the_explanations(self):
