@@ -63,7 +63,7 @@ def scripted(body):
         return body
     if body.startswith("#!/bin/") or body.startswith("#!/usr/bin/env bash"):
         first, _, rest = body.partition("\n")
-        return first + "\ntrap " + shlex.quote(f"{shlex.quote(sys.executable)} {shlex.quote(__file__)} \"$6\"") + " EXIT\n" + rest
+        return first + "\ntrap " + shlex.quote(f'if [ "${{1:-}}" = run ]; then {shlex.quote(sys.executable)} {shlex.quote(__file__)} "${{6:-}}"; fi') + " EXIT\n" + rest
     return ("import atexit, pathlib, runpy, sys\n"
             f"atexit.register(lambda: runpy.run_path({__file__!r})['write'](pathlib.Path(sys.argv[6])) "
             "if len(sys.argv) > 6 and sys.argv[1] == 'run' else None)\n" + body)
