@@ -201,7 +201,7 @@ class RunTree(unittest.TestCase):
                 "executor", None, lambda _: None)
         self.assertEqual(code, 0)
         self.assertFalse(dead)
-        self.assertEqual(calls[0], self.run_id)
+        self.assertTrue(calls[0].startswith(f"{self.run_id}/turn-"))
         for pid in calls[1]:
             self.assertTrue(wait_gone(pid), f"{pid} outlived the retry")
         self.assertEqual(worker.marked_pids(self.run_id), [])
@@ -241,7 +241,7 @@ class RunTree(unittest.TestCase):
         with patch.object(worker, "call", side_effect=attempt):
             run.call_retrying(cfg, "w", "do the thing", self.root, self.root / "out",
                               "executor", None, lambda _: None)
-        self.assertEqual(seen.get("worker"), self.run_id)
+        self.assertTrue(seen["worker"].startswith(f"{self.run_id}/turn-"))
 
         def gate(cmd, limit, **kwargs):
             seen["gate"] = (kwargs.get("env") or {}).get("AGENTKIT_RUN")
@@ -409,12 +409,12 @@ class RunTree(unittest.TestCase):
         for pid in found:
             self.assertTrue(wait_gone(pid))
 
-    def _leave_marked_sleep(self, left):
+    def _leave_marked_sleep(self, left, marker=None):
         kid = subprocess.Popen(
             ["setsid", "sleep", "100"], start_new_session=True,
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            env={**os.environ, "AGENTKIT_RUN": self.run_id})
+            env={**os.environ, "AGENTKIT_RUN": marker or self.run_id})
         self.addCleanup(self._reap, kid)
         time.sleep(0.5)
         found = worker.marked_pids(self.run_id)
@@ -425,8 +425,6 @@ class RunTree(unittest.TestCase):
         case = self.root / ("foreground" if foreground else "plain")
         round_dir = case / "round-1"
         round_dir.mkdir(parents=True)
-        if foreground:
-            (round_dir / "reviewer-foreground").mkdir()
         wt = case / "wt"
         wt.mkdir()
         cfg = {"models": {
@@ -443,29 +441,25 @@ class RunTree(unittest.TestCase):
             role=lambda name: name, dir=lambda name: round_dir / name)
         left, calls = [], []
 
-        def attempt(cfg_, name, body, workspace, out_dir, role, session, log, limit=None, **kwargs):
+        def attempt(cfg_, name, body, workspace, out_dir, role="executor", session=None,
+                    env=None, **_kw):
             calls.append(name)
-            if len(calls) == 1:
-                self._leave_marked_sleep(left)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            if name == "rev":
+                self.assertTrue(env["AGENTKIT_RUN"].startswith(f"{self.run_id}/turn-"))
+                if foreground or len(calls) == 2:
+                    self._leave_marked_sleep(left, env["AGENTKIT_RUN"])
+                if len(calls) == 2:
+                    self.assertIn(run.FINISH_IN_FOREGROUND if foreground else run.NO_VERDICT_ASK,
+                                  body)
                 return 0, "rambling at length but never judging anything", None, False
             return 0, "## Findings\nnone\n\nVERDICT: PASS", None, False
 
-        def second_ask(cfg_, name, text, workspace, out_dir, role="executor", session=None,
-                       env=None, limit=None):
-            self.assertEqual((env or {}).get("AGENTKIT_RUN"), self.run_id)
-            self._leave_marked_sleep(left)
-            return 0, "still rambling, still no verdict", None, False
-
-        if foreground:
-            direct = AssertionError("the extra ask was already spent")
-        else:
-            direct = second_ask
-        with patch.object(run, "call_retrying", side_effect=attempt), \
-                patch.object(worker, "call", side_effect=direct), \
+        with patch.object(worker, "call", side_effect=attempt), \
                 patch.object(run, "collect_usage", return_value={}), \
                 patch.object(run.usage, "pick_order", return_value=["spare"]):
             self.assertEqual(run.review(lp, "did stuff", True, "$ true\n[exit 0]"), "PASS")
-        self.assertEqual(calls, ["rev", "spare"])
+        self.assertEqual(calls, ["rev", "rev", "spare"])
         for pid in left:
             self.assertTrue(wait_gone(pid), f"{pid} outlived the reviewer fallback")
         self.assertEqual(worker.marked_pids(self.run_id), [])

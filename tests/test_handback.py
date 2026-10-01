@@ -21,7 +21,7 @@ from unittest.mock import patch
 from urllib.parse import unquote_to_bytes
 
 from test_v4n import REPO, Sandbox
-from agentkit import browser, config, menu, notify, orch, run, terminal, watch
+from agentkit import browser, config, job as jobs, menu, notify, orch, run, terminal, watch
 
 SEAT = "seat"
 TYPE_CHECKED = watch.type_checked   # the real confirmed send, for the tests that drive it
@@ -250,7 +250,7 @@ class HandBack(Sandbox):
         job_dir = config.JOBS / "job-once"
         job_dir.mkdir(parents=True)
         line = "job job-once: 1 task(s) need you. Result: x. Decide the next step."
-        run.save_job(job_dir, {"job_id": "job-once", "seat": SEAT, "tasks": [],
+        jobs.save_job(job_dir, {"job_id": "job-once", "seat": SEAT, "tasks": [],
                                "finished_at": 9990, "handback_pending": line,
                                "handback_card": "job job-once: 1 task(s) need you"})
         self.rows = [self.live()]
@@ -258,7 +258,7 @@ class HandBack(Sandbox):
         self.tick()
         self.tick()
         self.assertEqual(seat.read, [line])
-        self.assertNotIn("handback_pending", run.read_job(job_dir))
+        self.assertNotIn("handback_pending", jobs.read_job(job_dir))
         self.assertEqual(self.cards, [])
 
     def test_a_line_left_in_its_composer_gets_its_enter_and_never_a_second_copy(self):
@@ -303,7 +303,7 @@ class HandBack(Sandbox):
         job_dir = config.JOBS / "job-enter"
         job_dir.mkdir(parents=True)
         line = "job job-enter: 1 task(s) need you. Result: x. Decide the next step."
-        run.save_job(job_dir, {"job_id": "job-enter", "seat": SEAT, "tasks": [],
+        jobs.save_job(job_dir, {"job_id": "job-enter", "seat": SEAT, "tasks": [],
                                "finished_at": 9990, "handback_pending": line,
                                "handback_card": "job job-enter: 1 task(s) need you"})
         self.rows = [self.live()]
@@ -311,12 +311,12 @@ class HandBack(Sandbox):
         seat.fails = True           # the text goes in and its Enter does not
         self.tick()
         self.assertEqual((seat.read, seat.composer), ([], line))
-        self.assertEqual(run.read_job(job_dir)["handback_pending"], line)
+        self.assertEqual(jobs.read_job(job_dir)["handback_pending"], line)
         seat.enter()                # the owner sends it before the next pass
         self.tick()
         self.tick()
         self.assertEqual((seat.read, seat.typed), ([line], 1))
-        self.assertNotIn("handback_pending", run.read_job(job_dir))
+        self.assertNotIn("handback_pending", jobs.read_job(job_dir))
         self.assertEqual(self.cards, [])
 
     def test_a_fail_at_the_last_round_hands_back_and_sends_no_card(self):
@@ -535,14 +535,14 @@ class HandBack(Sandbox):
     def test_a_task_inside_a_job_still_hands_its_own_ending_back(self):
         directory = self.failed("run-22")
         self.rows = [self.live()]
-        with run.job_muted():
+        with jobs.job_muted():
             run.announce(run.read_state(directory), directory, self.logs.append)
         self.assertEqual(len(self.typed), 1)
         self.assertEqual(self.cards, [])
         # its orphan, though, is the job's card and never a per-task one
         gone = self.failed("run-23")
         self.rows = []
-        with run.job_muted():
+        with jobs.job_muted():
             run.announce(run.read_state(gone), gone, self.logs.append)
         self.assertEqual((len(self.typed), self.cards), (1, []))
 
@@ -599,7 +599,7 @@ class HandBack(Sandbox):
     def test_a_job_task_under_a_gone_seat_stays_the_jobs_to_report(self):
         directory = self.failed("run-29")
         self.rows = []
-        with run.job_muted():
+        with jobs.job_muted():
             run.announce(run.read_state(directory), directory, self.logs.append)
         self.assertEqual((self.typed, self.cards, self.reopened), ([], [], []))
         # the tick runs in another process with no mute of its own: the record has to say
@@ -612,25 +612,25 @@ class HandBack(Sandbox):
         job_dir = config.JOBS / "job-2"
         job_dir.mkdir(parents=True)
         line = "job job-2: 1 task(s) need you. Result: x. Decide the next step."
-        run.save_job(job_dir, {"job_id": "job-2", "seat": SEAT, "tasks": [{"name": "a",
+        jobs.save_job(job_dir, {"job_id": "job-2", "seat": SEAT, "tasks": [{"name": "a",
                                "state": "failed"}], "finished_at": 9990,
                                "handback_pending": line, "handback_card": "job job-2: needs you"})
         self.rows = [self.live()]
         # two overlapping passes, each with its own copy of the record
-        first, second = run.read_job(job_dir), run.read_job(job_dir)
-        self.assertEqual(run.job_hand_back(SEAT, first["handback_pending"],
+        first, second = jobs.read_job(job_dir), jobs.read_job(job_dir)
+        self.assertEqual(jobs.job_hand_back(SEAT, first["handback_pending"],
                                            self.logs.append), "sent")
-        run.mark_job_delivery(job_dir, first, handback_pending=None, handback_card=None,
+        jobs.mark_job_delivery(job_dir, first, handback_pending=None, handback_card=None,
                               card_sent={"kind": "handback", "at": 9990})
-        run.deliver_job_handbacks(self.logs.append)
+        jobs.deliver_job_handbacks(self.logs.append)
         self.assertEqual(len(self.typed), 1)
         self.assertEqual(self.cards, [])
-        saved = run.read_job(job_dir)
+        saved = jobs.read_job(job_dir)
         self.assertNotIn("handback_pending", saved)
         self.assertEqual(saved["card_sent"]["kind"], "handback")
         # and the stale copy cannot put the job's tasks back as they were
-        run.mark_job_delivery(job_dir, second, card_pending=True)
-        self.assertEqual(run.read_job(job_dir)["card_sent"]["kind"], "handback")
+        jobs.mark_job_delivery(job_dir, second, card_pending=True)
+        self.assertEqual(jobs.read_job(job_dir)["card_sent"]["kind"], "handback")
 
     def test_a_stale_snapshot_cannot_mark_the_attempt_that_replaced_it(self):
         # what a tick or a draw is holding when a resume starts under it: the ending it is
@@ -669,12 +669,12 @@ class HandBack(Sandbox):
         job_dir = config.JOBS / "job-3"
         job_dir.mkdir(parents=True)
         line = "job job-3: 1 task(s) need you. Result: x. Decide the next step."
-        run.save_job(job_dir, {"job_id": "job-3", "seat": SEAT, "tasks": [], "pid": 11,
+        jobs.save_job(job_dir, {"job_id": "job-3", "seat": SEAT, "tasks": [], "pid": 11,
                                "finished_at": 9990, "handback_pending": line})
-        stale = run.read_job(job_dir)
-        run.save_job(job_dir, {**run.read_job(job_dir), "pid": 22, "finished_at": 9995})
-        self.assertFalse(run.mark_job_delivery(job_dir, stale, handback_pending=None))
-        self.assertEqual(run.read_job(job_dir)["handback_pending"], line)
+        stale = jobs.read_job(job_dir)
+        jobs.save_job(job_dir, {**jobs.read_job(job_dir), "pid": 22, "finished_at": 9995})
+        self.assertFalse(jobs.mark_job_delivery(job_dir, stale, handback_pending=None))
+        self.assertEqual(jobs.read_job(job_dir)["handback_pending"], line)
 
     def test_the_inbox_question_going_out_cannot_undo_a_hand_back(self):
         # the tick defers the line because the seat is mid-turn, then posts the run's merge
@@ -789,12 +789,12 @@ class HandBack(Sandbox):
                                    if k != "handback_pending"})
         job_dir = config.JOBS / "job-gc"
         job_dir.mkdir(parents=True)
-        run.save_job(job_dir, {"job_id": "job-gc", "seat": SEAT, "finished_at": 1,
+        jobs.save_job(job_dir, {"job_id": "job-gc", "seat": SEAT, "finished_at": 1,
                                "tasks": [{"name": "a", "state": "failed"}],
                                "handback_pending": "job job-gc: 1 task(s) need you"})
         self.assertEqual([item for item in run.gc_plan(now=9_000_000)
                           if item.get("job") == str(job_dir)], [])
-        run.save_job(job_dir, {k: v for k, v in run.read_job(job_dir).items()
+        jobs.save_job(job_dir, {k: v for k, v in jobs.read_job(job_dir).items()
                                if k != "handback_pending"})
         self.assertTrue([item for item in run.gc_plan(now=9_000_000)
                          if item.get("job") == str(job_dir)])
@@ -810,26 +810,26 @@ class HandBack(Sandbox):
         job = {"job_id": "j", "seat": SEAT, "tasks": [task]}
         job_dir = config.JOBS / "j"
         job_dir.mkdir(parents=True)
-        run.save_job(job_dir, job)
+        jobs.save_job(job_dir, job)
         import threading
         with patch.object(run, "cmd_merge", return_value=1), \
                 patch.object(run, "read_state", return_value=state):
-            run.job_ladder(self.cfg, job_dir, job, task,
+            jobs.job_ladder(self.cfg, job_dir, job, task,
                            directory, {**state, "state": "pass", "merge_failed": True},
                            1, self.logs.append, threading.Lock())
         self.assertEqual(task["state"], "blocked")
         self.assertEqual(task["verdict_line"], f"a.md: BLOCKED: {run.BLOCKED_SAME}")
-        self.assertIn("blocked", run.JOB_UNDELIVERED)
+        self.assertIn("blocked", jobs.JOB_UNDELIVERED)
 
     def test_a_blocked_task_is_a_terminal_job_state_of_its_own(self):
-        self.assertIn("blocked", run.JOB_TERMINAL)
-        self.assertIn("blocked", run.JOB_UNDELIVERED)
-        self.assertEqual(run.job_classify({"state": "blocked"}, self.cfg), "blocked")
+        self.assertIn("blocked", jobs.JOB_TERMINAL)
+        self.assertIn("blocked", jobs.JOB_UNDELIVERED)
+        self.assertEqual(jobs.job_classify({"state": "blocked"}, self.cfg), "blocked")
         task = {"name": "a.md", "state": "blocked"}
-        self.assertEqual(run.job_verdict_line(task, {"error": run.BLOCKED_SAME}),
+        self.assertEqual(jobs.job_verdict_line(task, {"error": run.BLOCKED_SAME}),
                          f"a.md: BLOCKED: {run.BLOCKED_SAME}")
         job = {"job_id": "j", "tasks": [task, {"name": "b.md", "state": "merged"}]}
-        self.assertEqual(run.job_block_line(job), "job j: 1 merged, 1 blocked")
+        self.assertEqual(jobs.job_block_line(job), "job j: 1 merged, 1 blocked")
 
     def test_a_job_task_its_reviews_failed_at_the_budget_goes_back_with_no_more_rounds(self):
         # three rounds is the budget inside a job too: the task's run hands its findings to
@@ -840,7 +840,7 @@ class HandBack(Sandbox):
         state = run.read_state(directory)
         self.assertTrue(run.failed_at_budget(state))
         self.rows = [self.live()]
-        with run.job_muted():
+        with jobs.job_muted():
             run.announce(state, directory, self.logs.append)
         self.assertEqual(len(self.typed), 1)
         self.assertIn("finished FAIL: after 3 rounds, open findings: - a.py:1 - one - why",
@@ -850,19 +850,19 @@ class HandBack(Sandbox):
         job = {"job_id": "j", "seat": SEAT, "tasks": [task], "opts": {}}
         job_dir = config.JOBS / "j"
         job_dir.mkdir(parents=True)
-        run.save_job(job_dir, job)
+        jobs.save_job(job_dir, job)
         import threading
         with patch.object(run, "cmd_resume", side_effect=AssertionError("given more rounds")), \
-                patch.object(run, "job_start_task", side_effect=AssertionError("rerun")):
-            run.job_ladder(self.cfg, job_dir, job, task, directory, state, 1,
+                patch.object(jobs, "job_start_task", side_effect=AssertionError("rerun")):
+            jobs.job_ladder(self.cfg, job_dir, job, task, directory, state, 1,
                            self.logs.append, threading.Lock())
         self.assertEqual(task["state"], "failed")
         self.assertEqual(task["verdict_line"], "a.md: FAIL after 3 rounds: needs you")
         self.assertIn("- a.py:1 - one - why", task["findings"])
-        self.assertEqual(run.read_job(job_dir)["tasks"][0]["state"], "failed")
+        self.assertEqual(jobs.read_job(job_dir)["tasks"][0]["state"], "failed")
         # ... and the job's own ending gives the seat those findings, never the owner
         with patch.object(orch, "stop_scope"):
-            self.assertEqual(run.run_job_loop(self.cfg, job_dir, run.read_job(job_dir)), 1)
+            self.assertEqual(jobs.run_job_loop(self.cfg, job_dir, jobs.read_job(job_dir)), 1)
         self.assertEqual(len(self.typed), 2)
         self.assertIn("- a.py:1 - one - why", self.typed[1][1])
         self.assertTrue(self.typed[1][1].endswith("Decide the next step."))
@@ -874,9 +874,9 @@ class HandBack(Sandbox):
                              findings="VERDICT: PASS\n\n## Findings\n- none\n")
         task = {"name": "b.md", "state": "running", "run_id": checked.name}
         with patch.object(run, "cmd_resume", side_effect=AssertionError("given more rounds")), \
-                patch.object(run, "job_start_task",
+                patch.object(jobs, "job_start_task",
                              side_effect=config.Error("fixture stop")) as start:
-            run.job_ladder(self.cfg, job_dir, {**job, "tasks": [task]}, task, checked,
+            jobs.job_ladder(self.cfg, job_dir, {**job, "tasks": [task]}, task, checked,
                            run.read_state(checked), 1, self.logs.append, threading.Lock())
         start.assert_called_once()
         self.assertTrue(task["rerun_attempted"])
@@ -1044,13 +1044,13 @@ class HandBack(Sandbox):
     def test_a_failed_job_goes_back_to_its_seat_instead_of_asking_the_owner(self):
         line = "job j1: 1 task(s) need you"
         self.rows = [self.live()]
-        self.assertEqual(run.job_hand_back(SEAT, line, self.logs.append), "sent")
+        self.assertEqual(jobs.job_hand_back(SEAT, line, self.logs.append), "sent")
         self.assertEqual(self.typed, [(SEAT, line)])
         # a seat mid-turn is never a reason to ask the owner: the line waits for the tick
         self.screen = "working"
-        self.assertEqual(run.job_hand_back(SEAT, line, self.logs.append), "busy")
+        self.assertEqual(jobs.job_hand_back(SEAT, line, self.logs.append), "busy")
         self.rows = []
-        self.assertEqual(run.job_hand_back(SEAT, line, self.logs.append), "gone")
+        self.assertEqual(jobs.job_hand_back(SEAT, line, self.logs.append), "gone")
         self.assertEqual(len(self.typed), 1)
 
     def test_a_job_whose_seat_was_busy_is_handed_back_by_the_tick(self):
@@ -1060,26 +1060,26 @@ class HandBack(Sandbox):
         card = "job job-1: 1 task(s) need you"
         pending = {"job_id": "job-1", "seat": SEAT, "tasks": [], "finished_at": 9990,
                    "handback_pending": line, "handback_card": card}
-        run.save_job(job_dir, dict(pending))
+        jobs.save_job(job_dir, dict(pending))
         self.rows = [self.live()]
         self.screen = "working"
         self.tick()
         self.assertEqual((self.typed, self.cards), ([], []))
-        self.assertEqual(run.read_job(job_dir)["handback_pending"], line)
+        self.assertEqual(jobs.read_job(job_dir)["handback_pending"], line)
         self.screen = "at_prompt"
         self.tick()
         self.assertEqual(self.typed, [(SEAT, line)])
-        self.assertNotIn("handback_pending", run.read_job(job_dir))
+        self.assertNotIn("handback_pending", jobs.read_job(job_dir))
         self.tick()
         self.assertEqual(len(self.typed), 1)
         self.assertEqual(self.cards, [])
         # gone by the time the tick gets there: the owner's card is the job's short one and
         # never the typed line, because a path has no place on a card or in the row reading it
-        run.save_job(job_dir, dict(pending))
+        jobs.save_job(job_dir, dict(pending))
         self.rows = []
         self.tick()
         self.assertEqual([text for _, text, _ in self.cards], [card])
-        self.assertNotIn("handback_card", run.read_job(job_dir))
+        self.assertNotIn("handback_card", jobs.read_job(job_dir))
 
     def test_a_blocked_merge_fixer_ends_the_delivery_retry_blocked(self):
         directory = self.ended("run-16", owner=SEAT, merge_failed=True, no_merge=False,

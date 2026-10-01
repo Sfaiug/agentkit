@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, worker
+from agentkit import config, job as jobs, run, worker
 
 OLD = "aaa1111"
 NEW = "bbb2222"
@@ -238,7 +238,7 @@ class PickupNewCode(unittest.TestCase):
         thread.join(20)
         self.assertFalse(thread.is_alive())
         self.assertFalse(box["moved"])
-        with run.job_muted():
+        with jobs.job_muted():
             self.assertFalse(run.pickup_new_code(lp, execv=fake_exec, current=NEW))
         lp.no_pickup = True
         try:

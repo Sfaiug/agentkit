@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, notify, orch, run, terminal, watch
+from agentkit import config, job as jobs, menu, notify, orch, run, terminal, watch
 
 
 class InterruptedRuns(unittest.TestCase):
@@ -430,7 +430,7 @@ if role == "reviewer" and (root / "fail-review").exists():
                "tasks": tasks or [{"name": "a.md", "title": "A", "after": [], "state": "queued",
                                    "run_id": None}],
                **fields}
-        run.save_job(job_dir, job)
+        jobs.save_job(job_dir, job)
         return job_dir
 
     def placements(self):
@@ -483,7 +483,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         self.assertEqual(said, [f"relaunched job {job_dir.name}: launcher gone; session owner "
                                 "exists; alive under 24h ago; no task stopped"])
         self.assertIn(said[0], (job_dir / "log.txt").read_text())
-        job = run.read_job(job_dir)
+        job = jobs.read_job(job_dir)
         self.assertEqual(job["pid"], os.getpid())
         self.assertEqual(len(job["relaunches"]), 1)
         # the child it started, run here: it adopts a's result and starts b behind it, in the
@@ -494,13 +494,13 @@ if role == "reviewer" and (root / "fail-review").exists():
                 patch.object(run, "task_repo", side_effect=lambda meta, path: (
                     looked.append(Path.cwd()) or task_repo(meta, path))), \
                 patch.dict(os.environ, {"AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}), \
-                patch.object(run, "JOB_TICK", 0.05), \
-                patch.object(run, "JOB_PICKER_INTERVAL", 0), \
+                patch.object(jobs, "JOB_TICK", 0.05), \
+                patch.object(jobs, "JOB_PICKER_INTERVAL", 0), \
                 redirect_stdout(io.StringIO()):
             for key in ("AGENTKIT_RUN", "AK_PARENT_RUN"):
                 os.environ.pop(key, None)
             self.assertEqual(run.cmd_resume([job_dir.name]), 0)
-        job = run.read_job(job_dir)
+        job = jobs.read_job(job_dir)
         by_name = {task["name"]: task for task in job["tasks"]}
         self.assertEqual(by_name["a.md"]["state"], "passed")
         self.assertEqual(by_name["a.md"]["run_id"], finished.name)
@@ -571,7 +571,7 @@ if role == "reviewer" and (root / "fail-review").exists():
             watch.resume_dead_jobs(log=said.append)
         self.assertEqual([start["argv"][-1] for start in started], [ended.name, lived.name])
         for job_dir in refused:
-            self.assertEqual(run.read_job(job_dir)["pid"], 99999999, job_dir.name)
+            self.assertEqual(jobs.read_job(job_dir)["pid"], 99999999, job_dir.name)
             out = io.StringIO()
             with redirect_stdout(out):
                 run.cmd_status([job_dir.name])
@@ -590,10 +590,10 @@ if role == "reviewer" and (root / "fail-review").exists():
         class Stop(Exception):
             pass
 
-        with patch.object(run, "save_job"), \
+        with patch.object(jobs, "save_job"), \
                 patch.object(run.time, "sleep", side_effect=Stop), \
                 redirect_stdout(io.StringIO()), self.assertRaises(Stop):
-            run.run_job_loop(self.cfg, job_dir, run.read_job(job_dir), to_file=False)
+            jobs.run_job_loop(self.cfg, job_dir, jobs.read_job(job_dir), to_file=False)
         # fresh, not two days old: the file clock may trail `time.time()` by a tick
         self.assertGreater((job_dir / "job.json").stat().st_mtime, self.now - 60)
 

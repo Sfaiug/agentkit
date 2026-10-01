@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, notify, orch, retention, run, worker
+from agentkit import config, history, job as jobs, notify, orch, retention, run, worker
 
 ADAPTER = '''import json, os, pathlib, sys, time
 root = pathlib.Path(os.environ["V5Q_FIXTURE"])
@@ -94,8 +94,8 @@ sys.exit(1)
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.shaped = self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
         self.stack.enter_context(patch.object(orch, "watching", return_value=True))
-        self.stack.enter_context(patch.object(run, "JOB_TICK", 0.05))
-        self.stack.enter_context(patch.object(run, "JOB_PICKER_INTERVAL", 0))
+        self.stack.enter_context(patch.object(jobs, "JOB_TICK", 0.05))
+        self.stack.enter_context(patch.object(jobs, "JOB_PICKER_INTERVAL", 0))
         self.stack.enter_context(patch.object(run, "SLOT_POLL", .01))
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -365,7 +365,7 @@ sys.exit(1)
         a = self.task("a.md", "Alpha task")
         b = self.task("b.md", "Beta task")
         with redirect_stdout(io.StringIO()):
-            job_dir, job = run.job_create(self.cfg, [a, b],
+            job_dir, job = jobs.job_create(self.cfg, [a, b],
                                           {"--rounds": None, "--exec": self.executor,
                                            "--review": self.reviewer, "--no-merge": False,
                                            "--no-worktree": False}, None)
@@ -378,7 +378,7 @@ sys.exit(1)
         self.assertEqual([t["state"] for t in saved["tasks"]], ["queued", "queued"])
         self.assertEqual(run.run_dirs(), [])
         with redirect_stdout(io.StringIO()):
-            rc = run.run_job_loop(self.cfg, job_dir, job, to_file=True)
+            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=True)
         self.assertEqual(rc, 0)
         saved = self.read_job(job_dir)
         self.assertIsNotNone(saved["finished_at"])
@@ -407,12 +407,12 @@ sys.exit(1)
         a = self.task("a.md", "Alpha task")
         b = self.task("b.md", "Beta task")
         with redirect_stdout(io.StringIO()):
-            job_dir, job = run.job_create(self.cfg, [a, b],
+            job_dir, job = jobs.job_create(self.cfg, [a, b],
                                           {"--rounds": None, "--exec": self.executor,
                                            "--review": self.reviewer, "--no-merge": False,
                                            "--no-worktree": False}, None)
         # the kill lands after the launcher allocated a's run but before any work finished
-        run_dir_a = run.job_allocate_run_dir("Alpha task")
+        run_dir_a = jobs.job_allocate_run_dir("Alpha task")
         (run_dir_a / "task.md").write_text(Path(a).read_text())
         run_opts = {"--rounds": None, "--exec": self.executor, "--review": self.reviewer,
                     "--review-pr": None, "--no-merge": False, "--no-worktree": False,
@@ -427,7 +427,7 @@ sys.exit(1)
         # the kill took the launcher: resume refuses a live one, so record the death
         job.update(pid=99999999)
         job.pop("process_identity", None)
-        run.save_job(job_dir, job)
+        jobs.save_job(job_dir, job)
         before = set(run.run_dirs())
         with redirect_stdout(io.StringIO()):
             rc = run.cmd_resume([job_dir.name])
@@ -455,7 +455,7 @@ sys.exit(1)
         finished = run.run_dirs()[0]
         before = set(run.run_dirs())
         with redirect_stdout(io.StringIO()):
-            job_dir, job = run.job_create(self.cfg, [a, b],
+            job_dir, job = jobs.job_create(self.cfg, [a, b],
                                           {"--rounds": None, "--exec": self.executor,
                                            "--review": self.reviewer, "--no-merge": False,
                                            "--no-worktree": False}, None)
@@ -463,7 +463,7 @@ sys.exit(1)
         job["tasks"][0].update(state="running", run_id=finished.name, started_at=time.time())
         job.update(pid=99999999)
         job.pop("process_identity", None)
-        run.save_job(job_dir, job)
+        jobs.save_job(job_dir, job)
         with redirect_stdout(io.StringIO()):
             rc = run.cmd_resume([job_dir.name])
         self.assertEqual(rc, 0)
@@ -488,11 +488,11 @@ sys.exit(1)
     def test_v5q_budget_fail_is_neither_resumed_nor_rerun_and_needs_you(self):
         a = self.task("a.md", "Failing task", rounds=1)
         with redirect_stdout(io.StringIO()):
-            job_dir, job = run.job_create(self.cfg, [a],
+            job_dir, job = jobs.job_create(self.cfg, [a],
                                           {"--rounds": None, "--exec": self.executor,
                                            "--review": self.reviewer, "--no-merge": False,
                                            "--no-worktree": False}, None)
-            rc = run.run_job_loop(self.cfg, job_dir, job, to_file=True)
+            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=True)
         self.assertEqual(rc, 1)
         job = self.read_job(self.job_dirs()[0])
         task = job["tasks"][0]
@@ -550,7 +550,7 @@ sys.exit(1)
     def test_v5q_anyway_starts_beside_a_live_rival(self):
         repo = self.git_repo()
         # a live rival run in the same repo whose title shares four words
-        rival_dir = run.job_allocate_run_dir("Orange orangutan orchestrates operations daily")
+        rival_dir = jobs.job_allocate_run_dir("Orange orangutan orchestrates operations daily")
         (rival_dir / "task.md").write_text(
             f"---\nrepo: {repo}\nbase: main\n---\n"
             "# Orange orangutan orchestrates operations daily\n\n"
@@ -614,10 +614,10 @@ sys.exit(1)
         seen = {}
 
         def muted():
-            with run.job_muted():
+            with jobs.job_muted():
                 entered.set()
                 self.assertTrue(release.wait(timeout=10))
-                seen["depth"] = getattr(run._JOB_MUTE, "depth", 0)
+                seen["depth"] = getattr(jobs._JOB_MUTE, "depth", 0)
 
         thread = threading.Thread(target=muted, daemon=True)
         thread.start()
@@ -626,9 +626,9 @@ sys.exit(1)
             # the other thread is muted; this one is not, and no global moved
             self.assertIs(run.announce, real_announce)
             self.assertIs(run.notify_recovery, real_recovery)
-            self.assertEqual(getattr(run._JOB_MUTE, "depth", 0), 0)
-            with run.job_muted():
-                seen["nested"] = getattr(run._JOB_MUTE, "depth", 0)
+            self.assertEqual(getattr(jobs._JOB_MUTE, "depth", 0), 0)
+            with jobs.job_muted():
+                seen["nested"] = getattr(jobs._JOB_MUTE, "depth", 0)
         finally:
             release.set()
             thread.join(timeout=10)
@@ -641,18 +641,18 @@ sys.exit(1)
     def test_v5q_exhausted_attempt_waits_with_its_run_kept(self):
         a = self.task("a.md", "Alpha task")
         with redirect_stdout(io.StringIO()):
-            job_dir, job = run.job_create(self.cfg, [a],
+            job_dir, job = jobs.job_create(self.cfg, [a],
                                           {"--rounds": None, "--exec": self.executor,
                                            "--review": self.reviewer, "--no-merge": False,
                                            "--no-worktree": False}, None)
         task = job["tasks"][0]
         task.update(state="running", run_id="kept-run", executor=self.executor)
-        log = run.job_logger(job_dir, False)
+        log = jobs.job_logger(job_dir, False)
         lock = threading.Lock()
         # the suite paces the picker at 0; production paces it at JOB_PICKER_INTERVAL
         before = time.time()
         with redirect_stdout(io.StringIO()):
-            run.job_ladder(self.cfg, job_dir, job, task, job_dir,
+            jobs.job_ladder(self.cfg, job_dir, job, task, job_dir,
                            {"state": "exhausted",
                             "error": "every tier B model has a gate meter at 100% used",
                             "executor": self.executor, "reviewer": self.reviewer}, 1, log, lock)
@@ -669,7 +669,7 @@ sys.exit(1)
         a = self.task("a.md", "Alpha task")
         b = self.task("b.md", "Beta task")
         with redirect_stdout(io.StringIO()):
-            job_dir, job = run.job_create(self.cfg, [a, b],
+            job_dir, job = jobs.job_create(self.cfg, [a, b],
                                           {"--rounds": None, "--exec": self.executor,
                                            "--review": self.reviewer, "--no-merge": False,
                                            "--no-worktree": False}, None)
@@ -682,7 +682,7 @@ sys.exit(1)
         job = self.read_job(job_dir)
         job.update(pid=99999999)
         job.pop("process_identity", None)
-        run.save_job(job_dir, job)
+        jobs.save_job(job_dir, job)
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run.cmd_resume([job_dir.name]), 0)
         self.assertEqual({t["state"] for t in self.read_job(job_dir)["tasks"]}, {"passed"})
@@ -690,11 +690,11 @@ sys.exit(1)
     def test_v5q_round_shortfall_exhaustion_reruns_with_no_more_rounds(self):
         a = self.task("a.md", "Alpha task")
         with redirect_stdout(io.StringIO()):
-            job_dir, job = run.job_create(self.cfg, [a],
+            job_dir, job = jobs.job_create(self.cfg, [a],
                                           {"--rounds": None, "--exec": self.executor,
                                            "--review": self.reviewer, "--no-merge": False,
                                            "--no-worktree": False}, None)
-        run_dir = run.job_allocate_run_dir("Alpha task")
+        run_dir = jobs.job_allocate_run_dir("Alpha task")
         shortfall = ("done-when and review are pending at round 4, but the round budget "
                      "(3) is spent; split or re-scope the task")
         state = {"run_id": run_dir.name, "title": "Alpha task", "state": "exhausted",
@@ -705,36 +705,36 @@ sys.exit(1)
         (run_dir / "run.json").write_text(json.dumps(state))
         task = job["tasks"][0]
         task.update(state="running", run_id=run_dir.name)
-        log = run.job_logger(job_dir, False)
+        log = jobs.job_logger(job_dir, False)
         lock = threading.Lock()
         with patch.object(run, "cmd_resume", side_effect=AssertionError("given more rounds")), \
                 redirect_stdout(io.StringIO()):
-            run.job_ladder(self.cfg, job_dir, job, task, run_dir, dict(state), 1, log, lock)
+            jobs.job_ladder(self.cfg, job_dir, job, task, run_dir, dict(state), 1, log, lock)
         # the spent round budget gets no more rounds, three being the budget, but no review
         # failed it either: the one rerun on the next executor model, not a failure
         self.assertNotIn("resume_attempted", task)
         self.assertTrue(task.get("rerun_attempted"))
-        self.assertEqual(task["rerun_executor"], run.job_next_executor(self.cfg, self.executor))
+        self.assertEqual(task["rerun_executor"], jobs.job_next_executor(self.cfg, self.executor))
         self.assertNotEqual(task["run_id"], run_dir.name)
         self.assertEqual(task["state"], "passed")
 
     def test_v5q_shortfall_on_spent_meters_waits_for_budget(self):
         a = self.task("a.md", "Alpha task")
         with redirect_stdout(io.StringIO()):
-            job_dir, job = run.job_create(self.cfg, [a],
+            job_dir, job = jobs.job_create(self.cfg, [a],
                                           {"--rounds": None, "--exec": self.executor,
                                            "--review": self.reviewer, "--no-merge": False,
                                            "--no-worktree": False}, None)
         task = job["tasks"][0]
         task.update(state="running", run_id="kept-run", executor=self.executor)
-        log = run.job_logger(job_dir, False)
+        log = jobs.job_logger(job_dir, False)
         lock = threading.Lock()
         # a pending review parked on spent meters: the message decides first, so the
         # run waits for budget even with `review_pending` still set
         parked = ("every tier B model has a gate meter at 100% used; "
                   "done-when and review are pending")
         with redirect_stdout(io.StringIO()):
-            run.job_ladder(self.cfg, job_dir, job, task, job_dir,
+            jobs.job_ladder(self.cfg, job_dir, job, task, job_dir,
                            {"state": "exhausted", "error": parked,
                             "executor": self.executor, "reviewer": self.reviewer,
                             "review_pending": {"round": 4}, "round_summaries": [{}, {}]},
@@ -747,19 +747,19 @@ sys.exit(1)
     def test_v5q_transport_cap_counts_one_outage_not_history(self):
         a = self.task("a.md", "Alpha task")
         with redirect_stdout(io.StringIO()):
-            job_dir, job = run.job_create(self.cfg, [a],
+            job_dir, job = jobs.job_create(self.cfg, [a],
                                           {"--rounds": None, "--exec": self.executor,
                                            "--review": self.reviewer, "--no-merge": False,
                                            "--no-worktree": False}, None)
         task = job["tasks"][0]
         task.update(state="running", run_id="kept-run", executor=self.executor)
-        log = run.job_logger(job_dir, False)
+        log = jobs.job_logger(job_dir, False)
         lock = threading.Lock()
         outage = (f"reviewer {self.reviewer} died on API/transport errors 3 times and no "
                   "eligible reviewer is left on another provider; waiting for review")
         with redirect_stdout(io.StringIO()):
             for _ in range(3):
-                run.job_ladder(self.cfg, job_dir, job, task, job_dir,
+                jobs.job_ladder(self.cfg, job_dir, job, task, job_dir,
                                {"state": "exhausted", "error": outage,
                                 "executor": self.executor, "reviewer": self.reviewer,
                                 "round_summaries": [{}]}, 1, log, lock)
@@ -767,7 +767,7 @@ sys.exit(1)
             self.assertEqual(task.get("transport_waits"), 3)
             # the next attempt got past the outage (more rounds done) before dying again:
             # a new episode starts at one, not at four
-            run.job_ladder(self.cfg, job_dir, job, task, job_dir,
+            jobs.job_ladder(self.cfg, job_dir, job, task, job_dir,
                            {"state": "exhausted", "error": outage,
                             "executor": self.executor, "reviewer": self.reviewer,
                             "round_summaries": [{}, {}, {}]}, 1, log, lock)
@@ -777,27 +777,27 @@ sys.exit(1)
     def test_v5q_transport_outage_waits_then_needs_the_owner(self):
         a = self.task("a.md", "Alpha task")
         with redirect_stdout(io.StringIO()):
-            job_dir, job = run.job_create(self.cfg, [a],
+            job_dir, job = jobs.job_create(self.cfg, [a],
                                           {"--rounds": None, "--exec": self.executor,
                                            "--review": self.reviewer, "--no-merge": False,
                                            "--no-worktree": False}, None)
         task = job["tasks"][0]
         task.update(state="running", run_id="kept-run", executor=self.executor)
-        log = run.job_logger(job_dir, False)
+        log = jobs.job_logger(job_dir, False)
         lock = threading.Lock()
         outage = (f"reviewer {self.reviewer} died on API/transport errors 3 times and no "
                   "eligible reviewer is left on another provider; waiting for review")
         attempt = {"state": "exhausted", "error": outage, "executor": self.executor,
                    "reviewer": self.reviewer}
         with redirect_stdout(io.StringIO()):
-            for _ in range(run.JOB_TRANSPORT_WAITS):
-                run.job_ladder(self.cfg, job_dir, job, task, job_dir, dict(attempt), 1,
+            for _ in range(jobs.JOB_TRANSPORT_WAITS):
+                jobs.job_ladder(self.cfg, job_dir, job, task, job_dir, dict(attempt), 1,
                                log, lock)
                 self.assertEqual(task["state"], "queued")
-            run.job_ladder(self.cfg, job_dir, job, task, job_dir, dict(attempt), 1,
+            jobs.job_ladder(self.cfg, job_dir, job, task, job_dir, dict(attempt), 1,
                            log, lock)
         # paced waits while the outage might end, then a card instead of silent burning
-        self.assertEqual(task.get("transport_waits"), run.JOB_TRANSPORT_WAITS + 1)
+        self.assertEqual(task.get("transport_waits"), jobs.JOB_TRANSPORT_WAITS + 1)
         self.assertEqual(task["state"], "failed")
         self.assertIn("needs you", task["verdict_line"])
         self.assertIn("transport", task["findings"])
@@ -805,16 +805,16 @@ sys.exit(1)
     def test_v5q_stopped_tool_exhaustion_needs_the_owner(self):
         a = self.task("a.md", "Alpha task")
         with redirect_stdout(io.StringIO()):
-            job_dir, job = run.job_create(self.cfg, [a],
+            job_dir, job = jobs.job_create(self.cfg, [a],
                                           {"--rounds": None, "--exec": self.executor,
                                            "--review": self.reviewer, "--no-merge": False,
                                            "--no-worktree": False}, None)
         task = job["tasks"][0]
         task.update(state="running", run_id="kept-run", executor=self.executor)
-        log = run.job_logger(job_dir, False)
+        log = jobs.job_logger(job_dir, False)
         lock = threading.Lock()
         with redirect_stdout(io.StringIO()):
-            run.job_ladder(self.cfg, job_dir, job, task, job_dir,
+            jobs.job_ladder(self.cfg, job_dir, job, task, job_dir,
                            {"state": "exhausted", "error": "gh timed out",
                             "executor": self.executor, "reviewer": self.reviewer}, 1, log, lock)
         # a stopped tool never comes back on its own: failed with the reason kept
@@ -825,11 +825,11 @@ sys.exit(1)
     def test_v5q_merge_failed_is_finished_with_merge_not_rerun(self):
         a = self.task("a.md", "Alpha task")
         with redirect_stdout(io.StringIO()):
-            job_dir, job = run.job_create(self.cfg, [a],
+            job_dir, job = jobs.job_create(self.cfg, [a],
                                           {"--rounds": None, "--exec": self.executor,
                                            "--review": self.reviewer, "--no-merge": False,
                                            "--no-worktree": False}, None)
-        run_dir = run.job_allocate_run_dir("Alpha task")
+        run_dir = jobs.job_allocate_run_dir("Alpha task")
         exec_provider = config.model(self.cfg, self.executor)["provider"]
         review_provider = config.model(self.cfg, self.reviewer)["provider"]
         state = {"run_id": run_dir.name, "title": "Alpha task", "state": "pass", "verdict": "PASS",
@@ -852,11 +852,11 @@ sys.exit(1)
 
         task = job["tasks"][0]
         task.update(state="running", run_id=run_dir.name)
-        log = run.job_logger(job_dir, False)
+        log = jobs.job_logger(job_dir, False)
         lock = threading.Lock()
         with patch.object(run, "cmd_merge", side_effect=delivered), \
                 redirect_stdout(io.StringIO()):
-            run.job_ladder(self.cfg, job_dir, job, task, run_dir, dict(state), 1, log, lock)
+            jobs.job_ladder(self.cfg, job_dir, job, task, run_dir, dict(state), 1, log, lock)
         self.assertEqual(task["state"], "merged")
         self.assertNotIn("rerun_attempted", task)
         self.assertNotIn("resume_attempted", task)
@@ -880,7 +880,7 @@ sys.exit(1)
         a = self.task("a.md", "Alpha task", rounds=1)
         Path(a).write_text(Path(a).read_text().replace("test -f deliverable", "test -f missing"))
         b = self.task("b.md", "Beta task")
-        real_next = run.job_next_executor
+        real_next = jobs.job_next_executor
         entered, release = threading.Event(), threading.Event()
 
         def slow_next(*args, **kwargs):
@@ -895,7 +895,7 @@ sys.exit(1)
                 result["rc"] = run.main([a, b, "--exec", self.executor,
                                          "--review", self.reviewer])
 
-        with patch.object(run, "job_next_executor", side_effect=slow_next):
+        with patch.object(jobs, "job_next_executor", side_effect=slow_next):
             thread = threading.Thread(target=launch, daemon=True)
             thread.start()
             try:
