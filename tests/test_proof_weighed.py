@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -31,7 +32,8 @@ class ProofWeighed(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
-            "PYTHONDONTWRITEBYTECODE": "1", "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
+            "PYTHONDONTWRITEBYTECODE": "", "PYTHONPYCACHEPREFIX": "",
+            "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
@@ -54,6 +56,8 @@ class ProofWeighed(unittest.TestCase):
             'mode = "base"\nold_bug = True\nstable = True\nremoved = True\nborder = True\ntail = True\n')
         (self.wt / "legacy.py").write_text("old_bug = True\n")
         (self.wt / "keep.txt").write_text("keep\n")
+        (self.wt / "same.py").write_text('value = "base"\n')
+        (self.wt / ".gitignore").write_text("__pycache__/\n")
         (self.wt / "tests").mkdir()
         (self.wt / "tests/removed.py").write_text("assert True\n")
         self.commit("Existing behaviour")
@@ -62,6 +66,7 @@ class ProofWeighed(unittest.TestCase):
         (self.wt / "api.py").write_text(
             'mode = "branch"\nold_bug = True\nstable = True\nborder = True\ntail = True\n')
         (self.wt / "tests/removed.py").unlink()
+        (self.wt / "same.py").write_text('value = "head"\n')
         (self.wt / "tests/proof [1].py").write_text(
             'from pathlib import Path\nimport api\nprint("proof on", api.mode)\n'
             'assert not Path("tests/removed.py").exists()\nassert api.mode == "base"\n')
@@ -132,6 +137,35 @@ out = pathlib.Path(sys.argv[6])
         self.assertIn("proof on branch", self.lp.findings)
         self.assertIn("proof on base", self.lp.findings)
         self.assertIn("[exit 0]", self.lp.findings)
+
+    def test_replays_do_not_share_bytecode_across_commits_or_findings(self):
+        # Same-size sources and equal whole-second mtimes make stale bytecode look valid.
+        python = 'import os; os.utime("same.py", (1700000000, 1700000000)); import same; '
+        old = "python3 -c " + shlex.quote(python + 'print("saw", same.value); exit(9)')
+        new = "python3 -c " + shlex.quote(
+            python + 'print("saw", same.value); exit(7 if same.value == "head" else 0)')
+        self.assertEqual(self.review(finding("legacy.py:1", "old defect", old),
+                                     finding("keep.txt:1", "same-size regression", new)),
+                         "FAIL", self.lp.findings)
+        self.assertEqual(self.lp.state["round_summaries"][0]["finding_count"], 1)
+        self.assertIn("saw head", self.lp.findings)
+        self.assertIn("saw base", self.lp.findings)
+        self.assertIn("[exit 0]", run.findings_section(self.lp.findings))
+
+    def test_replays_ignore_preexisting_bytecode_from_the_base(self):
+        (self.wt / "same.py").write_text('value = "base"\n')
+        python = 'import os; os.utime("same.py", (1700000000, 1700000000)); import same; '
+        subprocess.run([sys.executable, "-c", python + 'assert same.value == "base"'],
+                       cwd=self.wt, check=True)
+        self.assertTrue(list((self.wt / "__pycache__").glob("same.*.pyc")))
+        run.git(self.wt, "reset", "--hard", "HEAD")
+        command = "if test -f reviewer-only; then exit 7; fi; python3 -c " + shlex.quote(
+            python + 'print("saw", same.value); exit(7 if same.value == "head" else 0)')
+        self.assertEqual(self.review(finding("keep.txt:1", "same-size regression", command),
+                                     edits={"reviewer-only": "defect\n"}), "FAIL", self.lp.findings)
+        self.assertEqual(self.lp.state["notes"], [])
+        self.assertIn("saw head", self.lp.findings)
+        self.assertIn("saw base", self.lp.findings)
 
     def test_old_failures_and_quotes_join_the_reviewers_followups_without_rerunning_them(self):
         own = "echo 'reviewer follow-up proof'; exit 9"
