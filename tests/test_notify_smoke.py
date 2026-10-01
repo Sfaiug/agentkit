@@ -5,7 +5,6 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -110,42 +109,46 @@ verdict() { [ "$NFAIL" = 0 ] && ok "$1"; }
     def test_e2e_step_g_notification_json_and_terminal_previews(self):
         self.check_section("g")
 
-    def test_check_6d_seat_is_aimed_at_no_webhook(self):
-        # 6d's real Codex seat runs in the suite's HOME, beside the copy of the owner's webhook
-        # check 5 reads, and posts a pairing notice once its remote control connects: the sink
-        # diverted it, and the gate failed whenever that reached the log.  The launch line runs
-        # verbatim; its `ak` posts that notice with the environment the seat would be handed.
-        launch = next(line for line in (REPO / "tests/smoke.sh").read_text().splitlines()
-                      if "ak orch --model astra smoke-astra" in line)
-        with tempfile.TemporaryDirectory(prefix=".ak-test-6d-") as directory:
+    def test_the_suites_home_is_aimed_at_no_webhook(self):
+        # Anything in the suite's HOME may speak -- 6d's real Codex seat posts a pairing notice
+        # once its remote control connects, with whatever environment its tmux server was
+        # started with -- and the sink's diversion of it failed the gate now and then.  So the
+        # owner's webhook, from its file or the environment, is never in that HOME at all.
+        source = (REPO / "tests/smoke.sh").read_text()
+        setup = source[source.index("smoke_share_probes() {"):source.index("# A bounded way")]
+        with tempfile.TemporaryDirectory(prefix=".ak-test-notify-smoke-home-", dir=REPO) as directory:
             root = Path(directory)
-            (root / ".agentkit/secrets").mkdir(parents=True)
-            (root / ".agentkit/state").mkdir()
-            (root / ".agentkit/secrets/discord_webhook").write_text("https://example.invalid/hook\n")
-            (root / "bin").mkdir()
-            seat = root / "bin/ak"
-            seat.write_text(f'''#!{sys.executable}
-import importlib.util, os
-spec = importlib.util.spec_from_file_location("seat", {str(REPO / "tools/codex-seat.py")!r})
-seat = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(seat)
-class Client:
-    def call(self, method, params=None):
-        return {{"data": []}} if method.endswith("client/list") else {{"manualPairingCode": "AB-12"}}
-os.environ["AGENTKIT_SESSION"] = "smoke-astra"
-seat.pairing(Client(), seat.config.STATE / "codex-remote-x", {{"environmentId": "env_x"}})
-''')
-            seat.chmod(0o755)
-            env = {**os.environ, "HOME": str(root), "WORK": str(root), "REPO": str(REPO),
-                   "SEAT": str(root), "PATH": f"{root / 'bin'}:{os.environ['PATH']}",
-                   "PYTHONDONTWRITEBYTECODE": "1"}
-            for name in ("AGENTKIT_DISCORD_WEBHOOK", "AK_NOTIFY_SINK", "AK_NOTIFY_SINK_LOG"):
-                env.pop(name, None)
-            result = subprocess.run(["bash", "-c", f'. "$REPO/tests/acceptance.sh"\n{launch}\nfinish\n'],
-                                    env=env, capture_output=True, text=True, timeout=60)
-            posted = (root / "seat.log").read_text()
-            self.assertIn("message: Needs you · smoke-astra: In the ChatGPT app", posted)
-            self.assertEqual(result.returncode, 0, result.stdout + posted)
+            caller, binaries = root / "caller", root / "bin"
+            (caller / ".agentkit/secrets").mkdir(parents=True)
+            (caller / ".agentkit/secrets/discord_webhook").write_text("https://example.invalid/file\n")
+            binaries.mkdir()
+            for name in ("claude", "codex", "muse", "grok", "opencode", "agy"):   # no login is asked
+                (binaries / name).write_text("#!/bin/sh\nexit 97\n")
+                (binaries / name).chmod(0o755)
+            for inherited in ("", "https://example.invalid/env"):
+                with self.subTest(inherited=inherited):
+                    work = Path(tempfile.mkdtemp(prefix="work-", dir=root))
+                    env = {**os.environ, "HOME": str(caller), "REPO": str(REPO), "WORK": str(work),
+                           "PATH": f"{binaries}:{REPO / 'bin'}:{os.environ['PATH']}",
+                           "AGENTKIT_DISCORD_WEBHOOK": inherited, "AGENTKIT_DISCORD_USER_ID": "",
+                           "AGENTKIT_SESSION": "smoke-seat", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
+                           "TMUX_TMPDIR": str(root), "PYTHONDONTWRITEBYTECODE": "1"}
+                    for name in ("TMUX", "AK_NOTIFY_SINK", "AK_NOTIFY_SINK_LOG", "AK_RUN_ROLE",
+                                 "AGENTKIT_RUN", "AGENTKIT_RUN_DIR", "AK_RUN_LOG", "AK_PARENT_RUN",
+                                 "AGENTKIT_ACCOUNT", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "GROK_HOME",
+                                 "XDG_CONFIG_HOME", "XDG_DATA_HOME", "GH_CONFIG_DIR",
+                                 "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG"):
+                        env.pop(name, None)
+                    result = subprocess.run(["bash", "-c", setup + '''
+smoke_home
+. "$REPO/tests/acceptance.sh"
+ak notify done "a seat in the suite's HOME speaks" >"$WORK/speak.log" 2>&1
+finish
+'''], env=env, capture_output=True, text=True, timeout=60)
+                    speak = work / "speak.log"
+                    said = result.stdout + result.stderr + (speak.read_text() if speak.exists() else "")
+                    self.assertEqual(result.returncode, 0, said)
+                    self.assertIn("0 passed, 0 failed, 0 skipped", result.stdout)
 
     def test_check_21_passes_under_an_outer_suites_diversion(self):
         # Run inside a running suite, the section inherits that suite's diversion log; its
