@@ -102,6 +102,7 @@ class V5ac(unittest.TestCase):
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(run, "disk_pressure", return_value=False))
+        self.stack.enter_context(patch.object(run.worker, "marked_pids", return_value=[]))
         self.stack.enter_context(patch.object(run.time, "sleep"))
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
