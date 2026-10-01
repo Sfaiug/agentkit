@@ -9260,7 +9260,6 @@ def reap(run_dir, state, memory_probe=None):
         grace = (status == "queued" and
                  (state.get("launch_pending") or not state.get("process_identity")) and
                  time.time() - (state.get("queued_at") or state.get("started_at") or 0) < QUEUED_GRACE)
-        resuming = False
         if status in ("running", "queued") and not grace and not process_active(state):
             cap_reason = (memory_cap_reason(state, probe=memory_probe)
                           if status == "running" else None)
@@ -9274,8 +9273,7 @@ def reap(run_dir, state, memory_probe=None):
                 if status == "running":
                     stop_run_tree(state)
                 interrupt(state, reason)
-                resuming = tick_resumes(state)
-                if resuming:
+                if tick_resumes(state):
                     # Whoever notices the death records it, so the tick's dead-loop pass reads
                     # this record as a loop to carry on rather than as an interruption somebody
                     # was already told about -- and so it counts towards the third death.
@@ -9297,7 +9295,10 @@ def reap(run_dir, state, memory_probe=None):
                 stop_run_tree(state)
                 state["tree_stopped"] = swept
                 save_state(run_dir, state)
-        if needs_recovery(state) and not resuming:
+        # A death the tick resumes is nobody's news however many reaps see it before it does,
+        # the tick's own included while it waits out a backoff.
+        if needs_recovery(state) and not (state.get("state") == "interrupted" and state.get("deaths")
+                                          and tick_resumes(state)):
             notify_recovery(run_dir, state)
     return state
 
