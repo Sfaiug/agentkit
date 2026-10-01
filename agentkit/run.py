@@ -3411,10 +3411,10 @@ def join_suite(lp):
 
 
 def pending_review(lp, reason):
-    """Invalidate before integration can be delivered, without granting extra task rounds."""
+    """Invalidate before delivery; landing review spends no round, only fixing findings does."""
     entries = lp.state["round_summaries"]
     lp.state.update(verdict=None, review=None,
-                    review_pending={"round": lp.rnd + 1,
+                    review_pending={"round": lp.rnd, "record": False,
                                     "summary": entries[-1]["summary"] if entries else "",
                                     "reason": reason})
     lp.save()
@@ -3972,7 +3972,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     that suite passed, and the reviewer is told its absence from the input is by design
     -- the output does not exist yet when the review starts.
 
-    `record` is off for the merge pipeline's fixer rounds: they are not task rounds
+    `record` is off for landing re-review and the merge pipeline's fixer rounds: they are not task rounds
     and must not spend one, so no summary of them enters the rounds' own history.
     The verdict is recorded either way, because delivery is decided
     on it.
@@ -4865,7 +4865,7 @@ def integrate(lp, upstream):
                         lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
                     else:
                         pending = lp.state.get("review_pending")
-                        pending_round = pending["round"] if pending else lp.rnd + 1
+                        pending_round = pending["round"] if pending else lp.rnd
                         old_rnd = lp.rnd
                         lp.rnd = pending_round
                         lp.round_dir.mkdir(parents=True, exist_ok=True)
