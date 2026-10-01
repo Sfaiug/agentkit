@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import config, gc, run
 
 
 class Cut(Exception):
@@ -32,8 +32,8 @@ class RunBaseIsFetched(unittest.TestCase):
             "HOME": str(self.root), config.SESSION_ENV: "", config.RUN_DIR_ENV: "",
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0",
             "AK_MAX_RUNS": "0", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}))
-        for name, value in (("disk_pressure", False), ("launch_session", None)):
-            self.stack.enter_context(patch.object(run, name, return_value=value))
+        for module, name, value in ((gc, "disk_pressure", False), (run, "launch_session", None)):
+            self.stack.enter_context(patch.object(module, name, return_value=value))
         self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub")))
         config.ensure_dirs()
         self.cfg = config.load()

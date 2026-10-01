@@ -21,7 +21,7 @@ from unittest.mock import patch
 from urllib.parse import unquote_to_bytes
 
 from test_v4n import REPO, Sandbox
-from agentkit import browser, config, job as jobs, menu, notify, orch, run, terminal, watch
+from agentkit import browser, config, gc, job as jobs, menu, notify, orch, run, terminal, watch
 
 SEAT = "seat"
 TYPE_CHECKED = watch.type_checked   # the real confirmed send, for the tests that drive it
@@ -180,7 +180,7 @@ class HandBack(Sandbox):
         """One real `ak watch` pass, with GitHub unavailable so it stops before its PR passes."""
         with patch.object(watch, "health"), patch.object(watch, "recover_runs"), \
                 patch.object(watch, "gh_json", return_value=(None, "offline")), \
-                patch.object(run, "schedule_gc"), patch.object(browser, "tidy"), \
+                patch.object(gc, "schedule_gc"), patch.object(browser, "tidy"), \
                 patch.object(notify, "tick_cards"), \
                 patch.object(orch, "stamp"), patch.object(orch, "sweep"):
             self.assertEqual(watch.main([]), 0)
@@ -783,7 +783,7 @@ class HandBack(Sandbox):
         directory = self.ended("20260101-0101-merged-run", owner=SEAT, merged=True,
                                finished_at=1, started_at=0, worktree=str(self.root / "gone"),
                                repo=str(self.root / "repo"), handback_pending=True)
-        plans = [item for item in run.gc_plan(now=9_000_000) if item.get("run") == str(directory)]
+        plans = [item for item in gc.gc_plan(now=9_000_000) if item.get("run") == str(directory)]
         self.assertEqual(plans, [])
         run.save_state(directory, {k: v for k, v in run.read_state(directory).items()
                                    if k != "handback_pending"})
@@ -792,11 +792,11 @@ class HandBack(Sandbox):
         jobs.save_job(job_dir, {"job_id": "job-gc", "seat": SEAT, "finished_at": 1,
                                "tasks": [{"name": "a", "state": "failed"}],
                                "handback_pending": "job job-gc: 1 task(s) need you"})
-        self.assertEqual([item for item in run.gc_plan(now=9_000_000)
+        self.assertEqual([item for item in gc.gc_plan(now=9_000_000)
                           if item.get("job") == str(job_dir)], [])
         jobs.save_job(job_dir, {k: v for k, v in jobs.read_job(job_dir).items()
                                if k != "handback_pending"})
-        self.assertTrue([item for item in run.gc_plan(now=9_000_000)
+        self.assertTrue([item for item in gc.gc_plan(now=9_000_000)
                          if item.get("job") == str(job_dir)])
 
     def test_a_delivery_retry_that_ends_blocked_is_recorded_as_blocked(self):

@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import config, gc, run
 
 
 class AtRound(Exception):
@@ -37,10 +37,11 @@ class FromRunTakesTheTarget(unittest.TestCase):
             "AK_MAX_RUNS": "0", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_AUTHOR_NAME": "acme", "GIT_AUTHOR_EMAIL": "acme@localhost",
             "GIT_COMMITTER_NAME": "acme", "GIT_COMMITTER_EMAIL": "acme@localhost"}))
-        for name, value in (("disk_pressure", False), ("launch_session", None),
+        for name, value in (("launch_session", None),
                             ("collect_usage", {}), ("ready_order", ["opus", "astra"]),
                             ("pick_models", ("opus", "astra"))):
             self.stack.enter_context(patch.object(run, name, return_value=value))
+        self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub")))
         config.ensure_dirs()
         self.cfg = config.load()

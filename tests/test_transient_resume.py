@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, usage, watch  # noqa: E402
+from agentkit import config, gc, run, usage, watch  # noqa: E402
 
 
 class TransientResume(unittest.TestCase):
@@ -355,7 +355,7 @@ class TransientResume(unittest.TestCase):
         line = "opencode.sh: opencode is not installed"
         with patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "checkout_for", return_value=repo), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "git", return_value="sha"), \
                 patch.object(run, "make_worktree", return_value=(wt, "b")), \
                 patch.object(run, "history_start"), \

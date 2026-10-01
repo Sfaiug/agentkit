@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, worker
+from agentkit import config, gc, run, worker
 
 SUITE = "test -f AGENTS.md"
 
@@ -42,10 +42,10 @@ class ReviewPrSuiteFallback(unittest.TestCase):
         self.git("config", "user.name", "Suite test")
         self.git("config", "user.email", "suite@localhost")
         self.logs, self.gates, self.reviews = [], [], []
-        for name, value in (("disk_pressure", False), ("launch_session", None),
-                            ("collect_usage", {}), ("post_review", True),
-                            ("checks", (False, "fixture: no merge"))):
-            self.stack.enter_context(patch.object(run, name, return_value=value))
+        for module, name, value in ((gc, "disk_pressure", False), (run, "launch_session", None),
+                                    (run, "collect_usage", {}), (run, "post_review", True),
+                                    (run, "checks", (False, "fixture: no merge"))):
+            self.stack.enter_context(patch.object(module, name, return_value=value))
         self.stack.enter_context(patch.object(run.usage, "pick_order",
                                              return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(worker, "call", side_effect=self.worker))

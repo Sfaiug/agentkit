@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, run, watch
+from agentkit import config, gc, history, run, watch
 
 URL = "https://github.com/acme/widget/pull/7"
 
@@ -88,10 +88,11 @@ class PrCeiling(unittest.TestCase):
             for name, value in (("pr_view", info), ("viewer_login", "owner"),
                                 ("checkout_for", self.repo), ("fetch", (0, "")),
                                 ("make_worktree", (self.repo, "ak/pr-7")),
-                                ("disk_pressure", False), ("collect_usage", {}),
+                                ("collect_usage", {}),
                                 ("ready_order", ["astra"]), ("post_review", True),
                                 ("checks", (True, "")), ("gh_json", (info, ""))):
                 mocks.enter_context(patch.object(run, name, return_value=value))
+            mocks.enter_context(patch.object(gc, "disk_pressure", return_value=False))
             for name in ("exclude_junk", "join_session_project", "restore_review_checkout",
                          "write_result", "refused"):
                 mocks.enter_context(patch.object(run, name))

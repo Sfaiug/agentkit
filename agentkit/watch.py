@@ -40,7 +40,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import browser, command_help, config, notify, orch, update, usage, worker
+from . import browser, command_help, config, gc, notify, orch, update, usage, worker
 from .harness import LIMITED, SPENT, says
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
@@ -5784,7 +5784,7 @@ def main(argv):
                 log(f"WARN the seat revival pass did not run: {exc}")
             # Local maintenance is independent of GitHub, after notification retry and health.
             # Expensive collection runs detached; malformed retention metadata cannot stop a tick.
-            for action in (run.schedule_gc, lambda log: orch.stamp(), orch.sweep):
+            for action in (gc.schedule_gc, lambda log: orch.stamp(), orch.sweep):
                 try:
                     action(log)
                 except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:

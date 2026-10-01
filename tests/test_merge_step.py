@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, usage
+from agentkit import config, gc, run, usage
 
 URL = "https://github.com/fixture/repo/pull/7"
 BASE_RACE = ("GraphQL: Base branch was modified. Review and try the merge again. "
@@ -577,7 +577,7 @@ class MergeStep(unittest.TestCase):
                                      "AGENTKIT_DISCORD_WEBHOOK": "off"}), \
                 patch.object(usage, "collect", return_value={}), \
                 patch.object(usage, "pick_order", return_value=["opus", "astra"]), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "launcher_world", return_value=nullcontext(True)), \
                 patch.object(run, "hand_back", return_value=True), \
                 patch.object(run.notify, "shaped", side_effect=AssertionError("notification")), \

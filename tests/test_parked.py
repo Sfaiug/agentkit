@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, run, watch
+from agentkit import config, gc, menu, orch, run, watch
 
 WEEK = 604800
 TRANSPORT_DEATH = ("reviewer spark died on API/transport errors 3 times and no eligible "
@@ -414,7 +414,7 @@ class Parked(unittest.TestCase):
         # Each guard stands alone: an acknowledged or handed-back error need not
         # age out before a current turn or a later done can speak for its seat.
         for reason, extra in (
-                ("aged", {"finished_at": self.now - run.GC_AGE - 1}),
+                ("aged", {"finished_at": self.now - gc.GC_AGE - 1}),
                 ("acknowledged", {"finished_at": self.now - 2 * 86400,
                                   "recovery_acknowledged_at": self.now - 60}),
                 ("handed back", {"handed_back": self.now - 30}),
@@ -555,7 +555,7 @@ class Parked(unittest.TestCase):
         old = self.receipt("20260922-1309-old", state="fail", verdict="FAIL",
                            error=None, merge_note=CONFLICT_NOTE,
                            round_summaries=[{"round": 1}],
-                           finished_at=self.now - run.GC_AGE - 1)
+                           finished_at=self.now - gc.GC_AGE - 1)
         (old / "log.txt").write_text(f"not merged: {CONFLICT_NOTE}\n")
         with patch.object(run, "upstream_sha",
                           side_effect=AssertionError("never parked, never fetched")), \
@@ -818,7 +818,7 @@ class Parked(unittest.TestCase):
                                  if word == "error" else f"run {directory.name} waits to "
                                  f"merge: {run.handback_reason(state)}")
                 self.assertEqual(menu.v5o_needs_look(state, now=self.now), word == "error")
-                run.save_state(directory, {**state, "finished_at": self.now - run.GC_AGE - 1})
+                run.save_state(directory, {**state, "finished_at": self.now - gc.GC_AGE - 1})
                 with redirect_stdout(io.StringIO()) as out:
                     self.assertEqual(run.cmd_status([]), 0)
                 self.assertNotIn(directory.name, out.getvalue())
@@ -877,7 +877,7 @@ class Parked(unittest.TestCase):
                         patch.object(run, "upstream_sha", return_value="1" * 40), \
                         patch.object(run, "drive", side_effect=drive), \
                         patch.object(run, "collect_usage", return_value=providers), \
-                        patch.object(run, "disk_pressure", return_value=False), \
+                        patch.object(gc, "disk_pressure", return_value=False), \
                         patch.object(run, "exclude_junk"), \
                         patch.object(run, "join_session_project"), \
                         patch.object(run, "project_lessons", return_value=""), \

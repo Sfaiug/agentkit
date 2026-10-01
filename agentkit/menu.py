@@ -881,7 +881,7 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
     tick's to take on when the window refills, the reviewer is back or the stall
     is recovered, an error with a scheduled retry is the tick's the same way, and
     a `queued` or `running` one is nobody's problem yet. An
-    ending older than run.GC_AGE has aged out and counts for nobody, acknowledged
+    ending older than gc.GC_AGE has aged out and counts for nobody, acknowledged
     or not; `ak run status` still lists it.
 
     An ending handed back to the seat that launched it is that orchestrator's from then on,
@@ -891,7 +891,7 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
     `index` is a `run.supersession_index` over the same states: pass it when testing
     many runs so one draw scans the records once instead of once per run per seat.
     """
-    from . import run as _run
+    from . import gc, run as _run
     if state.get("recovery_acknowledged_at"):
         return False
     if state.get("state") in ("error", "exhausted") and _run.going(state, now=now):
@@ -917,7 +917,7 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
     ended = (state.get("finished_at") or state.get("interrupted_at")
              or state.get("started_at"))
     # Only a date we can read ages an ending out; an undated record stays his.
-    if isinstance(ended, (int, float)) and not isinstance(ended, bool) and at - ended > _run.GC_AGE:
+    if isinstance(ended, (int, float)) and not isinstance(ended, bool) and at - ended > gc.GC_AGE:
         return False
     if index is not None:
         if _run.is_superseded(state, None, index):

@@ -433,7 +433,7 @@ import subprocess
 import tempfile
 from unittest.mock import patch
 
-from agentkit import config, menu, muse_usage, notify, orch, run, terminal, usage, watch
+from agentkit import config, gc, menu, muse_usage, notify, orch, run, terminal, usage, watch
 
 with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO) as tmp, ExitStack() as stack:
     root = Path(tmp)
@@ -446,7 +446,7 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
     # Keep the watch entry point real, including its write and GitHub-failure paths.
     passes = {}
     for module, name in ((watch, "health"), (notify, "retry_pending"), (notify, "tick_cards"),
-                         (run, "schedule_gc"), (orch, "stamp"), (orch, "sweep"),
+                         (gc, "schedule_gc"), (orch, "stamp"), (orch, "sweep"),
                          (watch.browser, "tidy")):
         passes[name] = stack.enter_context(patch.object(module, name))
     stack.enter_context(patch.object(run, "run_dirs", return_value=[]))
@@ -733,7 +733,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from agentkit import config, menu, notify, orch, run, terminal, usage, watch
+from agentkit import config, gc, menu, notify, orch, run, terminal, usage, watch
 
 
 class SessionState(unittest.TestCase):
@@ -767,7 +767,7 @@ class SessionState(unittest.TestCase):
         self.stack.enter_context(patch.object(notify, "_attempt", side_effect=self.deliver))
         self.close_needs = notify.close_needs
         self.edits = self.stack.enter_context(patch.object(notify, "close_needs", return_value=[]))
-        for module, name in ((usage, "collect"), (run, "schedule_gc"),
+        for module, name in ((usage, "collect"), (gc, "schedule_gc"),
                              (orch, "stamp"), (orch, "sweep"), (watch.browser, "tidy")):
             self.stack.enter_context(patch.object(module, name))
         self.stack.enter_context(patch.object(run, "run_dirs", return_value=[]))
@@ -3329,11 +3329,11 @@ PY
 IWT=$(jq -r '.worktree // empty' "$IJSON")
 HOME="$IHOME" PYTHONPATH="$REPO" python3 - "$REPO/bin/ak" "$WORK/gc-tmp" >"$WORK/gc.log" 2>&1 <<'PY'
 import pathlib, runpy, sys
-from agentkit import run
+from agentkit import gc
 
 # HOME does not relocate /tmp. Keep the worktree check's real process/socket inventories.
-run.TMP_BASE = pathlib.Path(sys.argv[2])
-run.TMP_BASE.mkdir()
+gc.TMP_BASE = pathlib.Path(sys.argv[2])
+gc.TMP_BASE.mkdir()
 sys.argv = [sys.argv[1], "run", "gc"]
 runpy.run_path(sys.argv[0], run_name="__main__")
 PY

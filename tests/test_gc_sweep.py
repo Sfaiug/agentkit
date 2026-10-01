@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import config, orch, retention, run
+from agentkit import config, gc, orch, retention, run
 
 DAY = 86400
 DEAD = 99999999
@@ -102,7 +102,7 @@ class GcSweep(Sandbox):
     def gc(self, *argv):
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_gc(list(argv)), 0)
+            self.assertEqual(gc.cmd_gc(list(argv)), 0)
         return out.getvalue()
 
     def test_merged_worktree_in_a_second_repo_is_removed(self):
@@ -111,8 +111,8 @@ class GcSweep(Sandbox):
         unmerged, unmerged_wt, _ = self.receipt("unmerged", self.other, merged=False)
         running, running_wt, _ = self.receipt("running", self.other, state="running")
         # The collector's proof leaves a dirty tree; the sweep takes it, in either repo.
-        self.assertNotIn(str(second_wt), {item["path"] for item in run.gc_plan()})
-        self.assertEqual({item["path"] for item in run.sweep_plan()},
+        self.assertNotIn(str(second_wt), {item["path"] for item in gc.gc_plan()})
+        self.assertEqual({item["path"] for item in gc.sweep_plan()},
                          {str(first_wt), str(second_wt)})
         dry = self.gc("--dry-run")
         self.assertIn(f"gc: would remove merged-worktree {second_wt}", dry)
@@ -140,7 +140,7 @@ class GcSweep(Sandbox):
         shutil.rmtree(self.repo / ".git" / "worktrees" / "orphan")
         self.assertNotIn(str(wt), self.listed(self.repo))
         self.assertTrue(wt.is_dir())
-        self.assertNotIn(str(wt), {item["path"] for item in run.gc_plan()})
+        self.assertNotIn(str(wt), {item["path"] for item in gc.gc_plan()})
         # and a registration whose directory already went is what the prune is for
         stale, stale_wt, _ = self.receipt("stale", self.repo)
         shutil.rmtree(stale_wt)
@@ -318,11 +318,11 @@ class GcSweep(Sandbox):
         self.assertIn(f"`sudo rm -rf {wt}` takes them", out)
         self.assertFalse((wt / "src").exists())     # what this user owns is gone already
         self.assertTrue((locked / "layer").exists())
-        self.assertIn(str(wt), run.leftovers())
+        self.assertIn(str(wt), gc.leftovers())
         # The next day's pass neither lists it nor tries it again.
         self.assertNotIn(str(wt), self.gc("--dry-run"))
         self.assertNotIn(str(wt), self.gc())
-        self.assertEqual(run.gc(lambda _message: None, automatic=True), [])
+        self.assertEqual(gc.gc(lambda _message: None, automatic=True), [])
 
     def locked_tree(self, wt):
         """A directory this user cannot empty inside `wt`, the way root's build output is."""
@@ -337,21 +337,21 @@ class GcSweep(Sandbox):
         failed_merge = dict(merged=False, merge_failed=True, merge_note="PR is closed",
                             finished_at=time.time() - 8 * DAY)
         directory, wt, _ = self.receipt("locked", self.repo, **failed_merge)
-        held, clear = [], run.clear_tree
+        held, clear = [], gc.clear_tree
         def watched(tree, report):
             held.append(str(directory) in getattr(run._RECOVERY_HELD, "paths", set()))
             return clear(tree, report)
-        with patch.object(run, "clear_tree", side_effect=watched):
+        with patch.object(gc, "clear_tree", side_effect=watched):
             self.gc()
         self.assertEqual(held, [True])
         self.assertFalse(wt.exists())
         # A resume that commits `running` after the plan and before the removal keeps it.
         resumed, resumed_wt, _ = self.receipt("resumed", self.repo, **failed_merge)
-        planned = [item for item in run.gc_plan() if item["path"] == str(resumed_wt)]
+        planned = [item for item in gc.gc_plan() if item["path"] == str(resumed_wt)]
         self.assertEqual([item["kind"] for item in planned], ["unmerged-worktree"])
         run.save_state(resumed, {**run.read_state(resumed), "state": "running"})
-        with patch.object(run, "gc_candidates", return_value=iter(planned)):
-            self.assertEqual(run.gc(lambda _message: None), [])
+        with patch.object(gc, "gc_candidates", return_value=iter(planned)):
+            self.assertEqual(gc.gc(lambda _message: None), [])
         self.assertTrue(resumed_wt.is_dir())
 
     def test_every_path_reports_a_tree_it_cannot_empty_once(self):
@@ -368,14 +368,14 @@ class GcSweep(Sandbox):
         out = self.gc()
         for wt in (failed_wt, merged_wt):
             self.assertEqual(out.count(f"gc: left {wt}: "), 1, out)
-            self.assertIn(str(wt), run.leftovers())
+            self.assertIn(str(wt), gc.leftovers())
             self.assertFalse((wt / "tracked").exists())   # what this user owns is gone
         self.assertTrue(self.branch_exists(self.repo, failed_branch))
         # Neither is listed or tried again, by the collector or by the sweep.
         for again in (self.gc("--dry-run"), self.gc()):
             for wt in (failed_wt, merged_wt):
                 self.assertNotIn(str(wt), again)
-        self.assertEqual(run.gc(lambda _message: None, automatic=True), [])
+        self.assertEqual(gc.gc(lambda _message: None, automatic=True), [])
         # A month on, the record goes whole and its reported tree is not tried again.
         now = time.time()
         ancient, ancient_wt, _ = self.receipt(
@@ -385,7 +385,7 @@ class GcSweep(Sandbox):
         # as the first report left it: its pointer gone with what was ours, git's entry pruned
         (ancient_wt / ".git").unlink()
         self.git(self.repo, "worktree", "prune")
-        left = run.leftovers()
+        left = gc.leftovers()
         left[str(ancient_wt)] = now
         config._write_json(config.STATE / "gc-leftovers.json", left)
         out = self.gc()
@@ -404,7 +404,7 @@ class GcSweep(Sandbox):
         self.locked_tree(going)
         state = {"run_id": "going", "state": "fail", "repo": str(self.repo),
                  "worktree": str(going), "branch": "ak/going", **run.process_owner(os.getppid())}
-        self.assertFalse(run.drop_tree(state, going, lambda _message: None))
+        self.assertFalse(gc.drop_tree(state, going, lambda _message: None))
         self.assertTrue((going / "ours.txt").exists())
         # ~/.agentkit/wt reached through a link into ~/code: the month-old record goes, and
         # the tree it names is the owner's, refused and never emptied by hand.
@@ -429,7 +429,7 @@ class GcSweep(Sandbox):
         self.assertIn(f"gc: remove old-run {directory}", out)
         self.assertTrue((real / "ancient" / "ours.txt").exists())
         self.assertNotIn("gc: left", out)
-        self.assertEqual(run.leftovers(), {})
+        self.assertEqual(gc.leftovers(), {})
 
     def test_a_scratch_workspace_goes_only_with_its_run_directory(self):
         # Its files are what the run delivered: neither the collector nor the sweep takes
@@ -452,7 +452,7 @@ class GcSweep(Sandbox):
         _, failed = scratch("failed", 8 * DAY, state="fail", verdict="FAIL",
                             handed_back=now - 8 * DAY + 1)
         ancient, ancient_work = scratch("ancient", 31 * DAY)
-        planned = {item["path"] for item in run.gc_plan() + run.sweep_plan()}
+        planned = {item["path"] for item in gc.gc_plan() + gc.sweep_plan()}
         self.assertFalse({str(delivered), str(failed)} & planned, planned)
         out = self.gc()
         for work in (delivered, failed):

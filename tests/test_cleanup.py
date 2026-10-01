@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import browser, config, menu, orch, retention, run, watch
+from agentkit import browser, config, gc, menu, orch, retention, run, watch
 
 DAY = 86400
 DEAD = 99999999
@@ -147,8 +147,8 @@ class Cleanup(Sandbox):
         # A second merged checkout the loop did not reach is collected on the first pass,
         # not after a week.
         leftover, left_wt, _ = self.receipt("leftover", state="pass", merged=True, age=60)
-        self.assertIn(str(left_wt), {item["path"] for item in run.gc_plan()})
-        self.assertIn(str(left_wt), run.gc(lambda _message: None))
+        self.assertIn(str(left_wt), {item["path"] for item in gc.gc_plan()})
+        self.assertIn(str(left_wt), gc.gc(lambda _message: None))
         self.assertFalse(left_wt.exists())
         self.assertTrue((leftover / "result.md").is_file())
 
@@ -167,13 +167,13 @@ class Cleanup(Sandbox):
         self.assertTrue((directory / "result.md").is_file())
         # Not yet told, and younger than a week: the tree stays.
         waiting, waiting_wt, _ = self.receipt("waiting", state="fail", merged=False, age=DAY)
-        self.assertNotIn(str(waiting_wt), {item["path"] for item in run.gc_plan()})
+        self.assertNotIn(str(waiting_wt), {item["path"] for item in gc.gc_plan()})
         self.assertTrue(waiting_wt.is_dir())
         # A week without a hand-back is the other clock. The branch stays there too.
         aged, aged_wt, aged_branch = self.receipt("aged", state="fail", merged=False,
                                                  age=8 * DAY)
-        self.assertIn(str(aged_wt), {item["path"] for item in run.gc_plan()})
-        run.gc(lambda _message: None)
+        self.assertIn(str(aged_wt), {item["path"] for item in gc.gc_plan()})
+        gc.gc(lambda _message: None)
         self.assertFalse(aged_wt.exists())
         self.assertTrue(self.branch_exists(aged_branch))
         self.assertTrue((aged / "run.json").is_file())
@@ -197,15 +197,15 @@ class Cleanup(Sandbox):
                 redirect_stdout(io.StringIO()):
             self.assertTrue(run.hand_back(state, directory, lambda _message: None))
         self.assertTrue(wt.is_dir(), "the hand-back took the resume's checkout")
-        self.assertNotIn(str(wt), {item["path"] for item in run.gc_plan()})
+        self.assertNotIn(str(wt), {item["path"] for item in gc.gc_plan()})
         self.assertIn("ak run resume budget --rounds 3",
                       run.continue_line(run.read_state(directory), directory))
         # The seven-day clock still takes it; the branch stays regardless.
         old, old_wt, old_branch = self.receipt("budget-old", state="fail", merged=False,
                                                age=8 * DAY, verdict="FAIL",
                                                round_summaries=summaries)
-        self.assertIn(str(old_wt), {item["path"] for item in run.gc_plan()})
-        run.gc(lambda _message: None)
+        self.assertIn(str(old_wt), {item["path"] for item in gc.gc_plan()})
+        gc.gc(lambda _message: None)
         self.assertFalse(old_wt.exists())
         self.assertTrue(self.branch_exists(old_branch))
         self.assertTrue((old / "result.md").is_file())
@@ -215,7 +215,7 @@ class Cleanup(Sandbox):
         state = run.read_state(directory)
         state.update(run.process_owner())
         run.save_state(directory, state)
-        self.assertEqual(run.gc(lambda _message: None), [])
+        self.assertEqual(gc.gc(lambda _message: None), [])
         run.settle_run(state, directory, lambda _message: None)
         run.drop_checkout(state, lambda _message: None)
         self.assertTrue(wt.is_dir())
@@ -228,7 +228,7 @@ class Cleanup(Sandbox):
         current["worktree"] = str(owned)
         current["repo"] = str(owned)
         run.save_state(code_dir, current)
-        run.gc(lambda _message: None)
+        gc.gc(lambda _message: None)
         run.drop_checkout(current, lambda _message: None)
         self.assertEqual((owned / "keep").read_text(), "owner\n")
 
@@ -309,11 +309,11 @@ class Cleanup(Sandbox):
         self.assertIn(f"{config.STATE / 'seat-old.v1.json'}: seat old.v1 is gone", dry)
         self.assertIn(f"gc: would remove compact-stamp {stamp}: its wrapper, pid 99999999, "
                       "is gone", dry)
-        removed = set(run.gc(lambda _message: None))
+        removed = set(gc.gc(lambda _message: None))
         self.assertEqual(removed, {str(path) for path in gone + [stamp]})
         for path in kept:
             self.assertTrue(path.exists(), path)
-        self.assertEqual(run.gc(lambda _message: None), [])
+        self.assertEqual(gc.gc(lambda _message: None), [])
 
     def aged(self, path, age):
         os.utime(path, (time.time() - age, time.time() - age))
@@ -322,7 +322,7 @@ class Cleanup(Sandbox):
     def gc_out(self, *argv):
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_gc(list(argv)), 0)
+            self.assertEqual(gc.cmd_gc(list(argv)), 0)
         return out.getvalue()
 
     def test_stop_says_kept_when_the_checkout_stays(self):
@@ -393,14 +393,14 @@ class Cleanup(Sandbox):
             runs.append((directory, work))
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run.cmd_clean(["made"]), 0)
-        run.gc(lambda _message: None)
+        gc.gc(lambda _message: None)
         with redirect_stdout(io.StringIO()):
             self.assertEqual(orch.cmd_stop(["atoll"]), 0)
         for directory, work in runs:
             self.assertTrue((directory / "run.json").is_file(), directory)
             self.assertTrue((work / "crosscheck.md").is_file(), work)
         # with the seat gone, the collector takes each workspace with its run directory
-        run.gc(lambda _message: None)
+        gc.gc(lambda _message: None)
         for directory, work in runs:
             self.assertFalse(directory.exists())
             self.assertFalse(work.exists())
@@ -408,8 +408,8 @@ class Cleanup(Sandbox):
     def test_31_day_run_directory_is_collected(self):
         directory, _, branch = self.receipt("ancient", state="pass", merged=False,
                                             age=31 * DAY, launched_session=None)
-        self.assertIn(str(directory), {item["path"] for item in run.gc_plan()})
-        run.gc(lambda _message: None)
+        self.assertIn(str(directory), {item["path"] for item in gc.gc_plan()})
+        gc.gc(lambda _message: None)
         self.assertFalse(directory.exists())
         # oblivion takes the branch with the record: nothing points at it anymore
         self.assertFalse(self.branch_exists(branch))
@@ -418,8 +418,8 @@ class Cleanup(Sandbox):
         self.seat("living")
         directory, _, _ = self.receipt("kept", state="pass", merged=True, age=31 * DAY,
                                        owner="living")
-        self.assertNotIn(str(directory), {item["path"] for item in run.gc_plan()})
-        run.gc(lambda _message: None)
+        self.assertNotIn(str(directory), {item["path"] for item in gc.gc_plan()})
+        gc.gc(lambda _message: None)
         self.assertTrue((directory / "result.md").is_file())
         self.assertTrue((directory / "run.json").is_file())
 
@@ -445,7 +445,7 @@ class Cleanup(Sandbox):
         old = ephemeral("old-smoke", 2 * DAY)
         young = ephemeral("young-smoke", 3600)
         held = ephemeral("held-smoke", 2 * DAY, live=True)
-        removed = set(run.gc(lambda _message: None))
+        removed = set(gc.gc(lambda _message: None))
         self.assertIn(str(old), removed)
         self.assertFalse(old.exists())
         self.assertTrue(young.is_dir())

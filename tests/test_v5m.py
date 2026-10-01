@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, notify, orch, run, terminal, usage, watch
+from agentkit import config, gc, menu, notify, orch, run, terminal, usage, watch
 
 SEAT = "seat-v5m"          # the seat every one of these runs is launched from
 
@@ -103,7 +103,7 @@ class Sandbox(unittest.TestCase):
         self.stack.enter_context(patch.object(terminal, "height", return_value=24))
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
-        self.stack.enter_context(patch.object(run, "disk_pressure", return_value=False))
+        self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run.time, "sleep"))
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -183,7 +183,7 @@ class MenuOpensOnTheSeats(Sandbox):
         told = self.receipt("run-3-told", "An ending already handed back", reported=True)
         messages = []
         with patch.object(orch, "stamp"), \
-                patch.object(orch, "sweep"), patch.object(run, "schedule_gc"):
+                patch.object(orch, "sweep"), patch.object(gc, "schedule_gc"):
             orch.maintenance(messages.append)
         # nothing at all: no receipt line, and no warning while producing none
         self.assertEqual(messages, [])
@@ -199,7 +199,7 @@ class MenuOpensOnTheSeats(Sandbox):
                               state="running", verdict=None, finished_at=None, pid=99999999)
         messages = []
         with patch.object(orch, "stamp"), \
-                patch.object(orch, "sweep"), patch.object(run, "schedule_gc"), \
+                patch.object(orch, "sweep"), patch.object(gc, "schedule_gc"), \
                 patch.object(orch, "find", return_value=None), \
                 patch.object(notify, "shaped", return_value=0) as shaped, \
                 redirect_stdout(io.StringIO()):
@@ -278,7 +278,7 @@ class NothingBelowTheLoopHasASeat(Sandbox):
         # nothing is printed or sent when a seat opens
         messages = []
         with patch.object(orch, "stamp"), \
-                patch.object(orch, "sweep"), patch.object(run, "schedule_gc"), \
+                patch.object(orch, "sweep"), patch.object(gc, "schedule_gc"), \
                 patch.object(notify, "shaped", side_effect=AssertionError("notified")):
             orch.maintenance(messages.append)
         self.assertEqual(messages, [])

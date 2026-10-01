@@ -20,7 +20,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import config, menu, orch, run, terminal, usage, watch
+from agentkit import config, gc, menu, orch, run, terminal, usage, watch
 
 TALLY = "2 running · 1 needs a look"
 
@@ -51,7 +51,7 @@ def offline(case):
     case.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
     case.stack.enter_context(patch.object(run, "process_identity", side_effect=lambda pid, **_kw: (
         {"boot": "fixture-boot", "ticks": 1, "started_at": 1.0} if pid == os.getpid() else None)))
-    case.stack.enter_context(patch.object(run, "disk_pressure", return_value=None))
+    case.stack.enter_context(patch.object(gc, "disk_pressure", return_value=None))
 
 
 class Bar(Sandbox):
@@ -349,7 +349,7 @@ class Writes(Sandbox):
                 patch.object(run, "git", return_value=""), \
                 patch.object(run, "make_worktree", return_value=(wt, "ak/test")), \
                 patch.object(run, "exclude_junk", return_value=None), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run.usage, "collect", return_value={}), \
                 patch.object(run, "review", return_value="FAIL"), \
                 patch.object(run, "restore_review_checkout", return_value=None), \
@@ -418,7 +418,7 @@ class Writes(Sandbox):
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-worktree": False, "--no-merge": False, "--bg": False}
         with patch.dict(os.environ, {"AGENTKIT_SESSION": "", "AGENTKIT_GC_DISK_PERCENT": "0"}), \
-                patch.object(run, "gc") as collected, \
+                patch.object(gc, "gc") as collected, \
                 patch.object(run, "pick_models", return_value=("opus", "astra")), \
                 patch.object(run, "rounds", return_value=None), \
                 patch.object(run.usage, "collect", return_value={}):
@@ -446,7 +446,7 @@ class Writes(Sandbox):
                 patch.object(run, "git", return_value=""), \
                 patch.object(run, "make_worktree", return_value=(wt, "ak/test")), \
                 patch.object(run, "exclude_junk", return_value=None), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run.usage, "collect", return_value=providers), \
                 patch.object(run, "review", return_value="FAIL"), \
                 patch.object(run, "restore_review_checkout", return_value=None):

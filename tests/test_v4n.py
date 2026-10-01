@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, run, terminal, usage
+from agentkit import config, gc, menu, orch, run, terminal, usage
 from agentkit.harness import codex as codex_plugin
 
 
@@ -57,8 +57,8 @@ class Sandbox(unittest.TestCase):
         config.ensure_dirs()
         system_tmp = self.root / "system-tmp"
         system_tmp.mkdir(exist_ok=True)
-        self.stack.enter_context(patch.object(run, "TMP_BASE", system_tmp))
-        self.stack.enter_context(patch.object(run, "VAR_TMP_BASE", system_tmp))
+        self.stack.enter_context(patch.object(gc, "TMP_BASE", system_tmp))
+        self.stack.enter_context(patch.object(gc, "VAR_TMP_BASE", system_tmp))
 
     def ended(self, name, owner="gone-seat", **extra):
         directory = config.RUNS / name

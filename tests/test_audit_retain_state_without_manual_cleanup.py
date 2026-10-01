@@ -23,7 +23,7 @@ from unittest.mock import patch
 REAL_TMUX = shutil.which("tmux")
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, notify, orch, retention, run, update, watch
+from agentkit import config, gc, menu, notify, orch, retention, run, update, watch
 
 DAY = 86400
 
@@ -71,8 +71,8 @@ sys.exit(1)
         config.ensure_dirs()
         system_tmp = self.root / "system-tmp"
         system_tmp.mkdir(exist_ok=True)
-        self.stack.enter_context(patch.object(run, "TMP_BASE", system_tmp))
-        self.stack.enter_context(patch.object(run, "VAR_TMP_BASE", system_tmp))
+        self.stack.enter_context(patch.object(gc, "TMP_BASE", system_tmp))
+        self.stack.enter_context(patch.object(gc, "VAR_TMP_BASE", system_tmp))
         self.cfg = config.load()
         workers = self.cfg["defaults"]["workers"]
         self.executor = workers[0]
@@ -252,15 +252,15 @@ if not review:
                  str(failed_wt), str(old_smoke), str(old_view), str(old_update),
                  str(abandoned), str(interrupted_tmp)}
         before = self.snapshot(self.root)
-        plan = run.gc_plan()
+        plan = gc.gc_plan()
         self.assertEqual({p["path"] for p in plan}, paths)
-        dry = self.capture(run.cmd_gc, ["--dry-run"])
+        dry = self.capture(gc.cmd_gc, ["--dry-run"])
         after_plan = self.snapshot(self.root)
         self.assertEqual([key for key in before if before[key] != after_plan.get(key)], [])
         self.assertEqual(after_plan, before)
         for path in paths:
             self.assertIn(path, dry)
-        removed = run.gc(lambda _: None)
+        removed = gc.gc(lambda _: None)
         self.assertEqual(set(removed), paths)
         self.assertFalse(merged_wt.exists())
         self.assertFalse(recent_wt.exists())
@@ -277,7 +277,7 @@ if not review:
         self.assertTrue(all(p.exists() for p in (scratch_wt, live, foreign)))
         self.assertTrue(link.is_symlink())
         after = self.snapshot(config.HOME)
-        self.assertEqual(run.gc(lambda _: None), [])
+        self.assertEqual(gc.gc(lambda _: None), [])
         self.assertEqual(self.snapshot(config.HOME), after)
         rows = json.loads(self.capture(run.cmd_status, ["--json"]))
         self.assertEqual(rows[0]["run_id"], active.name)
@@ -318,11 +318,11 @@ if not review:
         # pressure or not. A failed checkout of twenty days goes; unique and unmerged work stays.
         expected = {str(old_wt), str(old / "log.txt"), str(recent_wt), str(recent / "log.txt"),
                     str(failed_wt), str(old_view)}
-        self.assertEqual({item["path"] for item in run.gc_plan()}, expected)
-        with patch.object(run, "disk_pressure", return_value=(99, 85)):
-            self.assertEqual({item["path"] for item in run.gc_plan()}, expected)
-            self.assertEqual(set(run.gc(lambda _: None)), expected)
-            self.assertEqual(run.gc(lambda _: None), [])
+        self.assertEqual({item["path"] for item in gc.gc_plan()}, expected)
+        with patch.object(gc, "disk_pressure", return_value=(99, 85)):
+            self.assertEqual({item["path"] for item in gc.gc_plan()}, expected)
+            self.assertEqual(set(gc.gc(lambda _: None)), expected)
+            self.assertEqual(gc.gc(lambda _: None), [])
         for directory in (unmerged, dirty, ignored, extra, foreign):
             self.assertTrue((directory / "log.txt").exists())
         self.assertTrue((failed / "log.txt").exists())
@@ -355,14 +355,14 @@ if not review:
         retention.marker(corrupt).write_text("{")
         with retention.marker(held).open() as lease:
             fcntl.flock(lease, fcntl.LOCK_EX)
-            self.assertEqual(run.gc_plan(), [])
-            self.assertEqual(run.gc(lambda _: None), [])
+            self.assertEqual(gc.gc_plan(), [])
+            self.assertEqual(gc.gc(lambda _: None), [])
         child.terminate()
         child.wait(timeout=10)
-        candidates = {item["path"] for item in run.gc_plan()}
+        candidates = {item["path"] for item in gc.gc_plan()}
         self.assertEqual(candidates, {str(view), str(held)})
         # A file changed since planning cannot be removed by a cached candidate.
-        item = next(i for i in run.gc_plan() if i["path"] == str(view))
+        item = next(i for i in gc.gc_plan() if i["path"] == str(view))
         view.write_text("a writer returned")
         self.assertFalse(retention.remove_ephemeral(item))
         self.assertTrue(view.exists())
@@ -377,7 +377,7 @@ if not review:
         marker = retention.marker(ephemeral)
         marker.with_name(marker.name + ".part").symlink_to(directory / "run.json")
         before = self.snapshot(self.root)
-        plan = run.gc_plan()
+        plan = gc.gc_plan()
         after = self.snapshot(self.root)
         self.assertEqual([key for key in before if before[key] != after.get(key)], [])
         self.assertEqual(after, before)
@@ -386,7 +386,7 @@ if not review:
         hard = self.ephemeral("smoke-hardlink")
         os.link(directory / "attachment.txt", hard / "foreign-data")
         self.old(hard)
-        self.assertNotIn(str(hard), {item["path"] for item in run.gc_plan()})
+        self.assertNotIn(str(hard), {item["path"] for item in gc.gc_plan()})
 
     def test_malformed_receipts_do_not_authorize_retention(self):
         nan, nan_wt = self.receipt("nan", finished_at=float("nan"))
@@ -410,8 +410,8 @@ if not review:
         # identity that cannot be read, or a worktree that is not the run's, still
         # authorises nothing, and neither does a tmp receipt with a NaN clock.
         expected = {str(nan_wt), str(nan / "log.txt")}
-        self.assertEqual({item["path"] for item in run.gc_plan()}, expected)
-        self.assertEqual(set(run.gc(lambda _: None)), expected)
+        self.assertEqual({item["path"] for item in gc.gc_plan()}, expected)
+        self.assertEqual(set(gc.gc(lambda _: None)), expected)
         self.assertFalse(nan_wt.exists())
         for name in ("bad-pid", "bad-identity", "bad-worktree"):
             self.assertTrue((config.WT / name).exists(), name)
@@ -435,15 +435,15 @@ if not review:
         self.assertEqual((work / "deliverable.txt").read_text(), "unique fixture output")
         self.assertIn("deliverable.txt", (directory / "result.md").read_text())
         self.old(directory, 31 * DAY)
-        with patch.object(run, "disk_pressure", return_value=(99, 85)):
-            run.gc(lambda _: None)
+        with patch.object(gc, "disk_pressure", return_value=(99, 85)):
+            gc.gc(lambda _: None)
         self.assertTrue((directory / "result.md").exists())
         self.assertTrue((work / "deliverable.txt").exists())
         state = run.read_state(directory)
         state.update(started_at=self.now - 31 * DAY, finished_at=self.now - 31 * DAY,
                      pid=99999999, process_identity=None)
         run.save_state(directory, state)
-        run.gc(lambda _: None)
+        gc.gc(lambda _: None)
         self.assertFalse(directory.exists())
         self.assertFalse(work.exists())
 
@@ -472,17 +472,17 @@ if not review:
         self.old(active)
         before = self.snapshot(config.HOME)
         with patch.object(retention, "unix_sockets", return_value=None):
-            self.assertEqual(run.gc_plan(), [])
-        plan = run.gc_plan()
+            self.assertEqual(gc.gc_plan(), [])
+        plan = gc.gc_plan()
         self.assertEqual({item["path"] for item in plan}, {str(smoke)})
-        self.capture(run.cmd_gc, ["--dry-run"])
+        self.capture(gc.cmd_gc, ["--dry-run"])
         self.assertEqual(self.snapshot(config.HOME), before)
-        self.assertEqual(run.gc(lambda _: None), [str(smoke)])
+        self.assertEqual(gc.gc(lambda _: None), [str(smoke)])
         self.assertTrue(active.exists())
-        self.assertEqual(run.gc(lambda _: None), [])
+        self.assertEqual(gc.gc(lambda _: None), [])
         live.close()
-        self.assertEqual(run.gc(lambda _: None), [str(active)])
-        self.assertEqual(run.gc(lambda _: None), [])
+        self.assertEqual(gc.gc(lambda _: None), [str(active)])
+        self.assertEqual(gc.gc(lambda _: None), [])
 
     def test_same_second_updates_use_unique_logs_and_optional_registration(self):
         self.muse_install_layout()
@@ -513,7 +513,7 @@ if not review:
             self.assertEqual(len(list(config.TMP.glob("update-*.log"))), 3)
             # The minute-old merged checkout is eligible at once. The symlinked tmp
             # still contributes nothing: a link is not a receipt.
-            self.assertEqual({item["path"] for item in run.gc_plan()},
+            self.assertEqual({item["path"] for item in gc.gc_plan()},
                              {str(wt), str(directory / "log.txt")})
         # The actual shell prologue also succeeds when HOME contains a symlink; it simply
         # leaves its files unregistered. No models, sockets or account commands follow it.
@@ -538,30 +538,30 @@ if not review:
         (custom / "events.jsonl").write_text("user output, not a worker stream")
         self.old(custom)
         expected = {str(wt), str(log)}
-        self.assertEqual({item["path"] for item in run.gc_plan()}, expected)
-        self.assertEqual(set(run.gc(lambda _: None)), expected)
+        self.assertEqual({item["path"] for item in gc.gc_plan()}, expected)
+        self.assertEqual(set(gc.gc(lambda _: None)), expected)
         self.assertEqual(gzip.decompress((directory / "log.txt.gz").read_bytes()), data)
         self.assertFalse(part.exists())
         self.assertTrue((custom / "events.jsonl").exists())
         # Publication succeeded but the process died before unlinking the source.
         log.write_bytes(data)
         self.old(log)
-        self.assertEqual(run.gc(lambda _: None), [str(log)])
+        self.assertEqual(gc.gc(lambda _: None), [str(log)])
         self.assertEqual(gzip.decompress((directory / "log.txt.gz").read_bytes()), data)
         log.write_bytes(b"different unique content")
         self.old(log)
-        self.assertEqual(run.gc(lambda _: None), [])
+        self.assertEqual(gc.gc(lambda _: None), [])
         self.assertEqual(log.read_bytes(), b"different unique content")
 
     def test_unknown_processes_live_worktrees_and_partial_state_prevent_collection(self):
         directory, wt = self.receipt("busy-checkout")
         temp = self.ephemeral("smoke-unknown")
         with patch.object(retention, "process_paths", return_value=None):
-            self.assertEqual(run.gc_plan(), [])
+            self.assertEqual(gc.gc_plan(), [])
         with patch.object(retention, "process_paths", return_value={str(wt / "tracked")}):
-            self.assertEqual({item["path"] for item in run.gc_plan()}, {str(temp)})
+            self.assertEqual({item["path"] for item in gc.gc_plan()}, {str(temp)})
         (directory / "run.tmp").write_text('{"state":"running"')
-        self.assertEqual({item["path"] for item in run.gc_plan()}, {str(temp)})
+        self.assertEqual({item["path"] for item in gc.gc_plan()}, {str(temp)})
         self.assertTrue(wt.exists())
         self.assertTrue((directory / "log.txt").exists())
 
@@ -569,13 +569,13 @@ if not review:
         empty = self.root / "absent"
         with patch.object(config, "HOME", empty), patch.object(config, "RUNS", empty / "runs"), \
                 patch.object(config, "TMP", empty / "tmp"):
-            self.assertIn("no eligible", self.capture(run.cmd_gc, ["--dry-run"]))
+            self.assertIn("no eligible", self.capture(gc.cmd_gc, ["--dry-run"]))
             self.assertFalse(empty.exists())
         target = self.ephemeral("smoke-foreign-target")
         alias = self.root / "alias"
         alias.symlink_to(config.TMP, target_is_directory=True)
         with patch.object(config, "TMP", alias):
-            self.assertEqual(run.gc_plan(), [])
+            self.assertEqual(gc.gc_plan(), [])
         self.assertTrue(target.exists())
 
     @unittest.skipUnless(REAL_TMUX, "tmux not installed")
@@ -677,7 +677,7 @@ if not review:
         disposable = self.ephemeral("smoke-auto")
         self.seat("gone")
         with patch.object(watch, "health"), patch.object(notify, "retry_pending"), \
-                patch.object(run, "schedule_gc", side_effect=lambda log: run.gc(log, automatic=True)), \
+                patch.object(gc, "schedule_gc", side_effect=lambda log: gc.gc(log, automatic=True)), \
                 patch.object(watch, "gh_json", return_value=(None, "offline")), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(watch.main([]), 0)     # the offline GitHub is skipped, not fatal
@@ -801,26 +801,26 @@ if not review:
             return original_hash(kind, data)
         with patch.object(retention, "reading", side_effect=reading), \
                 patch.object(retention, "git_hash", side_effect=hashing):
-            self.assertEqual(run.gc_plan(), [])
+            self.assertEqual(gc.gc_plan(), [])
         with patch.object(run.subprocess, "Popen") as launch, \
-                patch.object(run, "gc_candidates", side_effect=AssertionError("scanned in foreground")):
-            run.schedule_gc(lambda _: None)
+                patch.object(gc, "gc_candidates", side_effect=AssertionError("scanned in foreground")):
+            gc.schedule_gc(lambda _: None)
             launch.assert_called_once()
             self.assertEqual(launch.call_args.args[0][-2:], ["agentkit.retention", "collect"])
             self.assertTrue(launch.call_args.kwargs["start_new_session"])
             self.assertEqual(launch.call_args.kwargs["env"]["HOME"], str(self.root))
         candidate = self.ephemeral("smoke-daily")
         with patch.object(run.time, "time", return_value=self.now):
-            self.assertEqual(run.gc(lambda _: None, automatic=True), [str(candidate)])
+            self.assertEqual(gc.gc(lambda _: None, automatic=True), [str(candidate)])
             before = self.snapshot(config.HOME)
-            with patch.object(run, "gc_candidates", side_effect=AssertionError("daily cooldown")), \
+            with patch.object(gc, "gc_candidates", side_effect=AssertionError("daily cooldown")), \
                     patch.object(run.subprocess, "Popen", side_effect=AssertionError("daily cooldown")):
-                self.assertEqual(run.gc(lambda _: None, automatic=True), [])
-                run.schedule_gc(lambda _: None)
+                self.assertEqual(gc.gc(lambda _: None, automatic=True), [])
+                gc.schedule_gc(lambda _: None)
             self.assertEqual(self.snapshot(config.HOME), before)
         later = self.ephemeral("smoke-next-day")
         with patch.object(run.time, "time", return_value=self.now + DAY + 1):
-            self.assertEqual(run.gc(lambda _: None, automatic=True), [str(later)])
+            self.assertEqual(gc.gc(lambda _: None, automatic=True), [str(later)])
         self.assertEqual(output.read_text(), "unique build output")
 
     def test_portable_seat_reads_keep_recovery_and_retire_read_notices(self):
@@ -868,8 +868,8 @@ if not review:
                 # The strict planner and scheduler must still decline unsupported collection.
                 with patch.object(run.subprocess, "Popen", side_effect=AssertionError("unsupported GC")):
                     for _ in range(3):
-                        run.schedule_gc(lambda _: None)
-                    self.assertEqual(run.gc_plan(), [])
+                        gc.schedule_gc(lambda _: None)
+                    self.assertEqual(gc.gc_plan(), [])
             self.assertEqual((self.snapshot(config.RUNS, False), self.snapshot(config.WT, False)), evidence)
 
     def test_registration_process_failure_does_not_abort_smoke_or_update_jobs(self):
@@ -921,21 +921,21 @@ sys.exit(int(os.environ["FIXTURE_UPDATE_RC"]))
         path, previous = config.STATE / "gc.log", config.STATE / "gc.log.1"
         with patch.object(run.time, "time", return_value=self.now):
             expected = {str(wt), str(directory / "log.txt"), str(temp)}
-            self.assertEqual(set(run.gc(lambda _: None, automatic=True)), expected)
+            self.assertEqual(set(gc.gc(lambda _: None, automatic=True)), expected)
         log = path.read_text()
         for action in (f"remove merged-worktree {wt}", f"compress merged-log {directory / 'log.txt'}",
                        f"remove smoke {temp}"):
             self.assertIn(action, log)
         first_log = log
-        with patch.object(run, "GC_LOG_LIMIT", len(log.encode()) + 1):
+        with patch.object(gc, "GC_LOG_LIMIT", len(log.encode()) + 1):
             for days in (1, 2):
                 with patch.object(run.time, "time", return_value=self.now + days * DAY + 1):
-                    run.gc(lambda _: None, automatic=True)
+                    gc.gc(lambda _: None, automatic=True)
         self.assertEqual(previous.read_text(), first_log)
         self.assertLessEqual(path.stat().st_size, len(first_log.encode()) + 1)
         self.assertEqual(sorted(p.name for p in config.STATE.glob("gc.log*")), ["gc.log", "gc.log.1"])
         before = self.snapshot(config.HOME)
-        self.capture(run.cmd_gc, ["--dry-run"])
+        self.capture(gc.cmd_gc, ["--dry-run"])
         self.assertEqual(self.snapshot(config.HOME), before)
 
     def test_collector_probe_and_log_paths_decline_unsafe_state(self):
@@ -945,14 +945,14 @@ sys.exit(int(os.environ["FIXTURE_UPDATE_RC"]))
             target.write_text("keep")
             path.symlink_to(target)
             before = self.snapshot(config.HOME)
-            self.assertEqual(run.gc(lambda _: None, automatic=True), [])
+            self.assertEqual(gc.gc(lambda _: None, automatic=True), [])
             self.assertTrue(candidate.exists())
             self.assertEqual(target.read_text(), "keep")
             self.assertEqual(self.snapshot(config.HOME), before)
             path.unlink()
         with patch.object(retention, "reading", side_effect=OSError("no-atime open denied")), \
                 patch.object(run.subprocess, "Popen", side_effect=AssertionError("unsupported GC")):
-            run.schedule_gc(lambda _: None)
+            gc.schedule_gc(lambda _: None)
 
     def test_malformed_runs_do_not_block_health_retry_menu_or_other_seats(self):
         for name, state in {"00-array": [], "01-scalar": 1,
@@ -968,7 +968,7 @@ sys.exit(int(os.environ["FIXTURE_UPDATE_RC"]))
         order = []
         with patch.object(notify, "retry_pending", side_effect=lambda **kw: order.append("retry")), \
                 patch.object(watch, "health", side_effect=lambda *a: order.append("health")), \
-                patch.object(run, "schedule_gc", side_effect=lambda *a: order.append("schedule")), \
+                patch.object(gc, "schedule_gc", side_effect=lambda *a: order.append("schedule")), \
                 patch.object(orch, "sweep", side_effect=AttributeError("bad metadata")), \
                 patch.object(watch, "gh_json", side_effect=lambda *a: (order.append("github") or
                                                                         (None, "offline"))), \
@@ -977,7 +977,7 @@ sys.exit(int(os.environ["FIXTURE_UPDATE_RC"]))
         self.assertEqual(order, ["retry", "health", "schedule", "github"])
         good, _ = self.receipt("99-good", state="fail", reported=False, launched_session="open")
         bad, _ = self.receipt("98-bad", state="fail", reported=False, launched_session="bad/name")
-        with patch.object(run, "schedule_gc"), \
+        with patch.object(gc, "schedule_gc"), \
                 patch.object(orch, "sessions", return_value=[{"name": "open"}]), \
                 patch.object(orch, "stamp"), patch.object(orch, "sweep", side_effect=ValueError("bad state")):
             messages = []

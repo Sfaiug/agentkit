@@ -493,6 +493,14 @@ def remove_ephemeral(item):
     return True
 
 
+def remove(path, directory=False, ignore_errors=False):
+    """Delete an entry after the caller revalidates it; directory removal never follows links."""
+    if directory:
+        shutil.rmtree(path, ignore_errors=ignore_errors)
+    else:
+        path.unlink()
+
+
 def stale_sandboxes(now, paths):
     """`smoke-*` a day old, on the name and the age alone: what `ak run gc` takes.
 
@@ -915,8 +923,8 @@ def compress(path, expected):
 if __name__ == "__main__":
     import sys
     if sys.argv[1:] == ["collect"]:
-        from . import run
-        run.gc(print, automatic=True)
+        from . import gc
+        gc.gc(print, automatic=True)
     elif sys.argv[1] == "begin":
         begin(Path(sys.argv[2]), sys.argv[3], int(sys.argv[4]))
     elif sys.argv[1] == "finish":
