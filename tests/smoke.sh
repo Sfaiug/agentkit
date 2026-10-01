@@ -3867,7 +3867,7 @@ grep -q '^would run ssh -t srv ak --client$' "$WORK/client-dry.log" || CLIENT=1
                 || { no "20b client menu"; sed 's/^/      ssh /' "$SSHLOG" | head -8; sed 's/^/      /' "$WORK/client.log" | head -6; }
 
 # --- 20d: finished-run receipts stay off the menu entirely (offline) --------
-# Drive startup through the menu: warnings appear once before the header and never enter the
+# Drive startup through the menu: warnings appear once after the first frame and never enter the
 # main screen, and an ending owned by a live seat -- including one older than the runs list --
 # is nowhere on it, because that seat reports it.  The notice line keeps its phone shape, so
 # that is still checked -- against run.summary_line, which is where it is made.
@@ -3879,6 +3879,7 @@ import io
 import re
 import time
 from contextlib import redirect_stdout
+from unittest.mock import patch
 
 from agentkit import config, menu, orch, run
 
@@ -3917,12 +3918,14 @@ for name, extra in {
 
 WARNING = "WARN could not check the runs: a run record could not be read"
 starts = [["agentkit: reaped a loop whose process was gone", WARNING], []]
-real_maintenance = orch.maintenance
+real_maintenance, real_wait_key = orch.maintenance, menu.wait_key
 def maintenance(log):                          # the notices a menu opening prints, injected:
     for line in starts.pop(0):                 # nothing on this path touches git any more
         log(line)
     real_maintenance(log)
 orch.maintenance = maintenance
+
+
 assert config.RUNS / "run-2-owned" in [path for path, _ in menu.run_records()]
 orch.sessions = lambda: [{"name": "orch-notice", "path": str(config.CODE), "attached": False,
                           "created": int(time.time()) - 600}]
@@ -3931,17 +3934,27 @@ orch.sessions = lambda: [{"name": "orch-notice", "path": str(config.CODE), "atta
 def menu_lines():
     """Every non-empty line one menu printed, the trailing `> ` prompt included."""
     out = io.StringIO()
-    with redirect_stdout(out):
+    live, waited = menu.Live(cfg), False
+    def wait_key(prompt, timeout=None, wake=None):
+        nonlocal waited
+        if not waited:
+            assert live.tidied.wait(30)
+            waited = True
+            return None     # draw the notice even if maintenance finished before this wait
+        return real_wait_key(prompt, timeout, wake)
+    with patch.object(menu, "Live", return_value=live), \
+            patch.object(menu, "wait_key", side_effect=wait_key), redirect_stdout(out):
         assert menu.main([]) == 0
     return [line for line in out.getvalue().splitlines() if line.strip()]
 
 
 lines = menu_lines()
-header = next(i for i, line in enumerate(lines) if line.startswith("agentkit"))
-before, screen = lines[:header], lines[header:]
-assert " agentkit: reaped a loop whose process was gone" in before, lines
-assert f" {WARNING}" in before and WARNING not in "\n".join(screen), lines
-assert not [line for line in before if " — " in line], before   # no ending is handed back here
+assert lines[0].startswith("agentkit"), lines        # the first frame, before any notice
+told = lines.index(" agentkit: reaped a loop whose process was gone")
+again = next(i for i in range(told, len(lines)) if lines[i].startswith("agentkit"))
+screen, said = lines[:told], lines[told:again]
+assert f" {WARNING}" in said and WARNING not in "\n".join(screen + lines[again:]), lines
+assert not [line for line in said if " — " in line], said   # no ending is handed back here
 notices = [run.summary_line(run.read_state(config.RUNS / name))
            for name in ("run-2-owned", "run-3-broken", "run-4-huge", "run-5-path")]
 owned, broken, huge, path = notices
@@ -3961,26 +3974,27 @@ assert any(line.strip().startswith("1  orch-notice") for line in screen), screen
 assert any("usage left" in line for line in screen), screen
 # The menu at rest is the projects and their seats: a run of nobody's is neither a
 # heading nor a row, whatever its repository, and `ak run status` is where it is looked up.
-assert not any("scratch" in line for line in screen), screen
-assert not any("Launched by hand" in line or "\u21b3" in line for line in screen), screen
 assert any(line == "no project" for line in screen), screen
-assert not any("seats" in line for line in screen), screen
 # the count is said once, on the top line; each needing row says its own word
 assert sum(line.lstrip().startswith("your projects") and "need" in line
            for line in screen) <= 1, screen
 # a usage row with no reading is `—` and why (v5c); a receipt is `— PASS`, `— FAIL`, `— ERROR`
 RECEIPT = re.compile(r" — (?:PASS|FAIL|ERROR)\b")
-assert not any(RECEIPT.search(line) or "Rewrite the finished" in line
-               for line in screen), screen
 second = menu_lines()
-assert not [line for line in second if RECEIPT.search(line) or WARNING in line], second
+for frame in (screen, lines[again:], second):
+    assert not any("scratch" in line for line in frame), frame
+    assert not any("Launched by hand" in line or "\u21b3" in line for line in frame), frame
+    assert not any("seats" in line for line in frame), frame
+    assert not any(RECEIPT.search(line) or "Rewrite the finished" in line
+                   for line in frame), frame
+assert not any(WARNING in line for line in second), second
 assert not any("reaped a loop whose process was gone" in line for line in second), second
 # opening the menu tells nobody anything, so nothing on it is marked told: `r` still owes them
 assert not any(run.read_state(config.RUNS / n)["reported"] for n in
                ("run-1-by-hand", "run-2-owned", "run-3-broken", "run-4-huge", "run-5-path"))
 print("\n".join(notices))
 PY
-[ "$NOTICERC" = 0 ] && ok "20d warnings shown once before the menu; a live seat's endings -- an eight-hour-old result included -- are nowhere on it and stay unreported, and the notice line keeps its phone shape" \
+[ "$NOTICERC" = 0 ] && ok "20d warnings shown once, after the menu's first frame; a live seat's endings -- an eight-hour-old result included -- are nowhere on it and stay unreported, and the notice line keeps its phone shape" \
                   || { no "20d the menu's finished-run notice"; sed 's/^/      /' "$WORK/menu-notice.log" | head -14; }
 
 # --- 20e: the menu as a popup inside a seat (offline, real tmux seats) --------
@@ -4376,21 +4390,40 @@ json.dump({"orchestrator": "fable", "workers": ["opus"], "cwd": "/tmp",
            "created": time.time() - 9 * 86400, "seen": time.time() - 8 * 86400,
            "conversation": "conv-old"}, open(sys.argv[1], "w"))
 STALE
-printf '\n' | akn >"$WORK/name-sweep.log" 2>&1 || NAME=1
-# The sweep is reported once before the header, and stays off the main screen.
-python3 - "$WORK/name-sweep.log" <<'SWEEP' || NAME=1
+# A sweep says it will forget a seat before unlinking it: wait for completion, then redraw.
+HOME="$NH" AGENTKIT_ADAPTER_DIR="$NAD" PYTHONPATH="$REPO" \
+  python3 - "$WORK/name-sweep.log" "$WORK/name-sweep-again.log" <<'SWEEP' || NAME=1
+from contextlib import redirect_stdout
+import io
 from pathlib import Path
 import sys
+from unittest.mock import patch
+
+from agentkit import config, menu
+
+for path in map(Path, sys.argv[1:]):
+    live, waited = menu.Live(config.load()), False
+    def wait_key(prompt, timeout=None, wake=None):
+        global waited
+        if not waited:
+            assert live.tidied.wait(30)
+            waited = True
+            return None     # a finished sweep may still have its notice queued
+        return ""
+    with patch.object(menu, "Live", return_value=live), \
+            patch.object(menu, "wait_key", side_effect=wait_key), redirect_stdout(io.StringIO()) as out:
+        assert menu.main([]) == 0
+    path.write_text(out.getvalue())
+
+# The sweep is reported once, as a notice after the first frame, and never on a frame.
 text = Path(sys.argv[1]).read_text()
 lines = text.splitlines()
-header_at = next(i for i, line in enumerate(lines) if line.startswith("agentkit"))
-before, screen = "\n".join(lines[:header_at]), "\n".join(lines[header_at:])
-assert before.count("forgot the session stale-seat, gone for 8d") == 1, text
-assert "forgot the session stale-seat" not in screen, text
+said = [i for i, line in enumerate(lines) if "forgot the session stale-seat" in line]
+assert lines[0].startswith("agentkit") and len(said) == 1, text
+assert lines[said[0]] == " forgot the session stale-seat, gone for 8d", text
+assert "forgot the session stale-seat" not in Path(sys.argv[2]).read_text()
+assert not config.session_path("stale-seat").exists()
 SWEEP
-printf '\n' | akn >"$WORK/name-sweep-again.log" 2>&1 || NAME=1
-grep -q 'forgot the session stale-seat' "$WORK/name-sweep-again.log" && NAME=1
-[ -e "$NH/.agentkit/state/session-stale-seat.json" ] && NAME=1
 for seat in my-big-task "$NSECOND" resume-seat by-hand pair-one pair-two old-seat old-renamed; do
   tm kill-session -t "=$seat" 2>/dev/null
 done
@@ -4482,8 +4515,13 @@ HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= AGENTKIT_SESSION=smoke-shape ak notify nee
 grep -q 'no webhook configured; message: Needs you . smoke-shape: Which branch?' "$WORK/needs-real.log" || SHAPE=1
 jq -e '.session == "smoke-shape" and .kind == "needs" and .text == "Which branch?" and (.time | type == "number")' \
   "$NSH/.agentkit/state/notify-smoke-shape.json" >/dev/null 2>&1 || SHAPE=1
-printf '\n' | HOME="$NSH" ak --dry-run >"$WORK/menu-shape.log" 2>&1 || SHAPE=1
-grep -qE "^ *$NUM  smoke-shape +astra +! needs you +Which branch\?$" "$WORK/menu-shape.log" || SHAPE=1
+# the first frame is the records as they stand: the line that leaves goes in once the seat's
+# look has landed and drawn its row again
+ROW="^ *$NUM  smoke-shape +astra +! needs you +Which branch\?$"
+rm -f -- "$WORK/menu-shape.log"
+{ for _ in $(seq 300); do grep -qE "$ROW" "$WORK/menu-shape.log" 2>/dev/null && break; sleep 0.1; done
+  printf '\n'; } | HOME="$NSH" ak --dry-run >"$WORK/menu-shape.log" 2>&1 || SHAPE=1
+grep -qE "$ROW" "$WORK/menu-shape.log" || SHAPE=1
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= ak notify needs "no text" --file "$WORK/shape-attach.txt" >"$WORK/needs-file.log" 2>&1
 [ "$?" = 2 ] || SHAPE=1
 # the freeform message went with the attachments: needs, done or --check

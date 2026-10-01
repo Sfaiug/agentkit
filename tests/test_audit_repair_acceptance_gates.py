@@ -408,7 +408,7 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
                 patch.object(menu, "draw", return_value=(0, 1)), \
                 patch.object(menu, "read", side_effect=lambda *_: next(answers)), \
                 patch.object(menu, "wait_key", side_effect=lambda *_: next(answers)), \
-                patch.object(menu, "Live"), \
+                patch.object(menu, "Live", **{"return_value.heard.return_value": []}), \
                 patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:
