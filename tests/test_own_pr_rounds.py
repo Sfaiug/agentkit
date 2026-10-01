@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, run, watch, worker
+from agentkit import config, menu, orch, run, watch, worker
 
 URL = "https://github.com/acme/widget/pull/7"
 
@@ -68,7 +68,8 @@ class OwnPrRounds(unittest.TestCase):
         for name, value in (("viewer_login", "owner"), ("checkout_for", self.repo),
                             ("fetch", (0, "")), ("disk_pressure", False),
                             ("collect_usage", {}), ("checks", (True, "")),
-                            ("process_active", True), ("scope_alive", None)):
+                            ("process_active", True), ("scope_alive", None),
+                            ("host_status_line", "fixture host")):
             self.stack.enter_context(patch.object(run, name, return_value=value))
         self.stack.enter_context(patch.object(run, "pr_view", side_effect=lambda *_: dict(self.pr)))
         self.stack.enter_context(patch.object(run, "gh_json", side_effect=lambda *a, **k: (dict(self.pr), "")))
@@ -245,6 +246,100 @@ class OwnPrRounds(unittest.TestCase):
         self.assertTrue(state["merged"])
         self.assertEqual(len(self.prompts), 2)
         self.assertEqual(len(self.notices), 1)
+
+    def test_default_status_names_the_push_wait(self):
+        def push(seconds):
+            if seconds != run.SLOT_POLL:
+                return
+            for args in ([], ["--plain"], ["--why"], [self.run_dir.name]):
+                with self.subTest(args=args), redirect_stdout(io.StringIO()) as out:
+                    run.cmd_status(args)
+                self.assertIn("waiting for", out.getvalue())
+                self.assertIn("push", out.getvalue())
+            self.push(seconds)
+
+        run.time.sleep.side_effect = push
+        self.assertTrue(self.review(["FAIL", "PASS"])["merged"])
+
+    def test_push_wait_is_never_reported_as_silent(self):
+        def push(seconds):
+            if seconds != run.SLOT_POLL:
+                return
+            state = run.read_state(self.run_dir)
+            with patch.object(watch, "run_last_write", return_value=time.time() - 7200):
+                bare = {**state, "own_pr_wait": None}
+                self.assertEqual(menu.silent_for_run(self.run_dir, bare), "2h")
+                self.assertIsNone(menu.silent_for_run(self.run_dir, state))
+                for silent in (None, {self.run_dir.name: "2h"}):
+                    found = watch.session_state(
+                        "fix-api", session={"name": "fix-api"}, cfg=self.cfg, live={},
+                        records=[(self.run_dir, state)], auth_out={}, gh_out={}, token_out={},
+                        silent=silent)
+                    self.assertEqual(found["word"], "working")
+                    self.assertNotIn("silent", found["reason"])
+            self.push(seconds)
+
+        run.time.sleep.side_effect = push
+        self.assertTrue(self.review(["FAIL", "PASS"])["merged"])
+
+    def assert_resumed_post_finishes_round_one(self):
+        saved = run.read_state(self.run_dir)
+        self.assertEqual(len(saved["round_summaries"]), 1)
+        saved.update(state="queued", pid=999999991)
+        run.save_state(self.run_dir, saved)
+        state = self.review(["FAIL", "PASS"])
+        self.assertTrue(state["merged"])
+        self.assertEqual([(s["round"], s["head_sha"]) for s in state["round_summaries"]],
+                         [(1, self.heads[0]), (2, self.heads[1])])
+        self.assertEqual(len(self.prompts), 2)
+        self.assertEqual(len(self.notices), 1)
+        self.assertEqual(len(self.waits), 1)
+        self.assertEqual(self.merges[0][-1], self.heads[1])
+
+    def test_killed_while_posting_resumes_the_recorded_round(self):
+        def killed(cwd, *args, **_kw):
+            if args[0] == "api":
+                raise InterruptedError("fixture: loop died while posting")
+            return self.gh(cwd, *args)
+
+        with patch.object(run, "gh", side_effect=killed), self.assertRaises(InterruptedError):
+            self.review(["FAIL", "PASS"])
+        self.assert_resumed_post_finishes_round_one()
+        self.assertEqual(self.events, ["event=COMMENT", "event=COMMENT"])
+
+    def test_killed_after_posting_resumes_before_the_push_wait(self):
+        post = run.post_review
+
+        def killed(lp, url, verdict, **_kw):
+            post(lp, url, verdict)
+            raise InterruptedError("fixture: loop died after posting")
+
+        with patch.object(run, "post_review", side_effect=killed), self.assertRaises(InterruptedError):
+            self.review(["FAIL", "PASS"])
+        self.assert_resumed_post_finishes_round_one()
+        self.assertEqual(self.events, ["event=COMMENT", "event=COMMENT"])
+
+    def test_failed_post_retries_without_spending_another_round(self):
+        with patch.object(run, "gh", return_value=(1, "HTTP 502: fixture")):
+            state = self.review(["FAIL", "PASS"])
+        self.assertEqual(state["state"], "error")
+        self.assertTrue(run.resume_holds_tree(state, self.run_dir))
+        self.assert_resumed_post_finishes_round_one()
+
+    def test_round_three_pass_with_a_failed_post_can_still_merge(self):
+        def failed(cwd, *args, **_kw):
+            if args[0] == "api" and len(self.prompts) == 3:
+                return 1, "HTTP 502: fixture"
+            return self.gh(cwd, *args)
+
+        with patch.object(run, "gh", side_effect=failed):
+            state = self.review(["FAIL", "FAIL", "PASS"])
+        self.assertEqual(state["state"], "error")
+        state = self.review(["FAIL", "FAIL", "PASS"])
+        self.assertTrue(state["merged"])
+        self.assertEqual([s["verdict"] for s in state["round_summaries"]], ["FAIL", "FAIL", "PASS"])
+        self.assertEqual(len(self.prompts), 3)
+        self.assertEqual(self.merges[0][-1], self.heads[2])
 
 
 if __name__ == "__main__":
