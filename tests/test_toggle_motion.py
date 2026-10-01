@@ -211,7 +211,7 @@ class NewSessionScreen(unittest.TestCase):
 
     def test_a_mark_empties_when_cleared_and_fills_when_set(self):
         screen, lines = self.picker()
-        number, line = numbered(lines, "Opus")
+        number, line = numbered(lines, "opus")
         cells = moved(screen, new_session.SPACE)
         self.assertEqual(glyphs(cells, number), ["▣", "□"])
         cells = moved(screen, click(mark_column(line, 1), number))
@@ -225,7 +225,7 @@ class NewSessionScreen(unittest.TestCase):
         screen, lines = self.picker()
         screen.send(new_session.SPACE)                  # Opus off: Astra is the last one
         lines = screen.picker(lambda lines: new_session.marks(highlighted(lines)) == "●□■")
-        number, line = numbered(lines, "Astra")
+        number, line = numbered(lines, "astra")
         cells = moved(screen, click(mark_column(line, 1), number))
         self.assertIn("exec needs one model", "\n".join(screen.picker()))
         self.assertEqual(shifts(cells, number, mark_column(line, 1)), [-1, 1, -1, 0])

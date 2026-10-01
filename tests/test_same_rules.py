@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import config, gc, run
 
 TASK = "# Acme rules\n\n## Goal\nTouch acme.txt.\n\n## Done when\n```bash\ntrue\n```\n"
 RULES = "---\ntests: echo acme-suite\nusers: none\n---\n# acme\n\n- Name every fixture acme.\n"
@@ -84,9 +84,9 @@ class SameRules(unittest.TestCase):
         self.repo = self.root / "acme"
         self.repo.mkdir()
         self.git("init", "-q", "-b", "main")
-        for name, value in (("disk_pressure", False), ("launch_session", None),
-                            ("collect_usage", {}), ("pick_models", ("opus", "astra"))):
-            self.stack.enter_context(patch.object(run, name, return_value=value))
+        for module, name, value in ((gc, "disk_pressure", False), (run, "launch_session", None),
+                                    (run, "collect_usage", {}), (run, "pick_models", ("opus", "astra"))):
+            self.stack.enter_context(patch.object(module, name, return_value=value))
         self.stack.enter_context(patch.object(run.usage, "pick_order",
                                              return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub")))

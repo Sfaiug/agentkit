@@ -9,8 +9,8 @@ v5u, v5v and v5z apply this to every other screen.
 Every screen clears the terminal, then one header line: `agentkit` at the
 left, the screen name after it when it is not the menu, the clock at the
 right; under it one dim rule the width of the layout. It ends with one blank
-line, the key line, and the prompt `> ` wherever a line is read; the main menu
-and `c` on a terminal read keys, and end at their key line. The commit hash is not in
+line, the key line, and the prompt `> ` wherever a line is read; the main menu,
+`c` and `n` on a terminal read keys, and end at their key line. The commit hash is not in
 the header.
 
 The rule is ak's one progress indicator, and otherwise just a line. When `ak`
@@ -342,16 +342,19 @@ screen), `terminal.state_text`, `menu.config_tips`.
 
 ## The new-session screen
 
-`n` is `agentkit · new session`. First it asks `Name:`, `auto` dim in the field, then reads the keys:
-`Orchestrator`, then `Workers`, titles in the accent style,
-every model once under each -- `●`/`○` for the one orchestrator, `■`/`□` for
-the workers -- with its harness and effort dim beside it, the names no wider than a third of the
-screen, a longer one cut. The defaults are chosen when it opens;
+`n` is `agentkit · new session`. First it asks `Name:`, two spaces into the content column,
+`auto` dim in the field, with a blank line and `esc back` below it. Then every model appears
+once, with the same configured name and provider heading as on `c`: `Claude`, `ChatGPT`,
+and each other provider's display name in the accent style. Each row has `orch` (`●`/`○`)
+for the one orchestrator, `exec` and `review` (`■`/`□`) for its two role groups, with its
+harness and effort dim beside it. Names are no wider than a third of the screen, a longer
+one cut. The defaults are chosen when it opens;
 a spent model reads dim with `spent · resets <day HH:MM>`, on a line of its own under the name
-where the row does not fit, and is never chosen for him. ↑/↓, k/j and the wheel move one
-highlight through both lists and scroll them on a short screen; space or a click chooses, Enter
-starts from anywhere -- or, with every model spent and a list still empty, takes the highlight to
-it -- Esc goes back, and the last worker stays chosen, its mark shaking (Motion). At the Name question, a taken
+where the row does not fit, and is never chosen for him. ↑/↓, k/j and the wheel move between
+models and scroll them on a short screen, the role headings kept visible; ←/→ choose the role.
+Space or a click chooses, Enter starts from anywhere -- or, with every model spent and a role
+still empty, takes the highlight to it -- Esc goes back, and each role group keeps its last
+model, its mark shaking (Motion). At the Name question, a taken
 name asks again and Esc goes back. Enter leaves `new`, then `new-2`, unnamed until its
 orchestrator knows the job and gives it the shortest name, at most three words, with
 `ak orch rename --auto <name>`. Once named, `--auto` changes nothing, prints the current name and exits 0;
@@ -360,10 +363,11 @@ former name stays reserved, with a variant chosen for a rename from Claude. From
 asks `Name (Enter: auto):`, `Orchestrator [opus]:` and `Workers [opus astra]:` a line at a time,
 Enter or EOF taking each default.
 
-Helpers: `terminal.Keyboard`, `terminal.read_key`, `terminal.highlight`, `terminal.key_spans`,
+Helpers: `terminal.Keyboard`, `terminal.field`, `terminal.read_key`, `terminal.highlight`, `terminal.key_spans`,
+`menu.model_label`, `menu.model_heading`,
 `terminal.toggle` (every mark, here, on `c` and on a project's switches).
 
-Example: `› ● Opus 5.5     claude · xhigh`.
+Example under `Claude`: `› opus    ●     ■      ■     claude · xhigh`.
 
 ## Rows are tables
 

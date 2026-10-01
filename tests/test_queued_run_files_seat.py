@@ -19,7 +19,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox, menu_input
-from agentkit import config, menu, orch, run, terminal, watch
+from agentkit import config, gc, menu, orch, run, terminal, watch
 
 
 class QueuedRunFilesSeat(Sandbox):
@@ -154,7 +154,7 @@ class QueuedRunFilesSeat(Sandbox):
 
                 with chdir(where), patch.dict(os.environ, {
                             config.SESSION_ENV: "other", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}), \
-                        patch.object(run, "disk_pressure", return_value=False), \
+                        patch.object(gc, "disk_pressure", return_value=False), \
                         patch.object(run, "make_worktree", return_value=(worktree, "ak/fixture")), \
                         patch.object(run, "exclude_junk"), \
                         patch.object(run, "pick_models", return_value=("opus", "astra")), \

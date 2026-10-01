@@ -120,6 +120,26 @@ class RoleMarks(Sandbox):
         self.assertTrue(all([cell[2] for cell in own] == [0, 1, 2] for own in cells))
         self.assertIn("[.]", lines[rows[1].start])
 
+    def test_new_session_and_config_share_model_names_and_provider_headings(self):
+        self.cfg["models"]["gpt-sol"] = {**self.cfg["models"]["astra"], "model": "gpt-6.1-sol"}
+        self.cfg["providers"]["acme-cloud"] = {}
+        self.cfg["models"]["keep-Case"] = {**self.cfg["models"]["opus"], "provider": "acme-cloud"}
+        names = config.offered(self.cfg)
+        selected = {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["astra"]}
+        with patch.object(terminal, "layout_width", return_value=80):
+            picker, rows, _ = orch.picker_lines(self.cfg, dict.fromkeys(names, ""), selected,
+                                               None, 0, 80)
+            matrix, places = menu.config_body(self.cfg, "fixture", selected=selected)
+        self.assertEqual([terminal.plain(picker[row.start]).split()[0] for row in rows], names)
+        self.assertEqual([terminal.plain(matrix[line]).split()[0]
+                          for line, (hit, _) in places.items() if hit[0] == "model"], names)
+        headings = [[terminal.plain(line) for line in body
+                     if line and not terminal.ANSI.sub("", line).startswith(" ")]
+                    for body in (picker, matrix)]
+        self.assertEqual(headings[0], headings[1])
+        self.assertEqual(headings[0], ["Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo",
+                                      "Acme-Cloud"])
+
     def test_click_chooses_its_column_instead_of_the_previous_column(self):
         selected = {"orchestrator": "opus", "workers": ["opus", "astra"],
                     "reviewers": ["opus", "astra"]}
@@ -164,7 +184,7 @@ class RoleMarksScreen(unittest.TestCase):
         screen.send(b"n" + ENTER)
         screen.picker()
         screen.send(DOWN * 20)
-        lines = screen.picker(lambda lines: "Mimo" in highlighted(lines))
+        lines = screen.picker(lambda lines: "mimo" in highlighted(lines))
         self.assertEqual(lines[2].split(), ["orch", "exec", "review"])
         self.assertLessEqual(len(lines), 11)
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
@@ -175,7 +195,7 @@ class RoleMarksScreen(unittest.TestCase):
         start = next((number, line.index("⏎") + 1) for number, line in enumerate(lines, 1)
                      if "⏎ start" in line)
         screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
-        screen.picker(lambda lines: "Mimo" in highlighted(lines)
+        screen.picker(lambda lines: "mimo" in highlighted(lines)
                       and marks(highlighted(lines)) == "○□■")
         row, col = start
         screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
@@ -212,14 +232,14 @@ class RoleMarksScreen(unittest.TestCase):
         self.assertEqual(marks(highlighted(lines)), "●■□")
         screen.send(RIGHT * 2 + SPACE)          # Opus joins reviewers
         lines = screen.picker(lambda lines: marks(highlighted(lines)) == "●■■")
-        number = next(number for number, line in enumerate(lines, 1) if "Astra" in line)
+        number = next(number for number, line in enumerate(lines, 1) if "astra" in line)
         col = lines[2].index("review") + 5
         screen.send(LEFT * 2)                  # the click must move from orch to review
         screen.send(f"\x1b[<0;{col};{number}M\x1b[<0;{col};{number}m".encode())
-        screen.picker(lambda lines: "Astra" in highlighted(lines)
+        screen.picker(lambda lines: "astra" in highlighted(lines)
                       and marks(highlighted(lines)) == "○■□")
         screen.send(LEFT + SPACE)              # Opus reviewing itself could start, so it goes
-        lines = screen.picker(lambda lines: "Astra" in highlighted(lines)
+        lines = screen.picker(lambda lines: "astra" in highlighted(lines)
                               and marks(highlighted(lines)) == "○□□")
         self.assertFalse(any("no allowed" in line for line in lines))
         screen.send(ENTER)

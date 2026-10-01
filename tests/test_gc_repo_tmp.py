@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import config, orch, retention, run
+from agentkit import config, gc, orch, retention
 
 DAY = 86400
 
@@ -34,16 +34,16 @@ class GcRepoTmp(Sandbox):
         self.stack.enter_context(patch.object(retention, "unix_sockets", return_value=set()))
         self.tmp = self.root / "tmp-base"
         self.tmp.mkdir()
-        self.stack.enter_context(patch.object(run, "TMP_BASE", self.tmp))
+        self.stack.enter_context(patch.object(gc, "TMP_BASE", self.tmp))
         # Canonical spelling, or realpath would refuse the fixture values below.
         self.var_tmp = Path(os.path.realpath(self.root)) / "var-tmp"
         self.var_tmp.mkdir()
-        self.stack.enter_context(patch.object(run, "VAR_TMP_BASE", self.var_tmp))
+        self.stack.enter_context(patch.object(gc, "VAR_TMP_BASE", self.var_tmp))
         self.proc = self.root / "proc"
         self.proc.mkdir()
         self.stack.enter_context(patch.object(retention, "process_dirs", self.proc.iterdir))
         self.stack.enter_context(
-            patch.object(run, "tmp_hidden_processes", return_value=None))
+            patch.object(gc, "tmp_hidden_processes", return_value=None))
 
     def process(self, args=("fixture",), cwd=None, opened=(), uid=None, pid=None):
         proc = self.proc / str(pid or 1000 + len(list(self.proc.iterdir())))
@@ -74,13 +74,13 @@ class GcRepoTmp(Sandbox):
         return self.touch(path)
 
     def planned(self):
-        return {item["path"]: item for item in run.gc_plan()
+        return {item["path"]: item for item in gc.gc_plan()
                 if item["kind"] in ("tmp-entry", "repo-tmp")}
 
     def gc_out(self, *argv):
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_gc(list(argv)), 0)
+            self.assertEqual(gc.cmd_gc(list(argv)), 0)
         return out.getvalue()
 
     def test_stale_entry_goes_and_directory_itself_stays(self):
@@ -95,7 +95,7 @@ class GcRepoTmp(Sandbox):
         dry = self.gc_out("--dry-run")
         self.assertIn(f"gc: would remove tmp-entry {old}: untouched for 3 days", dry)
         self.assertTrue(old.exists())
-        removed = run.gc(lambda _: None, automatic=True)
+        removed = gc.gc(lambda _: None, automatic=True)
         logged = (config.STATE / "gc.log").read_text()
         self.assertIn(str(old), removed)
         self.assertFalse(old.exists())
@@ -111,7 +111,7 @@ class GcRepoTmp(Sandbox):
         self.process(cwd=held, opened=[nested / "inner"])
         self.now += 3 * DAY
         self.assertEqual(self.planned(), {})
-        run.gc(lambda _: None)
+        gc.gc(lambda _: None)
         self.assertTrue(held.is_dir())
         self.assertTrue(nested.is_dir())
 
@@ -125,7 +125,7 @@ class GcRepoTmp(Sandbox):
         (mixed / "inner").write_text("just now\n")
         self.touch(mixed / "inner")
         self.assertEqual(self.planned(), {})
-        run.gc(lambda _: None)
+        gc.gc(lambda _: None)
         self.assertTrue(fresh.is_dir())
         self.assertTrue(mixed.is_dir())
 
@@ -139,7 +139,7 @@ class GcRepoTmp(Sandbox):
         dry = self.gc_out("--dry-run")
         self.assertIn(f"gc: would skip repo-tmp {value}: {item['why']}", dry)
         self.assertNotIn("would remove tmp-entry", dry)
-        removed = run.gc(lambda _: None, automatic=True)
+        removed = gc.gc(lambda _: None, automatic=True)
         self.assertEqual(removed, [])
         logged = (config.STATE / "gc.log").read_text()
         self.assertEqual(logged.count(f"gc: skip repo-tmp {value}:"), 1)
@@ -174,7 +174,7 @@ class GcRepoTmp(Sandbox):
         dry = self.gc_out("--dry-run")
         self.assertIn(f"gc: would remove tmp-entry {old}: untouched for 3 days", dry)
         self.assertIn("gc: would skip repo-tmp /tmp:", dry)
-        removed = run.gc(lambda _: None, automatic=True)
+        removed = gc.gc(lambda _: None, automatic=True)
         self.assertEqual(removed, [str(old)])
         self.assertFalse(old.exists())
 

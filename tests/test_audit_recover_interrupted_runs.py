@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job as jobs, menu, notify, orch, run, terminal, watch
+from agentkit import config, gc, job as jobs, menu, notify, orch, run, terminal, watch
 
 
 class InterruptedRuns(unittest.TestCase):
@@ -69,8 +69,8 @@ sys.exit(1)
         config.ensure_dirs()
         system_tmp = self.root / "system-tmp"
         system_tmp.mkdir(exist_ok=True)
-        self.stack.enter_context(patch.object(run, "TMP_BASE", system_tmp))
-        self.stack.enter_context(patch.object(run, "VAR_TMP_BASE", system_tmp))
+        self.stack.enter_context(patch.object(gc, "TMP_BASE", system_tmp))
+        self.stack.enter_context(patch.object(gc, "VAR_TMP_BASE", system_tmp))
         self.cfg = config.load()
         workers = self.cfg["defaults"]["workers"]
         self.executor = workers[0]
@@ -307,8 +307,8 @@ if role == "reviewer" and (root / "fail-review").exists():
         self.assertIn(directory, dict(menu.run_records()))
         other = self.receipt("still-pending", "interrupted")
         self.assertEqual(set(dict(menu.run_records())), {directory, other})
-        with patch.object(run, "disk_pressure", return_value=(99, 85)):
-            run.gc(lambda _: None)
+        with patch.object(gc, "disk_pressure", return_value=(99, 85)):
+            gc.gc(lambda _: None)
         self.assertEqual((workspace / "deliverable").read_text(), "keep me")
         self.assertTrue((directory / "run.json").exists())
 
@@ -404,7 +404,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         directory = self.receipt("unattended", worktree=str(workspace), scratch=True)
         resumed = []
         with patch.object(watch, "health"), patch.object(watch, "gh_json", return_value=(None, "offline")), \
-                patch.object(run, "schedule_gc"), \
+                patch.object(gc, "schedule_gc"), \
                 patch.object(watch, "launch_resume",
                              side_effect=lambda run_id, log=lambda _: None: resumed.append(run_id) or True), \
                 redirect_stdout(io.StringIO()) as said:

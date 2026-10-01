@@ -26,7 +26,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 SLEEP = time.sleep                  # the real one, kept where a fixture needs to wait
 sys.path.insert(0, str(REPO))
-from agentkit import config, job as jobs, menu, notify, orch, run, terminal, usage, watch, worker
+from agentkit import config, gc, job as jobs, menu, notify, orch, run, terminal, usage, watch, worker
 
 # A fake harness, in the two shapes a turn can take: one that authenticates and answers, and
 # one whose token is gone -- no events, empty stderr, over in a moment, which is exactly what
@@ -185,8 +185,8 @@ class Login(unittest.TestCase):
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order",
                                               return_value=["opus", "astra"]))
-        self.stack.enter_context(patch.object(run, "disk_pressure", return_value=False))
-        self.stack.enter_context(patch.object(run, "schedule_gc"))
+        self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
+        self.stack.enter_context(patch.object(gc, "schedule_gc"))
         self.sleep = self.stack.enter_context(patch.object(run.time, "sleep"))
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,

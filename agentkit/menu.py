@@ -144,7 +144,7 @@ RUNS_RECENT = 6 * 3600   # how long a finished run stays recent for `ak run stat
 # provider's `colour` key in config.toml wins, and a provider named in neither is the accent.
 COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3",
            "google": "#203B9B", "mimo": "#FB8046"}
-# Each company's own name, on its usage row and over its models on the `c` screen; any other
+# Each company's own name, on its usage row and over its models on `c` and `n`; any other
 # provider is its own name, capitalised.
 NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok",
          "google": "Gemini", "mimo": "MiMo"}
@@ -881,7 +881,7 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
     tick's to take on when the window refills, the reviewer is back or the stall
     is recovered, an error with a scheduled retry is the tick's the same way, and
     a `queued` or `running` one is nobody's problem yet. An
-    ending older than run.GC_AGE has aged out and counts for nobody, acknowledged
+    ending older than gc.GC_AGE has aged out and counts for nobody, acknowledged
     or not; `ak run status` still lists it.
 
     An ending handed back to the seat that launched it is that orchestrator's from then on,
@@ -891,7 +891,7 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
     `index` is a `run.supersession_index` over the same states: pass it when testing
     many runs so one draw scans the records once instead of once per run per seat.
     """
-    from . import run as _run
+    from . import gc, run as _run
     if state.get("recovery_acknowledged_at"):
         return False
     if state.get("state") in ("error", "exhausted") and _run.going(state, now=now):
@@ -917,7 +917,7 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
     ended = (state.get("finished_at") or state.get("interrupted_at")
              or state.get("started_at"))
     # Only a date we can read ages an ending out; an undated record stays his.
-    if isinstance(ended, (int, float)) and not isinstance(ended, bool) and at - ended > _run.GC_AGE:
+    if isinstance(ended, (int, float)) and not isinstance(ended, bool) and at - ended > gc.GC_AGE:
         return False
     if index is not None:
         if _run.is_superseded(state, None, index):
@@ -1696,13 +1696,14 @@ def rename_this_session(dry_run):
     if dry_run:
         pause(f"would rename {current} -> {name}")
         return
+    messages = []
     try:
-        renamed = orch.rename(current, name)
+        renamed = orch.rename(current, name, log=messages.append)
     except config.Error as exc:
-        pause(f"rename: {exc}")
+        pause(*messages, f"rename: {exc}")
         return
     os.environ[config.SESSION_ENV] = renamed
-    pause(f"renamed {current} -> {renamed}")
+    pause(*messages, f"renamed {current} -> {renamed}")
 
 
 def stop_this_session(dry_run):
@@ -1754,7 +1755,7 @@ def new_session(cfg, dry_run, keyboard=None):
     if not cfg:
         return None               # no configuration means no models to offer
     cfg = config.load()           # the last creation's [defaults], whichever process made it
-    name = orch.ask_name(orch.taken_names(), auto=True)
+    name = orch.ask_name(orch.taken_names(), auto=True, screen="new session")
     if name is orch.BACK:
         return None
     unnamed = name is None
@@ -2511,6 +2512,16 @@ def config_models(cfg):
     return config.offered(cfg)
 
 
+def model_label(name, width):
+    """The configured name on `c` and `n`, cut only to the space its row has."""
+    return terminal.cut(name, width)
+
+
+def model_heading(provider):
+    """The same provider heading over the models on `c` and `n`."""
+    return terminal.styled(NAMES.get(provider, provider.title()), "accent")
+
+
 def config_body(cfg, version, at=None, column=0, selected=None, providers=None, moves=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
@@ -2558,14 +2569,14 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
         "  " + terminal.pad(head, width) for head, width in zip(heads, widths))).rstrip(), "dim")]
     places = {}
     for provider in dict.fromkeys(models[name]["provider"] for name in names):
-        lines.append(terminal.styled(NAMES.get(provider, provider.title()), "accent"))
+        lines.append(model_heading(provider))
         for name in (name for name in names if models[name]["provider"] == provider):
             texts = ((marks[0] if selected["orchestrator"] == name else marks[1],
                       marks[2] if name in selected["workers"] else marks[3],
                       marks[2] if name in selected.get("reviewers", selected["workers"])
                       else marks[3]) if selected else ()) + (efforts[name],)
             note = orch.spent_note(cfg, name, providers) if providers else ""
-            shown = terminal.cut(name, label)
+            shown = model_label(name, label)
             kind = "reverse" if at == ("model", name) and column < 0 else "dim" if note else None
             line = "  " + (terminal.styled(shown, kind) if kind else shown) + " " * (
                 label - terminal.cells(shown))

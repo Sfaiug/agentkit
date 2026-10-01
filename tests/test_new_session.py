@@ -19,7 +19,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox, menu_input
-from agentkit import config, menu, notify, orch, run, terminal, usage
+from agentkit import config, gc, menu, notify, orch, run, terminal, usage
 
 COLLECT, SESSIONS = usage.collect, orch.sessions    # the real ones, for the dry run
 
@@ -49,6 +49,22 @@ class NewSession(Sandbox):
         self.assertEqual(record["orchestrator"], "opus")
         self.assertEqual(record["workers"], self.cfg["defaults"]["workers"])
         self.assertIsNone(record["repo"])
+
+    def test_a_taken_name_repeats_with_its_refusal_above_the_keys(self):
+        keys = [*[terminal.Key("char", char) for char in "fix-api"],
+                terminal.Key("enter"), terminal.Key("esc")]
+        with patch.object(terminal, "taken", return_value=True), \
+                patch.object(terminal, "layout_width", return_value=40), \
+                patch.object(terminal, "read_key", side_effect=keys), \
+                redirect_stdout(io.StringIO()) as out:
+            self.assertIs(orch.ask_name({"fix-api"}, auto=True, screen="new session"), orch.BACK)
+        last = out.getvalue().split("\x1b[H")[-1].split("\x1b[J")[0]
+        lines = [terminal.ANSI.sub("", line) for line in last.splitlines()]
+        self.assertEqual(lines[2], "  Name: auto")
+        self.assertIn("a session named fix-api is already there; pick another name",
+                      " ".join(line.strip() for line in lines[3:-2]))
+        self.assertEqual(lines[-2:], ["", "  esc back"])
+        self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
 
     def test_workers_by_numbers(self):
         for raw, expected in (("2", ["opus"]), ("2, 4", ["opus", "spark"])):
@@ -149,7 +165,7 @@ class NewSession(Sandbox):
 
         # The receipt owns the run even when the current process belongs to another seat.
         with patch.dict(os.environ, {config.SESSION_ENV: "other"}), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "make_worktree", return_value=(worktree, "ak/fixture")), \
                 patch.object(run, "exclude_junk"), \
                 patch.object(run, "pick_models", return_value=("opus", "astra")), \
@@ -207,7 +223,7 @@ class NewSession(Sandbox):
 
         with patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "checkout_for", return_value=checkout), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "git", return_value="f" * 40), \
                 patch.object(run, "fetch", return_value=(0, "")), \

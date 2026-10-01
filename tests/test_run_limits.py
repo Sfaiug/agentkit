@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, orch, run, usage, watch, worker
+from agentkit import config, gc, notify, orch, run, usage, watch, worker
 from agentkit import task as taskfile
 
 URL = "https://github.com/fixture/repo/pull/7"
@@ -149,8 +149,8 @@ class Limits(unittest.TestCase):
                                               side_effect=AssertionError("notification")))
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
-        self.stack.enter_context(patch.object(run, "disk_pressure", return_value=False))
-        self.stack.enter_context(patch.object(run, "schedule_gc"))
+        self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
+        self.stack.enter_context(patch.object(gc, "schedule_gc"))
         # the retry backoff is minutes long and has nothing to do with what is under test here
         self.sleep = self.stack.enter_context(patch.object(run.time, "sleep"))
         self.stack.enter_context(patch.object(run, "host_readings", return_value={

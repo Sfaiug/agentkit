@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import browser, config, job as jobs, notify, orch, run, update, usage, watch
+from agentkit import browser, config, gc, job as jobs, notify, orch, run, update, usage, watch
 
 INSTALL = '#!/bin/sh\necho installed >>"$(dirname "$0")/../installs"\n'
 
@@ -104,7 +104,7 @@ class LiveUpdate(unittest.TestCase):
                                 (watch, "resume_exhausted"), (watch, "resume_waiting_login"),
                                 (watch, "resume_errored"), (watch, "resume_waiting"),
                                 (watch, "sweep_preexisting"), (watch, "revive_seats"),
-                                (jobs, "deliver_job_handbacks"), (run, "schedule_gc"),
+                                (jobs, "deliver_job_handbacks"), (gc, "schedule_gc"),
                                 (orch, "stamp"), (orch, "sweep"), (usage, "collect"),
                                 (browser, "tidy"), (watch, "incoming"), (watch, "outgoing"),
                                 (update, "keep_current")):

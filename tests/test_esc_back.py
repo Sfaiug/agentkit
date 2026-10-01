@@ -46,7 +46,7 @@ orch.listing = lambda reconcile=True: [
 notices = [os.environ["ESC_NOTICE"]] if os.environ.get("ESC_NOTICE") else []
 orch.job_notices = lambda: [notices.pop()] if notices else []
 orch.taken_names = lambda: {"alpha", "omega"}
-orch.rename = lambda old, new: print(f"<renamed {new}>", flush=True) or new
+orch.rename = lambda old, new, **_kw: print(f"<renamed {new}>", flush=True) or new
 orch.cmd_stop = lambda argv: print(f"<stopped {argv[0]}>", flush=True)
 menu.seat_row_state = lambda cfg, session, **facts: {"word": "working", "reason": "",
                                                      "since": None}
@@ -267,8 +267,8 @@ class EscBack(unittest.TestCase):
         menu_.back("new_session", title("new session"))
         # the name Enter takes is in the field, dim, until a key replaces it
         typed = menu_.text()[mark:]
-        self.assertRegex(typed, r"Name: \x1b\[[\d;]*mauto\x1b\[0m")
-        self.assertRegex(typed, r"Name: q\x1b\[K")
+        self.assertRegex(typed, r"  Name: \x1b\[[\d;]*mauto\x1b\[0m")
+        self.assertRegex(typed, r"  Name: q\r?\n")
         mark = len(menu_.text())
         menu_.press(b"n", title("new session"))
         menu_.send(ENTER)                           # auto: the models, on the same keys

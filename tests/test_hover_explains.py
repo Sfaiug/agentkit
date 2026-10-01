@@ -235,7 +235,7 @@ class ConfigScreen(Sandbox):
         def picking():
             return orch._picking(self.cfg, {}, notes, dict(self.selected))
         first = run(picking, ESC)[1][0]
-        astra = at(first, "Astra")
+        astra = at(first, "astra")
         said(picking, (astra, menu.model_tip("astra", self.cfg["models"]["astra"])),
              ((at(first, "review")[0] + 3, astra[1]), TIPS["review"]))
         self.cfg["providers"]["anthropic"]["accounts"] = ["default", "second"]

@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import config, gc, run
 
 URL = "https://github.com/acme/widget/pull/7"
 SUITE = "test -f work.txt"
@@ -287,12 +287,13 @@ class MergeTrailer(unittest.TestCase):
         with ExitStack() as mocks:
             for name, value in (("pr_view", info), ("launch_session", "fix-api"),
                                 ("own_pr_orchestrator", (own, "opus" if own else None)),
-                                ("checkout_for", self.repo), ("disk_pressure", False),
+                                ("checkout_for", self.repo),
                                 ("fetch", (0, "")), ("make_worktree", (self.repo, "ak/fix-api")),
                                 ("collect_usage", {}), ("post_review", True),
                                 ("checks", (True, "")),
                                 ("join_session_project", None), ("project_lessons", "")):
                 mocks.enter_context(patch.object(run, name, return_value=value))
+            mocks.enter_context(patch.object(gc, "disk_pressure", return_value=False))
             mocks.enter_context(patch.object(run, "gh_json", side_effect=gh_json))
             mocks.enter_context(patch.object(run, "call_retrying", return_value=(
                 0, "VERDICT: PASS\n## Findings\n- none", "fixture-session", False)))

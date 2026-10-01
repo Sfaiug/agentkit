@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, watch, worker
+from agentkit import config, gc, run, watch, worker
 
 SUITE = "test -f AGENTS.md"
 
@@ -78,9 +78,9 @@ class SuiteInRound(unittest.TestCase):
         self.opts = {"--rounds": None, "--exec": None, "--review": None,
                      "--no-worktree": False, "--no-merge": False}
         self.logs, self.gates, self.prompts = [], [], []
-        for name, value in (("disk_pressure", False), ("launch_session", None),
-                            ("collect_usage", {}), ("pick_models", ("opus", "astra"))):
-            self.stack.enter_context(patch.object(run, name, return_value=value))
+        for module, name, value in ((gc, "disk_pressure", False), (run, "launch_session", None),
+                                    (run, "collect_usage", {}), (run, "pick_models", ("opus", "astra"))):
+            self.stack.enter_context(patch.object(module, name, return_value=value))
         self.stack.enter_context(patch.object(run.usage, "pick_order",
                                              return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(worker, "call", side_effect=self.worker))

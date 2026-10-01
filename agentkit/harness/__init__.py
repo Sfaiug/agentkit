@@ -374,6 +374,15 @@ class Harness:
         hook = self._hook("mode")
         return hook(entry) if hook else None
 
+    def tmp_rule(self, table):
+        """A temp rule for this process inventory, or None when the harness owns no folder.
+
+        The rule takes (path, now, paths, top): None means unowned; otherwise it
+        returns (removal reason, nested candidates). A missing reason keeps the path.
+        """
+        hook = self._hook("tmp_rule")
+        return hook(table) if hook else None
+
     # --- what one headless turn spent ----------------------------------------
 
     def tokens(self, out):

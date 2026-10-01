@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 import test_worker_list as fixtures
-from agentkit import config, run, usage, watch
+from agentkit import config, gc, run, usage, watch
 
 
 class RoleGroups(unittest.TestCase):
@@ -170,7 +170,7 @@ class RoleGroups(unittest.TestCase):
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
         with patch.object(config, "active_session", return_value=None), \
                 patch.object(run, "rounds"), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "collect_usage", return_value=self.providers()), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(self.pick("gamma", "delta"), ("gamma", "delta"))
@@ -199,7 +199,7 @@ class RoleGroups(unittest.TestCase):
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
         message = "'delta' is not a worker of session 'wide'"
         with patch.object(run, "collect_usage", return_value=self.providers()), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "refused"), redirect_stdout(io.StringIO()):
             for pick in (lambda: self.pick(reviewer="delta"),
                          lambda: run.loop(self.cfg, directory, task, opts, self.logs.append),
@@ -271,7 +271,7 @@ class RoleGroups(unittest.TestCase):
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
         self.groups(workers=("seat",), reviewers=("seat",))
         with patch.object(run, "rounds") as rounds, \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "collect_usage", return_value=self.providers(c=0)) as collect, \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             state = run.loop(self.cfg, directory, task, opts, self.logs.append)
@@ -330,7 +330,7 @@ class RoleGroups(unittest.TestCase):
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
         with patch.object(run, "rounds"), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "collect_usage",
                              return_value=self.providers(a=30, b=10, c=0)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -349,7 +349,7 @@ class RoleGroups(unittest.TestCase):
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
         with patch.object(run, "rounds"), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "collect_usage",
                              return_value=self.providers(a=30, b=10, c=0)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -370,7 +370,7 @@ class RoleGroups(unittest.TestCase):
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
         with patch.object(run, "rounds"), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "collect_usage",
                              return_value=self.providers(a=30, b=10, c=0)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -392,7 +392,7 @@ class RoleGroups(unittest.TestCase):
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
         with patch.object(run, "rounds"), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "collect_usage",
                              return_value=self.providers(a=30, b=10, c=0)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -477,7 +477,7 @@ class RoleGroups(unittest.TestCase):
                 patch.object(run, "git", return_value=""), \
                 patch.object(run, "make_worktree", return_value=(wt, "ak/fix-api")), \
                 patch.object(run, "exclude_junk"), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "post_review", return_value=True), \
                 patch.object(run, "review", return_value="FAIL") as review, \
                 patch.object(run, "restore_review_checkout"), redirect_stdout(io.StringIO()):
