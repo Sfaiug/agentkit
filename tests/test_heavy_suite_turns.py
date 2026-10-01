@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import subprocess
 import sys
 import tempfile
 import threading
@@ -69,7 +70,8 @@ class HeavySuiteTurns(unittest.TestCase):
         # a worker running this file carries its run's marker, which a killed command
         # would end, and the suites' AK_MAX_RUNS=0, under which no suite takes a turn
         self.stack.enter_context(patch.dict(os.environ, {"HOME": str(self.root),
-                                                          "AGENTKIT_RUN": "", "AK_RUN_DEPTH": "0"}))
+                                                          "AGENTKIT_RUN": "", "AK_PARENT_RUN": "",
+                                                          "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0"}))
         os.environ.pop("AK_MAX_RUNS", None)
         os.environ.pop("AK_HOST_READINGS", None)
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
@@ -124,6 +126,127 @@ class HeavySuiteTurns(unittest.TestCase):
             self.assertIn(f"heavy suites: {small} at once (derived)",
                           run.host_status_line())
 
+    def test_headroom_admits_a_fifth_suite_with_four_running(self):
+        for resource, readings in (
+                ("cpu", {**SMALL, "slice_cpu_used": 2.8 + 3}),
+                ("memory", {**SMALL, "slice_memory_used_mb": 2870})):
+            with self.subTest(resource=resource), ExitStack() as holders:
+                holders.enter_context(patch.dict(os.environ, {
+                    "AK_HOST_READINGS": json.dumps(readings)}))
+                holders.enter_context(patch.object(run.time, "sleep", side_effect=
+                    AssertionError("headroom for three more suites must admit a fifth")))
+                for index in range(4):
+                    holder = holders.enter_context(run.gate_lock(ACME, index).open("a"))
+                    fcntl.flock(holder, fcntl.LOCK_EX)
+                directory = self.record(resource, WIDGET)
+                hold = run._acquire_gate_turn(directory, directory / "donewhen.log", None)
+                self.assertIsNotNone(hold)
+                hold.release()
+
+    def test_status_and_smoke_pool_count_held_turns(self):
+        caller = self.root / "caller"
+        home = caller / ".agentkit"
+        runs = home / "runs"
+        runs.mkdir(parents=True)
+        smoke = (REPO / "tests/smoke.sh").read_text()
+        pool_bound = smoke[smoke.index("smoke_pool_bound() {"):
+                           smoke.index("\nsmoke_lock_probe()")]
+        with patch.object(config, "HOME", home), patch.object(config, "RUNS", runs), \
+                patch.dict(os.environ, {"HOME": str(caller), "REPO": str(REPO),
+                                        "SMOKE_CALLER_HOME": str(caller)}), ExitStack() as holders:
+            for index in (0, 1, 5, 9):
+                holder = holders.enter_context(run.gate_lock(ACME, index).open("a"))
+                fcntl.flock(holder, fcntl.LOCK_EX)
+            run.gate_lock(ACME, 10).touch()
+            for name, readings, pinned, expected in (
+                    ("cpu", {**SMALL, "slice_cpu_used": 5.8}, "", 7),
+                    ("memory", {**SMALL, "slice_memory_used_mb": 2870}, "", 7),
+                    ("saturated", SATURATED, "", 4),
+                    ("bad-config", {**SMALL, "slice_cpu_used": 5.8}, 'max_gates = "bad"', 7),
+                    ("pinned", SMALL, "max_gates = 2", 2),
+                    ("uncapped", SMALL, "max_gates = 0", 0)):
+                with self.subTest(name=name), patch.dict(os.environ, {
+                        "AK_HOST_READINGS": json.dumps(readings)}):
+                    (home / config.CONFIG_NAME).write_text(pinned)
+                    status = (f"{expected} at once ({'pinned' if name == 'pinned' else 'derived'})"
+                              if expected else "no cap (pinned)")
+                    status_line = run.host_status_line().splitlines()[-1]
+                    proc = subprocess.run(["bash", "-c", pool_bound + "\nsmoke_pool_bound"],
+                                          capture_output=True, text=True, timeout=30)
+                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                    self.assertEqual((status_line, proc.stdout.strip()),
+                                     (f"heavy suites: {status}", str(expected)))
+            holders.close()
+            (home / config.CONFIG_NAME).write_text("")
+            self.assertEqual(run.derived_heavy_limit(SMALL), 10)
+
+    def test_either_resource_below_one_suite_waits_with_one_running(self):
+        for resource, readings in (
+                ("cpu", {**SMALL, "slice_cpu_used": 8}),
+                ("memory", {**SMALL, "slice_memory_used_mb": 4100 - 409})):
+            with self.subTest(resource=resource), \
+                    patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(readings)}), \
+                    run.gate_lock(ACME, 0).open("a") as holder, \
+                    patch.object(run.time, "sleep", side_effect=InterruptedError):
+                fcntl.flock(holder, fcntl.LOCK_EX)
+                directory = self.record(resource, WIDGET)
+                log_path = directory / "donewhen.log"
+                with self.assertRaises(InterruptedError):
+                    run._acquire_gate_turn(directory, log_path, None)
+                self.assertEqual(log_path.read_text(),
+                                 "waiting for a heavy suite turn · 1 running · 0 more fit\n")
+
+    def test_waiting_line_uses_each_admission_reading(self):
+        directory = self.record("waiter", WIDGET)
+        log_path = directory / "donewhen.log"
+        seen = []
+        def poll(_seconds):
+            seen.append(log_path.read_text())
+            if len(seen) == 3:
+                raise InterruptedError
+        with ExitStack() as holders:
+            for index in range(4):
+                holder = holders.enter_context(run.gate_lock(ACME, index).open("a"))
+                fcntl.flock(holder, fcntl.LOCK_EX)
+            with patch.object(run, "host_readings", side_effect=[
+                    {**SMALL, "slice_cpu_used": used} for used in (5.8, 6.6, 8)]) as readings, \
+                    patch.object(run, "_gate_waiter_before", return_value=True), \
+                    patch.object(run.time, "sleep", side_effect=poll):
+                with self.assertRaises(InterruptedError):
+                    run._acquire_gate_turn(directory, log_path, None)
+            self.assertEqual(readings.call_count, 3)
+        self.assertEqual(seen, [f"waiting for a heavy suite turn · 4 running · {more} more fit\n"
+                                for more in (3, 2, 0)])
+
+    def test_sampling_headroom_leaves_free_slots_unlocked(self):
+        for name, config_text in (("derived", ""), ("fallback", 'max_gates = "bad"')):
+            (config.HOME / config.CONFIG_NAME).write_text(config_text)
+            for running in (0, 1):
+                with self.subTest(config=name, running=running), ExitStack() as holders:
+                    for index in range(6):
+                        run.gate_lock(ACME, index).touch()
+                    if running:
+                        holder = holders.enter_context(run.gate_lock(ACME, 0).open("a"))
+                        fcntl.flock(holder, fcntl.LOCK_EX)
+                    directory = self.record(f"{name}-{running}", WIDGET)
+                    log_path = directory / "donewhen.log"
+                    def sample():
+                        self.assertEqual(run._heavy_running(), running)
+                        self.assertEqual(run.derived_heavy_limit(SATURATED), 1)
+                        return SATURATED
+                    with patch.object(run, "host_readings", side_effect=sample) as readings, \
+                            patch.object(run.time, "sleep", side_effect=InterruptedError):
+                        if running:
+                            with self.assertRaises(InterruptedError):
+                                run._acquire_gate_turn(directory, log_path, None)
+                            self.assertEqual(log_path.read_text(),
+                                "waiting for a heavy suite turn · 1 running · 0 more fit\n")
+                        else:
+                            hold = run._acquire_gate_turn(directory, log_path, None)
+                            self.assertIsNotNone(hold)
+                            hold.release()
+                        self.assertEqual(readings.call_count, 1)
+
     def test_a_saturated_slice_waits_yet_one_turn_is_always_free(self):
         self.assertEqual(run.derived_heavy_limit(dict(SATURATED)), 1)
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(SATURATED)}):
@@ -135,7 +258,7 @@ class HeavySuiteTurns(unittest.TestCase):
             second.start()
             gate_log = second.run_dir / "donewhen.log"
             self.until(lambda: gate_log.is_file() and gate_log.read_text() ==
-                       "waiting for a heavy suite turn · 1 running\n",
+                       "waiting for a heavy suite turn · 1 running · 0 more fit\n",
                        "the second suite to wait")
             self.assertEqual(run.gate_turn_note(run.read_state(second.run_dir)),
                              "waiting for a heavy suite turn")
@@ -149,7 +272,9 @@ class HeavySuiteTurns(unittest.TestCase):
 
     def test_a_waiter_picks_up_a_changed_limit_on_its_next_poll(self):
         self.gates(1)
-        with run.gate_lock(ACME, 0).open("a") as holder:
+        with run.gate_lock(ACME, 0).open("a") as holder, \
+                patch.object(run, "host_readings", side_effect=
+                    AssertionError("a pinned limit needs no host reading")):
             fcntl.flock(holder, fcntl.LOCK_EX)
             waiter = Gate(self, "waiter", ACME, [self.mark("waiter")])
             waiter.start()

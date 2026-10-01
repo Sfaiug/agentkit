@@ -35,9 +35,9 @@ named; `tests/test_boundaries.py` counts them.
 - `job.py`: several task files as one job. Hides the receipt (`job.json`), the scheduler,
   each task's ladder (waits, one merge, one rerun), hand-back and relaunch; calls the loop
   as `run.*`. Used by run (main, status, gc, stop, resume), watch and menu.
-- `watch.py`: the tick. Hides watch.json, manifest screen rules and words (`stalls`,
-  `auth_expiry`), seat state (`session_state`, `waiting_on`), typing into and reviving
-  seats, resuming runs, PR scanning, `doctor`. Used by run, job, orch, menu, notify,
+- `watch.py`: tick. Hides watch.json, seat errors (harness record, else manifest
+  screen rules and words; `stalls`, `auth_expiry`), state (`session_state`, `waiting_on`),
+  typing and reviving seats, resuming runs, PR scans, `doctor`. For run, job, orch, menu, notify,
   update, usage, worker and both hooks. Leaks: run.json writes (stall ladder,
   freeze marks, resume passes; all through `run.record`), run states (`GOING`).
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
@@ -50,9 +50,9 @@ named; `tests/test_boundaries.py` counts them.
 - `config.py`: every `~/.agentkit` path, config.toml, models, providers, accounts, adapter
   scripts and manifests, seat records, their rename chain and file names (`SEAT_FILES`), child
   env. Used by nearly everything.
-- `worker.py`: one headless turn: role preambles, the review gate text, the adapter `run`
-  call, silence watchdog, kills, auth check. Offers `call`, `kill_marked`,
-  `auth_ok`. Used by run, watch, usage, menu, harness. Leak: a Claude-only shell timeout.
+- `worker.py`: headless turns: role preambles, review gate, adapter calls, silence watchdog,
+  auth, process markers and cleanup. Offers `turn`, `call`, `kill_marked`, `auth_ok`.
+  Used by run, watch, usage, menu, harness. Leak: Claude shell timeout.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
   `usage.json`. Offers `collect`, `pick_order`, `mark_exhausted`, `render`. Used by run,
   orch, menu, watch, history. Leak: watch and the Muse plugin call its private helpers.
@@ -72,7 +72,7 @@ named; `tests/test_boundaries.py` counts them.
   config formats; imports run back.
 - `terminal.py`: width, wrapping, colour, keys, `choose`/`ask`/`frame`, state styles, for
   every listing screen (docs/cli-design.md). Used by menu, usage, orch, watch, run, motion.
-- `motion.py`: the one clock: time, easing, what moves. Used by menu, terminal.
+- `motion.py`: one clock: time, easing, what moves; for menu, orch, terminal.
 - `command_help.py`: help text per verb, for bin/ak and each `main`; imports nothing.
 - `browser.py`: the shared Chromium stack: units, CDP, MCP, VNC, tab ownership. Used by run,
   watch. Leak: registers its MCP per harness by name.

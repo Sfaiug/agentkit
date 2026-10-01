@@ -5,6 +5,9 @@ import re
 from . import config
 
 AFTER_KEY = "after"  # front matter `after:` names another task file in the same job
+# Retired time keys stay readable so the loop can warn about them in older tasks.
+TASK_KEYS = ("after", "base", "done_when_minutes", "files", "from", "merge", "repo",
+             "rounds", "stall_minutes", "target", "turn_hours")
 TASK_MAX_POINTS = 3      # numbered points in ## Goal: more is more than one behaviour
 TASK_MAX_WORDS = 500     # words outside the checks block: past this, split the task
 TASK_MAX_CHECKS = 6      # done-when commands: past this, split the task
@@ -17,8 +20,8 @@ ONCE_MARKER = re.compile(r"#\s*once\s*$")
 def front_matter(path):
     """(pairs, body): each front-matter `key: value` in file order, and the text after it.
 
-    A key may repeat, so `after:` keeps every line; a `#` starts a comment.  A line that is
-    not `key: value`, or a front matter with no closing line, is the task's error.
+    A key may repeat, so `after:` and `files:` keep every line; a `#` starts a comment.
+    Unknown keys, lines that are not `key: value` and missing closing lines are task errors.
     """
     text = path.read_text()
     match = re.match(r"^---\n(.*?)\n---\n?(.*)$", text, re.S)
@@ -32,7 +35,11 @@ def front_matter(path):
         if ":" not in line:
             raise config.Error(f"{path}: front matter line is not `key: value`: {line!r}")
         key, value = line.split(":", 1)
-        pairs.append((key.strip(), value.split("#", 1)[0].strip()))
+        key = key.strip()
+        if key not in TASK_KEYS:
+            raise config.Error(f"{path}: unknown front-matter key {key!r}; "
+                               f"accepted keys: {', '.join(TASK_KEYS)}")
+        pairs.append((key, value.split("#", 1)[0].strip()))
     return pairs, match.group(2) if match else text
 
 
@@ -49,6 +56,12 @@ def task_afters(path):
     a comma-separated line names several. Blank values are ignored.
     """
     return [part.strip() for key, value in front_matter(path)[0] if key == AFTER_KEY
+            for part in value.split(",") if part.strip()]
+
+
+def task_files(path):
+    """Allowed Git pathspecs from repeatable, comma-separated `files:` lines."""
+    return [part.strip() for key, value in front_matter(path)[0] if key == "files"
             for part in value.split(",") if part.strip()]
 
 

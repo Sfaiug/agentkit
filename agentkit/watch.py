@@ -1107,9 +1107,40 @@ def content_lines(harness, tail):
     # The composer box and key hints are chrome, not progress. Strip only known harness
     # chrome at the bottom; arbitrary output below an old error still means it has moved on.
     chrome = screen(harness)
+    lines = lines[:chrome_below(chrome, lines)]
     while lines and chrome_line(chrome, lines[-1]):
         lines.pop()
     return lines
+
+
+def ruled_composer(chrome, rows):
+    """(prompt row, closing rule row) of the composer a ruled harness draws, else (None, None).
+
+    It is the bottom-most prompt row whose first chrome row under it is a bare rule, so a
+    user's status line under that rule is never the composer, even where it starts with a
+    prompt mark.
+    """
+    if not chrome["ruled"]:
+        return None, None
+    for at in range(len(rows) - 1, -1, -1):
+        if re.match(r"(?:│\s*)?[❯›⟩]", rows[at]):
+            end = next((row for row in range(at + 1, len(rows))
+                        if chrome_line(chrome, rows[row])), len(rows))
+            if end < len(rows) and re.fullmatch(RULE, rows[end].strip()):
+                return at, end
+    return None, None
+
+
+def chrome_below(chrome, rows):
+    """Where the chrome under a ruled harness's composer begins in `rows`, else len(rows).
+
+    From the composer's closing rule down to a footer on the bottom row, everything is chrome,
+    a user's status line among it.  A bottom row that is no footer is newer output, as
+    anywhere else, and leaves the rows as they are.
+    """
+    end = ruled_composer(chrome, rows)[1]
+    last = next((row for row in reversed(rows) if row.strip()), "")
+    return end if end is not None and chrome_line(chrome, last) else len(rows)
 
 
 def chrome_line(chrome, line):
@@ -1145,6 +1176,7 @@ def last_paragraph(harness, tail):
     """
     lines = [strip_sgr(line).rstrip() for line in tail.splitlines()]
     chrome = screen(harness)
+    lines = lines[:chrome_below(chrome, lines)]
     while lines and (not lines[-1].strip() or chrome_line(chrome, lines[-1])):
         lines.pop()
     block = []
@@ -1153,8 +1185,40 @@ def last_paragraph(harness, tail):
     return "\n".join(reversed(block))
 
 
-def auth_expired_on(harness, tail):
-    """Match a harness's terminal auth message, including wrapped lines, never quoted prose."""
+def recorded_error(harness, name):
+    """The error that seat's harness recorded as its conversation's last event, "" where it
+    recorded none there, or None where it keeps no record to read, and only then is its screen.
+
+    A screen's last rows cannot tell a model's answer quoting an error from the harness's own
+    notice, nor a wrapped error from two rows; the record the harness writes down can, since a
+    model's answer is never one of its error entries.
+    """
+    record = config.session_records().get(name) if name else None
+    plugin = orch.harness_plugin(harness)
+    if not record or not plugin.keeps_errors:
+        return None
+    cwd = record.get("cwd")
+    try:
+        conversation = plugin.conversation(record, cwd)
+        if not plugin.transcript(record, cwd, conversation):
+            return None
+        return plugin.error(record, cwd, conversation) or ""
+    except OSError:
+        return None
+
+
+def auth_expired_on(harness, tail, name=None):
+    """Match a harness's terminal auth message, including wrapped lines, never quoted prose.
+
+    Where that seat's harness keeps a record, the error it recorded last is read instead, in
+    the same words, anywhere in it: a record holds no prose to quote.
+    """
+    wrapper = (config.manifest(harness).get("auth") or {}).get("wrapper")
+    said = recorded_error(harness, name)
+    if said is not None:
+        found = re.search(wrapper, said, re.I) if wrapper else None
+        return next((mark for mark in auth_expiry(harness)[2] if says(said, mark)),
+                    found.group(0) if found else None)
     lines = content_lines(harness, tail)
     # A capacity error can accompany a logout; auth still wins over resuming that error.
     while lines and any(mark.lower() in lines[-1].lower() for mark in stalls(harness)):
@@ -1170,7 +1234,6 @@ def auth_expired_on(harness, tail):
     # A harness whose own auth wrapper precedes arbitrary 401/403 server text declares that
     # wrapper as `[auth] wrapper` in its manifest: matching a particular server message misses
     # real expired/revoked tokens and even new wording.
-    wrapper = (config.manifest(harness).get("auth") or {}).get("wrapper")
     if wrapper:
         found = re.search(wrapper, output_line(lines), re.I)
         if found:
@@ -1196,9 +1259,14 @@ def error_said(harness, lines):
     return lines[-1] if lines else ""
 
 
-def failed_on(harness, lines):
-    """What a seat's error says, read as a worker turn's failure is: (outcome, word)."""
-    return orch.harness_plugin(harness).failure(error_said(harness, lines)) if lines else (None, None)
+def failed_on(harness, lines, name=None):
+    """What a seat's error says, read as a worker turn's failure is: (outcome, word).
+
+    The error its harness recorded where it keeps a record, else the error line `lines` end on.
+    """
+    said = recorded_error(harness, name)
+    said = (error_said(harness, lines) if lines else "") if said is None else said
+    return orch.harness_plugin(harness).failure(said)
 
 
 def stalled_on(harness, pane, session, log):
@@ -1210,7 +1278,13 @@ def stalled_on(harness, pane, session, log):
     line -- since the answer styles a span of its own in colour too.  Where the pane has none,
     its own line begins with the stall word, behind whatever mark it is drawn with: the
     model's sentence about one names it further on.
+
+    None of that is guessed where the seat's harness keeps a record: the error it recorded
+    last, in the word `failure` reads it by, is the stall, and no error there is none.
     """
+    said = recorded_error(harness, session)
+    if said is not None:
+        return orch.harness_plugin(harness).failure(said)[1]
     lines = content_lines(harness, pane_tail(pane))
     last = lines[-1] if lines else ""
     block = config.manifest(harness).get("stall")
@@ -1236,9 +1310,13 @@ def stalled_on(harness, pane, session, log):
             else next(mark for mark in stalls(harness) if says(last, mark)))
 
 
-def stuck_on(harness, tail):
-    """Login trouble or a blocked operation, not a test summary or an error above progress."""
-    line = output_line(content_lines(harness, tail))
+def stuck_on(harness, tail, name=None):
+    """Login trouble or a blocked operation, not a test summary or an error above progress.
+
+    In the error that seat's harness recorded last, where it keeps a record.
+    """
+    said = recorded_error(harness, name)
+    line = output_line(content_lines(harness, tail)) if said is None else said
     return bool(LOGIN_HINT.search(line) or TERMINAL_FAILURE.search(line))
 
 
@@ -1893,6 +1971,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
 
         def quiet(run_dir, state):
             """How long this run has gone without a write, from one draw's map or from disk."""
+            if run_mod.own_pr_wait_note(state) and run_mod.process_active(state):
+                return None
             if silent_map is not None:
                 return silent_map.get(run_dir.name)
             return menu_mod.silent_for_run(run_dir, state, now=at)
@@ -2364,8 +2444,8 @@ def composer_draft(harness, pane):
     marked = [at for at in range(len(rows) - 1, -1, -1) if re.match(r"(?:│\s*)?[❯›⟩]", rows[at])]
     if chrome["ruled"]:
         # A pane's bottom row stands in where no composer has its own rule under it.
-        closed = [at for at in marked if end(at) < len(rows) and re.fullmatch(RULE, rows[end(at)])]
-        marked = closed or [at for at in marked if at + 1 == len(rows)]
+        closed = ruled_composer(chrome, rows)[0]
+        marked = [closed] if closed is not None else [at for at in marked if at + 1 == len(rows)]
     at = next(iter(marked), None)
     if at is None:
         return None
@@ -2940,14 +3020,21 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         return usage.model_exhausted(cfg, model, {provider: readings.get(account, {})})[0]
 
     lines = content_lines(harness, pane_tail(pane))
-    line = output_line(lines)
-    # The pane and not the line: its colours say whose words they are.  What it ignores is
-    # health()'s to log, as before.
-    mark = stalled_on(harness, pane, name, lambda _: None) if line else None
-    if mark:
-        # A bare trailer (`Goal stalled`) is told apart, and dated, by the error line above it.
-        line = error_said(harness, lines[:-1] + [line])
-    outcome = failed_on(harness, [line])[0] if mark else None
+    line = recorded_error(harness, name)
+    if line is None:
+        line = output_line(lines)
+        # The pane and not the line: its colours say whose words they are.  What it ignores is
+        # health()'s to log, as before.
+        mark = stalled_on(harness, pane, name, lambda _: None) if line else None
+        if mark:
+            # A bare trailer (`Goal stalled`) is told apart, and dated, by the error line above it.
+            line = error_said(harness, lines[:-1] + [line])
+        outcome = failed_on(harness, [line])[0] if mark else None
+        cue = line
+    else:
+        outcome = orch.harness_plugin(harness).failure(line)[0]
+        # What starts it again is still the screen's to say: no record holds a goal's trailer.
+        cue = error_said(harness, lines)
     refusal = outcome in (SPENT, LIMITED)
     now = time.time()
     observed = live.get("usage_refusal") or {}
@@ -3024,7 +3111,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
             # The host may have slept through the deadline. Never replace that old
             # refusal with a new shared-cache park; retry it once in the existing pane.
             if until is not None and until <= now:
-                if type_into(session, keystroke(harness, line), log):
+                if type_into(session, keystroke(harness, cue), log):
                     seat_write(name, usage_refusal={"line": line, "at": now, "handled": True})
                 return True
             # A bare 429/rate limit is not proof a subscription is empty. Retry the
@@ -3038,7 +3125,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                                      event_id=f"stall:{name}:{observed['at']}") == 0:
                         seat_write(name, usage_refusal={**observed, "told": now})
                 elif now - observed.get("nudged_at", 0) >= NUDGE_EVERY:
-                    if type_into(session, keystroke(harness, line), log):
+                    if type_into(session, keystroke(harness, cue), log):
                         seat_write(name, usage_refusal={**observed, "nudged_at": now})
                 return True
             until = usage.mark_exhausted(cfg, provider, until=until,
@@ -3056,7 +3143,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                     if continuing and resumed == "resumed":
                         seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
                                                  "line": ACCOUNT_LINE})
-                elif continuing and not type_into(session, keystroke(harness, line), log):
+                elif continuing and not type_into(session, keystroke(harness, cue), log):
                     return True
             except (config.Error, OSError) as exc:
                 reason = f"{provider} account reopen failed: {exc}"
@@ -3202,7 +3289,7 @@ def health(cfg, state, dry_run, log):
             # -- back when the pane raised it, so there is no answer on record for it -- be
             # answered at all: without it the verb is never asked, the latch never clears,
             # and that seat keeps a card up and stays out of every recovery path for ever.
-            signature = None if blank else auth_expired_on(harness, tail)
+            signature = None if blank else auth_expired_on(harness, tail, name)
             if signature or stalls.get(name, {}).get("kind") == "auth":
                 record_auth(state, harness, fresh=bool(signature), now=now, answers=answers)
             # And which login is out for this seat: its own harness, as the verb answered it,
@@ -3273,7 +3360,8 @@ def health(cfg, state, dry_run, log):
             if blank:
                 continue        # no screen: nothing below this can be decided on one
             if entry.get("kind") == "quiet" and (entry.get("pane") != pane or
-                    session.get("legacy") or session.get("exited") or not stuck_on(harness, tail)):
+                    session.get("legacy") or session.get("exited")
+                    or not stuck_on(harness, tail, name)):
                 if entry.get("told") and not dry_run:
                     forget(name, acknowledge=False, notice=entry.get("notice", stuck_notice(name, harness)))
                     sync_seen(state, load_state())  # a stale save must not restore the quiet latch
@@ -3290,12 +3378,13 @@ def health(cfg, state, dry_run, log):
             # Suspected auth takes the quiet escalation path even when `API Error` coexists.
             # Only verified auth messages get an immediate needs-login notice, but neither
             # known nor unknown logout wording can receive a capacity nudge.
-            mark = (None if LOGIN_HINT.search(output_line(content_lines(harness, tail))) else
-                    stalled_on(harness, pane, name, log))
+            said = recorded_error(harness, name)
+            said = output_line(content_lines(harness, tail)) if said is None else said
+            mark = None if LOGIN_HINT.search(said) else stalled_on(harness, pane, name, log)
             if not mark:
                 if entry.get("signature"):
                     log(f"{name}: moving again")
-                if not stuck_on(harness, tail):
+                if not stuck_on(harness, tail, name):
                     stalls.pop(name, None)
                     stop_nudge(session, harness, pane, notice,
                                records if tallies is not None else None, dry_run, log)
@@ -3331,7 +3420,7 @@ def health(cfg, state, dry_run, log):
             entry["signature"] = mark
             stood = now - entry["since"]
             quiet = now - max(entry["stall_at"], entry["changed_at"])
-            quota = failed_on(harness, content_lines(harness, tail))[0] in (SPENT, LIMITED)
+            quota = failed_on(harness, content_lines(harness, tail), name)[0] in (SPENT, LIMITED)
             if not quota:
                 for key in ("resets_at", "status", "reset_nudged_at"):
                     entry.pop(key, None)
@@ -3474,11 +3563,12 @@ def stall_clock(run_dir, state):
     the loop that recorded the wait is owed it: a resume after its death is a new loop, and
     its silence is its own.  A live loop waiting for its repository's merge turn
     (`run.merge_turn`), to take back its lent turn, or for its dependency to merge
-    (`run.wait_for_dependency`), is silent for as long as another run takes to land,
+    (`run.wait_for_dependency`), or for its seat to push PR fixes, is silent for as long as that takes,
     so its clock starts now, every tick, until the wait is over.
     """
     from . import run as run_mod
     if ((run_mod.merge_turn_note(state) or run_mod.dep_wait_note(state)
+            or run_mod.own_pr_wait_note(state)
             or run_mod.merge_retaking(state))
             and run_mod.process_active(state)):
         return time.time()
