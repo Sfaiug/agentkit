@@ -1696,13 +1696,14 @@ def rename_this_session(dry_run):
     if dry_run:
         pause(f"would rename {current} -> {name}")
         return
+    messages = []
     try:
-        renamed = orch.rename(current, name)
+        renamed = orch.rename(current, name, log=messages.append)
     except config.Error as exc:
-        pause(f"rename: {exc}")
+        pause(*messages, f"rename: {exc}")
         return
     os.environ[config.SESSION_ENV] = renamed
-    pause(f"renamed {current} -> {renamed}")
+    pause(*messages, f"renamed {current} -> {renamed}")
 
 
 def stop_this_session(dry_run):
