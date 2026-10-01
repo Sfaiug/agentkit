@@ -302,7 +302,9 @@ class FollowupRuns(unittest.TestCase):
         grandchild = run.read_state(config.RUNS / fixed["followup_runs"][0])
         self.assertEqual(grandchild["launched_session"], "seat")
         self.assertEqual(grandchild["workers"], state["workers"])
-        self.assertEqual(grandchild["followup"]["text"], OTHER)
+        self.assertEqual(grandchild["followup"]["text"].splitlines()[0], OTHER)
+        self.assertIn("Quote:\nfixture evidence", grandchild["followup"]["text"])
+        self.assertIn("Before the task: base abc123", grandchild["followup"]["text"])
 
     def test_not_needed_is_done_without_checks_review_or_pr(self):
         for index, mode in enumerate(("gone", "duplicate")):
