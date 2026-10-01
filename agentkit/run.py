@@ -4297,7 +4297,14 @@ def rounds(lp, execv=None):
             raise config.Error(lp.state["merge_note"])
         return
     if review_pass(lp.state, lp.cfg) and not current_review(lp):
-        pending_review(lp, "The saved reviewed commit changed; verify the current checkout.")
+        # A changed checkout needs a task review, not landing's target integration on resume.
+        entries = lp.state["round_summaries"]
+        lp.state.update(verdict=None, review=None,
+                        review_pending={"round": lp.rnd + 1,
+                                        "summary": entries[-1]["summary"] if entries else "",
+                                        "reason": "The saved reviewed commit changed; "
+                                                  "verify the current checkout."})
+        lp.save()
     if current_review(lp):
         lp.log(f"already passed at round {lp.rnd}/{lp.rounds}; going straight to the merge")
         return
