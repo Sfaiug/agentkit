@@ -1320,9 +1320,24 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     key_text = keys
     # With the keyboard the highlight turns the pages, so `j` and `k` are not offered then.
     page_keys = "" if owned else "   " + PAGE_KEYS
+    tips = {}
+    if owned and not asked:
+        for info in infos:
+            name, word = info["name"], info["word"]
+            tips[name, None] = terminal.TIPS["session"].format(name=name)
+            tips[name, ("state", word)] = terminal.TIPS[word]
+        for project in ordered:
+            checkout = project["checkout"]
+            if "switches" in project:
+                tips[checkout, None] = terminal.TIPS["switches"].format(name=checkout.name)
+            elif checkout:
+                tips[None, ("project", project["name"])] = terminal.TIPS["project"].format(
+                    name=project["name"])
+        tips.update({(None, ("usage", number)): usage_tip(cfg, number)[0]
+                     for number in range(1, len(usage_rows(cfg)) + 1)})
     # A question under a row is budgeted with the key line, so it never pushes a row off.
-    k_single = len(terminal.key_line(key_text, width)) + len(asked)
-    k_paged = len(terminal.key_line(key_text + page_keys, width)) + len(asked)
+    k_single = terminal.key_height(key_text, tips, width) + len(asked)
+    k_paged = terminal.key_height(key_text + page_keys, tips, width) + len(asked)
 
     def _flat(blocks):
         flat = []
@@ -1505,10 +1520,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     spots.update({row: (None, [(1, layout, ("usage", number))]) for number, row in rows.items()})
     spots.update(terminal.key_spots(key_lines, keys_top + 1))
     # a question under a row has the keys and the rows, and nothing is explained while it asks
-    spot, tip, glint = terminal.Spot() if asked else terminal.pointer_spot(spots), None, []
+    spot, glint = terminal.Spot() if asked else terminal.pointer_spot(spots), []
     kind, ticked = spot.cell[0] if isinstance(spot.cell, tuple) else None, None
     if kind == "usage":
-        tip, pace = usage_tip(cfg, spot.cell[1])
+        _, pace = usage_tip(cfg, spot.cell[1])
     if kind == "usage" and spot.cell[1] in bars:
         row, blocks, _, shade = bars[spot.cell[1]]
         glint = [terminal.styled(block, shade if block == "█" else "dim") for block in blocks]
@@ -1523,17 +1538,11 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             out[row - 1] = out[row - 1].replace(
                 terminal.styled("█" * filled, shade)
                 + terminal.styled("░" * (len(blocks) - filled), "dim"), "".join(glint), 1)
-    elif kind in ("state", "project"):
-        tip = terminal.TIPS[spot.cell[1] if kind == "state" else kind].format(name=spot.cell[1])
-    elif isinstance(spot.what, Path):
-        tip = terminal.TIPS["switches"].format(name=spot.what.name)
-    elif spot.what is not None:
-        tip = terminal.TIPS["session"].format(name=spot.what)
     for number, (row, _, first, shade) in bars.items():
         # whether the pointer is on it: coming onto it is news, the light's to cross
         moves.append((("under", number), kind == "usage" and spot.cell[1] == number,
                       (row, first), False, shade))
-    out = terminal.lit(out, spots, {spot[:2]: tip} if tip else None, keys_top + 1)
+    out = terminal.lit(out, spots, tips, keys_top + 1)
     moved, rising = "", False
     if clock is not None:
         clock.clear()
@@ -3178,7 +3187,7 @@ def config_add(cfg):
         body, places = add_body(picked, choices, None if terminal.away() else at)
         said = ["", *(terminal.styled("  " + part, "dim")
                       for part in terminal.wrap(note, terminal.layout_width() - 2))] if note else []
-        room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(said))
+        room = max(1, terminal.height() - 5 - terminal.key_height(keys) - len(said))
         drawn = next((line for line, number in places.items() if number == at), len(body) - 1)
         top = max(0, min(max(top, drawn - room + 1), drawn, len(body) - room))
         shown = body[top:top + room]

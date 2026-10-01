@@ -548,7 +548,7 @@ def key_parts(text):
 
 
 def key_line(text, term_width=None):
-    """The keys wrapped to the layout, with room for explanations on a taken keyboard."""
+    """The key line: each key dim, its word plain, wrapped to the layout."""
     room = layout_width(term_width) - 2
     rendered = []
     for key, word in key_parts(text):
@@ -563,20 +563,19 @@ def key_line(text, term_width=None):
             line = line + join if line else piece
     if line:
         lines.append(line)
-    rendered = ["  " + line for line in lines]
-    if taken():
-        # Callers size their lists from these lines, including the new-session picker.
-        reserve = max((len(wrap(TIPS.get(f"{UTF8_KEYS.get(key, key)} {word}", ""), room))
-                       for key, word in key_parts(text)), default=0)
-        rendered += [""] * max(0, reserve - len(rendered))
-    return rendered
+    return ["  " + line for line in lines]
 
 
 def key_height(text, tips=None, term_width=None):
-    """Include a screen's row explanations in the space already reserved by its keys."""
-    return max([len(key_line(text, term_width)),
+    """Rows to reserve for keys and wrapped explanations on a taken keyboard."""
+    rows = len(key_line(text, term_width))
+    if not taken():
+        return rows
+    sentences = [TIPS.get(f"{UTF8_KEYS.get(key, key)} {word}", "")
+                 for key, word in key_parts(text)]
+    return max([rows,
                 *(len(wrap(sentence, layout_width(term_width) - 2))
-                  for sentence in (tips or {}).values() if sentence)])
+                  for sentence in [*sentences, *(tips or {}).values()] if sentence)])
 
 
 def progress_bar(done, total, narrow=False):
