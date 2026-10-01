@@ -6674,8 +6674,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 log(f"no worktree: working directly in {wt} on {branch}")
             elif from_branch:
                 # A relaunch from a stopped or blocked run's committed work: the new
-                # checkout starts where that branch left off, the PR still targets
-                # `target`, and the reviewer still reads the full diff against `base`.
+                # checkout starts where that branch left off before taking in `target`.
                 if not git(repo, "rev-parse", "--verify", "--quiet",
                            f"refs/heads/{from_branch}", check=False):
                     raise config.Error(f"{task_path}: from: {from_branch!r} "
@@ -6728,6 +6727,37 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         if prior is None and not state.get("scratch") and not opts["--no-worktree"]:
             drop_unrecorded_checkout(repo, wt, branch, log)
         raise
+    if prior is None and state.get("from"):
+        upstream = target if target.startswith("origin/") else f"origin/{target}"
+        source = upstream
+        # Pin the commit so another worktree's fetch cannot move what this run takes in.
+        tip = git(wt, "rev-parse", "--verify", "--quiet",
+                  f"refs/remotes/{upstream}^{{commit}}", check=False)
+        if not tip:
+            name = upstream.removeprefix("origin/")
+            source = f"local {name}"
+            tip = git(wt, "rev-parse", "--verify", "--quiet",
+                      f"refs/heads/{name}^{{commit}}", check=False)
+        if not tip:
+            log(f"from: {upstream} unavailable; branch unchanged; "
+                f"{upstream} will be taken in at landing")
+        else:
+            log(f"from: merging {source} ({tip[:12]}) into {state['branch']} before round 1")
+            try:
+                rc, out = git_out(wt, "merge", "--no-edit", tip)
+            except Stopped:
+                git(wt, "merge", "--abort", check=False)
+                raise
+            if rc != 0:
+                if not git(wt, "diff", "--name-only", "--diff-filter=U"):
+                    raise config.Error(f"could not merge {source} before round 1: {out}")
+                git(wt, "merge", "--abort")
+                log(f"from: {source} conflicts; merge aborted, branch unchanged; "
+                    f"{upstream} will be taken in at landing")
+            else:
+                state["base_sha"] = tip
+                save_state(run_dir, state)
+                log(f"from: merged {source} into {state['branch']} before round 1")
     join_session_project(session_at_launch)     # this run on disk, so it votes too
     if not state.get("scratch"):
         exclude_junk(wt, log)
