@@ -13987,8 +13987,11 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
         if flags["--bg"]:
             try:
                 receipt = read_state(run_dir) or {}
-                reviewer = preset_review_model(cfg, opts, run_workers(cfg, receipt),
-                                               reviewers=receipt.get("reviewers"))
+                # Usage probes can spend model calls: own PRs check size in the child first.
+                reviewer = None
+                if not receipt.get("own_pr"):
+                    reviewer = preset_review_model(cfg, opts, run_workers(cfg, receipt),
+                                                   reviewers=receipt.get("reviewers"))
             except config.Error as exc:
                 refused(run_dir, exc, logger(run_dir, True), cfg)
                 raise

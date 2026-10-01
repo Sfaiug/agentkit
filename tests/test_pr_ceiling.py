@@ -127,9 +127,12 @@ class PrCeiling(unittest.TestCase):
         self.change(299)
         (self.repo / "output.generated").write_text("generated\n" * 1000)
         self.commit()
-        state, reviewer, _, _ = self.review()
-        self.assertEqual(state["state"], "pass")
-        reviewer.assert_called_once()
+        for background in (False, True):
+            with self.subTest(background=background):
+                state, reviewer, usage, _ = self.review(background=background)
+                self.assertEqual(state["state"], "pass")
+                reviewer.assert_called_once()
+                usage.assert_called_once()
         self.change(300)
         self.assertEqual(self.review()[0]["state"], "pass")
 
