@@ -693,7 +693,7 @@ class Limits(unittest.TestCase):
                 run.git_out(self.work, "push", "origin", "main")
             self.assertIn("terminal prompts disabled", str(refused.exception))
             self.assertIn("gh auth status", str(refused.exception))
-            self.assertNotIn("ak run resume", str(refused.exception))
+            self.assertNotIn("resume", str(refused.exception).replace(str(self.work), ""))
             with self.assertRaisesRegex(config.Error, "gh auth status"):
                 run.git(self.work, "push", "origin", "main")
         # and a git that never answered is never read as an empty result, check or no check
