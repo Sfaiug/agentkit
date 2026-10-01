@@ -16,8 +16,7 @@ from test_v4n import Sandbox
 from agentkit import config, menu, notify, orch, run, watch, worker
 
 NOW = 1_800_000_000
-SPENT = ("unfinished review; done-when and review are pending at round 4, but the round "
-         "budget (3) is spent; split or re-scope the task")
+NO_VERDICT = "reviewer astra gave no verdict twice and no eligible reviewer is left"
 
 
 class ExhaustedNotGoing(Sandbox):
@@ -78,17 +77,18 @@ class ExhaustedNotGoing(Sandbox):
         self.assertEqual((found["word"], found["reason"]),
                          ("working", "1 running · Waiting for a reviewer"))
 
-    def test_c_rounds_spent_handed_back_run_is_not_going_and_its_seat_needs_him(self):
+    def test_c_unanswered_landing_review_is_not_going_and_its_seat_needs_him(self):
         directory, state = self.receipt(
-            "20260101-0900-spent", error=SPENT, handed_back=NOW - 590,
+            "20260101-0900-unanswered", error=NO_VERDICT, handed_back=NOW - 590,
             recovery_notified="orchestrator",
-            review_pending={"round": 4, "summary": "Re-review after the rebase of origin/main"})
+            review_pending={"round": 3, "record": False,
+                            "summary": "Re-review after the merge of origin/main"})
         self.assertEqual(run.exhausted_wait(state), "")
         self.assertFalse(run.going(state))
         self.assertEqual(menu.run_state_word(state), "needs you")
         found = self.decide()
         self.assertEqual(found["word"], "needs you")
-        self.assertEqual(found["reason"], f"run {directory.name} parked: {SPENT}")
+        self.assertEqual(found["reason"], f"run {directory.name} parked: {NO_VERDICT}")
         self.assertEqual(found["since"], NOW - 600)
         # ... above the seat's own last word, which would otherwise call it recovering,
         # and past its own age: nothing else will ever move it, so it stays his
@@ -96,14 +96,14 @@ class ExhaustedNotGoing(Sandbox):
         run.save_state(directory, {**state, "finished_at": NOW - 8 * 86400})
         found = self.decide()
         self.assertEqual((found["word"], found["reason"]),
-                         ("needs you", f"run {directory.name} parked: {SPENT}"))
+                         ("needs you", f"run {directory.name} parked: {NO_VERDICT}"))
         # ... and past a relaunch of the same task that has not merged: only a merged
         # replacement ends the question, and `ak run status` reads the same word
         relaunch, _ = self.receipt("20260101-1200-relaunch", state="pass", verdict="PASS",
                                    title=state["title"], finished_at=NOW - 60)
         found = self.decide()
         self.assertEqual((found["word"], found["reason"]),
-                         ("needs you", f"run {directory.name} parked: {SPENT}"))
+                         ("needs you", f"run {directory.name} parked: {NO_VERDICT}"))
         index = run.supersession_index(state for _, state in menu.run_records())
         reread = run.read_state(directory)
         self.assertFalse(run.settled(reread, index))
@@ -125,7 +125,7 @@ class ExhaustedNotGoing(Sandbox):
         self.assertEqual(run.status_state_word(reread, index), "done")
 
     def test_d_such_a_run_is_in_no_running_tally(self):
-        self.receipt("20260101-0900-spent", error=SPENT, handed_back=NOW - 590,
+        self.receipt("20260101-0900-unanswered", error=NO_VERDICT, handed_back=NOW - 590,
                      recovery_notified="orchestrator")
         self.receipt("20260101-1000-window", quota_dry=True, title="Parked on a window")
         tallies = run.seat_tallies((state for _, state in menu.run_records()), now=NOW)
