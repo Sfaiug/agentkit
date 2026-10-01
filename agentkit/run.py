@@ -528,11 +528,11 @@ def with_suite(cmds, wt, target=None, *, landing=True):
     the same command is that line, so it runs once, not twice;
     so is a line that is the suite's bare first command, without its output plumbing,
     whitespace aside.  A line already marked `# once` keeps today's meaning: only one
-    identical to the suite is that line. Without landing, omit the declared suite
-    and run task-owned `# once` checks as ordinary round checks.
+    identical to the suite is that line. Without landing, keep every task check
+    as an ordinary round check, without adding the declared suite.
     """
     if not landing:
-        cmds = [taskfile.split_once(cmd)[0] for cmd in cmds]
+        return [taskfile.split_once(cmd)[0] for cmd in cmds]
     suite = declared_suite(wt, target)
     if not suite:
         return cmds
@@ -548,7 +548,7 @@ def with_suite(cmds, wt, target=None, *, landing=True):
                 kept.append(cmd)
         elif " ".join(bare.split()) not in targets:
             kept.append(cmd)
-    return kept + [f"{suite}  # once"] if landing else kept
+    return kept + [f"{suite}  # once"]
 
 
 def slugify(title):
