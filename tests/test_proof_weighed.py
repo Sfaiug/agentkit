@@ -119,8 +119,9 @@ out = pathlib.Path(sys.argv[6])
     def test_changed_lines_and_both_borders_of_a_removal_block_even_if_base_fails(self):
         commands = [finding(f"api.py:{line}", f"defect at {line}", self.fails)
                     for line in (1, 3, 4)]
+        commands.append(finding("tests/proof [1].py:5", "defect on an added line", self.fails))
         self.assertEqual(self.review(*commands), "FAIL")
-        self.assertEqual(self.lp.state["round_summaries"][0]["finding_count"], 3)
+        self.assertEqual(self.lp.state["round_summaries"][0]["finding_count"], 4)
         self.assertIn("proof on branch", self.lp.findings)
         self.assertIn("proof on base", self.lp.findings)
 
@@ -181,6 +182,16 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.review(finding("legacy.py:1", "interrupted defect", command),
                                      edits={"reviewer-only": "defect\n"}), "PASS")
         self.assertEqual(len(self.lp.state["notes"]), 1)
+
+    def test_clean_proof_replays_do_not_hide_a_checkout_changed_by_the_suite(self):
+        def dirty_suite(lp):
+            (lp.wt / "api.py").write_text('mode = "suite edit"\n')
+
+        with patch.object(run, "join_suite", side_effect=dirty_suite):
+            self.assertEqual(self.review(finding("api.py:1", "proven defect", self.fails)), "FAIL")
+        self.assertEqual(self.lp.state["review"]["overridden"], "the checkout changed after verification")
+        self.assertIn("proof on branch", self.lp.findings)
+        self.assertNotIn("proof on suite edit", self.lp.findings)
 
     def test_scratch_has_no_base_and_every_proven_finding_blocks(self):
         self.lp.scratch = self.lp.state["scratch"] = True

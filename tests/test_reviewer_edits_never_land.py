@@ -150,7 +150,8 @@ class ReviewerEdits(unittest.TestCase):
 
     def test_new_file_never_reaches_next_round(self):
         self.assertEqual(self.review({"files": {"keep/reviewer.txt": "reviewer file\n"},
-                                      "text": "VERDICT: FAIL"}), "FAIL")
+                                      "text": "VERDICT: FAIL\n## Findings\n"
+                                              "- tracked.txt:1 - wrong outcome - correctness"}), "FAIL")
         run.commit_leftovers(self.wt, self.logs.append, self.lp.artifacts)
         self.assertEqual(self.git("rev-parse", "HEAD"), self.head,
                          "the next round committed the reviewer's untracked file")

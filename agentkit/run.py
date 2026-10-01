@@ -4548,9 +4548,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         verdict = "FAIL"
         overridden = "the reviewer said PASS while the suite is failing"
         lp.log(f"WARN {overridden}; overriding to FAIL")
-    if checkout_changed or (not lp.scratch and (identity != validation or commit_identity(lp.wt) != identity
-                           or (not lp.state.get("review_pr") and
-                               git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))):
+    if checkout_changed or (not lp.scratch and (
+            commit_identity(lp.wt) != identity or (not lp.state.get("review_pr") and
+                                                   git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))):
         verdict = "FAIL"
         overridden = "the checkout changed after verification"
         lp.log(f"WARN {overridden}; overriding to FAIL")
@@ -7656,7 +7656,7 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
     if state.get("error"):
         parts += ["## Why this run stopped", "", state["error"], ""]
     if state["verdict"] != "PASS" and state["findings"]:
-        parts += ["## Reviewer findings", "", state["findings"], ""]
+        parts += ["## Reviewer findings", "", without_followups(state["findings"]), ""]
     if state.get("notes"):
         parts += ["## Notes", "", *("- " + item.replace("\n", "\n  ") for item in state["notes"]), ""]
     onward = continue_line(state, run_dir)
