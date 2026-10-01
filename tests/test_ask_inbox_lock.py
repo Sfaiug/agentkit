@@ -61,7 +61,7 @@ EMPTY = {
 
 class AskInboxLock(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".ask-inbox-lock-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-ask-inbox-lock-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
         stack = ExitStack()

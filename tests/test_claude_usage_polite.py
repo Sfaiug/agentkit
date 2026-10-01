@@ -72,7 +72,7 @@ printf '%s\\n%s\\n' "$body" "$code"
 
 class PoliteClaude(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".claude-polite-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-claude-polite-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.fake = self.root / "fake"

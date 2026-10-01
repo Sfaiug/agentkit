@@ -31,7 +31,7 @@ PLAN = [{"name": "echo", "version": ["echo", "1.0.0"], "upgrade": ["echo", "upgr
 
 class Everyone(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".update-everyone-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-update-everyone-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

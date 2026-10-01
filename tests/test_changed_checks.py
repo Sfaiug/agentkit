@@ -14,7 +14,7 @@ from agentkit import run, worker
 
 class ChangedChecks(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".changed-checks-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-changed-checks-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         env = patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull,

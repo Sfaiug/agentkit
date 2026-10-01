@@ -22,7 +22,7 @@ PAST_CAP = "is past its 4 KB cap and reached the workers cut short: tighten it."
 
 class Lessons(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".lessons-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-lessons-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

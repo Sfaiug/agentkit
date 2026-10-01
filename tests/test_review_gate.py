@@ -73,7 +73,7 @@ else:
 
 class ReviewGate(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".review-gate-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-review-gate-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

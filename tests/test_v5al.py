@@ -88,7 +88,7 @@ class Fixture(unittest.TestCase):
     """A sandboxed home, five adapters and a config that names all five harnesses."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5al-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5al-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

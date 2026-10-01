@@ -94,7 +94,7 @@ def move_owner(owner, name, value="x\n"):
 
 class V5aj(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5aj-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5aj-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

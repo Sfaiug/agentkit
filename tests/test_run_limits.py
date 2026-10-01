@@ -110,7 +110,7 @@ class Limits(unittest.TestCase):
     """One git repository, fake adapters, a fake gh, and no network anywhere."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5f-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5f-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

@@ -18,7 +18,7 @@ TMUX = os.environ.get("AGENTKIT_SMOKE_TMUX") or shutil.which("tmux")
 class NotificationSmoke(unittest.TestCase):
     def check_section(self, number):
         source = (REPO / "tests/smoke.sh").read_text()
-        with tempfile.TemporaryDirectory(prefix=".notify-smoke-", dir=REPO) as directory:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-notify-smoke-", dir=REPO) as directory:
             root = Path(directory)
             binaries, sockets = root / "bin", root / "sockets"
             binaries.mkdir()
@@ -150,7 +150,7 @@ seat.pairing(Client(), seat.config.STATE / "codex-remote-x", {{"environmentId": 
     def test_check_21_passes_under_an_outer_suites_diversion(self):
         # Run inside a running suite, the section inherits that suite's diversion log; its
         # own `finish` reads only what this section diverted.
-        with tempfile.TemporaryDirectory(prefix=".notify-smoke-outer-", dir=REPO) as outer:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-notify-smoke-outer-", dir=REPO) as outer:
             log = Path(outer) / "notify-diversions.log"
             log.write_text("an outer suite's diversion\n")
             with patch.dict(os.environ, {"AK_NOTIFY_SINK_LOG": str(log)}):

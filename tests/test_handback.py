@@ -1207,7 +1207,7 @@ class BlockedRuns(unittest.TestCase):
     """The real loop, with fake harnesses: a turn that says the task is wrong ends the run."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".handback-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-handback-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

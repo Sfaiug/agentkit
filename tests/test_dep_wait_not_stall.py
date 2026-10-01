@@ -30,7 +30,7 @@ NEW_PID = 999999994
 
 class DepWaitNotStall(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".dep-wait-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-dep-wait-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

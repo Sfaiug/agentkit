@@ -26,7 +26,7 @@ FAKE_OWNER = {"pid": 999999, "process_identity": {"boot": "test", "ticks": 1}}
 
 class FrozenAdmission(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".frozen-admission-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-frozen-admission-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

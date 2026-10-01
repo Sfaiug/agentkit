@@ -57,7 +57,7 @@ TOOL_TURN = """\
 
 class AdaptersAlike(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".adapters-alike-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-adapters-alike-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.home = self.root / "home"

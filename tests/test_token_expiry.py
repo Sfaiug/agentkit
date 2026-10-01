@@ -31,7 +31,7 @@ class TokenExpiry(unittest.TestCase):
     """One HOME the adapter and the poll agree on, and nothing that can reach a network."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".token-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-token-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

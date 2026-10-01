@@ -137,7 +137,7 @@ class Slots(unittest.TestCase):
                              "heavy suites: 2 at once (derived)")
 
     def test_capture_banks_no_healthy_poll(self):
-        with tempfile.TemporaryDirectory(dir=REPO) as temp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-slots-", dir=REPO) as temp:
             runs = Path(temp) / "runs"
             runs.mkdir()
             with patch.object(config, "RUNS", runs), \
@@ -154,7 +154,7 @@ class Slots(unittest.TestCase):
                 self.assertNotIn("slot_healthy_polls", state)
 
     def test_wait_log_names_memory_reason(self):
-        with tempfile.TemporaryDirectory(dir=REPO) as temp:
+        with tempfile.TemporaryDirectory(prefix=".ak-test-slots-", dir=REPO) as temp:
             root = Path(temp)
             runs = root / "runs"
             runs.mkdir()

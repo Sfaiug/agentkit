@@ -49,7 +49,7 @@ mode = "subscription"
 
 class FreshWindowEndsMark(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".mark-fresh-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-mark-fresh-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

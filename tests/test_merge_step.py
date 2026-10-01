@@ -115,7 +115,7 @@ def make_loop(root, wt, rounds=3, spent=1, cfg=None):
 
 class MergeStep(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".merge-step-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-merge-step-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

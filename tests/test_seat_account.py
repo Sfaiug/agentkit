@@ -26,7 +26,7 @@ CONVERSATION = "d6fae368-678c-444e-8032-9c5c5338c84e"
 
 class SeatAccount(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".seat-account-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-seat-account-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

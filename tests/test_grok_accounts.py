@@ -90,7 +90,7 @@ def login(name, expires="2030-06-01T00:00:00Z", refresh=False):
 
 class GrokAccounts(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".grok-accounts-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-grok-accounts-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.home = Path(tmp.name).resolve()
         self.fake, self.work = self.home / "fake", self.home / "work"

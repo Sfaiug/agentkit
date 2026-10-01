@@ -72,7 +72,7 @@ class Gate(threading.Thread):
 
 class BusySuite(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".heavy-turn-busy-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-heavy-turn-busy-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

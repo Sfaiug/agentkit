@@ -88,7 +88,7 @@ def make_loop(root, wt, cmds, rounds=3, spent=1, cfg=None):
 
 class RedTarget(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".red-target-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-red-target-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

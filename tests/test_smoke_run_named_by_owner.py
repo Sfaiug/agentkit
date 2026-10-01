@@ -34,7 +34,7 @@ def meter(name, used, resets_at):
 
 class SmokeRunNamedByOwner(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".run-smoke-named-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-run-smoke-named-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

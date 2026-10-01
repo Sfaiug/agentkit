@@ -58,7 +58,7 @@ else:
 
 class ReviewerJudgesTheDiff(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".v5ab-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5ab-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

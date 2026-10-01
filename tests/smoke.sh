@@ -440,7 +440,7 @@ from unittest.mock import patch
 
 from agentkit import config, menu, muse_usage, notify, orch, run, terminal, usage, watch
 
-with tempfile.TemporaryDirectory(prefix=".usage-fresh-", dir=config.REPO) as tmp, ExitStack() as stack:
+with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO) as tmp, ExitStack() as stack:
     root = Path(tmp)
     for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
         stack.enter_context(patch.object(config, name, root / name.lower()))
@@ -746,7 +746,7 @@ class SessionState(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         root = Path(self.stack.enter_context(tempfile.TemporaryDirectory(
-            prefix=".session-state-", dir=config.REPO)))
+            prefix=".ak-test-session-state-", dir=config.REPO)))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
@@ -1178,7 +1178,7 @@ seat_state_check() {
   python3 "$REPO/tests/test_v4y.py" || rc=1
 
   # (g) a hook writes nothing for a worker, or for a call with no seat to write for
-  d=$(mktemp -d "$REPO/.seat-hook.XXXXXX") || return 1
+  d=$(mktemp -d "$REPO/.ak-test-seat-hook.XXXXXX") || return 1
   for env_args in "AGENTKIT_SESSION=seat AK_RUN_ROLE=worker" "AK_RUN_ROLE=orchestrator"; do
     # shellcheck disable=SC2086
     printf '{"hook_event_name":"Stop","session_id":"x"}' |
@@ -1449,13 +1449,16 @@ slot_queue_check() {
 # Run the offline regressions without entering the live acceptance gates below.
 if [ "${AGENTKIT_SMOKE_OFFLINE:-0}" = 1 ]; then
   cd -- "$REPO" || exit 1
-  export TMPDIR="$REPO"
-  # Keep even the older suites' temporary files in the checkout. tmux canonicalizes
+  # Keep even the older suites' temporary files in the checkout, inside one test sandbox
+  # the loop never commits and sweeps if this suite is killed. tmux canonicalizes
   # TMUX_TMPDIR, so use an explicit short socket path for its isolated pane fixtures.
+  SMOKE_TMP=$(mktemp -d "$REPO/.ak-test-smoke.XXXXXX") || exit 1
+  trap 'rm -rf -- "$SMOKE_TMP"' EXIT
+  export TMPDIR="$SMOKE_TMP"
   if [ -d "/proc/$$/cwd" ]; then
-    export TMPDIR="/proc/$$/cwd"
-    SMOKE_TOOLS=$(mktemp -d "$REPO/.smoke-tools.XXXXXX") || exit 1
-    trap 'rm -rf -- "$SMOKE_TOOLS"' EXIT
+    export TMPDIR="/proc/$$/cwd/${SMOKE_TMP##*/}"
+    SMOKE_TOOLS="$SMOKE_TMP/tools"
+    mkdir -- "$SMOKE_TOOLS" || exit 1
     AGENTKIT_SMOKE_TMUX=$(command -v tmux) || exit 1
     export AGENTKIT_SMOKE_TMUX
     cat >"$SMOKE_TOOLS/tmux" <<'SH'

@@ -34,7 +34,7 @@ def meter(name, used, resets_at, window=WEEK):
 
 class SupersededPark(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".run-superseded-park-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-run-superseded-park-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

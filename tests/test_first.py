@@ -44,7 +44,7 @@ class Gate(threading.Thread):
 
 class First(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".first-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-first-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

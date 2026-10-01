@@ -69,7 +69,7 @@ class Quota(unittest.TestCase):
     """Patched home, the shipped default config, fake meters everywhere else."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".run-quota-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-run-quota-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -416,7 +416,7 @@ class QuotaDry(unittest.TestCase):
     """One run directory, fake adapters that speak each harness's real refusal, fake meters."""
 
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".run-quota-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-run-quota-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

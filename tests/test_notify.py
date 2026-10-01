@@ -24,7 +24,7 @@ from agentkit import config, menu, notify, orch, run, watch
 
 class Notifications(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".notify-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-notify-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()

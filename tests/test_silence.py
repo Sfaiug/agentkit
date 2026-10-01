@@ -40,7 +40,7 @@ class Clock:
 
 class Silence(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".silence-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-silence-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.addCleanup(patch.stopall)

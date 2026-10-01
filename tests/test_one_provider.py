@@ -21,7 +21,7 @@ from agentkit import config, run, terminal, usage
 
 class OneProvider(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".one-provider-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-one-provider-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
