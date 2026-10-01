@@ -365,13 +365,18 @@ class SeatWordsBounded(unittest.TestCase):
                 self.reset.assert_not_called()
                 self.window.assert_not_called()
                 self.assertNotIn("fix-api", state["stalls"])
-        # while the notice it draws in colour still parks the account it ran on
-        pane = "\x1b[38;5;220m\x1b[49m●\x1b[39m \x1b[38;5;220mAPI Error: 429 Usage limit reached"
-        watch.seat_write("fix-api", usage_refusal=None, usage_wait=None)
-        self.seat_account("claude", "opus", "anthropic", pane)
-        self.now += watch.STALL_WAIT
-        self.seat_account("claude", "opus", "anthropic", pane)
-        self.assertEqual([call[1] for call in self.marked], ["anthropic"])
+        # while a notice it draws in colour still parks the account it ran on, a colour tmux
+        # carries on from the line above included
+        for pane in ("\x1b[38;5;220m\x1b[49m●\x1b[39m \x1b[38;5;220mAPI Error: 429 Usage limit reached",
+                     "\x1b[38;5;220m● first coloured line\nAPI Error: 429 Usage limit reached\n"
+                     "\x1b[39m❯"):
+            with self.subTest(pane=pane):
+                self.marked.clear()
+                watch.seat_write("fix-api", usage_refusal=None, usage_wait=None)
+                self.seat_account("claude", "opus", "anthropic", pane)
+                self.now += watch.STALL_WAIT
+                self.seat_account("claude", "opus", "anthropic", pane)
+                self.assertEqual([call[1] for call in self.marked], ["anthropic"])
 
 
 if __name__ == "__main__":
