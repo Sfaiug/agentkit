@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, run, watch, worker
+from agentkit import host, config, orch, run, watch, worker
 
 WEEK = 604800
 SPAWN_BG = run.spawn_bg          # the real one, under every fake below
@@ -53,7 +53,7 @@ class FailedLaunch(unittest.TestCase):
             "TMUX_TMPDIR": str(self.root), "PYTHONDONTWRITEBYTECODE": "1",
             "AK_RUN_ROLE": "orchestrator"}))
         self.stack.enter_context(patch.object(orch, "user_manager", return_value=False))
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         self.forks = []

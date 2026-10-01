@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, worker
+from agentkit import host, config, run, worker
 
 ACME = "/home/fixture/code/acme"
 WIDGET = "/home/fixture/code/widget"
@@ -208,7 +208,7 @@ class HeavySuiteTurns(unittest.TestCase):
             for index in range(4):
                 holder = holders.enter_context(run.gate_lock(ACME, index).open("a"))
                 fcntl.flock(holder, fcntl.LOCK_EX)
-            with patch.object(run, "host_readings", side_effect=[
+            with patch.object(host, "host_readings", side_effect=[
                     {**SMALL, "slice_cpu_used": used} for used in (5.8, 6.6, 8)]) as readings, \
                     patch.object(run, "_gate_waiter_before", return_value=True), \
                     patch.object(run.time, "sleep", side_effect=poll):
@@ -230,11 +230,11 @@ class HeavySuiteTurns(unittest.TestCase):
                         fcntl.flock(holder, fcntl.LOCK_EX)
                     directory = self.record(f"{name}-{running}", WIDGET)
                     log_path = directory / "donewhen.log"
-                    def sample():
+                    def sample(**_kw):
                         self.assertEqual(run._heavy_running(), running)
                         self.assertEqual(run.derived_heavy_limit(SATURATED), 1)
                         return SATURATED
-                    with patch.object(run, "host_readings", side_effect=sample) as readings, \
+                    with patch.object(host, "host_readings", side_effect=sample) as readings, \
                             patch.object(run.time, "sleep", side_effect=InterruptedError):
                         if running:
                             with self.assertRaises(InterruptedError):
@@ -273,7 +273,7 @@ class HeavySuiteTurns(unittest.TestCase):
     def test_a_waiter_picks_up_a_changed_limit_on_its_next_poll(self):
         self.gates(1)
         with run.gate_lock(ACME, 0).open("a") as holder, \
-                patch.object(run, "host_readings", side_effect=
+                patch.object(host, "host_readings", side_effect=
                     AssertionError("a pinned limit needs no host reading")):
             fcntl.flock(holder, fcntl.LOCK_EX)
             waiter = Gate(self, "waiter", ACME, [self.mark("waiter")])

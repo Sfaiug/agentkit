@@ -20,7 +20,7 @@ from unittest.mock import patch
 import unittest
 
 from test_v4n import REPO, Sandbox, menu_input
-from agentkit import command_help, config, menu, orch, run, terminal
+from agentkit import host, command_help, config, menu, orch, run, terminal
 
 NOW = 1_800_000_000      # what every draw reads as the time
 DAY = 86400
@@ -35,7 +35,7 @@ SLICE_LINE = "slice agentkit.slice · 12 tasks · 30% of its ceiling"   # `ak or
 class Listings(Sandbox):
     def setUp(self):
         super().setUp()
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000,
             "slice_cpu_pressure": 12}))

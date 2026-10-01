@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, harness, menu, notify, orch, run, terminal, update, usage, watch
+from agentkit import host, config, harness, menu, notify, orch, run, terminal, update, usage, watch
 from agentkit.harness import codex as codex_plugin
 
 FIXTURES = REPO / "tests/fixtures/adapters"
@@ -394,7 +394,7 @@ class ScratchRun(Fixture):
         self.stack.enter_context(patch.object(run.notify, "shaped",
                                              side_effect=AssertionError("notification")))
         self.stack.enter_context(patch.object(run.time, "sleep"))
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         self.providers = {name: {"resets": 0, "meters": [

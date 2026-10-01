@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import run  # noqa: E402
+from agentkit import host, run  # noqa: E402
 
 
 def gb(n):
@@ -58,7 +58,7 @@ class MemoryGate(unittest.TestCase):
                                                  "stat": f"anon 0\nfile {gb(1)}\n"},
             "user@1000.service/agentkit.slice/agentkit-run-r.scope": {"high": "max"},
         }, "/user@1000.service/agentkit.slice/agentkit-run-r.scope")
-        limits = run._unit_memory_limits(cgroup_file, root)
+        limits = host._unit_memory_limits(cgroup_file, root)
         self.assertEqual(len(limits), 1)
         used, high, raw, name = limits[0]
         self.assertEqual(name, "agentkit.slice")
@@ -75,7 +75,7 @@ class MemoryGate(unittest.TestCase):
             "user@1000.service": {"high": gb(11), "current": gb(9.5),
                                   "stat": f"anon 0\nfile {gb(5)}\n"},
         }, "/user@1000.service")
-        limits = run._unit_memory_limits(cgroup_file, root)
+        limits = host._unit_memory_limits(cgroup_file, root)
         used, high, raw, _ = limits[0]
         self.assertAlmostEqual(raw, 9.5 * 1024, delta=0.01)
         self.assertAlmostEqual(used, 4.5 * 1024, delta=0.01)
@@ -89,7 +89,7 @@ class MemoryGate(unittest.TestCase):
             "agentkit.slice": {"high": gb(11), "current": gb(9.5),
                                "stat": f"anon 0\ninactive_file {gb(5)}\n"},
         }, "/agentkit.slice")
-        limits = run._unit_memory_limits(cgroup_file, root)
+        limits = host._unit_memory_limits(cgroup_file, root)
         self.assertAlmostEqual(limits[0][0], 4.5 * 1024, delta=0.01)
 
     def test_waiting_line_shows_both_figures(self):
@@ -97,7 +97,7 @@ class MemoryGate(unittest.TestCase):
             "agentkit.slice": {"high": gb(10), "current": gb(9.5),
                                "stat": f"anon 0\nfile {gb(1)}\n"},
         }, "/agentkit.slice")
-        limits = run._unit_memory_limits(cgroup_file, root)
+        limits = host._unit_memory_limits(cgroup_file, root)
         readings = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                     "unit_limits": limits}
         reason, kind = run._wait_reason(readings, 3072, 8)
@@ -110,7 +110,7 @@ class MemoryGate(unittest.TestCase):
             "agentkit.slice": {"high": gb(10), "current": gb(9),
                                "stat": f"anon 0\nfile {gb(0.5)}\n"},
         }, "/agentkit.slice")
-        limits = run._unit_memory_limits(cgroup_file, root)
+        limits = host._unit_memory_limits(cgroup_file, root)
         readings = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                     "unit_limits": limits}
         state = {"run_id": "r", "run_depth": 0}
@@ -119,7 +119,7 @@ class MemoryGate(unittest.TestCase):
                 patch.object(run, "slot_counts", return_value=(0, 0)), \
                 patch.object(run, "frozen_runs", return_value=0), \
                 patch.object(run, "process_owner", return_value={"pid": 1}), \
-                patch.object(run, "host_readings", return_value=readings):
+                patch.object(host, "host_readings", return_value=readings):
             self.assertFalse(run.claim_slot(state, 1))
         self.assertEqual(state["slot_wait_kind"], "unit memory")
         self.assertIn("in use", state["slot_wait_reason"])
@@ -129,7 +129,7 @@ class MemoryGate(unittest.TestCase):
         cgroup_file, root = self.make({
             "agentkit.slice": {"high": gb(10), "current": gb(9.5)},
         }, "/agentkit.slice")
-        self.assertEqual(run._unit_memory_limits(cgroup_file, root), [])
+        self.assertEqual(host._unit_memory_limits(cgroup_file, root), [])
         readings = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                     "unit_limits": []}
         reason, _ = run._wait_reason(readings, 3072, 8)
@@ -140,14 +140,14 @@ class MemoryGate(unittest.TestCase):
             "agentkit.slice": {"high": gb(10), "current": gb(9.5),
                                "stat": "anon 100\nkernel 200\n"},
         }, "/agentkit.slice")
-        self.assertEqual(run._unit_memory_limits(cgroup_file, root), [])
+        self.assertEqual(host._unit_memory_limits(cgroup_file, root), [])
 
     def test_zero_high_still_gates(self):
         cgroup_file, root = self.make({
             "agentkit.slice": {"high": "0", "current": gb(1),
                                "stat": "anon 0\nfile 0\n"},
         }, "/agentkit.slice")
-        limits = run._unit_memory_limits(cgroup_file, root)
+        limits = host._unit_memory_limits(cgroup_file, root)
         self.assertEqual(len(limits), 1)
         readings = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                     "unit_limits": limits}
@@ -169,7 +169,7 @@ class MemoryGate(unittest.TestCase):
                     "unit_limits": [(4096, 10240, 5120, "agentkit.slice")]}
         with patch.dict(os.environ, {"AK_MIN_FREE_MB": "3072", "AK_MAX_LOAD": "8"}), \
                 patch.object(run, "_heavy_running", return_value=0), \
-                patch.object(run, "host_readings", return_value=readings):
+                patch.object(host, "host_readings", return_value=readings):
             line = run.host_status_line()
         self.assertIn("agentkit.slice", line)
         self.assertIn("4 of 10 G in use", line)
@@ -182,7 +182,7 @@ class MemoryGate(unittest.TestCase):
                 (cgroup / "cpu.stat").write_text("usage_usec 1000000\n")
             with patch.object(run.time, "sleep", side_effect=fake_sleep), \
                     patch.object(run.time, "monotonic", side_effect=[100.0, 101.0]):
-                self.assertAlmostEqual(run._slice_cpu_used(cgroup, delay=0.1), 1.0)
+                self.assertAlmostEqual(host._slice_cpu_used(cgroup, delay=0.1), 1.0)
 
 
 if __name__ == "__main__":

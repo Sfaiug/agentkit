@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, notify, orch, run, watch
+from agentkit import host, config, menu, notify, orch, run, watch
 
 TASK = """---
 rounds: 3
@@ -80,7 +80,7 @@ class V5X(unittest.TestCase):
         }))
         self.stack.enter_context(redirect_stdout(io.StringIO()))
         self.stack.enter_context(redirect_stderr(io.StringIO()))
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         config.ensure_dirs()

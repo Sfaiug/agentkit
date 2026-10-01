@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, menu, orch, run, watch, worker
+from agentkit import host, config, gc, menu, orch, run, watch, worker
 
 URL = "https://github.com/acme/widget/pull/7"
 
@@ -82,7 +82,7 @@ class OwnPrRounds(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "launcher_world", side_effect=lambda *a, **k: nullcontext(True)))
         self.stack.enter_context(patch.object(orch, "find", return_value={"name": "fix-api"}))
         self.stack.enter_context(patch.object(watch, "type_at_prompt", side_effect=self.tell))
-        self.stack.enter_context(patch.object(watch, "frozen_cgroup", return_value=None))
+        self.stack.enter_context(patch.object(host, "frozen_cgroup", return_value=None))
         self.stack.enter_context(patch.object(watch, "step_for_run", return_value=("none", "no child", None, [])))
         self.kill = self.stack.enter_context(patch.object(watch, "kill_tree"))
         self.resume = self.stack.enter_context(patch.object(watch, "launch_resume"))

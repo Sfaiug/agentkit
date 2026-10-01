@@ -22,7 +22,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import config, job as jobs, orch, run, watch
+from agentkit import host, config, job as jobs, orch, run, watch
 
 # One spy for every command the slice rests on: it records its argv and answers the way the
 # case under test needs it to, so nothing here can reach the account's own manager.
@@ -87,10 +87,10 @@ class Slice(Sandbox):
         self.own_cgroup = self.root / "own-cgroup"
         self.own_cgroup.write_text(f"0::/user.slice/user-{os.getuid()}.slice/"
                                    f"user@{os.getuid()}.service/app.slice/ak.scope\n")
-        self.stack.enter_context(patch.object(orch, "OWN_CGROUP", self.own_cgroup))
+        self.stack.enter_context(patch.object(host, "OWN_CGROUP", self.own_cgroup))
         # and the slice says what it holds in its own directory, which is this test's too
         self.cgroup = self.root / "cgroup"
-        self.stack.enter_context(patch.object(orch, "CGROUP_ROOT", self.cgroup))
+        self.stack.enter_context(patch.object(host, "CGROUP_ROOT", self.cgroup))
         self.slice_dir = (self.cgroup / "user.slice" / f"user-{os.getuid()}.slice"
                           / f"user@{os.getuid()}.service" / "agentkit.slice"
                           / "agentkit-test.slice")
@@ -643,7 +643,7 @@ class Frozen(Slice):
     def setUp(self):
         super().setUp()
         self.proc = self.root / "proc"
-        self.stack.enter_context(patch.object(watch, "PROC", self.proc))
+        self.stack.enter_context(patch.object(host, "PROC", self.proc))
         self.killed, self.resumed = [], []
         self.stack.enter_context(patch.object(
             watch, "kill_tree", side_effect=lambda pid, log=None: self.killed.append(pid)))
@@ -743,13 +743,13 @@ class Frozen(Slice):
         self.assertEqual(self.resumed, [self.run_dir.name])
 
     def test_r_a_run_nothing_holds_is_read_exactly_as_before(self):
-        self.assertIsNone(watch.frozen_cgroup(self.pid))
-        self.assertIsNone(watch.frozen_cgroup(None))
+        self.assertIsNone(host.frozen_cgroup(self.pid))
+        self.assertIsNone(host.frozen_cgroup(None))
         self.tick(self.started + 10 * 3600)
         self.assertEqual(self.resumed, [self.run_dir.name])
         self.assertEqual(self.frozen_lines(), [])
         self.held.write_text("1\n")
-        self.assertEqual(watch.frozen_cgroup(self.pid), str(self.held.parent))
+        self.assertEqual(host.frozen_cgroup(self.pid), str(self.held.parent))
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ from unittest.mock import patch
 from urllib.parse import unquote_to_bytes
 
 from test_v4n import REPO, Sandbox
-from agentkit import browser, config, gc, job as jobs, menu, notify, orch, run, terminal, watch
+from agentkit import host, browser, config, gc, job as jobs, menu, notify, orch, run, terminal, watch
 
 SEAT = "seat"
 TYPE_CHECKED = watch.type_checked   # the real confirmed send, for the tests that drive it
@@ -1234,7 +1234,7 @@ class BlockedRuns(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("post")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
-        self.stack.enter_context(patch.object(run, "host_readings", return_value={
+        self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         self.stack.enter_context(patch.object(run, "SLOT_POLL", .01))

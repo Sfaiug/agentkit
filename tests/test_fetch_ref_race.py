@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import host, config, run
 
 URL = "https://github.com/acme/widget/pull/7"
 LOCKED = ("error: cannot lock ref 'refs/remotes/origin/main': is at 1111111 but expected 2222222\n"
@@ -75,7 +75,7 @@ class FetchRefRace(unittest.TestCase):
             "FRR_FETCHES": str(self.fetches), "FRR_FAILS": "0", "FRR_ANSWER": "",
             "FRR_DELAY": "0",
             "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}))
-        stack.enter_context(patch.object(run, "host_readings", return_value={
+        stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         stack.enter_context(patch.object(run, "pickup_new_code", return_value=False))

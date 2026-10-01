@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, run, watch  # noqa: E402
+from agentkit import host, config, orch, run, watch  # noqa: E402
 
 HEALTHY = {"free_mb": 4096, "mem_total_mb": 16384, "load": 2, "cpus": 8,
            "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}
@@ -47,10 +47,10 @@ class FrozenAdmission(unittest.TestCase):
                                               return_value=dict(FAKE_OWNER)))
         self.proc = self.root / "proc"
         self.proc.mkdir()
-        self.stack.enter_context(patch.object(watch, "PROC", self.proc))
+        self.stack.enter_context(patch.object(host, "PROC", self.proc))
         self.cgroup = self.root / "cgroup"
         self.cgroup.mkdir()
-        self.stack.enter_context(patch.object(orch, "CGROUP_ROOT", self.cgroup))
+        self.stack.enter_context(patch.object(host, "CGROUP_ROOT", self.cgroup))
 
     def freeze(self, name, pid, held=True):
         """A running run record whose process the (fake) host holds, or not."""

@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import config, notify, orch, retention, run, task as taskfile, watch
+from . import config, host, notify, orch, retention, run, task as taskfile, watch
 
 JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at most this often
 JOB_TICK = 2              # seconds between scheduler passes over the job receipt
@@ -686,12 +686,9 @@ def job_scoped(job):
     scope = job.get("scope")
     if not run.scope_is_real(scope):
         return False
-    try:
-        line = next(row for row in orch.OWN_CGROUP.read_text().splitlines()
-                    if row.startswith("0::"))
-    except (OSError, StopIteration):
-        return False
-    return line.rstrip("/").rsplit("/", 1)[-1] in (f"{scope}.scope", f"{scope}.service")
+    cgroup = host.process_cgroup()
+    return (cgroup is not None and
+            cgroup.rstrip("/").rsplit("/", 1)[-1] in (f"{scope}.scope", f"{scope}.service"))
 
 
 def job_await(run_dir):
