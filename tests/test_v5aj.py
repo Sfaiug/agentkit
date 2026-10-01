@@ -345,7 +345,7 @@ sys.exit(1)
         self.assertEqual(len(after["round_summaries"]), 1)
         self.assertIsNone(after.get("verdict"))
         self.assertEqual(after.get("review_pending", {}).get("round"), 2)
-        self.assertIn(NO_VERDICT.strip().splitlines()[0], after.get("findings", ""))
+        self.assertEqual(after.get("findings", ""), "")
         # The same commit re-reviews with no executor turn once the reviewer answers.
         self.reviews(PASS)
         with patch.object(run, "execute", side_effect=AssertionError("no executor turn")):
