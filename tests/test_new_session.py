@@ -78,7 +78,8 @@ class NewSession(Sandbox):
     def test_login_error_keeps_the_menu_open(self):
         with self.answers(["", "", ""]), patch.object(menu, "read", return_value=""), \
                 patch.object(menu, "wait_key", side_effect=["n", ""]) as keys, \
-                patch.object(menu, "Live"), patch.object(terminal.Keyboard, "take", return_value=False), \
+                patch.object(menu, "Live", **{"return_value.heard.return_value": []}), \
+                patch.object(terminal.Keyboard, "take", return_value=False), \
                 patch.object(orch, "create", side_effect=config.Error("no working seat login")), \
                 patch.object(menu, "pause") as pause, redirect_stdout(io.StringIO()):
             self.assertEqual(menu.loop(self.cfg), 0)
