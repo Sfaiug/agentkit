@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, terminal
+from agentkit import config, menu, orch, run, terminal
 
 
 SEATS = [{"name": "atoll-fix"}, {"name": "parser"}]
@@ -96,7 +96,10 @@ class Back(unittest.TestCase):
     def stop(self, *answers, dry_run=False):
         """The `x` flow against two seats, answering `answers`."""
         out = io.StringIO()
+        # The seat's runs stop through a mock too: the real one reads ~/.agentkit/runs and
+        # would `ak run stop` every run a real seat named `atoll-fix` launched.
         with patch.object(menu, "read", side_effect=list(answers)) as read, \
+                patch.object(menu, "stop_session_runs"), \
                 patch.object(orch, "cmd_stop", return_value=0) as stopped, \
                 redirect_stdout(out):
             menu.stop_session([dict(seat) for seat in SEATS], dry_run)
@@ -109,6 +112,14 @@ class Back(unittest.TestCase):
         self.assertIn("stop atoll-fix and everything it is running? [y/N] ", prompts)
         self.assertIn(menu.stop_means(None), screen)
         self.assertNotIn("reopens it later", screen)
+
+    def test_v5u_x_y_stops_no_real_run(self):
+        # A run on this machine launched by a seat named `atoll-fix` is never `ak run stop`ped
+        # by the fixture's Stop: the seat's runs stop through a mock, as the seat itself does.
+        with patch.object(menu, "session_runs", return_value=[Path("fake-active-run")]), \
+                patch.object(run, "cmd_stop") as run_stop:
+            self.stop("1", "y")
+        self.assertEqual(run_stop.call_count, 0)
 
     def test_v5u_overlay_x_says_stop_cannot_be_undone(self):
         # Stop removes the seat's record and conversation (`orch.cmd_stop`): the pipe's
