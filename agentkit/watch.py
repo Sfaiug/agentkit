@@ -3817,10 +3817,16 @@ def _dead_plan(state, run_dir, now):
     # record itself. Noticing the same dead pid again would launch a second loop.
     if _resume_ordered(state, now):
         return "skip", deaths, ""
+    reaped = last and last.get("pid") == pid and not last.get("parked") and not last.get("resumed_at")
+    # The hour runs to the death being judged, not to the tick judging it: a tick that gets
+    # to a recorded death late must not age the first of three out of the window.
+    upto = last.get("at") if reaped else now
+    if not isinstance(upto, (int, float)) or isinstance(upto, bool):
+        upto = now
     recent = [death for death in deaths
               if isinstance(death.get("at"), (int, float)) and not isinstance(death.get("at"), bool)
-              and now - death["at"] < DEAD_WINDOW]
-    if last and last.get("pid") == pid and not last.get("parked") and not last.get("resumed_at"):
+              and upto - death["at"] < DEAD_WINDOW]
+    if reaped:
         # A reap noticed this death first and recorded it, so it is already among the recent:
         # the third inside the hour parks whoever noticed it.
         if len(recent) >= 3:
