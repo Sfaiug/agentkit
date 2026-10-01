@@ -1691,11 +1691,15 @@ def reviewer_checkout(wt, out_dir, log):
                 try:
                     if entry.is_dir(follow_symlinks=False):
                         copy_files(Path(entry.path), target)
-                    else:
+                    elif entry.is_file(follow_symlinks=False) or entry.is_symlink():
                         shutil.copy2(entry.path, target, follow_symlinks=False)
+                    else:
+                        log(f"WARN skipped {entry.path} in review checkout: not a regular file or link")
                 except FileNotFoundError:
                     # The live suite can remove listed files or directories before copying.
                     pass
+                except OSError as exc:
+                    log(f"WARN skipped {entry.path} in review checkout: {exc}")
         shutil.copystat(source, destination)
 
     with ExitStack() as stack:
