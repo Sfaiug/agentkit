@@ -219,7 +219,7 @@ resume <job>` under it. A run with no output for 20 minutes has its step stopped
 silence resumes the loop with each role re-picked from its own group and execution on another provider; a third parks
 it `stalled` for `ak run resume <id>`. Quota `exhausted` resumes when its window refills, a reviewer-transport one as
 below; other `exhausted` runs wait for `ak run resume <id>`; an expired login parks `waiting_login` until the harness's
-`auth` verb answers `yes`. A transient fault (`API Error`, `Overloaded`, a 5xx, an empty answer) retries the same
+`auth` verb answers `yes`. A failed worker turn is read in its harness's own `[stall]` words and those no harness owns, whole (a `429` inside a longer number is none) and only where the harness spoke, never in the model's answer. A transient fault (`API Error`, `Overloaded`, a 5xx, an empty answer) retries the same
 session after a minute; a second failure in a row hands the role to the next model in its group, and with nobody else the same session
 is retried after 5, 15, 30 and 60 minutes, then hourly; the tick's silence clock starts where each wait ends. An empty
 answer whose stderr (the adapter's own included) says the harness never ran (not installed, an unknown flag or model, a
@@ -320,7 +320,7 @@ named under `[launch] programs`: a tmux session made by hand is a seat only whil
 The manifest is everything else, as data: `[update]` (version, upgrade, revert, latest commands), `[usage]` flags,
 `[conversation]` (what a seat owns), `[hooks] installed`, `[stop] enforce`, `[authority]` and `[[hooks.event]]` (which
 of hooks and screen decides each live fact), `[screen]` and `[[rule]]` (the composer and dialog patterns read off the
-bottom of the pane), `[stall]` (its own words for a fault, a refusal and a spent quota), `[resume]`, `[quota]`, `[auth]`
+bottom of the pane), `[stall]` (its own words for a spent quota, a refusal, an outage and a harness that never ran, beside the ones no harness owns), `[resume]`, `[quota]`, `[auth]`
 (title, remedy, signatures), `[compact]` (the keys, the signal, where context is read, the idle minutes, the stash key), `[effort]` (its vocabulary),
 `[catalog]` (models, efforts) and `[worker_token]` where it mints one. Then add `[providers.<name>]`.
 `$AGENTKIT_ADAPTER_DIR` points at another adapter directory, which is how the offline suites run the loop with no model
