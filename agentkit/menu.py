@@ -1547,10 +1547,11 @@ def session_runs(name):
 
 def stop_means(runs):
     """What `Stop` means on the card `x` asks on: `runs`, how many runs stop with the seat, or
-    None while they are counted, and that the conversation stays."""
+    None while they are counted, and that ak cannot reopen it: `orch.cmd_stop` removes the
+    record a reopening would read."""
     stop = ("Its runs stop" if runs is None else "No runs stop" if not runs
             else "1 run stops" if runs == 1 else f"{runs} runs stop")
-    return f"{stop} with it; the conversation stays and can be reopened."
+    return f"{stop} with it; ak cannot reopen the session: Stop removes its record."
 
 
 def stop_question(name):

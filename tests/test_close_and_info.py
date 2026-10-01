@@ -213,8 +213,8 @@ class CloseAndInfo(unittest.TestCase):
         asked = menu.frame(keys="esc back", after=mark)
         row = next(number for number, line in enumerate(asked, 1) if "beta" in line)
         self.assertEqual(asked[row:row + 3], ["", "  Stop beta and everything it runs?",
-                                              "  No runs stop with it; the conversation "
-                                              "stays and can be reopened."])
+                                              "  No runs stop with it; ak cannot reopen the "
+                                              "session: Stop removes its record."])
         self.assertFalse(any(line.startswith("›") for line in asked), asked)
         top, answers = menu.choices(after=mark)
         self.assertEqual(top, row + 4)                      # the two lines under what it means
@@ -401,8 +401,8 @@ class CloseAndInfo(unittest.TestCase):
         self.assertGreater(top, before)
         self.assertEqual(asked[top - 6:top - 1], ["  Stop", f"  {long}",
                                                   "  and everything it runs?",
-                                                  "  No runs stop with it; the conversation",
-                                                  "  stays and can be reopened."])
+                                                  "  No runs stop with it; ak cannot reopen",
+                                                  "  the session: Stop removes its record."])
         self.assertEqual(answers, ["› ✓ Keep", "  ✗ Stop"])
         for line in asked:
             self.assertLessEqual(terminal.cells(line), 40, line)
