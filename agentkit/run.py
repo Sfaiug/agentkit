@@ -143,9 +143,9 @@ SUMMARY_HEADING = re.compile(r"^##[ \t]*Summary\b[^\n]*$", re.M | re.I)
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
                 "the task or its checks are wrong")
 # What the loop itself adds to a done-when log, in its own words, after the commands have had
-# their say: neither is a command's output, and reading one as such would make a failure that
+# their say: none is a command's output, and reading one as such would make a failure that
 # never moved look new every round.  See `run_done_when`, `verify_work` and `final_check`.
-LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after )")
+LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after |outside files: )")
 # Where a suite, unittest, pytest or TAP names what failed: at the start of the line it says so
 # on, long before the tally it ends with.  See `first_failure`.
 FAILURE_LINE = re.compile(r"^(?:FAIL(?:ED)?|ERROR|not ok)\b")
