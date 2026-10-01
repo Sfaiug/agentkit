@@ -9,8 +9,8 @@ v5u, v5v and v5z apply this to every other screen.
 Every screen clears the terminal, then one header line: `agentkit` at the
 left, the screen name after it when it is not the menu, the clock at the
 right; under it one dim rule the width of the layout. It ends with one blank
-line, the key line, and the prompt `> ` wherever a line is read; the main menu,
-`c` and `i` on a terminal read keys, and end at their key line. The commit hash is not in
+line, the key line, and the prompt `> ` wherever a line is read; the main menu
+and `c` on a terminal read keys, and end at their key line. The commit hash is not in
 the header.
 
 The rule is ak's one progress indicator, and otherwise just a line. When `ak`
@@ -81,7 +81,7 @@ business.
 
 ## Keys
 
-Seven keys: the numbers, `n`, `x`, `c`, `i`, `s`, Esc. Esc is the one way
+Six keys: the numbers, `n`, `x`, `c`, `s`, Esc. Esc is the one way
 back on every screen and at every question under the menu, and on the main
 screen it leaves; `q` is no key anywhere, and at a question it is a letter.
 
@@ -147,7 +147,7 @@ seat's tmux bar reads `Ctrl-b m  x close` on its right half.
 
 A stdin that is no terminal -- a pipe, a file, the smoke suite -- keeps the
 line menu: a key and Enter, and the key line
-`n new   x stop   c config   i info   esc leave`, with `j more   k previous`
+`n new   x stop   c config   esc leave`, with `j more   k previous`
 joined on only while the list runs to more than one page; anything else typed
 answers `not a key: '<key>'`, `q` included. An empty line or the end of input
 leaves, as Esc does. There `x` asks `Stop [name]:` and `[y/N]`, and on every
@@ -160,14 +160,14 @@ column and row, the wheel), `terminal.highlight`, `terminal.key_spans`, and
 space; a default preselected; Esc back; asked inside a screen it draws again
 on a resize, where a click on a choice picks it). The main menu and the
 new-session screen use them. A click belongs to the screen it began on: a button down on the menu and
-up on the question or on `i`, or the other way round, is no click.
+up on the question or on `c`, or the other way round, is no click.
 
 On a terminal, `s` toggles solo on the highlighted seat, or in the popup its own seat,
 and appears as `s solo` on the key line while a seat is selected. The last column starts
 with `solo` while on; the session's record keeps the switch across restarts and model changes.
 Solo refuses task launches before a run is created and still allows its own PR reviews.
 
-Example: `↑↓ move   ⏎ open   n new   x stop   c config   i info   s solo   esc leave`.
+Example: `↑↓ move   ⏎ open   n new   x stop   c config   s solo   esc leave`.
 
 Whatever the pointer is over lights up, on every screen, as it would in a window:
 a row under it -- a seat, a model, a feature, a choice -- takes the keys' own
@@ -193,6 +193,48 @@ colour the rows still follow it, and nothing else lights. Helpers: `terminal.und
 the one reading of a position back to what a screen drew there, for a click and the
 pointer alike, `terminal.lit`, `terminal.relight`, `terminal.away`, `terminal.unseen`.
 
+Nobody needs a manual: the key line is the tooltip. While the pointer rests on
+something that means more than its label -- a session row, a state word, a
+project's heading, a key-line item, a usage row, and on `c` a model, a mark, an
+effort or a provider's name -- the key line says what it is in one plain
+sentence, in place of the keys: on the same row, the same width, cut with one
+ellipsis, never a new line or a popup. The keys come back when the pointer
+leaves it, and any key brings them back too. A state word, a heading naming no
+switches, a usage row and a provider's name only explain: nothing lights on
+them and a click there does nothing of its own (`terminal.Spot`); a key-line
+item whose sentence stands in its place is not lit either. The sentences live
+in one table, `menu.TIPS`, filled in with what each is about:
+
+- `⏎ open`: `Enter opens the highlighted session; a click opens the one clicked`
+- `n new`: `n starts a session: you name it and pick the models that orchestrate, execute and review`
+- `x stop`: `x stops the highlighted session and everything it runs, asking first`
+- `x close`: `x closes the highlighted session, which is done: its runs, checkouts and files go`
+- `c config`: `c sets the highlighted session's models, every model's effort, the providers and Discord`
+- `esc leave`: `Esc leaves ak; the sessions go on working without it`
+- a session row: `{name}: Enter or a click opens it, where you talk to its orchestrator`
+- `needs you`: `needs you: it asked you something, or it cannot go on without you`
+- `working`: `working: a run of its own is going, or a turn is, or a session it waits on works`
+- `done`: `done: it said so, and the row carries its summary`
+- a project's heading: `{name}: the project the sessions under it work in, those needing you first`
+- one naming feature switches: `{name}: Enter or a click opens the switches of its hidden features`
+- a usage row: its label, `NN% left`, `resets <when> (in 2 d 6 h)`, then `faster than time`, `slower than time` or `as fast as time`
+- a model: `{name}: {harness} runs it at {effort} effort; Enter on its name opens its screen`
+- `orch`: `orch: the model the session's orchestrator runs on; Enter moves the session to it`
+- `exec`: `exec: a model the session's runs may execute with; Enter adds or drops it`
+- `review`: `review: a model that may review the session's runs; Enter adds or drops it`
+- an effort: `effort: how hard {name} thinks; Enter steps it up, a click on an arrow that way`
+- a provider: `{name}: your subscription; its seats, runs and usage row use its login`
+- the provider a worker token is minted for: `{name}: its {note}`, the token's expiry
+
+A usage row under the pointer shows the one thing the row cannot: whether it is
+spent faster than time passes. One glint of light crosses its bar, left to
+right in 400 ms (Motion), and a hairline tick stands in the bar at the share
+that would be left had it been spent as fast as time passes, from the meter's
+window and reset -- cut out of the fill's colour where the fill reaches past
+it -- until the pointer leaves; the key line reads
+`Claude II · 68% left · resets Thu 20:00 (in 2 d 6 h) · slower than time`.
+Helpers: `terminal.pointed`, `terminal.lit`, `menu.usage_tip`, `motion.glinting`.
+
 ## Questions
 
 Every yes-or-no question on a screen read with the keys -- `x` on a seat that
@@ -215,10 +257,10 @@ Example:
 `› ✓ Keep`
 `  ✗ Stop`.
 
-## The config and info screens
+## The config screen
 
-`c` and `i` are sub-screens in the same frame, headed `agentkit · config` and
-`agentkit · info`. `c` is a matrix read with the keys, so the file is never
+`c` is a sub-screen in the same frame, headed `agentkit · config`. It is a
+matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
 accent, a row of label, harness (dim), then `orchestrator` (`●` on the highlighted
 session's, `○` dim elsewhere), `worker` (`■`/`□`) and `effort` (`‹ xhigh ›`),
@@ -251,17 +293,14 @@ there opens `config · <label>`: `model id`, `effort` and `Reviews its own
 company's work` between the arrows ←→ step (the id and the effort only through
 what the harness's catalog lists, the effort following the id), then `Remove`, whose Enter asks on the question
 card under it, `Keep` picked; each value goes under its
-label on a phone. Esc returns to the matrix on that model's row.
-`i` is one calm screen and reads no line: one line on what agentkit is, then
-`States` and `Keys` in the README's own lines, then `Installed`, the worker
-token's date and the build, and nothing else. Two-column lines wrap under their
-text on a phone, and a resize wraps them anew. It is written over the menu's screen and read with the keys:
-when it does not fit, ↑/↓, k/j and the wheel scroll it and the key line leads
-with `↑↓ scroll`; Esc or a click on `esc back` returns. From a pipe it is
-drawn once and the menu goes on.
+label on a phone. Esc returns to the matrix on that model's row. The worker
+token's expiry is the tooltip of the provider it is minted for on `Providers`
+(`claude worker token expires 2027-09-22 (in 142 days)`), and once it is 14
+days away or less, or past, that line stands under the rows whatever the
+pointer is on. There is no `i` page: what it said is the key line's now.
 
 Helpers: `terminal.frame` (written over in place while a keyboard has the
-screen), `terminal.scroll`, `terminal.hang`, `terminal.state_text`.
+screen), `terminal.state_text`, `menu.config_tips`.
 
 ## The new-session screen
 
@@ -445,7 +484,10 @@ reaches full -- even one its rounding drew full already -- then sends one light
 across it, left to right, the only light on it. Only a change seen while the
 menu is up moves: the first draw after opening, one after a resize and one back
 from another screen or a notice draw every value as it is (`motion.Clock.look`,
-`forget`).
+`forget`). The pointer coming onto a usage row is news the same way: one light
+crosses its bar, left to right over 400 ms, then it is still, its tick standing
+(Keys); resting there sends it again only once the pointer has left and come
+back.
 
 A step on an effort on `c` is news too: the bar it fills rises into place over
 150 ms, and the one it empties lowers, the rest standing still; a step onto the
@@ -484,8 +526,8 @@ back from the wait, the fetch left to finish on its own, and any other key is le
 go (`motion.fetching`, `menu.matrix_key`, `menu.waited`).
 
 Helpers: `motion.Clock`, `motion.breathing`, `motion.pulsing`, `motion.settling`,
-`motion.gliding`, `motion.rising`, `motion.shimmering`, `motion.fetching`, `menu.moving`,
-`menu.waited`, `terminal.faded`, `terminal.fade`, `terminal.signal`.
+`motion.gliding`, `motion.glinting`, `motion.rising`, `motion.shimmering`, `motion.fetching`,
+`menu.moving`, `menu.waited`, `terminal.faded`, `terminal.fade`, `terminal.signal`.
 
 ## Ages
 
