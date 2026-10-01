@@ -1119,15 +1119,34 @@ def lit(lines, spots):
     global _SPOTS, _POINTED, _SHOWN, _PAINTED
     _SPOTS, _POINTED = spots, under(_POINTER, spots) if _POINTER else Spot()
     _SHOWN = _PAINTED = lines = list(lines)
-    depth = colour_depth()
-    if _POINTED.cell is None or not depth or not 0 < _POINTER.row <= len(lines):
+    if _POINTED.cell is None or not colour_depth() or not 0 < _POINTER.row <= len(lines):
         return lines
+    _PAINTED = [*lines[:_POINTER.row - 1], _lighted(lines[_POINTER.row - 1], 0, True),
+                *lines[_POINTER.row:]]
+    return _PAINTED
+
+
+def pointed(row, column, text):
+    """`text`, written from `column` of `row` over the screen up, with the pointer's light where
+    it falls on the cell `lit` lit: what moves there between draws (`motion.Clock.frame`) keeps
+    it, never the keys' reverse."""
+    if (_POINTED.cell is None or _POINTER is None or row != _POINTER.row
+            or column > _POINTED.last or not colour_depth()):
+        return text
+    return _lighted(text, column - 1, False)
+
+
+def _lighted(text, at, fill):
+    """`text`, its first cell `at` cells into the pointer's row, with what of it falls on the cell
+    under the pointer on the background, in place of any reverse; `fill` carries the background
+    on to the cell's end where `text` stops short of it."""
+    depth = colour_depth()
     rgb = POINTED[_LIGHT]
     back, off = (("48;2;" + ";".join(str(int(rgb[i:i + 2], 16)) for i in (0, 2, 4)), "49")
                  if depth == 24 else (f"48;5;{xterm_colour(rgb)}", "49") if depth > 8
                  else ("7", "27"))
-    out, at, on = "", 0, None      # on: None before the cell, True in it, False past it
-    for token in re.findall(f"{ANSI.pattern}|.", lines[_POINTER.row - 1], re.S):
+    out, on = "", None             # on: None before the cell, True in it, False past it
+    for token in re.findall(f"{ANSI.pattern}|.", text, re.S):
         if on is None and at + 1 >= _POINTED.first:
             out, on = out + f"\033[{back}m", True
         elif on and at >= _POINTED.last:
@@ -1137,10 +1156,7 @@ def lit(lines, spots):
             token = f"\033[{'' if params == '7' else (params or '0') + ';'}{back}m"
         out += token
         at += 0 if token.startswith("\033") else cells(token)
-    _PAINTED = [*lines[:_POINTER.row - 1],
-                out + (" " * (_POINTED.last - at) + f"\033[{off}m" if on else ""),
-                *lines[_POINTER.row:]]
-    return _PAINTED
+    return out + (" " * (_POINTED.last - at) * fill + f"\033[{off}m" if on else "")
 
 
 def relight():

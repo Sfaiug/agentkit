@@ -216,6 +216,19 @@ class Screens(Sandbox):
         self.assertEqual(len(highlighted(screens[-1])), 1)
         self.assertIn("Dark mode", highlighted(screens[-1])[0])
 
+    def test_an_effort_shimmering_under_the_pointer_keeps_its_light(self):
+        first = self.matrix()[0]
+        row = at(first, "fable")[1]
+        line = texts(first)[row - 1]
+        left = line.index("‹") + 1
+        arrow = (line.index("›", left) + 1, row)
+        # stepped to its highest, the word shimmers, and the pointer is on it before it ends
+        last = self.matrix(b"\x1b[<0;%d;%dM\x1b[<0;%d;%dm" % (arrow * 2) + move(left, row),
+                           ESC)[-1]
+        self.assertIn("‹ max ›", texts(last)[row - 1])
+        self.assertEqual(marked(last, "lit"), {row: "‹ max ›"})
+        self.assertEqual(marked(last, "reverse"), {})
+
     def test_five_hundred_moves_in_one_read_draw_one_frame(self):
         first = self.matrix()[0]
         rows = len(texts(first))

@@ -244,7 +244,7 @@ class Clock:
 
     def frame(self):
         """What to write now: the lines still rising, or each cell whose text moved since it
-        was last written, no other."""
+        was last written, no other, with the pointer's light where it is (`terminal.pointed`)."""
         now = self.last = time.monotonic()
         out = ""
         if self.rising:
@@ -259,7 +259,7 @@ class Clock:
             text = animation(now)
             if self.shown.get((row, column)) != text:
                 self.shown[row, column] = text
-                out += f"\033[{row};{column}H{text}"
+                out += f"\033[{row};{column}H{terminal.pointed(row, column, text)}"
             if until is not None and now >= until:
                 del self.cells[row, column]         # its last frame is out: still from here
         return out
