@@ -329,11 +329,10 @@ class DesktopAndBoot(Sandbox):
 
         def loop(cfg, *flags, start):
             # the start-up work as the menu runs it, behind its first draw
-            live = menu.Live(cfg, start=start)
-            live.begin()
-            live.starting.join(30)
-            said.append(live.heard())
-            live.close()
+            begun = menu.Start(start, lambda: None)
+            begun.begin()
+            begun.thread.join(30)
+            said.append(begun.heard())
             return 0
         with patch.object(config, "server_alias", return_value=None), \
                 patch("agentkit.macbridge.start_background"), \
