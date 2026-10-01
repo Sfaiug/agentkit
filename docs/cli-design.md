@@ -213,10 +213,10 @@ project's heading, a usage row, a key-line item on any screen, on `c` a model,
 a mark, an effort or a provider's name, on a model's own screen its id and its
 effort, on `n` a model or a role's mark, and a provider or a subscription in the
 lists `+ add` and `− remove` open -- the key line says what it is in one plain
-sentence, in place of the keys: on the same row, the same width, cut with one
-ellipsis, never a new line or a popup. The keys come back when the pointer
-leaves it, and any key brings them back too. A state word, a heading naming no
-switches, a usage row and a provider's name only explain: nothing lights on
+sentence, in place of the keys: starting on the same row and wrapping at word
+boundaries onto further lines, never cut. The rows above stay in place. The keys
+come back when the pointer leaves it, and any key brings them back too. A state
+word, a heading naming no switches, a usage row and a provider's name only explain: nothing lights on
 them and a click there does nothing of its own (`terminal.Spot`); a key-line
 item whose sentence stands in its place is not lit either. `esc back` means
 just what it says, so it lights and explains nothing. The sentences live in
@@ -251,7 +251,7 @@ UTF-8 key (`enter` is `⏎`):
 - `done`: `done: it said so, and the row carries its summary`
 - a project's heading: `{name}: the project the sessions under it work in, those needing you first`
 - one naming feature switches: `{name}: Enter or a click opens the switches of its hidden features`
-- a usage row: its label, `NN% left`, `resets <when> (in 2 d 6 h)`, then `faster than time`, `slower than time` or `as fast as time`
+- a usage row: its label, `NN% left`, `resets <when> (in 2 d 6 h)`, then `runs out early at this pace`, `lasts at this pace` or `on pace`
 - a usage row with no week to draw: `{name}: no week to draw, {why}; the bar comes with the first reading of one`
 - a model, on `c` and `n`: `{name}: {model} through {harness}, at {effort} effort`
 - its id, on its own screen: `model id: what {harness} is asked to run, one its catalog lists`
@@ -264,13 +264,13 @@ UTF-8 key (`enter` is `⏎`):
 - in `+ add`, another subscription: `{name}: another subscription of it, logged in on this terminal, then listed`
 - in `+ add`, a provider: `{name}: installed here if missing, logged in, and added with its first model`
 
-A usage row under the pointer shows the one thing the row cannot: whether it is
-spent faster than time passes. One glint of light crosses its bar, left to
+A usage row under the pointer shows the one thing the row cannot: whether its
+allowance lasts the week at this pace. One glint of light crosses its bar, left to
 right in 400 ms (Motion), and a hairline tick stands in the bar at the share
 that would be left had it been spent as fast as time passes, from the meter's
 window and reset -- cut out of the fill's colour where the fill reaches past
 it, and standing through a glide -- until the pointer leaves; the key line reads
-`Claude II · 68% left · resets Thu 20:00 (in 2 d 6 h) · slower than time`.
+`Claude II · 68% left · resets Thu 20:00 (in 2 d 6 h) · lasts at this pace`.
 Helpers: `terminal.pointed`, `terminal.lit`, `menu.usage_tip`, `motion.glinting`.
 
 ## Questions
