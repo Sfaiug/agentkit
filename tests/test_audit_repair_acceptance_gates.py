@@ -229,6 +229,14 @@ finish
         self.assertIn('acceptance: INCOMPLETE', result.stdout)
         self.assertNotIn('PASS ', result.stdout)
 
+    def test_incomplete_gate_stays_incomplete_under_an_outer_suites_diversion(self):
+        # Run inside a running suite, the gate inherits that suite's diversion log; its own
+        # `finish` reads only what this gate diverted.
+        outer = self.root / "outer-diversions.log"
+        outer.write_text("an outer suite's diversion\n")
+        self.env["AK_NOTIFY_SINK_LOG"] = str(outer)
+        self.test_skipped_harness_browser_and_failed_run_prerequisite()
+
     def test_codex_partial_hook_modal_is_not_a_ready_banner(self):
         poll = between(SMOKE, 'PANE=""\nfor _ in', '\ncp "$HOME/')
         result = self.shell('''tm() {

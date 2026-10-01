@@ -4,9 +4,11 @@
 # check, and nothing a check starts, can post to the user's Discord.  A check that needs a
 # delivered POST points it at a local recorder of its own.  Every notification the marker had
 # to divert away from a configured webhook is written to the log below, and `finish` fails the
-# gate on it: a test that aimed at the user is a failure, not a warning nobody reads.
+# gate on it: a test that aimed at the user is a failure, not a warning nobody reads.  The log
+# is this suite's own whatever the environment brought in: a suite sourced inside another one
+# fails on what it diverted, never on what the outer suite did.
 : "${AK_NOTIFY_SINK:=dry-run}"
-: "${AK_NOTIFY_SINK_LOG:=${WORK:-${TMPDIR:-/tmp}}/notify-diversions.log}"
+AK_NOTIFY_SINK_LOG=${WORK:-${TMPDIR:-/tmp}}/notify-diversions.log
 export AK_NOTIFY_SINK AK_NOTIFY_SINK_LOG
 NPASS=0 NFAIL=0 NSKIP=0 NMETER=0 NHOST=0
 ok() { printf 'PASS  %s\n' "$*"; NPASS=$((NPASS + 1)); }

@@ -651,9 +651,7 @@ esac
             # an all-skipped suite is INCOMPLETE and exits 0 here; `ak update`'s gate runs this
             # file with AGENTKIT_ACCEPTANCE_REQUIRED=1, which would make it exit 2
             env = {**os.environ, "HOME": directory, "WORK": directory, "REPO": str(REPO),
-                   "PATH": f"{root}:{os.environ['PATH']}", "AGENTKIT_ACCEPTANCE_REQUIRED": "0",
-                   # an outer gate's diversion log is not this fixture's: empty falls back to $WORK's
-                   "AK_NOTIFY_SINK_LOG": ""}
+                   "PATH": f"{root}:{os.environ['PATH']}", "AGENTKIT_ACCEPTANCE_REQUIRED": "0"}
             for spent in ("anthropic", "openai", None):
                 providers = {provider: {"meters": [{"name": "weekly", "used": 100 if provider == spent else 10,
                     "exhausted": provider == spent, "resets_at": 9999999999}]}
