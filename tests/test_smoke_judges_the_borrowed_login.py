@@ -56,6 +56,7 @@ ak() {
       echo fixture-session >"$out/session_id"
       if [ "$resumed" = 0 ]; then
         echo hello >"$workspace/hello.txt"; echo DONE >"$out/final.md"
+        "$PYTHON_BIN" "$REPO/tests/fixtures/hand_in.py" smoke "$out" "$workspace" || return $?
       else
         echo hello.txt >"$out/final.md"
       fi ;;

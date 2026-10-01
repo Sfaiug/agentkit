@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 
 from . import command_help, config
 
@@ -13,6 +14,7 @@ FILE = "hand-in.jsonl"
 REPORT = "review.md"
 ENV = "AK_HAND_IN"
 CONTINUE = "AK_HAND_IN_CONTINUE"
+OUTPUT_CAP = 8 * 1024
 
 
 def item_text(row):
@@ -81,7 +83,7 @@ def read(path):
 
 
 def start(out_dir, workspace, previous=None):
-    """A re-ask carries the findings forward, but completion belongs to this call alone."""
+    """A resumed session keeps its records, but completion belongs to this call alone."""
     path = Path(out_dir).resolve() / FILE
     review = read(previous) if previous else None
     rows = [{"kind": "turn", "workspace": str(Path(workspace).resolve())}]
@@ -131,10 +133,21 @@ def checked(argv, workspace):
         env = dict(os.environ)
         env.pop(ENV, None)
         env.pop(CONTINUE, None)
-        result = subprocess.run(["bash", "-c", flags["--run"]], cwd=root, env=env,
-                                capture_output=True, text=True, errors="replace")
+        # Spool rather than holding an arbitrarily large reproduction in memory.
+        with tempfile.TemporaryFile(dir=root) as output:
+            result = subprocess.run(["bash", "-c", flags["--run"]], cwd=root, env=env,
+                                    stdout=output, stderr=subprocess.STDOUT)
+            size = output.tell()
+            output.seek(0)
+            if size > OUTPUT_CAP:
+                head = output.read(OUTPUT_CAP // 2).decode("utf-8", "replace")
+                output.seek(-OUTPUT_CAP // 2, os.SEEK_END)
+                text = (head + "\n[output truncated; rerun the command for full evidence]\n"
+                        + output.read(OUTPUT_CAP // 2).decode("utf-8", "replace"))
+            else:
+                text = output.read(OUTPUT_CAP).decode("utf-8", "replace")
         evidence = {"run": flags["--run"], "returncode": result.returncode,
-                    "output": result.stdout + result.stderr}
+                    "output": text}
     row = {"kind": kind, "path": str(path.relative_to(root)), "line": line,
            "what": what, "why": why, "evidence": evidence}
     if kind == "follow-up":

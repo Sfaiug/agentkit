@@ -933,6 +933,9 @@ ak() {
       printf '%s\n' "${WARNING:-}" >"$out/stderr.log"
       echo fixture-session >"$out/session_id"
       [ "$rc" != 0 ] || printf 'hello\n' >"$workspace/hello.txt"
+      if [ "$rc" = 0 ] && [ "$resumed" = 0 ]; then
+        "$PYTHON_BIN" "$REPO/tests/fixtures/hand_in.py" smoke "$out" "$workspace" || return $?
+      fi
       return "$rc" ;;
     *) return 97 ;;
   esac

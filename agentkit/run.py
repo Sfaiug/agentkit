@@ -36,6 +36,7 @@ from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 DIFF_CAP = 300 * 1024
 OUT_CAP = 20 * 1024
+GITHUB_BODY_CAP = 60_000         # below GitHub's 65,536-character body limit, including UTF-8
 LESSONS_CAP = 4 * 1024
 RULES_CAP = 8 * 1024
 # A transient answer is what a person answers by typing `continue`: the same worker session
@@ -67,7 +68,7 @@ ECHO = 40                       # a prompt is recognised quoted back by this man
                                 # which no refusal begins with
 REFUSAL_CAP = 1000              # a refusal replaces the answer instead of following it, so it is
                                 # short; past this many characters what is there is an answer
-# every role's preamble asks for one of these, so an answer carries one and a refusal does not
+# Legacy text answers carry a heading or verdict; reviewers answer through hand-in records.
 ANSWERED = re.compile(r"^\s{0,3}#{1,6}\s|^[\s>#*_`]*VERDICT:", re.M | re.I)
 # A record in a harness's event log is that harness reporting a failure when one of its own kind
 # fields says so -- Codex ends a refused turn with `turn.failed`, Claude with a `result` whose
@@ -1146,8 +1147,8 @@ def answered(text):
     """Did the worker answer here, or did the harness put a refusal where the answer belongs?
 
     A refusal takes the answer's place rather than following it: it is the whole of what the
-    harness managed to say, and it is short.  An answer carries the shape every role's preamble
-    asks for -- a `## Summary` heading, a `VERDICT:` line -- and length of its own.
+    harness managed to say, and it is short. Legacy text answers carry a heading, a verdict
+    line or length of their own; checked review records establish an answer separately.
     """
     return len(text) > REFUSAL_CAP or bool(ANSWERED.search(text))
 
@@ -1220,7 +1221,7 @@ def refusal_event(node):
     return any(refusal_event(value) for value in node.values())
 
 
-def failures(chunk, terminal, terminal_only=False):
+def failures(chunk, terminal, terminal_only=False, handed_in=False):
     """The failure records of an event log, each minus the output of the work it quotes.
 
     The output goes first, so a command that failed while printing the words a refusal uses
@@ -1248,11 +1249,12 @@ def failures(chunk, terminal, terminal_only=False):
         if terminal_only:
             terminal_record = is_terminal(record, terminal)
             failure = (terminal_record
-                       and (refusal_event(record) or not answered(record_text(record))))
+                       and (is_failure(record) or refusal_event(record)
+                            or (not handed_in and not answered(record_text(record)))))
         else:
             failure = (is_failure(record)
                        or (is_terminal(record, terminal)
-                           and not answered(record_text(record))))
+                           and not handed_in and not answered(record_text(record))))
         if failure:
             records.append(json.dumps(record))
     return records
@@ -1286,14 +1288,18 @@ def harness_said(out_dir, text, harness, failures_only=False):
     echo = echo if len(echo) >= ECHO else ""
     if failures_only and answered(text):
         return ""
+    submitted = hand_in.read(out_dir / hand_in.FILE)
+    # Records establish the worker's answer without exposing their evidence as diagnostics.
+    # An unfinished, failed call may still contain a real provider error in its final text.
+    handed_in = submitted is not None and (submitted.done or (failures_only and bool(submitted.records)))
     terminal = watch.terminal(harness)
-    parts = [] if failures_only else ([text] if not answered(text) else [])
+    parts = [] if failures_only or handed_in or answered(text) else [text]
     for path in sorted(out_dir.glob("*")):
         if path.name in NOT_HARNESS or path.name == ANSWER or not path.is_file():
             continue
         chunk = tail(path)
         if path.suffix == ".jsonl":
-            parts += failures(chunk, terminal, terminal_only=failures_only)
+            parts += failures(chunk, terminal, terminal_only=failures_only, handed_in=handed_in)
         elif not failures_only:
             parts.append(chunk[-REFUSAL_CAP:])
     return "\n".join(line for part in parts for line in part.splitlines()
@@ -1374,7 +1380,7 @@ def note_turn_meters(cfg, name, out_dir, account):
 
 
 def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit=None,
-                  fresh_body=None, resume_note=None, handover=None):
+                  fresh_body=None, resume_note=None, handover=None, previous=None):
     """worker.call, retried while the harness keeps dying on the provider instead of the task.
 
     Returns (code, text, session, dead): `dead` stays False -- a transient answer is resumed
@@ -1435,21 +1441,22 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
            "AK_RUN_LOG": str(out_dir.parent.parent / "log.txt")}
     attempt, calls, refills, last_kill, account, span = 1, 0, 0, None, None, None
     handover_tried = False
+    last_dir, last_sid = Path(previous) if previous is not None else None, session
 
-    def turn(text, target, session, previous=None):
+    def turn(text, target, session):
         """One call, with a login failure taken aside before it costs a wait.
 
         No call starts on a stopped run: the stop lands first and the sweep after
         it, so a retry that outlived the sweep would otherwise run a whole turn no
         record wants anymore.
         """
-        nonlocal account, span
+        nonlocal account, span, last_dir, last_sid
         stop_check(out_dir.parent.parent)
         account = usage.account(cfg, entry["provider"])[0]
         began = time.time()
         named = env if account is None else {**env, **config.account_env(account)}
-        if previous is not None:
-            named = {**named, hand_in.CONTINUE: str(previous / hand_in.FILE)}
+        if session and session == last_sid and last_dir is not None:
+            named = {**named, hand_in.CONTINUE: str(last_dir / hand_in.FILE)}
         try:
             with reviewer_checkout(workspace, target, log) if role in (
                     "reviewer", "reviewer-pr") else nullcontext(workspace) as cwd:
@@ -1465,6 +1472,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         finally:
             memory_cap_note(out_dir.parent.parent, log)     # however the turn ended
         note_turn_meters(cfg, name, target, account)
+        last_dir, last_sid = target, result[2] or session
         return result
 
     def swapped(code, killed, session):
@@ -1532,7 +1540,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             # call, so review() never spends a second extra call on the same turn.
             finish_body = (f"{FINISH_IN_FOREGROUND} {NO_VERDICT_ASK}"
                            if role.startswith("reviewer") else FINISH_IN_FOREGROUND)
-            code, text, sid, killed, unfinished = turn(finish_body, finish, session, previous=target)
+            code, text, sid, killed, unfinished = turn(finish_body, finish, session)
             session = sid or session
             if swapped(code, killed, session):
                 continue
@@ -3019,6 +3027,16 @@ def session_of(directory):
     return worker.recovered_session(directory) or None
 
 
+def latest_turn(round_dir, name):
+    """The last call, including retries a host interruption may have left unfinished."""
+    dirs = attempt_dirs(round_dir, name)
+    if not dirs:
+        return None
+    out = dirs[-1]
+    return max([out, *out.parent.glob(f"{out.name}-retry*")],
+               key=lambda path: path.stat().st_mtime_ns)
+
+
 def open_turn(round_dir, name):
     """`(resume|fresh, session)` when this role's latest attempt never finished.
 
@@ -3027,10 +3045,9 @@ def open_turn(round_dir, name):
     resumed; a directory with neither is a fresh turn, because there is nothing to
     continue. A finished attempt is `(None, None)`.
     """
-    dirs = attempt_dirs(round_dir, name)
-    if not dirs:
+    latest = latest_turn(round_dir, name)
+    if latest is None:
         return None, None
-    latest = dirs[-1]
     if (latest / "final.md").exists():
         return None, None
     sid = session_of(latest)
@@ -3082,7 +3099,7 @@ def open_worker(lp):
         kind, sid = open_turn(rd, base)
         if not kind:
             continue
-        latest = attempt_dirs(rd, base)[-1]
+        latest = latest_turn(rd, base)
         try:
             mtime = latest.stat().st_mtime
         except OSError:
@@ -3099,9 +3116,8 @@ def open_review(round_dir):
 
     A review that fell back to another model writes under `reviewer-<model>`, so the
     attempt to continue is the newest reviewer directory of any name, not `reviewer`
-    alone: a fallback cut off mid-turn would otherwise start its review over. What a
-    turn's own diagnostics left beside it is not an attempt to continue: a retry and a
-    foreground finish are named as such, and `review` finds them by those names too.
+    alone: a fallback cut off mid-turn would otherwise start its review over. Retries
+    belong to that same attempt, including a foreground finish ended by the host.
     """
     rd = Path(round_dir)
     if not rd.is_dir():
@@ -3114,7 +3130,7 @@ def open_review(round_dir):
         kind, sid = open_turn(rd, base)
         if not kind:
             continue
-        latest = attempt_dirs(rd, base)[-1]
+        latest = latest_turn(rd, base)
         try:
             mtime = latest.stat().st_mtime
         except OSError:
@@ -4298,7 +4314,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             lp.review_sid = turn_sid
             note = {"at": time.time(), "role": "reviewer", "restarted": False}
             lp.state["resume_notice"] = note
-            resume = {"fresh_body": rbody, "resume_note": note}
+            resume = {"fresh_body": rbody, "resume_note": note, "previous": latest_turn(rd, name)}
         elif turn_kind == "fresh":
             lp.review_sid = None
             note = {"at": time.time(), "role": "reviewer", "restarted": True}
@@ -5248,6 +5264,15 @@ def push(lp):
     return True
 
 
+def github_body(text, run_id):
+    """Keep publication within GitHub's limit; the run retains the complete records."""
+    data = text.encode("utf-8")
+    if len(data) <= GITHUB_BODY_CAP:
+        return text
+    note = f"\n\n[body truncated; complete findings and summaries are in agentkit run {run_id}]\n"
+    return data[:GITHUB_BODY_CAP - len(note.encode("utf-8"))].decode("utf-8", "ignore") + note
+
+
 def pr_body(state):
     last = state["round_summaries"][-1]["summary"].strip() if state["round_summaries"] else ""
     lines = [last, "", "---", "",
@@ -5258,7 +5283,7 @@ def pr_body(state):
     if state.get("followups"):
         lines += ["", "## Follow-ups", "",
                   *("- " + item.replace("\n", "\n  ") for item in state["followups"])]
-    return "\n".join(lines + [""])
+    return github_body("\n".join(lines + [""]), state["run_id"])
 
 
 def refresh_pr_body(lp):
@@ -12587,8 +12612,9 @@ def post_review(lp, url, verdict):
         lp.write()
         return False
     path = lp.run_dir / "review.md"
-    path.write_text(f"agentkit review of {head[:12]} by {lp.reviewer} (run {lp.run_dir.name})\n\n"
-                    + lp.findings.strip() + "\n")
+    path.write_text(github_body(
+        f"agentkit review of {head[:12]} by {lp.reviewer} (run {lp.run_dir.name})\n\n"
+        + lp.findings.strip() + "\n", lp.run_dir.name))
     how = "COMMENT" if verdict == "PASS" or lp.state.get("own_pr") else "REQUEST_CHANGES"
     owner, repo, number = PR_PARTS.match(url).groups()
     rc, out = gh(lp.run_dir, "api", f"repos/{owner}/{repo}/pulls/{number}/reviews",

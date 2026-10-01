@@ -1615,6 +1615,7 @@ fakeadapter() {   # fakeadapter <dir> <harness> <flaky|work|mergework|pass|dead|
 #!/usr/bin/env bash
 set -uo pipefail
 S="$d/$h"
+AK="$REPO/bin/ak"
 SH
   cat >>"$d/$h.sh" <<'SH'
 if [ "${1:-}" = usage ] && [ "$(cat "$S.beh" 2>/dev/null)" = meterless ]; then printf '%s\n' '{"provider":"xai","meters":[],"error":null,"none":"no meter: smoke fake"}'; exit 0; fi
@@ -1638,7 +1639,8 @@ if [ "$beh" = flaky ] && [ "$n" -le 2 ]; then
   exit 1
 fi
 if [ "$beh" = pass ]; then
-  printf 'VERDICT: PASS\n\n## Findings\n- none\n' >"$out/final.md"; exit 0
+  "$AK" hand-in done || exit $?
+  printf 'Handed in.\n' >"$out/final.md"; exit 0
 fi
 if [ "$beh" = mergework ]; then
   # the work, plus a merge commit of its own: check 19 needs a branch a rebase would flatten

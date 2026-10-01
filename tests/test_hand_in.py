@@ -106,7 +106,7 @@ class HandIn(unittest.TestCase):
         self.assertIn("done", result.stderr)
         self.assertEqual(self.file.read_bytes(), before)
 
-    def review(self, *plan, ok=True, once_ok=True, reviewer="astra", prior=(), overrides=()):
+    def review(self, *plan, ok=True, once_ok=True, reviewer="astra", prior=(), prior_suffix="", overrides=()):
         """The adapter invokes bin/ak, so these turns cross the real record-file boundary."""
         directory = self.root / "run"
         directory.mkdir()
@@ -159,6 +159,10 @@ sys.exit(row.get("code", 0))
             if prior:
                 previous = directory / "round-1/reviewer"
                 previous.mkdir(parents=True)
+                if prior_suffix:
+                    (previous / "final.md").write_text("API Error: 529 Overloaded")
+                    previous = previous.with_name(previous.name + prior_suffix)
+                    previous.mkdir()
                 file = hand_in.start(previous, self.workspace)
                 for args in prior:
                     result = self.cli(*args, AK_HAND_IN=file)
@@ -299,10 +303,30 @@ sys.exit(row.get("code", 0))
 
     def test_a_host_ended_resume_keeps_the_records_of_its_session(self):
         finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
-        verdict, lp, calls, _ = self.review({"commands": [["done"]]}, prior=[finding])
+        for suffix in ("", "-retry2", "-retry2-retry-foreground"):
+            with self.subTest(suffix=suffix):
+                case = self.root / (suffix or "initial")
+                case.mkdir()
+                original = self.root
+                self.root = case
+                try:
+                    verdict, lp, calls, _ = self.review({"commands": [["done"]]}, prior=[finding],
+                                                        prior_suffix=suffix)
+                    self.assertEqual(verdict, "FAIL")
+                    self.assertEqual(lp.state["round_summaries"][0]["finding_count"], 1)
+                    self.assertEqual(calls[0]["session"], ["fixture-session"])
+                finally:
+                    self.root = original
+
+    def test_a_plain_closing_without_done_is_reasked_without_losing_records(self):
+        finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
+        text = "Handed in one finding about the rate limit parsing."
+        verdict, _, calls, logs = self.review(
+            {"commands": [finding], "text": text, "events": [{"type": "result", "result": text}]},
+            {"commands": [["done"]]}, reviewer="opus")
         self.assertEqual(verdict, "FAIL")
-        self.assertEqual(lp.state["round_summaries"][0]["finding_count"], 1)
-        self.assertEqual(calls[0]["session"], ["fixture-session"])
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(any("asking once more" in line for line in logs), logs)
 
     def test_an_abandoned_resume_starts_with_no_records(self):
         finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
@@ -325,7 +349,7 @@ sys.exit(row.get("code", 0))
         self.assertEqual(evidence["returncode"], 7)
         item = hand_in.item_text(self.rows()[1])
         state = {"round_summaries": [{"summary": "## Summary\nFixed the API"}], "verdict": "PASS",
-                 "rounds": 1, "executor": "opus", "reviewer": "astra", "run_id": "fixture",
+                 "rounds": 1, "executor": "opus", "reviewer": "astra", "run_id": "fixture", "base": "main",
                  "followups": [item] * 30, "head_sha": "abc123"}
         self.assertLess(len(run.pr_body(state)), 65536)
         self.assertIn("truncated", run.pr_body(state))

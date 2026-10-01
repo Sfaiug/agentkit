@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import subprocess
 import sys
 
 REPO = Path(__file__).resolve().parents[2]
@@ -68,5 +69,17 @@ def scripted(body):
             "if len(sys.argv) > 6 and sys.argv[1] == 'run' else None)\n" + body)
 
 
+def smoke(out, workspace):
+    """A fake smoke worker still crosses the same checker as a real harness."""
+    env = {**os.environ, hand_in.ENV: hand_in.start(out, workspace)}
+    for args in (["finding", "hello.txt:1", "Smoke record", "Checks the hand-in channel", "--quote", "hello"],
+                 ["done"]):
+        subprocess.run([sys.executable, str(REPO / "bin/ak"), "hand-in", *args],
+                       cwd=workspace, env=env, check=True)
+
+
 if __name__ == "__main__":
-    write(sys.argv[1])
+    if sys.argv[1] == "smoke":
+        smoke(sys.argv[2], sys.argv[3])
+    else:
+        write(sys.argv[1])

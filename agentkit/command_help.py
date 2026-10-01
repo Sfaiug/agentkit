@@ -22,7 +22,7 @@ COMMANDS = {
                 "Hand in checked review records from a worker turn.\n"
                 "The loop names AK_HAND_IN; outside a turn this command is refused.\n"
                 "Paths and lines must exist in the checkout; a quote must occur in that file.\n"
-                "--run executes in the checkout and records the output and exit status.\n"
+                "--run executes in the checkout and records bounded output excerpts and the exit status.\n"
                 "--before proves a follow-up existed before the task.\n"
                 "done completes the review: any blocking finding means FAIL, otherwise PASS.",
                 'ak hand-in finding api.py:12 "Wrong result" "Breaks callers" --quote "return None"'),

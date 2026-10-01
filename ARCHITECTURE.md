@@ -54,7 +54,7 @@ Each module: its knowledge, API and callers. Leaks are named;
 - `worker.py`: headless turns, preambles, review gate, adapters, silence, auth and process
   cleanup. Offers `turn`, `call`, `kill_marked`, `auth_ok`.
   Used by run, watch, usage, menu, harness. Leak: Claude shell timeout.
-- `hand_in.py`: `ak hand-in` checks locations and evidence, appends review records and
+- `hand_in.py`: `ak hand-in` checks locations and bounded evidence, appends review records and
   derives PASS/FAIL on done. Worker names the channel; run reads it on every harness.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
   `usage.json`. Offers `collect`, `pick_order`, `mark_exhausted`, `render`. Used by run,
