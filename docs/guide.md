@@ -134,7 +134,7 @@ keeps it waiting; one ending unmerged skips it (`skipped: <dep> did not merge`),
 files in `~/.agentkit/work/<id>`, which its hand-back names, not a PR. `ak run --review-pr URL` reviews a PR with
 no executor and posts the verdict as a GitHub review: a seat's own PR over the size ceiling is refused before any
 model runs, with its size and ceiling and an instruction to split it; one that fits merges on PASS with green checks.
-Anyone else's PR asks the inbox and is never refused for size. `ak run status` lists every run of the last seven days but the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
+FAIL sends findings back to the seat and waits for its push, shown by `ak run status`; the next head is reviewed with the previous findings first. The third FAIL or a closed PR ends the run. Anyone else's PR gets one review, asks the inbox on PASS and is never refused for size. `ak run status` lists every run of the last seven days but the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
 `workspace:` and `continue:` lines. An ending handed back, acknowledged or superseded (by a later merged run of its
 title, or a relaunch `from:` its branch) reads `done`, as does a parked run a later merged run replaced, and a job's tasks read their runs as they are now. `ak run` exits 0 on PASS, 1 on FAIL, `exhausted`, `blocked` or an unfinished merge, 2 on error.
 

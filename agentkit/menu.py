@@ -844,6 +844,8 @@ def silent_for_run(run_dir, state, now=None):
     from . import run as _run
     if state.get("state") not in ("running", "queued"):
         return None
+    if _run.own_pr_wait_note(state) and _run.process_active(state):
+        return None  # the seat's push, not another loop write, ends this wait
     at = time.time() if now is None else now
     try:
         from . import watch as _watch
@@ -1781,7 +1783,10 @@ def run_progress(state):
     total = state.get("rounds")
     # a running run is in the round after the last one it finished, and never past its budget
     rnd = min(done + 1, total) if going and total else done
-    if state.get("state") == "queued":
+    wait = run.own_pr_wait_note(state)
+    if wait or state.get("own_pr_round_pending"):
+        rnd = state.get("own_pr_round_pending") or done
+    if state.get("state") == "queued" or (wait and run.process_active(state)):
         word = "waiting"
     elif state.get("state") == "stalled":
         word = "stalled"
