@@ -123,6 +123,8 @@ class MergeStep(unittest.TestCase):
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
+            "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
             "PYTHONDONTWRITEBYTECODE": "1", "AGENTKIT_SESSION": "",
             "AGENTKIT_RUN_DIR": "", "AK_RUN_ROLE": "",
@@ -534,30 +536,86 @@ class MergeStep(unittest.TestCase):
         self.assertIn("Another model started this round", asked[1][1])
         self.assertIn(f"handing executor to {lp.executor}", self.log_text(run_dir))
 
-    def test_a_clean_rebase_failed_review_uses_the_last_task_round(self):
+    def test_an_exhausted_conflict_fixer_keeps_the_last_round_resumable(self):
         _, owner, wt = make_repos(self.root)
-        lp, run_dir, _ = make_loop(self.root, wt, rounds=5, spent=3)
-        # Main moved without a git conflict, but the done-when fails on the integrated
-        # tree, so integration needs a new review at round 4 before the final fixer at 5.
+        conflict(owner, wt)
+        lp, run_dir, _ = make_loop(config.RUNS, wt, rounds=3, spent=3)
+        history = [dict(entry) for entry in lp.state["round_summaries"]]
+        head = run.git(wt, "rev-parse", "HEAD")
+        tip = run.git(owner, "rev-parse", "HEAD")
+        lp.state["state"] = "exhausted"
+        lp.save()
+        (run_dir / "task.md").write_text(
+            f"---\nrepo: {wt}\nrounds: 3\n---\n# Conflict retry\n\n"
+            "## Done when\n```bash\ntrue\n```\n")
+        binaries = self.root / "bin"
+        binaries.mkdir()
+        tmux = binaries / "tmux"
+        tmux.write_text("#!/bin/sh\nexit 1\n")
+        tmux.chmod(0o755)
+        turns = []
+
+        def fixer(lp, role, text, name, **_kw):
+            self.assertEqual((role, name), ("fixer", "rebase-fixer"))
+            turns.append(lp.rnd)
+            return resolve(wt)
+
+        def deliver(lp, **_kw):
+            if run.integrate(lp, "origin/main"):
+                self.assertTrue(run.current_review(lp))
+                self.assertTrue(run.integrated(wt, tip))
+                lp.state["merged"] = True
+
+        with patch.dict(os.environ, {"PATH": f"{binaries}:{os.environ['PATH']}",
+                                     "AGENTKIT_DISCORD_WEBHOOK": "off"}), \
+                patch.object(usage, "collect", return_value={}), \
+                patch.object(usage, "pick_order", return_value=["opus", "astra"]), \
+                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(run, "stop_run_tree"), \
+                patch.object(run.history, "Sampler"), \
+                patch.object(run.history, "sample_rss", return_value=None), \
+                patch.object(run, "merge", side_effect=deliver), \
+                patch.object(run, "execute", side_effect=fixer):
+            with patch.object(run, "execute", side_effect=run.QuotaDry("provider spent")):
+                self.assertEqual(run.cmd_resume([run_dir.name]), 1)
+            saved = run.read_state(run_dir)
+            self.assertEqual(saved["state"], "exhausted")
+            self.assertEqual(saved["review_pending"]["round"], 3)
+            self.assertIs(saved["review_pending"]["record"], False)
+            self.assertEqual(run.git(wt, "rev-parse", "HEAD"), head)
+            self.assertFalse(run.in_progress(wt, "rebase"))
+            self.assertEqual(run.cmd_resume([run_dir.name]), 0)
+        state = run.read_state(run_dir)
+        self.assertEqual(turns, [3])
+        self.assertEqual(state["round_summaries"], history)
+        self.assertEqual(state["rounds"], 3)
+        self.assertEqual(state["state"], "pass")
+        self.assertTrue(state["merged"])
+        self.assertNotIn("review_pending", state)
+
+    def test_a_clean_rebase_failed_gate_spends_no_task_round(self):
+        _, owner, wt = make_repos(self.root)
+        lp, run_dir, _ = make_loop(self.root, wt, rounds=3, spent=3)
+        # The work already spent its task budget; a failed landing gate gets a
+        # fixer before any reviewer, and both stay on the last task round.
         (owner / "other.txt").write_text("other\n")
         run.git(owner, "add", ".")
         run.git(owner, "commit", "-m", "other work on main")
         run.git(owner, "push", "origin", "main")
-        findings = "VERDICT: FAIL\nThe integrated tree still needs fixed.txt.\n"
-        answers = iter([findings, "VERDICT: PASS\n"])
         gates = iter([False, True])
-        turns = []
+        turns, reviews = [], []
+        failure = "$ check\n[exit 1]\nThe integrated tree still needs fixed.txt.\n"
 
         def checks(cmds, wt, out, *args, **kwargs):
             out.parent.mkdir(parents=True, exist_ok=True)
             ok = next(gates)
-            return ok, f"$ check\n[exit {0 if ok else 1}]\n"
+            return (True, "$ check\n[exit 0]\n") if ok else (False, failure)
 
         def review_call(cfg, name, body, workspace, out, role, session, log, limit=None, **kwargs):
-            answer = next(answers)
-            out.mkdir(parents=True)
-            (out / "final.md").write_text(answer)
-            return 0, answer, session, False
+            self.assertTrue((wt / "fixed.txt").exists(), "reviewed a failing gate")
+            reviews.append(out.parent.name)
+            return self.review_call(cfg, name, body, workspace, out, role, session, log,
+                                    limit, **kwargs)
 
         def fixer(lp2, role, text, name):
             turns.append((lp2.rnd, role, text))
@@ -570,10 +628,11 @@ class MergeStep(unittest.TestCase):
                 patch.object(run, "call_retrying", side_effect=review_call), \
                 patch.object(run, "run_done_when", side_effect=checks):
             self.assertTrue(run.integrate(lp, "origin/main"))
-        self.assertEqual([(rnd, role) for rnd, role, _ in turns], [(5, "fixer")])
-        self.assertIn(findings, turns[0][2])
+        self.assertEqual([(rnd, role) for rnd, role, _ in turns], [(3, "fixer")])
+        self.assertIn(failure, turns[0][2])
+        self.assertEqual(reviews, ["round-3"])
         self.assertEqual([entry["round"] for entry in lp.state["round_summaries"]],
-                         [1, 2, 3, 4, 5])
+                         [1, 2, 3])
         self.assertTrue(run.current_review(lp))
 
     def test_an_interrupted_conflict_review_resumes_without_spending_a_round(self):
