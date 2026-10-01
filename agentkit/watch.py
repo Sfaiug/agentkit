@@ -2708,16 +2708,22 @@ def window_ends(cfg, provider):
     return max(ends, default=None)
 
 
-def spend_reset(cfg, provider, log):
-    """Put a stalled provider to the usage-limit reset policy now, whatever its due clock says.
+def spend_reset(cfg, provider, name, log):
+    """Put the subscription that seat stalled on to the usage-limit reset policy now, whatever
+    its due clock says.
 
     The policy is `ak usage`'s own and its caps are its own too -- 90% of the week gone, and at
     most one reset a day -- so a seat that stalls again an hour later costs nothing here.  The
     adapter is asked at most once a minute like everywhere else, and the snapshot stays: deleting
-    it would cost every other provider its reading.
+    it would cost every other provider its reading.  The seat's own subscription is the one
+    asked, the usual login included: a credit spent on another leaves the stalled week as spent.
     """
+    account = None
+    if config.accounts(cfg, provider):
+        record = config.session_records().get(name) or {}
+        account = record.get("account") or config.DEFAULT_ACCOUNT
     try:
-        spent, left = usage.replenish(cfg, provider, depleted=False)
+        spent, left = usage.replenish(cfg, provider, depleted=False, account=account)
     except config.Error as exc:
         log(f"WARN could not read the {provider} meters: {exc}")
         return
@@ -2943,16 +2949,14 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if dry_run:
         log(f"would recover {name} on a {provider} account with room, or wait for its reset")
         return True
-    # Reset credits still belong to the usual login: named logins are seat-only.
     refilled = False
-    if (refusal and not waiting and reset_policy(harness) and current == config.DEFAULT_ACCOUNT
-            and (until is None or until > now)):
+    if refusal and not waiting and reset_policy(harness) and (until is None or until > now):
         applied = usage._reset_applied_at(reset_path)
         refilled = applied is not None and applied != observed.get("reset_at", reset_before)
         if refilled:
             log(f"{provider}: usage-limit reset applied")
         else:
-            refilled = spend_reset(cfg, provider, log) is True
+            refilled = spend_reset(cfg, provider, name, log) is True
         if refilled:
             fresh = usage.collect(cfg).get(provider) or {}
             readings = (fresh.get("accounts") or {}) if accounts else {current: fresh}
@@ -3301,7 +3305,7 @@ def health(cfg, state, dry_run, log):
             # wait on the persisted deadline, then resume once, without flushing usage every tick.
             if quota and not dry_run and ends is None and not throttled:
                 if reset_policy(harness):
-                    spend_reset(cfg, provider, log)
+                    spend_reset(cfg, provider, name, log)
                 ends = window_ends(cfg, provider)
                 if ends and ends > now:
                     entry["resets_at"] = ends
