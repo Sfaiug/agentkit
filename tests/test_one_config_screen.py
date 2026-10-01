@@ -341,7 +341,7 @@ class OneConfigScreen(unittest.TestCase):
         os.write(menu.master, ENTER)
         lines = menu.picker(after=mark)
         rows = {line.lstrip("› ").split()[0]: marks(line) for line in lines if marks(line)}
-        self.assertEqual((rows["Astra"], rows["Fable"], rows["Opus"]), ("●□□", "○■□", "○□■"))
+        self.assertEqual((rows["astra"], rows["fable"], rows["opus"]), ("●□□", "○■□", "○□■"))
         menu.press(ESC)
         menu.leave()
 
@@ -352,11 +352,11 @@ class OneConfigScreen(unittest.TestCase):
         menu.saw("Name: ")
         os.write(menu.master, ENTER)
         lines = menu.picker()
-        self.assertIn("Opus 5.5", highlighted(lines))     # the shipped defaults, the first time
+        self.assertIn("opus", highlighted(lines))     # the shipped defaults, the first time
         self.assertEqual(marks(highlighted(lines)), "●■■")
-        menu.press(DOWN + SPACE, lambda lines: "Astra" in highlighted(lines)
+        menu.press(DOWN + SPACE, lambda lines: "astra" in highlighted(lines)
                    and marks(highlighted(lines)) == "●■■")
-        menu.press(UP * 2 + RIGHT + SPACE, lambda lines: "Fable" in highlighted(lines)
+        menu.press(UP * 2 + RIGHT + SPACE, lambda lines: "fable" in highlighted(lines)
                    and marks(highlighted(lines)) == "○■□")
         mark = len(menu.text())
         os.write(menu.master, ENTER)
@@ -372,9 +372,9 @@ class OneConfigScreen(unittest.TestCase):
         menu.saw("Name: ", after=mark)
         os.write(menu.master, ENTER)
         lines = menu.picker(after=mark)
-        self.assertIn("Astra", highlighted(lines))
+        self.assertIn("astra", highlighted(lines))
         rows = {line.lstrip("› ").split()[0]: marks(line) for line in lines if marks(line)}
-        self.assertEqual((rows["Astra"], rows["Fable"], rows["Opus"]), ("●■■", "○■□", "○■■"))
+        self.assertEqual((rows["astra"], rows["fable"], rows["opus"]), ("●■■", "○■□", "○■■"))
         menu.press(ESC)
         menu.leave()
 

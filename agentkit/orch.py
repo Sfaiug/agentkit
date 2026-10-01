@@ -2863,7 +2863,7 @@ def default_name(orchestrator, taken):
     return unique_name(orchestrator, taken)
 
 
-def ask_name(taken, default=None, auto=False):
+def ask_name(taken, default=None, auto=False, screen=None):
     """`Name:` or `Name [default]:`, until there is one. Esc goes back.
 
     A seat is what the user calls it: the menu row, the status bar, the Discord title and the
@@ -2872,14 +2872,25 @@ def ask_name(taken, default=None, auto=False):
     already has. End of input (a script, a Ctrl-D) is the way out: None, and the caller goes
     back where it came from. With `auto`, Enter and end of input answer None for an automatic
     name; only Esc goes back. Typed on the menu's keys, the answer Enter takes is in the field,
-    dim -- `auto`, or the default -- until a key replaces it.
+    dim -- `auto`, or the default -- until a key replaces it. With `screen`, the field and
+    any refusal sit inside its frame, above the keys.
     """
     if default:
         taken = taken - {old for old, target in config.session_aliases().items()
                          if target == default}
     prompt = "Name (Enter: auto): " if auto else f"Name{f' [{default}]' if default else ''}: "
+    note = ""
+
+    def draw(line):
+        body = [line, *(terminal.styled("  " + part, "dim") for part in
+                        terminal.wrap(note, terminal.layout_width() - 2) if note)]
+        terminal.frame(screen, body)
+        return 3
+
     while True:
-        line = (terminal.field("Name: ", "auto" if auto else default or "") if terminal.taken()
+        line = (terminal.field("  Name: " if screen else "Name: ",
+                               "auto" if auto else default or "", around=draw if screen else None)
+                if terminal.taken()
                 else terminal.readline(prompt))
         if line is None:
             if not sys.stdout.isatty():
@@ -2896,11 +2907,13 @@ def ask_name(taken, default=None, auto=False):
             return None
         name = session_name(raw or default or "")
         if not name:
-            print("a session needs a name")
+            note = "a session needs a name"
         elif name in taken:
-            print(f"a session named {name} is already there; pick another name")
+            note = f"a session named {name} is already there; pick another name"
         else:
             return name
+        if not screen or not terminal.taken():
+            print(note)
 
 
 def prompt_orchestrator(cfg, default, providers, reason):
@@ -2961,12 +2974,6 @@ def prompt_workers(cfg):
     if picked == "":
         return list(cfg["defaults"]["workers"])
     return [picked] if isinstance(picked, str) else picked
-
-
-def model_title(cfg, name):
-    """`Opus 5.5`: the model's name and the version its id carries, as the screen lists it."""
-    found = re.search(r"\d+(?:[.-]\d+)?", config.model(cfg, name)["model"])
-    return f"{name.capitalize()} {found.group().replace('-', '.')}" if found else name.capitalize()
 
 
 def spent_note(cfg, name, providers):
@@ -3174,20 +3181,23 @@ def switch_orchestrator(cfg, name, model, providers=None):
 
 
 def picker_lines(cfg, notes, selected, at, column, room, moves=None):
-    """Every model once with three marks; detail and spent notes wrap below on a phone.  `moves`
+    """Every model once under its provider, named as on `c`, with three marks; detail and spent
+    notes wrap below on a phone. `moves`
     is handed each mark's line, key, glyph and how it moves (motion.toggled), for the clock."""
+    from . import menu   # here, not at the top: menu imports this module
     names = list(notes)
     marks = "●○■□" if terminal.utf8() else "*.x."
-    titles = {name: model_title(cfg, name) for name in names}
     rest = sum(len(head) + 2 for head in ROLE_HEADS)
-    wide = min(max(terminal.cells(title) for title in titles.values()),
+    wide = min(max(terminal.cells(name) for name in names),
                max(1, min(room // 3, room - 2 - rest)))
     lines = [terminal.styled(" " * (2 + wide) + "".join("  " + head for head in ROLE_HEADS),
                              "dim")]
     rows, cells = [], []
     for at_row, name in enumerate(names):
         entry, note = config.model(cfg, name), notes[name]
-        line = "  " + terminal.pad(titles[name], wide)
+        if at_row == 0 or entry["provider"] != cfg["models"][names[at_row - 1]]["provider"]:
+            lines.append(menu.model_heading(entry["provider"]))
+        line = "  " + terminal.pad(menu.model_label(name, wide), wide)
         texts = (marks[name != selected["orchestrator"]],
                  marks[2 + (name not in selected["workers"])],
                  marks[2 + (name not in selected["reviewers"])])

@@ -1292,7 +1292,7 @@ def clicks_its_own(read):
 
 
 @clicks_its_own
-def field(prompt, placeholder=""):
+def field(prompt, placeholder="", around=None):
     """One answer typed a key at a time on a taken keyboard: `readline`'s while the menu has it.
 
     What was typed on Enter; ESC the moment Esc is pressed, which every question reads as going
@@ -1300,12 +1300,14 @@ def field(prompt, placeholder=""):
     character back, and a key that types nothing is let go.  `placeholder` is the answer Enter
     takes with nothing typed, shown dim where the answer goes until a key replaces it.  An answer
     wider than the screen shows its end, so the line is drawn over in place and never wraps.
+    `around` draws the screen with the field's line and returns its row, counted from 1;
+    a resize draws that frame again too, keeping its keys below the field.
     """
     text = ""
     sys.stdout.write("\033[?25h")        # the cursor, where the answer goes
     try:
         while True:
-            room = max(1, width() - cells(prompt) - 1)
+            room = max(1, (layout_width() if around else width()) - cells(prompt) - 1)
             # clipped by cells, as a wide character that wraps is drawn over wrong, and found from
             # the end through what fits alone, as a paste is long and every key draws it again
             end, used = len(text), 0
@@ -1313,8 +1315,13 @@ def field(prompt, placeholder=""):
                 end -= 1
                 used += cells(text[end])
             shown = "" if text else cut(placeholder, room)
-            sys.stdout.write(f"\r{prompt}{text[end:]}{styled(shown, 'dim')}\033[K"
-                             + (f"\033[{cells(shown)}D" if shown else ""))
+            line = f"{prompt}{text[end:]}{styled(shown, 'dim')}"
+            if around:
+                row = around(line)
+                sys.stdout.write(f"\033[{row};{cells(prompt) + cells(text[end:]) + 1}H")
+            else:
+                sys.stdout.write(f"\r{line}\033[K"
+                                 + (f"\033[{cells(shown)}D" if shown else ""))
             sys.stdout.flush()
             key = read_key()
             if key is None:
@@ -1323,8 +1330,9 @@ def field(prompt, placeholder=""):
                 relight()                # the screen it is typed on lights what it is on
             if key.name == "enter":
                 return text
-            if key.name in ("esc", "eof"):
-                return ESC if key.name == "esc" else None
+            if key.name in ("esc", "eof") or (key.name == "click"
+                                               and under(key, _SPOTS).cell == "esc"):
+                return None if key.name == "eof" else ESC
             if key.name == "backspace":
                 text = text[:-1]
             elif key.name in ("char", "space"):

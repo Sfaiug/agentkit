@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import signal
 import struct
 import subprocess
 import sys
@@ -194,6 +195,30 @@ def marks(line):
 
 
 class NewSessionScreen(unittest.TestCase):
+    def test_name_sits_in_the_content_column_above_the_keys_and_keeps_its_draft_on_resize(self):
+        screen = Screen(self)
+        screen.menu()
+        screen.send(b"n")
+        lines = screen.drawn("Name: auto")
+        self.assertEqual(lines[2], "  Name: auto")
+        self.assertEqual(lines[-2:], ["", "  esc back"])
+        self.assertRegex(screen.text(), r"  Name: \x1b\[[0-9;]*mauto\x1b\[0m")
+        screen.send(b"fix-api")
+        screen.drawn("  Name: fix-api")
+        mark = len(screen.text())
+        fcntl.ioctl(screen.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 12, 40, 0, 0))
+        os.kill(screen.proc.pid, signal.SIGWINCH)
+        lines = screen.drawn("  Name: fix-api", after=mark)
+        self.assertEqual(lines[2], "  Name: fix-api")
+        self.assertEqual(lines[-1], "  esc back")
+        self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
+        mark = len(screen.text())
+        row = len(lines)
+        screen.send(f"\x1b[<0;3;{row}M\x1b[<0;3;{row}m".encode())
+        screen.menu(after=mark)
+        screen.leave()
+        self.assertNotIn("<created", screen.text())
+
     def test_n_then_enter_starts_a_session_with_the_defaults(self):
         screen = Screen(self)
         screen.menu()
@@ -202,12 +227,15 @@ class NewSessionScreen(unittest.TestCase):
         screen.send(ENTER)
         lines = screen.picker()
         self.assertTrue(lines[0].startswith("agentkit · new session"), lines)
-        self.assertIn("Opus 5.5", highlighted(lines))                 # the cursor starts there
+        self.assertIn("opus", highlighted(lines))                 # the cursor starts there
         self.assertEqual(lines[2].split(), ["orch", "exec", "review"])
         self.assertEqual(len(models(lines)), 7)
         self.assertEqual(marks(highlighted(lines)), "●■■")
         self.assertEqual([row.split()[0 if not row.startswith("›") else 1]
-                          for row in models(lines) if marks(row)[1] == "■"], ["Opus", "Astra"])
+                          for row in models(lines) if marks(row)[1] == "■"], ["opus", "astra"])
+        self.assertEqual([line for line in lines[3:-2]
+                          if line and not line.startswith((" ", "›"))],
+                         ["Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"])
         self.assertTrue(lines[-1].startswith("  ↑↓←→ move   space choose   ⏎ start   esc back"))
         screen.send(ENTER)
         screen.saw("<created new opus opus,astra opus,astra>", "<opened new>")
@@ -222,9 +250,9 @@ class NewSessionScreen(unittest.TestCase):
         screen.send(ENTER)
         screen.picker()
         screen.send(DOWN)
-        screen.picker(lambda lines: "Astra" in highlighted(lines))
+        screen.picker(lambda lines: "astra" in highlighted(lines))
         screen.send(SPACE)
-        lines = screen.picker(lambda lines: "Astra" in highlighted(lines) and marks(highlighted(lines))[0] == "●")
+        lines = screen.picker(lambda lines: "astra" in highlighted(lines) and marks(highlighted(lines))[0] == "●")
         self.assertEqual([row for row in models(lines) if "●" in row],
                          [highlighted(lines)])                         # one choice, moved
         screen.send(ENTER)
@@ -247,10 +275,10 @@ class NewSessionScreen(unittest.TestCase):
         self.assertEqual(marks(highlighted(lines)), "○■■")
         # A click chooses Spark's executor mark even with the cursor in the orch column.
         screen.send(LEFT)
-        row = next(number for number, line in enumerate(lines, 1) if "Spark" in line)
+        row = next(number for number, line in enumerate(lines, 1) if "spark" in line)
         col = lines[2].index("exec") + 2
         screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
-        screen.picker(lambda lines: "Spark" in highlighted(lines)
+        screen.picker(lambda lines: "spark" in highlighted(lines)
                       and marks(highlighted(lines))[1] == "■")
         screen.send(ENTER)
         screen.saw("<created new opus astra,spark opus,astra>")
@@ -264,11 +292,11 @@ class NewSessionScreen(unittest.TestCase):
         screen.saw("Name: ")
         screen.send(ENTER)
         lines = screen.picker()
-        opus = [row for row in lines if "Opus 5.5" in row]
+        opus = [row for row in lines if "opus" in row]
         self.assertEqual(len(opus), 1)
         self.assertEqual(marks(opus[0]), "○□□")
         self.assertIn("spent · resets", opus[0])
-        self.assertRegex(screen.text()[mark:], r"\x1b\[[0-9;]*mOpus 5\.5")
+        self.assertRegex(screen.text()[mark:], r"\x1b\[[0-9;]*mopus")
         self.assertEqual(marks(highlighted(lines)), "●■■")
         # Astra reviewing itself could start, so Enter creates a self-review.
         screen.send(ENTER)
@@ -284,7 +312,7 @@ class NewSessionScreen(unittest.TestCase):
         lines = screen.picker()
         self.assertEqual([row for row in lines if "●" in row or "■" in row], [])
         # a week at 100% whose reset nobody knows is spent all the same, only with no time
-        self.assertEqual(len([row for row in lines if "Astra" in row and "spent" in row]), 1)
+        self.assertEqual(len([row for row in lines if "astra" in row and "spent" in row]), 1)
         screen.send(ENTER + SPACE + ENTER)     # Fable orchestrates; executor column wants a choice
         screen.send(SPACE + ENTER)             # Fable executes; reviewer column wants a choice
         screen.send(DOWN * 2 + SPACE + ENTER)  # Astra reviews
@@ -301,7 +329,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.saw("Name: ")
         screen.send(ENTER)
         lines = screen.picker()
-        self.assertEqual(len([line for line in lines if "Mmmmmmmmmmmm…" in line]), 1)
+        self.assertEqual(len([line for line in lines if "mmmmmmmmmmmm…" in line]), 1)
         self.assertEqual([line for line in lines if terminal.cells(line) > 40], [])
         mark = len(screen.text())
         screen.send(ESC)
@@ -329,7 +357,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.send(ENTER)
         lines = screen.picker()
         self.assertTrue(lines[0].startswith("agentkit · new session"), lines)
-        self.assertIn("Astra", highlighted(lines))
+        self.assertIn("astra", highlighted(lines))
         self.assertEqual(marks(highlighted(lines)), "●■■")
         self.assertIn("spent · resets", "\n".join(lines))
         screen.send(RIGHT * 2 + DOWN + SPACE + ENTER)

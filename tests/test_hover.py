@@ -287,8 +287,8 @@ class Screens(Sandbox):
 
         answer, screens = picking(ESC)
         self.assertIs(answer, orch.BACK)
-        self.assertOneHighlight(screens[0], "Opus")
-        row = at(screens[0], "Astra")[1]
+        self.assertOneHighlight(screens[0], "opus")
+        row = at(screens[0], "astra")[1]
         review = (at(screens[0], "review")[0] + 3, row)
         last = picking(move(*review) + ESC)[1][-1]
         self.assertEqual(len(highlighted(last)), 1)

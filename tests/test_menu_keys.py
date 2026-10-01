@@ -65,7 +65,7 @@ def open_session(cfg, session, dry_run):
 def close_seat(name, dry_run, **_kw):
     print(f"<closed {name}>", flush=True)
 
-def ask_name(taken, auto=False):
+def ask_name(taken, auto=False, **_kw):
     cooked = bool(termios.tcgetattr(0)[3] & termios.ICANON) if os.isatty(0) else None
     print(f"<lines {cooked}>", flush=True)
     print(f"<answered {menu.read('Name (Enter: auto): ', '')!r}>", flush=True)
