@@ -105,6 +105,10 @@ sys.exit(1)
         self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
+        # Fixture cleanup must never scan or signal the host's processes or scopes.
+        self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
+        self.stack.enter_context(patch.object(run.orch, "stop_scope"))
+        self.stack.enter_context(patch.object(run.history, "sample_rss", return_value=None))
         config.ensure_dirs()
         self.cfg = config.load()
         for harness in {entry["harness"] for entry in self.cfg["models"].values()}:
@@ -126,7 +130,8 @@ sys.exit(1)
     def launch(self, rounds=None, *flags):
         """One scratch run, so the loop is the only thing under test: no repo, branch or PR."""
         front = f"---\nrepo: none\n{'' if rounds is None else f'rounds: {rounds}'}\n---\n"
-        self.task.write_text(f"{front}# Budget fixture\n\n"
+        # Run markers are host-wide: another suite's sandbox must name a different run.
+        self.task.write_text(f"{front}# {self.root.name}\n\n"
                              "## Done when\n```bash\ntest -f deliverable\n```\n")
         before = set(run.run_dirs())
         code = run.main([str(self.task), "--exec", self.executor, "--review", self.reviewer, *flags])
@@ -314,6 +319,29 @@ sys.exit(1)
         self.assertIn("- b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError", body)
         self.assertNotIn("- a.py:1", body)
         self.assertFalse((config.HOME / "followups").exists())
+
+
+class ReviewGateIsolation(unittest.TestCase):
+    def test_same_minute_sandboxes_have_distinct_process_markers(self):
+        now = run.datetime(2026, 1, 1, 9)
+        markers = []
+        with patch.object(run, "datetime", wraps=run.datetime) as clock, \
+                patch.object(worker, "marked_pids", return_value=[]), \
+                patch.object(run.orch, "stop_scope"), \
+                patch.object(run.history, "sample_rss", return_value=None):
+            clock.now.return_value = now
+            for _ in range(2):
+                fixture = ReviewGate()
+                try:
+                    fixture.setUp()
+                    fixture.reviews(PASS)
+                    code, directory, state = fixture.launch(rounds=1)
+                    self.assertEqual(code, 0, (directory / "log.txt").read_text())
+                    markers.append(state["run_id"])
+                finally:
+                    fixture.doCleanups()
+        self.assertNotEqual(markers[0], markers[1],
+                            "one sandbox's cleanup can kill the other's reviewer")
 
 
 if __name__ == "__main__":
