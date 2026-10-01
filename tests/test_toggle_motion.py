@@ -161,14 +161,15 @@ class ConfigScreen(unittest.TestCase):
         tones = [sum(map(int, BACK.findall(written)[0])) for written in glows]
         self.assertEqual(tones, sorted(tones, reverse=True))       # fading
         self.assertGreater(tones[0], tones[-1])
-        # a key mid-glow: drawn within 100 ms, the glow over at once, nothing moving after it
+        # a key mid-glow, the highlight staying on the row: drawn within 100 ms, the glow over
+        # at once, nothing moving after it
         mark = len(screen.text())
         pressed = time.monotonic()
-        os.write(screen.master, DOWN)
+        os.write(screen.master, RIGHT)
         while "\x1b[J" not in screen.text()[mark:]:
             time.sleep(0.002)
         self.assertLess(time.monotonic() - pressed, 0.1)
-        lines = screen.frame(lambda lines: not highlighted(lines).startswith("› claude-haiku"),
+        lines = screen.frame(lambda lines: highlighted(lines).startswith("› claude-haiku"),
                              after=mark)
         time.sleep(1.0)
         self.assertNotRegex(screen.text()[mark:].rpartition("\x1b[J")[2], PLACE)
