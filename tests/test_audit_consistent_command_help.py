@@ -114,6 +114,10 @@ def probe():
     sys.addaudithook(audit)
     with ExitStack() as stack:
         stack.enter_context(patch.object(urllib.request, "urlopen", side_effect=blocked("HTTP")))
+        if mode == "worker":
+            from agentkit import worker
+            # Fake adapters leave no children; keep the process guard on for worker turns too.
+            stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         if mode in ("help", "module"):
             for name in ("ensure_dirs", "load", "current_session", "resolve_session", "server_alias"):
                 stack.enter_context(patch.object(config, name, side_effect=blocked(f"config.{name}")))

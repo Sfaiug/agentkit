@@ -102,6 +102,7 @@ class V5ac(unittest.TestCase):
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
+        self.stack.enter_context(patch.object(run.worker, "marked_pids", return_value=[]))
         self.stack.enter_context(patch.object(run.time, "sleep"))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -188,8 +189,9 @@ sys.exit(0 if ok else 1)
 
     def launch(self, rounds=3):
         (self.root / "plan.json").write_text(json.dumps(self.plan))
+        # Run markers are host-wide; concurrent suites need different fixture names.
         self.task.write_text(f"---\nrepo: {self.wt}\nbase: origin/main\nrounds: {rounds}\n"
-                             f"---\n# v5ac fixture\n\n## Done when\n"
+                             f"---\n# {self.root.name}\n\n## Done when\n"
                              f"```bash\n{self.command}\n```\n")
         code = run.main([str(self.task), "--exec", "opus", "--review", "astra", "--no-worktree"])
         dirs = run.run_dirs()
@@ -330,10 +332,11 @@ sys.exit(0 if ok else 1)
         self.assertEqual(state["review"]["rebased_from"], reviews[0]["head_sha"])
         self.assertEqual(state["review"]["head_sha"], tests[-1]["head_sha"])
         self.assertFalse((self.wt / "leftover.txt").exists())
-        self.assertEqual(run.git(self.wt, "ls-files", "leftover.txt"), "")
-        saved = (self.directory / "round-1" / "reviewer-changes.patch").read_text()
-        self.assertIn("leftover.txt", saved)
-        self.assertIn("+leftover\n", saved)
+        self.assertNotIn("leftover.txt", run.git(self.wt, "ls-tree", "-r", "--name-only",
+                                                state["review"]["head_sha"]).splitlines())
+        archive = (self.directory / "round-1" / "reviewer-changes.patch").read_text()
+        self.assertIn("leftover.txt", archive)
+        self.assertIn("+leftover\n", archive)
 
     def test_v5ac_merge_resume_leftover_is_reviewed_not_kept(self):
         self.merge_mode = "blocked"

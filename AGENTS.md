@@ -1,12 +1,12 @@
 ---
 users: none
-tests: bash tests/smoke.sh
+tests: bash tests/smoke.sh; smoke=$?; python3 tests/every_file.py && exit $smoke
 ---
 # agentkit, for an agent working on it
 
 - Python 3.11 standard library and bash. No dependency is added, ever.
 - One test file per behaviour: `python3 tests/test_<name>.py`, run straight, no runner.
-- The acceptance gate is `bash tests/smoke.sh`; the loop runs it alongside the review in every round, and again at landing only if the target touched the branch's files.
+- The acceptance gate is the `tests:` line: `bash tests/smoke.sh`, then `tests/every_file.py`, which runs every `tests/test_*.py` smoke.sh does not, each once, in parallel and without the caller's `AGENTKIT_*`/`AK_*` variables; either failing fails the gate. The loop runs it alongside the review in every round, and again at landing only if the target touched the branch's files.
 - Match the style of the file you are in. Read `ARCHITECTURE.md` first; a change that adds, removes, renames or moves a module updates the map. Any task may lower a `max` in `tests/test_boundaries.py` in the area it touches, and no task raises one.
 - Docs ride the change: `README.md` and `docs/guide.md` say what the code now does.
 - `orchestrator.md` is the rulebook an agentkit session is launched with, not a file for here.

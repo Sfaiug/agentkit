@@ -92,6 +92,7 @@ class LeftoverStagedAndSandboxes(unittest.TestCase):
 
     def done_when(self, repo):
         round_dir = Path(tempfile.mkdtemp(dir=self.root))
+        # a run directory without regression.sh: no fix run's check to make
         lp = SimpleNamespace(wt=repo, scratch=False, state={}, every=["true"],
                              artifacts=set(), log=self.logs.append,
                              step=lambda *_a, **_kw: None, round_dir=round_dir,
