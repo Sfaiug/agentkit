@@ -2298,7 +2298,7 @@ grep -q 'idle-compact.py -- claude ' "$WORK/orch-fable.log" || ORCH2=1
 [ "$ORCH2" = 0 ] && ok "6b ak orch: astra prints a codex command with its model, spark a muse one, fable a claude one" \
                  || no "6b ak orch per-harness command: $(tail -1 "$WORK/orch-astra.log")"
 
-# --- 6c: each new seat records and applies its own models (offline) ---------
+# --- 6c: each seat applies its own models, a dry run records none (offline) --
 # A fresh HOME and a current empty-meter cache ensure selection and usage never probe a provider.
 SHOME="$WORK/sessionhome"
 mkdir -p -- "$SHOME/.agentkit/state"
@@ -2318,6 +2318,9 @@ printf '\n' | HOME="$SHOME" ak orch --dry-run --model astra --workers opus,spark
   >"$WORK/session-pick.log" 2>&1 || SESSIONRC=1
 printf '3\n\n' | HOME="$SHOME" ak orch --dry-run smoke-pick2 \
   >"$WORK/session-pick2.log" 2>&1 || SESSIONRC=1
+# a dry run leaves no record, so the seat whose workers usage applies is written here
+printf '{"orchestrator": "astra", "workers": ["opus", "spark"]}\n' \
+  >"$SHOME/.agentkit/state/session-smoke-pick.json"
 HOME="$SHOME" AGENTKIT_SESSION=smoke-pick ak usage --json \
   >"$WORK/session-usage.json" 2>"$WORK/session-usage.err" || SESSIONRC=1
 HOME="$SHOME" AGENTKIT_SESSION=ghost ak usage --json \
@@ -2352,14 +2355,15 @@ assert "list-bad" in listed and re.search(r"(?m)^list-bad\s+\S+\s+.*\s\?\s+\?\s+
 assert str(config.session_path("list-bad")) in warned and "retired-model" in warned, warned
 PY
 if [ "$SESSIONRC" = 0 ] &&
-   jq -e '.orchestrator == "astra" and .workers == ["opus", "spark"]' \
-     "$SHOME/.agentkit/state/session-smoke-pick.json" >/dev/null 2>&1 &&
-   jq -e '.orchestrator == "astra" and .workers == ["opus", "astra"]' \
-     "$SHOME/.agentkit/state/session-smoke-pick2.json" >/dev/null 2>&1 &&
+   grep -q '^orch: astra ' "$WORK/session-pick.log" &&
+   grep -qx 'workers opus spark' "$WORK/session-pick.log" &&
+   grep -q '^orch: astra ' "$WORK/session-pick2.log" &&
+   grep -qx 'workers opus astra' "$WORK/session-pick2.log" &&
+   [ ! -e "$SHOME/.agentkit/state/session-smoke-pick2.json" ] &&
    jq -e '.pick_order == ["opus", "spark"]' "$WORK/session-usage.json" >/dev/null 2>&1 &&
    jq -e '.pick_order == ["opus", "astra"]' \
      "$WORK/session-default-usage.json" >/dev/null 2>&1; then
-  ok "6c session picker: choices persist, usage applies workers or missing-state defaults, list tolerates stale state"
+  ok "6c session picker: the plan names the chosen workers and records nothing, usage applies workers or missing-state defaults, list tolerates stale state"
 else
   no "6c session picker"; sed 's/^/      /' "$WORK/session-pick.log" | head -8
 fi
@@ -3712,20 +3716,20 @@ grep -q ' 7 mimo' "$WORK/offer-n.log" || OFFER=1
 printf '3\n\n' | HOME="$OHOME" ak orch --dry-run smoke-offer-astra >"$WORK/offer-astra.log" 2>&1 || OFFER=1
 grep -q '^Orchestrator \[opus\]:' "$WORK/offer-astra.log" || OFFER=1
 grep -q '^Workers' "$WORK/offer-astra.log" || OFFER=1
-jq -e '.orchestrator == "astra" and .workers == ["opus", "astra"]' \
-  "$OHOME/.agentkit/state/session-smoke-offer-astra.json" >/dev/null 2>&1 || OFFER=1
+grep -q '^orch: astra (' "$WORK/offer-astra.log" || OFFER=1
+grep -qx 'workers opus astra' "$WORK/offer-astra.log" || OFFER=1
 # choosing spark (4) keeps the same two
 printf '4\n\n' | HOME="$OHOME" ak orch --dry-run smoke-offer-spark >"$WORK/offer-spark.log" 2>&1 || OFFER=1
 grep -q '^Orchestrator \[opus\]:' "$WORK/offer-spark.log" || OFFER=1
 grep -q '^Workers' "$WORK/offer-spark.log" || OFFER=1
-jq -e '.orchestrator == "spark" and .workers == ["opus", "astra"]' \
-  "$OHOME/.agentkit/state/session-smoke-offer-spark.json" >/dev/null 2>&1 || OFFER=1
+grep -q '^orch: spark (' "$WORK/offer-spark.log" || OFFER=1
+grep -qx 'workers opus astra' "$WORK/offer-spark.log" || OFFER=1
 # choosing fable (1), `all` takes all seven workers, fable itself included
 printf '1\nall\n' | HOME="$OHOME" ak orch --dry-run smoke-offer-fable >"$WORK/offer-fable.log" 2>&1 || OFFER=1
 grep -q '^Orchestrator \[opus\]:' "$WORK/offer-fable.log" || OFFER=1
 grep -q '^Workers' "$WORK/offer-fable.log" || OFFER=1
-jq -e '.orchestrator == "fable" and .workers == ["fable", "opus", "astra", "spark", "grok", "gemini", "mimo"]' \
-  "$OHOME/.agentkit/state/session-smoke-offer-fable.json" >/dev/null 2>&1 || OFFER=1
+grep -q '^orch: fable (' "$WORK/offer-fable.log" || OFFER=1
+grep -qx 'workers fable opus astra spark grok gemini mimo' "$WORK/offer-fable.log" || OFFER=1
 # --workers sol is rejected with a one-line message
 HOME="$OHOME" ak orch --dry-run --model astra --workers sol smoke-offer-sol >"$WORK/offer-sol.log" 2>&1
 [ "$?" = 2 ] || OFFER=1
@@ -3734,8 +3738,7 @@ grep -q 'sol' "$WORK/offer-sol.log" || OFFER=1
 [ "$(wc -l <"$WORK/offer-sol.log")" -eq 1 ] || OFFER=1
 printf '\n' | HOME="$OHOME" ak orch --dry-run --model astra --workers astra smoke-offer-self >"$WORK/offer-self.log" 2>&1 || OFFER=1
 grep -q '^orch: astra (' "$WORK/offer-self.log" || OFFER=1
-jq -e '.orchestrator == "astra" and .workers == ["astra"]' \
-  "$OHOME/.agentkit/state/session-smoke-offer-self.json" >/dev/null 2>&1 || OFFER=1
+grep -qx 'workers astra' "$WORK/offer-self.log" || OFFER=1
 HOME="$OHOME" ak usage >"$WORK/offer-usage.log" 2>&1 || OFFER=1
 ! grep -qw sol "$WORK/offer-usage.log" || OFFER=1
 # an unknown terminal type is exported as xterm-256color for the tmux command
@@ -5625,13 +5628,12 @@ target.write_text(source.read_text() + '\n[models.echo]\nharness = "echo"\nmodel
 PY
 akecho() { env -u TMUX -u AGENTKIT_SESSION HOME="$EHOME" AGENTKIT_ADAPTER_DIR="$EAD2" "$ERP/bin/ak" "$@"; }
 ECHORC=0
-# (a) a seat is planned on it, and its TUI is told no conversation id (echo.sh exits 3)
+# (a) a seat is planned on it, and the plan leaves no record behind
 printf '\n' | (cd "$WORK" && akecho orch echo-seat --model echo --dry-run) \
   >"$WORK/echo-orch.log" 2>&1 || ECHORC=1
 grep -q '^orch: echo (--model)$' "$WORK/echo-orch.log" || ECHORC=1
 grep -q '^session echo-seat in ' "$WORK/echo-orch.log" || ECHORC=1
-jq -e '.orchestrator == "echo" and (has("conversation") | not)' \
-  "$EHOME/.agentkit/state/session-echo-seat.json" >/dev/null || ECHORC=1
+[ ! -e "$EHOME/.agentkit/state/session-echo-seat.json" ] || ECHORC=1
 # (b) a whole loop executes through it, reviewed on another provider
 cat >"$WORK/task-echo.md" <<MD
 ---
@@ -5663,6 +5665,7 @@ grep -q '^muse .*requires a complete local snapshot for rollback' "$WORK/echo-up
 # (e) and the menu draws its seat with the screen rules of its own toml
 (cd "$WORK" && env -u TMUX -u AGENTKIT_SESSION PYTHONPATH="$ERP" HOME="$EHOME" \
   AGENTKIT_ADAPTER_DIR="$EAD2" python3 - >"$WORK/echo-menu.log" 2>&1 <<'PY'
+import os, time
 from unittest.mock import patch
 from agentkit import config, menu, notify, orch, terminal, watch
 
@@ -5670,7 +5673,9 @@ PANES = {"idle": "reading the prompt\n❯\n? for shortcuts\n",
          "working": "thinking about it\nesc to interrupt\n? for shortcuts\n",
          "asking": "Overwrite it?\n1. yes\n2. no\npress enter to choose\n"}
 cfg = config.load()
-record = config.session_records()["echo-seat"]
+# the record a real start writes: the dry run in (a) wrote none
+record = config.save_session(cfg, "echo-seat", "echo", cfg["defaults"]["workers"],
+                             {"cwd": os.getcwd(), "created": time.time()})
 seat = {"name": "echo-seat", "path": record["cwd"], "created": record["created"],
         "attached": False, "exited": False, "legacy": False, "resumable": False, "repo": None}
 bad = []
@@ -5734,8 +5739,7 @@ grep -q 'idle-compact.py --harness grokbuild -- grok ' "$WORK/grok-orch.log" || 
 grep -q -- '--rules ' "$WORK/grok-orch.log" || GROKRC=1
 grep -q -- '--trust --always-approve --model grok-4.7 --reasoning-effort xhigh' \
   "$WORK/grok-orch.log" || GROKRC=1
-jq -e '.orchestrator == "grok"' \
-  "$GHOME/.agentkit/state/session-smoke-grok.json" >/dev/null || GROKRC=1
+[ ! -e "$GHOME/.agentkit/state/session-smoke-grok.json" ] || GROKRC=1
 # (b) its provider is neutral, never last, and says `no meter` where the menu draws it
 HOME="$GHOME" ak usage --json >"$WORK/grok-usage.json" 2>&1 || GROKRC=1
 jq -e '.providers.xai.none == true and .providers.xai.error == null
@@ -5757,7 +5761,7 @@ grep -q '^grokbuild .*versioned reinstall available' "$WORK/grok-update.log" || 
 # (d) and the menu draws its seat with the screen rules of its own toml
 (cd "$WORK" && env -u TMUX -u AGENTKIT_SESSION PYTHONPATH="$REPO" HOME="$GHOME" \
   AKFIX="$REPO/tests/fixtures" python3 - >"$WORK/grok-menu.log" 2>&1 <<'PY'
-import os
+import os, time
 from pathlib import Path
 from unittest.mock import patch
 from agentkit import config, menu, orch, terminal, watch
@@ -5768,7 +5772,9 @@ PANES = {kind: (FIX / f"grok-{name}-pane.txt").read_text(encoding="utf-8",
          for kind, name in (("idle", "prompt"), ("working", "working"),
                             ("asking", "dialog"))}
 cfg = config.load()
-record = config.session_records()["smoke-grok"]
+# the record a real start writes: the dry run in (a) wrote none
+record = config.save_session(cfg, "smoke-grok", "grok", cfg["defaults"]["workers"],
+                             {"cwd": os.getcwd(), "created": time.time()})
 seat = {"name": "smoke-grok", "path": record["cwd"], "created": record["created"],
         "attached": False, "exited": False, "legacy": False, "resumable": False, "repo": None}
 bad = []
@@ -5834,8 +5840,7 @@ grep -q '^orch: mimo (--model)$' "$WORK/oc-orch.log" || OCHRC=1
 grep -q -- '--harness opencode' "$WORK/oc-orch.log" || OCHRC=1
 grep -q 'OPENCODE_CONFIG_CONTENT=' "$WORK/oc-orch.log" || OCHRC=1
 grep -q 'opencode --standalone --auto' "$WORK/oc-orch.log" || OCHRC=1
-jq -e '.orchestrator == "mimo"' \
-  "$OCHOME/.agentkit/state/session-oc-seat.json" >/dev/null || OCHRC=1
+[ ! -e "$OCHOME/.agentkit/state/session-oc-seat.json" ] || OCHRC=1
 python3 - "$WORK/oc-orch.log" <<'PY' || OCHRC=1
 import json, shlex, sys
 line = [ln for ln in open(sys.argv[1]).read().splitlines() if "OPENCODE_CONFIG_CONTENT=" in ln][0]
