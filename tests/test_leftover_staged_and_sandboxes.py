@@ -92,10 +92,11 @@ class LeftoverStagedAndSandboxes(unittest.TestCase):
 
     def done_when(self, repo):
         round_dir = Path(tempfile.mkdtemp(dir=self.root))
+        # a run directory without regression.sh: no fix run's check to make
         lp = SimpleNamespace(wt=repo, scratch=False, state={}, every=["true"],
                              artifacts=set(), log=self.logs.append,
                              step=lambda *_a, **_kw: None, round_dir=round_dir,
-                             done_when_limit=60, turn_limit=60, run_dir=None)
+                             done_when_limit=60, turn_limit=60, run_dir=round_dir)
         return run.verify_work(lp)
 
     def test_staged_dependency_link_is_unstaged(self):
