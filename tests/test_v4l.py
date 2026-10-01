@@ -164,6 +164,11 @@ class Babysitter(unittest.TestCase):
             ("codex", '• stream error: rate limit reached\n▌ Ask Codex to do something\n'
                       '⏎ send  ⌃T transcript'),
         ]
+        # A narrow pane cuts Claude's footer wherever the width ends, with or without an ellipsis.
+        panes += [("claude", "● API Error: 500 Internal server error\n────────────────\n❯\n"
+                             f"────────────────\n{footer}")
+                  for footer in ("⏵⏵ bypass permissions on  · ←…",
+                                 "⏵⏵ bypass permissions on (shift+tab to", "⏵⏵ bypass")]
         for harness, pane in panes:
             with self.subTest(harness=harness, pane=pane):
                 self.data = watch.load_state()
