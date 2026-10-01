@@ -5678,6 +5678,13 @@ else
   no "48 end-of-turn rule"; tail -30 "$WORK/stop-hook.log"
 fi
 { python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py" && python3 "$REPO/tests/test_docs.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 knowledge stays home: no boundary count in tests/test_boundaries.py above its max, ARCHITECTURE.md maps every module and harness in under 8 KB, and the docs match the interface" || { no "49 boundaries, map and docs"; tail -30 "$WORK/boundaries.log"; }
+if { python3 "$REPO/tests/test_regression_fails_before.py" &&
+     python3 "$REPO/tests/test_followup_runs.py" && python3 "$REPO/tests/test_red_target.py" &&
+     python3 "$REPO/tests/test_review_gate.py" && python3 "$REPO/tests/test_changed_checks.py"; } >"$WORK/regression-base.log" 2>&1; then
+  ok "50 fix runs: regression fails on base and passes on HEAD, changed checks reach review, probes restore the branch"
+else
+  no "50 fix runs and regression on base"; tail -30 "$WORK/regression-base.log"
+fi
 if seat_state_check >"$WORK/seat-state.log" 2>&1; then
   ok "42 seat states: a session is working, needs you or done -- (a) a turn-ended hook fact reads 'needs you', (b) a newer turn-began fact reads 'working' since it began, (c) every harness's dialog fixture reads the 'asking' fact and a transcript quoting it does not, (d) a notified seat reads 'needs you' with its question for a reason and a newer turn outranks it, (e) two renders and a watch tick agree on the word and the since and no live state is ever a reason to type into a seat, (f) the babysitter reads every stall/quota/auth signature from adapters/*.toml and no harness is named in watch.py, (g) a hook writes nothing for a worker or without a seat, (h) ak orch list --why names the word, the authority, the rule and the evidence, (i) every adapter's hooks verb is idempotent"
 else
