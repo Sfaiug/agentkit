@@ -5,8 +5,9 @@ a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles f
 that changed value glides to it, an effort's bar a step filled rises into place and a step onto
 a model's highest effort sends a light through its word, a mark set fills and one cleared
 empties, one whose change was refused shakes, a row just added glows; a popup's content fades in
-once, as it opens; the rule under a screen's header glides while its content is fetched -- and
-every motion runs on this same clock (docs/cli-design.md, Motion).  A screen says which cells
+once, as it opens; the rule under a screen's header glides while its content is fetched; a light
+crosses a usage bar the pointer comes onto -- and every motion runs on this same clock
+(docs/cli-design.md, Motion).  A screen says which cells
 animate and how when it draws (`Clock.start`), asking first which of its values are news
 (`Clock.look`); the wait loop asks how long until the next frame (`Clock.wait`) and what to
 write then (`Clock.frame`), and a key ends what moves on its last frame (`Clock.settle`).  No
@@ -26,7 +27,8 @@ PULSE = 0.3         # seconds each of the two pulses of a `!` that turned `needs
 SETTLE = 0.4        # ... a `✓` that turned `done` takes from bright to its colour
 GLIDE = 0.3         # ... a bar takes from its old value to its new one
 LIT = 0.3           # ... a task bar's newly filled block stays lit after the glide
-SWEEP = 0.4         # ... the light takes across a bar that reached full, after the glide
+SWEEP = 0.4         # ... the light takes across a bar that reached full, after the glide, or
+                    # one the pointer came onto
 RISE = 0.15         # ... an effort's bar a step filled takes to rise into place, or to lower
 SHIMMER = 0.6       # ... the light takes through an effort's word that a step took to its highest
 TOGGLE = 0.08       # ... a mark takes to fill or to empty, half way for the first half of it
@@ -199,6 +201,19 @@ def glowing(line):
             return lit if x >= 1 else terminal.backed(lit, rgb, 1, terminal.cells(lit))
         clock.start([(row, 1)], at, since + GLOW)
     return start
+
+
+def glinting(bar, began, colour):
+    """A usage bar the pointer came onto at `began`, `bar` its cells as the draw wrote each: one
+    light crosses it a cell at a time left to right in SWEEP seconds, then each cell is as drawn;
+    an animation for each cell, and when it is still.  `colour` is the kind its filled cells are
+    drawn in, which the light is a brighter tone of."""
+    light = terminal.faded(colour, -BRIGHTER)
+
+    def cell(n, text):
+        return lambda now: (terminal.styled(terminal.plain(text), light)
+                            if n == int(len(bar) * (now - began) / SWEEP) else text)
+    return [cell(n, text) for n, text in enumerate(bar)], began + SWEEP
 
 
 def fetching(clock, began):
