@@ -7,8 +7,8 @@ The screens under the menu run in this process on the real `terminal.read_key`, 
 taken, their keys on a pipe written whole before they read, the way one read finds a flood:
 a move of the pointer is the SGR report a terminal in modes 1003 and 1006 sends.  What a screen
 writes is played onto a grid of cells (`played`), so a test reads what the screen shows, not how
-it was written.  The main menu runs as tests/test_menu_keys.py runs it, in a child process on a
-pty of its own, so the terminal it takes and gives back is a real one.  Nothing here reads the
+it was written.  The main menu and the effort shimmer run in children on ptys through
+tests/test_menu_keys.py and tests/test_config_matrix.py, with real terminals.  Nothing here reads the
 owner's ~/.agentkit, starts a session or reaches a project; the only process signalled is the
 test's own child.
 """
@@ -31,6 +31,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, terminal
+from test_config_matrix import Screen
 from test_menu_keys import Menu
 from test_v4n import Sandbox
 
@@ -217,17 +218,33 @@ class Screens(Sandbox):
         self.assertIn("Dark mode", highlighted(screens[-1])[0])
 
     def test_an_effort_shimmering_under_the_pointer_keeps_its_light(self):
-        first = self.matrix()[0]
-        row = at(first, "fable")[1]
-        line = texts(first)[row - 1]
+        screen = Screen(self)
+        lines = screen.frame()
+        row = next(number for number, line in enumerate(lines, 1) if "fable" in line)
+        line = lines[row - 1]
         left = line.index("‹") + 1
-        arrow = (line.index("›", left) + 1, row)
-        # stepped to its highest, the word shimmers, and the pointer is on it before it ends
-        last = self.matrix(b"\x1b[<0;%d;%dM\x1b[<0;%d;%dm" % (arrow * 2) + move(left, row),
-                           ESC)[-1]
-        self.assertIn("‹ max ›", texts(last)[row - 1])
-        self.assertEqual(marked(last, "lit"), {row: "‹ max ›"})
-        self.assertEqual(marked(last, "reverse"), {})
+        screen.click(line.index("›", left) + 1, row,
+                     lambda lines: "‹ max ›" in lines[row - 1])
+        screen.press(move(left + 2, row))
+        mark = screen.text().rfind("\x1b[H")
+        # Let every frame land without a key or pointer move redrawing over the last one.
+        time.sleep(1.0)
+        text = screen.text()
+        updates = list(re.finditer(r"\x1b\[(\d+);(\d+)H", text[mark:]))
+        frames = 0
+        for number, update in enumerate(updates):
+            if tuple(map(int, update.groups())) != (row, left + 2):
+                continue
+            frames += 1
+            end = mark + updates[number + 1].start() if number + 1 < len(updates) else len(text)
+            with self.subTest(frame=frames):
+                grid = played(text[:end])
+                self.assertEqual(marked(grid, "lit"), {row: "‹ max ›"})
+                self.assertEqual(marked(grid, "reverse"), {})
+        self.assertGreaterEqual(frames, 4)       # each letter shone, then the word settled
+        self.assertEqual(marked(played(text), "lit"), {row: "‹ max ›"})
+        self.assertEqual(marked(played(text), "reverse"), {})
+        screen.leave()
 
     def test_five_hundred_moves_in_one_read_draw_one_frame(self):
         first = self.matrix()[0]
