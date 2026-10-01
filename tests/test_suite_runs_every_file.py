@@ -43,7 +43,7 @@ python3 "$REPO/tests/test_plain.py"
 
 class SuiteRunsEveryFile(unittest.TestCase):
     def checkout(self, files, smoke="#!/usr/bin/env bash\n"):
-        tmp = tempfile.TemporaryDirectory(prefix="every-file-")
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-every-file-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
         (root / "tests").mkdir()
@@ -54,7 +54,7 @@ class SuiteRunsEveryFile(unittest.TestCase):
         return root
 
     def suite(self, root, offline="0"):
-        env = dict(os.environ, ACME_LOG=str(self.log), ACME_KEPT="1", AGENTKIT_RUN="acme-run",
+        env = dict(os.environ, HOME=str(root), ACME_LOG=str(self.log), ACME_KEPT="1", AGENTKIT_RUN="acme-run",
                    AK_RUN_DEPTH="2", AK_PARENT_RUN="acme-parent", AK_RUN_LOG="/nonexistent",
                    AK_HOST_READINGS='{"cpus": 2, "load": 0, "free_mb": 4096}',
                    AGENTKIT_SMOKE_OFFLINE=offline)
@@ -85,6 +85,40 @@ class SuiteRunsEveryFile(unittest.TestCase):
         proc = self.suite(root)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertIn("PASS  tests/test_clean.py", proc.stdout)
+
+    def test_smoke_does_not_hide_unselected_failures(self):
+        smoke = (REPO / "tests" / "smoke.sh").read_text()
+        slot = smoke[smoke.index("slot_queue_check() {"):smoke.index("# Run the offline regressions")]
+        balance = smoke[smoke.index("balancecheck() {"):smoke.index("# 8f:")]
+        harness = ('#!/usr/bin/env bash\nREPO=$1\nWORK=$REPO\nFAILED=0\n'
+                   'ok() { :; }\nno() { FAILED=1; }\n' + slot +
+                   '\nslot_queue_check || FAILED=1\n' + balance + '\nexit "$FAILED"\n')
+        names = ("test_v5am", "test_usage_balance", "test_audit_enforce_review_contract")
+        # Chosen methods pass; only the omitted method can make the suite fail.
+        broken = '''import pathlib, sys, unittest
+class Acme(unittest.TestCase):
+    def test_ok(self):
+        pass
+    def test_broken(self):
+        self.fail(pathlib.Path(__file__).stem)
+for spec in sys.argv[1:]:
+    if ".test_" in spec:
+        name, method = spec.split(".", 1)
+        globals()[name] = Acme
+        setattr(Acme, method, Acme.test_ok)
+unittest.main()
+'''
+        root = self.checkout(dict.fromkeys(names, broken) | {"test_worker_list": PASSES},
+                             smoke=harness)
+        smoked = subprocess.run(["bash", str(root / "tests" / "smoke.sh"), str(root)],
+                                env=dict(os.environ, HOME=str(root), ACME_LOG=str(self.log)),
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                timeout=120)
+        rest = self.suite(root)
+        out = smoked.stdout + smoked.stderr + rest.stdout + rest.stderr
+        self.assertNotEqual(smoked.returncode or rest.returncode, 0, out)
+        for name in names:
+            self.assertIn(f"AssertionError: {name}", out)
 
     def test_every_file_smoke_does_not_run_runs_once(self):
         # smoke.sh's offline mode runs its offline block and exits there; the plain mode skips it
