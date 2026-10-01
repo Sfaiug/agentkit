@@ -3432,36 +3432,12 @@ def regression_fails_before(lp):
     if lp.scratch:
         return "regression.sh cannot be checked without a base commit"
     head = git(lp.wt, "rev-parse", "HEAD")
-    branch = git(lp.wt, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
-    paths = changed_test_paths(lp, head)
-    before = set(dirty_paths(lp.wt))
     base = lp.base_sha
-    stop_check(lp.run_dir)
-    probe_log = lp.run_dir / "regression-base.log"
-    label = f"regression.sh on base {base}"
-    save_probe_checkout(lp, head, branch, before, label)
-    try:
-        git(lp.wt, "checkout", "--quiet", "--detach", base)
-        if paths:
-            git(lp.wt, "restore", f"--source={head}", "--staged", "--worktree", "--",
-                *(f":(literal){p}" for p in paths))
-        stop_check(lp.run_dir)
-        lp.log(f"--- regression.sh: checking it fails on base {base}")
-        with probe_log.open("wb") as progress:
-            progress.write(f"$ bash {shlex.quote(str(script))} (on base {base})\n".encode())
-            progress.flush()
-            code, _, killed = worker.limited(
-                ["bash", str(script)], lp.done_when_limit, silence=lp.turn_limit,
-                activity=probe_log, output=progress, stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=suite_env())
-            progress.write(f"\n[{'killed at the limit' if killed else f'exit {code}'}]\n".encode())
-        memory_cap_note(lp.run_dir, lp.log)
-        worker.kill_marked(run_child_env().get(worker.RUN_MARKER), log=lp.log)
-    finally:
-        restore_probe_checkout(lp, head, branch, before, label)
-    if killed or code < 0:
+    proof = proof_on(lp, f"bash {shlex.quote(str(script))}", lp.run_dir / "regression-base.log",
+                     base, tests_from=head)
+    if proof["killed"] or proof["returncode"] < 0:
         return f"regression.sh did not finish on base {base}: it does not show the defect"
-    if code == 0:
+    if proof["returncode"] == 0:
         return f"regression.sh passes on base {base}: it does not show the defect"
     lp.state["regression_checked"] = True
     lp.save()

@@ -165,11 +165,11 @@ class RegressionFailsBefore(unittest.TestCase):
 
     def test_interrupted_probe_restores_the_branch_without_recording_success(self):
         self.script.write_text("exit 0\n")
-        lp = self.loop()
+        lp = self.loop(["true"])
         limited = worker.limited
 
         def interrupt(cmd, *args, **kwargs):
-            if cmd == ["bash", str(self.script)]:
+            if cmd == ["bash", "-c", f"bash {shlex.quote(str(self.script))}"]:
                 (self.wt / "broken.py").write_text("probe\n")
                 (self.wt / "probe-output").write_text("probe\n")
                 raise run.Stopped("fixture stop")
