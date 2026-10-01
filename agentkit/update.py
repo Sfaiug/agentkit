@@ -671,7 +671,7 @@ def left_as_is():
             else "dirty" if code or changes else "")
 
 
-def update_agentkit(progress=None):
+def update_agentkit(progress=None, pull=True):
     """Fast-forward ~/agentkit and reinstall from it; the exit code.
 
     A fast-forward of main only, never a merge: a checkout with its own commits, changes of
@@ -680,19 +680,26 @@ def update_agentkit(progress=None):
     of it; stdout is a pipe, so install.sh sees no tty and asks no questions.
     `progress(done, total)` hears of each step as it begins and of the last one's end: `ak`'s
     start fills the rule under its header from it, and fetches as a step of its own first, so
-    the rule moves through the network wait.
+    the rule moves through the network wait.  `pull=False` only reinstalls what is checked out.
     """
     directory = agentkit_dir()
     why = left_as_is()
     if why:
         say(f"update: agentkit: left as it is: {directory} is {why}")
         return 1
-    steps = [["git", "-C", str(directory), "pull", "--ff-only"], [str(directory / "install.sh")]]
+    install = [str(directory / "install.sh")]
+    steps = ([["git", "-C", str(directory), "pull", "--ff-only"]] if pull else []) + [install]
     if progress:
         steps.insert(0, ["git", "-C", str(directory), "fetch", "--quiet", "origin", "main"])
+    pending = config.STATE / "agentkit-install-pending"
     for done, cmd in enumerate(steps):
         if progress:
             progress(done, len(steps))
+        if cmd is install:
+            # here until install.sh passes: the pull has already moved HEAD, so origin/main
+            # is no longer ahead of it, and only this tells the tick to run it again (go_live)
+            config.ensure_dirs()
+            pending.touch()
         say(f"update: $ {shlex.join(cmd)}")
         try:
             proc = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace",
@@ -705,6 +712,7 @@ def update_agentkit(progress=None):
         if proc.returncode != 0:
             say(f"update: {shlex.join(cmd)} exited {proc.returncode}")
             return proc.returncode
+    pending.unlink(missing_ok=True)
     if progress:
         progress(len(steps), len(steps))
     return 0
@@ -737,7 +745,7 @@ def update_self():
     return code
 
 
-def update_once(where):
+def update_once(where, **kw):
     """`update_agentkit`, and what it said, a failure only the first time: the exit code and lines.
 
     A checkout left as it is, and a pull or install.sh that failed, is said once per origin
@@ -746,7 +754,7 @@ def update_once(where):
     """
     said = io.StringIO()
     with redirect_stdout(said):
-        code = update_agentkit()
+        code = update_agentkit(**kw)
     if code:
         # a refusal comes before any pull, so origin is asked afresh: a stale origin/main
         # would hold a new commit to the one already said
@@ -767,16 +775,20 @@ def go_live(log):
 
     Only the checkout this tick runs from moves -- the cron line runs ~/agentkit/bin/ak --
     so a tick from a worktree, a test's above all, never touches the live one.  A fetch that
-    fails is offline, silent, and the next tick fetches again.
+    fails is offline, silent, and the next tick fetches again.  An install.sh that has not
+    passed since the last pull runs again, without one, every tick until it passes.
     """
     if agentkit_dir().resolve() != config.REPO:
         return
     if _git("fetch", "--quiet", "origin", "main", timeout=FETCH_CAP)[0]:
         return
     code, head = _git("rev-parse", "origin/main")
-    if code or not _git("merge-base", "--is-ancestor", "origin/main", "HEAD")[0]:
+    if code:
         return
-    failed, lines = update_once("watch")
+    moved = _git("merge-base", "--is-ancestor", "origin/main", "HEAD")[0]
+    if not (moved or (config.STATE / "agentkit-install-pending").exists()):
+        return
+    failed, lines = update_once("watch", pull=bool(moved))
     if not failed:
         log(f"agentkit is live at {head[:12]}")
     elif lines:
