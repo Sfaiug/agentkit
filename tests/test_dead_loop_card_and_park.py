@@ -125,6 +125,22 @@ class DeadLoopCardAndPark(unittest.TestCase):
         self.assertTrue(state["deaths"][-1]["parked"])
         self.assertEqual(len(self.cards), 1, "the park is told once")
 
+    def test_a_late_tick_still_parks_three_deaths_that_happened_within_the_hour(self):
+        # deaths 3550s apart from first to third; the tick gets to the third 60s after a
+        # look recorded it, by when the first is more than an hour behind the tick's clock
+        start = self.now - 3550
+        self.tick(start)
+        self.dies()
+        self.tick(start + 1800)
+        self.assertEqual(len(self.resumed), 2)
+        self.dies()
+        self.look()
+        self.tick(self.now + 60)
+        state = run.read_state(self.dir)
+        self.assertEqual(len(self.resumed), 2, "a third death within the hour is not resumed")
+        self.assertTrue(state["deaths"][-1].get("parked"))
+        self.assertEqual(len(self.cards), 1, "the park is told once")
+
     def test_a_death_the_tick_held_is_counted_once_by_the_look_after_its_hold(self):
         # the tick's clock runs 601s behind the host clock reap reads, so the second death's
         # ten-minute hold is already over when the tick's own reap looks at it

@@ -66,7 +66,7 @@ the project does not let you switch it, and one on for everyone on for you too.
 It is read with the `c` matrix's keys (`menu.matrix_key`): ↑/↓ move, ←/→ choose
 the column, Enter, space or a click flips through the project's `set` at once
 and draws the row it answers; a failure is one dim line under the rows, the mark
-unchanged. Its `list` runs in a thread with a 20 s timeout, asked every minute
+unchanged and shaking (Motion). Its `list` runs in a thread with a 20 s timeout, asked every minute
 and every ten seconds while the screen is open, so neither screen waits on it.
 Needing projects sort first, which is what carries the eye down to one. Under
 a heading seats sort needs you, then working, then done, then by name, and
@@ -81,7 +81,7 @@ business.
 
 ## Keys
 
-Six keys and nothing else: the numbers, `n`, `x`, `c`, `i`, Esc. Esc is the one way
+Seven keys: the numbers, `n`, `x`, `c`, `i`, `s`, Esc. Esc is the one way
 back on every screen and at every question under the menu, and on the main
 screen it leaves at once, whatever is still going behind it; `q` is no key
 anywhere, and at a question it is a letter. The menu opens on the seats'
@@ -95,7 +95,8 @@ can wipe, merge or drop one. One seat row is highlighted -- it starts with `›`
 in the accent colour and its text is bright -- and ↑/↓, `k`/`j` and the wheel
 move it; Enter opens it. A click on any line of a seat opens that seat, and a
 click on a key-line item does what its key does, read against the layout that
-draw used (SGR mouse mode 1006, on only while the menu has the terminal). A
+draw used (the pointer's every move, mode 1003, in SGR form, 1006, on only while
+the menu has the terminal). A
 click acts when the button comes up, so nothing it opens is handed the rest
 of it. A key pressed while the button is down acts at once and the menu reads
 nothing past it, so all he typed after it goes to whatever takes the
@@ -116,7 +117,7 @@ without UTF-8 -- and never offers `j` or `k` for pages.
 The menu draws on the alternate screen with the cursor hidden, going home and
 writing over the last draw line by line in one write, so it never flickers.
 It gives the terminal back exactly -- the very termios attributes it found,
-the main screen, the cursor, clicks off -- on Esc, on any exit or signal (a
+the main screen, the cursor, the pointer's reports off -- on Esc, on any exit or signal (a
 kill, a hang-up, `^\`, and `^Z`, which takes it again on `fg`), and before
 anything else takes it: a session, `ak update`, a harness's login, and a
 notice, whose `esc back` is still read a key at a time (`pause`), so Esc
@@ -165,7 +166,36 @@ on a resize, where a click on a choice picks it). The main menu and the
 new-session screen use them. A click belongs to the screen it began on: a button down on the menu and
 up on the question or on `i`, or the other way round, is no click.
 
-Example: `↑↓ move   ⏎ open   n new   x stop   c config   i info   esc leave`.
+On a terminal, `s` toggles solo on the highlighted seat, or in the popup its own seat,
+and appears as `s solo` on the key line while a seat is selected. The last column starts
+with `solo` while on; the session's record keeps the switch across restarts and model changes.
+Solo refuses task launches before a run is created and still allows its own PR reviews.
+
+Example: `↑↓ move   ⏎ open   n new   x stop   c config   i info   s solo   esc leave`.
+
+Whatever the pointer is over lights up, on every screen, as it would in a window:
+a row under it -- a seat, a model, a feature, a choice -- takes the keys' own
+highlight, which moves there, and a key-line item or a cell of a row (a mark, an
+effort, a model's label, `+ add`, an arrow on a model's own screen) a subtle
+background, in place of the reverse the keys give a cell, or at eight colours the
+reverse; the keys and the pointer never show two highlights. What lights is what a
+click there acts on. Each loses it when the pointer leaves: off every row -- on a
+key-line item, a header or blank space -- no row or cell is highlighted, a key-line
+item alone lit, until the pointer is on a row again or a key brings the highlight
+back on the row it was last on. The keys go on from there: an arrow moves it on, and
+a key that acts on it -- Enter, space, their key-line items, the menu's `x` and `c`,
+←/→ on a model's own screen -- only brings it back, so nothing unseen is acted on; a
+digit names its own row and acts at once. `s` follows the same highlight rule. Any key puts out what the pointer lit, and a
+screen opens, or comes back, with nothing lit: the pointer lights nothing until it
+moves again. A question typed on a screen (`terminal.field`) lights its key line
+too, and one asked over a screen's rows (`x`'s) takes those rows for nothing. A move
+is drawn within a frame of the clock (Motion) of the pointer reaching another row,
+cell or item, and only then: the moves a terminal sends while the pointer travels
+are read through to where it ended first, for a frame at most, however soon a frame
+of the clock's falls due, and a move within what is lit draws nothing. With no
+colour the rows still follow it, and nothing else lights. Helpers: `terminal.under`,
+the one reading of a position back to what a screen drew there, for a click and the
+pointer alike, `terminal.lit`, `terminal.relight`, `terminal.away`, `terminal.unseen`.
 
 ## Questions
 
@@ -208,14 +238,14 @@ lowest. The highlighted row
 is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
 drawn at once, the orchestrator only moves, and the last worker stays, saying
-so under the rows. Under the models `+ add a model`, `Providers` (the config's
+so under the rows, its mark shaking (Motion). Under the models `+ add a model`, `Providers` (the config's
 providers in their colours, then `+ add` and `− remove`, ←/→ choosing between
 the two, each a list opening in the frame), `Discord` (connected or not)
 and `Version` (the commit and its date; read, with no action). Enter
 or a click on `+ add a model` opens `config · add a model`: `harness`, then
 `model`, then `effort`, each a list opening under the one chosen above it, a
 chosen one kept as one line; Enter on the effort adds the model and highlights
-its row, Esc steps back one list. On `Discord` Enter or a click asks its two
+its row, glowing (Motion), Esc steps back one list. On `Discord` Enter or a click asks its two
 secrets on the same keys. The key
 line names what the keys do on the cell at hand (`⏎ mark`, `⏎ effort`,
 `⏎ open`) and ends `esc back`; Esc or a click on it returns. A
@@ -248,7 +278,7 @@ a spent model reads dim with `spent · resets <day HH:MM>`, on a line of its own
 where the row does not fit, and is never chosen for him. ↑/↓, k/j and the wheel move one
 highlight through both lists and scroll them on a short screen; space or a click chooses, Enter
 starts from anywhere -- or, with every model spent and a list still empty, takes the highlight to
-it -- Esc goes back, and the last worker stays chosen. At the Name question, a taken
+it -- Esc goes back, and the last worker stays chosen, its mark shaking (Motion). At the Name question, a taken
 name asks again and Esc goes back. Enter leaves `new`, then `new-2`, unnamed until its
 orchestrator knows the job and gives it the shortest name, at most three words, with
 `ak orch rename --auto <name>`. Once named, `--auto` changes nothing, prints the current name and exits 0;
@@ -257,7 +287,8 @@ former name stays reserved, with a variant chosen for a rename from Claude. From
 asks `Name (Enter: auto):`, `Orchestrator [opus]:` and `Workers [opus astra]:` a line at a time,
 Enter or EOF taking each default.
 
-Helpers: `terminal.Keyboard`, `terminal.read_key`, `terminal.highlight`, `terminal.key_spans`.
+Helpers: `terminal.Keyboard`, `terminal.read_key`, `terminal.highlight`, `terminal.key_spans`,
+`terminal.toggle` (every mark, here, on `c` and on a project's switches).
 
 Example: `› ● Opus 5.5     claude · xhigh`.
 
@@ -402,7 +433,9 @@ clock, `motion.Clock`, and no screen keeps a timer: a screen hands the clock the
 cells that move when it draws, and each of the menu's waits -- for a key, for a
 second digit, for the stop question's answer -- draws a frame only while
 something animates and no key is waiting, at most twenty a second, rewriting only
-the cells that changed, so a key is still answered within 100 ms. A resize
+the cells that changed, so a key is still answered within 100 ms. The pointer
+moving onto another row, cell or key-line item is answered at most once a frame
+on the same clock, so a flood of its moves is one draw (Keys). A resize
 draws the whole screen again before another frame. Nothing moves off a
 terminal, under `NO_COLOR` or at eight colours: there the dot stands still.
 
@@ -423,6 +456,18 @@ A step on an effort on `c` is news too: the bar it fills rises into place over
 model's highest level then sends one light through the word, a letter at a time
 left to right, over 600 ms -- once for each step onto it (`motion.rising`,
 `motion.shimmering`, `terminal.signal`).
+
+Every mark -- on `c`, on `n` and on a project's switches -- fills when set and
+empties when cleared over two frames, 80 ms in all: `□ ▣ ■`, `○ ◉ ●` and back,
+the new state saved at the key; without UTF-8 it lands at once. A change ak
+refuses -- the last executor or reviewer, a pair that is not allowed, a switch
+the project refused -- nudges its mark a cell left, right, left and back over
+240 ms, the reason under the rows. A model, provider or subscription just added
+on `c` returns highlighted on a soft glow of the accent that fades into the
+highlight over a second. Each moves on while the rule glides, and the cell under
+the pointer stays lit through it (`terminal.pointed`). A key during any of these
+ends it on its last frame and is answered within 100 ms (`terminal.toggle`,
+`motion.toggled`, `motion.glowing`, `motion.Clock.touch`, `settle`).
 
 The popup's content fades in once, as it opens: from the background to its
 colours over 120 ms, on the same clock. Whatever is drawn in that time -- a

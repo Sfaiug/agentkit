@@ -65,6 +65,24 @@ RULES = [
                 r"|len\([\"'](session|notify|card|seat|hook|compact|stop|plan)-[\"']\)",
      "home": ("agentkit/config.py",),
      "max": 11},
+    # A task file's format is read in one module: a pattern for its front-matter fence
+    # (`^---\n`) or its `## Done when` heading is a second reader to keep in step.  A task
+    # written out (`## Done when\n```bash`) is no reader, and `FRONT` reads AGENTS.md's front
+    # matter, the repository's declarations, not a task's.
+    {"name": "task file format",
+     "flags": (),
+     "pattern": r"\^---\\n|Done when\\s",
+     "names": r"FRONT = re\.compile\(r\"\^---\\n",
+     "home": ("agentkit/task.py",),
+     "max": 0},
+    # A job's receipt has one home: every read, write, path or fingerprint of it -- gc's,
+    # status's, resume's and the menu's included -- asks job.py, so a line anywhere else that
+    # names its file, in code or in a comment, is a second idea of where a job keeps it.
+    {"name": "job receipt",
+     "flags": (),
+     "pattern": r"job\.json",
+     "home": ("agentkit/job.py",),
+     "max": 0},
 ]
 
 

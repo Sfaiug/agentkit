@@ -303,8 +303,9 @@ class SeatWordsBounded(unittest.TestCase):
         for harness, model, provider, pane in (
                 ("claude", "opus", "anthropic", "⎿ API Error: 429 rate limit"),
                 ("codex", "astra", "openai",
-                 "■ exceeded retry limit, last status: 429 Too Many Requests")):
-            with self.subTest(harness=harness):
+                 "■ exceeded retry limit, last status: 429 Too Many Requests"),
+                ("codex", "astra", "openai", "• stream error: rate limit reached")):
+            with self.subTest(pane=pane):
                 self.typed.clear()
                 watch.seat_write("fix-api", usage_refusal=None, usage_wait=None)
                 self.assertTrue(self.seat_account(harness, model, provider, pane))
@@ -319,6 +320,14 @@ class SeatWordsBounded(unittest.TestCase):
         self.now += watch.STALL_WAIT
         self.seat_account("claude", "opus", "anthropic", pane)
         self.assertEqual([call[1] for call in self.marked], ["anthropic"])
+        # as does a deadline an older Codex's own `• stream error:` line names
+        watch.seat_write("fix-api", usage_refusal=None, usage_wait=None)
+        pane = "• stream error: rate limit reached. Try again at " + time.strftime(
+            "%Y-%m-%d %H:%M", time.localtime(self.now + 7200))
+        self.seat_account("codex", "astra", "openai", pane)
+        self.now += watch.STALL_WAIT
+        self.seat_account("codex", "astra", "openai", pane)
+        self.assertEqual([call[1] for call in self.marked], ["anthropic", "openai"])
 
     def test_a_spent_window_a_bare_trailer_closes_parks_the_account(self):
         # `Goal stalled` and `Error ID:` name no failure: the error line drawn above them does
@@ -351,20 +360,31 @@ class SeatWordsBounded(unittest.TestCase):
         # As Claude 2.1.286 draws them, captured with attributes: the same `●` begins the
         # model's answer and its own notice, and only the notice's words are in a colour.
         dot = "\x1b[38;5;231m\x1b[49m●\x1b[39m "
-        for pane in (f"{dot}Added handling for Usage limit reached.",
-                     f"{dot}Done.\n  Added handling for Usage limit reached."):
+        said = "Added handling for Usage limit reached."
+        for harness, model, provider, pane in (
+                ("claude", "opus", "anthropic", f"{dot}{said}"),
+                ("claude", "opus", "anthropic", f"{dot}Done.\n  {said}"),
+                # a span it styles in colour, the same answer with no colour at all, and Codex's
+                ("claude", "opus", "anthropic",
+                 f"{dot}Added handling for \x1b[38;5;153mUsage limit reached\x1b[39m."),
+                ("claude", "opus", "anthropic", f"● {said}"),
+                ("codex", "astra", "openai", f"• {said}")):
             with self.subTest(pane=pane):
+                self.marked.clear()
+                self.window.reset_mock()
                 watch.seat_write("fix-api", usage_refusal=None, usage_wait=None)
-                self.seat_account("claude", "opus", "anthropic", pane)
+                self.seat_account(harness, model, provider, pane)
                 self.now += watch.STALL_WAIT
-                self.seat_account("claude", "opus", "anthropic", pane)
-                self.assertEqual(self.marked, [])
+                self.seat_account(harness, model, provider, pane)
+                self.assertEqual([call[1] for call in self.marked], [])
                 state = watch.load_state()
                 self.tick(state)
                 self.tick(state, watch.STALL_WAIT)
                 self.reset.assert_not_called()
                 self.window.assert_not_called()
-                self.assertNotIn("fix-api", state["stalls"])
+                self.assertNotIn("status", state["stalls"].get("fix-api", {}))
+                # Codex's answer behind its `•` is still a stall, typed at as any other
+                self.assertEqual("fix-api" in state["stalls"], harness == "codex")
         # while a notice it draws in colour still parks the account it ran on, a colour tmux
         # carries on from the line above included
         for pane in ("\x1b[38;5;220m\x1b[49m●\x1b[39m \x1b[38;5;220mAPI Error: 429 Usage limit reached",
@@ -377,6 +397,35 @@ class SeatWordsBounded(unittest.TestCase):
                 self.now += watch.STALL_WAIT
                 self.seat_account("claude", "opus", "anthropic", pane)
                 self.assertEqual([call[1] for call in self.marked], ["anthropic"])
+
+
+    def test_a_limit_notice_over_a_status_line_parks_the_account(self):
+        # Claude 2.1.286's own bytes, captured on a renamed seat: its two-line weekly-limit
+        # notice, the seat's name in the composer's top rule, a user's status line under it.
+        pane = "\n".join([
+            "  \x1b[38;5;231med-o/result.md. Decide the next step.\x1b[39m",
+            "\x1b[38;5;246m\x1b[49m  ⎿ \xa0\x1b[38;5;211m\x1b[48;5;66mYou've hit your weekly limit"
+            " · resets Oct 2, 2pm (Europe/Berlin)\x1b[39m",
+            "\x1b[49m     \x1b[38;5;246m\x1b[48;5;66m/usage-credits to finish what you’re working on."
+            "\x1b[39m",
+            "\x1b[38;5;246m\x1b[49m✻\x1b[39m \x1b[38;5;246mChurned for 0s · done 8:57 AM",
+            "\x1b[39m",
+            "\x1b[38;5;244m" + "─" * 69 + " fix-api ─",
+            "\x1b[39m❯",
+            "\x1b[38;5;244m" + "─" * 80,
+            "\x1b[39m  \x1b[1m\x1b[32muser@host\x1b[0m\x1b[38;5;246m:\x1b[1m\x1b[34m~/code\x1b[0;2m"
+            "\x1b[38;5;246m | \x1b[0m\x1b[38;5;246mOpus 5.5\x1b[2m | \x1b[0m\x1b[32mctx ▓░░░░░░░░░ "
+            "104.7k/1M (10…",
+            "\x1b[39m  \x1b[38;5;211m⏵⏵ bypass permissions on\x1b[38;5;246m (shift+tab to cycle)"
+            " · ← for agents",
+        ])
+        self.assertEqual(watch.stalled_on("claude", pane, "fix-api", self.lines.append),
+                         "weekly limit")
+        self.assertEqual(watch.composer_draft("claude", pane), "")
+        self.seat_account("claude", "opus", "anthropic", pane)
+        self.now += watch.STALL_WAIT
+        self.seat_account("claude", "opus", "anthropic", pane)
+        self.assertEqual([call[1] for call in self.marked], ["anthropic"])
 
 
 if __name__ == "__main__":

@@ -125,15 +125,24 @@ interactive)
   # out of an agent given it no other way.  Nothing is written into the user's ~/.gemini, and
   # only a launch naming this directory can see the agent; `subagent: false` keeps its own
   # model from calling it.  No rulebook, no command line: a seat opened without the rules it
-  # was asked for is worse than one that does not open.
+  # was asked for is worse than one that does not open.  The directory is this launch's own,
+  # made fresh under its rulebook's name: one every seat shared had each launch rewrite the
+  # rules the seats before it were opened with.  A directory goes at a later launch once its
+  # rulebook is gone, as nothing else removes it; a relaunch never reuses it, so the removal
+  # takes nothing a launch made after its check.
   rb=$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}") || {
     echo "antigravity.sh interactive: no rulebook for this seat" >&2; exit 2; }
-  agents="$(dirname -- "$rb")/antigravity"
-  def="$agents/.agents/agents/agentkit"
-  { mkdir -p -- "$def" &&
+  state=$(dirname -- "$rb")
+  for old in "$state"/antigravity/rulebook-*/; do
+    name=$(basename -- "$old")
+    [ -e "$state/${name%.*}.md" ] || rm -rf -- "$old"
+  done
+  agents=$(mkdir -p -- "$state/antigravity" &&
+    mktemp -d "$state/antigravity/$(basename -- "$rb" .md).XXXXXX") &&
+    def="$agents/.agents/agents/agentkit" && mkdir -p -- "$def" &&
     { printf -- '---\nname: agentkit\ndescription: the agentkit orchestrator seat\nsubagent: false\n---\n'
-      cat -- "$rb"; } >"$def/agent.md.$$" && mv -f -- "$def/agent.md.$$" "$def/agent.md"; } || {
-    rm -f -- "$def/agent.md.$$"
+      cat -- "$rb"; } >"$def/agent.md" || {
+    rm -rf -- ${agents:+"$agents"}
     echo "antigravity.sh interactive: no rulebook for this seat" >&2; exit 2; }
   # The model by its full id, the one agy's own alias resolution makes of a model and an
   # effort: with --agent the TUI resolves `--model <m> --effort <e>` only seconds after it

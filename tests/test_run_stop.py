@@ -20,7 +20,8 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
-from agentkit import config, menu, orch, run
+from agentkit import config, job as jobs, menu, orch, run
+from agentkit import task as taskfile
 
 
 def alive(pid):
@@ -182,11 +183,11 @@ class RunStop(Sandbox):
         self.assertIn(f"from: {branch2}", line)
 
     def test_dependant_task_is_skipped(self):
-        self.assertIn("stopped", run.JOB_TERMINAL)
-        self.assertIn("stopped", run.JOB_UNDELIVERED)
+        self.assertIn("stopped", jobs.JOB_TERMINAL)
+        self.assertIn("stopped", jobs.JOB_UNDELIVERED)
         cfg = self.cfg
-        self.assertEqual(run.job_classify({"state": "stopped"}, cfg), "stopped")
-        self.assertEqual(run.job_verdict_line({"name": "a.md", "state": "stopped"}),
+        self.assertEqual(jobs.job_classify({"state": "stopped"}, cfg), "stopped")
+        self.assertEqual(jobs.job_verdict_line({"name": "a.md", "state": "stopped"}),
                          "a.md: stopped")
         job_dir = config.JOBS / "20260101-090000-stop-job"
         job_dir.mkdir(parents=True)
@@ -198,12 +199,12 @@ class RunStop(Sandbox):
                     "run_id": "gone", "verdict_line": "a.md: stopped"},
                    {"name": "b.md", "title": "B", "after": ["a.md"], "state": "waiting",
                     "run_id": None}]}
-        run.save_job(job_dir, job)
+        jobs.save_job(job_dir, job)
         out = io.StringIO()
         with redirect_stdout(out):
-            rc = run.run_job_loop(cfg, job_dir, job, to_file=False)
+            rc = jobs.run_job_loop(cfg, job_dir, job, to_file=False)
         self.assertEqual(rc, 1)
-        kept = run.read_job(job_dir)
+        kept = jobs.read_job(job_dir)
         waiting = next(task for task in kept["tasks"] if task["name"] == "b.md")
         self.assertEqual(waiting["state"], "skipped")
         self.assertEqual(waiting["skipped_dep"], "a.md")
@@ -260,7 +261,7 @@ class RunStop(Sandbox):
         run_dir.mkdir()
         (run_dir / "task.md").write_text(task.read_text())
         (run_dir / "log.txt").touch()
-        meta, _, title = run.parse_task(task)
+        meta, _, title = taskfile.parse_task(task)
         from_branch = (meta.get("from") or "").strip()
         wt, branch = run.make_worktree(repo, run_dir.name, run.slugify(title), from_branch)
         try:
@@ -294,7 +295,7 @@ class RunStop(Sandbox):
         job_dir = config.JOBS / "20260101-090000-stop-shared"
         job_dir.mkdir(parents=True)
         (job_dir / "log.txt").touch()
-        run.save_job(job_dir, {"job_id": job_dir.name, "seat": None,
+        jobs.save_job(job_dir, {"job_id": job_dir.name, "seat": None,
                                "started_at": time.time(), "finished_at": None,
                                "parallel": None, **run.process_owner(scheduler.pid),
                                "opts": {}, "tasks": [
@@ -363,7 +364,7 @@ class RunStop(Sandbox):
         job_dir = config.JOBS / "20260101-090000-stop-pre"
         job_dir.mkdir(parents=True)
         (job_dir / "log.txt").touch()
-        run.save_job(job_dir, {"job_id": job_dir.name, "seat": None,
+        jobs.save_job(job_dir, {"job_id": job_dir.name, "seat": None,
                                "started_at": time.time(), "finished_at": None,
                                "parallel": None, **run.process_owner(scheduler.pid),
                                "opts": {}, "tasks": [
@@ -452,14 +453,14 @@ class RunStop(Sandbox):
                    {"name": "pre-stop.md", "title": "Pre-stop", "after": [],
                     "state": "queued", "run_id": None,
                     "task_file": str(task_file)}]}
-        run.save_job(job_dir, job)
+        jobs.save_job(job_dir, job)
         out = io.StringIO()
-        with patch.object(run, "job_start_task",
+        with patch.object(jobs, "job_start_task",
                           side_effect=run.StopRequested("20260101 stopped")), \
                 redirect_stdout(out):
-            rc = run.run_job_loop(self.cfg, job_dir, job, to_file=False)
+            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
         self.assertEqual(rc, 1)
-        kept = run.read_job(job_dir)
+        kept = jobs.read_job(job_dir)
         self.assertEqual(kept["tasks"][0]["state"], "stopped")
 
     def test_launch_reports_the_stop_that_landed_in_preflight(self):
@@ -488,7 +489,7 @@ class RunStop(Sandbox):
         job_dir = config.JOBS / "20260101-090000-stop-oldjob"
         job_dir.mkdir(parents=True)
         (job_dir / "log.txt").touch()
-        run.save_job(job_dir, {"job_id": job_dir.name, "seat": None,
+        jobs.save_job(job_dir, {"job_id": job_dir.name, "seat": None,
                                "started_at": time.time(), "finished_at": None,
                                "parallel": None,
                                **run.process_owner(scheduler.pid),

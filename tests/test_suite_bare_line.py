@@ -7,7 +7,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import run
+from agentkit import run, task
 
 BARE = "PYTHONUNBUFFERED=1 scripts/run_widget_tests.sh -x -q"
 SUITE = f'{BARE} 2>&1 | tee "/tmp/widget-gate-test.log"'
@@ -25,7 +25,7 @@ class SuiteBareLine(unittest.TestCase):
         wt = self.checkouts(SUITE)
         cmds = run.with_suite(["true", BARE], wt)
         self.assertEqual(cmds, ["true", f"{SUITE}  # once"])
-        every, once = run.group_commands(cmds)
+        every, once = task.group_commands(cmds)
         self.assertEqual(every, ["true"])
         self.assertEqual(once, [SUITE])
 
@@ -34,7 +34,7 @@ class SuiteBareLine(unittest.TestCase):
         line = f"{SUITE} && another-check"
         cmds = run.with_suite(["true", line], wt)
         self.assertEqual(cmds, ["true", line, f"{SUITE}  # once"])
-        every, once = run.group_commands(cmds)
+        every, once = task.group_commands(cmds)
         self.assertIn(line, every)
         self.assertEqual(once, [SUITE])
 

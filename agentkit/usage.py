@@ -422,12 +422,24 @@ def _write_reset_state(path, blob):
     tmp.replace(path)
 
 
-def _reset_applied_at(path):
-    """When the last reset was spent, or None when none was, or the file cannot be read."""
+def _reset_file(provider, account=None):
+    """Where one subscription's reset receipt is kept: its own, as its credits and week are.
+    The usual login keeps the file a provider listing no accounts keeps, so listing them moves
+    no receipt and buys no second credit inside its day."""
+    return config.STATE / (f"{provider}-reset.json" if account in (None, config.DEFAULT_ACCOUNT)
+                           else f"{provider}.{account}-reset.json")
+
+
+def _reset_applied_at(path, account=None):
+    """When the last reset was spent, or None when none was, or the file cannot be read.
+
+    Only a receipt that names `account` answers; None asks for one that names none, written
+    before receipts named their subscription, so it may have been any of them that spent it.
+    """
     try:
         blob = json.loads(path.read_text(encoding="utf-8"))
-        return _number(blob["applied_at"])
-    except (OSError, ValueError, TypeError, KeyError):
+        return _number(blob["applied_at"]) if blob.get("account") == account else None
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):   # not an object
         return None
 
 
@@ -461,15 +473,17 @@ def _reset_policy(cfg, provider, prov, now, depleted):
     weekly = _worst([m for m in prov.get("meters") or [] if m.get("window_secs") != SESSION_SECS])
     if not depleted and (weekly is None or weekly["used"] < RESET_AT_USED):
         return prov, False
-    path = config.STATE / f"{provider}-reset.json"
-    applied = _reset_applied_at(path)
-    if applied is not None and 0 <= now - applied < RESET_EVERY_SECS:
-        return prov, False
+    mine = prov.get("account") or config.DEFAULT_ACCOUNT
+    path = _reset_file(provider, mine)
+    # A receipt that names no subscription may be any one's spend: it holds each to its day.
+    for applied in (_reset_applied_at(path, mine), _reset_applied_at(_reset_file(provider))):
+        if applied is not None and 0 <= now - applied < RESET_EVERY_SECS:
+            return prov, False
     available = _number(prov.get("resets"))   # counted by the probe that just read the meters
     if not available or available <= 0:
         return prov, False
-    record = {"weekly_before": weekly["used"] if weekly else None, "depleted": depleted,
-              "available_before": available}
+    record = {"account": mine, "weekly_before": weekly["used"] if weekly else None,
+              "depleted": depleted, "available_before": available}
     try:
         _write_reset_state(path, {**record, "applied_at": now, "outcome": "asked"})
     except OSError:
@@ -578,14 +592,17 @@ def _gate_flags(providers, now, cfg):
             # worker turn runs on next -- another account with room before the usual login,
             # the usual one only when none of them has any, then the most budget, then the
             # order the config lists them in -- so it is spent only when all of them are.
+            # An account nobody could read ranks with the usual login and after it: its
+            # login may be the very thing that failed, and a turn there parks on it.
             accounts = _gate_flags({account: accounts[account] for account in listed
                                     if isinstance(accounts.get(account), dict)}, now, cfg)
             if accounts:
                 def rank(account):
                     spent = accounts[account]["exhausted"]
-                    group = 1 if account == config.DEFAULT_ACCOUNT else (0 if not spent else 2)
-                    return (group, spent, accounts[account]["budget_reason"] is not None,
-                            -accounts[account]["budget"])
+                    unknown = accounts[account]["budget_reason"] is not None
+                    usual = account == config.DEFAULT_ACCOUNT or (unknown and not spent)
+                    group = 1 if usual else (0 if not spent else 2)
+                    return (group, spent, unknown, -accounts[account]["budget"])
                 best = min(accounts, key=rank)
                 prov.clear()
                 prov.update(accounts[best], accounts=accounts, account=best)
@@ -597,13 +614,11 @@ def _gate_flags(providers, now, cfg):
         if recorded:
             prov.update(meters=[_normalized(meter, now) for meter in recorded], error=None)
         # a provider that refused a worker is parked until it said it would have
-        # capacity, or until its meters show a window that opened after the mark
+        # capacity, or until the meter that showed the refusal opens a new window
         until = _number(prov.get("exhausted_until"))
-        ends = prov.get("exhausted_ends")
-        if until is None or until <= now or _fresh_window(prov, ends, now):
-            prov.pop("exhausted_until", None)
-            prov.pop("exhausted_at", None)
-            prov.pop("exhausted_ends", None)
+        if until is None or until <= now or _fresh_window(prov, prov, now):
+            for key in MARK:
+                prov.pop(key, None)
             until = None
         prov["exhausted"] = until is not None
         for meter in prov.get("meters") or []:
@@ -634,7 +649,7 @@ def _gate_flags(providers, now, cfg):
 
 
 _WRITES = itertools.count()   # a temporary name of each writer's own; see `_write`
-MARK = ("exhausted_until", "exhausted_at", "exhausted_ends")
+MARK = ("exhausted_until", "exhausted_at", "exhausted_ends", "exhausted_by")
 
 
 def _write(change, fetched_at=None, checked=None):
@@ -762,16 +777,21 @@ def _patch(provider, prov, account=None, *, mark=None, spent=None):
         return change({}, time.time())   # a cache that cannot be written costs a re-probe
 
 
-def _fresh_window(prov, ends, now):
-    """Whether a recorded meter now reports a later reset with room left.
+def _fresh_window(prov, mark, now):
+    """Whether the meter that showed the refusal `mark` records now reports a later reset with
+    room left.
 
+    That meter is the one `mark_exhausted` named (`exhausted_by`).  Another meter's new window
+    says nothing of the refusal: the 5-hour session rolling over under a weekly refusal leaves
+    that week as spent as it was.  A mark that names none ends at its deadline alone.
     Only reported reset times identify a replacement: a window's nominal length says
     nothing about when it began.  Without a recorded reset there is nothing to compare.
     """
+    ends = mark.get("exhausted_ends") if isinstance(mark, dict) else None
     if not isinstance(prov, dict) or not isinstance(ends, dict):
         return False
     for meter in prov.get("meters") or []:
-        if not isinstance(meter, dict):
+        if not isinstance(meter, dict) or meter.get("name") != mark.get("exhausted_by"):
             continue
         used = _number(meter.get("used"))
         if used is None or used >= 100:
@@ -794,7 +814,8 @@ def _carry_mark(old, prov, now):
     A provider that has just refused a worker is parked until it says it has capacity again,
     and the meters it reports meanwhile are not that answer: the one that is, is the time the
     refusal itself named.  Once that time is behind us the mark is gone and the probe decides.
-    A window that opened after the mark with room ends it sooner, and is that same answer.
+    A new window with room on the meter that showed the refusal ends it sooner, and is that
+    same answer.
 
     Every write carries the mark the file holds this way (`_onto`) but the credit's own: the
     meters a spend hands back are the capacity the mark said was missing, and re-applying it
@@ -805,13 +826,15 @@ def _carry_mark(old, prov, now):
         return prov
     marked_at = _number((old or {}).get("exhausted_at"))
     ends = (old or {}).get("exhausted_ends")
-    if _fresh_window(prov, ends, now):
+    if _fresh_window(prov, old, now):
         return prov
     mark = {**prov, "exhausted_until": until}
     if marked_at is not None:
         mark["exhausted_at"] = marked_at
     if isinstance(ends, dict):
         mark["exhausted_ends"] = ends
+    if isinstance(old.get("exhausted_by"), str):
+        mark["exhausted_by"] = old["exhausted_by"]
     return mark
 
 
@@ -914,18 +937,28 @@ def readiness(cfg, providers):
     read = Readings(providers)
     read.harnesses, read.asked_at = {}, time.time()
     for name in config.offered(cfg):
-        harness = cfg["models"][name]["harness"]
-        if harness not in read.harnesses:
-            read.harnesses[harness] = harness_unready(harness)
+        entry = cfg["models"][name]
+        if _asked(cfg, entry) not in read.harnesses:
+            read.harnesses[_asked(cfg, entry)] = harness_unready(
+                entry["harness"], accounts=config.accounts(cfg, entry["provider"]) or (None,))
     return read
 
 
-def harness_unready(harness):
+def _asked(cfg, entry):
+    """Where `readiness` keeps a model's answer: by its harness, and by its provider too when
+    that lists accounts -- those logins are its own, and another provider's say nothing of it."""
+    if config.accounts(cfg, entry["provider"]):
+        return entry["harness"], entry["provider"]
+    return entry["harness"]
+
+
+def harness_unready(harness, accounts=(None,)):
     """Why this harness cannot run a turn here, or None when nothing says it cannot.
 
     Not installed is its adapter missing, or its program nowhere to be found: the one its
     `[update] version` runs, else the adapter's own name, as `orch.agent_programs` reads them.
-    Not logged in is its own `auth` verb saying no.  No answer withholds nothing.
+    Not logged in is its own `auth` verb saying no for every one of `accounts`, the usual
+    login for None: a turn runs on any of them.  No answer withholds nothing.
     """
     try:
         config.adapter(harness)
@@ -935,7 +968,10 @@ def harness_unready(harness):
     named = isinstance(version, list) and version and isinstance(version[0], str) and version[0]
     if not config.harness_binary(version[0] if named else harness):
         return f"{harness} is not installed"
-    return f"{harness} is not logged in" if worker.auth_ok(harness)[0] is False else None
+    if all((worker.auth_ok(harness) if account is None
+            else worker.auth_ok(harness, account=account))[0] is False for account in accounts):
+        return f"{harness} is not logged in"
+    return None
 
 
 def replenish(cfg, provider, depleted=True, account=None):
@@ -989,8 +1025,9 @@ def mark_exhausted(cfg, provider, until=None, account=None):
 
     The mark lives in the usage cache beside the meters, so `pick_order` excludes this
     provider for every later pick in every run, and it is dropped the moment the deadline has
-    passed, or a meter with room reports a later reset than recorded at marking.  An account's
-    mark is its own: the provider stays eligible on its other accounts.  Returns the deadline
+    passed, or the meter that showed the refusal reports a later reset than recorded at
+    marking, with room; a refusal no meter showed waits for its deadline.  An account's mark
+    is its own: the provider stays eligible on its other accounts.  Returns the deadline
     recorded.
     """
     now = time.time()
@@ -1002,15 +1039,23 @@ def mark_exhausted(cfg, provider, until=None, account=None):
         prov = (prov.get("accounts") or {}).get(account) or {}
     if _number(until) is None or until <= now:
         until = _next_window(prov, now) or now + DRY_FOR
-    ends = {}
+    ends, shown = {}, []
     for meter in prov.get("meters") or []:
         if not isinstance(meter, dict) or not isinstance(meter.get("name"), str):
             continue
         end = _number(meter.get("resets_at"))
         if end is not None:
             ends[meter["name"]] = end
+            # the refusal shows on a meter spent as it came, of several the last to reset,
+            # and never on a session -- or a window that does not say it is none -- when the
+            # refusal outlasts one
+            if (_number(meter.get("used")) or 0) >= 100 and not (
+                    _number(meter.get("window_secs")) in (SESSION_SECS, None)
+                    and until - now > SESSION_SECS):
+                shown.append((end, meter["name"]))
     _patch(provider, prov, account, mark={"exhausted_until": float(until),
-                                          "exhausted_at": float(now), "exhausted_ends": ends})
+                                          "exhausted_at": float(now), "exhausted_ends": ends,
+                                          "exhausted_by": max(shown, default=(0, None))[1]})
     return float(until)
 
 
@@ -1313,8 +1358,7 @@ def model_exhausted(cfg, name, providers):
     until = _number(prov.get("exhausted_until") if isinstance(prov, dict) else None)
     now = time.time()
     if until is not None and until > now:
-        ends = prov.get("exhausted_ends")
-        if not _fresh_window(prov, ends, now):
+        if not _fresh_window(prov, prov, now):
             when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until))
             return True, f"{provider} ran dry; nothing is picked on it until {when}"
     spent = [m for m in meters if m["used"] >= 100]
@@ -1347,7 +1391,7 @@ def unready(cfg, name, providers):
     Read off the `harnesses` a pick's `readiness` asked; a read that carries none withholds
     nothing, as a turn goes ahead on an `auth` verb that said nothing.
     """
-    return getattr(providers, "harnesses", {}).get(config.model(cfg, name)["harness"])
+    return getattr(providers, "harnesses", {}).get(_asked(cfg, config.model(cfg, name)))
 
 
 def model_spent(cfg, name, providers):

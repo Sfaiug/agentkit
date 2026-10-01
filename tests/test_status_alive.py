@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import config, job as jobs, run
 
 
 def _cap_500mb():
@@ -197,7 +197,7 @@ class StatusAlive(Sandbox):
     def job(self, name, tasks, **extra):
         directory = config.JOBS / name
         directory.mkdir(parents=True)
-        run.save_job(directory, {"job_id": name, "seat": None, "started_at": time.time() - 600,
+        jobs.save_job(directory, {"job_id": name, "seat": None, "started_at": time.time() - 600,
                                  "finished_at": None, "tasks": tasks, "pid": 999999990,
                                  "process_identity": None, **extra})
         return directory
@@ -253,7 +253,7 @@ class StatusAlive(Sandbox):
         self.assertEqual(table.count("  e.md: FAIL after 3 rounds: needs you"), 1, table)
         self.assertEqual(table.count("  e.md: FAIL after 3 rounds\n"), 1, table)
         # the receipt keeps what the job wrote
-        self.assertEqual(run.read_job(handed)["tasks"], tasks)
+        self.assertEqual(jobs.read_job(handed)["tasks"], tasks)
 
     def test_v4r_finishes_under_the_timeout(self):
         # The leak's own condition: stdin is a pipe that stays open and never

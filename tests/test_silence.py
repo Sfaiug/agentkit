@@ -18,6 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, run, watch, worker
+from agentkit import task as taskfile
 from test_v5j import E2E, SMOKE, lock_argv, lock_program
 
 
@@ -74,12 +75,12 @@ class Silence(unittest.TestCase):
     def test_template_has_no_front_matter_and_parses(self):
         path = REPO / "templates" / "task.md"
         self.assertFalse(path.read_text().startswith("---"))
-        meta, body, title = run.parse_task(path)
+        meta, body, title = taskfile.parse_task(path)
         self.assertEqual(meta, {})
         self.assertEqual(title, "Title")
         self.assertIn("## Goal", body)
         self.assertIn("## Constraints", body)
-        every, once = run.done_when_groups(body, path)
+        every, once = taskfile.done_when_groups(body, path)
         self.assertTrue(every)
         self.assertEqual(once, ["bash tests/smoke.sh"])
 
@@ -88,7 +89,7 @@ class Silence(unittest.TestCase):
         keys = ("done_when_minutes", "turn_hours", "stall_minutes")
         task.write_text("---\n" + "".join(f"{key}: never\n" for key in keys)
                         + "---\n# Compatibility\n")
-        meta, _, _ = run.parse_task(task)
+        meta, _, _ = taskfile.parse_task(task)
         log_path = self.root / "log.txt"
 
         def log(line):

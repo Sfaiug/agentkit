@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # agentkit acceptance gate. Exits 0 only if every check passes.
-# Makes real (tiny) model calls on Claude, Codex and Muse -- minus any spent model, or one
-# this host has not installed or logged in, which check 3 skips by name; one of the three
-# with its login is all the suite needs -- plus one full `ak run`, which merges its
+# Makes real (tiny) model calls on every harness this host has installed with its login --
+# minus any spent model, which check 3 skips by name; one harness with its login is all the
+# suite needs -- plus one full `ak run`, which merges its
 # own PR into a private repository under the caller's own account; the rest drive
 # the loop offline through fake adapters, and check 9a waits out the real transient backoff
 # (60s + 300s), which is why it starts at the top and is collected at the bottom.
@@ -360,28 +360,23 @@ smoke_home() {
   # both update their config locally. OpenCode can store its static API key in its config.
   for path in "$caller_account:.claude.json" "$SMOKE_CALLER_HOME/.gitconfig:.gitconfig" \
               "$caller_gh/config.yml:.config/gh/config.yml" \
-              "$caller_opencode:.config/opencode/opencode.json" \
-              "$SMOKE_CALLER_HOME/.agentkit/secrets/discord_webhook:.agentkit/secrets/discord_webhook"; do
+              "$caller_opencode:.config/opencode/opencode.json"; do
     source=${path%:*}; target="$HOME/${path##*:}"
     smoke_source "$source" || continue
     mkdir -p -- "${target%/*}" && cp -p -- "$source" "$target" || exit 1
   done
+  # The owner's webhook, from the environment or its file, is check 5's alone, in a HOME of its
+  # own: anything in this HOME may speak, a seat on a tmux server whose environment was never
+  # this command's too, and the sink diverting what was aimed at the owner fails the gate.
+  SMOKE_WEBHOOK=${AGENTKIT_DISCORD_WEBHOOK:-}
+  unset AGENTKIT_DISCORD_WEBHOOK
+  source="$SMOKE_CALLER_HOME/.agentkit/secrets/discord_webhook"
+  mkdir -p -- "$WORK/home-webhook/.agentkit/secrets" || exit 1
+  ! smoke_source "$source" || cp -p -- "$source" "$WORK/home-webhook/.agentkit/secrets/" || exit 1
   # Find installed executables without linking their writable install directories.
   export PATH="$PATH:$SMOKE_CALLER_HOME/.local/bin:$SMOKE_CALLER_HOME/.npm-global/bin:${GROK_BIN_DIR:-$SMOKE_CALLER_HOME/.grok/bin}:$SMOKE_CALLER_HOME/.opencode/bin"
   # Those binaries still belong to the caller; the sandbox must not auto-update them.
   export DISABLE_AUTOUPDATER=1 MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0 OPENCODE_DISABLE_AUTOUPDATE=1
-  # The harnesses installed here whose login worker.auth_ok confirms, as it does before a
-  # turn: the one harness with its login the suite needs (check 3).  A failed, silent or late
-  # answer confirms nothing, and a settings file with no key in it is no login.
-  SMOKE_LOGINS=$(PYTHONPATH="$REPO" python3 - <<'PY'
-import shutil
-from agentkit import worker
-for harness, binary in (("claude", "claude"), ("codex", "codex"), ("muse", "muse"),
-                        ("grokbuild", "grok"), ("opencode", "opencode"), ("antigravity", "agy")):
-    if shutil.which(binary) and worker.auth_ok(harness)[0]:
-        print(harness)
-PY
-)
   # Muse's paid probe keeps its own age. Copy its raw readings, not usage.json's
   # provider selection from the caller's config, and never write back into the host cache.
   for path in usage-meta.json usage-meta-probe.json; do
@@ -1484,9 +1479,9 @@ SH
   python3 "$REPO/tests/test_notify_rule.py" || OFFLINE_RC=1
   python3 "$REPO/tests/test_notify_smoke.py" || OFFLINE_RC=1
   codex_model_flag_check || OFFLINE_RC=1
-  for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_boundaries.py test_architecture.py \
-              test_audit_phone_menu_recovery_layout.py \
-              test_audit_retry_required_notifications.py; do
+  for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_boundaries.py test_architecture.py test_docs.py \
+              test_audit_phone_menu_recovery_layout.py test_choose_click.py \
+              test_audit_retry_required_notifications.py test_solo_switch.py; do
     case "$test" in
       test_notify.py) lifecycle_check notify || OFFLINE_RC=1 ;;
       test_v4l.py) lifecycle_check v4l || OFFLINE_RC=1 ;;
@@ -1559,6 +1554,11 @@ if python3 "$REPO/tests/test_v4z.py"; then
   ok "43 project menus: named checks a-h, fixed rendering state and isolated tmux"
 else
   no "43 project menus"
+fi
+if python3 "$REPO/tests/test_hover.py"; then
+  ok "pointer highlights and keyboard navigation (offline)"
+else
+  no "pointer highlights and keyboard navigation"
 fi
 # 41 reads no live meter -- its probes are mocked inside usage_fresh_check -- so a
 # throttled provider cannot fail it and it takes no meter-unavailable skip.
@@ -1719,7 +1719,7 @@ retrylaunch retry-review work dead    # reviewer never comes back -> fall back t
 # --- 1: usage --------------------------------------------------------------
 model_unavailable() {   # missing binary/login, or nothing; a broken saved login exits 1
   PYTHONPATH="$REPO" python3 - "$@" <<'PY'
-import os, re, shutil, sys
+import json, os, re, shutil, sys
 from agentkit import config, worker
 harness = config.model(config.load(), sys.argv[1])["harness"]
 manifest = config.manifest(harness)
@@ -1732,10 +1732,21 @@ else:
         print(why)
         # Only an explicitly absent credential justifies skipping. An existing but
         # empty, unreadable, malformed or expired credential must still fail the gate.
-        missing = re.match(r"^\S+: no (?:OAuth credentials in |provider key in )?(.+?)"
+        # OpenCode's settings file that parses and holds no apiKey anywhere is no login; one
+        # that is empty or no longer parses may have held one, and an apiKey the adapter did
+        # not take (blank, or not a string) is a broken one.
+        missing = re.match(r"^\S+: no (OAuth credentials in |provider key in )?(.+?)"
                            r"(?: and no CLAUDE_CODE_OAUTH_TOKEN| and none saved)?; run ", why)
+        settings, keys = False, set()
+        if missing and missing[1] == "provider key in ":
+            try:
+                with open(missing[2]) as fh:
+                    settings = isinstance(json.load(fh, object_hook=lambda o: keys.update(o) or o),
+                                          dict) and "apiKey" not in keys
+            except (OSError, ValueError):
+                pass
         token = manifest.get("worker_token", {}).get("file")
-        if (not missing or os.path.lexists(missing[1])
+        if (not missing or (os.path.lexists(missing[2]) and not settings)
                 or (token and os.path.lexists(config.SECRETS / token))):
             sys.exit(1)
 PY
@@ -1880,36 +1891,48 @@ else
 fi
 fi
 
-# --- 3: one real tiny call + one resume per harness ------------------------
+# --- 3: one real tiny call on every harness --------------------------------
 # A model whose subscription window is spent refuses every call until it resets, and `ak
 # usage` says so before one is made: that model is skipped by name, with the moment it comes
 # back, the way 31d/31e skip a shared browser that is not up.  A spent week is the one thing
 # this check can neither prove nor fix -- it is the provider announcing it, not a guess here.
-# Missing harnesses or logins skip with their own reason; broken saved logins still fail.
-# One harness installed with its login is what the suite needs, and with none here it
-# fails rather than skipping everything: a real call below, or a login smoke_home's adapters
-# confirmed -- Grok Build, OpenCode and Antigravity count too, though this check makes its
-# real calls on Claude, Codex and Muse only.
+# Every harness here with its login makes a real call, since `ak update` upgrades each one
+# and this is its gate: Claude, Codex and Muse write a file and resume the session (3a/3b);
+# the rest make the smallest turn they allow (3c): the cheapest model their catalog lists
+# at its lowest effort, asked for a fixed word that needs no tool, through the adapter with
+# the flags a worker's turn gets, since those are what an upgrade breaks.  The adapter's own
+# verdict judges it: exit 0 and the word in final.md, which holds the model's text alone.
+# A failed call refused for quota skips even when its last meter was below 100%; a warning
+# the turn recovered from passes, and every other failed or incomplete turn fails.
+# A missing harness or login is reported as not checked: never a pass, and never a skip
+# that holds the gate.  Broken saved logins still fail.  One harness installed with its
+# login is what the suite needs, and with none here it fails rather than skipping everything.
 ak usage --json >"$WORK/usage-real.json" 2>/dev/null || : >"$WORK/usage-real.json"
 spent_until() {   # spent_until <model>: "<provider> <when it comes back>", or nothing
   PYTHONPATH="$REPO" SMOKE_CALLER_HOME="$SMOKE_CALLER_HOME" python3 - "$1" "$WORK/usage-real.json" <<'PY'
 import json, os, pathlib, sys, time
 from agentkit import config, usage
 cfg, model = config.load(), sys.argv[1]
+provider = config.model(cfg, model)["provider"]
 def providers_of(path):
     try:
         providers = json.loads(pathlib.Path(path).read_text())["providers"]
     except (OSError, ValueError, KeyError, TypeError):
         return None
+    record = providers.get(provider) if isinstance(providers, dict) else None
+    # Both reads judge the usual login the sandbox borrows; another subscription's
+    # room (or refusal) says nothing about this one.
+    if isinstance(record, dict) and isinstance(record.get("accounts"), dict):
+        record = record["accounts"].get(config.DEFAULT_ACCOUNT)
+        providers[provider] = record if isinstance(record, dict) else {}
     return providers if isinstance(providers, dict) else None
 def spent(providers):
     return providers is not None and usage.model_exhausted(cfg, model, providers)[0]
 providers = providers_of(sys.argv[2])
 if not spent(providers):
-    provider = config.model(cfg, model)["provider"]
     sandbox = providers.get(provider) if isinstance(providers, dict) else None
     if isinstance(sandbox, dict) and sandbox.get("meters"):
-        sys.exit(0)  # this read measured the provider itself; its room stands
+        sys.exit(0)  # this read measured the borrowed login; its room stands
     # The sandbox shares the host's probe cadence but not its answers: where the host
     # asked inside the cadence, this read is empty and knows nothing. Only then does
     # the host's own cache stand in -- the same account's spent-knowledge, read only,
@@ -1919,13 +1942,13 @@ if not spent(providers):
     providers = providers_of(host)
     record = providers.get(provider) if isinstance(providers, dict) else None
     if isinstance(record, dict):
-        providers = {**providers, provider: usage._without_past(
-            record, time.time(), "the host cache")}
+        providers[provider] = usage._without_past(record, time.time(), "the host cache")
     if not spent(providers):
         sys.exit(0)  # unknown usage cannot justify skipping a real call
 meters, _ = usage._gating_meters(cfg, model, providers)
 ends = max((m["resets_at"] for m in meters if m.get("exhausted")
-            and isinstance(m.get("resets_at"), (int, float))), default=None)
+            and isinstance(m.get("resets_at"), (int, float))),
+           default=providers.get(config.model(cfg, model)["provider"], {}).get("exhausted_until"))
 when = time.strftime("%Y-%m-%d %H:%M:%S %Z", time.localtime(ends)) if ends else "unknown"
 print(config.model(cfg, model)["provider"], when)
 PY
@@ -1943,20 +1966,92 @@ skip_spent() {   # skip_spent <check labels> <required models...>
   done
   return 1
 }
+skip_refused() {   # skip_refused <check labels> <model> <exit> <out-dir or MCP log>
+  local checks=$1 model=$2 rc=$3 out=$4 why
+  [ "$rc" != 0 ] || return 1
+  # A provider's refusal is newer than its meter. Keep that fact in this suite's
+  # snapshot so its later checks skip too, without another probe or a host write.
+  why=$(PYTHONPATH="$REPO" python3 - "$model" "$rc" "$out" "$WORK/usage-real.json" <<'PY'
+import json, pathlib, sys, time
+from agentkit import config, run, usage
+cfg = config.load()
+entry = config.model(cfg, sys.argv[1])
+out, snapshot = map(pathlib.Path, sys.argv[3:])
+text = run.tail(out / "final.md" if out.is_dir() else out)
+said = text if not run.answered(text) else ""
+if out.is_dir():
+    # Terminal errors count; earlier warnings and the work's own output do not.
+    said += "\n" + run.harness_said(out, text, entry["harness"], failures_only=True)
+    if not text.strip():
+        said += "\n" + run.harness_said(out, text, entry["harness"])
+word = run.ran_dry(int(sys.argv[2]), said, entry["harness"])
+if not word:
+    sys.exit(1)
+try:
+    providers = json.loads(snapshot.read_text())["providers"]
+except (OSError, ValueError, KeyError, TypeError):
+    providers = {}
+providers = providers if isinstance(providers, dict) else {}
+record = providers.get(entry["provider"])
+if isinstance(record, dict) and isinstance(record.get("accounts"), dict):
+    record = record["accounts"].get(config.DEFAULT_ACCOUNT)
+record = record if isinstance(record, dict) else {}
+now, until = time.time(), run.try_again_at(said)
+if until is None or until <= now:
+    until = usage._next_window(record, now) or now + usage.DRY_FOR
+providers[entry["provider"]] = {**{k: v for k, v in record.items() if k not in usage.MARK},
+                                "exhausted_until": until}
+snapshot.write_text(json.dumps({"providers": providers}))
+print(text.strip() or word)
+PY
+  ) || return 1
+  skip_checks "$checks" "required model $model was refused: $why"
+}
 printf 'Create a file hello.txt containing exactly: hello\nThen reply with only the word DONE.\n' \
   >"$WORK/p-make.txt"
 printf 'What file did you just create? Answer with the filename only.\n' >"$WORK/p-ask.txt"
+WORD=PONG
+printf 'Reply with only the word %s.\n' "$WORD" >"$WORK/p-word.txt"
+HARNESSES=("opus claude" "astra codex" "spark muse" "grok grokbuild grok-4.7-build-fast low"
+           "gemini antigravity gemini-3.8-flash low" "mimo opencode mimo/mimo-v2.6-flash none")
 ABSENT=0
-for pair in "opus claude" "astra codex" "spark muse"; do
-  set -- $pair; M=$1 H=$2
+for pair in "${HARNESSES[@]}"; do
+  set -- $pair; M=$1 H=$2; shift 2
+  CHECKS=3a/3b; [ $# = 0 ] || CHECKS=3c
   SPENT=$(spent_until "$M")
   if [ -n "$SPENT" ]; then
-    skip_checks 3a/3b "$M ($H): the ${SPENT%% *} subscription window is spent until"\
+    skip_checks "$CHECKS" "$M ($H): the ${SPENT%% *} subscription window is spent until"\
          "${SPENT#* }, so every call would be a 429"
     continue
   fi
-  skip_unavailable 3a/3b "$M" && { ABSENT=$((ABSENT + 1)); continue; }
+  if ! WHY=$(model_unavailable "$M"); then
+    no "$CHECKS: required model $M login check failed: $WHY"
+    continue
+  fi
+  if [ -n "$WHY" ]; then
+    printf 'NOT CHECKED  %s %s (%s): %s\n' "$CHECKS" "$M" "$H" "$WHY"
+    ABSENT=$((ABSENT + 1))
+    continue
+  fi
   R=$(newrepo "real-$M")
+  if [ $# = 2 ]; then
+    A="${AGENTKIT_ADAPTER_DIR:-$REPO/adapters}/$H.sh"
+    # In the environment worker.auth_ok asked for the login in, as a worker's turn gets it:
+    # a caller's AGENTKIT_ACCOUNT would turn the turn to a login this sandbox never borrowed.
+    PYTHONPATH="$REPO" python3 -c 'import os, sys; from agentkit import config
+os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
+      "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M" >"$WORK/$M.log" 2>&1
+    CALLRC=$?
+    if skip_refused 3c "$M" "$CALLRC" "$WORK/o-$M"; then continue; fi
+    if [ "$CALLRC" = 0 ] && grep -qiwF "$WORD" "$WORK/o-$M/final.md" 2>/dev/null; then
+      ok "3c $M ($H): $1 at $2 replied $WORD"
+    else
+      no "3c $M ($H): $1 at $2 did not reply $WORD: final.md = $(head -c 120 "$WORK/o-$M/final.md" 2>/dev/null)"
+      diagnose "$CALLRC" "$WORK/$M.log" "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M"
+      diagnose "$CALLRC" "$WORK/o-$M/stderr.log" "$H"
+    fi
+    continue
+  fi
   if [ "$H" = claude ]; then
     python3 "$REPO/tests/check_claude_stream.py" "$WORK/o-$M" \
       ak worker "$M" "$WORK/p-make.txt" --workspace "$R" --out "$WORK/o-$M" >"$WORK/$M.log" 2>&1
@@ -1964,6 +2059,7 @@ for pair in "opus claude" "astra codex" "spark muse"; do
     ak worker "$M" "$WORK/p-make.txt" --workspace "$R" --out "$WORK/o-$M" >"$WORK/$M.log" 2>&1
   fi
   CALLRC=$?
+  if skip_refused 3a/3b "$M" "$CALLRC" "$WORK/o-$M"; then continue; fi
   if [ "$CALLRC" = 0 ] && grep -qxF hello "$R/hello.txt" 2>/dev/null && [ -s "$WORK/o-$M/final.md" ]; then
     ok "3a $M ($H): wrote hello.txt, final.md non-empty"
   else
@@ -1976,6 +2072,7 @@ for pair in "opus claude" "astra codex" "spark muse"; do
     ak worker "$M" "$WORK/p-ask.txt" --workspace "$R" --out "$WORK/o-$M-2" --session "$SID" \
       >"$WORK/$M-2.log" 2>&1
     RESUMERC=$?
+    if skip_refused 3b "$M" "$RESUMERC" "$WORK/o-$M-2"; then continue; fi
     if [ "$RESUMERC" = 0 ] && grep -qi 'hello\.txt' "$WORK/o-$M-2/final.md" 2>/dev/null; then
       ok "3b $M ($H): resumed session $SID recalled hello.txt"
     else
@@ -1986,7 +2083,7 @@ for pair in "opus claude" "astra codex" "spark muse"; do
     no "3b $M ($H) resume: adapter recorded no session_id"
   fi
 done
-[ "$ABSENT" -lt 3 ] || [ -n "${SMOKE_LOGINS:-}" ] ||
+[ "$ABSENT" -lt "${#HARNESSES[@]}" ] ||
   no "3: no harness here is installed with its login; the suite needs one"
 
 # --- 4: ak run end to end, into a real GitHub repo -------------------------
@@ -2131,8 +2228,8 @@ fi
 # --check, not a message: notifications are the orchestrator's and a smoke run is not a job.
 # It GETs the webhook, which Discord answers with the hook object without posting anything, so
 # a revoked hook or a 403 on a missing User-Agent fails here instead of sitting green for days.
-ak notify --check >"$WORK/notify.log" 2>&1; NRC=$?
-if [ -n "${AGENTKIT_DISCORD_WEBHOOK:-}" ] || [ -s "$HOME/.agentkit/secrets/discord_webhook" ]; then
+HOME="$WORK/home-webhook" AGENTKIT_DISCORD_WEBHOOK=$SMOKE_WEBHOOK ak notify --check >"$WORK/notify.log" 2>&1; NRC=$?
+if [ -n "$SMOKE_WEBHOOK" ] || [ -s "$WORK/home-webhook/.agentkit/secrets/discord_webhook" ]; then
   if [ "$NRC" = 0 ] && grep -q '^notify: ok (200)$' "$WORK/notify.log"; then
     ok "5 ak notify --check: webhook configured and live ($(cat "$WORK/notify.log"))"
   else
@@ -2384,10 +2481,7 @@ elif [ -n "$SEATWHY" ]; then
 else
 SEAT=$(newrepo seat)
 tm kill-session -t =smoke-astra 2>/dev/null    # a seat a previous, interrupted smoke left
-# Its remote control posts a pairing notice once it connects, and this HOME holds check 5's
-# copy of the owner's webhook: like check 4's run, the seat is aimed at none.  This command
-# starts the suite's tmux server, whose environment every seat on it is handed.
-printf '\n' | ( cd "$SEAT" && AGENTKIT_DISCORD_WEBHOOK=off ak orch --model astra smoke-astra ) >"$WORK/seat.log" 2>&1
+printf '\n' | ( cd "$SEAT" && ak orch --model astra smoke-astra ) >"$WORK/seat.log" 2>&1
 SEATRC=$?
 PANE=""
 for _ in $(seq 1 30); do
@@ -3972,11 +4066,13 @@ ovhost send-keys -t ovhost C-b m
 : >"$WORK/overlay-popup.txt"
 for _ in $(seq 1 30); do
   ovhost capture-pane -p -t ovhost >"$WORK/overlay-popup.txt" 2>/dev/null
-  grep -q 'n start a session   r rename this session   x stop this session   esc leave' "$WORK/overlay-popup.txt" && break
+  grep -q 'n start a session   r rename this session   x stop this session   s solo' "$WORK/overlay-popup.txt" &&
+    grep -q 'esc leave' "$WORK/overlay-popup.txt" && break
   sleep 1
 done
 # the popup drew this server's two seats, in order, under the overlay's own key line
-grep -q 'n start a session   r rename this session   x stop this session   esc leave' "$WORK/overlay-popup.txt" || OVERLAY=1
+grep -q 'n start a session   r rename this session   x stop this session   s solo' "$WORK/overlay-popup.txt" &&
+  grep -q 'esc leave' "$WORK/overlay-popup.txt" || OVERLAY=1
 NEEDS_GLYPH=$(LC_ALL=C.UTF-8 PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("needs you"))')
 grep -q "1  $OV1  fable  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
 grep -q "2  $OV2  astra  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
@@ -5162,6 +5258,8 @@ except Exception:
   MCPRC=$?
   if [ "$MCPRC" = 0 ] && grep -qE 'BROWSER_TABS=[0-9]+ DESKTOP=ok' "$WORK/mcp-claude.txt"; then
     ok "31d claude reached the shared browser and the desktop over MCP: $(grep -oE 'BROWSER_TABS=[0-9]+ DESKTOP=ok' "$WORK/mcp-claude.txt" | tail -1)"
+  elif skip_refused 31d opus "$MCPRC" "$WORK/mcp-claude.txt"; then
+    :
   else
     no "31d claude over MCP: $(tail -c 200 "$WORK/mcp-claude.txt")"
   fi
@@ -5179,6 +5277,8 @@ except Exception:
   MCPRC=$?
   if [ "$MCPRC" = 0 ] && grep -qE 'BROWSER_TABS=[0-9]+' "$WORK/mcp-codex.txt"; then
     ok "31e codex reached the shared browser over MCP: $(grep -oE 'BROWSER_TABS=[0-9]+' "$WORK/mcp-codex.txt" | tail -1)"
+  elif skip_refused 31e astra "$MCPRC" "$WORK/mcp-codex.txt"; then
+    :
   else
     no "31e codex over MCP: $(tail -c 200 "$WORK/mcp-codex.txt")"
   fi
@@ -5595,6 +5695,16 @@ else
 fi
 
 # --- result ----------------------------------------------------------------
+if python3 "$REPO/tests/test_files_scope.py" >"$WORK/files-scope.log" 2>&1; then
+  ok "50 task files scope: branch paths, leftovers, rebase, fixer and PASS override"
+else
+  no "50 task files scope"; tail -30 "$WORK/files-scope.log"
+fi
+if python3 "$REPO/tests/test_turn_leftover_processes.py" >"$WORK/turn-processes.log" 2>&1; then
+  ok "worker turns stop their leftover processes on every harness and ask once to finish in the foreground"
+else
+  no "worker turn process cleanup"; tail -30 "$WORK/turn-processes.log"
+fi
 if python3 "$REPO/tests/test_auth_watch.py" >"$WORK/auth-watch.log" 2>&1; then
   ok "40 auth watchdog: immediate needs-login, one alert per episode, no auth nudge, recovery and unknown stuck escalation"
 else
@@ -5605,16 +5715,29 @@ if python3 "$REPO/tests/test_stop_hook.py" >"$WORK/stop-hook.log" 2>&1; then
 else
   no "48 end-of-turn rule"; tail -30 "$WORK/stop-hook.log"
 fi
-{ python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 knowledge stays home: no boundary count in tests/test_boundaries.py above its max, and ARCHITECTURE.md maps every module and harness in under 8 KB" || { no "49 boundaries and the map"; tail -30 "$WORK/boundaries.log"; }
+{ python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py" && python3 "$REPO/tests/test_docs.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 knowledge stays home: no boundary count in tests/test_boundaries.py above its max, ARCHITECTURE.md maps every module and harness in under 8 KB, and the docs match the interface" || { no "49 boundaries, map and docs"; tail -30 "$WORK/boundaries.log"; }
+if { python3 "$REPO/tests/test_regression_fails_before.py" &&
+     python3 "$REPO/tests/test_followup_runs.py" && python3 "$REPO/tests/test_red_target.py" &&
+     python3 "$REPO/tests/test_review_gate.py" && python3 "$REPO/tests/test_changed_checks.py"; } >"$WORK/regression-base.log" 2>&1; then
+  ok "50 fix runs: regression fails on base and passes on HEAD, changed checks reach review, probes restore the branch"
+else
+  no "50 fix runs and regression on base"; tail -30 "$WORK/regression-base.log"
+fi
 if seat_state_check >"$WORK/seat-state.log" 2>&1; then
   ok "42 seat states: a session is working, needs you or done -- (a) a turn-ended hook fact reads 'needs you', (b) a newer turn-began fact reads 'working' since it began, (c) every harness's dialog fixture reads the 'asking' fact and a transcript quoting it does not, (d) a notified seat reads 'needs you' with its question for a reason and a newer turn outranks it, (e) two renders and a watch tick agree on the word and the since and no live state is ever a reason to type into a seat, (f) the babysitter reads every stall/quota/auth signature from adapters/*.toml and no harness is named in watch.py, (g) a hook writes nothing for a worker or without a seat, (h) ak orch list --why names the word, the authority, the rule and the evidence, (i) every adapter's hooks verb is idempotent"
 else
   no "42 seat states"; tail -30 "$WORK/seat-state.log"
 fi
-if lifecycle_check v4l >"$WORK/v4l.log" 2>&1; then
+if { lifecycle_check v4l &&
+     python3 "$REPO/tests/test_quota_words_bounded.py"; } >"$WORK/v4l.log" 2>&1; then
   ok "36 exact stall timing, attach races, quota windows, real Claude stream and narrow runs"
 else
   no "36 v4l regressions"; tail -30 "$WORK/v4l.log"
+fi
+if python3 "$REPO/tests/test_smoke_judges_the_borrowed_login.py" >"$WORK/borrowed-login.log" 2>&1; then
+  ok "3d real calls judge the borrowed login: sandbox and host cache skip its spent subscription, and its room permits a call"
+else
+  no "3d borrowed login"; tail -30 "$WORK/borrowed-login.log"
 fi
 if { python3 "$REPO/tests/test_smoke_target_pool.py" &&
      python3 "$REPO/tests/test_smoke_lock_scope.py"; } >"$WORK/smoke-targets.log" 2>&1; then
@@ -5622,8 +5745,9 @@ if { python3 "$REPO/tests/test_smoke_target_pool.py" &&
 else
   no "4e smoke targets"; tail -30 "$WORK/smoke-targets.log"
 fi
-if python3 "$REPO/tests/test_v4n.py" >"$WORK/v4n.log" 2>&1; then
-  ok "37 readable menus at 40/80/100 columns, run reporting, Codex resume and launch/cache edges"
+if { python3 "$REPO/tests/test_v4n.py" &&
+     python3 "$REPO/tests/test_choose_click.py"; } >"$WORK/v4n.log" 2>&1; then
+  ok "37 readable menus at 40/80/100 columns, chooser Enter clicks, run reporting, Codex resume and launch/cache edges"
 else
   no "37 v4n regressions"; tail -30 "$WORK/v4n.log"
 fi

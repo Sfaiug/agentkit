@@ -4,7 +4,7 @@ import os
 import re
 import select
 import shutil
-import signal
+import signal as signals     # `signal` is an effort's bars, below
 import subprocess
 import sys
 import termios
@@ -13,6 +13,8 @@ import time
 import unicodedata
 from collections import namedtuple
 from functools import lru_cache, wraps
+
+from . import motion
 
 
 # glyph, ASCII glyph, Mocha RGB, eight-colour tone, emphasis. Words remain the contract
@@ -35,6 +37,9 @@ STATE_STYLES = {
 LIGHT = {"needs you": "9c6314", "working": "1e66f5", "done": "338022", "FAIL": "d20f39",
          "dim": "6c6f85", "waiting": "6c6f85"}
 GREY = 0.15        # saturation under which a colour is a grey rather than a hue
+# The background the pointer lights a key-line item or a cell on: a step off the terminal's own,
+# Mocha's surface0 on a dark one and Latte's on a light one.
+POINTED = {False: "313244", True: "ccd0da"}
 # The kinds a screen asks `styled` for by what they mean, and the word whose colour each is.
 KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "needs you",
          "good": "done"}
@@ -544,6 +549,17 @@ def signal(count, filled):
             for n, bar in enumerate(bars)]
 
 
+def toggle(mark, width, kind=None):
+    """A mark -- `●`, `■`, their open `○`, `□` -- in its column `width` cells wide, the one way a
+    screen draws one and its frames move it (motion.toggled): ` ■ ` from the column's middle in
+    `kind`, dim where it is off, reversed where the keys are, bracketed `[■]` where there is no
+    colour to reverse."""
+    shown, lead = f" {mark} ", (width - 3) // 2
+    if kind == "reverse" and not colour_depth():
+        shown = f"[{mark}]"
+    return " " * lead + (styled(shown, kind) if kind else shown) + " " * (width - lead - 3)
+
+
 ESC = "\x1b"   # what Esc alone reads as: the single byte with nothing after it
 
 
@@ -561,7 +577,7 @@ def is_sequence(answer):
     return isinstance(answer, str) and answer.startswith(ESC) and answer != ESC
 
 
-def frame(name, body=(), keyline="esc back", filled=0):
+def frame(name, body=(), keyline="esc back", filled=0, places=None):
     """One sub-screen in the shared frame: the landed docs/cli-design.md chrome,
     then the caller's prompt.
 
@@ -570,23 +586,23 @@ def frame(name, body=(), keyline="esc back", filled=0):
     at 120) and its keys read exactly like the menu's, with `esc back` last. The
     body sits between the rule and the blank line; the caller reads the prompt,
     so every screen ends the same way.  Over a screen read with the keys it is written over
-    in place, in one write, the way the menu is, so moving through it never flickers.
-    `filled` is the rule's (rule_line).
+    in place, the way the menu is (`show`).  `filled` is the rule's (rule_line).  `places`
+    are what is where on the body, {its line, from 0: (what, [(first, last, cell)])}: the
+    screen's spots (`under`), the key line's items among them, are what it returns.
     """
-    lines = [header_line(name, time.strftime("%H:%M")), rule_line(filled=filled), *body, "",
-             *key_line(keyline)]
+    keys = key_line(keyline)
+    lines = [header_line(name, time.strftime("%H:%M")), rule_line(filled=filled), *body, "", *keys]
+    spots = {3 + line: place for line, place in (places or {}).items()}
+    spots.update(key_spots(keys, 4 + len(body)))
     if taken():
-        # each line is cleared before it is written, never after: a line filling the last
-        # column leaves the cursor on it, and a clear there erases that column -- the clock's
-        # last digit on any terminal no wider than the layout
-        sys.stdout.write("\033[H" + "".join(f"\033[K{line}\n" for line in lines) + "\033[J")
-        sys.stdout.flush()
-        return
+        show(lines, spots)
+        return spots
     if (sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
             and "NO_COLOR" not in os.environ):
         print("\033[2J\033[H", end="")
     for line in lines:
         print(line)
+    return spots
 
 
 _HALF_TYPED = b""   # what a bounded wait had to take off a pipe before it knew where the line ended
@@ -683,26 +699,59 @@ class Key(namedtuple("Key", "name char col row", defaults=("", 0, 0))):
 
     up, down, left, right, home, end, enter, esc, backspace, tab, space; `char`, the one that
     carries a character; `click`, a left click at `col` and `row`, counted from 1 the way the
-    terminal counts them, read when the button comes up; `wheel-up` and `wheel-down`; `eof`, a
-    keyboard that is gone or ^D; and `other` for a sequence no screen asks about.
+    terminal counts them, read when the button comes up; `point`, the pointer moved to `col` and
+    `row`, a button down or not; `wheel-up` and `wheel-down`; `eof`, a keyboard that is gone or
+    ^D; and `other` for a sequence no screen asks about.
     """
     __slots__ = ()
 
 
-# The alternate screen, the cursor hidden, and clicks and the wheel reported in SGR form (1006);
-# and all of it undone, in the reverse order.
-TAKE = "\033[?1049h\033[?25l\033[?1000h\033[?1006h"
-GIVE = "\033[?1006l\033[?1000l\033[?25h\033[?1049l"
+class Spot(namedtuple("Spot", "what cell first last", defaults=(None, None, 0, 0))):
+    """What a click or the pointer is on (`under`): `what`, the row's -- a seat, a model's row, a
+    choice -- or None off every row and on the key line; `cell`, the one of that row whose
+    columns `first` to `last` hold it -- a mark, an arrow, a key-line item -- or None."""
+    __slots__ = ()
+
+
+# The alternate screen, the cursor hidden, and the pointer -- clicks, the wheel and every move,
+# any-event tracking (1003) -- reported in SGR form (1006); and all of it undone, in reverse.
+TAKE = "\033[?1049h\033[?25l\033[?1003h\033[?1006h"
+GIVE = "\033[?1006l\033[?1003l\033[?25h\033[?1049l"
 _TAKEN = None      # the Keyboard that has the terminal now, or None
 _KEYED = b""       # what a keyboard sent past the key it was read for, or while `sense` asked
 _PRESSED = False   # the left button went down and has not been read coming up
 _ASKED = False     # a resize or a return from ^Z asked for a draw (`asked_again`)
+_POINTER = None    # where the pointer is, a `point` or a click; None until it moves, after a key
+_AWAY = False      # ... on no row of a screen that has rows: the keys' highlight not drawn
+_UNSEEN = False    # the key read last was pressed while it was (`unseen`)
+_SPOTS = {}        # what the screen up has where (`lit`), the pointer read against it
+_SHOWN = []        # ... its lines as drawn, and with the pointer's light (`relight`)
+_PAINTED = []
+_POINTED = Spot()  # ... the `Spot` the pointer was on when it was drawn
+_MOVED = 0.0       # when a move of the pointer was last answered
+_HELD = None       # a move read and not answered yet, and when the first of them was
+_NEXT = None       # a key read past a move, answered after it
 _REPORT = re.compile(r"\x1b\[<\d+;\d+;\d+[Mm]")   # a mouse report, as mode 1006 sends one
 
 
 def taken():
     """Whether a `Keyboard` has the terminal, so keys are read one at a time and not in lines."""
     return _TAKEN is not None
+
+
+def away():
+    """Whether the pointer moved off every row of the screen up -- onto a key-line item, a header
+    or blank space -- which then draws no row or cell the keys' highlight is on: it lost it when
+    the pointer left, and a key brings it back where it was, the keys going on from there."""
+    return _AWAY
+
+
+def unseen():
+    """Whether the key read last was pressed while the keys' highlight was not drawn (`away`), and
+    is no click on a row, which names its own: a key acting on what the highlight is on then only
+    brings it back -- Enter and space, typed or clicked on the key line, which `read_key` answers
+    as a draw, and a screen's own, such as the menu's `x`."""
+    return _UNSEEN
 
 
 def asked_again():
@@ -774,14 +823,14 @@ class Keyboard:
         it reaches a line `readline` drops it from, or a session's tmux, which reads it as the
         mouse report it is, or the menu again, which never saw that button go down.
         """
-        global _TAKEN, _PRESSED
+        global _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD
         if _TAKEN is not self:
             return
         self._send(self.sequences[1])
         termios.tcsetattr(self.fd, termios.TCSADRAIN, self.saved)
-        _TAKEN, _PRESSED = None, False
+        _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD = None, False, None, False, None
         for number, handler in self.kept.items():
-            signal.signal(number, handler)
+            signals.signal(number, handler)
         self.kept = {}
 
     def close(self):
@@ -807,9 +856,9 @@ class Keyboard:
         for name, handler in (("SIGTERM", self._end), ("SIGHUP", self._end),
                               ("SIGQUIT", self._end), ("SIGTSTP", self._stop),
                               ("SIGWINCH", self._resize)):
-            number = getattr(signal, name, None)
-            if number is not None and signal.getsignal(number) == signal.SIG_DFL:
-                self.kept[number] = signal.signal(number, handler)
+            number = getattr(signals, name, None)
+            if number is not None and signals.getsignal(number) == signals.SIG_DFL:
+                self.kept[number] = signals.signal(number, handler)
 
     def _end(self, number, frame):
         self.give()                        # which puts the default back, so this ends us
@@ -889,17 +938,35 @@ def read_key(timeout=None, wake=None):
     rest of it.  Waiting for it keeps to `timeout` like any other wait, and a key pressed
     while the button is down is answered at once; should that key give the terminal away,
     the rest of the click is no click (`Keyboard.give`).
+
+    The pointer is answered, `point`, only once it is on another spot of the screen up than it
+    was when that was drawn (`lit`): another row, another cell, or off what it was on; a move
+    within one is read and let go, keeping to `timeout` however long the pointer goes on.  A
+    move is answered once a frame of the clock's (motion.FRAME) is due since the last, and once
+    what was sent after it is read through to where the pointer ended, or a frame after the
+    first of them, whichever is sooner, however soon the read's own time runs out: a flood of
+    moves is one draw, never a draw each.  One that is not due when nothing more is sent is
+    answered by a read after it; a key read past one, next.  Every other key hands the
+    highlight to the keys, so the pointer lights nothing until it moves again, and Enter or
+    space -- a click on its key-line item too -- while the pointer is on no row (`away`) only
+    brings it back, answered as a draw.
     """
-    global _PRESSED, _ASKED
+    global _PRESSED, _ASKED, _POINTER, _MOVED, _NEXT, _HELD, _AWAY, _UNSEEN
+    key, _NEXT = _NEXT, None
     fd = sys.stdin.fileno()
     until = None if timeout is None else time.monotonic() + timeout
-    while True:
+    while key is None:
         if not _KEYED:
             again = _TAKEN.again[0] if _TAKEN is not None else None
             left = None if until is None else max(0, until - time.monotonic())
+            if _HELD is not None:  # nothing more is sent: answered once its frame is due
+                due = max(0, _MOVED + motion.FRAME - time.monotonic())
+                left = due if left is None else min(left, due)
             ready = select.select([fd] + [end for end in (wake, again) if end is not None],
                                   [], [], left)[0]
             if fd not in ready:
+                if _HELD is not None and time.monotonic() >= _MOVED + motion.FRAME:
+                    break
                 if again is not None and again in ready:
                     _ASKED = True
                     try:
@@ -910,12 +977,35 @@ def read_key(timeout=None, wake=None):
         key = _key(fd)
         if key is None:            # the button went down: the click is when it comes up
             _PRESSED = True
-            continue
-        if key.name == "answer":   # the terminal's, to `sense`, and no key at all
-            continue
-        if key.name == "click":    # and a button that went down before the keyboard was taken
+        elif key.name == "answer":     # the terminal's, to `sense`, and no key at all
+            key = None
+        elif key.name == "click":  # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
+        elif key.name == "point":
+            moved = _POINTER is None or under(key, _SPOTS)[:2] != _POINTED[:2]
+            _HELD, key = (key, _HELD[1] if _HELD else time.monotonic()) if moved else None, None
+        if key is None:
+            now = time.monotonic()
+            if _HELD is not None and now >= _HELD[1] + motion.FRAME:
+                break              # a frame's worth read through: what is sent after, next
+            if _HELD is None and until is not None and now >= until:
+                return None        # moves within one spot keep to the read's time
+        elif _HELD is not None:
+            key, _NEXT = None, key
+            break
+    if key is None:                # the pointer's move
+        (key, _), _HELD, _MOVED = _HELD, None, time.monotonic()
+        _POINTER, _AWAY = key, under(key, _SPOTS).what is None and any(
+            what is not None for what, _ in _SPOTS.values())
         return key
+    spot = under(key, _SPOTS) if key.name == "click" else Spot()
+    _UNSEEN, _AWAY = _AWAY and spot.what is None, False     # a click on a row names its own
+    _POINTER = key if key.name == "click" and not _UNSEEN else None
+    if _UNSEEN and (key.name in ("enter", "space") or spot.what is None
+                    and spot.cell in ("⏎", "enter", "space")):
+        _ASKED = True
+        return None                # the highlight back where the keys left it, and drawn
+    return key
 
 
 def _key(fd):
@@ -973,6 +1063,8 @@ def _sequence(fd):
             return Key("other")
         if button & 64:
             return Key({0: "wheel-up", 1: "wheel-down"}.get(button & 3, "other"))
+        if button & 32:
+            return Key("point", "", col - _PAD, row - _PAD)
         if not button & 99:        # the left button, not a drag: going down is half a click
             return Key("click", "", col - _PAD, row - _PAD) if final == b"m" else None
         return Key("other")
@@ -1009,18 +1101,114 @@ def key_spans(line):
              item.group().split(" ")[0]) for item in re.finditer(r"\S+(?: \S+)*", text)]
 
 
+def key_spots(lines, row):
+    """Where the items of a drawn key line are, its first line on the screen's `row`: each a
+    cell of no row (`under`)."""
+    return {row + number: (None, key_spans(line)) for number, line in enumerate(lines)}
+
+
+def under(key, spots):
+    """The `Spot` a click or the pointer at `key` is on, of a screen's `spots`: {screen row:
+    (what, [(first, last, cell)])}, rows and columns counted from 1 as the terminal counts.
+
+    The one place a position is read back to what a screen drew there, for a click and for the
+    pointer alike, so what lights under the pointer is what a click there acts on.
+    """
+    what, places = spots.get(key.row, (None, ()))
+    return next((Spot(what, cell, first, last) for first, last, cell in places
+                 if first <= key.col <= last), Spot(what))
+
+
+def lit(lines, spots):
+    """`lines`, a screen from its first row, with the cell under the pointer -- a key-line item, a
+    cell of a row -- on a subtle background (POINTED), in place of the reverse the keys give a
+    cell, so the pointer and the keys never show two; at eight colours it is reversed.  `spots`
+    are the screen's, kept as what the pointer is read against (`read_key`).  Rows are the
+    screen's to light: the keys' highlight is moved onto the pointer's.  With no colour at all
+    nothing is lit.
+    """
+    global _SPOTS, _POINTED, _SHOWN, _PAINTED
+    _SPOTS, _POINTED = spots, under(_POINTER, spots) if _POINTER else Spot()
+    _SHOWN = _PAINTED = lines = list(lines)
+    if _POINTED.cell is None or not colour_depth() or not 0 < _POINTER.row <= len(lines):
+        return lines
+    _PAINTED = [*lines[:_POINTER.row - 1],
+                backed(lines[_POINTER.row - 1], POINTED[_LIGHT], _POINTED.first, _POINTED.last),
+                *lines[_POINTER.row:]]
+    return _PAINTED
+
+
+def pointed(row, column, text):
+    """`text`, written from `column` of `row` over the screen up, with the pointer's light where
+    it falls on the cell `lit` lit: what moves there between draws (`motion.Clock.frame`) keeps
+    it, never the keys' reverse."""
+    if (_POINTED.cell is None or _POINTER is None or row != _POINTER.row
+            or column > _POINTED.last or not colour_depth()):
+        return text
+    first, last = max(1, _POINTED.first - column + 1), min(_POINTED.last - column + 1, cells(text))
+    if first > last:
+        return text
+    # A shake's reverse can start before the cell under the pointer.
+    return backed(text.replace("\033[7m", ""), POINTED[_LIGHT], first, last)
+
+
+def backed(line, rgb, first, last):
+    """`line` with its cells `first` to `last`, counted from 1, on the background `rgb`, every
+    style in them kept and any past its end blank; reversed at eight colours."""
+    depth = colour_depth()
+    back, off = (("48;2;" + ";".join(str(int(rgb[i:i + 2], 16)) for i in (0, 2, 4)), "49")
+                 if depth == 24 else (f"48;5;{xterm_colour(rgb)}", "49") if depth > 8
+                 else ("7", "27"))
+    out, at, on = "", 0, None      # on: None before the cell, True in it, False past it
+    for token in re.findall(f"{ANSI.pattern}|.", line, re.S):
+        if on is None and at + 1 >= first:
+            out, on = out + f"\033[{back}m", True
+        elif on and at >= last:
+            out, on = out + f"\033[{off}m", False
+        if on and token.startswith("\033") and token.endswith("m"):
+            params = token[2:-1]        # what styles the cell keeps, on the background
+            token = f"\033[{'' if params == '7' else (params or '0') + ';'}{back}m"
+        out += token
+        at += 0 if token.startswith("\033") else cells(token)
+    return out + (" " * (last - at) + f"\033[{off}m" if on else "")
+
+
+def relight():
+    """Write again only the rows of the screen up whose light the pointer moved, the cursor
+    left where it was: what a question typed on that screen (`field`) draws over it."""
+    before = _PAINTED
+    rows = "".join(f"\033[{row};1H\033[K{line}" for row, (line, was)
+                   in enumerate(zip(lit(_SHOWN, _SPOTS), before), 1) if line != was)
+    if rows:
+        sys.stdout.write(f"\0337{rows}\0338")
+        sys.stdout.flush()
+
+
+def show(lines, spots):
+    """Write `lines` over the screen up, from its first row, in one write, so moving through it
+    never flickers; the cell under the pointer lit (`lit`).  Each line is cleared before it is
+    written, never after: a line filling the last column leaves the cursor on it, and a clear
+    there erases that column -- the clock's last digit on any terminal no wider than the layout.
+    """
+    sys.stdout.write("\033[H" + "".join(f"\033[K{line}\n" for line in lit(lines, spots))
+                     + "\033[J")
+    sys.stdout.flush()
+
+
 def clicks_its_own(read):
     """A screen read with the keys over the menu's own: a click belongs to the screen it began
     on, so a button that went down before this one was drawn, or goes down on it and comes up
-    after it, is no click -- nothing is picked, closed or opened by a press meant elsewhere."""
+    after it, is no click -- nothing is picked, closed or opened by a press meant elsewhere.
+    Nor does the pointer light anything on it, or back on the screen under it, until it moves:
+    a cell it rests on is no row the keys' highlight is on."""
     @wraps(read)
     def reading(*args, **kwargs):
-        global _PRESSED
-        _PRESSED = False
+        global _PRESSED, _POINTER, _AWAY, _HELD
+        _PRESSED, _POINTER, _AWAY, _HELD = False, None, False, None
         try:
             return read(*args, **kwargs)
         finally:
-            _PRESSED = False
+            _PRESSED, _POINTER, _AWAY, _HELD = False, None, False, None
     return reading
 
 
@@ -1052,6 +1240,8 @@ def field(prompt, placeholder=""):
             key = read_key()
             if key is None:
                 continue                 # a resize: drawn again at the new width
+            if key.name == "point":
+                relight()                # the screen it is typed on lights what it is on
             if key.name == "enter":
                 return text
             if key.name in ("esc", "eof"):
@@ -1078,8 +1268,10 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
     `around` draws the screen a list is asked inside and returns the row its first choice goes
     on, and is called again whenever the screen wants drawing again -- a resize -- so the list
     and the rows a click is read against are always where that screen now puts them.  There a
-    click on a choice picks it, or with `several` marks it, and a click anywhere else goes back;
-    a button that went down before the list moved is no click.
+    click on a choice picks it, or with `several` marks it; the key line's Enter answers as the
+    key does, and a click anywhere else goes back;
+    a button that went down before the list moved is no click.  The pointer on a choice moves
+    the highlight to it, and its screen is drawn again for what else it lights.
     `wait`, where given, reads the key in `read_key`'s place, or None for a draw: the menu's own
     (`menu.moving`) keeps its dots breathing while the list is asked.  `warn` is a choice drawn
     in the warn colour: the one of `confirm`'s that ends something.
@@ -1101,19 +1293,28 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
             box = ("[x] " if choice in marked else "[ ] ") if several else ""
             line = cut(box + str(choice), width() - 3)
             line = "  " + (styled(line, "amber") if choice == warn else line)
-            lines.append(highlight(line) if number == at else line)
+            lines.append(highlight(line) if number == at and not _AWAY else line)
         sys.stdout.write((f"\033[{top};1H" if top else f"\033[{drawn}A" if drawn else "") +
                          "".join(f"\r{line}\033[K\n" for line in lines))
         sys.stdout.flush()
         drawn = len(lines)
+        rows = {top + number: (number, []) for number in range(len(choices))} if top else {}
+        # its screen's key line and its own choices are what the pointer lands on; that
+        # screen's rows -- the seats under a question -- are nothing while it is asked
+        lit(_SHOWN, {**{row: spot for row, spot in _SPOTS.items() if spot[0] is None}, **rows})
         key = read_key() if wait is None else wait()
+        again = around is not None        # its screen as well: a key puts out what was lit
         if key is None:
-            again = around is not None
             continue
-        if key.name == "click" and top:
-            if not 0 <= key.row - top < len(choices):
+        if key.name == "click" and top and under(key, _SPOTS).cell in ("⏎", "enter"):
+            key = Key("enter")
+        spot = under(key, rows)
+        if key.name == "point":
+            at = at if spot.what is None else spot.what
+        elif key.name == "click" and top:
+            if spot.what is None:
                 return None
-            at = key.row - top
+            at = spot.what
             if not several:
                 return choices[at]
             marked ^= {choices[at]}
@@ -1159,8 +1360,8 @@ def scroll(name, body, keyline="esc back"):
     It is written over in place, the way the main menu is, and when the body runs past the
     screen ↑/↓, k/j and the wheel scroll it, the key line saying so; the height is budgeted
     the menu's way, so the key line is never the part that goes.  Esc and a click on the key
-    line's `esc` go back.  With no keyboard taken -- a pipe, a file -- it is `frame`, and
-    reads nothing.
+    line's `esc` go back; the pointer lights the item it is on.  With no keyboard taken -- a
+    pipe, a file -- it is `frame`, and reads nothing.
     """
     if not taken():
         frame(name, body(layout_width()), keyline)
@@ -1174,21 +1375,14 @@ def scroll(name, body, keyline="esc back"):
             room = max(1, height() - 5 - len(key_line(keys)))
         at = min(max(at, 0), max(0, len(text) - room))
         lines = [header_line(name, time.strftime("%H:%M")), rule_line(), *text[at:at + room], ""]
-        spans = [(len(lines) + number, first, last, key)
-                 for number, line in enumerate(key_line(keys), 1)
-                 for first, last, key in key_spans(line)]
-        lines += key_line(keys)
-        sys.stdout.write("\033[H" + "".join(f"\033[K{line}\n" for line in lines) + "\033[J")
-        sys.stdout.flush()
+        spots = key_spots(key_line(keys), len(lines) + 1)
+        show(lines + key_line(keys), spots)
         key = read_key()
         if key is None:
             continue
-        clicked = key.name == "click" and any(
-            (row, item) == (key.row, "esc") and first <= key.col <= last
-            for row, first, last, item in spans)
         if step(key):
             at += step(key)
-        elif key.name in ("esc", "eof") or clicked:
+        elif key.name in ("esc", "eof") or key.name == "click" and under(key, spots).cell == "esc":
             return
 
 

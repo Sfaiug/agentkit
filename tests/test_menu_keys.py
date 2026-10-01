@@ -2,9 +2,9 @@
 the arrows and stays on its seat, Enter and a click open, and the terminal comes back exactly.
 
 Each test runs `menu.loop` in a child process on a pty of its own, with the seat listing, the
-seats' words, the usage rows and the probe faked, and opening a seat reduced to a line saying
-which one.  Nothing here starts a session, a tmux server or a probe; the only process signalled
-is the test's own child.
+seats' words, the usage rows and the probe faked, and opening or closing a seat reduced to a
+line saying which one.  Nothing here starts a session, a tmux server or a probe; the only
+process signalled is the test's own child.
 """
 
 from contextlib import redirect_stdout
@@ -39,7 +39,9 @@ SEATS = Path(os.environ["MENU_KEYS_SEATS"])
 orch.listing = lambda reconcile=True: [
     {"name": name, "repo": None, "path": "/", "created": 0} for name in json.loads(SEATS.read_text())]
 orch.job_notices = lambda: []
-menu.seat_row_state = lambda cfg, session, **facts: {"word": "working", "reason": "", "since": None}
+menu.seat_row_state = lambda cfg, session, **facts: {
+    "word": "done" if session["name"].startswith("done-") else "working", "reason": "",
+    "since": None}
 menu.usage_lines = lambda cfg, width: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
@@ -60,6 +62,9 @@ def open_session(cfg, session, dry_run):
         typed = re.sub(rb"\x1b\[<\d+;\d+;\d+[Mm]", b"", os.read(0, 1024))
         print(f"<session read {typed!r}>", flush=True)
 
+def close_seat(name, dry_run, **_kw):
+    print(f"<closed {name}>", flush=True)
+
 def ask_name(taken, auto=False):
     cooked = bool(termios.tcgetattr(0)[3] & termios.ICANON) if os.isatty(0) else None
     print(f"<lines {cooked}>", flush=True)
@@ -68,18 +73,26 @@ def ask_name(taken, auto=False):
 
 orch.taken_names = lambda: set()
 menu.draw, menu.open_session, orch.ask_name = draw, open_session, ask_name
-sys.exit(menu.loop(config.load(), dry_run=True))
+menu.close_seat = close_seat
+cfg = config.load()
+saved = os.environ.get("MENU_KEYS_SAVED") == "1"
+if saved:
+    config.ensure_dirs()
+    for name in json.loads(SEATS.read_text()):
+        config.save_session(cfg, name, cfg["defaults"]["orchestrator"], cfg["defaults"]["workers"])
+sys.exit(menu.loop(cfg, dry_run=not saved, overlay=bool(os.environ.get("MENU_KEYS_OWN"))))
 """
 DOWN, ENTER = b"\x1b[B", b"\r"
-GIVEN = ("\x1b[?1006l", "\x1b[?1000l", "\x1b[?25h", "\x1b[?1049l")
+GIVEN = ("\x1b[?1006l", "\x1b[?1003l", "\x1b[?25h", "\x1b[?1049l")
 
 
 class Menu:
     """One child menu on a pty: what it wrote so far, and keys sent to it."""
 
-    def __init__(self, case, seats, tick=10.0, slow=0.0, rows=40, cols=100, session_reads=False):
+    def __init__(self, case, seats, tick=10.0, slow=0.0, rows=40, cols=100, session_reads=False,
+                 saved=False, own=None):
         self.case = case
-        home = tempfile.TemporaryDirectory(prefix="menu-keys-")
+        home = tempfile.TemporaryDirectory(prefix=".ak-test-menu-keys-", dir=REPO)
         case.addCleanup(home.cleanup)
         self.seats = Path(home.name) / "seats.json"
         self.set_seats(seats)
@@ -92,6 +105,8 @@ class Menu:
                     "LC_ALL": "C.UTF-8", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
                     "MENU_KEYS_REPO": str(REPO), "MENU_KEYS_SEATS": str(self.seats),
                     "MENU_KEYS_TICK": str(tick), "MENU_KEYS_SLOW": str(slow),
+                    "MENU_KEYS_SAVED": "1" if saved else "0", "MENU_KEYS_OWN": own or "",
+                    "AGENTKIT_SESSION": own or "",
                     "MENU_KEYS_SESSION_READS": "1" if session_reads else "0"})
         self.proc = subprocess.Popen([sys.executable, "-c", CHILD], stdin=self.slave,
                                      stdout=self.slave, stderr=self.slave, env=env,
@@ -183,6 +198,41 @@ class Menu:
 
 
 class MenuKeys(unittest.TestCase):
+    def test_s_toggles_solo_on_the_highlighted_row_and_the_key_line_can_toggle_it_back(self):
+        for width in (100, 40):
+            with self.subTest(width=width):
+                menu = Menu(self, ["seat-a", "seat-b"], cols=width, saved=True)
+                menu.frame()
+                menu.send(DOWN)
+                menu.frame(lambda lines: "seat-b" in menu.highlighted(lines))
+                mark = len(menu.text())
+                menu.send(b"s")
+                lines = menu.frame(lambda lines: any(line.strip() == "solo" or
+                                   "working  solo" in line for line in lines), after=mark)
+                state = menu.seats.parent / ".agentkit/state"
+                self.assertTrue(json.loads((state / "session-seat-b.json").read_text())["solo"])
+                self.assertNotIn("solo", json.loads((state / "session-seat-a.json").read_text()))
+                row, keys = next((n, line) for n, line in enumerate(lines, 1) if "s solo" in line)
+                mark = len(menu.text())
+                menu.click(keys.index("s solo") + 1, row)
+                menu.frame(lambda lines: not any(line.strip() == "solo" or
+                           "working  solo" in line for line in lines), after=mark)
+                self.assertFalse(json.loads((state / "session-seat-b.json").read_text())["solo"])
+                menu.leave()
+
+    def test_s_in_the_popup_toggles_its_own_seat(self):
+        menu = Menu(self, ["seat-a", "seat-b"], saved=True, own="seat-b")
+        lines = menu.frame()
+        self.assertIn("seat-a", menu.highlighted(lines))
+        mark = len(menu.text())
+        menu.send(b"s")
+        menu.frame(lambda lines: any("seat-b" in line and "solo" in line for line in lines),
+                   after=mark)
+        state = menu.seats.parent / ".agentkit/state"
+        self.assertTrue(json.loads((state / "session-seat-b.json").read_text())["solo"])
+        self.assertNotIn("solo", json.loads((state / "session-seat-a.json").read_text()))
+        menu.leave()
+
     def test_one_n_typed_through_a_redraw_opens_the_new_session_screen(self):
         """The owner's report: `n` typed while the screen redraws, then `not a key: 'nn'`."""
         menu = Menu(self, ["seat-a"], tick=0.2, slow=0.3)
@@ -401,7 +451,7 @@ class MenuKeys(unittest.TestCase):
         self.assertIn("<lines None>", out)
         self.assertIn("<answered 'q'>", out)
         self.assertIn("<opened seat-b>", out)
-        for taken in ("\x1b[?1049h", "\x1b[?1000h", "›", "↑↓ move"):
+        for taken in ("\x1b[?1049h", "\x1b[?1003h", "›", "↑↓ move"):
             self.assertNotIn(taken, out)
 
     def test_the_list_selector_picks_one_or_several_and_esc_goes_back(self):

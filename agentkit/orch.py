@@ -41,7 +41,7 @@ from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import command_help, config, retention, terminal, update, usage
+from . import command_help, config, motion, retention, terminal, update, usage
 from .harness import LAUNCHER, load as harness_plugin
 
 MARK = "@ak_orch"          # the tmux session option that says agentkit opened this seat
@@ -2793,10 +2793,30 @@ def cmd_project(argv):
     return 0
 
 
+def set_solo(name, enabled=None):
+    """Save the seat's solo switch; None toggles it under the same lock as other seat writes."""
+    from . import notify
+    with notify.session_lock(name) as name:
+        record = config.load_session(config.load(), name, required=False)
+        if record is None:
+            raise config.Error(f"no orchestrator session {name!r}")
+        enabled = not record.get("solo", False) if enabled is None else enabled
+        config.update_session(name, solo=enabled)
+    return name, enabled
+
+
+def cmd_solo(argv):
+    if len(argv) != 2 or argv[1] not in ("on", "off"):
+        raise config.Error("usage: ak orch solo <session> on|off")
+    name, enabled = set_solo(argv[0], argv[1] == "on")
+    print(f"solo {name}: {'on' if enabled else 'off'}")
+    return 0
+
+
 USAGE = ("usage: ak orch [name] [--model NAME] [--workers A,B] [--dry-run] | "
          "ak orch list [--why] | ak orch why NAME | "
          "ak orch stop <name> | ak orch rename [--auto] [OLD] NEW | "
-         "ak orch project [<seat>] <checkout>")
+         "ak orch project [<seat>] <checkout> | ak orch solo <session> on|off")
 
 
 def parse(argv):
@@ -3153,8 +3173,9 @@ def switch_orchestrator(cfg, name, model, providers=None):
     return ""
 
 
-def picker_lines(cfg, notes, selected, at, column, room):
-    """Every model once with three marks; detail and spent notes wrap below on a phone."""
+def picker_lines(cfg, notes, selected, at, column, room, moves=None):
+    """Every model once with three marks; detail and spent notes wrap below on a phone.  `moves`
+    is handed each mark's line, key, glyph and how it moves (motion.toggled), for the clock."""
     names = list(notes)
     marks = "●○■□" if terminal.utf8() else "*.x."
     titles = {name: model_title(cfg, name) for name in names}
@@ -3173,15 +3194,12 @@ def picker_lines(cfg, notes, selected, at, column, room):
         own = []
         for number, (text, head) in enumerate(zip(texts, ROLE_HEADS)):
             first = terminal.cells(line) + 3
-            shown = f" {text} "
-            kind = "dim" if note or text in (marks[1], marks[3]) else None
-            if at_row == at and column == number:
-                kind = "reverse"
-                if not terminal.colour_depth():
-                    shown = f"[{text}]"
-            lead = (len(head) - 3) // 2
-            line += ("  " + " " * lead + (terminal.styled(shown, kind) if kind else shown)
-                     + " " * (len(head) - lead - 3))
+            kind = ("reverse" if at_row == at and column == number else
+                    "dim" if note or text in (marks[1], marks[3]) else None)
+            line += "  " + terminal.toggle(text, len(head), kind)
+            if moves is not None:
+                moves.append((len(lines), ("mark", name, number), text,
+                              motion.toggled(text, len(head), kind, at_row == at, first)))
             own.append((first, first + len(head) - 1, number))
         detail = f"{entry['harness']} · {entry['effort']}" + (f" · {note}" if note else "")
         parts = [line + "  " + terminal.styled(detail, "dim")]
@@ -3252,14 +3270,20 @@ def pick(cfg, providers, default):
 @terminal.clicks_its_own
 def _picking(cfg, providers, notes, selected):
     """`pick`'s screen, drawn over in place and read with the keys, the way `terminal.scroll`
-    is; the rows scroll to keep the highlight on a screen too short for every model."""
+    is; the rows scroll to keep the highlight on a screen too short for every model.  The
+    pointer moves the highlight to the model and the role it is on, that mark lit.  A mark
+    chosen fills and one let go empties, and one refused shakes, on the clock (motion.toggled),
+    which a key ends on its last frame."""
     names = list(notes)
     model = selected["orchestrator"]
     at, top, column, note = names.index(model) if model in names else 0, 0, 0, ""
     keys = (f"{'↑↓←→' if terminal.utf8() else 'arrows'} move   space choose   "
             f"{'⏎' if terminal.utf8() else 'enter'} start   esc back")
+    clock = motion.Clock()
     while True:
-        body, rows, cells = picker_lines(cfg, notes, selected, at, column, terminal.layout_width())
+        moves = []
+        body, rows, cells = picker_lines(cfg, notes, selected, None if terminal.away() else at,
+                                         column, terminal.layout_width(), moves)
         said = [terminal.styled("  " + terminal.cut(note, terminal.layout_width() - 2), "dim")] \
             if note else []
         room = max(1, terminal.height() - 6 - len(terminal.key_line(keys)) - len(said))
@@ -3267,33 +3291,39 @@ def _picking(cfg, providers, notes, selected):
         shown = body[top:top + room]
         lines = [terminal.header_line("new session", time.strftime("%H:%M")),
                  terminal.rule_line(), body[0], *shown, *said, ""]
-        spans = [(len(lines) + number, begin, end, key)
-                 for number, line in enumerate(terminal.key_line(keys), 1)
-                 for begin, end, key in terminal.key_spans(line)]
-        lines += terminal.key_line(keys)
-        sys.stdout.write("\033[H" + "".join(f"\033[K{line}\n" for line in lines) + "\033[J")
-        sys.stdout.flush()
-        key = terminal.read_key()
+        # a model's lines from the screen's fourth row, its marks on its first
+        spots = {4 + line - top: (hit, cells[hit] if line == drawn.start else [])
+                 for hit, drawn in enumerate(rows) for line in drawn if top <= line < top + room}
+        spots.update(terminal.key_spots(terminal.key_line(keys), len(lines) + 1))
+        terminal.show(lines + terminal.key_line(keys), spots)
+        sys.stdout.write(clock.drawn(moves, lambda line: 4 + line - top
+                                     if top <= line < top + room else None))
+        while True:               # the clock's frames while it moves and no key is waiting
+            sys.stdout.flush()
+            key = terminal.read_key(clock.wait())
+            if key is not None or terminal.asked_again() or clock.wait() is None:
+                break
+            sys.stdout.write(clock.frame())
         if key is None:
             continue              # a resize: draw again
+        spot = terminal.under(key, spots)
+        if key.name in ("click", "point") and spot.what is not None:
+            at, column = spot.what, column if spot.cell is None else spot.cell
+        if key.name == "point":
+            continue              # the highlight on the pointer's model, its mark lit
+        clock.settle()
         note = ""
         if key.name == "click":
-            item = next((item for row, begin, end, item in spans
-                         if row == key.row and begin <= key.col <= end), "")
-            line = key.row - 4 + top if 3 < key.row <= 3 + len(shown) else -1
-            hit = next((row for row, drawn in enumerate(rows) if line in drawn), None)
-            if item in ("⏎", "enter", "esc", "space"):
-                key = terminal.Key({"⏎": "enter"}.get(item, item))
-            elif hit is not None:
-                column = next((number for first, last, number in cells[hit]
-                               if line == rows[hit].start and first <= key.col <= last), column)
-                at, key = hit, terminal.Key("space")
+            item = "space" if spot.what is not None else {"⏎": "enter"}.get(spot.cell, spot.cell)
+            key = terminal.Key(item if item in ("enter", "esc", "space") else "other")
         if terminal.step(key):
             at = min(max(at + terminal.step(key), 0), len(rows) - 1)
         elif key.name in ("left", "right"):
             column = min(max(column + (1 if key.name == "right" else -1), 0), 2)
         elif key.name == "space":
             selected, note = role_mark(cfg, selected, names[at], column, providers)
+            if note:
+                clock.touch(("mark", names[at], column))  # refused: the mark shakes
         elif key.name == "enter":
             missing = next((number for number, role in enumerate(
                 ("orchestrator", "workers", "reviewers")) if not selected[role]), None)
@@ -3421,7 +3451,7 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     if not dry_run:
         from . import notify
         notify.forget_card(name)
-    config.notify_path(name).unlink(missing_ok=True)
+        config.notify_path(name).unlink(missing_ok=True)
     if dry_run:
         print(f"orch: {model} ({reason})")
         print(f"session {name} in {cwd} (new)")
@@ -3503,6 +3533,8 @@ def main(argv):
         return cmd_rename(argv[1:])
     if argv[:1] == ["project"]:
         return cmd_project(argv[1:])
+    if argv[:1] == ["solo"]:
+        return cmd_solo(argv[1:])
     name, forced, forced_workers, dry_run = parse(argv)
     if not dry_run:
         maintenance()
