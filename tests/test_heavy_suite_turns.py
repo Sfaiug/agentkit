@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import subprocess
 import sys
 import tempfile
 import threading
@@ -141,6 +142,43 @@ class HeavySuiteTurns(unittest.TestCase):
                 hold = run._acquire_gate_turn(directory, directory / "donewhen.log", None)
                 self.assertIsNotNone(hold)
                 hold.release()
+
+    def test_status_and_smoke_pool_count_held_turns(self):
+        caller = self.root / "caller"
+        home = caller / ".agentkit"
+        runs = home / "runs"
+        runs.mkdir(parents=True)
+        smoke = (REPO / "tests/smoke.sh").read_text()
+        pool_bound = smoke[smoke.index("smoke_pool_bound() {"):
+                           smoke.index("\nsmoke_lock_probe()")]
+        with patch.object(config, "HOME", home), patch.object(config, "RUNS", runs), \
+                patch.dict(os.environ, {"HOME": str(caller), "REPO": str(REPO),
+                                        "SMOKE_CALLER_HOME": str(caller)}), ExitStack() as holders:
+            for index in (0, 1, 5, 9):
+                holder = holders.enter_context(run.gate_lock(ACME, index).open("a"))
+                fcntl.flock(holder, fcntl.LOCK_EX)
+            run.gate_lock(ACME, 10).touch()
+            for name, readings, pinned, expected in (
+                    ("cpu", {**SMALL, "slice_cpu_used": 5.8}, "", 7),
+                    ("memory", {**SMALL, "slice_memory_used_mb": 2870}, "", 7),
+                    ("saturated", SATURATED, "", 4),
+                    ("bad-config", {**SMALL, "slice_cpu_used": 5.8}, 'max_gates = "bad"', 7),
+                    ("pinned", SMALL, "max_gates = 2", 2),
+                    ("uncapped", SMALL, "max_gates = 0", 0)):
+                with self.subTest(name=name), patch.dict(os.environ, {
+                        "AK_HOST_READINGS": json.dumps(readings)}):
+                    (home / config.CONFIG_NAME).write_text(pinned)
+                    status = (f"{expected} at once ({'pinned' if name == 'pinned' else 'derived'})"
+                              if expected else "no cap (pinned)")
+                    status_line = run.host_status_line().splitlines()[-1]
+                    proc = subprocess.run(["bash", "-c", pool_bound + "\nsmoke_pool_bound"],
+                                          capture_output=True, text=True, timeout=30)
+                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                    self.assertEqual((status_line, proc.stdout.strip()),
+                                     (f"heavy suites: {status}", str(expected)))
+            holders.close()
+            (home / config.CONFIG_NAME).write_text("")
+            self.assertEqual(run.derived_heavy_limit(SMALL), 10)
 
     def test_either_resource_below_one_suite_waits_with_one_running(self):
         for resource, readings in (
