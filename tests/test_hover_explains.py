@@ -291,7 +291,8 @@ class ConfigScreen(Sandbox):
         for place, sentence in said.items():
             with self.subTest(sentence=sentence):
                 screens = self.matrix(move(*place), move(1, 1), ESC)
-                self.assertEqual(explanation(screens[1], len(texts(screens[0]))), sentence)
+                self.assertEqual(explanation(screens[1], texts(screens[0]).index(keys_of(screens[0])) + 1),
+                                 sentence)
                 self.assertRegex(keys_of(screens[2]), r"^  ↑↓(←→)? move   ⏎ \w+   esc back$")
 
     def test_a_models_own_screen_the_new_session_screen_and_a_list_say_what_they_hold(self):
@@ -299,7 +300,8 @@ class ConfigScreen(Sandbox):
             for place, sentence in places:
                 with self.subTest(sentence=sentence):
                     screens = run(screen, move(*place), move(1, 1), ESC)[1]
-                    self.assertEqual(explanation(screens[1], len(texts(screens[0]))), sentence)
+                    self.assertEqual(explanation(screens[1], texts(screens[0]).index(keys_of(screens[0])) + 1),
+                                     sentence)
                     self.assertTrue(keys_of(screens[2]).endswith("esc back"))
 
         def own():
