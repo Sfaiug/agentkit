@@ -381,7 +381,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         codex.capture(receipt, {"hook_event_name": "SessionStart", "source": "startup",
             "session_id": CONVERSATION, "transcript_path": str(transcript), "cwd": str(self.root)})
         until = self.now + 240
-        self.pane = ("You've hit your usage limit. Try again at " +
+        self.pane = ("■ You've hit your usage limit. Try again at " +
                      time.strftime("%Y-%m-%d %H:%M", time.localtime(until)))
         self.refusal_tick()
         self.assertEqual(usage.collect(self.cfg)["openai"]["exhausted_until"], until)
@@ -492,7 +492,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
 
     def test_codex_reset_credit_is_tried_before_parking_or_moving(self):
         self.codex_seat()
-        self.pane = "You've hit your usage limit"
+        self.pane = "■ You've hit your usage limit"
         reading = {"provider": "openai", "harness": "codex", "resets": 2,
                    "meters": [usage._normalized({"name": "primary_window", "used": 95,
                        "resets_at": self.now + 86400, "window_secs": 604800}, self.now)]}
@@ -509,7 +509,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
             self.assertEqual(config.session_records()[NAME]["account"], "default")
             self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
             watch.continue_turns(self.cfg, self.logs.append, accounts=True)
-            self.pane = "You've hit your usage limit"
+            self.pane = "■ You've hit your usage limit"
             self.tick()
             self.assertEqual(len(self.commands), 1)
             self.assertEqual(self.typed, [watch.ACCOUNT_LINE])
@@ -548,7 +548,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
 
     def test_codex_reset_during_meter_read_is_not_parked_on_the_old_refusal(self):
         self.codex_seat()
-        self.pane = "You've hit your usage limit"
+        self.pane = "■ You've hit your usage limit"
         collect = usage.collect
         def readings(cfg):
             usage._write_reset_state(config.STATE / "openai-reset.json", {"applied_at": self.now})
@@ -659,9 +659,9 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
     def test_refusal_deadline_comes_only_from_the_current_output_line(self):
         config.save_session(self.cfg, NAME, "astra", ["opus"], {"cwd": str(self.root)})
         until = self.now + 240
-        self.pane = ("You've hit your usage limit. Try again at " +
+        self.pane = ("■ You've hit your usage limit. Try again at " +
                      time.strftime("%Y-%m-%d %H:%M", time.localtime(self.now + 86400)) +
-                     "\nOld message ended\nYou've hit your usage limit. Try again at " +
+                     "\nOld message ended\n■ You've hit your usage limit. Try again at " +
                      time.strftime("%Y-%m-%d %H:%M", time.localtime(until)))
         self.refusal_tick()
         self.assertEqual(usage.collect(self.cfg)["openai"]["exhausted_until"], until)
@@ -727,7 +727,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
 
     def test_past_codex_deadline_never_parks_usage_or_respawns_the_seat(self):
         config.save_session(self.cfg, NAME, "astra", ["opus"], {"cwd": str(self.root)})
-        self.pane = "You've hit your usage limit. Try again at " + time.strftime(
+        self.pane = "■ You've hit your usage limit. Try again at " + time.strftime(
             "%Y-%m-%d %H:%M", time.localtime(self.now - 21600))
         self.refusal_tick()
         self.tick()

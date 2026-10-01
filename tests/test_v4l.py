@@ -161,7 +161,7 @@ class Babysitter(unittest.TestCase):
             ("claude", '⎿ API Error: 500 upstream connect error\n╭──────────────────╮\n'
                        '│ > Try "fix tests" │\n╰──────────────────╯\n'
                        '⏵⏵ bypass permissions on (shift+tab to cycle)   ◯ 92% context left'),
-            ("codex", '• stream error: rate limit reached\n▌ Ask Codex to do something\n'
+            ("codex", '■ stream error: rate limit reached\n▌ Ask Codex to do something\n'
                       '⏎ send  ⌃T transcript'),
         ]
         # A narrow pane cuts Claude's footer wherever the width ends, with or without an ellipsis.

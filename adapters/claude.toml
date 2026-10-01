@@ -161,7 +161,8 @@ quotas = ["rate limit", "rate_limit_error", "Usage limit reached", "usage limit"
 terminal = "result"
 # `coloured`: behind the same `● `, it draws its own notice's words in a colour and the model's
 # answer in the terminal's own (captured with attributes, 2.1.286, in every theme), so on a
-# seat's screen a stall word counts only where it is drawn in colour.
+# seat's screen a stall word counts only on a line drawn wholly in colour: the answer styles
+# spans of its own in colour too.
 coloured = true
 
 [auth]

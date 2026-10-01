@@ -1200,17 +1200,29 @@ def failed_on(harness, lines):
 def stalled_on(harness, pane, session, log):
     """The stall signature that pane is showing, or None: it is working, or it is not ours.
 
-    A harness that draws its own notices in colour and the model's answer in the terminal's
-    own (`[stall] coloured`) says a stall word only in colour, where the pane has attributes;
-    the whole pane, as a colour drawn above its tail can still be on its last line.
+    A harness that says how it draws its own line says a stall word only on a line drawn so.
+    One that draws its notices in colour and the model's answer in the terminal's own
+    (`[stall] coloured`) does it on a line wholly in colour, where the pane has attributes --
+    the whole pane, as a colour drawn above its tail can still be on its last line -- since
+    the answer styles a span of its own in colour too.  One that begins its error line with a
+    mark (`[stall] error_marks`) does it behind that mark.  Where neither tells -- no
+    attributes, no such mark -- its own line begins with the stall word, behind whatever mark
+    it is drawn with: the model's sentence about one names it further on.
     """
     lines = content_lines(harness, pane_tail(pane))
     last = lines[-1] if lines else ""
     block = config.manifest(harness).get("stall")
-    if lines and isinstance(block, dict) and block.get("coloured") is True and SGR_SEQ.search(pane):
+    coloured = isinstance(block, dict) and block.get("coloured") is True
+    marks = _words(harness, "stall", "error_marks")
+    if lines and coloured and SGR_SEQ.search(pane):
         drawn = [shown for raw, shown in zip(pane.splitlines(), in_colour(pane))
                  if strip_sgr(raw).strip()]      # the rows pane_tail keeps, in its order
-        last = drawn[-PANE_LINES:][len(lines) - 1]
+        if drawn[-PANE_LINES:][len(lines) - 1] != " ".join(last.split()):
+            last = ""
+    elif (coloured or marks) and not last.startswith(marks):
+        said = re.sub(r"^[^\w\s]+\s*", "", last).lower()
+        if not any(said.startswith(mark.lower()) for mark in stalls(harness)):
+            last = ""
     if not any(says(last, mark) for mark in stalls(harness)):
         mark = next((mark for line in reversed(lines[:-1]) for mark in stalls(harness)
                      if says(line, mark)), None)
