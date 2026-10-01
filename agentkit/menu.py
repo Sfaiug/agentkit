@@ -476,14 +476,16 @@ class Start:
     shown above the menu.  On a terminal they run behind the first draw, in a process of their
     own, forked before the menu starts a thread, that goes on to its end whatever the menu does:
     what they say comes back over a pipe as it lands, each line asking for a draw (`wake`), and
-    the update fills the rule on the menu itself (`filled`).  Once it has moved agentkit
-    (`moved`) the steps after it are the new code's: `ak` starts again on it, on the screen and
-    the seat it was on (`at`), as soon as that screen waits for a key.
+    the update fills the rule on the menu itself (`filled`).  What a step prints is said too,
+    so no failure goes unheard.  Once the update has moved agentkit (`moved`) the steps after
+    it are the new code's: `ak` starts again on it, on the screen and the seat it was on
+    (`at`), what was still to be said shown first -- at once where that screen is as it
+    opened, else as soon as he is back on the menu, so nothing typed or moved is lost.
     """
 
     def __init__(self, steps):
         self.steps, self.wake, self.pipe = steps, None, None
-        self.said, self.filled, self.moved, self.at = [], None, False, (None, None)
+        self.said, self.filled, self.moved, self.at = [], None, False, (None, None, 0)
 
     def begin(self, wake=None):
         """Run the steps: here and now, or with `wake` in a process of their own."""
@@ -497,17 +499,23 @@ class Start:
             return
         self.wake = wake
         reader, writer = os.pipe()
+        sys.stdout.flush()               # what the menu wrote is the menu's, never a notice
         pid = os.fork()
         if not pid:
             try:
                 os.close(reader)
                 os.setsid()              # off the terminal: its hang-up and ^C are the menu's
-                nothing = os.open(os.devnull, os.O_RDWR)
-                for fd in (0, 1, 2):
-                    os.dup2(nothing, fd)     # nothing a step prints lands on the menu
+                os.dup2(os.open(os.devnull, os.O_RDONLY), 0)
+                for fd in (1, 2):
+                    os.dup2(writer, fd)      # what a step prints is said, never drawn over the menu
                 self.pipe = writer
                 self._run()
             finally:
+                for stream in (sys.stdout, sys.stderr):
+                    try:
+                        stream.flush()
+                    except (OSError, ValueError):
+                        pass
                 os._exit(0)
         os.close(writer)
         threading.Thread(target=self._hear, args=(pid, reader), daemon=True).start()
@@ -524,7 +532,13 @@ class Start:
     def _hear(self, pid, reader):
         with open(reader, "rb", buffering=0) as pipe:
             for line in pipe:
-                self._heard(*json.loads(line))
+                try:
+                    kind, value = json.loads(line)
+                except (ValueError, TypeError):      # a line a step printed, said as it was
+                    kind, value = "said", line.decode(errors="replace").rstrip()
+                    if not value:
+                        continue
+                self._heard(kind, value)
         os.waitpid(pid, 0)
 
     def _say(self, kind, value):
@@ -543,10 +557,10 @@ class Start:
             self.filled = value
             if self.wake is None and value is not None:
                 terminal.frame("updating", (), "", value)    # nothing else is on the screen yet
-        else:
+        elif kind == "moved":
             self.moved = True
             if self.at[1]:
-                terminal.interrupt(Reopen())     # the screen over the menu, at its next key
+                terminal.interrupt(Reopen(), self.at[2])   # the screen over the menu, if untouched
         if self.wake is not None:
             self.wake()
 
@@ -566,7 +580,7 @@ class Start:
     def opening(self, cursor, key=None):
         """Where `ak` starts again: `cursor` highlighted, under the screen `key` opens, or on the
         menu itself; a screen opened once agentkit has moved is opened on the new code."""
-        self.at = (cursor, key)
+        self.at = (cursor, key, terminal.keys_read())
         if key and self.moved:
             raise Reopen
 
@@ -3781,7 +3795,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, start=None):
     actions = ("n", "x", "r") if overlay else ("n", "x", "c", "m", "i")
     cursor, again = json.loads(os.environ.pop(REOPENED, "[null, null]"))
     cursor = Path(cursor) if cursor and os.path.isabs(cursor) else cursor
-    page, ahead, look = 0, None, False
+    page, pages, ahead, look = 0, None, None, False
     last = [[], None]                     # what the last read left: the seats and their groups
     clock = motion.Clock(fade=overlay)    # what moves between draws: the dots, news, and
                                           # the popup's first draw coming up
@@ -3797,7 +3811,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, start=None):
             if look:
                 live.ask(look=True)       # read and looked at again, off the draw
             begun.opening(cursor)         # back on the menu: a notice under it is never left
-            messages = orch.job_notices() + begun.heard()
+            # the start-up's own notices once the menu is up: none of them holds its first draw
+            messages = orch.job_notices() + (begun.heard() if pages else [])
             if messages:
                 keyboard.give()           # a notice waits for its Enter, like any sub-screen
                 show_notices(messages)
@@ -3974,8 +3989,8 @@ def reopen(cursor=None, key=None):
     """`ak` started again in place, on the code an update just moved in: on a terminal, with
     `cursor` highlighted and the screen `key` opens over the menu up again."""
     sys.stdout.flush()
-    if cursor is not None:
-        os.environ[REOPENED] = json.dumps([str(cursor), key])
+    if cursor is not None or key is not None:
+        os.environ[REOPENED] = json.dumps([None if cursor is None else str(cursor), key])
     os.execv(sys.executable, [sys.executable, *sys.argv])
 
 
@@ -4019,4 +4034,5 @@ def main(argv):
     try:
         return loop(config.load(), flags["--client"], dry_run, overlay, start=begun)
     except Reopen:
-        reopen(*begun.at)
+        show_notices(begun.heard())       # what the old process still had to say, said first
+        reopen(*begun.at[:2])

@@ -4,13 +4,14 @@
 origin, the Mac bridge, the boot resume and maintenance -- each a fake taking two seconds, in the
 process the menu forks for them: the first frame is out within 100 ms of starting and Esc leaves
 within 100 ms, with a 600 ms read of the seats still going, and every step still reaches its end;
-what resume and maintenance say lands as a notice once each is done.  With origin ahead, the
-update's steps are half a second apart: the rule under `agentkit · updating` fills through all
-of them while ↓ still moves the highlight within 100 ms, then the menu opens again (os.execv,
-stubbed) on the seat highlighted, or with `i` open over it on `i` again; Esc during it leaves
-within 100 ms and the update still reaches its end.  Offline, in a throwaway HOME; the probe is
-never started, and every thread and process the menu leaves behind is waited for before the
-fakes go.
+what resume and maintenance say, and what the Mac bridge prints, lands as a notice once each is
+done, and never before the first frame.  With origin ahead, the update's steps are half a second
+apart: the rule under `agentkit · updating` fills through all of them while ↓ still moves the
+highlight within 100 ms, then the menu opens again (os.execv, stubbed) on the seat highlighted;
+with `i` open over it as it opened, on `i` again, a failed install's lines shown first; with a
+key typed into `n`, once he is back on the menu.  Esc during it leaves within 100 ms and the
+update still reaches its end.  Offline, in a throwaway HOME; the probe is never started, and
+every thread and process the menu leaves behind is waited for before the fakes go.
 """
 
 import json
@@ -61,7 +62,7 @@ class OpensAtOnce(Sandbox):
         self.seats = [{"name": name, "repo": str(repo), "path": str(repo), "created": 0}
                       for name in ("fix-api", "tidy-docs", "web-portal")]
         self.gone = threading.Event()         # the test is over: every fake returns at once
-        self.reads, self.ahead, self.said = [], False, []
+        self.reads, self.ahead, self.said, self.slow, self.fails = [], False, [], SLOW, False
         self.marker = self.root / "moved"
         self.threads = set(threading.enumerate())
 
@@ -73,11 +74,13 @@ class OpensAtOnce(Sandbox):
             return [dict(seat) for seat in self.seats]
 
         # the steps run in the forked process: what they leave is files, and what they say a log
-        def step(name, said=None):
+        def step(name, said=None, printed=None):
             def run(*args, log=None, **kwargs):
-                time.sleep(SLOW)
+                time.sleep(self.slow)
                 if said:
                     (log or args[-1])(said)
+                if printed:
+                    print(printed, file=sys.stderr)
                 (self.root / name).touch()
             return run
 
@@ -90,7 +93,10 @@ class OpensAtOnce(Sandbox):
                 progress(done, 3)
                 time.sleep(STEP)
             self.marker.write_text("new")
-            return 0
+            if self.fails:
+                print("update: $ install.sh")
+                print("update: install.sh exited 1")
+            return int(self.fails)
 
         for target, name, fake in (
                 (orch, "listing", listing),
@@ -112,7 +118,8 @@ class OpensAtOnce(Sandbox):
                 (update, "behind", behind),
                 (update, "agentkit_version", lambda: "new" if self.marker.exists() else "old"),
                 (update, "update_agentkit", update_agentkit),
-                (macbridge, "start_background", step("macbridge")),
+                (macbridge, "start_background",
+                 step("macbridge", printed="ak macbridge: could not start reader: offline")),
                 (watch, "resume_after_boot", step("resume", "resumed fix-api after reboot")),
                 (orch, "maintenance",
                  step("maintenance", "agentkit: reaped a loop whose process was gone")),
@@ -120,8 +127,8 @@ class OpensAtOnce(Sandbox):
             self.stack.enter_context(patch.object(target, name, fake))
         self.stack.enter_context(patch.dict(menu._ESTIMATES, clear=True))
         # a stdin that never says anything, for a screen that waits on a key
-        reader, writer = os.pipe()
-        self.addCleanup(os.close, writer)
+        reader, self.typed = os.pipe()       # what is written to `typed` is a key pressed
+        self.addCleanup(os.close, self.typed)
         self.stack.enter_context(patch.object(sys, "stdin", open(reader)))
         self.addCleanup(sys.stdin.close)
         self.addCleanup(self.settle)   # before the patches go: every thread left behind has ended
@@ -182,13 +189,25 @@ class OpensAtOnce(Sandbox):
 
         def answer(screen, wake):
             times.append(time.monotonic())
-            return Key("esc") if len(self.said) == 2 else None
+            return Key("esc") if len(self.said) == 3 else None
 
         self.assertEqual(self.menu(answer), 0)
         self.assertLess(times[0] - self.began, FRAME, "the first frame")
-        self.assertEqual(self.said, [["resumed fix-api after reboot"],
+        self.assertEqual(self.said, [["ak macbridge: could not start reader: offline"],
+                                     ["resumed fix-api after reboot"],
                                      ["agentkit: reaped a loop whose process was gone"]])
         self.assertGreater(len(times), 10)      # the screen answered all along
+
+    def test_a_notice_that_lands_at_once_waits_for_the_first_frame(self):
+        self.slow, seen = 0, []           # every step done the moment it starts
+
+        def answer(screen, wake):
+            seen.append(len(self.said))
+            return Key("esc") if len(self.said) == 3 else None
+
+        self.assertEqual(self.menu(answer), 0)
+        self.assertEqual(seen[0], 0)
+        self.assertEqual(len(self.said), 3)
 
     def test_an_update_fills_the_rule_while_a_key_answers_then_reopens_on_the_same_seat(self):
         self.ahead, rules, pressed = True, [], {}
@@ -228,7 +247,7 @@ class OpensAtOnce(Sandbox):
         self.assertNotIn(menu.REOPENED, os.environ)
 
     def test_an_update_that_lands_under_a_screen_reopens_on_that_screen(self):
-        self.ahead, opened = True, []
+        self.ahead, self.fails, self.seats, opened = True, True, [], []
 
         def info(*args, **kwargs):        # `i`, waiting on a key until it is left
             opened.append(time.monotonic())
@@ -242,21 +261,39 @@ class OpensAtOnce(Sandbox):
         with patch.object(menu, "show_info", side_effect=info), \
                 self.assertRaises(Reopened) as reopened:
             self.menu(answer)
-        self.assertEqual(reopened.exception.args, (["fix-api", "char:i"],))
+        self.assertEqual(reopened.exception.args, ([None, "char:i"],))
         self.assertEqual(len(opened), 1)
         self.assertEqual(self.marker.read_text(), "new")
-        # the new code opens on that seat with `i` up again
+        # moved, and install.sh failed after it: said before the new code opens
+        self.assertEqual(self.said, [["update: $ install.sh", "update: install.sh exited 1"]])
+        # the new code opens with `i` up again
         self.settle()                     # forked as a fresh process forks: no thread up
-        self.ahead, self.reopened, first = False, True, []
-        os.environ[menu.REOPENED] = json.dumps(["fix-api", "char:i"])
-
-        def again(screen, wake):
-            first.append([line.split()[2] for line in screen if line.startswith("›")])
-            return Key("esc")
-
+        self.ahead, self.fails, self.reopened = False, False, True
+        os.environ[menu.REOPENED] = json.dumps([None, "char:i"])
         with patch.object(menu, "show_info", side_effect=info):
-            self.assertEqual(self.menu(again), 0)
-        self.assertEqual((len(opened), first), (2, [["fix-api"]]))
+            self.assertEqual(self.menu(lambda screen, wake: Key("esc")), 0)
+        self.assertEqual(len(opened), 2)
+
+    def test_an_update_that_lands_under_something_typed_waits_for_the_menu(self):
+        self.ahead, left = True, []
+
+        def new(*args, **kwargs):         # `n`, `f` typed into its name, then Esc once it landed
+            os.write(self.typed, b"f")
+            self.assertEqual(terminal.read_key(1), Key("char", "f"))
+            until = None
+            while until is None or time.monotonic() < until:
+                terminal.read_key(0.05)   # no reopen here: the `f` would be lost
+                if until is None and self.marker.exists():
+                    until = time.monotonic() + 0.5
+            left.append(True)
+
+        def answer(screen, wake):
+            return Key("char", "n") if screen[0].startswith("agentkit · updating") else None
+
+        with patch.object(menu, "new_session", side_effect=new), \
+                self.assertRaises(Reopened) as reopened:
+            self.menu(answer)
+        self.assertEqual((left, reopened.exception.args), ([True], (["fix-api", None],)))
 
     def test_esc_during_the_update_leaves_at_once_and_the_update_goes_on_to_its_end(self):
         self.ahead, pressed = True, []

@@ -682,7 +682,8 @@ _TAKEN = None      # the Keyboard that has the terminal now, or None
 _KEYED = b""       # what a keyboard sent past the key it was read for, or while `sense` asked
 _PRESSED = False   # the left button went down and has not been read coming up
 _ASKED = False     # a resize or a return from ^Z asked for a draw (`asked_again`)
-_RAISE = None      # what the next wait for a key raises instead of waiting (`interrupt`)
+_RAISE = None      # what the next wait for a key raises, and from how many keys read (`interrupt`)
+_READ = 0          # the keys `read_key` has returned (`keys_read`)
 _REPORT = re.compile(r"\x1b\[<\d+;\d+;\d+[Mm]")   # a mouse report, as mode 1006 sends one
 
 
@@ -691,12 +692,18 @@ def taken():
     return _TAKEN is not None
 
 
-def interrupt(exc):
-    """Have the next wait for a key, on whatever screen is up, raise `exc`: how something off
-    the drawing thread leaves a screen, at the moment it waits, with nothing half-done.  A wait
-    already going ends at once, as on a resize, and the screen's next one raises."""
+def keys_read():
+    """How many keys `read_key` has returned: whether a screen has had one since it opened."""
+    return _READ
+
+
+def interrupt(exc, since):
+    """Have the next wait for a key, on whatever screen is up, raise `exc` -- unless a key has
+    been read since `since` (keys_read), so a screen is only ever left as it opened, with
+    nothing typed or moved on it to lose.  A wait already going ends at once, as on a resize,
+    and the screen's next one raises."""
     global _RAISE
-    _RAISE = exc
+    _RAISE = exc, since
     if _TAKEN is not None and _TAKEN.again:
         try:
             os.write(_TAKEN.again[1], b".")
@@ -889,10 +896,11 @@ def read_key(timeout=None, wake=None):
     while the button is down is answered at once; should that key give the terminal away,
     the rest of the click is no click (`Keyboard.give`).
     """
-    global _PRESSED, _ASKED, _RAISE
+    global _PRESSED, _ASKED, _RAISE, _READ
     if _RAISE is not None:
-        exc, _RAISE = _RAISE, None
-        raise exc
+        (exc, since), _RAISE = _RAISE, None
+        if since == _READ:
+            raise exc
     fd = sys.stdin.fileno()
     until = None if timeout is None else time.monotonic() + timeout
     while True:
@@ -917,6 +925,7 @@ def read_key(timeout=None, wake=None):
             continue
         if key.name == "click":    # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
+        _READ += 1
         return key
 
 
