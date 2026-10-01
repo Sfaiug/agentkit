@@ -6,7 +6,7 @@ unseen.  It is no part of smoke.sh and never touches its lock: it holds no smoke
 waits for none.  Each file runs once, in a process of its own from the checkout's root with
 no stdin, and without the caller's AGENTKIT_*/AK_* variables: a file started from inside a run
 must not pass for part of it (AGENTKIT_RUN, AK_RUN_DEPTH, AK_PARENT_RUN ...).  As many run at
-once as the host's cores and free memory fit, read as the loop reads them for heavy suites.
+once as the host's idle cores and free memory fit, read as the loop reads them for heavy suites.
 A failing file fails the whole and is named with its last lines.
 
     python3 tests/every_file.py [checkout]
@@ -25,7 +25,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import run
 
 FILE_CPUS = 1.0     # one test file's measured cost: one Python process busy on one core,
-FILE_MEM_MB = 410   # and its peak memory with what it starts
+FILE_MEM_MB = 230   # and the largest file's peak memory with what it starts, 229 MB
 TAIL = 30           # a failing file's last lines: unittest ends on the traceback and tally
 
 
@@ -56,10 +56,13 @@ def main(root):
     skip = smoke_runs((tests / "smoke.sh").read_text())
     todo = sorted(path for path in tests.glob("test_*.py") if path.stem not in skip)
     env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
-    # The host's cores -- the slice's CPU quota where it sets one -- and its free memory, not
-    # the moment's idle cores: a sweep takes minutes, and one busy tenth of a second must not
-    # hold all of it to one file at a time.
-    readings = dict(run.host_readings(), slice_cpu_used=0.0, load=0.0)
+    # The host's idle cores -- the slice's CPU quota where it sets one, less the minute's load
+    # average -- and its free memory.  Not a tenth of a second's CPU reading, which would hold
+    # a sweep of minutes to that moment; and no more than are idle, since a timing test on an
+    # oversubscribed host fails by chance.
+    readings = run.host_readings()
+    cores = readings.get("slice_cpu_quota") or readings.get("cpus")
+    readings = dict(readings, slice_cpu_quota=None, cpus=cores)
     jobs = run.derived_heavy_limit(readings, job_cpus=FILE_CPUS, job_mem_mb=FILE_MEM_MB)
     began, failed = time.monotonic(), 0
     with ThreadPoolExecutor(jobs) as pool:
