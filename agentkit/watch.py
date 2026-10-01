@@ -1925,6 +1925,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
 
         def quiet(run_dir, state):
             """How long this run has gone without a write, from one draw's map or from disk."""
+            if run_mod.own_pr_wait_note(state) and run_mod.process_active(state):
+                return None
             if silent_map is not None:
                 return silent_map.get(run_dir.name)
             return menu_mod.silent_for_run(run_dir, state, now=at)

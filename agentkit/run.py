@@ -11397,6 +11397,8 @@ def status_rows(found, width, index=None, cfg=None):
         total = state.get("rounds")
         going = state.get("state") in ("queued", "running")
         rnd = min(done + 1, total) if going and total else done
+        if own_pr_wait_note(state) or state.get("own_pr_round_pending"):
+            rnd = state.get("own_pr_round_pending") or done
         rounds = f"round {rnd}/{total or '?'}"
         if state.get("extended"):
             rounds += f" (+{state['extended']})"
@@ -11727,6 +11729,8 @@ def cmd_status(argv):
                 print(f"  {merge_turn_note(state)}")
             elif dep_wait_note(state):
                 print(f"  {dep_wait_note(state)}")
+            elif own_pr_wait_note(state):
+                print(f"  {own_pr_wait_note(state)}")
             elif gate_turn_note(state):
                 print(f"  {gate_turn_note(state)}")
             if merge_hold_note(state):
@@ -11795,6 +11799,8 @@ def cmd_status(argv):
                     print(f"  {merge_turn_note(state)}")
                 elif dep_wait_note(state):
                     print(f"  {dep_wait_note(state)}")
+                elif own_pr_wait_note(state):
+                    print(f"  {own_pr_wait_note(state)}")
                 elif gate_turn_note(state):
                     print(f"  {gate_turn_note(state)}")
                 elif blocked_note(state):
@@ -12020,6 +12026,7 @@ def resume_holds_tree(state, run_dir=None):
         return False
     try:
         return bool(needs_recovery(state) or failed_at_budget(state)
+                    or (state.get("state") == "error" and state.get("own_pr_round_pending"))
                     or failed_in_integration(state, run_dir)
                     or judged_in_integration(state, run_dir))
     except (OSError, ValueError, TypeError, AttributeError):
@@ -13760,7 +13767,19 @@ def review_pr(cfg, run_dir, url, opts, log):
         if state.get("own_pr_wait") and state.get("own_pr"):
             if not wait_for_own_pr(cfg, run_dir, url, state, log):
                 return state
-        state = review_pr_round(cfg, run_dir, url, opts, log)
+        summaries = state.get("round_summaries") or []
+        if (state.get("own_pr") and state.get("own_pr_round_pending") and summaries
+                and summaries[-1]["round"] == state["own_pr_round_pending"]):
+            # A durable verdict still owes its post and delivery, even in round three.
+            _, body, _ = taskfile.parse_task(run_dir / "task.md")
+            cmds = taskfile.done_when(body, run_dir / "task.md")
+            state.update(state="running", **process_owner(), error=None, finished_at=None)
+            save_state(run_dir, state)
+            lp = Loop(cfg, run_dir, state, opts, log, Path(state["worktree"]), body,
+                      cmds, body, [])
+            state = settle_pr_round(lp, url, pr_view(url))
+        else:
+            state = review_pr_round(cfg, run_dir, url, opts, log)
         if not state.get("own_pr_wait"):
             return state
 
@@ -13862,6 +13881,9 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         body, taskfile.done_when(body, run_dir / "task.md"))
     state.update(task_words=sized_words, task_points=sized_points,
                  task_checks=sized_checks)
+    if is_own:
+        # Kept through post failures and cleared only when this verdict is settled.
+        state["own_pr_round_pending"] = len(summaries) + 1
     save_state(run_dir, state)
     join_session_project(session_at_launch)     # a review is a launch too, and votes
     history_start(state, log)
@@ -13947,11 +13969,21 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         log(f"BLOCKED {exc}")
         state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
                       "blocked": exc.section, "finished_at": time.time()})
+        state.pop("own_pr_round_pending", None)
         save_state(run_dir, state)
         write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
         return state
-    restore_review_checkout(lp, "reviewer")
-    if not post_review(lp, url, verdict):
+    return settle_pr_round(lp, url, info)
+
+
+def settle_pr_round(lp, url, info):
+    """Finish a recorded round without spending another review on the same head."""
+    cfg, run_dir, state, log, cmds = lp.cfg, lp.run_dir, lp.state, lp.log, lp.cmds
+    verdict, head, is_own = state["verdict"], state["head_sha"], state.get("own_pr")
+    number = PR_PARTS.match(url).groups()[-1]
+    if not state.get("merged"):
+        restore_review_checkout(lp, "reviewer")
+    if not state.get("review_posted") and not post_review(lp, url, verdict):
         # the job was a review on GitHub; a verdict nobody can read there is not one, so the
         # run is an error -- no merge offer -- and `ak watch` launches it again next tick
         state["error"] = f"the review was not posted to {url}: {state.get('review_error')}"
@@ -13960,7 +13992,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
         log(f"ERROR {state['error']}")
         return state
-    if verdict == "PASS":
+    if verdict == "PASS" and not state.get("merged"):
         green, why = checks(lp, url)
         current, _ = gh_json(run_dir, "pr", "view", url, "--json", "headRefOid,state")
         if (green and isinstance(current, dict) and current.get("headRefOid") == head
@@ -13984,12 +14016,13 @@ def review_pr_round(cfg, run_dir, url, opts, log):
             else:
                 state["merge_note"] = f"not offered for merge: {why}"
                 log(f"WARN {state['merge_note']}")
-    if is_own and verdict == "FAIL" and lp.rnd < n_rounds:
+    if is_own and verdict == "FAIL" and lp.rnd < lp.rounds:
         state.update(state="running", finished_at=None, own_pr_wait=head)
         state.pop("recovery_pending", None)
     else:
         state["state"] = "pass" if verdict == "PASS" else "fail"
         state["finished_at"] = time.time()
+    state.pop("own_pr_round_pending", None)
     save_state(run_dir, state)
     write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
     return state

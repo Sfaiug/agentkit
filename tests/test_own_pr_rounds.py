@@ -256,6 +256,8 @@ class OwnPrRounds(unittest.TestCase):
                     run.cmd_status(args)
                 self.assertIn("waiting for", out.getvalue())
                 self.assertIn("push", out.getvalue())
+                if "--plain" not in args:
+                    self.assertIn("round 1/3", out.getvalue())
             self.push(seconds)
 
         run.time.sleep.side_effect = push
@@ -270,6 +272,10 @@ class OwnPrRounds(unittest.TestCase):
                 bare = {**state, "own_pr_wait": None}
                 self.assertEqual(menu.silent_for_run(self.run_dir, bare), "2h")
                 self.assertIsNone(menu.silent_for_run(self.run_dir, state))
+                for shown in (state, {**state, "stalls": [{"time": time.time() - 7200}]}):
+                    self.assertEqual(menu.run_progress(shown)[:3], (1, 3, "waiting"))
+                with patch.object(run, "process_active", return_value=False):
+                    self.assertEqual(menu.silent_for_run(self.run_dir, state), "2h")
                 for silent in (None, {self.run_dir.name: "2h"}):
                     found = watch.session_state(
                         "fix-api", session={"name": "fix-api"}, cfg=self.cfg, live={},
@@ -340,6 +346,23 @@ class OwnPrRounds(unittest.TestCase):
         self.assertEqual([s["verdict"] for s in state["round_summaries"]], ["FAIL", "FAIL", "PASS"])
         self.assertEqual(len(self.prompts), 3)
         self.assertEqual(self.merges[0][-1], self.heads[2])
+
+    def test_killed_after_merge_settles_without_another_merge(self):
+        merge = run.merge_own_pr
+
+        def killed(lp, url, head, **_kw):
+            merge(lp, url, head)
+            self.pr["state"] = "MERGED"
+            raise InterruptedError("fixture: loop died after merging")
+
+        with patch.object(run, "merge_own_pr", side_effect=killed), self.assertRaises(InterruptedError):
+            self.review(["FAIL", "PASS"])
+        state = self.review(["FAIL", "PASS"])
+        self.assertEqual(state["state"], "pass")
+        self.assertTrue(state["merged"])
+        self.assertFalse(state.get("merge_failed"))
+        self.assertEqual(len(self.prompts), 2)
+        self.assertEqual(len(self.merges), 1)
 
 
 if __name__ == "__main__":
