@@ -73,10 +73,9 @@ class UsageLeft(Sandbox):
                    **run.process_owner(), started_at=9900, finished_at=None)
         return seats
 
-    def draw(self, seats, width, version="abc1234 · 12 Jan"):
+    def draw(self, seats, width):
         out = io.StringIO()
         with patch.object(terminal, "width", return_value=width), \
-                patch.object(menu, "installed", return_value=version), \
                 patch.object(menu.time, "strftime", wraps=time.strftime) as stamp, redirect_stdout(out):
             real = stamp._mock_wraps
             stamp.side_effect = lambda fmt, *args: "13:05" if not args else real(fmt, *args)

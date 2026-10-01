@@ -325,7 +325,7 @@ class NewsMotion(Sandbox):
     def test_nothing_is_replayed_on_opening_after_another_screen_a_notice_or_a_resize(self):
         self.words = {"fix-api": "done", "web-portal": "needs you"}
 
-        def away(dry_run=False):            # while `i` is up, a seat turns and the usage moves
+        def away(*args, **kwargs):          # while `c` is up, a seat turns and the usage moves
             self.words["fix-api"] = "needs you"
             self.cache(used=70)
             self.live.read()
@@ -340,13 +340,13 @@ class NewsMotion(Sandbox):
             self.cache(used=50)
             self.live.read()
 
-        with patch.object(menu, "show_info", side_effect=away), \
+        with patch.object(menu, "show_config", side_effect=away), \
                 patch.object(menu, "show_notices", side_effect=noticed):
-            waits, _ = self.run_menu([Key("char", "i"), self.news(resized), None, self.news(
+            waits, _ = self.run_menu([Key("char", "c"), self.news(resized), None, self.news(
                 lambda: self.notices.append("fix-api finished")), None])
         drawn = [n for n, (_, _, text) in enumerate(waits) if text.startswith("\033[H")]
         screens = [terminal.ANSI.sub("", waits[n][2]) for n in drawn]
-        # opened, back from `i`, resized, a wait, back from the notice, a wait
+        # opened, back from `c`, resized, a wait, back from the notice, a wait
         self.assertEqual(len(screens), 6, screens)
         self.assertIn("! needs you", screens[1].split("fix-api")[1].split("\n")[0])
         self.assertIn("10% left", screens[2])

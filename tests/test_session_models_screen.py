@@ -174,9 +174,9 @@ class SessionModels(Sandbox):
         self.assertNotIn("nobody", screen)
         self.assertEqual(self.rows(screen.splitlines()), {})
 
-    def test_no_key_line_or_info_line_offers_m(self):
-        self.assertEqual(menu.KEYS, "n new   x stop   c config   i info   esc leave")
-        self.assertEqual([line for line in menu.INFO_KEYS if line.startswith("m ")], [])
+    def test_no_key_line_or_sentence_offers_m(self):
+        self.assertEqual(menu.KEYS, "n new   x stop   c config   esc leave")
+        self.assertEqual([key for key in menu.TIPS if key.startswith("m ")], [])
 
 
 if __name__ == "__main__":

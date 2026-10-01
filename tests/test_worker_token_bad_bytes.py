@@ -8,8 +8,7 @@ Offline: a temporary HOME whose secrets file holds the bad byte; the real
 ~/.agentkit/secrets is never read, and the `auth` verb is never asked.
 """
 
-from contextlib import ExitStack, redirect_stdout
-import io
+from contextlib import ExitStack
 import os
 from pathlib import Path
 import sys
@@ -46,11 +45,10 @@ class WorkerTokenBadBytes(unittest.TestCase):
         self.assertNotIn("worker_tokens", state)
         self.asked.assert_not_called()
 
-    def test_the_info_screen_carries_on(self):
+    def test_the_config_screen_carries_on(self):
         self.assertIsNone(watch.worker_token_note())
-        with redirect_stdout(io.StringIO()) as out:
-            menu.show_info(dry_run=True)
-        self.assertNotIn("worker token", out.getvalue())
+        tips = menu.config_tips(config.load(), watch.worker_token_note())
+        self.assertNotIn("worker token", "\n".join(tips.values()))
 
 
 if __name__ == "__main__":

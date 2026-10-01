@@ -391,10 +391,10 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('PASS  35a', result.stdout)
 
-    def test_menu_answers_c_i_and_refuses_r_without_a_pager(self):
+    def test_menu_answers_c_and_refuses_i_and_r_without_a_pager(self):
         self.assertFalse(hasattr(menu, "page"))
         self.assertFalse(hasattr(menu, "Feed"))
-        answers = iter(["c", "i", "r", "", ""])     # `c` and `i` read no line of their own
+        answers = iter(["c", "i", "r", "", ""])     # `c` reads no line of its own
         with patch.object(orch, "listing", return_value=[]), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "draw", return_value=(0, 1)), \
@@ -407,7 +407,7 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
             self.assertEqual(menu.loop({}), 0)
         screen = out.getvalue()
         self.assertIn("orch  exec  review  effort", screen)
-        self.assertIn("you talk to one orchestrator", screen)
+        self.assertIn("not a key: 'i'", screen)
         self.assertIn("not a key: 'r'", screen)
 
     def test_fresh_cleanup_keeps_remote(self):
