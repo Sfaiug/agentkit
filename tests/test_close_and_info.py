@@ -529,9 +529,9 @@ class ClosedSeat(Sandbox):
                        env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
         self.assertRegex(told.read_text(), r"/\.agentkit/state/idle-compact/atoll-\d+\.json$")
         # and the daily collector still reads the pid off a stamp named either way
-        from agentkit import run
-        self.assertEqual(run.compact_pid(Path("atoll.v2-4242.json")), "4242")
-        self.assertEqual(run.compact_pid(Path("4242.json")), "4242")
+        from agentkit import gc
+        self.assertEqual(gc.compact_pid(Path("atoll.v2-4242.json")), "4242")
+        self.assertEqual(gc.compact_pid(Path("4242.json")), "4242")
 
     def card(self):
         url = os.environ["AGENTKIT_DISCORD_WEBHOOK"]

@@ -17,10 +17,10 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import config, orch, proc_snapshot, retention, run
+from agentkit import config, gc, orch, proc_snapshot, retention, run
 
 DAY = 86400
-HIDDEN_INSPECT = run.tmp_hidden_processes
+HIDDEN_INSPECT = gc.tmp_hidden_processes
 
 
 class GcTmp(Sandbox):
@@ -37,12 +37,12 @@ class GcTmp(Sandbox):
         self.stack.enter_context(patch.object(retention, "unix_sockets", return_value=set()))
         self.tmp = self.root / "tmp-base"
         self.tmp.mkdir()
-        self.stack.enter_context(patch.object(run, "TMP_BASE", self.tmp))
+        self.stack.enter_context(patch.object(gc, "TMP_BASE", self.tmp))
         self.proc = self.root / "proc"
         self.proc.mkdir()
         self.stack.enter_context(patch.object(retention, "process_dirs", self.proc.iterdir))
         self.hidden = self.stack.enter_context(
-            patch.object(run, "tmp_hidden_processes", return_value=None))
+            patch.object(gc, "tmp_hidden_processes", return_value=None))
 
     def process(self, args=("fixture",), cwd=None, opened=(), uid=None, kernel=False, pid=None):
         proc = self.proc / str(pid or 1000 + len(list(self.proc.iterdir())))
@@ -100,13 +100,13 @@ class GcTmp(Sandbox):
         return path
 
     def planned(self):
-        return {item["path"]: item for item in run.gc_plan()
+        return {item["path"]: item for item in gc.gc_plan()
                 if item["kind"] in ("tmp-entry", "claude-session")}
 
     def gc_out(self, *argv):
         out = io.StringIO()
         with redirect_stdout(out):
-            self.assertEqual(run.cmd_gc(list(argv)), 0)
+            self.assertEqual(gc.cmd_gc(list(argv)), 0)
         return out.getvalue()
 
     def test_stale_unopened_entry_goes_and_is_logged_once(self):
@@ -120,7 +120,7 @@ class GcTmp(Sandbox):
         for path in (old_dir, old_file):
             self.assertIn(f"gc: would remove tmp-entry {path}: untouched for 3 days", dry)
             self.assertTrue(path.exists())
-        removed = run.gc(lambda _: None, automatic=True)
+        removed = gc.gc(lambda _: None, automatic=True)
         logged = (config.STATE / "gc.log").read_text()
         for path in (old_dir, old_file):
             self.assertIn(str(path), removed)
@@ -133,7 +133,7 @@ class GcTmp(Sandbox):
         self.process(cwd=held, opened=[nested / "inner"])
         self.now += 3 * DAY
         self.assertEqual(self.planned(), {})
-        run.gc(lambda _: None)
+        gc.gc(lambda _: None)
         self.assertTrue(held.is_dir())
         self.assertTrue(nested.is_dir())
 
@@ -144,7 +144,7 @@ class GcTmp(Sandbox):
         (mixed / "inner").write_text("just now\n")
         self.touch(mixed / "inner")
         self.assertEqual(self.planned(), {})
-        run.gc(lambda _: None)
+        gc.gc(lambda _: None)
         self.assertTrue(fresh.is_dir())
         self.assertTrue(mixed.is_dir())
 
@@ -169,7 +169,7 @@ class GcTmp(Sandbox):
         link.symlink_to("inner")
         os.utime(link, (old, old), follow_symlinks=False)
         for path in (tree, tree / "inner", standalone, link):
-            self.assertGreaterEqual(run.tmp_tree_newest(tree if path == link else path),
+            self.assertGreaterEqual(gc.tmp_tree_newest(tree if path == link else path),
                                     path.lstat().st_ctime)
         self.assertEqual(self.planned(), {})
         self.now += 3 * DAY
@@ -184,7 +184,7 @@ class GcTmp(Sandbox):
         self.assertEqual(set(plan), {str(gone)})
         self.assertEqual(plan[str(gone)]["kind"], "claude-session")
         self.assertIn(f"gc: would remove claude-session {gone}", self.gc_out("--dry-run"))
-        run.gc(lambda _: None)
+        gc.gc(lambda _: None)
         self.assertFalse(gone.exists())
         self.assertTrue(running.is_dir())
 
@@ -203,7 +203,7 @@ class GcTmp(Sandbox):
                     return os.stat_result(fields)
                 return info
             with self.subTest(changed=changed), patch.object(Path, "lstat", metadata):
-                self.assertEqual(run.tmp_tree_newest(tree), self.now)
+                self.assertEqual(gc.tmp_tree_newest(tree), self.now)
                 self.assertEqual(self.planned(), {})
 
     def test_live_record_protects_whole_tree_after_clear_and_hand_launch(self):
@@ -216,7 +216,7 @@ class GcTmp(Sandbox):
             with self.subTest(args=args):
                 (proc / "cmdline").write_bytes(b"\0".join(os.fsencode(a) for a in args))
                 self.assertEqual(set(self.planned()), {str(gone)})
-        run.gc(lambda _: None)
+        gc.gc(lambda _: None)
         self.assertFalse(gone.exists())
         self.assertTrue(running.is_dir())
         shutil.rmtree(proc)
@@ -234,7 +234,7 @@ class GcTmp(Sandbox):
                     self.session_record(proc, "sess-other", **extra)
                 self.assertEqual(set(self.planned()), {str(ordinary)})
         # A missing client record does not make ordinary temporary files permanent.
-        run.gc(lambda _: None)
+        gc.gc(lambda _: None)
         self.assertFalse(ordinary.exists())
         self.assertTrue(scratch.is_dir())
 
@@ -257,7 +257,7 @@ class GcTmp(Sandbox):
         self.now += 3 * DAY
         with self.unreadable(foreign), patch.object(Path, "read_text", disappear):
             self.assertEqual(set(self.planned()), {str(old)})
-            run.gc(lambda _: None)
+            gc.gc(lambda _: None)
         self.assertFalse(old.exists())
         self.assertTrue(held.is_dir())
         self.assertFalse(exited.exists())
@@ -267,7 +267,7 @@ class GcTmp(Sandbox):
         held = self.entry("held")
         foreign = self.process(uid=os.getuid() + 1, opened=[held / "inner"])
         self.now += 3 * DAY
-        paths, table = run.tmp_processes()
+        paths, table = gc.tmp_processes()
         self.assertEqual(table[int(foreign.name)]["uid"], os.getuid() + 1)
         self.assertIn(str(held / "inner"), paths)
         self.assertEqual(self.planned(), {})
@@ -293,7 +293,7 @@ class GcTmp(Sandbox):
         self.now += 3 * DAY
         with self.unreadable(proc):
             self.assertEqual(self.planned(), {})
-            run.gc(lambda _: None)
+            gc.gc(lambda _: None)
         self.assertTrue(old.exists())
         self.hidden.assert_called_with([int(proc.name)])
         with patch.object(retention, "process_dirs", side_effect=PermissionError):
@@ -304,7 +304,7 @@ class GcTmp(Sandbox):
         self.process(args=[], opened=[held / "inner"])
         self.now += 3 * DAY
         self.assertEqual(set(self.planned()), {str(old)})
-        run.gc(lambda _: None)
+        gc.gc(lambda _: None)
         self.assertFalse(old.exists())
         self.assertTrue(held.is_dir())
         self.assertTrue(scratch.is_dir())
@@ -330,8 +330,8 @@ class GcTmp(Sandbox):
         self.assertEqual(len(plan), 2)
         proc = self.process(args=["claude"], opened=[held / "inner"])
         self.session_record(proc, scratch.name)
-        with patch.object(run, "gc_candidates", return_value=iter(plan)):
-            self.assertEqual(run.gc(lambda _: None), [])
+        with patch.object(gc, "gc_candidates", return_value=iter(plan)):
+            self.assertEqual(gc.gc(lambda _: None), [])
         self.assertTrue(held.is_dir())
         self.assertTrue(scratch.is_dir())
 
@@ -340,17 +340,17 @@ class GcTmp(Sandbox):
         self.now += 3 * DAY
         plan = list(self.planned().values())
         self.assertEqual(len(plan), 2)
-        with patch.object(run, "gc_candidates", return_value=iter(plan)), \
+        with patch.object(gc, "gc_candidates", return_value=iter(plan)), \
                 patch.object(retention, "process_dirs", side_effect=PermissionError):
-            self.assertEqual(run.gc(lambda _: None), [])
+            self.assertEqual(gc.gc(lambda _: None), [])
         self.assertTrue(old.is_dir())
         self.assertTrue(scratch.is_dir())
 
     def test_process_inventory_cost_is_per_batch(self):
         paths = [self.entry(f"old-{index}") for index in range(5)]
         self.now += 3 * DAY
-        with patch.object(run, "tmp_processes", wraps=run.tmp_processes) as inventory:
-            removed = run.gc(lambda _: None)
+        with patch.object(gc, "tmp_processes", wraps=gc.tmp_processes) as inventory:
+            removed = gc.gc(lambda _: None)
         self.assertEqual(set(removed), set(map(str, paths)))
         self.assertEqual(inventory.call_count, 2)   # plan, then recheck the batch
 
@@ -358,7 +358,7 @@ class GcTmp(Sandbox):
         kept = [self.entry(name) for name in (".X11-unix", "tmux-1000", "systemd-private-abc")]
         self.now += 3 * DAY
         self.assertEqual(self.planned(), {})
-        run.gc(lambda _: None)
+        gc.gc(lambda _: None)
         self.assertTrue(all(path.is_dir() for path in kept))
 
 

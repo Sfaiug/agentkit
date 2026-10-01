@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import browser, config, menu, notify, orch, run, watch
+from agentkit import browser, config, gc, menu, notify, orch, run, watch
 
 SEAT = "seat"
 
@@ -84,7 +84,7 @@ class NoReplay(Sandbox):
     def tick(self):
         with patch.object(watch, "health"), patch.object(watch, "recover_runs"), \
                 patch.object(watch, "gh_json", return_value=(None, "offline")), \
-                patch.object(run, "schedule_gc"), patch.object(browser, "tidy"), \
+                patch.object(gc, "schedule_gc"), patch.object(browser, "tidy"), \
                 patch.object(orch, "stamp"), patch.object(orch, "sweep"):
             self.assertEqual(watch.main([]), 0)
 

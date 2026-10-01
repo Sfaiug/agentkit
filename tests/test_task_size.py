@@ -27,7 +27,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, job as jobs, run, task
+from agentkit import config, gc, history, job as jobs, run, task
 
 SEAT = "size-check"
 CFG = {"models": {}, "providers": {}}
@@ -316,7 +316,7 @@ class Sandbox(unittest.TestCase):
 
         with patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "checkout_for", return_value=repo), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "git", return_value="sha"), \
                 patch.object(run, "make_worktree", return_value=(wt, "b")), \
                 patch.object(run, "history_start", side_effect=stop):

@@ -856,7 +856,7 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
     tick's to take on when the window refills, the reviewer is back or the stall
     is recovered, an error with a scheduled retry is the tick's the same way, and
     a `queued` or `running` one is nobody's problem yet. An
-    ending older than run.GC_AGE has aged out and counts for nobody, acknowledged
+    ending older than gc.GC_AGE has aged out and counts for nobody, acknowledged
     or not; `ak run status` still lists it.
 
     An ending handed back to the seat that launched it is that orchestrator's from then on,

@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, orch, run, watch
+from agentkit import config, gc, notify, orch, run, watch
 
 URL = "http://127.0.0.1:9/hook/fixture-secret?thread_id=42"
 PR = "https://example.invalid/other/repo/pull/7"
@@ -140,7 +140,7 @@ def child():
                 watch.save_state(state)
         elif op == "watch":
             stack.enter_context(patch.object(watch, "health"))
-            stack.enter_context(patch.object(run, "schedule_gc"))
+            stack.enter_context(patch.object(gc, "schedule_gc"))
             stack.enter_context(patch.object(watch, "gh_json", return_value=(None, "offline")))
             assert watch.main(["--dry-run"] if args.get("dry") else []) == 0
             assert "PR checks skipped" in output.getvalue()

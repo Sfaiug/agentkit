@@ -15,7 +15,7 @@ from unittest.mock import patch
 import unittest
 
 from test_v4n import REPO, Sandbox
-from agentkit import config, menu, orch, retention, run, terminal, watch
+from agentkit import config, gc, menu, orch, retention, run, terminal, watch
 
 NOW = 1_800_000_000
 DAY = 86400
@@ -309,7 +309,7 @@ class Projects(Sandbox):
         # goes whole, throwaway or not (test_cleanup's 31-day run).
         # A full disk shortens the age to one day and would take the young run too: the
         # disk this machine happens to have is not the fixture's.
-        self.stack.enter_context(patch.object(run, "disk_pressure", return_value=None))
+        self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=None))
         # Nor are the host's processes and sockets: nothing else holds the fixture's files.
         self.stack.enter_context(patch.object(retention, "process_dirs", return_value=[]))
         self.stack.enter_context(patch.object(retention, "unix_sockets", return_value=set()))
@@ -331,16 +331,16 @@ class Projects(Sandbox):
         self.assertTrue(retention.throwaway(str(config.TMP)))
         self.assertFalse(retention.throwaway(str(config.CODE / "atoll")))
         self.assertFalse(retention.throwaway(None))
-        plan = run.gc_plan(now=NOW)
+        plan = gc.gc_plan(now=NOW)
         self.assertEqual([item["path"] for item in plan if item["kind"] == "throwaway-run"],
                          [str(old)])
-        removed = run.gc(lambda _: None)
+        removed = gc.gc(lambda _: None)
         self.assertEqual(removed, [str(old)])
         self.assertFalse(old.exists())
         # A younger one, a run under a checkout and a live one all stay put.
         for directory in (young, kept, live):
             self.assertTrue(directory.exists(), directory)
-        self.assertEqual(run.gc(lambda _: None), [])
+        self.assertEqual(gc.gc(lambda _: None), [])
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ import sys
 import tempfile
 
 SOURCE = "claude-hook"
+TMP_CLAUDE_AGE = 86400          # a gone session's scratch folder goes after a day
 
 
 def transcript_path(record, conversation):
@@ -82,6 +83,127 @@ def is_process(words):
     program = orch.program(words, full=True)
     return (Path(program).name == "claude"
             or program.endswith("/@anthropic-ai/claude-code/cli.js"))
+
+
+def tmp_claude_sessions(table):
+    """Current conversations of live clients, or None for an unidentified client.
+
+    Claude updates its pid record after /clear. Match procStart too, so a reused
+    pid or a stale record in another account cannot stand in for the live client.
+    """
+    from .. import retention
+    if table is None:
+        return None
+    try:
+        roots = [path for path in Path.home().glob(".claude*") if path.is_dir()]
+        if os.environ.get("CLAUDE_CONFIG_DIR"):
+            roots.append(Path(os.environ["CLAUDE_CONFIG_DIR"]))
+        live = set()
+        for pid, row in table.items():
+            if row["uid"] != os.getuid():
+                continue
+            if not row["args"]:
+                return None
+            if not is_process(row["args"]):
+                continue
+            found = set()
+            for root in roots:
+                record = retention.read_json(root / "sessions" / f"{pid}.json") or {}
+                session = record.get("sessionId")
+                if (record.get("pid") == pid and str(record.get("procStart")) == row["start"]
+                        and isinstance(session, str) and re.fullmatch(r"[A-Za-z0-9_-]+", session)):
+                    found.add(session)
+            if not found:
+                return None
+            live.update(found)
+        return live
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def tmp_claude_session_stale(path, now, paths, live):
+    """Why that Claude session folder goes, or None when it stays.
+
+    Its session is gone, untouched for a day, and held by nobody.
+    """
+    from .. import gc, retention
+    if retention.busy(path, paths) or live is None or path.name in live:
+        return None
+    newest = gc.tmp_tree_newest(path)
+    if newest is None or not retention.expired(newest, now, TMP_CLAUDE_AGE):
+        return None
+    days = int((now - newest) // 86400)
+    return f"session {path.name} is gone, untouched for {days} day{'s' if days != 1 else ''}"
+
+
+def tmp_top_stale(path, now, paths, live):
+    """Why that top-level /tmp entry goes whole, or None.
+
+    The same live-client protection covers both whole trees and session folders.
+    """
+    from .. import gc
+    name = path.name
+    if name.startswith("claude-") and name[7:].isdigit():
+        if live is None:
+            return None
+        try:
+            if live and any((path / project / session).is_dir()
+                            for project in gc.tmp_listdir(path) for session in live):
+                return None
+        except OSError:
+            return None
+    return gc.tmp_entry_stale(path, now, paths)
+
+
+def tmp_session_entries(path, now, paths, live):
+    """Gone session folders inside this user's scratch tree, unless the whole tree goes."""
+    from .. import gc, retention
+    if path.name != f"claude-{os.getuid()}" or live is None or not retention.safe(path):
+        return
+    try:
+        projects = gc.tmp_listdir(path)
+    except OSError:
+        return
+    for project in projects:
+        if gc.tmp_protected(project):
+            continue
+        project_path = path / project
+        try:
+            if not project_path.is_dir() or project_path.is_symlink():
+                continue
+            sessions = gc.tmp_listdir(project_path)
+        except OSError:
+            continue
+        for session_id in sessions:
+            if gc.tmp_protected(session_id):
+                continue
+            session_path = project_path / session_id
+            try:
+                if not session_path.is_dir() or session_path.is_symlink():
+                    continue
+            except OSError:
+                continue
+            why = tmp_claude_session_stale(session_path, now, paths, live)
+            if why:
+                yield {"action": "remove", "kind": "claude-session",
+                       "path": str(session_path), "why": why}
+
+
+def tmp_rule(table):
+    """Protect live clients in scratch trees and collect gone sessions within our own."""
+    live = tmp_claude_sessions(table)
+
+    def rule(path, now, paths, *, top):
+        if top:
+            if not (path.name.startswith("claude-") and path.name[7:].isdigit()):
+                return None
+            return (tmp_top_stale(path, now, paths, live),
+                    tmp_session_entries(path, now, paths, live))
+        if path.parents[1].name == f"claude-{os.getuid()}":
+            return tmp_claude_session_stale(path, now, paths, live), ()
+        return None
+
+    return rule
 
 
 def title_command(name):

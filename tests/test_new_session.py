@@ -19,7 +19,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
-from agentkit import config, menu, notify, orch, run, terminal, usage
+from agentkit import config, gc, menu, notify, orch, run, terminal, usage
 
 COLLECT, SESSIONS = usage.collect, orch.sessions    # the real ones, for the dry run
 
@@ -149,7 +149,7 @@ class NewSession(Sandbox):
 
         # The receipt owns the run even when the current process belongs to another seat.
         with patch.dict(os.environ, {config.SESSION_ENV: "other"}), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "make_worktree", return_value=(worktree, "ak/fixture")), \
                 patch.object(run, "exclude_junk"), \
                 patch.object(run, "pick_models", return_value=("opus", "astra")), \
@@ -207,7 +207,7 @@ class NewSession(Sandbox):
 
         with patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "checkout_for", return_value=checkout), \
-                patch.object(run, "disk_pressure", return_value=False), \
+                patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "git", return_value="f" * 40), \
                 patch.object(run, "fetch", return_value=(0, "")), \

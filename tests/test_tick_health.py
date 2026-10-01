@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import browser, config, job as jobs, notify, orch, run, usage, watch
+from agentkit import browser, config, gc, job as jobs, notify, orch, run, usage, watch
 
 
 class TickHealth(unittest.TestCase):
@@ -47,7 +47,7 @@ class TickHealth(unittest.TestCase):
         for where, name in ((notify, "retry_pending"), (notify, "tick_cards"),
                             (watch, "resume_after_boot"), (watch, "health"),
                             (watch, "recover_runs"), (watch, "resume_exhausted"),
-                            (watch, "revive_seats"), (run, "schedule_gc"),
+                            (watch, "revive_seats"), (gc, "schedule_gc"),
                             (orch, "stamp"), (orch, "sweep"), (usage, "collect")):
             self.stack.enter_context(patch.object(where, name))
         self.stack.enter_context(patch.object(run, "reap", lambda _dir, state: state))
@@ -336,7 +336,7 @@ class TickHealth(unittest.TestCase):
         self.tidy.assert_called_once()
         watch.health.assert_called_once()
         watch.recover_runs.assert_called_once()
-        run.schedule_gc.assert_called_once()
+        gc.schedule_gc.assert_called_once()
         # and the seat whose run is waiting to push is told why, once gh is asked for
         self.assertEqual(watch.load_state()["gh_out"]["seats"], ["atoll"])
         blocked = self.seat_state("atoll")

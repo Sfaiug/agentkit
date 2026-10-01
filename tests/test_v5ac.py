@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job as jobs, run, usage
+from agentkit import config, gc, job as jobs, run, usage
 
 URL = "https://github.com/fixture/repo/pull/1"
 
@@ -96,7 +96,7 @@ class V5ac(unittest.TestCase):
         self.stack.enter_context(patch.object(run.notify, "shaped", side_effect=AssertionError("notification")))
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
-        self.stack.enter_context(patch.object(run, "disk_pressure", return_value=False))
+        self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run.time, "sleep"))
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,

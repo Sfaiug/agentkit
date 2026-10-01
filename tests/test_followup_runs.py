@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 import test_review_gate as gate
-from agentkit import browser, config, job as jobs, menu, notify, orch, run, task, watch, worker
+from agentkit import browser, config, gc, job as jobs, menu, notify, orch, run, task, watch, worker
 
 
 DEFECT = "broken.py:1 - empty input crashes - base abc123: `first([])` raises IndexError"
@@ -101,7 +101,7 @@ class FollowupRuns(unittest.TestCase):
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         self.stack.enter_context(patch.object(run, "marker_pids", return_value=[]))
         self.stack.enter_context(patch.object(run, "pickup_new_code", return_value=False))
-        self.stack.enter_context(patch.object(run, "disk_pressure", return_value=False))
+        self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(browser, "close_owned"))
         self.stack.enter_context(patch.object(run, "announce", side_effect=lambda s, d, *a:
                                               self.endings.append(run.handback_line(s, d, self.cfg))))

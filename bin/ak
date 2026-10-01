@@ -31,6 +31,9 @@ def main():
     mod_name, entry = ENTRY.get(sub, (sub, "main"))
     module = __import__(f"agentkit.{mod_name}", fromlist=[entry])
     try:
+        if sub == "run" and rest[:1] == ["gc"]:
+            from agentkit import gc
+            return gc.cmd_gc(rest[1:])
         return getattr(module, entry)(rest)
     except config.Error as exc:
         print(f"ak {sub}: {exc}", file=sys.stderr)

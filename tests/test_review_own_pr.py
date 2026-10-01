@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, run, watch
+from agentkit import config, gc, orch, run, watch
 
 URL = "https://github.com/acme/widget/pull/7"
 HEAD = "b" * 40
@@ -106,7 +106,7 @@ class OwnPr(unittest.TestCase):
             patch.object(run, "make_worktree", return_value=(self.wt, "ak/pr-7")),
             patch.object(run, "declared", return_value=None),
             patch.object(run, "exclude_junk", return_value=None),
-            patch.object(run, "disk_pressure", return_value=False),
+            patch.object(gc, "disk_pressure", return_value=False),
             patch.object(run.usage, "collect", return_value={}),
             patch.object(run, "review", side_effect=faces[reviewer]),
             patch.object(run, "restore_review_checkout", return_value=None),

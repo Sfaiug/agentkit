@@ -2297,7 +2297,7 @@ def maintenance(log=print):
     """Reap the dead loops and retire the stale seats -- everything before the seat opens.
 
     Nothing here runs a command against a repository.  Not the fast-forward and re-install this
-    used to make on every menu open, and not the collection either: `run.schedule_gc` would
+    used to make on every menu open, and not the collection either: `gc.schedule_gc` would
     start a collector that can `git worktree remove` a finished run's checkout, and a key
     pressed for the menu is no reason to run git anywhere.  The `ak watch` tick schedules it
     instead -- every three minutes, beside this same stamp and sweep -- and `ak run gc` does
