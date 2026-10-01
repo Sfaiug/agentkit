@@ -129,8 +129,9 @@ passed review in its repository: cut from that reviewed tip, which it records, i
 its own commits (`git rebase --onto <target> <tip>`), so a squash merge cannot conflict. A dependency parked `waiting`
 keeps it waiting; one ending unmerged skips it (`skipped: <dep> did not merge`), its branch kept. `repo: none` delivers
 files in `~/.agentkit/work/<id>`, which its hand-back names, not a PR. `ak run --review-pr URL` reviews a PR with
-no executor and posts the verdict as a GitHub review: a seat's own PR merges on PASS with green checks, anyone
-else's asks the inbox. `ak run status` lists every run of the last seven days but the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
+no executor and posts the verdict as a GitHub review: a seat's own PR over the size ceiling is refused before any
+model runs, with its size and ceiling and an instruction to split it; one that fits merges on PASS with green checks.
+Anyone else's PR asks the inbox and is never refused for size. `ak run status` lists every run of the last seven days but the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
 `workspace:` and `continue:` lines. An ending handed back, acknowledged or superseded (by a later merged run of its
 title, or a relaunch `from:` its branch) reads `done`, as does a parked run a later merged run replaced, and a job's tasks read their runs as they are now. `ak run` exits 0 on PASS, 1 on FAIL, `exhausted`, `blocked` or an unfinished merge, 2 on error.
 
@@ -367,10 +368,14 @@ The tick closes a tab idle for an hour or past twelve open, and one a run or sea
 Every run is recorded in `~/.agentkit/history.db`: repository, models and the launching seat's orchestrator, rounds,
 verdict, timestamps, active seconds per step (checkpointed every 30 s; parks, slot, login, retry and merge-turn waits
 are no step's), tokens where the harness reports them (else unknown), peak process-tree memory, session, and the task's
-words, goal points, checks and files changed. Smoke and e2e runs are never recorded; an older agentkit's rows are read
+words, goal points, checks and files changed. Merged runs also keep additions plus deletions, excluding files marked
+`linguist-generated` in `.gitattributes`. Smoke and e2e runs are never recorded; an older agentkit's rows are read
 as written, never rewritten, and a median keeps a few that counted waits from pulling an estimate far. Statistics skip
 stopped runs and suite runs, by name or run record. History is best effort. The last twenty runs estimate a task's
-memory and active time. `ak run status --history` prints one line per repository (`last 20 tasks: median N rounds ·
+memory and active time. The own-PR size ceiling is 300 with fewer than 50 sized merged runs; after that, it is the
+smallest size above which fewer than half passed in their first round, across this host's history. Without such a
+drop there is no ceiling. `ak run status --history` shows the ceiling and whether it comes from history or the
+starting value, and one line per repository (`last 20 tasks: median N rounds ·
 over 400 words: median M rounds …`) for the orchestrator to size tasks by. Neither it nor `ak usage` prints per-model
 success rates: a run's verdict describes the task, not the quality of its models. A run's own directory is
 `~/.agentkit/runs/<YYYYMMDD-HHMM>-<slug>/`: `task.md`, `run.json`, `log.txt` (the whole loop, with a `WARN` line per
