@@ -8,9 +8,11 @@ launch asked for them, at launch, and no other session anybody ever runs.
 
 Usage: rulebook.py <session>
 
-Writes ~/.agentkit/state/rulebook-<session>.md and prints its path; the adapter's `interactive`
-command line hands that path to its harness by whatever means that harness has.
+Writes ~/.agentkit/state/rulebook-<session>.md -- under $AGENTKIT_RULEBOOK_DIR instead, for a
+dry run -- and prints its path; the adapter's `interactive` command line hands that path to its
+harness by whatever means that harness has.
 """
+import os
 from pathlib import Path
 import sys
 
@@ -36,6 +38,8 @@ def text():
 def write(session):
     """That text, under the name of the session it is for.  Its path."""
     path = config.rulebook_path(session)
+    if os.environ.get(config.RULEBOOK_DIR_ENV):
+        path = Path(os.environ[config.RULEBOOK_DIR_ENV]) / path.name
     path.parent.mkdir(parents=True, exist_ok=True)
     body = text()
     if config.session_records().get(session, {}).get("unnamed"):
