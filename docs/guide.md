@@ -68,6 +68,8 @@ scratch workspace), `base` (the repo's default branch), `target` (the branch the
 dependency, repeatable). A check ending in `# once` runs alongside the review on the commit under review; the executor is told not to run it,
 its absence from the reviewer's input by design. The full suite a repository names as `tests:` in its `AGENTS.md` front matter is such a check in every run
 there, from the target branch where the checkout predates it, and a done-when line with the same command runs once with it, so a task lists only the checks for its change.
+`files:` (repeatable, comma-separated Git pathspecs) limits the branch's own changed paths after rebasing; an unmatched path fails the gate with `outside files: <paths>`, goes to the fixer and overrides reviewer PASS. Without it there is no limit.
+An unknown task front-matter key refuses launch before any receipt, naming it and the accepted keys in one line. Retired `done_when_minutes`, `turn_hours` and `stall_minutes` keys stay accepted with a warning.
 A command that fails runs once more at once, within the same ceiling, and passes if the re-run does: the output keeps the lines the failed run printed that its passing re-run did not, at most 20 (its last lines when the re-run repeated them all), under `flaky:`, which joins the run's follow-ups as evidence.
 The repository facts the orchestrator keeps in `~/.agentkit/lessons/<repo>.md` ride every prompt, up to 4 KB; past
 that, the run's hand-back names the file and asks the orchestrator to tighten it. Every prompt also carries the body of the repository's `AGENTS.md` as on the base commit, front matter removed, up to 8 KB. A worker's harness loads no instruction file of its own where it has a switch for that; its adapter's manifest says in one line what no switch reaches.
@@ -108,7 +110,8 @@ by default. A lap whose target never moved lands on the round's checks; a move o
 queued for the turn, which goes to `--first` runs first and then in the order they began waiting, shows `waiting for the merge turn of <repo> <branch>`, holding no slot and never read as silent; a
 dead holder's turn passes on. A failed integration, conflict or final-check review gets a fixer with the whole review
 (and a failing done-when's output) while rounds are left, and at the budget ends `fail` with its findings, or with why
-the loop overrode a PASS. A base-branch merge race re-fetches, rechecks the PR head and target, verifies and pushes
+the loop overrode a PASS. A clean rebase's failing done-when gets landing fixers before any reviewer; once it passes,
+landing re-review runs at the current round even when the budget is spent. A PASS lands without recording a task round; fixing a FAIL's findings spends one while any remain. An unreachable target parks a pending landing review as a retryable error; an exhausted conflict fixer keeps its pending review at the current round. A base-branch merge race re-fetches, rechecks the PR head and target, verifies and pushes
 changes and retries three times with growing waits before parking. Without push rights it forks, opens the PR upstream
 and ends `PASS, not merged: waiting for the maintainer`, exiting 0; the tick follows the PR and hands the decision to the seat. `--no-merge` stops at the verdict. Other ended `merged: no` runs name their reason and exit 1.
 Before each round and each landing lap's verify, a run whose installed agentkit moved replaces itself in place with
@@ -133,7 +136,7 @@ keeps it waiting; one ending unmerged skips it (`skipped: <dep> did not merge`),
 files in `~/.agentkit/work/<id>`, which its hand-back names, not a PR. `ak run --review-pr URL` reviews a PR with
 no executor and posts the verdict as a GitHub review: a seat's own PR over the size ceiling is refused before any
 model runs, with its size and ceiling and an instruction to split it; one that fits merges on PASS with green checks.
-Anyone else's PR asks the inbox and is never refused for size. `ak run status` lists every run of the last seven days but the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
+FAIL sends findings back to the seat and waits for its push, shown by `ak run status`; the next head is reviewed with the previous findings first. The third FAIL or a closed PR ends the run. Anyone else's PR gets one review, asks the inbox on PASS and is never refused for size. `ak run status` lists every run of the last seven days but the smoke suite's own, with its round and age; naming one acknowledges it and prints its `result:`, `record:`,
 `workspace:` and `continue:` lines. An ending handed back, acknowledged or superseded (by a later merged run of its
 title, or a relaunch `from:` its branch) reads `done`, as does a parked run a later merged run replaced, and a job's tasks read their runs as they are now. `ak run` exits 0 on PASS, 1 on FAIL, `exhausted`, `blocked` or an unfinished merge, 2 on error.
 
