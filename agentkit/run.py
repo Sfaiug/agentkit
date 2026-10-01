@@ -9376,11 +9376,10 @@ def superseded_by(state, records=None, index=None, merged_only=False):
         return max(later)[1] if later else None
     found = []
     if records is None:
+        from . import menu  # here, not at the top: the menu draws without the loop
         for run_dir in run_dirs():
-            if "smoke-" in run_dir.name:
-                continue
             other = read_state(run_dir)
-            if other:
+            if other and not menu.smoke_run(other):
                 found.append(other)
     else:
         for item in records:
