@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 import test_review_gate as gate
-from agentkit import browser, config, menu, notify, orch, run, watch, worker
+from agentkit import browser, config, menu, notify, orch, run, task, watch, worker
 
 
 DEFECT = "broken.py:1 - empty input crashes - base abc123: `first([])` raises IndexError"
@@ -211,7 +211,7 @@ class FollowupRuns(unittest.TestCase):
         long_item = "x" * 256 + "\nreproduction details"
         directory, state = self.source("long-title", followups=[long_item])
         child = self.start(directory, state)[0]
-        heading = run.parse_task(child / "task.md")[2]
+        heading = task.parse_task(child / "task.md")[2]
         self.assertTrue(heading.startswith("Fix "))
         self.assertLessEqual(len(heading), 256)
         self.assertIn(long_item, (child / "task.md").read_text())

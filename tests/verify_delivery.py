@@ -7,6 +7,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import run
+from agentkit import task as taskfile
 
 
 def verify(repo, task, checkout):
@@ -16,7 +17,7 @@ def verify(repo, task, checkout):
         print(f"[exit {result.returncode}]", flush=True)
         return result.returncode
 
-    commands = run.done_when(task.read_text(), task)
+    commands = taskfile.done_when(task.read_text(), task)
     if not commands:
         raise ValueError(f"no done-when commands in {task}")
     # Fetch explicitly: an old local remote-tracking ref is not delivery evidence.

@@ -30,8 +30,8 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import (command_help, config, history, notify, orch, proc_snapshot, retention, update,
-               usage, watch, worker)
+from . import (command_help, config, history, notify, orch, proc_snapshot, retention,
+               task as taskfile, update, usage, watch, worker)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 DIFF_CAP = 300 * 1024
@@ -128,10 +128,6 @@ CLASSIC_CHECKS_QUERY = (
     "query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){"
     "ref(qualifiedName:$branch){branchProtectionRule{requiresStatusChecks "
     "requiredStatusChecks{context app{databaseId}}}}}}")
-TASK_MAX_POINTS = 3      # numbered points in ## Goal: more is more than one behaviour
-TASK_MAX_WORDS = 500     # words outside the checks block: past this, split the task
-TASK_MAX_CHECKS = 6      # done-when commands: past this, split the task
-TASK_MAX_ROUNDS = 3      # the round budget, not a default: past it, split or re-scope
 NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
                 "eight", "nine", "ten")   # the hand-back spells the spent budget out
 FRONT = re.compile(r"^---\n(.*?)\n---", re.S)
@@ -348,8 +344,8 @@ def park_stalled(run_dir, state, entry):
                        f"ak run resume {run_dir.name}")
     save_state(run_dir, state)
     try:
-        _, body, _ = parse_task(run_dir / "task.md")
-        cmds = done_when(body, run_dir / "task.md")
+        _, body, _ = taskfile.parse_task(run_dir / "task.md")
+        cmds = taskfile.done_when(body, run_dir / "task.md")
     except (OSError, config.Error):
         cmds = []
     try:
@@ -433,24 +429,6 @@ def gh(cwd, *args, timeout=None):
     return code, (out + err).strip()
 
 
-def parse_task(path):
-    text = path.read_text()
-    match = re.match(r"^---\n(.*?)\n---\n?(.*)$", text, re.S)
-    if not match and text.startswith("---\n"):
-        raise config.Error(f"{path}: front matter needs a closing --- line")
-    meta, body = {}, match.group(2) if match else text
-    for line in (match.group(1).splitlines() if match else []):
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if ":" not in line:
-            raise config.Error(f"{path}: front matter line is not `key: value`: {line!r}")
-        key, value = line.split(":", 1)
-        meta[key.strip()] = value.split("#", 1)[0].strip()
-    title = next((l[2:].strip() for l in body.splitlines() if l.startswith("# ")), path.stem)
-    return meta, body, title
-
-
 def project_lessons(repo, state, log):
     """Read the orchestrator's repository facts once for this loop's worker prompts."""
     if repo is None:
@@ -500,67 +478,6 @@ def repo_rules(wt, ref, log):
     return ("\n\n## Repository AGENTS.md\n"
             "The repository's own instructions, as on the base commit. Where they differ "
             f"from the rest of this prompt, the rest of this prompt wins.\n\n{text}\n")
-
-
-def done_when(body, path):
-    section = re.search(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", body, re.S | re.M | re.I)
-    if not section:
-        raise config.Error(f"{path}: no `## Done when` section")
-    fence = re.search(r"```(?:bash|sh)?\n(.*?)```", section.group(1), re.S)
-    if not fence:
-        raise config.Error(f"{path}: `## Done when` has no ```bash fenced command block")
-    cmds = [l.strip() for l in fence.group(1).splitlines() if l.strip() and not l.strip().startswith("#")]
-    if not cmds:
-        raise config.Error(f"{path}: `## Done when` block is empty; done means commands that exit 0")
-    return cmds
-
-
-ONCE_MARKER = re.compile(r"#\s*once\s*$")
-
-
-def split_once(cmd):
-    """(command, is_once): strip a trailing `# once` marker, when the line has one.
-
-    The marker is the tail the spec names -- whitespace, `#`, `once` -- and only when
-    its `#` is outside any quotes: `echo "# once"` names no marker, it runs one.  The
-    stripped command is what the loop executes; bash would ignore the comment anyway,
-    so an older loop that runs the line whole runs the same command.
-    """
-    single = double = False
-    escaped = False
-    for i, ch in enumerate(cmd):
-        if escaped:
-            escaped = False
-        elif ch == "\\" and not single:
-            escaped = True
-        elif ch == "'" and not double:
-            single = not single
-        elif ch == '"' and not single:
-            double = not double
-        elif ch == "#" and not single and not double:
-            if i > 0 and cmd[i - 1] in " \t" and ONCE_MARKER.match(cmd[i:]):
-                return cmd[:i].rstrip(), True
-    return cmd, False
-
-
-def group_commands(cmds):
-    """(every, once): a command list split on the `# once` marker, markers stripped."""
-    every, once = [], []
-    for cmd in cmds:
-        bare, is_once = split_once(cmd)
-        (once if is_once else every).append(bare)
-    return every, once
-
-
-def done_when_groups(body, path):
-    """(every, once): the task's done-when commands, split on a trailing `# once` marker.
-
-    `done_when` itself is unchanged -- the flat list, markers intact, for callers that
-    want every command plus the once ones.  The every-commands run per round; the
-    once-commands run alongside the review on the commit under review, and again at
-    landing only when the target moved in the branch's files.
-    """
-    return group_commands(done_when(body, path))
 
 
 def first_command(cmd):
@@ -632,71 +549,13 @@ def with_suite(cmds, wt, target=None):
         targets.add(first)
     kept = []
     for cmd in cmds:
-        bare, once = split_once(cmd)
+        bare, once = taskfile.split_once(cmd)
         if once:
             if bare != suite:
                 kept.append(cmd)
         elif " ".join(bare.split()) not in targets:
             kept.append(cmd)
     return kept + [f"{suite}  # once"]
-
-
-def task_points(body):
-    """Numbered points in the task's `## Goal` section: `1.` or `1)` with text after it."""
-    section = re.search(r"^##\s+Goal\s*$(.*?)(?=^##\s|\Z)", body, re.S | re.M | re.I)
-    if not section:
-        return 0
-    return len(re.findall(r"^[ \t]*\d+[.)][ \t]+\S", section.group(1), re.M))
-
-
-def task_words(body):
-    """Words outside the checks block: the fenced done-when commands are not prose."""
-    section = re.search(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", body, re.S | re.M | re.I)
-    if section:
-        fence = re.search(r"```(?:bash|sh)?\n(.*?)```", section.group(1), re.S)
-        if fence:
-            body = body.replace(fence.group(0), "", 1)
-    return len(body.split())
-
-
-def task_size(body, cmds):
-    """(words outside the checks block, numbered goal points, checks) for one task."""
-    return task_words(body), task_points(body), len(cmds)
-
-
-def task_size_refusal(body, cmds):
-    """One sentence when the task is bigger than one behaviour, else None.
-
-    Points first, then words, then checks: the first rule the task breaks is the one
-    named, with its count, so the refusal is one sentence however far over it is.
-    """
-    points = task_points(body)
-    if points > TASK_MAX_POINTS:
-        return f"task has {points} numbered goal points (at most {TASK_MAX_POINTS})"
-    words = task_words(body)
-    if words > TASK_MAX_WORDS:
-        return (f"task body has {words} words outside the checks block "
-                f"(at most {TASK_MAX_WORDS})")
-    if len(cmds) > TASK_MAX_CHECKS:
-        return f"task has {len(cmds)} checks (at most {TASK_MAX_CHECKS})"
-    return None
-
-
-def rounds_refusal(value, what):
-    """One sentence when a round budget asked for is over the rule, else None.
-
-    Three rounds is the budget and never a default to raise: a run that has not passed by
-    then goes back to its orchestrator with its findings, to split or re-scope, and no
-    flag carries it further.  A value that is no number is left to the check that says so.
-    """
-    try:
-        rounds = int(value)
-    except (TypeError, ValueError):
-        return None
-    if rounds <= TASK_MAX_ROUNDS:
-        return None
-    return (f"{what} {rounds} is over the budget: {TASK_MAX_ROUNDS} rounds, then a run goes "
-            "back to its orchestrator to split or re-scope")
 
 
 def slugify(title):
@@ -2724,7 +2583,7 @@ class Loop:
         self.wt, self.body, self.cmds, self.context = wt, body, cmds, context
         # the per-round commands and the ones that run alongside the review; without a
         # `# once` line the two are the list and the empty one
-        self.every, self.once = group_commands(cmds)
+        self.every, self.once = taskfile.group_commands(cmds)
         self.base, self.rounds = state["base"], state["rounds"]
         # where the PR goes, which is not always where the branch came from
         self.target = state.get("target") or state["base"]
@@ -3477,7 +3336,7 @@ def resume_review(lp, verified=None):
         # a larger budget is only for asking up to the rule: past it the next step is the
         # orchestrator's, and naming a `--rounds` that is refused would send it nowhere
         onward = (f"resume with ak run resume {lp.run_dir.name} --rounds {pending['round']}"
-                  if pending["round"] <= TASK_MAX_ROUNDS else "split or re-scope the task")
+                  if pending["round"] <= taskfile.TASK_MAX_ROUNDS else "split or re-scope the task")
         reason = (f"{pending.get('reason', 'unfinished review')}; done-when and review are pending "
                   f"{work}at round {pending['round']}, but the round budget ({lp.rounds}) is spent; "
                   f"{onward}")
@@ -6257,10 +6116,10 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     preset_exec = receipt.pop("launch_executor", None)
     preset_rev = receipt.pop("launch_reviewer", None)
     session_at_launch = launch_session(run_dir)
-    meta, body, title = parse_task(task_path)
+    meta, body, title = taskfile.parse_task(task_path)
     ignore_time_keys(run_dir, meta, log)
-    cmds = done_when(body, task_path)
-    sized_words, sized_points, sized_checks = task_size(body, cmds)
+    cmds = taskfile.done_when(body, task_path)
+    sized_words, sized_points, sized_checks = taskfile.task_size(body, cmds)
     if disk_pressure():
         gc(log)     # before this run adds a worktree of its own
     if prior:
@@ -6541,7 +6400,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                  + (f", to be merged into {target}" if target != state["base"] else "") + ")")
     if not state.get("scratch"):
         cmds = with_suite(cmds, wt, target)
-    every, once = group_commands(cmds)
+    every, once = taskfile.group_commands(cmds)
     body += project_lessons(repo, state, log) + repo_rules(wt, state.get("base_sha"), log)
     save_state(run_dir, state)
     context = (f"{where}\n\n{body}\n\n"
@@ -6827,7 +6686,7 @@ def mark_state(run_dir, name, error=None, log=None):
     if not state.get("title"):
         # nothing had written the title yet, and the message the user gets has to carry it
         try:
-            state["title"] = parse_task(run_dir / "task.md")[2]
+            state["title"] = taskfile.parse_task(run_dir / "task.md")[2]
         except (OSError, config.Error):
             pass
     state["state"], state["finished_at"] = name, time.time()
@@ -6863,7 +6722,7 @@ def failed_at_budget(state):
     Deliberately not part of `needs_recovery`: nothing was interrupted here, so this is no
     recovery decision for the menu to raise, for the seat to be told about or for `announce`
     to swallow the finished-run notice over.  An explicit `--rounds` above the saved budget,
-    and no higher than `TASK_MAX_ROUNDS`, continues it and nothing else does -- see
+    and no higher than `taskfile.TASK_MAX_ROUNDS`, continues it and nothing else does -- see
     `cmd_resume`.
     """
     return (state.get("state") == "fail" and not state.get("review_pr")
@@ -6967,9 +6826,9 @@ def continue_line(state, run_dir=None):
     if (state.get("state") == "exhausted" and state.get("review_pending")
             and "gave no verdict twice" in (state.get("error") or "")):
         return f"continue: ak run resume {state['run_id']}"
-    if failed_at_budget(state) and state["rounds"] < TASK_MAX_ROUNDS:
+    if failed_at_budget(state) and state["rounds"] < taskfile.TASK_MAX_ROUNDS:
         # up to the budget and no further: past it the task is split or re-scoped instead
-        return f"continue: ak run resume {state['run_id']} --rounds {TASK_MAX_ROUNDS}"
+        return f"continue: ak run resume {state['run_id']} --rounds {taskfile.TASK_MAX_ROUNDS}"
     if failed_in_integration(state, run_dir):
         return f"continue: ak run resume {state['run_id']}"
     if judged_in_integration(state, run_dir):
@@ -7044,7 +6903,7 @@ def final_check_line(state, cmds):
             return f"final check: {record['outcome']} at landing{sha}"
         if record.get("sha"):
             return f"final check: {record['outcome']} on {record['sha']}"
-    if not group_commands(cmds)[1]:
+    if not taskfile.group_commands(cmds)[1]:
         return "final check: none (no once-commands)"
     return "final check: not run"
 
@@ -7062,7 +6921,7 @@ def result_done_when(cmds, state=None):
         suffix = "(once)"
     marked = []
     for cmd in cmds:
-        bare, once = split_once(cmd)
+        bare, once = taskfile.split_once(cmd)
         if once and "(once" not in bare:
             cmd = f"{bare} {suffix}"
         marked.append(cmd)
@@ -7153,8 +7012,8 @@ def record_decision(run_dir, state, reason, merged=False):
     result = run_dir / "result.md"
     try:
         if state.get("worktree") and Path(state["worktree"]).is_dir():
-            _, body, _ = parse_task(run_dir / "task.md")
-            write_result(run_dir, state, done_when(body, run_dir / "task.md"))
+            _, body, _ = taskfile.parse_task(run_dir / "task.md")
+            write_result(run_dir, state, taskfile.done_when(body, run_dir / "task.md"))
         elif note not in result.read_text():
             # The worktree is gone, so the diff stat cannot be produced again: keep the result
             # as it was written and add what has happened to it since.
@@ -7223,7 +7082,7 @@ def run_project(state):
         return orch.checkout_of(state["project"])
     try:
         path = config.RUNS / state["run_id"] / "task.md"
-        meta = parse_task(path)[0]
+        meta = taskfile.parse_task(path)[0]
     except (KeyError, TypeError, OSError, ValueError, config.Error):
         return task_project(state.get("repo"), state.get("task_file"))
     try:
@@ -10747,8 +10606,8 @@ def error_resumable(state, run_dir):
     if any(not state.get(key) for key in keys):
         return False
     try:
-        _, body, _ = parse_task(Path(run_dir) / "task.md")
-        done_when(body, Path(run_dir) / "task.md")
+        _, body, _ = taskfile.parse_task(Path(run_dir) / "task.md")
+        taskfile.done_when(body, Path(run_dir) / "task.md")
     except (OSError, config.Error):
         return False
     return True
@@ -11455,8 +11314,8 @@ def status_rows(found, width, index=None, cfg=None):
 def status_final_check(directory, state):
     """The run's `final check:` line for `ak run status`, or None when unreadable."""
     try:
-        _, body, _ = parse_task(directory / "task.md")
-        cmds = done_when(body, directory / "task.md")
+        _, body, _ = taskfile.parse_task(directory / "task.md")
+        cmds = taskfile.done_when(body, directory / "task.md")
     except (OSError, config.Error):
         return None
     if not state.get("scratch") and not state.get("review_pr"):
@@ -12753,11 +12612,11 @@ def preflight(run_dir, opts, log):
                               f"review {url} at {info['headRefOid']}; publish findings")
         commands = "AGENTS.md tests: command from the PR checkout, if declared"
     else:
-        meta, body, title = parse_task(run_dir / "task.md")
+        meta, body, title = taskfile.parse_task(run_dir / "task.md")
         state = read_state(run_dir) or {}
         state["title"] = title
         save_state(run_dir, state)
-        every, once = done_when_groups(body, run_dir / "task.md")
+        every, once = taskfile.done_when_groups(body, run_dir / "task.md")
         commands = " ; ".join(every)
         if once:
             commands += f"{' ; ' if commands else ''}once: {' ; '.join(once)}"
@@ -12785,7 +12644,7 @@ def preflight(run_dir, opts, log):
         if opts.get("--anyway"):
             # the run starts regardless; name the run it starts next to, read-only
             rivals = already_under_way(run_dir / "task.md", meta, title,
-                                       done_when(body, run_dir / "task.md"),
+                                       taskfile.done_when(body, run_dir / "task.md"),
                                        exclude=run_dir)
             alongside = rivals[0]["id"] if rivals else None
     log("--- preflight")
@@ -12901,8 +12760,8 @@ def cmd_merge(argv):
     head = state.get("delivery_sha")
     if state.get("pr") and not head:
         raise config.Error(f"{argv[0]}: no recorded delivery SHA; cannot safely retry the merge")
-    _, body, _ = parse_task(run_dir / "task.md")
-    cmds = with_suite(done_when(body, run_dir / "task.md"), state["worktree"],
+    _, body, _ = taskfile.parse_task(run_dir / "task.md")
+    cmds = with_suite(taskfile.done_when(body, run_dir / "task.md"), state["worktree"],
                       state.get("target") or state.get("base"))
     body += (project_lessons(state.get("repo") or None, state, log)
              + repo_rules(state["worktree"], state.get("base_sha"), log))
@@ -13049,7 +12908,7 @@ def resume_run(argv):
         argv = argv[:1]
     if len(argv) != 1 or Path(argv[0]).name != argv[0] or argv[0] in (".", ".."):
         raise config.Error("usage: ak run resume <runid> [--rounds N] [--bg]")
-    refusal = rounds_refusal(n_rounds, "--rounds")
+    refusal = taskfile.rounds_refusal(n_rounds, "--rounds")
     if refusal:
         raise config.Error(refusal)
     config.ensure_dirs()
@@ -13141,13 +13000,13 @@ def resume_run(argv):
     # `needs_recovery`, because a resume of its own records `recovery_pending`, and a second
     # FAIL at the same cap must be refused exactly like the first rather than repeat itself.
     at_budget = failed_at_budget(state)
-    if at_budget and state["rounds"] >= TASK_MAX_ROUNDS:
+    if at_budget and state["rounds"] >= taskfile.TASK_MAX_ROUNDS:
         # the whole budget is spent: no --rounds carries it on, so the task is what changes
         raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
-                           f"{TASK_MAX_ROUNDS} rounds is the budget, so split or re-scope the task")
+                           f"{taskfile.TASK_MAX_ROUNDS} rounds is the budget, so split or re-scope the task")
     if at_budget and (n_rounds is None or n_rounds <= state["rounds"]):
         raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
-                           f"give --rounds N above it, at most {TASK_MAX_ROUNDS}, to continue")
+                           f"give --rounds N above it, at most {taskfile.TASK_MAX_ROUNDS}, to continue")
     # A FAIL recorded by integration below its budget carries its branch and its rounds
     # with it: the work is reviewed and only the merge is left to try again.
     integration_fail = failed_in_integration(state, run_dir)
@@ -13183,8 +13042,8 @@ def resume_run(argv):
     if wt is not None and not wt.is_dir():
         raise config.Error(f"{argv[0]}: its worktree {wt} is gone; there is nothing to resume")
     if not state.get("review_pr"):
-        _, body, _ = parse_task(run_dir / "task.md")
-        done_when(body, run_dir / "task.md")
+        _, body, _ = taskfile.parse_task(run_dir / "task.md")
+        taskfile.done_when(body, run_dir / "task.md")
     if n_rounds is not None:
         if n_rounds < (state.get("rounds") or 0):
             raise config.Error("--rounds cannot reduce the saved round budget")
@@ -13309,8 +13168,8 @@ def record_result(run_dir, state, log=None, cfg=None):
     """
     try:
         if state.get("worktree") and "round_summaries" in state and not state.get("review_pr"):
-            _, body, _ = parse_task(run_dir / "task.md")
-            write_result(run_dir, state, done_when(body, run_dir / "task.md"), log, cfg)
+            _, body, _ = taskfile.parse_task(run_dir / "task.md")
+            write_result(run_dir, state, taskfile.done_when(body, run_dir / "task.md"), log, cfg)
             return
     except (config.Error, OSError) as exc:
         suffix = f"\n\n(the full result could not be written: {exc})"
@@ -13753,8 +13612,8 @@ def review_pr(cfg, run_dir, url, opts, log):
              "no_merge": not is_own, "merged": False, "merge_note": None, "reported": False})
     # a review is a run like any other: its history row carries its task's size, measured
     # off the same body the task file on disk holds
-    sized_words, sized_points, sized_checks = task_size(
-        body, done_when(body, run_dir / "task.md"))
+    sized_words, sized_points, sized_checks = taskfile.task_size(
+        body, taskfile.done_when(body, run_dir / "task.md"))
     state.update(task_words=sized_words, task_points=sized_points,
                  task_checks=sized_checks)
     save_state(run_dir, state)
@@ -13982,8 +13841,8 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
                 if not state:
                     continue
                 try:
-                    run_meta, body, parsed_title = parse_task(directory / "task.md")
-                    found = test_files(done_when(body, directory / "task.md"))
+                    run_meta, body, parsed_title = taskfile.parse_task(directory / "task.md")
+                    found = test_files(taskfile.done_when(body, directory / "task.md"))
                 except (OSError, config.Error):
                     continue
                 if not ours(directory, state, run_meta):
@@ -14008,8 +13867,8 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
         if not process_active(state):
             continue
         try:
-            rival_meta, body, parsed_title = parse_task(directory / "task.md")
-            other_cmds = done_when(body, directory / "task.md")
+            rival_meta, body, parsed_title = taskfile.parse_task(directory / "task.md")
+            other_cmds = taskfile.done_when(body, directory / "task.md")
         except (OSError, config.Error):
             rival_meta, other_cmds, parsed_title = {}, [], None
         if not ours(directory, state, rival_meta):
@@ -14204,15 +14063,15 @@ def job_create(cfg, task_paths, opts, parallel):
         path = Path(raw).expanduser().resolve()
         if not path.is_file():
             raise config.Error(f"no such task file: {path}")
-        meta, body, title = parse_task(path)
+        meta, body, title = taskfile.parse_task(path)
         # reject malformed commands before allocating anything, as well as a task bigger
         # than one behaviour or over the round budget, or whose `repo:` names no home here,
         # which nothing waives, and one that looks already under way in the same repository
         # -- unless --anyway says to start beside it regardless, the way a single run does
-        cmds = done_when(body, path)
+        cmds = taskfile.done_when(body, path)
         infos.append({"path": path, "meta": meta, "title": title, "stem": path.stem,
-                      "name": path.name, "cmds": cmds, "after_raw": config.task_afters(path),
-                      "size_note": task_size_refusal(body, cmds)})
+                      "name": path.name, "cmds": cmds, "after_raw": taskfile.task_afters(path),
+                      "size_note": taskfile.task_size_refusal(body, cmds)})
     seen = {}
     for info in infos:
         if info["name"] in seen:
@@ -14224,7 +14083,7 @@ def job_create(cfg, task_paths, opts, parallel):
         if info["size_note"]:
             raise config.Error(f"{info['path']}: {info['size_note']}; split it into one "
                                "behaviour per task")
-        refusal = rounds_refusal(info["meta"].get("rounds"), "task rounds")
+        refusal = taskfile.rounds_refusal(info["meta"].get("rounds"), "task rounds")
         if refusal:
             raise config.Error(f"{info['path']}: {refusal}")
         repo_line(info["meta"], info["path"])
@@ -14682,7 +14541,7 @@ def job_passed_branch(cfg, job, task, dep):
         return None
     try:
         path = Path(task["task_file"])
-        meta = parse_task(path)[0]
+        meta = taskfile.parse_task(path)[0]
         repo = None if meta.get("from") else task_repo(meta, path)
     except (config.Error, OSError):
         return None
@@ -14694,7 +14553,7 @@ def job_passed_branch(cfg, job, task, dep):
 def job_start_task(cfg, job_dir, task, opts, log):
     """Allocate an ordinary run directory and launch it; the caller marks running first."""
     task_path = Path(task["task_file"])
-    _, _, title = parse_task(task_path)
+    _, _, title = taskfile.parse_task(task_path)
     run_dir = job_allocate_run_dir(title)
     extra = task.get("starting_branch")
     text = task_path.read_text()
@@ -15427,7 +15286,7 @@ def cmd_job_resume(argv):
     if len(argv) >= 3 and argv[1] == "--rounds":
         if not (len(argv) == 3 and argv[2].isdigit() and int(argv[2]) > 0):
             raise config.Error("usage: ak run resume ID [--rounds N] [--bg]")
-        refusal = rounds_refusal(argv[2], "--rounds")
+        refusal = taskfile.rounds_refusal(argv[2], "--rounds")
         if refusal:
             raise config.Error(refusal)
         argv = [argv[0]]
@@ -15546,7 +15405,7 @@ def main(argv):
                            "ak run stop <runid> [--keep] | ak run clean <runid> | ak run gc")
     if opts["--rounds"] is not None and not (opts["--rounds"].isdigit() and int(opts["--rounds"]) > 0):
         raise config.Error(f"--rounds must be a positive integer (got {opts['--rounds']!r})")
-    refusal = rounds_refusal(opts["--rounds"], "--rounds")
+    refusal = taskfile.rounds_refusal(opts["--rounds"], "--rounds")
     if refusal:
         raise config.Error(refusal)
     parallel = None
@@ -15590,18 +15449,18 @@ def main(argv):
         task_path = Path(positional[0]).expanduser().resolve()
         if not task_path.is_file():
             raise config.Error(f"no such task file: {task_path}")
-        meta, body, title = parse_task(task_path)
+        meta, body, title = taskfile.parse_task(task_path)
         # reject malformed commands before allocating a run directory, as well as a task
         # bigger than one behaviour or over the round budget, or whose `repo:` names no home
         # here, which nothing waives, and a job that looks already under way in the same
         # repository -- unless --anyway says to start regardless.  A run's own child launch
         # never runs the already-under-way check.
-        cmds = done_when(body, task_path)
-        refusal = task_size_refusal(body, cmds)
+        cmds = taskfile.done_when(body, task_path)
+        refusal = taskfile.task_size_refusal(body, cmds)
         if refusal:
             print(f"ak run: {refusal}; split it into one behaviour per task", file=sys.stderr)
             return 2
-        refusal = rounds_refusal(meta.get("rounds"), "task rounds")
+        refusal = taskfile.rounds_refusal(meta.get("rounds"), "task rounds")
         if refusal:
             print(f"ak run: {refusal}", file=sys.stderr)
             return 2
