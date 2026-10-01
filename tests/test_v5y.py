@@ -162,6 +162,9 @@ class Writes(Sandbox):
     def setUp(self):
         super().setUp()
         offline(self)
+        # An empty fake checkout still inherits the enclosing repository's Git state.
+        self.stack.enter_context(patch.object(
+            run, "git_out", side_effect=AssertionError("real Git in a fake checkout")))
         # a launch here is a top-level one behind the admission gate, whatever run the suite
         # itself runs under: a nested or ungated run claims its slot at once, never `waiting`
         self.stack.enter_context(patch.dict(os.environ, {
@@ -347,6 +350,7 @@ class Writes(Sandbox):
                 patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "checkout_for", return_value=wt), \
                 patch.object(run, "git", return_value=""), \
+                patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "make_worktree", return_value=(wt, "ak/test")), \
                 patch.object(run, "exclude_junk", return_value=None), \
                 patch.object(gc, "disk_pressure", return_value=False), \
@@ -444,6 +448,7 @@ class Writes(Sandbox):
                 patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "checkout_for", return_value=wt), \
                 patch.object(run, "git", return_value=""), \
+                patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "make_worktree", return_value=(wt, "ak/test")), \
                 patch.object(run, "exclude_junk", return_value=None), \
                 patch.object(gc, "disk_pressure", return_value=False), \
