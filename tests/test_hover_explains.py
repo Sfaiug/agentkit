@@ -114,6 +114,65 @@ class UsagePace(unittest.TestCase):
 
 
 class Wrapping(unittest.TestCase):
+    def test_full_lists_leave_room_for_the_whole_explanation_without_scrolling(self):
+        body = [f"  model-{number:02}" for number in range(40)]
+        long = "model-00: " + " ".join(["a complete explanation"] * 7)
+        cases = (("add", "⏎ add", TIPS["⏎ add"]),
+                 ("matrix", "↑↓←→ move", TIPS["↑↓ move"]),
+                 ("row", "model-00", long))
+        for rows in (16, 24):
+            for kind, item, sentence in cases:
+                with self.subTest(rows=rows, screen=kind):
+                    out, before, step, restored = io.StringIO(), [], 0, False
+
+                    def read(*_args, **_kw):
+                        nonlocal step, restored
+                        if restored:
+                            return terminal.Key("esc")
+                        if kind == "add" and step < 2:
+                            step += 1
+                            return terminal.Key("enter")
+                        grid = played(out.getvalue(), rows)
+                        keys = terminal._KEYS
+                        if not before:
+                            before[:] = texts(grid)
+                            terminal._POINTER = terminal.Key("point", "", *at(grid, item))
+                            return terminal._POINTER
+                        if terminal._POINTER is not None:
+                            self.assertEqual(texts(grid)[:keys - 1], before[:keys - 1])
+                            self.assertEqual(explanation(grid, keys), sentence)
+                            self.assertTrue(texts(grid)[0].startswith("agentkit · config"))
+                            terminal._POINTER = None
+                            return terminal.Key("point", "", 1, 2)
+                        self.assertEqual(texts(grid)[:len(before)], before)
+                        self.assertFalse(any(texts(grid)[len(before):]))
+                        restored = True
+                        return terminal.Key("esc")
+
+                    def matrix():
+                        keys = "↑↓←→ move   ⏎ mark   esc back"
+                        places = {number: (number, []) for number in range(len(body))}
+                        top = 0
+                        while True:
+                            act, _, _, top = menu.matrix_key(
+                                "config", body, places, list(range(len(body))), 0, top, "", keys,
+                                tips={(0, None): long} if kind == "row" else None)
+                            if act == "back":
+                                return
+
+                    choices = [(number, (f"model-{number:02}",)) for number in range(40)]
+                    with patch.object(sys, "stdout", out), \
+                            patch.dict(os.environ, {"LC_ALL": "C.UTF-8"}), \
+                            patch.object(terminal, "width", return_value=40), \
+                            patch.object(terminal, "height", return_value=rows), \
+                            patch.object(terminal, "colour_depth", return_value=0), \
+                            patch.object(terminal, "taken", return_value=True), \
+                            patch.object(terminal, "read_key", side_effect=read), \
+                            patch.multiple(terminal, _POINTER=None, _SPOTS={}, _POINTED=terminal.Spot(),
+                                           _SHOWN=[], _PAINTED=[], _TIPS={}, _KEYS=None), \
+                            patch.object(menu, "_add_choices", return_value=choices):
+                        menu.config_add({}) if kind == "add" else matrix()
+
     def test_relighting_adds_and_clears_wrapped_lines_without_moving_the_rows_above(self):
         lines = ["agentkit", "a rule", "  a row", "", "  s solo   esc back"]
         spots = {3: ("row", []), **terminal.key_spots(lines[-1:], 5)}

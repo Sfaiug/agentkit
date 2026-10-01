@@ -215,6 +215,8 @@ effort, on `n` a model or a role's mark, and a provider or a subscription in the
 lists `+ add` and `− remove` open -- the key line says what it is in one plain
 sentence, in place of the keys: starting on the same row and wrapping at word
 boundaries onto further lines, never cut. The rows above stay in place. The keys
+and their explanations have room reserved before the list is drawn, so a full
+list never scrolls when the pointer rests on a key or a row. The keys
 come back when the pointer leaves it, and any key brings them back too. A state
 word, a heading naming no switches, a usage row and a provider's name only
 explain: nothing lights on them and a click there does nothing of its own (`terminal.Spot`); a key-line

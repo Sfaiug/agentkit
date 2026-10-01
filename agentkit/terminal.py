@@ -566,6 +566,15 @@ def key_line(text, term_width=None):
     return ["  " + line for line in lines]
 
 
+def key_height(text, tips=None, term_width=None):
+    """Reserve the tallest explanation before hovering, so the rows above never move."""
+    sentences = [TIPS.get(f"{UTF8_KEYS.get(key, key)} {word}", "")
+                 for key, word in key_parts(text)] + list((tips or {}).values())
+    return max([len(key_line(text, term_width)),
+                *(len(wrap(sentence, layout_width(term_width) - 2))
+                  for sentence in sentences if sentence)])
+
+
 def progress_bar(done, total, narrow=False):
     """`████░░░░ 4/7`: tasks merged, passed or skipped of all tasks. No fake bar."""
     total = max(0, int(total or 0))
