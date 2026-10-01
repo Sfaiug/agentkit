@@ -1,11 +1,14 @@
 """A live update whose install.sh failed is retried by the next tick until it passes.
 
 The pull already moved HEAD to origin's main, so the tick has nothing to pull: it runs
-install.sh again for the code checked out, says the failure once, and says the pass.
+install.sh again for the code checked out, origin answering or not, says the failure once, and
+says the pass.  An update running meanwhile is waited for, so its pass cannot clear what the
+retry still owes.
 
 Offline throughout: origin is a throwaway bare repository, ~/agentkit is its clone under a
-temporary HOME, and install.sh is a fake committed there that fails while `broken` sits beside
-the clone.  The real ~/agentkit and its origin are never read or written here.
+temporary HOME, and install.sh is a fake committed there that fails when `broken` sat beside the
+clone as it started, and waits while `hold` does.  The real ~/agentkit and its origin are never
+read or written here.
 """
 
 from contextlib import ExitStack
@@ -14,6 +17,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -21,8 +26,13 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, update
 
-INSTALL = ('#!/bin/sh\necho installed >>"$(dirname "$0")/../installs"\n'
-           '[ ! -e "$(dirname "$0")/../broken" ] || { echo broken; exit 3; }\n')
+INSTALL = """#!/bin/sh
+d="$(dirname "$0")/.."
+[ ! -e "$d/broken" ] || failed=1
+echo installed >>"$d/installs"
+while [ -e "$d/hold" ]; do sleep 0.01; done
+[ -z "$failed" ] || { echo broken; exit 3; }
+"""
 
 
 def git(where, *args):
@@ -88,11 +98,32 @@ class GoLiveRetriesInstall(unittest.TestCase):
         self.assertEqual(self.installs(), 2)
         self.assertFalse([cmd for cmd in ran if "pull" in cmd], ran)
         (self.root / "broken").unlink()
-        said, ran = self.tick()                  # the retry that passes says so
+        git(self.clone, "remote", "set-url", "origin", str(self.root / "gone.git"))
+        said, ran = self.tick()                  # offline, retried still; the pass says so
         self.assertEqual(said, [f"agentkit is live at {self.new[:12]}"])
         self.assertEqual(self.installs(), 3)
         self.assertFalse([cmd for cmd in ran if "pull" in cmd], ran)
         self.assertEqual(self.tick()[0], [])     # passed: no further install
+        self.assertEqual(self.installs(), 3)
+
+    def test_an_update_running_meanwhile_cannot_clear_the_retry(self):
+        # `ak` pulls and installs; a tick comes while that install runs, and its own fails
+        (self.root / "hold").write_text("")
+        first = threading.Thread(target=update.update_agentkit)
+        first.start()
+        while self.installs() < 1:
+            time.sleep(0.01)
+        (self.root / "broken").write_text("")
+        tick = threading.Thread(target=update.go_live, args=(lambda line: None,))
+        tick.start()
+        deadline = time.monotonic() + 2          # a tick that did not wait installs at once
+        while self.installs() < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        (self.root / "hold").unlink()
+        first.join()
+        tick.join()
+        self.assertEqual(self.installs(), 2)
+        self.tick()                              # the tick's failure is retried
         self.assertEqual(self.installs(), 3)
 
 
