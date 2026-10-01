@@ -10349,6 +10349,8 @@ def status_rows(found, width, index=None, cfg=None):
         total = state.get("rounds")
         going = state.get("state") in ("queued", "running")
         rnd = min(done + 1, total) if going and total else done
+        if own_pr_wait_note(state) or state.get("own_pr_round_pending"):
+            rnd = state.get("own_pr_round_pending") or done
         rounds = f"round {rnd}/{total or '?'}"
         if state.get("extended"):
             rounds += f" (+{state['extended']})"
@@ -10467,6 +10469,8 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
         lines.append(f"  {merge_turn_note(state)}")
     elif dep_wait_note(state):
         lines.append(f"  {dep_wait_note(state)}")
+    elif own_pr_wait_note(state):
+        lines.append(f"  {own_pr_wait_note(state)}")
     elif gate_turn_note(state):
         lines.append(f"  {gate_turn_note(state)}")
     if merge_hold_note(state):
@@ -10677,6 +10681,8 @@ def cmd_status(argv):
                 print(f"  {merge_turn_note(state)}")
             elif dep_wait_note(state):
                 print(f"  {dep_wait_note(state)}")
+            elif own_pr_wait_note(state):
+                print(f"  {own_pr_wait_note(state)}")
             elif gate_turn_note(state):
                 print(f"  {gate_turn_note(state)}")
             if merge_hold_note(state):
@@ -10745,6 +10751,8 @@ def cmd_status(argv):
                     print(f"  {merge_turn_note(state)}")
                 elif dep_wait_note(state):
                     print(f"  {dep_wait_note(state)}")
+                elif own_pr_wait_note(state):
+                    print(f"  {own_pr_wait_note(state)}")
                 elif gate_turn_note(state):
                     print(f"  {gate_turn_note(state)}")
                 elif blocked_note(state):
@@ -10949,6 +10957,7 @@ def resume_holds_tree(state, run_dir=None):
         return False
     try:
         return bool(needs_recovery(state) or failed_at_budget(state)
+                    or (state.get("state") == "error" and state.get("own_pr_round_pending"))
                     or failed_in_integration(state, run_dir)
                     or judged_in_integration(state, run_dir))
     except (OSError, ValueError, TypeError, AttributeError):
@@ -12554,7 +12563,9 @@ def post_review(lp, url, verdict):
         return False
     if current["headRefOid"] != head or current.get("state") != "OPEN":
         lp.state["review_stale"] = True
-        lp.state["review_error"] = "PR head changed or closed; discarded review; watcher will re-queue"
+        lp.state["review_error"] = "PR head changed or closed; discarded review"
+        if not lp.state.get("own_pr"):
+            lp.state["review_error"] += "; watcher will re-queue"
         lp.log(f"WARN {lp.state['review_error']}")
         lp.write()
         return False
@@ -12625,7 +12636,89 @@ def merge_own_pr(lp, url, head):
                         f"{(out or '')[-400:]}", failed=True)
 
 
+def own_pr_wait_note(state):
+    if (state.get("state") == "running" and state.get("own_pr")
+            and state.get("own_pr_wait") == state.get("head_sha") and state.get("head_sha")):
+        return f"waiting for the {launched_session(state)} seat to push fixes to its PR"
+    return ""
+
+
+def tell_own_pr_round(cfg, run_dir, state, log):
+    """Hand back this FAIL without settling the run or collecting its checkout."""
+    rnd = len(state["round_summaries"])
+    session = launched_session(state)
+    with delivery_lock(run_dir):
+        said = read_state(run_dir) or state
+        if not same_attempt(state, said) or said.get("own_pr_round_told") == rnd:
+            return
+        line = handback_line({**state, "state": "fail"}, run_dir, cfg).replace(
+            "finished FAIL:", f"review round {rnd}/{state['rounds']} FAIL:", 1).replace(
+            "Decide the next step.", "Fix the findings and push to this PR; this run reviews the new head.")
+        with launcher_world(session) as live:
+            if live and watch.type_at_prompt(
+                    orch.find(session) or {"name": session}, line, log, cfg=cfg,
+                    typed=said.get("own_pr_round_typed"),
+                    receipt=lambda mark: mark_delivery(run_dir, state, own_pr_round_typed=mark)):
+                mark_delivery(run_dir, state, own_pr_round_told=rnd, own_pr_round_typed=None)
+
+
+def wait_for_own_pr(cfg, run_dir, url, state, log):
+    """The seat fixes the reviewed head; a push, close or stop ends this wait."""
+    state.update(state="running", **process_owner(), finished_at=None,
+                 step="waiting for the seat's push", step_at=time.time())
+    save_state(run_dir, state)
+    history.open_step(run_dir.name, state["step"], log=log)
+    log(own_pr_wait_note(state))
+    while True:
+        stop_check(run_dir)
+        if state.get("verdict") == "FAIL":
+            tell_own_pr_round(cfg, run_dir, state, log)
+        try:
+            info = pr_view(url)
+        except Stopped:
+            raise
+        except config.Error as exc:
+            log(f"WARN cannot check the PR head; retrying: {exc}")
+            time.sleep(SLOT_POLL)
+            continue
+        if info.get("state") != "OPEN":
+            state.update(state="fail", error=f"{url} is {info.get('state', '?')}; review ended",
+                         finished_at=time.time())
+            state.pop("own_pr_wait", None)
+            save_state(run_dir, state)
+            _, body, _ = taskfile.parse_task(run_dir / "task.md")
+            write_result(run_dir, state, taskfile.done_when(body, run_dir / "task.md"), log, cfg)
+            return False
+        if info["headRefOid"] != state["head_sha"]:
+            return True
+        time.sleep(SLOT_POLL)
+
+
 def review_pr(cfg, run_dir, url, opts, log):
+    """Own PRs wait for fixes between reviews; other authors get a single review."""
+    while True:
+        state = read_state(run_dir) or {}
+        if state.get("own_pr_wait") and state.get("own_pr"):
+            if not wait_for_own_pr(cfg, run_dir, url, state, log):
+                return state
+        summaries = state.get("round_summaries") or []
+        if (state.get("own_pr") and state.get("own_pr_round_pending") and summaries
+                and summaries[-1]["round"] == state["own_pr_round_pending"]):
+            # A durable verdict still owes its post and delivery, even in round three.
+            _, body, _ = taskfile.parse_task(run_dir / "task.md")
+            cmds = taskfile.done_when(body, run_dir / "task.md")
+            state.update(state="running", **process_owner(), error=None, finished_at=None)
+            save_state(run_dir, state)
+            lp = Loop(cfg, run_dir, state, opts, log, Path(state["worktree"]), body,
+                      cmds, body, [])
+            state = settle_pr_round(lp, url, pr_view(url))
+        else:
+            state = review_pr_round(cfg, run_dir, url, opts, log)
+        if not state.get("own_pr_wait"):
+            return state
+
+
+def review_pr_round(cfg, run_dir, url, opts, log):
     """Check out the PR head, have the reviewer judge it, post the verdict, land or offer."""
     receipt = read_state(run_dir) or {}
     workers, reviewers = config.role_groups(cfg, run_workers(cfg, receipt),
@@ -12638,9 +12731,6 @@ def review_pr(cfg, run_dir, url, opts, log):
     if info.get("state") != "OPEN":
         raise config.Error(f"{url} is {info.get('state', '?')}, not open")
     prior = read_state(run_dir) or {}
-    if prior.get("worktree") and (prior.get("head_sha") != info["headRefOid"] or
-                                 git(prior["worktree"], "rev-parse", "HEAD") != info["headRefOid"]):
-        raise config.Error("the PR head or review checkout changed; existing work is kept for inspection")
     if "own_pr" in prior:
         # The writer was captured at launch, in preflight or the first attempt: a
         # session record rewritten since must not replace it, or the reviewer's
@@ -12657,13 +12747,29 @@ def review_pr(cfg, run_dir, url, opts, log):
     if is_own and not orchestrator:
         raise config.Error("no session record names the writer of this PR; "
                            "review of the seat's own PR needs its orchestrator")
+    summaries = prior.get("round_summaries", []) if is_own else []
+    n_rounds = taskfile.TASK_MAX_ROUNDS if is_own else 1
+    if is_own and len(summaries) >= n_rounds:
+        raise config.Error("three review rounds spent; split or re-scope the PR")
+    advancing = bool(summaries and (summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale"))
+                     and prior.get("head_sha") != info["headRefOid"])
+    if prior.get("worktree") and (
+            git(prior["worktree"], "rev-parse", "HEAD") != prior.get("head_sha")
+            or (prior.get("head_sha") != info["headRefOid"] and not advancing)):
+        raise config.Error("the PR head or review checkout changed; existing work is kept for inspection")
+    previous = saved_findings(run_dir, prior) if is_own else ""
     # Persist before fetch/checkout/provider work: the PR can move at any of those steps.
-    save_state(run_dir, stamp_origin({**(read_state(run_dir) or {}), "run_id": run_dir.name,
+    receipt = stamp_origin({**(read_state(run_dir) or {}), "run_id": run_dir.name,
                          "state": "running", **process_owner(),
                          "launched_session": session_at_launch,
-                         "review_pr": url, "head_sha": info["headRefOid"],
+                         "review_pr": url, "head_sha": prior["head_sha"] if advancing else info["headRefOid"],
                          "own_pr": is_own, "own_orchestrator": orchestrator if is_own else None,
-                         "started_at": time.time(), "review_posted": False}))
+                         "started_at": prior.get("started_at") or time.time(), "review_posted": False})
+    receipt.pop("own_pr_wait", None)
+    receipt.pop("own_pr_round_typed", None)
+    if advancing:
+        receipt["review_session"] = None
+    save_state(run_dir, receipt)
     owner, name, number = PR_PARTS.match(url).groups()
     repo = checkout_for(f"{owner}/{name}", log)
     if gc.disk_pressure():
@@ -12676,6 +12782,8 @@ def review_pr(cfg, run_dir, url, opts, log):
         refuse_pr_size(repo, base_sha, head)
     if prior.get("worktree"):
         wt, branch = Path(prior["worktree"]), prior["branch"]
+        if advancing:
+            git(wt, "reset", "--hard", head)
     else:
         wt, branch = make_worktree(repo, run_dir.name, f"pr-{number}", head)
     tests = declared_suite(wt, base)
@@ -12690,16 +12798,16 @@ def review_pr(cfg, run_dir, url, opts, log):
             f"its AGENTS.md, README, tests and conventions, and the intent the PR states. {wrote}\n\n"
             f"## The PR says\n{(info.get('body') or '(no description)').strip()}\n\n"
             "## Done when\n```bash\n" + (tests or "true   # AGENTS.md declares no tests:") + "\n```\n")
-    (run_dir / "task.md").write_text(f"---\nrepo: {repo}\nrounds: 1\n---\n{body}")
+    (run_dir / "task.md").write_text(f"---\nrepo: {repo}\nrounds: {n_rounds}\n---\n{body}")
     state = stamp_origin({**(read_state(run_dir) or {}), "run_id": run_dir.name,
              "title": title, "task": str(run_dir / "task.md"),
              "launched_session": session_at_launch, "repo": str(repo), "scratch": False,
              "review_pr": url, "pr": url, "head_sha": head, "author": info["author"],
              "own_pr": is_own, "own_orchestrator": orchestrator if is_own else None,
              "base": f"origin/{base}", "target": base, "base_sha": base_sha, "branch": branch,
-             "worktree": str(wt), "executor": None, "reviewer": None, "rounds": 1,
-             "state": "running", "verdict": None, **process_owner(), "started_at": time.time(),
-             "finished_at": None, "round_summaries": [], "findings": "", "merge_method": "squash",
+             "worktree": str(wt), "executor": None, "reviewer": None, "rounds": n_rounds,
+             "state": "running", "verdict": None, **process_owner(), "started_at": receipt["started_at"],
+             "finished_at": None, "round_summaries": summaries, "findings": previous, "merge_method": "squash",
              "no_merge": not is_own, "merged": False, "merge_note": None, "reported": False})
     # a review is a run like any other: its history row carries its task's size, measured
     # off the same body the task file on disk holds
@@ -12707,6 +12815,9 @@ def review_pr(cfg, run_dir, url, opts, log):
         body, taskfile.done_when(body, run_dir / "task.md"))
     state.update(task_words=sized_words, task_points=sized_points,
                  task_checks=sized_checks)
+    if is_own:
+        # Kept through post failures and cleared only when this verdict is settled.
+        state["own_pr_round_pending"] = len(summaries) + 1
     save_state(run_dir, state)
     join_session_project(session_at_launch)     # a review is a launch too, and votes
     history_start(state, log)
@@ -12761,7 +12872,7 @@ def review_pr(cfg, run_dir, url, opts, log):
     save_state(run_dir, state)
     context = f"Repo checkout: {wt}\nBranch: {branch} (PR #{number} head, based on origin/{base})\n\n{body}"
     lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, context, spares)
-    lp.rnd = 1
+    lp.rnd += 1
     lp.round_dir.mkdir(parents=True, exist_ok=True)
     if cmds:
         lp.step("done-when")
@@ -12779,18 +12890,35 @@ def review_pr(cfg, run_dir, url, opts, log):
         summary = (f"PR #{number} by {info['author']}: {info['title']}. agentkit executed nothing; "
                    "review the author's diff.")
     try:
-        verdict = review(lp, summary, ok, dw_log)
+        if summaries:
+            preface = ("## Previous review findings\nIn this re-review, first rule on each previous "
+                       "finding: fixed, upheld or dropped, and why; then report anything new.\n\n"
+                       + previous)
+            verdict = review(lp, summary, ok, dw_log, preface=preface)
+        else:
+            verdict = review(lp, summary, ok, dw_log)
     except Blocked as exc:
         # No reviewer's harness can run: the review ends `blocked` on the harness's own line,
         # as a task run does, and not in an `error` the tick would retry into that harness.
         log(f"BLOCKED {exc}")
         state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
                       "blocked": exc.section, "finished_at": time.time()})
+        state.pop("own_pr_round_pending", None)
         save_state(run_dir, state)
         write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
         return state
-    restore_review_checkout(lp, "reviewer")
-    if not post_review(lp, url, verdict):
+    return settle_pr_round(lp, url, info)
+
+
+def settle_pr_round(lp, url, info):
+    """Finish a recorded round without spending another review on the same head."""
+    cfg, run_dir, state, log, cmds = lp.cfg, lp.run_dir, lp.state, lp.log, lp.cmds
+    verdict, head, is_own = state["verdict"], state["head_sha"], state.get("own_pr")
+    number = PR_PARTS.match(url).groups()[-1]
+    if not state.get("merged"):
+        restore_review_checkout(lp, "reviewer")
+    posted = state.get("review_posted") or post_review(lp, url, verdict)
+    if not posted and not (is_own and state.get("review_stale")):
         # the job was a review on GitHub; a verdict nobody can read there is not one, so the
         # run is an error -- no merge offer -- and `ak watch` launches it again next tick
         state["error"] = f"the review was not posted to {url}: {state.get('review_error')}"
@@ -12799,7 +12927,7 @@ def review_pr(cfg, run_dir, url, opts, log):
         write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
         log(f"ERROR {state['error']}")
         return state
-    if verdict == "PASS":
+    if verdict == "PASS" and posted and not state.get("merged"):
         green, why = checks(lp, url)
         current, _ = gh_json(run_dir, "pr", "view", url, "--json", "headRefOid,state")
         if (green and isinstance(current, dict) and current.get("headRefOid") == head
@@ -12823,8 +12951,17 @@ def review_pr(cfg, run_dir, url, opts, log):
             else:
                 state["merge_note"] = f"not offered for merge: {why}"
                 log(f"WARN {state['merge_note']}")
-    state["state"] = "pass" if verdict == "PASS" else "fail"
-    state["finished_at"] = time.time()
+    # An obsolete verdict still supplies the next round's findings. The push wait
+    # observes the moved head or closure immediately, including after a post retry.
+    if is_own and (verdict == "FAIL" or not posted) and lp.rnd < lp.rounds:
+        state.update(state="running", finished_at=None, own_pr_wait=head)
+        state.pop("recovery_pending", None)
+    else:
+        state["state"] = "pass" if verdict == "PASS" and posted else "fail"
+        state["finished_at"] = time.time()
+        if not posted:
+            state["error"] = state["review_error"]
+    state.pop("own_pr_round_pending", None)
     save_state(run_dir, state)
     write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
     return state

@@ -1925,6 +1925,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
 
         def quiet(run_dir, state):
             """How long this run has gone without a write, from one draw's map or from disk."""
+            if run_mod.own_pr_wait_note(state) and run_mod.process_active(state):
+                return None
             if silent_map is not None:
                 return silent_map.get(run_dir.name)
             return menu_mod.silent_for_run(run_dir, state, now=at)
@@ -3506,11 +3508,12 @@ def stall_clock(run_dir, state):
     the loop that recorded the wait is owed it: a resume after its death is a new loop, and
     its silence is its own.  A live loop waiting for its repository's merge turn
     (`run.merge_turn`), to take back its lent turn, or for its dependency to merge
-    (`run.wait_for_dependency`), is silent for as long as another run takes to land,
+    (`run.wait_for_dependency`), or for its seat to push PR fixes, is silent for as long as that takes,
     so its clock starts now, every tick, until the wait is over.
     """
     from . import run as run_mod
     if ((run_mod.merge_turn_note(state) or run_mod.dep_wait_note(state)
+            or run_mod.own_pr_wait_note(state)
             or run_mod.merge_retaking(state))
             and run_mod.process_active(state)):
         return time.time()
