@@ -14,10 +14,16 @@ and `c` on a terminal read keys, and end at their key line. The commit hash is n
 the header.
 
 The rule is ak's one progress indicator, and otherwise just a line. When `ak`
-updates itself at start the frame says `agentkit · updating` and the rule fills
+updates itself at start the main frame says `agentkit · updating` and the rule fills
 from the left in the accent colour as each of fetch, pull and install begins, and
 wholly once they are done; the filled part is drawn heavy (`━`), so it reads
-where there is no colour. A screen whose content is still being fetched has a
+where there is no colour. The check and update run in a detached process behind
+the first frame; keys still answer within 100 ms, and leaving lets the update finish.
+Once the code has moved, the menu starts again with the same seat highlighted as
+soon as its main screen is up. An open sub-screen, including a typed draft, stays
+until the owner comes back. A failed update says why as a notice. On a client,
+the detached update starts before ssh connects; the next `ak` takes the new code.
+Overlays and dry runs skip it. A screen whose content is still being fetched has a
 segment glide along it (Motion). No other screen draws a bar for either.
 
 Helpers: `terminal.header_line`, `terminal.rule_line`, `terminal.key_line`,

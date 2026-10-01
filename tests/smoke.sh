@@ -4931,8 +4931,11 @@ grep -q 'install.sh: tmux rejected `set -g mouse on` on the agentkit server' \
               || { no "27b install.sh tmux options"; grep -i tmux "$WORK/install-tmux.log" "$WORK/install-tmux-bad.log" 2>/dev/null | sed 's/^/      /' | head -4; }
 
 # --- 28: watcher correctness and honest delivery, fake gh only ----------------
-if python3 "$REPO/tests/test_v4c.py" >"$WORK/v4c.log" 2>&1; then
-  ok "28 watcher SHA, backoff, dry-run; required checks, delivery, roles and session age"
+if { python3 "$REPO/tests/test_v4c.py" &&
+     python3 "$REPO/tests/test_reviewer_edits_never_land.py" &&
+     python3 "$REPO/tests/test_red_target.py" &&
+     python3 "$REPO/tests/test_docs.py"; } >"$WORK/v4c.log" 2>&1; then
+  ok "28 watcher SHA, backoff, dry-run; required checks, delivery, roles, session age; reviewer edits archived and undone"
 else
   no "28 v4c regressions"; tail -30 "$WORK/v4c.log"
 fi
@@ -5716,6 +5719,11 @@ else
   no "48 end-of-turn rule"; tail -30 "$WORK/stop-hook.log"
 fi
 { python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py" && python3 "$REPO/tests/test_docs.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 knowledge stays home: no boundary count in tests/test_boundaries.py above its max, ARCHITECTURE.md maps every module and harness in under 8 KB, and the docs match the interface" || { no "49 boundaries, map and docs"; tail -30 "$WORK/boundaries.log"; }
+if python3 "$REPO/tests/test_merge_trailer.py" >"$WORK/merge-trailer.log" 2>&1; then
+  ok "49a landed commits name the tree whose declared suite passed"
+else
+  no "49a merge suite trailer"; tail -30 "$WORK/merge-trailer.log"
+fi
 if { python3 "$REPO/tests/test_regression_fails_before.py" &&
      python3 "$REPO/tests/test_probe_resume.py" &&
      python3 "$REPO/tests/test_followup_runs.py" && python3 "$REPO/tests/test_red_target.py" &&
