@@ -125,6 +125,19 @@ class DeadLoopCardAndPark(unittest.TestCase):
         self.assertTrue(state["deaths"][-1]["parked"])
         self.assertEqual(len(self.cards), 1, "the park is told once")
 
+    def test_a_death_the_tick_held_is_counted_once_by_the_look_after_its_hold(self):
+        # the tick's clock runs 601s behind the host clock reap reads, so the second death's
+        # ten-minute hold is already over when the tick's own reap looks at it
+        start = self.now - 601
+        self.tick(start)
+        self.dies()
+        self.tick(start + 60)
+        self.tick(start + 720)
+        state = run.read_state(self.dir)
+        self.assertEqual(len(state["deaths"]), 2)
+        self.assertEqual(len(self.resumed), 2, "a second death is resumed, not parked")
+        self.assertEqual(self.cards, [])
+
 
 if __name__ == "__main__":
     unittest.main()

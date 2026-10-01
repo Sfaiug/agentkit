@@ -9273,10 +9273,13 @@ def reap(run_dir, state, memory_probe=None):
                 if status == "running":
                     stop_run_tree(state)
                 interrupt(state, reason)
-                if tick_resumes(state):
+                last = (state.get("deaths") or [None])[-1]
+                if tick_resumes(state) and not (isinstance(last, dict) and not last.get("resumed_at")
+                                                and last.get("pid") == state.get("pid")):
                     # Whoever notices the death records it, so the tick's dead-loop pass reads
                     # this record as a loop to carry on rather than as an interruption somebody
-                    # was already told about -- and so it counts towards the third death.
+                    # was already told about -- and so it counts towards the third death. Once:
+                    # one the tick recorded and held for its backoff is already there.
                     state["deaths"] = [*(state.get("deaths") or []),
                                        {"at": time.time(), "pid": state.get("pid"),
                                         "reason": reason}]
