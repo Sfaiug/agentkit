@@ -50,12 +50,14 @@ CREATE TABLE IF NOT EXISTS runs (
     task_points INTEGER,
     task_checks INTEGER,
     task_files TEXT,
-    orchestrator TEXT
+    orchestrator TEXT,
+    changed_lines INTEGER
 )
 """
 
 MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
-              ("task_checks", "INTEGER"), ("task_files", "TEXT"), ("orchestrator", "TEXT"))
+              ("task_checks", "INTEGER"), ("task_files", "TEXT"), ("orchestrator", "TEXT"),
+              ("changed_lines", "INTEGER"))
 
 
 def path():
@@ -177,7 +179,7 @@ def update_run(run_id, *, log=None, **fields):
                "started_at", "finished_at", "executor_seconds", "done_when_seconds",
                "reviewer_seconds", "merge_seconds", "total_seconds", "executor_tokens",
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
-               "task_checks", "task_files", "orchestrator"}
+               "task_checks", "task_files", "orchestrator", "changed_lines"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -242,13 +244,13 @@ def close_step(run_id, at=None, *, keep=False, log=None):
 def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                finished_at=None, started_at=None, peak_rss_mb=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
-               log=None):
+               changed_lines=None, log=None):
     """Record the row's final lifecycle fields and duration."""
     finished_at = time.time() if finished_at is None else finished_at
     values = {"final_state": final_state, "verdict": verdict, "rounds_used": rounds_used,
               "finished_at": finished_at, "peak_rss_mb": peak_rss_mb,
               "executor": executor, "reviewer": reviewer, "session": session, "repo": repo,
-              "task_files": task_files}
+              "task_files": task_files, "changed_lines": changed_lines}
     values = {key: value for key, value in values.items() if value is not None}
     peak = values.pop("peak_rss_mb", None)
     if started_at is not None:
@@ -337,7 +339,7 @@ def _index():
         "rounds_used", "final_state", "verdict", "started_at", "finished_at",
         "executor_seconds", "done_when_seconds", "reviewer_seconds", "merge_seconds",
         "total_seconds", "executor_tokens", "reviewer_tokens", "peak_rss_mb", "session",
-        "task_words", "task_points", "task_checks", "task_files", "orchestrator"))}
+        "task_words", "task_points", "task_checks", "task_files", "orchestrator", "changed_lines"))}
 
 
 def active_seconds(row):
@@ -481,6 +483,37 @@ def finished_repos():
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
         return []
+
+
+def pr_ceiling():
+    """Smallest size whose larger merged runs passed first round less than half the time.
+
+    Only merged runs receive changed_lines; unknown sizes and suite work teach nothing.
+    With fifty sized merges, no such drop means history imposes no ceiling.
+    """
+    _ensure_migrated()
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                rows = connection.execute(
+                    "SELECT changed_lines, COUNT(*), SUM(rounds_used=1) FROM runs "
+                    "WHERE changed_lines >= 0 AND finished_at IS NOT NULL AND rounds_used > 0 "
+                    f"AND {REAL_WORK} GROUP BY changed_lines ORDER BY changed_lines").fetchall()
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        rows = []
+    count, passed = sum(row[1] for row in rows), sum(row[2] for row in rows)
+    if count < 50:
+        return 300, "starting value"
+    if rows[0][0] != 0:
+        rows.insert(0, (0, 0, 0))
+    for size, total, first in rows:
+        count, passed = count - total, passed - first
+        if count and passed * 2 < count:
+            return size, "history"
+    return None, "history"
 
 
 def size_summary(repo, limit=SUMMARY_TASKS):

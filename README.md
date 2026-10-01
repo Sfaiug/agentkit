@@ -4,6 +4,8 @@ You talk. It ships.
 
 One command installs it. One word opens it. You tell one orchestrator what you want, and agentkit works until the change is merged or it truly needs you. Then it tells you, once.
 
+A seat's own `ak run --review-pr` must fit the changed-line ceiling learned from merged runs and shown by `ak run status --history`; larger PRs must be split before review.
+
 ## Install
 
 ```bash
