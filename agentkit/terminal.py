@@ -4,7 +4,7 @@ import os
 import re
 import select
 import shutil
-import signal
+import signal as signals     # `signal` is an effort's bars, below
 import subprocess
 import sys
 import termios
@@ -819,7 +819,7 @@ class Keyboard:
         termios.tcsetattr(self.fd, termios.TCSADRAIN, self.saved)
         _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD = None, False, None, False, None
         for number, handler in self.kept.items():
-            signal.signal(number, handler)
+            signals.signal(number, handler)
         self.kept = {}
 
     def close(self):
@@ -845,9 +845,9 @@ class Keyboard:
         for name, handler in (("SIGTERM", self._end), ("SIGHUP", self._end),
                               ("SIGQUIT", self._end), ("SIGTSTP", self._stop),
                               ("SIGWINCH", self._resize)):
-            number = getattr(signal, name, None)
-            if number is not None and signal.getsignal(number) == signal.SIG_DFL:
-                self.kept[number] = signal.signal(number, handler)
+            number = getattr(signals, name, None)
+            if number is not None and signals.getsignal(number) == signals.SIG_DFL:
+                self.kept[number] = signals.signal(number, handler)
 
     def _end(self, number, frame):
         self.give()                        # which puts the default back, so this ends us
