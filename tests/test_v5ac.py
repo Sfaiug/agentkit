@@ -189,8 +189,9 @@ sys.exit(0 if ok else 1)
 
     def launch(self, rounds=3):
         (self.root / "plan.json").write_text(json.dumps(self.plan))
+        # Run markers are host-wide; concurrent suites need different fixture names.
         self.task.write_text(f"---\nrepo: {self.wt}\nbase: origin/main\nrounds: {rounds}\n"
-                             f"---\n# v5ac fixture\n\n## Done when\n"
+                             f"---\n# {self.root.name}\n\n## Done when\n"
                              f"```bash\n{self.command}\n```\n")
         code = run.main([str(self.task), "--exec", "opus", "--review", "astra", "--no-worktree"])
         dirs = run.run_dirs()
