@@ -335,6 +335,11 @@ class Harness:
         hook = self._hook("error")
         return hook(record, cwd, conversation) if hook else None
 
+    @property
+    def keeps_errors(self):
+        """Whether `error` reads anything: a transcript alone may hold no error a reader knows."""
+        return self._hook("error") is not None
+
     # --- what its own installation and usage call know --------------------
 
     def identity(self, text, argv):

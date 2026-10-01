@@ -19,12 +19,13 @@ import sys
 import tempfile
 import textwrap
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+from urllib.parse import quote
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, orch, run, usage, watch  # noqa: E402
-from agentkit.harness import codex  # noqa: E402
+from agentkit.harness import claude, codex  # noqa: E402
 
 MODELS = {"claude": ("opus", "anthropic"), "codex": ("astra", "openai")}
 AT = "2026-10-01T06:00:00.000Z"
@@ -300,8 +301,19 @@ class SeatErrorRecord(unittest.TestCase):
                 self.reset.assert_not_called()
                 self.window.assert_not_called()
 
+    def test_a_goal_stalled_on_a_recorded_error_is_resumed_by_its_own_command(self):
+        # the record says why the turn failed, and the screen what starts the goal again
+        for kind, text in ((CASES[5][1], CASES[5][3]),
+                           ("usage_limit_exceeded", "You've hit your usage limit. Try again at "
+                                                    "Jan 1st, 2027 10:32 PM.")):    # passed
+            with self.subTest(text=text):
+                name = self.record("codex", failed("codex", kind, None, text),
+                                   f"{wrapped('codex', text)}\nGoal stalled")
+                self.account(name)
+                self.assertEqual((self.marked, self.typed), ([], ["/goal resume"]))
+
     def test_without_a_record_the_screen_is_read_as_before(self):
-        # a seat whose harness keeps none, or has not written this conversation down yet
+        # a seat whose harness has not written this conversation down yet
         name = self.record("claude", [], "⎿ API Error: 429 Usage limit reached")
         for path in (self.root / ".claude/projects").rglob("*.jsonl"):
             path.unlink()
@@ -310,6 +322,31 @@ class SeatErrorRecord(unittest.TestCase):
                          "Usage limit reached")
         self.account(name)
         self.assertEqual(self.marked, [("anthropic", None)])
+        # one whose record cannot be read, not even where it is
+        name = self.record("claude", failed("claude", *CASES[3][1:4]), self.pane)
+        with patch.object(claude, "transcript", side_effect=PermissionError(13, "denied")):
+            self.assertIsNone(watch.recorded_error("claude", name))
+            self.assertEqual(watch.failed_on("claude", watch.content_lines("claude", self.pane),
+                                             name), ("spent", "Usage limit reached"))
+        # and a harness keeping a history but reading no error in it, whose screen still says
+        self.harness, self.provider, self.seat["name"] = "grokbuild", "xai", "fix-api-grok"
+        thread = "0d9b6c1e-5a2f-4c7e-9e1a-3f2b8c4d6aff"
+        config.save_session(self.cfg, "fix-api-grok", "grok", ["grok"], {
+            "cwd": str(self.work), "conversation": thread, "id_source": orch.LAUNCHER})
+        history = (self.root / ".grok/sessions" / quote(str(self.work), safe="") / thread
+                   / "chat_history.jsonl")
+        history.parent.mkdir(parents=True)
+        history.write_text(json.dumps({"role": "user", "content": "Fix the API."}) + "\n")
+        record = config.session_records()["fix-api-grok"]
+        self.assertEqual(orch.harness_plugin("grokbuild").transcript(record, None, thread),
+                         str(history))
+        self.assertIsNone(watch.recorded_error("grokbuild", "fix-api-grok"))
+        pane = "Error: quota exceeded"
+        self.assertEqual(watch.failed_on("grokbuild", watch.content_lines("grokbuild", pane),
+                                         "fix-api-grok"), ("spent", "quota exceeded"))
+        pane = "Session expired. Run `grok login` to re-authenticate."
+        self.assertTrue(watch.auth_expired_on("grokbuild", pane, "fix-api-grok"))
+        self.assertTrue(watch.stuck_on("grokbuild", pane, "fix-api-grok"))
 
 
 if __name__ == "__main__":

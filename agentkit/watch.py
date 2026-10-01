@@ -1162,14 +1162,14 @@ def recorded_error(harness, name):
     model's answer is never one of its error entries.
     """
     record = config.session_records().get(name) if name else None
-    if not record:
-        return None
     plugin = orch.harness_plugin(harness)
-    cwd = record.get("cwd")
-    conversation = plugin.conversation(record, cwd)
-    if not plugin.transcript(record, cwd, conversation):
+    if not record or not plugin.keeps_errors:
         return None
+    cwd = record.get("cwd")
     try:
+        conversation = plugin.conversation(record, cwd)
+        if not plugin.transcript(record, cwd, conversation):
+            return None
         return plugin.error(record, cwd, conversation) or ""
     except OSError:
         return None
@@ -2975,9 +2975,9 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     def spent(account):
         return usage.model_exhausted(cfg, model, {provider: readings.get(account, {})})[0]
 
+    lines = content_lines(harness, pane_tail(pane))
     line = recorded_error(harness, name)
     if line is None:
-        lines = content_lines(harness, pane_tail(pane))
         line = output_line(lines)
         # The pane and not the line: its colours say whose words they are.  What it ignores is
         # health()'s to log, as before.
@@ -2986,8 +2986,11 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
             # A bare trailer (`Goal stalled`) is told apart, and dated, by the error line above it.
             line = error_said(harness, lines[:-1] + [line])
         outcome = failed_on(harness, [line])[0] if mark else None
+        cue = line
     else:
         outcome = orch.harness_plugin(harness).failure(line)[0]
+        # What starts it again is still the screen's to say: no record holds a goal's trailer.
+        cue = error_said(harness, lines)
     refusal = outcome in (SPENT, LIMITED)
     now = time.time()
     observed = live.get("usage_refusal") or {}
@@ -3064,7 +3067,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
             # The host may have slept through the deadline. Never replace that old
             # refusal with a new shared-cache park; retry it once in the existing pane.
             if until is not None and until <= now:
-                if type_into(session, keystroke(harness, line), log):
+                if type_into(session, keystroke(harness, cue), log):
                     seat_write(name, usage_refusal={"line": line, "at": now, "handled": True})
                 return True
             # A bare 429/rate limit is not proof a subscription is empty. Retry the
@@ -3078,7 +3081,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                                      event_id=f"stall:{name}:{observed['at']}") == 0:
                         seat_write(name, usage_refusal={**observed, "told": now})
                 elif now - observed.get("nudged_at", 0) >= NUDGE_EVERY:
-                    if type_into(session, keystroke(harness, line), log):
+                    if type_into(session, keystroke(harness, cue), log):
                         seat_write(name, usage_refusal={**observed, "nudged_at": now})
                 return True
             until = usage.mark_exhausted(cfg, provider, until=until,
@@ -3096,7 +3099,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                     if continuing and resumed == "resumed":
                         seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
                                                  "line": ACCOUNT_LINE})
-                elif continuing and not type_into(session, keystroke(harness, line), log):
+                elif continuing and not type_into(session, keystroke(harness, cue), log):
                     return True
             except (config.Error, OSError) as exc:
                 reason = f"{provider} account reopen failed: {exc}"
