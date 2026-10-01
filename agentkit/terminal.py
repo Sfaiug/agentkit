@@ -696,9 +696,13 @@ _KEYED = b""       # what a keyboard sent past the key it was read for, or while
 _PRESSED = False   # the left button went down and has not been read coming up
 _ASKED = False     # a resize or a return from ^Z asked for a draw (`asked_again`)
 _POINTER = None    # where the pointer is, a `point` or a click; None until it moves, after a key
+_AWAY = False      # ... off every row of a screen that has rows: the keys' highlight not drawn
 _SPOTS = {}        # what the screen up has where (`lit`), the pointer read against it
+_SHOWN = []        # ... its lines as drawn, and with the pointer's light (`relight`)
+_PAINTED = []
 _POINTED = Spot()  # ... the `Spot` the pointer was on when it was drawn
 _MOVED = 0.0       # when a move of the pointer was last answered
+_HELD = None       # a move read and not answered yet, and when the first of them was
 _NEXT = None       # a key read past a move, answered after it
 _REPORT = re.compile(r"\x1b\[<\d+;\d+;\d+[Mm]")   # a mouse report, as mode 1006 sends one
 
@@ -706,6 +710,12 @@ _REPORT = re.compile(r"\x1b\[<\d+;\d+;\d+[Mm]")   # a mouse report, as mode 1006
 def taken():
     """Whether a `Keyboard` has the terminal, so keys are read one at a time and not in lines."""
     return _TAKEN is not None
+
+
+def away():
+    """Whether the pointer moved off every row of the screen up, which then draws no row or cell
+    the keys' highlight is on: it lost it when the pointer left, and a key brings it back."""
+    return _AWAY
 
 
 def asked_again():
@@ -777,12 +787,12 @@ class Keyboard:
         it reaches a line `readline` drops it from, or a session's tmux, which reads it as the
         mouse report it is, or the menu again, which never saw that button go down.
         """
-        global _TAKEN, _PRESSED, _POINTER
+        global _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD
         if _TAKEN is not self:
             return
         self._send(self.sequences[1])
         termios.tcsetattr(self.fd, termios.TCSADRAIN, self.saved)
-        _TAKEN, _PRESSED, _POINTER = None, False, None
+        _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD = None, False, None, False, None
         for number, handler in self.kept.items():
             signal.signal(number, handler)
         self.kept = {}
@@ -894,30 +904,32 @@ def read_key(timeout=None, wake=None):
     the rest of the click is no click (`Keyboard.give`).
 
     The pointer is answered, `point`, only once it is on another spot of the screen up than it
-    was when that was drawn (`lit`): another row, another cell, or off the cell it lit; a move
-    within one is read and let go.  What it sent while it moved is read through to where it
-    ended, and a move is answered at most once a frame of the clock's (motion.FRAME), a key
-    read past it answered next: a flood of moves is one draw, never a draw each.  Every other
-    key hands the highlight to the keys, so the pointer lights nothing until it moves again.
+    was when that was drawn (`lit`): another row, another cell, or off what it was on; a move
+    within one is read and let go, keeping to `timeout` however long the pointer goes on.  A
+    move is answered once a frame of the clock's (motion.FRAME) is due since the last, and once
+    what was sent after it is read through to where the pointer ended, or a frame after the
+    first of them, whichever is sooner: a flood of moves is one draw, never a draw each.  One a
+    read's time ran out on is answered by a read after it; a key read past one, next.  Every
+    other key hands the highlight to the keys, so the pointer lights nothing until it moves
+    again, and one that acts on the highlight while the pointer is off every row (`away`) only
+    brings it back, answered as a draw.
     """
-    global _PRESSED, _ASKED, _POINTER, _MOVED, _NEXT
+    global _PRESSED, _ASKED, _POINTER, _MOVED, _NEXT, _HELD, _AWAY
     key, _NEXT = _NEXT, None
     fd = sys.stdin.fileno()
     until = None if timeout is None else time.monotonic() + timeout
-    point = None                   # where the pointer moved to, not answered yet
     while key is None:
         if not _KEYED:
             again = _TAKEN.again[0] if _TAKEN is not None else None
             left = None if until is None else max(0, until - time.monotonic())
-            if point is not None:  # answered once nothing more is sent, and its frame is due
+            if _HELD is not None:  # nothing more is sent: answered once its frame is due
                 due = max(0, _MOVED + motion.FRAME - time.monotonic())
                 left = due if left is None else min(left, due)
             ready = select.select([fd] + [end for end in (wake, again) if end is not None],
                                   [], [], left)[0]
             if fd not in ready:
-                if point is not None:
-                    _MOVED = time.monotonic()
-                    return point
+                if _HELD is not None and time.monotonic() >= _MOVED + motion.FRAME:
+                    break
                 if again is not None and again in ready:
                     _ASKED = True
                     try:
@@ -933,14 +945,28 @@ def read_key(timeout=None, wake=None):
         elif key.name == "click":  # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
         elif key.name == "point":
-            _POINTER, spot = key, under(key, _SPOTS)
-            point = key if (spot.cell != _POINTED.cell
-                            or spot.what not in (None, _POINTED.what)) else None
-            key = None
-        if key is not None and point is not None:
-            _NEXT, _MOVED = key, time.monotonic()
-            return point
-    _POINTER = key if key.name == "click" else None
+            moved = under(key, _SPOTS)[:2] != _POINTED[:2]
+            _HELD, key = (key, _HELD[1] if _HELD else time.monotonic()) if moved else None, None
+        if key is None:
+            now = time.monotonic()
+            if _HELD is not None and now >= _MOVED + motion.FRAME and (
+                    now >= _HELD[1] + motion.FRAME or until is not None and now >= until):
+                break              # a frame's worth read through, or the read's time is up
+            if until is not None and now >= until:
+                return None
+        elif _HELD is not None:
+            key, _NEXT = None, key
+            break
+    if key is None:                # the pointer's move
+        (key, _), _HELD, _MOVED = _HELD, None, time.monotonic()
+        _POINTER, _AWAY = key, under(key, _SPOTS).what is None and any(
+            what is not None for what, _ in _SPOTS.values())
+        return key
+    shown = _AWAY and (step(key) or key.name in ("enter", "space", "left", "right"))
+    _POINTER, _AWAY = key if key.name == "click" else None, False
+    if shown:
+        _ASKED = True
+        return None                # the highlight back where the keys left it, and drawn
     return key
 
 
@@ -1058,31 +1084,47 @@ def under(key, spots):
 def lit(lines, spots):
     """`lines`, a screen from its first row, with the cell under the pointer -- a key-line item, a
     cell of a row -- on a subtle background (POINTED), in place of the reverse the keys give a
-    cell, so the pointer and the keys never show two; `spots` are the screen's, kept as what the
-    pointer is read against (`read_key`).  Rows are the screen's to light: the keys' highlight
-    is moved onto the pointer's.  Where colour is eight or none, nothing is lit.
+    cell, so the pointer and the keys never show two; at eight colours it is reversed.  `spots`
+    are the screen's, kept as what the pointer is read against (`read_key`).  Rows are the
+    screen's to light: the keys' highlight is moved onto the pointer's.  With no colour at all
+    nothing is lit.
     """
-    global _SPOTS, _POINTED
+    global _SPOTS, _POINTED, _SHOWN, _PAINTED
     _SPOTS, _POINTED = spots, under(_POINTER, spots) if _POINTER else Spot()
-    lines, depth = list(lines), colour_depth()
-    if _POINTED.cell is None or depth <= 8 or not 0 < _POINTER.row <= len(lines):
+    _SHOWN = _PAINTED = lines = list(lines)
+    depth = colour_depth()
+    if _POINTED.cell is None or not depth or not 0 < _POINTER.row <= len(lines):
         return lines
     rgb = POINTED[_LIGHT]
-    back = ("48;2;" + ";".join(str(int(rgb[i:i + 2], 16)) for i in (0, 2, 4)) if depth == 24
-            else f"48;5;{xterm_colour(rgb)}")
+    back, off = (("48;2;" + ";".join(str(int(rgb[i:i + 2], 16)) for i in (0, 2, 4)), "49")
+                 if depth == 24 else (f"48;5;{xterm_colour(rgb)}", "49") if depth > 8
+                 else ("7", "27"))
     out, at, on = "", 0, None      # on: None before the cell, True in it, False past it
     for token in re.findall(f"{ANSI.pattern}|.", lines[_POINTER.row - 1], re.S):
         if on is None and at + 1 >= _POINTED.first:
             out, on = out + f"\033[{back}m", True
         elif on and at >= _POINTED.last:
-            out, on = out + "\033[49m", False
+            out, on = out + f"\033[{off}m", False
         if on and token.startswith("\033") and token.endswith("m"):
             params = token[2:-1]        # what styles the cell keeps, on the background
             token = f"\033[{'' if params == '7' else (params or '0') + ';'}{back}m"
         out += token
         at += 0 if token.startswith("\033") else cells(token)
-    lines[_POINTER.row - 1] = out + (" " * (_POINTED.last - at) + "\033[49m" if on else "")
-    return lines
+    _PAINTED = [*lines[:_POINTER.row - 1],
+                out + (" " * (_POINTED.last - at) + f"\033[{off}m" if on else ""),
+                *lines[_POINTER.row:]]
+    return _PAINTED
+
+
+def relight():
+    """Write again only the rows of the screen up whose light the pointer moved, the cursor
+    left where it was: what a question typed on that screen (`field`) draws over it."""
+    before = _PAINTED
+    rows = "".join(f"\033[{row};1H\033[K{line}" for row, (line, was)
+                   in enumerate(zip(lit(_SHOWN, _SPOTS), before), 1) if line != was)
+    if rows:
+        sys.stdout.write(f"\0337{rows}\0338")
+        sys.stdout.flush()
 
 
 def show(lines, spots):
@@ -1104,12 +1146,12 @@ def clicks_its_own(read):
     a cell it rests on is no row the keys' highlight is on."""
     @wraps(read)
     def reading(*args, **kwargs):
-        global _PRESSED, _POINTER
-        _PRESSED, _POINTER = False, None
+        global _PRESSED, _POINTER, _AWAY, _HELD
+        _PRESSED, _POINTER, _AWAY, _HELD = False, None, False, None
         try:
             return read(*args, **kwargs)
         finally:
-            _PRESSED, _POINTER = False, None
+            _PRESSED, _POINTER, _AWAY, _HELD = False, None, False, None
     return reading
 
 
@@ -1141,6 +1183,8 @@ def field(prompt, placeholder=""):
             key = read_key()
             if key is None:
                 continue                 # a resize: drawn again at the new width
+            if key.name == "point":
+                relight()                # the screen it is typed on lights what it is on
             if key.name == "enter":
                 return text
             if key.name in ("esc", "eof"):
@@ -1191,20 +1235,20 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
             box = ("[x] " if choice in marked else "[ ] ") if several else ""
             line = cut(box + str(choice), width() - 3)
             line = "  " + (styled(line, "amber") if choice == warn else line)
-            lines.append(highlight(line) if number == at else line)
+            lines.append(highlight(line) if number == at and not _AWAY else line)
         sys.stdout.write((f"\033[{top};1H" if top else f"\033[{drawn}A" if drawn else "") +
                          "".join(f"\r{line}\033[K\n" for line in lines))
         sys.stdout.flush()
         drawn = len(lines)
         rows = {top + number: (number, []) for number in range(len(choices))} if top else {}
-        lit((), {**_SPOTS, **rows})       # the choices are where the pointer lands too
+        lit(_SHOWN, {**_SPOTS, **rows})   # the choices are where the pointer lands too
         key = read_key() if wait is None else wait()
+        again = around is not None        # its screen as well: a key puts out what was lit
         if key is None:
-            again = around is not None
             continue
         spot = under(key, rows)
         if key.name == "point":
-            at, again = at if spot.what is None else spot.what, around is not None
+            at = at if spot.what is None else spot.what
         elif key.name == "click" and top:
             if spot.what is None:
                 return None
