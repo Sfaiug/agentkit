@@ -133,7 +133,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.assertIn("3 fixer rounds", state["merge_note"])
         self.assertIn("shared file needs fixed.txt", state["merge_note"])
 
-    def assert_parked_resume(self, spent):
+    def assert_parked_resume(self, spent, repaired=True):
         self.history = self.history[:spent]
         self.lp.state["round_summaries"] = copy.deepcopy(self.history)
         self.lp.rnd = spent
@@ -143,7 +143,10 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.assertEqual(self.fixes, run.CONFLICT_ROUNDS)
         self.assertFalse(run.current_review(self.lp))
         before = len(self.events)
-        self.commit(self.owner, "base.txt", "1\n2\n3\n4\ngreen\n")
+        if repaired:
+            self.commit(self.owner, "base.txt", "1\n2\n3\n4\ngreen\n")
+        else:
+            self.commit(self.owner, "other.txt", "target moved\n")
         run.git(self.owner, "push", "origin", "main")
         tip = run.git(self.owner, "rev-parse", "HEAD")
         (self.run_dir / "task.md").write_text(
@@ -155,7 +158,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         tmux.write_text("#!/bin/sh\nexit 1\n")
         tmux.chmod(0o755)
 
-        def deliver(lp):
+        def deliver(lp, **_kw):
             self.assertTrue(run.current_review(lp))
             self.assertTrue(run.integrated(lp.wt, tip))
             lp.state["merged"] = True
@@ -169,7 +172,9 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                 patch.object(run, "merge", side_effect=deliver):
             self.assertEqual(run.cmd_resume([self.run_dir.name]), 0)
         state = run.read_state(self.run_dir)
-        self.assertEqual(self.events[before:], [("gate", True), ("reviewer", f"round-{spent}")])
+        fixes = [] if repaired else [("gate", False), ("fixer", spent)]
+        self.assertEqual(self.events[before:], fixes +
+                         [("gate", True), ("reviewer", f"round-{spent}")])
         self.assertEqual(state["round_summaries"], self.history)
         self.assertEqual(state["rounds"], 3)
         self.assertEqual(state["done_when_failure"], {"every": []})
@@ -183,6 +188,9 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
 
     def test_parked_retry_rebases_before_review_with_rounds_left(self):
         self.assert_parked_resume(spent=1)
+
+    def test_parked_retry_still_failing_gets_a_landing_fixer(self):
+        self.assert_parked_resume(spent=3, repaired=False)
 
     def test_interrupted_landing_review_resumes_at_the_same_round(self):
         with patch.object(run, "call_retrying", side_effect=run.Exhausted("review interrupted")):

@@ -4195,6 +4195,13 @@ def rounds(lp, execv=None):
     invalidate_saved_pass(lp.state, lp.cfg, lp.log)
     lp.rounds = lp.state["rounds"]
     lp.save()
+    pending = lp.state.get("review_pending")
+    if pending and pending.get("record") is False:
+        # A landing gate may be waiting on a changed target, not another task
+        # round. Bring that target in before verifying or reviewing the fixes.
+        upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
+        integrate(lp, upstream)
+        return
     if review_pass(lp.state, lp.cfg) and not current_review(lp):
         pending_review(lp, "The saved reviewed commit changed; verify the current checkout.")
     if current_review(lp):
@@ -4678,9 +4685,14 @@ def integrate(lp, upstream):
         except Exception:
             was_pass = False
         old_head = pre_identity["head_sha"] if pre_identity else None
+        landing_review = (lp.state.get("review_pending") or {}).get("record") is False
         # Persist invalidation before git rewrites HEAD: interruption must not leave a saved PASS.
         if not integrated(lp.wt, tip):
-            pending_review(lp, f"Re-review after the {how} of {upstream}.")
+            if landing_review:
+                lp.state.update(verdict=None, review=None)
+                lp.save()
+            else:
+                pending_review(lp, f"Re-review after the {how} of {upstream}.")
         try:
             if how == "merge":
                 lp.log(f"--- merge: merging {upstream} ({tip[:12]}) into {lp.state['branch']}")
@@ -4704,7 +4716,7 @@ def integrate(lp, upstream):
         else:
             old_base = lp.state.get("base_sha")
             set_base(lp, tip)
-            if current_review(lp):
+            if current_review(lp) and not landing_review:
                 lp.log("--- merge: unchanged commit; reusing done-when and review evidence")
             else:
                 # a passed review survives a clean integration whatever it leaves, an empty
@@ -4716,7 +4728,7 @@ def integrate(lp, upstream):
                 carried_here = (isinstance(carried, dict)
                                 and carried.get("outcome") == "passed"
                                 and carried.get("sha") == old_head)
-                if (was_pass and saved is not None and pre_identity is not None
+                if (not landing_review and was_pass and saved is not None and pre_identity is not None
                         and saved.get("head_sha") == pre_identity.get("head_sha")
                         and saved.get("tree_sha") == pre_identity.get("tree_sha")
                         and not on_pass(lp) and old_base and old_head and carried_here
@@ -4734,9 +4746,9 @@ def integrate(lp, upstream):
                     lp.state.pop("review_pending", None)
                     lp.save()
                     lp.lap_every_sha = new_identity["head_sha"]
-                elif (was_pass and saved is not None and pre_identity is not None
+                elif (landing_review or (was_pass and saved is not None and pre_identity is not None
                         and saved.get("head_sha") == pre_identity.get("head_sha")
-                        and saved.get("tree_sha") == pre_identity.get("tree_sha")):
+                        and saved.get("tree_sha") == pre_identity.get("tree_sha"))):
                     try:
                         post_identity = commit_identity(lp.wt)
                     except Stopped:
@@ -4763,7 +4775,7 @@ def integrate(lp, upstream):
                         lp.log(f"done-when after the {how}: {'all passed' if ok else 'FAILED'}")
                         if ok:
                             new_identity = commit_identity(lp.wt)
-                            if new_identity != post_identity:
+                            if new_identity != post_identity or landing_review:
                                 if not lp.state.get("review_pending"):
                                     pending_review(lp, f"Re-review after the {how} of {upstream}.")
                                 with released_gate_turn():
@@ -13071,19 +13083,18 @@ def resume_run(argv):
         if n_rounds < (state.get("rounds") or 0):
             raise config.Error("--rounds cannot reduce the saved round budget")
         state["rounds"] = n_rounds
-    # A FAIL that carries a pending review carries a stale one, and so does a `waiting`
-    # run the tick parked off one: every path that ends a run `fail` either recorded its
-    # review or had its integration aborted under it, and an abort puts the branch back
-    # exactly as it was. Runs saved before `abort_integration` dropped that record still
-    # hold one, and resuming on it would spend the next round re-reviewing a round already
-    # recorded instead of fixing what the reviewer found.
+    # A failed review or aborted integration carries a stale pending review. A
+    # landing gate wait keeps its non-task review so recovery first updates the
+    # target, then fixes and reviews without spending another task round.
     # Its delivery note is stale in the same way -- what it says did not deliver is exactly
     # what this resume is about to do again -- so it goes too, the way `ak run merge` drops it
     # before its own retry; `note` writes a fresh one the moment anything fails again.
     if state.get("state") in ("fail", "waiting"):
-        state.pop("review_pending", None)
+        if (state.get("state") == "fail"
+                or (state.get("review_pending") or {}).get("record") is not False):
+            state.pop("review_pending", None)
         state.update(merge_failed=False, merge_note=None)
-    if integration_record:
+    if integration_record and (state.get("review_pending") or {}).get("record") is not False:
         # Resume at the integration step, not with another executor round: the branch is
         # saved and only the merge is left to try again.  Integration invalidated the saved
         # PASS verdict when it started, so without this `drive` enters ordinary rounds and
