@@ -11,7 +11,7 @@ import time
 from unittest.mock import patch
 import unittest
 
-from test_v4n import REPO, Sandbox
+from test_v4n import REPO, Sandbox, menu_input
 from agentkit import config, macbridge, menu, orch, run, terminal, usage
 
 
@@ -133,14 +133,9 @@ class UsageLeft(Sandbox):
                 self.cache()
                 return "\x1b[A"          # an arrow: no key, only a draw
             return "\x1b"
-        # The wait is mocked beside the read: the real one selects on stdin, and a
-        # stdin that never delivers EOF -- a backgrounded run's open pipe -- would redraw
-        # into `out` every TICK forever, growing without bound instead of finishing.
         with patch.object(menu.orch, "listing", return_value=seats), \
                 patch.object(menu.orch, "job_notices", return_value=[]), \
-                patch.object(menu, "read", side_effect=answer), \
-                patch.object(menu, "wait_key", side_effect=lambda prompt, timeout=None,
-                             wake=None: menu.read(prompt, "")), \
+                menu_input(side_effect=answer), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
         self.assertIn("69%", out.getvalue())
@@ -283,15 +278,13 @@ class UsageLeft(Sandbox):
                 patch.object(orch, "sessions", return_value=[{"name": "atoll-fix", "created": 9100}]), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "show_notices", side_effect=show_notices), \
-                patch.object(menu, "wait_key", side_effect=wait_key), \
                 patch.object(sys.stdin, "isatty", return_value=True):
             for first in (True, False):
                 out, notices = io.StringIO(), io.StringIO()
                 live, waited = menu.Live(self.cfg), False
                 with redirect_stdout(out), patch.object(out, "isatty", return_value=True), \
-                        patch.object(menu, "Live", return_value=live), \
-                        patch.object(menu, "read", side_effect=lambda prompt, default:
-                                     "") as read:
+                        menu_input(wait=wait_key, return_value="") as read, \
+                        patch.object(menu, "Live", return_value=live):
                     self.assertEqual(menu.main([]), 0)
                 # The header carries no hash; split on it, not on the update notice.
                 before, screen = out.getvalue().split("agentkit ", 1)

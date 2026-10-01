@@ -24,6 +24,7 @@ from pathlib import Path
 from unittest import mock
 
 from test_config_matrix import DOWN, ENTER, ESC, REPO, RIGHT, Screen, highlighted
+from test_v4n import menu_input
 from agentkit import config, menu, terminal
 
 PROGRAMS = {"claude": "claude", "codex": "codex", "muse": "muse", "grokbuild": "grok",
@@ -276,8 +277,7 @@ class ProviderScreen(unittest.TestCase):
                 mock.patch.object(menu, "draw", return_value=(0, 1)), \
                 mock.patch.object(menu.orch, "listing", return_value=[]), \
                 mock.patch.object(menu.orch, "job_notices", return_value=[]), \
-                mock.patch.object(menu, "wait_key", side_effect=["c", ""]), \
-                mock.patch.object(menu, "read", return_value=""), \
+                menu_input(side_effect=["c", ""]), \
                 mock.patch.object(menu, "show_config", return_value=left):
             self.assertEqual(menu.loop(before, dry_run=True), 0)
             made[0].watcher.join()          # its last look at state is this HOME's too
