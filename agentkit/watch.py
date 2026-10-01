@@ -1039,6 +1039,31 @@ def has_dim(line):
     return False
 
 
+def in_colour(text):
+    """Each line of that raw `-e` text with only what it draws in a colour of its own: tmux
+    draws a colour once and carries it on to the lines under it until something ends it."""
+    lines, colour = [], False
+    for line in text.splitlines():
+        shown = []
+        for i, part in enumerate(SGR_SEQ.split(line)):
+            if i % 2 == 0:
+                part = strip_sgr(part)
+                shown.append(part if colour else " " * len(part))
+                continue
+            params = [int(p) if p else 0 for p in part.split(";")]
+            at = 0
+            while at < len(params):
+                if params[at] in (0, 39):
+                    colour = False
+                elif 30 <= params[at] <= 38 or 90 <= params[at] <= 97:
+                    colour = True
+                # `38;5;n`, `38;2;r;g;b` and their background `48` twins name a colour in their run
+                at += {5: 3, 2: 5}.get(params[at + 1] if at + 1 < len(params) else None, 1) \
+                    if params[at] in (38, 48) else 1
+        lines.append(" ".join("".join(shown).split()))
+    return lines
+
+
 def _draft_text(raw, plain, composer):
     """Typed, unsent text after the prompt mark, or "": dim-only and empty are not drafts."""
     if has_dim(raw):
@@ -1172,11 +1197,22 @@ def failed_on(harness, lines):
     return orch.harness_plugin(harness).failure(error_said(harness, lines)) if lines else (None, None)
 
 
-def stalled_on(harness, tail, session, log):
-    """The stall signature that pane is showing, or None: it is working, or it is not ours."""
-    lines = content_lines(harness, tail)
-    if not lines or not any(says(lines[-1], mark) for mark in stalls(harness)):
-        mark = next((mark for line in reversed(lines) for mark in stalls(harness)
+def stalled_on(harness, pane, session, log):
+    """The stall signature that pane is showing, or None: it is working, or it is not ours.
+
+    A harness that draws its own notices in colour and the model's answer in the terminal's
+    own (`[stall] coloured`) says a stall word only in colour, where the pane has attributes;
+    the whole pane, as a colour drawn above its tail can still be on its last line.
+    """
+    lines = content_lines(harness, pane_tail(pane))
+    last = lines[-1] if lines else ""
+    block = config.manifest(harness).get("stall")
+    if lines and isinstance(block, dict) and block.get("coloured") is True and SGR_SEQ.search(pane):
+        drawn = [shown for raw, shown in zip(pane.splitlines(), in_colour(pane))
+                 if strip_sgr(raw).strip()]      # the rows pane_tail keeps, in its order
+        last = drawn[-PANE_LINES:][len(lines) - 1]
+    if not any(says(last, mark) for mark in stalls(harness)):
+        mark = next((mark for line in reversed(lines[:-1]) for mark in stalls(harness)
                      if says(line, mark)), None)
         if mark:
             log(f"{session}: ignored {mark!r}; newer line {lines[-1]!r} is not known chrome")
@@ -1184,7 +1220,7 @@ def stalled_on(harness, tail, session, log):
     # Quota and goal text can coexist. The quota policy must run before goal resume.
     outcome, word = failed_on(harness, lines)
     return (word if outcome in (SPENT, LIMITED)
-            else next(mark for mark in stalls(harness) if says(lines[-1], mark)))
+            else next(mark for mark in stalls(harness) if says(last, mark)))
 
 
 def stuck_on(harness, tail):
@@ -2857,7 +2893,9 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
 
     lines = content_lines(harness, pane_tail(pane))
     line = output_line(lines)
-    mark = stalled_on(harness, line, name, log) if line else None
+    # The pane and not the line: its colours say whose words they are.  What it ignores is
+    # health()'s to log, as before.
+    mark = stalled_on(harness, pane, name, lambda _: None) if line else None
     if mark:
         # A bare trailer (`Goal stalled`) is told apart, and dated, by the error line above it.
         line = error_said(harness, lines[:-1] + [line])
@@ -3207,7 +3245,7 @@ def health(cfg, state, dry_run, log):
             # Only verified auth messages get an immediate needs-login notice, but neither
             # known nor unknown logout wording can receive a capacity nudge.
             mark = (None if LOGIN_HINT.search(output_line(content_lines(harness, tail))) else
-                    stalled_on(harness, tail, name, log))
+                    stalled_on(harness, pane, name, log))
             if not mark:
                 if entry.get("signature"):
                     log(f"{name}: moving again")
