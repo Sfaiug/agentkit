@@ -302,17 +302,34 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         screen.leave()
 
     def test_esc_leaves_at_once_and_the_detached_install_finishes_once(self):
-        self.release("ls-remote", "fetch", "pull")
+        self.release("ls-remote")
         screen = self.opened()
-        screen.when("━" * 60)
-        self.assertIn("━" * 60 + "─" * 30, ANSI.sub("", screen.text()))
-        self.wait_for(lambda: (self.root / "install.started").exists())
+        screen.when("agentkit · updating")
+        self.wait_for(lambda: (self.root / "fetch.started").exists())
         screen.leave()
         self.assertTrue(running(self.updaters()[0]))
-        self.release("install")
+        self.assertEqual((self.git(self.clone, "rev-parse", "HEAD"), self.installs()), (self.first, 0))
+        self.release("fetch", "pull", "install")
         self.wait_for(lambda: not running(self.updaters()[0]))
         self.assertTrue((self.root / "install.finished").exists())
         self.assertEqual((self.git(self.clone, "rev-parse", "HEAD"), self.installs()), (self.new, 1))
+
+    def test_an_update_that_fails_after_esc_is_retried_by_the_next_ak(self):
+        self.release("ls-remote")
+        failed = self.root / "fetch.fail"
+        failed.touch()
+        screen = self.opened()
+        screen.when("agentkit · updating")
+        screen.leave()
+        self.release("fetch")
+        self.wait_for(lambda: not running(self.updaters()[0]))
+        self.assertEqual((self.git(self.clone, "rev-parse", "HEAD"), self.installs()), (self.first, 0))
+        failed.unlink()
+        self.release("pull", "install")
+        again = self.opened()
+        again.when("<draw new fix-api>")
+        self.assertEqual(self.installs(), 1)
+        again.leave()
 
     def test_a_failed_fetch_is_a_notice_and_the_next_ak_tries_again(self):
         self.release("ls-remote", "fetch")
