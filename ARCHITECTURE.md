@@ -32,8 +32,8 @@ leaked from its home the map says so; `tests/test_boundaries.py` counts those le
   Used by watch (about 60 functions), orch, menu, notify, usage, worker, retention and a hook.
   Leak: Claude temp-file gc.
 - `task.py`: the task file's front matter, done-when groups, size and round refusals; for run.
-- `watch.py`: the tick. Hides watch.json, reading each manifest's screen rules and words
-  (`stalls`, `auth_expiry`), seat state (`session_state`, `waiting_on`), typing
+- `watch.py`: the tick. Hides watch.json, a seat's error (its harness's record, else
+  screen rules and words), seat state (`session_state`, `waiting_on`), typing
   into and reviving seats, resuming runs, PR scanning, `doctor`. Used by run, orch, menu,
   notify, update, usage, worker and both hooks. Leaks: run.json writes (stall ladder,
   freeze marks, resume passes; all through `run.record`), run states (`GOING`).

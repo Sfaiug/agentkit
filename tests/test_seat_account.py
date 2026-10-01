@@ -65,6 +65,10 @@ class SeatAccount(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.stack.enter_context(patch.object(orch, "dress"))
         self.stack.enter_context(patch.object(watch, "pane_text", side_effect=lambda _: self.pane))
+        # The refusals here are on the pane, as for a harness keeping no record; the stand-in
+        # transcript below is only what makes the conversation resumable.  What a harness's
+        # record says is tests/test_seat_error_record.py's.
+        self.stack.enter_context(patch.object(watch, "recorded_error", return_value=None))
         self.pane = "❯"
         self.stack.enter_context(patch.object(watch, "type_into", side_effect=self.type_into))
         self.commands, self.typed, self.logs = [], [], []

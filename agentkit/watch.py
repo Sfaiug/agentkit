@@ -1157,7 +1157,7 @@ def recorded_error(harness, name):
     """The error that seat's harness recorded as its conversation's last event, "" where it
     recorded none there, or None where it keeps no record to read, and only then is its screen.
 
-    A screen's last rows cannot tell a model's answer quoting a quota from the harness's own
+    A screen's last rows cannot tell a model's answer quoting an error from the harness's own
     notice, nor a wrapped error from two rows; the record the harness writes down can, since a
     model's answer is never one of its error entries.
     """
