@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # agentkit acceptance gate. Exits 0 only if every check passes.
-# Makes real (tiny) model calls on Claude, Codex and Muse -- minus any spent model, or one
-# this host has not installed or logged in, which check 3 skips by name; one of the three
-# with its login is all the suite needs -- plus one full `ak run`, which merges its
+# Makes real (tiny) model calls on every harness this host has installed with its login --
+# minus any spent model, which check 3 skips by name; one harness with its login is all the
+# suite needs -- plus one full `ak run`, which merges its
 # own PR into a private repository under the caller's own account; the rest drive
 # the loop offline through fake adapters, and check 9a waits out the real transient backoff
 # (60s + 300s), which is why it starts at the top and is collected at the bottom.
@@ -370,18 +370,6 @@ smoke_home() {
   export PATH="$PATH:$SMOKE_CALLER_HOME/.local/bin:$SMOKE_CALLER_HOME/.npm-global/bin:${GROK_BIN_DIR:-$SMOKE_CALLER_HOME/.grok/bin}:$SMOKE_CALLER_HOME/.opencode/bin"
   # Those binaries still belong to the caller; the sandbox must not auto-update them.
   export DISABLE_AUTOUPDATER=1 MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0 OPENCODE_DISABLE_AUTOUPDATE=1
-  # The harnesses installed here whose login worker.auth_ok confirms, as it does before a
-  # turn: the one harness with its login the suite needs (check 3).  A failed, silent or late
-  # answer confirms nothing, and a settings file with no key in it is no login.
-  SMOKE_LOGINS=$(PYTHONPATH="$REPO" python3 - <<'PY'
-import shutil
-from agentkit import worker
-for harness, binary in (("claude", "claude"), ("codex", "codex"), ("muse", "muse"),
-                        ("grokbuild", "grok"), ("opencode", "opencode"), ("antigravity", "agy")):
-    if shutil.which(binary) and worker.auth_ok(harness)[0]:
-        print(harness)
-PY
-)
   # Muse's paid probe keeps its own age. Copy its raw readings, not usage.json's
   # provider selection from the caller's config, and never write back into the host cache.
   for path in usage-meta.json usage-meta-probe.json; do
@@ -1719,7 +1707,7 @@ retrylaunch retry-review work dead    # reviewer never comes back -> fall back t
 # --- 1: usage --------------------------------------------------------------
 model_unavailable() {   # missing binary/login, or nothing; a broken saved login exits 1
   PYTHONPATH="$REPO" python3 - "$@" <<'PY'
-import os, re, shutil, sys
+import json, os, re, shutil, sys
 from agentkit import config, worker
 harness = config.model(config.load(), sys.argv[1])["harness"]
 manifest = config.manifest(harness)
@@ -1732,10 +1720,21 @@ else:
         print(why)
         # Only an explicitly absent credential justifies skipping. An existing but
         # empty, unreadable, malformed or expired credential must still fail the gate.
-        missing = re.match(r"^\S+: no (?:OAuth credentials in |provider key in )?(.+?)"
+        # OpenCode's settings file that parses and holds no apiKey anywhere is no login; one
+        # that is empty or no longer parses may have held one, and an apiKey the adapter did
+        # not take (blank, or not a string) is a broken one.
+        missing = re.match(r"^\S+: no (OAuth credentials in |provider key in )?(.+?)"
                            r"(?: and no CLAUDE_CODE_OAUTH_TOKEN| and none saved)?; run ", why)
+        settings, keys = False, set()
+        if missing and missing[1] == "provider key in ":
+            try:
+                with open(missing[2]) as fh:
+                    settings = isinstance(json.load(fh, object_hook=lambda o: keys.update(o) or o),
+                                          dict) and "apiKey" not in keys
+            except (OSError, ValueError):
+                pass
         token = manifest.get("worker_token", {}).get("file")
-        if (not missing or os.path.lexists(missing[1])
+        if (not missing or (os.path.lexists(missing[2]) and not settings)
                 or (token and os.path.lexists(config.SECRETS / token))):
             sys.exit(1)
 PY
@@ -1880,16 +1879,22 @@ else
 fi
 fi
 
-# --- 3: one real tiny call + one resume per harness ------------------------
+# --- 3: one real tiny call on every harness --------------------------------
 # A model whose subscription window is spent refuses every call until it resets, and `ak
 # usage` says so before one is made: that model is skipped by name, with the moment it comes
 # back, the way 31d/31e skip a shared browser that is not up.  A spent week is the one thing
 # this check can neither prove nor fix -- it is the provider announcing it, not a guess here.
-# Missing harnesses or logins skip with their own reason; broken saved logins still fail.
-# One harness installed with its login is what the suite needs, and with none here it
-# fails rather than skipping everything: a real call below, or a login smoke_home's adapters
-# confirmed -- Grok Build, OpenCode and Antigravity count too, though this check makes its
-# real calls on Claude, Codex and Muse only.
+# Every harness here with its login makes a real call, since `ak update` upgrades each one
+# and this is its gate: Claude, Codex and Muse write a file and resume the session (3a/3b);
+# the rest make the smallest turn they allow (3c): the cheapest model their catalog lists
+# at its lowest effort, asked for a fixed word that needs no tool, through the adapter with
+# the flags a worker's turn gets, since those are what an upgrade breaks.  The adapter's own
+# verdict judges it: exit 0 and the word in final.md, which holds the model's text alone.  No
+# error words are read: a warning the turn recovered from passes, and a turn cut short -- no
+# text, or partial text without the word -- fails whatever it exited with.
+# A missing harness or login is reported as not checked: never a pass, and never a skip
+# that holds the gate.  Broken saved logins still fail.  One harness installed with its
+# login is what the suite needs, and with none here it fails rather than skipping everything.
 ak usage --json >"$WORK/usage-real.json" 2>/dev/null || : >"$WORK/usage-real.json"
 spent_until() {   # spent_until <model>: "<provider> <when it comes back>", or nothing
   PYTHONPATH="$REPO" SMOKE_CALLER_HOME="$SMOKE_CALLER_HOME" python3 - "$1" "$WORK/usage-real.json" <<'PY'
@@ -1946,17 +1951,47 @@ skip_spent() {   # skip_spent <check labels> <required models...>
 printf 'Create a file hello.txt containing exactly: hello\nThen reply with only the word DONE.\n' \
   >"$WORK/p-make.txt"
 printf 'What file did you just create? Answer with the filename only.\n' >"$WORK/p-ask.txt"
+WORD=PONG
+printf 'Reply with only the word %s.\n' "$WORD" >"$WORK/p-word.txt"
+HARNESSES=("opus claude" "astra codex" "spark muse" "grok grokbuild grok-4.7-build-fast low"
+           "gemini antigravity gemini-3.8-flash low" "mimo opencode mimo/mimo-v2.6-flash none")
 ABSENT=0
-for pair in "opus claude" "astra codex" "spark muse"; do
-  set -- $pair; M=$1 H=$2
+for pair in "${HARNESSES[@]}"; do
+  set -- $pair; M=$1 H=$2; shift 2
+  CHECKS=3a/3b; [ $# = 0 ] || CHECKS=3c
   SPENT=$(spent_until "$M")
   if [ -n "$SPENT" ]; then
-    skip_checks 3a/3b "$M ($H): the ${SPENT%% *} subscription window is spent until"\
+    skip_checks "$CHECKS" "$M ($H): the ${SPENT%% *} subscription window is spent until"\
          "${SPENT#* }, so every call would be a 429"
     continue
   fi
-  skip_unavailable 3a/3b "$M" && { ABSENT=$((ABSENT + 1)); continue; }
+  if ! WHY=$(model_unavailable "$M"); then
+    no "$CHECKS: required model $M login check failed: $WHY"
+    continue
+  fi
+  if [ -n "$WHY" ]; then
+    printf 'NOT CHECKED  %s %s (%s): %s\n' "$CHECKS" "$M" "$H" "$WHY"
+    ABSENT=$((ABSENT + 1))
+    continue
+  fi
   R=$(newrepo "real-$M")
+  if [ $# = 2 ]; then
+    A="${AGENTKIT_ADAPTER_DIR:-$REPO/adapters}/$H.sh"
+    # In the environment worker.auth_ok asked for the login in, as a worker's turn gets it:
+    # a caller's AGENTKIT_ACCOUNT would turn the turn to a login this sandbox never borrowed.
+    PYTHONPATH="$REPO" python3 -c 'import os, sys; from agentkit import config
+os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
+      "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M" >"$WORK/$M.log" 2>&1
+    CALLRC=$?
+    if [ "$CALLRC" = 0 ] && grep -qiwF "$WORD" "$WORK/o-$M/final.md" 2>/dev/null; then
+      ok "3c $M ($H): $1 at $2 replied $WORD"
+    else
+      no "3c $M ($H): $1 at $2 did not reply $WORD: final.md = $(head -c 120 "$WORK/o-$M/final.md" 2>/dev/null)"
+      diagnose "$CALLRC" "$WORK/$M.log" "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M"
+      diagnose "$CALLRC" "$WORK/o-$M/stderr.log" "$H"
+    fi
+    continue
+  fi
   if [ "$H" = claude ]; then
     python3 "$REPO/tests/check_claude_stream.py" "$WORK/o-$M" \
       ak worker "$M" "$WORK/p-make.txt" --workspace "$R" --out "$WORK/o-$M" >"$WORK/$M.log" 2>&1
@@ -1986,7 +2021,7 @@ for pair in "opus claude" "astra codex" "spark muse"; do
     no "3b $M ($H) resume: adapter recorded no session_id"
   fi
 done
-[ "$ABSENT" -lt 3 ] || [ -n "${SMOKE_LOGINS:-}" ] ||
+[ "$ABSENT" -lt "${#HARNESSES[@]}" ] ||
   no "3: no harness here is installed with its login; the suite needs one"
 
 # --- 4: ak run end to end, into a real GitHub repo -------------------------
