@@ -320,18 +320,22 @@ sys.exit(0 if ok else 1)
         self.assertFalse((self.directory / "round-2").exists())
         self.assertFalse(state.get("merged"))
 
-    def test_v5ac_reviewer_leftover_is_reviewed_not_kept(self):
+    def test_v5ac_reviewer_leftover_is_archived_and_review_kept(self):
         self.plan = {"target": {"independent": "new work"}, "reviewer_leftover": True}
         code, state = self.launch()
         self.assertEqual(code, 0)
         self.assertTrue(state["merged"])
         tests, reviews = self.events("tests"), self.events("review")
         self.assertEqual(len(tests), 2)
-        self.assertEqual(len(reviews), 2)
-        self.assertIn("leftover.txt", reviews[1].get("prompt", ""))
-        self.assertNotIn("rebased_from", state["review"])
-        self.assertIn("leftover.txt", run.git(self.wt, "show", "--name-only", "--format=",
-                                              state["review"]["head_sha"]))
+        self.assertEqual(len(reviews), 1)
+        self.assertEqual(state["review"]["rebased_from"], tests[0]["head_sha"])
+        self.assertEqual(state["review"]["head_sha"], tests[1]["head_sha"])
+        self.assertFalse((self.wt / "leftover.txt").exists())
+        self.assertNotIn("leftover.txt", run.git(self.wt, "ls-tree", "-r", "--name-only",
+                                                state["review"]["head_sha"]).splitlines())
+        archive = (self.directory / "round-1" / "reviewer-changes.patch").read_text()
+        self.assertIn("leftover.txt", archive)
+        self.assertIn("+leftover\n", archive)
 
     def test_v5ac_merge_resume_leftover_is_reviewed_not_kept(self):
         self.merge_mode = "blocked"
