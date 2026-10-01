@@ -78,7 +78,7 @@ class Docs(unittest.TestCase):
         page = lines(README)
         for line in info:
             self.assertIn(line, page, f"README.md lacks the `i` screen's line {line!r}")
-        self.assertEqual(len(info), 9)
+        self.assertEqual(len(info), 10)
 
     def test_superseded_evidence_is_gone(self):
         self.assertFalse((REPO / "docs/verification-v4l-2.md").exists())

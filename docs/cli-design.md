@@ -81,7 +81,7 @@ business.
 
 ## Keys
 
-Six keys and nothing else: the numbers, `n`, `x`, `c`, `i`, Esc. Esc is the one way
+Seven keys: the numbers, `n`, `x`, `c`, `i`, `s`, Esc. Esc is the one way
 back on every screen and at every question under the menu, and on the main
 screen it leaves; `q` is no key anywhere, and at a question it is a letter.
 
@@ -162,7 +162,12 @@ on a resize, where a click on a choice picks it). The main menu and the
 new-session screen use them. A click belongs to the screen it began on: a button down on the menu and
 up on the question or on `i`, or the other way round, is no click.
 
-Example: `↑↓ move   ⏎ open   n new   x stop   c config   i info   esc leave`.
+On a terminal, `s` toggles solo on the highlighted seat, or in the popup its own seat,
+and appears as `s solo` on the key line while a seat is selected. The last column starts
+with `solo` while on; the session's record keeps the switch across restarts and model changes.
+Solo refuses task launches before a run is created and still allows its own PR reviews.
+
+Example: `↑↓ move   ⏎ open   n new   x stop   c config   i info   s solo   esc leave`.
 
 Whatever the pointer is over lights up, on every screen, as it would in a window:
 a row under it -- a seat, a model, a feature, a choice -- takes the keys' own
@@ -176,7 +181,7 @@ item alone lit, until the pointer is on a row again or a key brings the highligh
 back on the row it was last on. The keys go on from there: an arrow moves it on, and
 a key that acts on it -- Enter, space, their key-line items, the menu's `x` and `c`,
 ←/→ on a model's own screen -- only brings it back, so nothing unseen is acted on; a
-digit names its own row and acts at once. Any key puts out what the pointer lit, and a
+digit names its own row and acts at once. `s` follows the same highlight rule. Any key puts out what the pointer lit, and a
 screen opens, or comes back, with nothing lit: the pointer lights nothing until it
 moves again. A question typed on a screen (`terminal.field`) lights its key line
 too, and one asked over a screen's rows (`x`'s) takes those rows for nothing. A move

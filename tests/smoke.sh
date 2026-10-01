@@ -1481,7 +1481,7 @@ SH
   codex_model_flag_check || OFFLINE_RC=1
   for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py test_v4r.py test_boundaries.py test_architecture.py test_docs.py \
               test_audit_phone_menu_recovery_layout.py test_choose_click.py \
-              test_audit_retry_required_notifications.py; do
+              test_audit_retry_required_notifications.py test_solo_switch.py; do
     case "$test" in
       test_notify.py) lifecycle_check notify || OFFLINE_RC=1 ;;
       test_v4l.py) lifecycle_check v4l || OFFLINE_RC=1 ;;
@@ -4052,11 +4052,13 @@ ovhost send-keys -t ovhost C-b m
 : >"$WORK/overlay-popup.txt"
 for _ in $(seq 1 30); do
   ovhost capture-pane -p -t ovhost >"$WORK/overlay-popup.txt" 2>/dev/null
-  grep -q 'n start a session   r rename this session   x stop this session   esc leave' "$WORK/overlay-popup.txt" && break
+  grep -q 'n start a session   r rename this session   x stop this session   s solo' "$WORK/overlay-popup.txt" &&
+    grep -q 'esc leave' "$WORK/overlay-popup.txt" && break
   sleep 1
 done
 # the popup drew this server's two seats, in order, under the overlay's own key line
-grep -q 'n start a session   r rename this session   x stop this session   esc leave' "$WORK/overlay-popup.txt" || OVERLAY=1
+grep -q 'n start a session   r rename this session   x stop this session   s solo' "$WORK/overlay-popup.txt" &&
+  grep -q 'esc leave' "$WORK/overlay-popup.txt" || OVERLAY=1
 NEEDS_GLYPH=$(LC_ALL=C.UTF-8 PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("needs you"))')
 grep -q "1  $OV1  fable  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
 grep -q "2  $OV2  astra  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
@@ -5671,6 +5673,13 @@ else
   no "48 end-of-turn rule"; tail -30 "$WORK/stop-hook.log"
 fi
 { python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py" && python3 "$REPO/tests/test_docs.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 knowledge stays home: no boundary count in tests/test_boundaries.py above its max, ARCHITECTURE.md maps every module and harness in under 8 KB, and the docs match the interface" || { no "49 boundaries, map and docs"; tail -30 "$WORK/boundaries.log"; }
+if { python3 "$REPO/tests/test_regression_fails_before.py" &&
+     python3 "$REPO/tests/test_followup_runs.py" && python3 "$REPO/tests/test_red_target.py" &&
+     python3 "$REPO/tests/test_review_gate.py" && python3 "$REPO/tests/test_changed_checks.py"; } >"$WORK/regression-base.log" 2>&1; then
+  ok "50 fix runs: regression fails on base and passes on HEAD, changed checks reach review, probes restore the branch"
+else
+  no "50 fix runs and regression on base"; tail -30 "$WORK/regression-base.log"
+fi
 if seat_state_check >"$WORK/seat-state.log" 2>&1; then
   ok "42 seat states: a session is working, needs you or done -- (a) a turn-ended hook fact reads 'needs you', (b) a newer turn-began fact reads 'working' since it began, (c) every harness's dialog fixture reads the 'asking' fact and a transcript quoting it does not, (d) a notified seat reads 'needs you' with its question for a reason and a newer turn outranks it, (e) two renders and a watch tick agree on the word and the since and no live state is ever a reason to type into a seat, (f) the babysitter reads every stall/quota/auth signature from adapters/*.toml and no harness is named in watch.py, (g) a hook writes nothing for a worker or without a seat, (h) ak orch list --why names the word, the authority, the rule and the evidence, (i) every adapter's hooks verb is idempotent"
 else

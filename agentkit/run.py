@@ -2987,6 +2987,8 @@ def settled_gate(lp):
     """
     if lp.state.get("step") == "done-when":
         return None
+    if (lp.run_dir / "regression.sh").is_file() and not lp.state.get("regression_checked"):
+        return None
     path = lp.round_dir / "donewhen.log"
     if not path.is_file():
         return None
@@ -3198,6 +3200,54 @@ def current_review(lp):
                              for k, v in commit_identity(lp.wt).items())
 
 
+def regression_fails_before(lp):
+    """Require the run's regression to fail on base with only its changed checks overlaid.
+
+    Keep a successful probe across rounds and resumes; a passing script must be fixed
+    before it can earn that record. The probe's edits belong to neither commit.
+    """
+    script = lp.run_dir / "regression.sh"
+    if not script.is_file() or lp.state.get("regression_checked"):
+        return ""
+    if lp.scratch:
+        return "regression.sh cannot be checked without a base commit"
+    head = git(lp.wt, "rev-parse", "HEAD")
+    branch = git(lp.wt, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
+    paths = changed_test_paths(lp, head)
+    before = set(dirty_paths(lp.wt))
+    base = lp.base_sha
+    stop_check(lp.run_dir)
+    probe_log = lp.run_dir / "regression-base.log"
+    try:
+        git(lp.wt, "checkout", "--quiet", "--detach", base)
+        if paths:
+            git(lp.wt, "restore", f"--source={head}", "--staged", "--worktree", "--",
+                *(f":(literal){p}" for p in paths))
+        stop_check(lp.run_dir)
+        lp.log(f"--- regression.sh: checking it fails on base {base}")
+        with probe_log.open("wb") as progress:
+            progress.write(f"$ bash {shlex.quote(str(script))} (on base {base})\n".encode())
+            progress.flush()
+            code, _, killed = worker.limited(
+                ["bash", str(script)], lp.done_when_limit, silence=lp.turn_limit,
+                activity=probe_log, output=progress, stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=suite_env())
+            progress.write(f"\n[{'killed at the limit' if killed else f'exit {code}'}]\n".encode())
+        memory_cap_note(lp.run_dir, lp.log)
+        worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
+    finally:
+        restored = restore_probe_checkout(lp, head, branch, before, f"regression.sh on base {base}")
+    if not restored:
+        return "regression.sh probe left the worktree off HEAD or dirty"
+    if killed or code < 0:
+        return f"regression.sh did not finish on base {base}: it does not show the defect"
+    if code == 0:
+        return f"regression.sh passes on base {base}: it does not show the defect"
+    lp.state["regression_checked"] = True
+    lp.save()
+    return ""
+
+
 def verify_work(lp, cmds=None):
     """Pin done-when to a commit before running commands, including leftover executor edits.
 
@@ -3220,6 +3270,11 @@ def verify_work(lp, cmds=None):
             git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
         ok = False
         text += "\n\nCheckout changed during done-when; these commands do not verify the pinned commit."
+    if ok:
+        failure = regression_fails_before(lp)
+        if failure:
+            ok = False
+            text += f"\n\n$ regression.sh must fail on base\n[exit 1]\n{failure}"
     if lp.validation:
         text = (f"Commit: {lp.validation['head_sha']}\nTree: {lp.validation['tree_sha']}\n\n"
                 + text)
@@ -3643,6 +3698,8 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
         if watch.seat_closed(session):
             return None
         cfg = report_config(cfg)
+        if config.session_records().get(config.resolve_session(session), {}).get("solo"):
+            return None
         repo = main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
         key = repair and {"target": target, "command": repair["command"]}
@@ -3876,6 +3933,16 @@ def same_failure(lp, ok, dw_log, gate="every", compare=True):
                                 f"The checks that failed identically twice:\n\n{listed}")
 
 
+def changed_test_paths(lp, head="HEAD"):
+    # Include removed paths too: renaming a test out of discovery must remain visible.
+    changed = git(lp.wt, "diff", "--name-only", "-z", "--no-renames",
+                  f"{lp.base_sha}...{head}").split("\0")
+    return [p for p in changed if p and (
+        any(part in ("tests", "test") for part in Path(p).parts[:-1])
+        or Path(p).name.startswith("test_") or Path(p).match("*_test.*")
+        or any(p in cmd for cmd in getattr(lp, "cmds", [])))]
+
+
 def review(lp, summary, ok, dw_log, preface="", record=True):
     """Commit what the executor left, hand the work to the reviewer, record the round's verdict.
 
@@ -3920,13 +3987,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         if len(diff) > DIFF_CAP:
             diff = diff[:DIFF_CAP] + f"\n\n[diff truncated at {DIFF_CAP} bytes; use git in {lp.wt} for the rest]"
         work = f"## Diff ({lp.base}...HEAD in {lp.wt})\n```diff\n{diff}\n```"
-        # Include removed paths too: renaming a test out of discovery must remain visible.
-        changed = git(lp.wt, "diff", "--name-only", "-z", "--no-renames",
-                      f"{lp.base_sha}...{head}").split("\0")
-        paths = [p for p in changed if p and (
-            any(part in ("tests", "test") for part in Path(p).parts[:-1])
-            or Path(p).name.startswith("test_") or Path(p).match("*_test.*")
-            or any(p in cmd for cmd in getattr(lp, "cmds", [])))]
+        paths = changed_test_paths(lp, head)
         if paths:
             # Leave room for full names, including git's quoted non-ASCII paths.
             width = max(len(p.encode()) * 4 + 2 for p in paths)
@@ -5365,6 +5426,33 @@ def _branch_only_path(wt, cmd, head, tip):
     return None
 
 
+def restore_probe_checkout(lp, head, branch, before, label):
+    """Discard a detached probe's edits and restore HEAD even if a cleanup step stops."""
+    stopped = None
+    restored = False
+    try:
+        git(lp.wt, "reset", "--quiet", "--hard", "HEAD", check=False)
+        new = sorted(set(dirty_paths(lp.wt)) - before)
+        if new:
+            git(lp.wt, "clean", "--quiet", "-fd", "--", *new, check=False)
+    except Stopped as exc:
+        stopped = exc
+    try:
+        git(lp.wt, "checkout", "--quiet", branch or head, check=False)
+        if git(lp.wt, "rev-parse", "HEAD", check=False) != head:
+            git(lp.wt, "checkout", "--quiet", head, check=False)
+        restored = (git(lp.wt, "rev-parse", "HEAD", check=False) == head
+                    and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0)
+        if not restored:
+            lp.log(f"WARN the probe of {label} left the worktree off "
+                   f"{head[:12]} or dirty; the retry starts from whatever it left behind")
+    except Stopped as exc:
+        stopped = stopped or exc
+    if stopped is not None:
+        raise stopped
+    return restored
+
+
 def target_fails(lp, upstream, dw_log):
     """What the first failing landing command says on a red target tip with a green old
     base; "" when it needs the branch.  An unchanged base needs only the tip probe.
@@ -5457,28 +5545,7 @@ def target_fails(lp, upstream, dw_log):
             return code, output, killed
         finally:
             if detached:
-                # Drop probe droppings before checkout so they cannot block the branch's return.
-                # Each half runs even when the other stopped; then the stop propagates.
-                stopped = None
-                try:
-                    git(lp.wt, "reset", "--quiet", "--hard", "HEAD", check=False)
-                    new = sorted(set(dirty_paths(lp.wt)) - before)
-                    if new:
-                        git(lp.wt, "clean", "--quiet", "-fd", "--", *new, check=False)
-                except Stopped as exc:
-                    stopped = exc
-                try:
-                    git(lp.wt, "checkout", "--quiet", branch or head, check=False)
-                    if git(lp.wt, "rev-parse", "HEAD", check=False) != head:
-                        git(lp.wt, "checkout", "--quiet", head, check=False)
-                    if (git(lp.wt, "rev-parse", "HEAD", check=False) != head
-                            or git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
-                        lp.log(f"WARN the probe of `{cmd}` on {where} left the worktree off "
-                               f"{head[:12]} or dirty; the retry starts from whatever it left behind")
-                except Stopped as exc:
-                    stopped = stopped or exc
-                if stopped is not None:
-                    raise stopped
+                restore_probe_checkout(lp, head, branch, before, f"`{cmd}` on {where}")
 
     result = probe(tip, upstream)
     if result is None:
@@ -14143,9 +14210,14 @@ def main(argv):
         if not (str(opts["--parallel"]).isdigit() and int(opts["--parallel"]) > 0):
             raise config.Error(f"--parallel must be a positive integer (got {opts['--parallel']!r})")
         parallel = int(opts["--parallel"])
-    config.ensure_dirs()
     opts.update(flags)
     cfg = config.load()
+    if not opts["--review-pr"]:
+        selection = config.active_session(cfg)
+        if selection and selection.get("solo"):
+            command = shlex.join(["ak", "orch", "solo", selection["name"], "off"])
+            raise config.Error(f"solo is on for {selection['name']!r}; turn it off with `{command}`.")
+    config.ensure_dirs()
     if not opts["--review-pr"] and len(positional) == 1 and parallel is not None:
         raise config.Error("usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] "
                            "[--anyway] [--first] [--no-worktree] [--no-merge] [--bg]: --parallel "
