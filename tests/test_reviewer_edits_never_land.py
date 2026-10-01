@@ -45,6 +45,11 @@ if row.get("wait"):
         time.sleep(0.01)
 for args in row.get("git", []):
     git(*args)
+if row.get("conflict"):
+    result = subprocess.run(["git", "-C", str(wt), *row["conflict"]],
+                            capture_output=True, text=True)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert git("ls-files", "--unmerged"), result.stdout + result.stderr
 for name, content in row.get("files", {}).items():
     path = wt / name
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -527,6 +532,66 @@ class ReviewerEdits(unittest.TestCase):
                     self.git("reset", "--hard", self.head)
                     if self.git("branch", "--list", "probe"):
                         self.git("branch", "-D", "probe")
+
+    def test_conflicted_indexes_are_archived_and_reset_before_the_next_turn(self):
+        self.git("switch", "-qc", "other", "HEAD~1")
+        (self.wt / "tracked.txt").write_text("other work\n")
+        self.git("commit", "-qam", "other work")
+        self.git("switch", "-q", "ak/fix-api")
+        real_call, real_changes = worker.call, run.reviewer_changes
+
+        def unstaged(cfg, name, body, workspace, out, role, session, **kwargs):
+            result = real_call(cfg, name, body, workspace, out, role, session, **kwargs)
+            if run.git(workspace, "ls-files", "--unmerged"):
+                (Path(workspace) / "staged.txt").write_text("working edit\n")
+            return result
+
+        @contextmanager
+        def check_reset(wt, out, log, **_kw):
+            with real_changes(wt, out, log):
+                yield
+            self.assertEqual(run.git(wt, "rev-parse", "HEAD"), self.head)
+            self.assertEqual(run.git(wt, "symbolic-ref", "--short", "HEAD"), "ak/fix-api")
+            self.assertEqual(run.git(wt, "ls-files", "--unmerged"), "")
+            self.assertEqual((Path(wt) / "tracked.txt").read_text(), "executor work\n")
+
+        for command, setup in (
+                (["merge", "--no-edit", "other"], []),
+                (["rebase", "other"], []),
+                (["cherry-pick", "other"], []),
+                (["stash", "pop", "--quiet"], [
+                    ["checkout", "-q", "--detach", "HEAD~1"],
+                    ["restore", "--source=other", "--", "tracked.txt"],
+                    ["stash", "push", "-qm", "probe"],
+                    ["checkout", "-q", "ak/fix-api"]])):
+            with self.subTest(command=command[0]):
+                if self.archive.exists():
+                    self.archive.unlink()
+                self.logs.clear()
+                with patch.object(worker, "call", side_effect=unstaged), \
+                        patch.object(run, "reviewer_changes", side_effect=check_reset):
+                    self.assertEqual(self.review(
+                        {"git": setup, "conflict": command, "files": {"staged.txt": "index edit\n"},
+                         "stage": True, "text": "Still reviewing."}, {}), "PASS")
+                saved = self.archive.read_text()
+                for content in ("<<<<<<<", "other work", "+index edit", "+working edit"):
+                    self.assertIn(content, saved)
+                self.assertTrue(any("WARN" in line and "tracked.txt" in line
+                                    for line in self.logs), self.logs)
+                self.assertEqual(json.loads((self.root / "responses.json").read_text()), [])
+                self.assert_restored()
+
+    def test_unborn_head_is_archived_and_reset_before_the_next_turn(self):
+        self.assertEqual(self.review(
+            {"git": [["switch", "--orphan", "scratch"]],
+             "files": {"orphan.txt": "orphan edit\n"}, "text": "Still reviewing."}, {}), "PASS")
+        saved = self.archive.read_text()
+        self.assertIn("unborn HEAD", saved)
+        self.assertIn("+orphan edit", saved)
+        self.assertIn("-executor work", saved)
+        self.assertTrue(any("WARN" in line and "unborn HEAD" in line for line in self.logs), self.logs)
+        self.assertEqual(json.loads((self.root / "responses.json").read_text()), [])
+        self.assert_restored()
 
     def test_a_role_fixture_below_a_repository_is_not_a_review_checkout(self):
         def fake(cfg, name, body, workspace, out, role, session, **_kw):
