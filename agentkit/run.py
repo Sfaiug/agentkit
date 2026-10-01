@@ -3319,10 +3319,16 @@ def join_suite(lp):
 def pending_review(lp, reason):
     """Invalidate before integration can be delivered, without granting extra task rounds."""
     entries = lp.state["round_summaries"]
+    reviewed = lp.state.get("review") or {}
+    # A landing review may have no round row; keep its head before invalidating it.
+    passed_head = ((reviewed.get("rebased_from") or reviewed.get("head_sha"))
+                   if reviewed.get("verdict") == "PASS" and reviewed.get("done_when")
+                   else (lp.state.get("review_pending") or {}).get("passed_head_sha"))
     lp.state.update(verdict=None, review=None,
                     review_pending={"round": lp.rnd + 1,
                                     "summary": entries[-1]["summary"] if entries else "",
-                                    "reason": reason})
+                                    "reason": reason,
+                                    **({"passed_head_sha": passed_head} if passed_head else {})})
     lp.save()
 
 
@@ -4517,8 +4523,9 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
     handed back with them, never a wait that could only end in the same one.
 
     `upstream` names the branch for messages; every check uses `tip`, never the moving name
-    again.  A re-test that fails on the target's own tip too parks `waiting` on it at
-    once, spending no round: the target is red, and the branch has nothing to fix.
+    again.  A re-test that fails on the target's tip but passes on the last reviewed
+    head's target base parks `waiting`, spending no round.  An unchanged base needs
+    only the tip probe.
     """
     tip = tip or upstream
     conflicts = [p for p in git(lp.wt, "diff", "--name-only", "--diff-filter=U",
@@ -4638,8 +4645,9 @@ def integrate(lp, upstream):
     during its check, and `land` carries those over under the delivery turn without
     another re-check.  Otherwise, when origin moved while the lap landed, the lap goes
     round again, at most three laps; a move still unlanded after the third parks the run
-    `waiting`, as a conflict does, and never ends it FAIL.  A re-check that fails on the
-    target's own tip too parks on it at once, spending no fixer round.  A branch left
+    `waiting`, as a conflict does, and never ends it FAIL.  A re-check red on the target's
+    tip and green on the old base parks without a fixer round (only the tip is probed
+    when those commits are the same).  A branch left
     with no diff is False too, a PASS noted as already on the target, so no caller
     pushes it.  A commit whose checks pass here is marked on the loop, so the final
     check runs only what has not run on it yet, once.
@@ -5336,16 +5344,16 @@ def _branch_only_path(wt, cmd, head, tip):
 
 
 def target_fails(lp, upstream, dw_log):
-    """What the landing check's first failing command says on the target's own tip, when it
-    fails there too; "" when it does not.
+    """What the first failing landing command says on a red target tip with a green old
+    base; "" when it needs the branch.  An unchanged base needs only the tip probe.
 
     Runs land in parallel, and one whose target moved only under other files lands on its
     earlier checks without running them on the combined commit -- so the target can be red
     while every run in flight passed alone.  A landing check failing on that red tip is not
-    the branch's to fix: the first failing command runs once, detached on the tip in this
-    worktree, and a failure there parks the run `waiting` on the target instead of spending
-    fixer rounds editing code its task never touched.  A pass means the branch broke it, and
-    the fixer rounds run as today.  The failure is the probe's own, in `first_failure`'s
+    the branch's to fix only if it passes on the target commit the branch last passed on:
+    the merge-base of its last reviewed head and the tip.  After a failed tip probe, that
+    old base is probed too unless it is the tip.  Failure on both means the command needs
+    the branch, so the fixer runs.  The failure is the tip probe's own, in `first_failure`'s
     words: a suite can fail on the target at another check than it did on the branch.
 
     Nobody else repairs a red target: the first run to find it starts one repair run on it,
@@ -5359,7 +5367,7 @@ def target_fails(lp, upstream, dw_log):
     log names the file the target lacks.
 
     "" when the check names no failing command, when the tree is dirty, and when the tip
-    cannot be resolved or checked out: all of those leave the tree alone and run the fixer
+    or old base cannot be resolved or checked out: those run the fixer
     rounds as today.  A stop propagates, after the worktree is put back on the branch head,
     clean.  A probe of a `# once` command takes a heavy-suite turn; any other probe runs
     light, as the check it repeats did.
@@ -5387,71 +5395,97 @@ def target_fails(lp, upstream, dw_log):
     branch = git(lp.wt, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     stop_check(lp.run_dir)
     before = set(dirty_paths(lp.wt))
-    detached = False
-    try:
+    probe_log = lp.run_dir / "target-probe.log"
+    heavy_probe = cmd in (getattr(lp, "once", None) or [])
+
+    def probe(sha, where):
+        detached = False
         try:
-            rc, _ = git_out(lp.wt, "checkout", "--quiet", "--detach", tip)
-        except Stopped:
-            detached = True     # may have switched mid-apply; put it back below
-            raise
-        if rc != 0:
-            return ""
-        detached = True
-        lp.log(f"--- merge: `{cmd}` failed; probing it once on {upstream} ({tip[:12]})")
-        probe_log = lp.run_dir / "target-probe.log"
-        heavy_probe = cmd in (getattr(lp, "once", None) or [])
-        with gate_turn(lp.run_dir, probe_log, lp.log) if heavy_probe else nullcontext():
-            began = time.monotonic()    # as `run_done_when`'s ceiling: from the turn, not the wait
-            while True:
-                with probe_log.open("ab") as progress:
-                    progress.write(f"$ {cmd} (on {upstream} {tip})\n".encode())
-                    progress.flush()
-                    start = progress.tell()
-                    code, _, killed = worker.limited(
-                        ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
-                        activity=probe_log, output=progress, stderr=subprocess.STDOUT,
-                        stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=suite_env())
-                # busy is no answer: as in `run_done_when`, the turn goes back until it runs
-                if (not heavy_probe or code != SUITE_BUSY or killed
-                        or time.monotonic() - began > lp.done_when_limit):
-                    break
-                began += busy_turn(lp.run_dir, probe_log, lp.log)
-        memory_cap_note(lp.run_dir, lp.log)
-        # as after a gate: a command that exited may still have left processes behind
-        worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
-        if not (killed or code != 0):
-            return ""
-        with probe_log.open("rb") as said:
-            said.seek(start)
-            output = said.read().decode(errors="replace")
-    finally:
-        if detached:
-            # the tree was clean when it was put aside, so every tracked edit and every
-            # new untracked path is the probe's own droppings: drop them first, so none
-            # of them can block the checkout back, and put the branch back on its head.
-            # Each half runs even when the other stopped -- a stop still ends the run,
-            # but only after the worktree is put back as far as git still goes -- and a
-            # worktree that is still not back is said so, never claimed clean.
-            stopped = None
             try:
-                git(lp.wt, "reset", "--quiet", "--hard", "HEAD", check=False)
-                new = sorted(set(dirty_paths(lp.wt)) - before)
-                if new:
-                    git(lp.wt, "clean", "--quiet", "-fd", "--", *new, check=False)
-            except Stopped as exc:
-                stopped = exc
-            try:
-                git(lp.wt, "checkout", "--quiet", branch or head, check=False)
-                if git(lp.wt, "rev-parse", "HEAD", check=False) != head:
-                    git(lp.wt, "checkout", "--quiet", head, check=False)
-                if (git(lp.wt, "rev-parse", "HEAD", check=False) != head
-                        or git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
-                    lp.log(f"WARN the probe of `{cmd}` on {upstream} left the worktree off "
-                           f"{head[:12]} or dirty; the retry starts from whatever it left behind")
-            except Stopped as exc:
-                stopped = stopped or exc
-            if stopped is not None:
-                raise stopped
+                rc, _ = git_out(lp.wt, "checkout", "--quiet", "--detach", sha)
+            except Stopped:
+                detached = True     # may have switched mid-apply; put it back below
+                raise
+            if rc != 0:
+                return None
+            detached = True
+            lp.log(f"--- merge: `{cmd}` failed; probing it once on {where} ({sha[:12]})")
+            with gate_turn(lp.run_dir, probe_log, lp.log) if heavy_probe else nullcontext():
+                began = time.monotonic()    # from the turn, not the wait
+                while True:
+                    with probe_log.open("ab") as progress:
+                        progress.write(f"$ {cmd} (on {where} {sha})\n".encode())
+                        progress.flush()
+                        start = progress.tell()
+                        code, _, killed = worker.limited(
+                            ["bash", "-c", cmd], lp.done_when_limit, silence=lp.turn_limit,
+                            activity=probe_log, output=progress, stderr=subprocess.STDOUT,
+                            stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=suite_env())
+                    # busy is no answer: the turn goes back until the suite runs
+                    if (not heavy_probe or code != SUITE_BUSY or killed
+                            or time.monotonic() - began > lp.done_when_limit):
+                        break
+                    began += busy_turn(lp.run_dir, probe_log, lp.log)
+            memory_cap_note(lp.run_dir, lp.log)
+            # as after a gate: a command that exited may still have left processes behind
+            worker.kill_marked(run_child_env().get("AGENTKIT_RUN"), log=lp.log)
+            with probe_log.open("rb") as said:
+                said.seek(start)
+                output = said.read().decode(errors="replace")
+            return code, output, killed
+        finally:
+            if detached:
+                # Drop probe droppings before checkout so they cannot block the branch's return.
+                # Each half runs even when the other stopped; then the stop propagates.
+                stopped = None
+                try:
+                    git(lp.wt, "reset", "--quiet", "--hard", "HEAD", check=False)
+                    new = sorted(set(dirty_paths(lp.wt)) - before)
+                    if new:
+                        git(lp.wt, "clean", "--quiet", "-fd", "--", *new, check=False)
+                except Stopped as exc:
+                    stopped = exc
+                try:
+                    git(lp.wt, "checkout", "--quiet", branch or head, check=False)
+                    if git(lp.wt, "rev-parse", "HEAD", check=False) != head:
+                        git(lp.wt, "checkout", "--quiet", head, check=False)
+                    if (git(lp.wt, "rev-parse", "HEAD", check=False) != head
+                            or git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
+                        lp.log(f"WARN the probe of `{cmd}` on {where} left the worktree off "
+                               f"{head[:12]} or dirty; the retry starts from whatever it left behind")
+                except Stopped as exc:
+                    stopped = stopped or exc
+                if stopped is not None:
+                    raise stopped
+
+    result = probe(tip, upstream)
+    if result is None:
+        return ""
+    code, output, killed = result
+    if not (killed or code != 0):
+        return ""
+    reviewed = lp.state.get("review") or {}
+    passed_head = ((reviewed.get("rebased_from") or reviewed.get("head_sha"))
+                   if reviewed.get("verdict") == "PASS" and reviewed.get("done_when") else None)
+    passed_head = passed_head or (lp.state.get("review_pending") or {}).get("passed_head_sha")
+    passed_head = passed_head or next((entry.get("head_sha")
+        for entry in reversed(lp.state.get("round_summaries") or [])
+        if entry.get("verdict") == "PASS" and entry.get("done_when") and entry.get("head_sha")), None)
+    if not passed_head:
+        return ""
+    try:
+        old_base = git(lp.wt, "merge-base", passed_head, tip)
+    except Stopped:
+        raise
+    except config.Error:
+        return ""
+    if old_base != tip:
+        previous = probe(old_base, "old base")
+        if previous is None:
+            return ""
+        if previous[2] or previous[0] != 0:
+            lp.log(f"--- merge: `{cmd}` fails on {old_base[:12]} too: needs this branch")
+            return ""
     # indented, so nothing the command printed reads as a heading or a fence of the task
     printed = "\n".join("    " + line for line in output[-OUT_CAP:].splitlines())
     try:
@@ -5490,8 +5524,8 @@ def final_check(lp, upstream):
     findings, within the round budget it may spend, and once that is spent a review FAIL
     handed back with them.  Still failing after the last one, the run parks `waiting`
     with the check's first failing line, retried after the next merge to `upstream`.
-    A failing command that fails on the target's own tip too parks on it at once,
-    spending no fixer round: the target is red, and the branch has nothing to fix.
+    A command red on the target's tip and green on the old base parks without a
+    fixer round.  When those commits are the same, only the tip is probed.
     """
     if not lp.once:
         return True

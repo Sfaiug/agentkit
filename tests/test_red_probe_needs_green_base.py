@@ -99,6 +99,41 @@ class GreenBase(unittest.TestCase):
         self.assertEqual((run_dir / "target-probe.log").read_text().count("$ false (on "), 1)
         self.assert_on_branch_head_and_clean(wt, head)
 
+    def test_a_landing_review_without_a_round_row_keeps_its_old_base(self):
+        _, owner, wt = red.make_repos(self.root)
+        cmd = "test ! -f breakage && test ! -f poison"
+        lp, run_dir, lines = red.make_loop(self.root, wt, [f"{cmd}  # once"])
+        base = self.move_target(owner, wt)
+        run.git(wt, "rebase", base)
+        (wt / "breakage").unlink()
+        run.git(wt, "add", "-A")
+        run.git(wt, "commit", "-m", "fix breakage")
+        self.assertTrue(run.run_done_when([cmd], wt, run_dir / "before.log", set())[0])
+        # Landing reviews replace review without appending to round_summaries.
+        lp.state["review"].update(run.commit_identity(wt))
+        (owner / "poison").touch()
+        tip = self.move_target(owner, wt)
+        head = self.integrate(lp, tip)
+        ok, text = run.run_done_when([cmd], wt, run_dir / "failed.log", set())
+        self.assertFalse(ok)
+        self.assertEqual(run.target_fails(lp, "origin/main", text), "")
+        self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))
+        self.repair.assert_not_called()
+        self.assert_on_branch_head_and_clean(wt, head)
+
+    def test_an_older_receipt_uses_its_last_passing_round(self):
+        _, owner, wt = red.make_repos(self.root)
+        cmd = "test ! -f breakage"
+        lp, run_dir, _ = red.make_loop(self.root, wt, [f"{cmd}  # once"])
+        tip = self.move_target(owner, wt)
+        head = self.integrate(lp, tip)
+        lp.state["review_pending"].pop("passed_head_sha", None)
+        lp.state["round_summaries"].append({"verdict": "FAIL", "done_when": False,
+                                            "head_sha": head})
+        self.assertEqual(run.target_fails(lp, "origin/main", f"$ {cmd}\n[exit 1]\n"), f"`{cmd}`")
+        self.assertEqual((run_dir / "target-probe.log").read_text().count(f"$ {cmd} (on "), 2)
+        self.assert_on_branch_head_and_clean(wt, head)
+
     def test_both_probes_restore_the_branch_and_drop_generated_files(self):
         _, owner, wt = red.make_repos(self.root)
         (wt / "gen").write_text("branch generated\n")
