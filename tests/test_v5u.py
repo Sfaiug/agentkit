@@ -107,8 +107,21 @@ class Back(unittest.TestCase):
         self.assertEqual(stopped.call_args[0][0], ["atoll-fix"])
         prompts = [call.args[0] for call in read.call_args_list]
         self.assertIn("stop atoll-fix and everything it is running? [y/N] ", prompts)
-        self.assertIn("The conversation is saved and the seat's number "
-                      "reopens it later.", screen)
+        self.assertIn(menu.stop_means(None), screen)
+        self.assertNotIn("reopens it later", screen)
+
+    def test_v5u_overlay_x_says_stop_cannot_be_undone(self):
+        # Stop removes the seat's record and conversation (`orch.cmd_stop`): the pipe's
+        # question says so, as the keyboard card does, and never promises a reopening.
+        out = io.StringIO()
+        with patch.object(config, "current_session", return_value="atoll-fix"), \
+                patch.object(menu, "read", side_effect=["n"]), \
+                patch.object(orch, "cmd_stop", return_value=0) as stopped, \
+                redirect_stdout(out):
+            menu.stop_this_session(False)
+        self.assertEqual(stopped.call_count, 0)
+        self.assertIn(menu.stop_means(None), out.getvalue())
+        self.assertNotIn("reopens it later", out.getvalue())
 
     def test_v5u_x_n_goes_back(self):
         _, _, stopped = self.stop("1", "n")
