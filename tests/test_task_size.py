@@ -314,10 +314,13 @@ class Sandbox(unittest.TestCase):
             seen.update(state)
             raise RuntimeError("stop after history_start")
 
+        # The empty fake checkout inherits the enclosing repository's Git state.
         with patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "checkout_for", return_value=repo), \
                 patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "git", return_value="sha"), \
+                patch.object(run, "fetch", return_value=(0, "")), \
+                patch.object(run, "git_out", side_effect=AssertionError("real Git in a fake checkout")), \
                 patch.object(run, "make_worktree", return_value=(wt, "b")), \
                 patch.object(run, "history_start", side_effect=stop):
             with self.assertRaisesRegex(RuntimeError, "stop after history_start"):
