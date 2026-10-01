@@ -1,19 +1,21 @@
 """`ak` draws its main screen at once and Esc leaves at once, whatever start-up is doing.
 
-`menu.main` in-process, its four start-up steps -- the look at origin, the Mac bridge, the boot
-resume and maintenance -- each a fake taking two seconds: the first frame is out within 100 ms of
-starting and Esc leaves within 100 ms, with a 600 ms read of the seats still going; what resume
-and maintenance say lands as a notice once each is done.  With origin ahead, the update is a fake
-child printing its steps half a second apart: the rule under `agentkit · updating` fills through
-them while ↓ still moves the highlight within 100 ms, then the menu opens again (os.execv,
-stubbed) on the seat highlighted; Esc during it leaves within 100 ms and the child still reaches
-its end.  Offline, in a throwaway HOME; the probe is never started and every thread the menu
-leaves behind is waited for before the fakes go.
+`menu.main` in-process on a keyboard it has taken, its four start-up steps -- the look at
+origin, the Mac bridge, the boot resume and maintenance -- each a fake taking two seconds, in the
+process the menu forks for them: the first frame is out within 100 ms of starting and Esc leaves
+within 100 ms, with a 600 ms read of the seats still going, and every step still reaches its end;
+what resume and maintenance say lands as a notice once each is done.  With origin ahead, the
+update's steps are half a second apart: the rule under `agentkit · updating` fills through all
+of them while ↓ still moves the highlight within 100 ms, then the menu opens again (os.execv,
+stubbed) on the seat highlighted, or with `i` open over it on `i` again; Esc during it leaves
+within 100 ms and the update still reaches its end.  Offline, in a throwaway HOME; the probe is
+never started, and every thread and process the menu leaves behind is waited for before the
+fakes go.
 """
 
+import json
 import os
 import select
-import subprocess
 import sys
 import threading
 import time
@@ -30,15 +32,7 @@ READ = 0.6        # what a read of the seats takes once the first is drawn
 FRAME = 0.1       # what the first frame, a key or Esc may take
 WIDTH = 90
 Key = terminal.Key
-# The update: `<done> <total>` as each step begins and once all are done, STEP seconds apart,
-# then agentkit moved (the marker) and the child gone.
-UPDATE = r"""
-import sys, time
-for done in range(4):
-    print(f"{done} 3", flush=True)
-    time.sleep(float(sys.argv[2]))
-open(sys.argv[1], "w").write("new")
-"""
+STEP = 0.5        # what each of the update's own steps takes
 
 
 class Keyboard:
@@ -78,20 +72,25 @@ class OpensAtOnce(Sandbox):
             self.reads.append(time.monotonic())
             return [dict(seat) for seat in self.seats]
 
-        def step(said=None):
+        # the steps run in the forked process: what they leave is files, and what they say a log
+        def step(name, said=None):
             def run(*args, log=None, **kwargs):
-                self.gone.wait(SLOW)
+                time.sleep(SLOW)
                 if said:
                     (log or args[-1])(said)
+                (self.root / name).touch()
             return run
 
         def behind(*args, **kwargs):
-            self.gone.wait(SLOW)
+            step("origin")()
             return self.ahead
 
-        def start_agentkit():
-            return subprocess.Popen([sys.executable, "-c", UPDATE, str(self.marker), "0.5"],
-                                    stdout=subprocess.PIPE, text=True, start_new_session=True)
+        def update_agentkit(progress=None):
+            for done in range(4):         # as each of fetch, pull and install begins, then done
+                progress(done, 3)
+                time.sleep(STEP)
+            self.marker.write_text("new")
+            return 0
 
         for target, name, fake in (
                 (orch, "listing", listing),
@@ -112,19 +111,26 @@ class OpensAtOnce(Sandbox):
                 (update, "left_as_is", lambda: ""),
                 (update, "behind", behind),
                 (update, "agentkit_version", lambda: "new" if self.marker.exists() else "old"),
-                (update, "start_agentkit", start_agentkit),
-                (macbridge, "start_background", step()),
-                (watch, "resume_after_boot", step("resumed fix-api after reboot")),
-                (orch, "maintenance", step("agentkit: reaped a loop whose process was gone")),
+                (update, "update_agentkit", update_agentkit),
+                (macbridge, "start_background", step("macbridge")),
+                (watch, "resume_after_boot", step("resume", "resumed fix-api after reboot")),
+                (orch, "maintenance",
+                 step("maintenance", "agentkit: reaped a loop whose process was gone")),
                 (menu.os, "execv", self.execv)):
             self.stack.enter_context(patch.object(target, name, fake))
         self.stack.enter_context(patch.dict(menu._ESTIMATES, clear=True))
+        # a stdin that never says anything, for a screen that waits on a key
+        reader, writer = os.pipe()
+        self.addCleanup(os.close, writer)
+        self.stack.enter_context(patch.object(sys, "stdin", open(reader)))
+        self.addCleanup(sys.stdin.close)
         self.addCleanup(self.settle)   # before the patches go: every thread left behind has ended
 
     def execv(self, path, argv):
-        raise Reopened(os.environ.get(menu.REOPENED))
+        raise Reopened(json.loads(os.environ[menu.REOPENED]))
 
     def settle(self):
+        """Every thread the menu left behind ended, its start-up process's reader with it."""
         self.gone.set()
         for thread in set(threading.enumerate()) - self.threads:
             thread.join(15)
@@ -166,6 +172,10 @@ class OpensAtOnce(Sandbox):
         self.assertLess(left - times[1], FRAME, "Esc")
         self.assertEqual(len(self.reads), 2, "the read is still going as the menu leaves")
         self.assertEqual(self.said, [])
+        self.settle()                     # leaving stopped none of them half-way
+        self.assertEqual(sorted(path.name for path in self.root.iterdir()
+                                if path.name in ("origin", "macbridge", "resume", "maintenance")),
+                         ["macbridge", "maintenance", "origin", "resume"])
 
     def test_what_resume_and_maintenance_say_lands_as_a_notice(self):
         times = []
@@ -198,14 +208,15 @@ class OpensAtOnce(Sandbox):
 
         with self.assertRaises(Reopened) as reopened:
             self.menu(answer)
-        self.assertEqual(reopened.exception.args, ("tidy-docs",))
+        self.assertEqual(reopened.exception.args, (["tidy-docs", None],))
         self.assertEqual(rules, ["━" * 30 * done + "─" * (WIDTH - 30 * done) for done in range(4)])
         took, header, lit = pressed["frame"]
         self.assertLess(took, FRAME, "↓ during the update")
         self.assertEqual((header, lit), ("agentkit · updating", ["tidy-docs"]))
         # the new code, current: it opens on the seat that was highlighted
+        self.settle()                     # forked as a fresh process forks: no thread up
         self.ahead, first = False, []
-        os.environ[menu.REOPENED] = "tidy-docs"
+        os.environ[menu.REOPENED] = json.dumps(["tidy-docs", None])
 
         def again(screen, wake):
             first.append(([line.split()[2] for line in screen if line.startswith("›")],
@@ -215,6 +226,37 @@ class OpensAtOnce(Sandbox):
         self.assertEqual(self.menu(again), 0)
         self.assertEqual(first, [(["tidy-docs"], "agentkit" + " " * 11)])
         self.assertNotIn(menu.REOPENED, os.environ)
+
+    def test_an_update_that_lands_under_a_screen_reopens_on_that_screen(self):
+        self.ahead, opened = True, []
+
+        def info(*args, **kwargs):        # `i`, waiting on a key until it is left
+            opened.append(time.monotonic())
+            while not self.reopened:
+                terminal.read_key(0.05)
+
+        def answer(screen, wake):
+            return Key("char", "i") if screen[0].startswith("agentkit · updating") else None
+
+        self.reopened = False
+        with patch.object(menu, "show_info", side_effect=info), \
+                self.assertRaises(Reopened) as reopened:
+            self.menu(answer)
+        self.assertEqual(reopened.exception.args, (["fix-api", "char:i"],))
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(self.marker.read_text(), "new")
+        # the new code opens on that seat with `i` up again
+        self.settle()                     # forked as a fresh process forks: no thread up
+        self.ahead, self.reopened, first = False, True, []
+        os.environ[menu.REOPENED] = json.dumps(["fix-api", "char:i"])
+
+        def again(screen, wake):
+            first.append([line.split()[2] for line in screen if line.startswith("›")])
+            return Key("esc")
+
+        with patch.object(menu, "show_info", side_effect=info):
+            self.assertEqual(self.menu(again), 0)
+        self.assertEqual((len(opened), first), (2, [["fix-api"]]))
 
     def test_esc_during_the_update_leaves_at_once_and_the_update_goes_on_to_its_end(self):
         self.ahead, pressed = True, []

@@ -108,6 +108,7 @@ key uses.
 
 import colorsys
 import copy
+import io
 import json
 import os
 import re
@@ -119,7 +120,7 @@ import subprocess
 import sys
 import threading
 import time
-from contextlib import closing
+from contextlib import closing, redirect_stdout
 from pathlib import Path
 
 from . import command_help, config, history, motion, notify, orch, terminal, update, usage
@@ -460,25 +461,56 @@ def moving(clock, wake=None, timeout=TICK, going=None):
         left = until - time.monotonic()
 
 
-class Start:
-    """`main`'s start-up work, its steps run in order behind the menu's first draw, in a thread
-    of their own, so none of them holds a draw or a key (`loop`).
+class Reopen(BaseException):
+    """The start update moved agentkit: `main` starts `ak` again on the new code (`reopen`).
 
-    Each step is handed this Start: what it logs is a notice the menu shows as it lands, and
-    each one done asks for a draw (`wake`, Live's).  The start update fills the rule under the
-    header as it goes (`filled`), and once it has moved agentkit (`moved`) the steps after it
-    are the new code's to run: the menu opens again on it (`reopen`).
+    Raised where the screen up waits for a key, so nothing is half-done; a BaseException, so
+    no screen's own `except` mistakes it for one of its errors."""
+
+
+class Start:
+    """`main`'s start-up steps, each handed this Start, run where nothing stops them half-way.
+
+    From a pipe -- a script, the smoke suite -- nobody waits on a key: they run before the first
+    draw, as they always have, the update drawing its rule as it goes, and what they said is
+    shown above the menu.  On a terminal they run behind the first draw, in a process of their
+    own, forked before the menu starts a thread, that goes on to its end whatever the menu does:
+    what they say comes back over a pipe as it lands, each line asking for a draw (`wake`), and
+    the update fills the rule on the menu itself (`filled`).  Once it has moved agentkit
+    (`moved`) the steps after it are the new code's: `ak` starts again on it, on the screen and
+    the seat it was on (`at`), as soon as that screen waits for a key.
     """
 
-    def __init__(self, steps, wake):
-        self.steps, self.wake, self.thread = steps, wake, None
-        self.said, self.filled, self.moved = [], None, False
+    def __init__(self, steps):
+        self.steps, self.wake, self.pipe = steps, None, None
+        self.said, self.filled, self.moved, self.at = [], None, False, (None, None)
 
-    def begin(self):
-        """Start the steps, once."""
-        if self.steps and self.thread is None:
-            self.thread = threading.Thread(target=self._run, daemon=True)
-            self.thread.start()
+    def begin(self, wake=None):
+        """Run the steps: here and now, or with `wake` in a process of their own."""
+        if not self.steps:
+            return
+        if wake is None:
+            self._run()
+            show_notices(self.heard())
+            if self.moved:
+                reopen()
+            return
+        self.wake = wake
+        reader, writer = os.pipe()
+        pid = os.fork()
+        if not pid:
+            try:
+                os.close(reader)
+                os.setsid()              # off the terminal: its hang-up and ^C are the menu's
+                nothing = os.open(os.devnull, os.O_RDWR)
+                for fd in (0, 1, 2):
+                    os.dup2(nothing, fd)     # nothing a step prints lands on the menu
+                self.pipe = writer
+                self._run()
+            finally:
+                os._exit(0)
+        os.close(writer)
+        threading.Thread(target=self._hear, args=(pid, reader), daemon=True).start()
 
     def _run(self):
         for step in self.steps:
@@ -486,29 +518,57 @@ class Start:
                 step(self)
             except Exception as exc:     # behind the screen, a notice is the only way it is heard
                 self.log(f"WARN {exc}")
-            self.filled = None
-            self.wake()
             if self.moved:
                 return
 
+    def _hear(self, pid, reader):
+        with open(reader, "rb", buffering=0) as pipe:
+            for line in pipe:
+                self._heard(*json.loads(line))
+        os.waitpid(pid, 0)
+
+    def _say(self, kind, value):
+        if self.pipe is None:
+            self._heard(kind, value)
+            return
+        try:
+            os.write(self.pipe, (json.dumps([kind, value]) + "\n").encode())
+        except OSError:
+            pass        # the menu has gone: the steps go on to their end all the same
+
+    def _heard(self, kind, value):
+        if kind == "said":
+            self.said.append(value)
+        elif kind == "filled":
+            self.filled = value
+            if self.wake is None and value is not None:
+                terminal.frame("updating", (), "", value)    # nothing else is on the screen yet
+        else:
+            self.moved = True
+            if self.at[1]:
+                terminal.interrupt(Reopen())     # the screen over the menu, at its next key
+        if self.wake is not None:
+            self.wake()
+
     def log(self, message):
-        """A step's line: shown on the menu as it lands."""
-        self.said.append(message)
-        self.wake()
+        """A step's line: a notice, shown as it lands."""
+        self._say("said", message)
 
     def heard(self):
         """What the steps said since last asked, once."""
         return [self.said.pop(0) for _ in range(len(self.said))]
 
     def update(self):
-        """The start update, a step: the rule filled as it goes, and `moved` once it has moved
-        agentkit."""
-        self.moved = update_first(self.log, self.updating)
+        """The start update, a step: the rule filled as it goes, a line again unless it moved."""
+        self.moved = update_first(self.log, lambda done, total: self._say("filled", done / total))
+        self._say("moved" if self.moved else "filled", None)
 
-    def updating(self, done, total):
-        """The start update's `progress`: the rule filled to it, drawn now."""
-        self.filled = done / total
-        self.wake()
+    def opening(self, cursor, key=None):
+        """Where `ak` starts again: `cursor` highlighted, under the screen `key` opens, or on the
+        menu itself; a screen opened once agentkit has moved is opened on the new code."""
+        self.at = (cursor, key)
+        if key and self.moved:
+            raise Reopen
 
 
 class Back(Exception):
@@ -3711,23 +3771,27 @@ def loop(cfg, client=False, dry_run=False, overlay=False, start=None):
     or `Stop` under its row, Enter or a click answering and Esc keeping it.  Esc, and a click
     on `esc leave`, leaves; `q` is no key.
 
-    `start` is `main`'s start-up steps, begun behind the first draw (`Start`): what they say
-    is shown as it lands, like a job's notice, and once the start update has moved agentkit
-    the menu opens again on the new code, on the seat it had highlighted (`reopen`).  Leaving
-    this menu waits on none of it, nor on any read still going (`Live.close`).
+    `start` is `main`'s start-up work (`Start`), begun before the first draw from a pipe and
+    behind it on a terminal: what it says is shown as it lands, like a job's notice, and once
+    the start update has moved agentkit the menu opens again on the new code, on the screen and
+    the seat it was on (`Reopen`).  Leaving this menu waits on none of it, nor on any read
+    still going (`Live.close`).
     """
     keys = OVERLAY_KEYS if overlay else KEYS
     actions = ("n", "x", "r") if overlay else ("n", "x", "c", "m", "i")
-    at = os.environ.pop(REOPENED, "")
-    page, cursor, ahead, look = 0, Path(at) if os.path.isabs(at) else at or None, None, False
+    cursor, again = json.loads(os.environ.pop(REOPENED, "[null, null]"))
+    cursor = Path(cursor) if cursor and os.path.isabs(cursor) else cursor
+    page, ahead, look = 0, None, False
     last = [[], None]                     # what the last read left: the seats and their groups
     clock = motion.Clock(fade=overlay)    # what moves between draws: the dots, news, and
                                           # the popup's first draw coming up
-    with closing(Live(cfg, settle=not start)) as live, \
+    begun = start or Start(None)
+    with closing(Live(cfg, settle=start is None)) as live, \
             closing(terminal.Keyboard()) as keyboard:
-        begun = Start(start, live._wake)
-        if keyboard.take():
+        taken = keyboard.take()
+        if taken:
             terminal.sense()              # true colour and the background, once, before a draw
+        begun.begin(live._wake if taken else None)   # before any thread: it may fork
         live.watch(last)                  # read and looked at once, before the first draw
         while True:
             if look:
@@ -3737,10 +3801,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, start=None):
                 keyboard.give()           # a notice waits for its Enter, like any sub-screen
                 show_notices(messages)
                 clock.forget()            # and the menu it comes back to replays nothing
-            if begun.moved:
-                keyboard.give()
-                reopen(cursor)
-            found, groups, filled = *last, begun.filled   # after any notice: drawn as it is
+            found, groups = last          # after any notice: what changed under it is drawn as is
+            moved, filled = begun.moved, begun.filled     # moved first: by then the rule is whole
             drawn = {} if keyboard.take() else None
             own = config.current_session() if overlay else None
             listed = keys if drawn is None else \
@@ -3748,8 +3810,13 @@ def loop(cfg, client=False, dry_run=False, overlay=False, start=None):
             page, pages = draw(cfg, found, listed, page, cursor, drawn, own, look=False,
                                groups=groups, clock=clock, filled=filled)
             cursor = drawn["cursor"] if drawn else cursor   # the seat he sees highlighted
+            begun.opening(cursor)
+            if moved:
+                raise Reopen              # the whole rule drawn: on the new code now, here
+            if again and drawn is not None:
+                # the screen it was on when the update moved it, opened again over the menu
+                ahead, again = (terminal.Key(*again.split(":", 1)), drawn), None
             live.probe()                  # after the draw, never before it: the cache is enough
-            begun.begin()                 # ... and so is the start-up work
             asking = live.asking()        # once: the probe may land between two asks
             if asking is not None and drawn and drawn["rule"] and filled is None:
                 motion.fetching(clock, asking)            # the rule glides while it is asked
@@ -3774,6 +3841,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, start=None):
                 typed, key = key, pressed(key, shown, found)
                 if isinstance(key, Path):
                     cursor = key              # the heading, highlighted when he is back
+                    begun.opening(cursor, "enter")
                     show_features(key, dry_run)    # read with the keys, on the screen the menu has
                     continue
                 key = key.lower()
@@ -3801,6 +3869,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, start=None):
                 continue          # an arrow key is neither Esc nor a key: draw again, silently
             key = key.lower()
             seat = own if overlay else cursor
+            begun.opening(cursor, f"char:{key}" if key in ("i", "c", "m", "n", "x") else None)
             if key == "x" and isinstance(seat, Path):
                 continue          # a heading is no seat to stop
             if key == "x" and drawn is not None and seat in drawn["words"]:
@@ -3869,15 +3938,14 @@ def client(alias, dry_run):
 
 
 UPDATE_TAIL = 10   # how many of a failed start-up update's last lines `ak` shows
-REOPENED = "AK_MENU_AT"   # the seat highlighted when an update opened the menu again (`reopen`)
+REOPENED = "AK_MENU_AT"   # the seat and the screen an update opened the menu again on (`reopen`)
 
 
 def update_first(log, progress):
     """`ak` opens on the latest agentkit: when origin's main has moved past ~/agentkit,
-    update_agentkit fast-forwards and reinstalls it in a process of its own
-    (update.start_agentkit), so leaving `ak` never stops it half-way.  `progress(done, total)`
-    hears of each step, for the frame to say `agentkit · updating` and fill the rule under it,
-    and `log` of what a step that failed said.  True when ~/agentkit moved, even where
+    update_agentkit fast-forwards it and reinstalls, `progress(done, total)` hearing of each of
+    its steps for the frame to say `agentkit · updating` and fill the rule under it, and `log`
+    of the last lines a step that failed said.  True when ~/agentkit moved, even where
     install.sh then failed: `ak` starts again on the new code (`reopen`).
 
     Only the checkout this runs from moves, as with the tick (update.go_live), so a worktree's
@@ -3888,25 +3956,26 @@ def update_first(log, progress):
     if (update.agentkit_dir().resolve() != config.REPO or update.left_as_is()
             or not update.behind()):
         return False
-    before, said = update.agentkit_version(), []
-    with update.start_agentkit() as proc:
-        for line in proc.stdout:
-            step = None if said else re.fullmatch(r"(\d+) (\d+)\n?", line)
-            if step:
-                progress(int(step[1]), int(step[2]))
-            else:
-                said.append(line.rstrip("\n"))
-    for line in said[-UPDATE_TAIL:]:
-        log(line)
+    before, screen, said = update.agentkit_version(), sys.stdout, io.StringIO()
+
+    def step(done, total):
+        with redirect_stdout(screen):
+            progress(done, total)
+
+    with redirect_stdout(said):
+        failed = update.update_agentkit(step)
+    if failed:
+        for line in said.getvalue().splitlines()[-UPDATE_TAIL:]:
+            log(line)
     return update.agentkit_version() != before
 
 
-def reopen(cursor=None):
-    """`ak` started again in place, on the code an update just moved in: the menu on `cursor`,
-    the seat it had highlighted."""
+def reopen(cursor=None, key=None):
+    """`ak` started again in place, on the code an update just moved in: on a terminal, with
+    `cursor` highlighted and the screen `key` opens over the menu up again."""
     sys.stdout.flush()
     if cursor is not None:
-        os.environ[REOPENED] = str(cursor)
+        os.environ[REOPENED] = json.dumps([str(cursor), key])
     os.execv(sys.executable, [sys.executable, *sys.argv])
 
 
@@ -3918,7 +3987,7 @@ def main(argv):
     runs and retiring seats over a session the user is sitting in is not what `Ctrl-b m` was
     pressed for.  Nor does it look at origin to update agentkit: a client's `ak` and the
     server's `ak --client` behind it each do (update_first).  The menu runs its start-up work
-    behind its first draw (`loop`); a client has no menu here, so it updates before it hops.
+    as `Start` says; a client has no menu here, so it updates before it hops.
     """
     if command_help.show("attach", argv):
         return 0
@@ -3934,14 +4003,7 @@ def main(argv):
     alias = config.server_alias()
     if alias and not (flags["--client"] or overlay):
         if not dry_run:
-            said = []
-            moved = update_first(said.append, lambda done, total: terminal.frame(
-                "updating", (), "", done / total))
-            if said:
-                pause(*said)
-            if moved:
-                reopen()
-            macbridge.start_background()
+            Start([Start.update, lambda begun: macbridge.start_background()]).begin()
         return client(alias, dry_run)
     steps = []
     if not (dry_run or overlay):
@@ -3953,4 +4015,8 @@ def main(argv):
     if not (dry_run or overlay):
         # what `ak orch` does on the way into a seat: gc, and the runs nobody was told about
         steps.append(lambda begun: orch.maintenance(begun.log))
-    return loop(config.load(), flags["--client"], dry_run, overlay, start=steps)
+    begun = Start(steps)
+    try:
+        return loop(config.load(), flags["--client"], dry_run, overlay, start=begun)
+    except Reopen:
+        reopen(*begun.at)

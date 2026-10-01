@@ -682,12 +682,26 @@ _TAKEN = None      # the Keyboard that has the terminal now, or None
 _KEYED = b""       # what a keyboard sent past the key it was read for, or while `sense` asked
 _PRESSED = False   # the left button went down and has not been read coming up
 _ASKED = False     # a resize or a return from ^Z asked for a draw (`asked_again`)
+_RAISE = None      # what the next wait for a key raises instead of waiting (`interrupt`)
 _REPORT = re.compile(r"\x1b\[<\d+;\d+;\d+[Mm]")   # a mouse report, as mode 1006 sends one
 
 
 def taken():
     """Whether a `Keyboard` has the terminal, so keys are read one at a time and not in lines."""
     return _TAKEN is not None
+
+
+def interrupt(exc):
+    """Have the next wait for a key, on whatever screen is up, raise `exc`: how something off
+    the drawing thread leaves a screen, at the moment it waits, with nothing half-done.  A wait
+    already going ends at once, as on a resize, and the screen's next one raises."""
+    global _RAISE
+    _RAISE = exc
+    if _TAKEN is not None and _TAKEN.again:
+        try:
+            os.write(_TAKEN.again[1], b".")
+        except OSError:
+            pass
 
 
 def asked_again():
@@ -875,7 +889,10 @@ def read_key(timeout=None, wake=None):
     while the button is down is answered at once; should that key give the terminal away,
     the rest of the click is no click (`Keyboard.give`).
     """
-    global _PRESSED, _ASKED
+    global _PRESSED, _ASKED, _RAISE
+    if _RAISE is not None:
+        exc, _RAISE = _RAISE, None
+        raise exc
     fd = sys.stdin.fileno()
     until = None if timeout is None else time.monotonic() + timeout
     while True:
