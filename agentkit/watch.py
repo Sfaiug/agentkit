@@ -1153,20 +1153,23 @@ def auth_expired_on(harness, tail):
     return None
 
 
-def failed_on(harness, lines):
-    """What a seat's error line says, read as a worker turn's failure is: (outcome, word).
+def error_said(harness, lines):
+    """A seat's error, as its harness drew it.
 
     The last line is the error line.  One that names no failure of its own -- `Goal stalled`,
     `Error ID: ...` -- is read with the line above it only where the harness drew that line as
     its own error (`[stall] error_marks`); nothing else above is read, so a word in the model's
     answer is never the provider's.
     """
-    plugin = orch.harness_plugin(harness)
-    found = plugin.failure(lines[-1]) if lines else (None, None)
-    if found[0] is None and len(lines) > 1 and lines[-2].startswith(
-            _words(harness, "stall", "error_marks")):
-        return plugin.failure("\n".join(lines[-2:]))
-    return found
+    if (len(lines) > 1 and orch.harness_plugin(harness).failure(lines[-1])[0] is None
+            and lines[-2].startswith(_words(harness, "stall", "error_marks"))):
+        return "\n".join(lines[-2:])
+    return lines[-1] if lines else ""
+
+
+def failed_on(harness, lines):
+    """What a seat's error says, read as a worker turn's failure is: (outcome, word)."""
+    return orch.harness_plugin(harness).failure(error_said(harness, lines)) if lines else (None, None)
 
 
 def stalled_on(harness, tail, session, log):
@@ -2852,8 +2855,12 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     def spent(account):
         return usage.model_exhausted(cfg, model, {provider: readings.get(account, {})})[0]
 
-    line = output_line(content_lines(harness, pane_tail(pane)))
+    lines = content_lines(harness, pane_tail(pane))
+    line = output_line(lines)
     mark = stalled_on(harness, line, name, log) if line else None
+    if mark:
+        # A bare trailer (`Goal stalled`) is told apart, and dated, by the error line above it.
+        line = error_said(harness, lines[:-1] + [line])
     outcome = failed_on(harness, [line])[0] if mark else None
     refusal = outcome in (SPENT, LIMITED)
     now = time.time()
@@ -4424,8 +4431,9 @@ def resume_errored(dry_run=False, log=print, now=None):
     started stays `error`: still waiting, still silent, never a notification.
 
     Only a resumable error is scheduled at all: a worktree still there, the keys
-    a resume replays, a task that still parses.  Anything else was never stamped,
-    or loses its stamp here with one WARN, and reads parked for a person.
+    a resume replays, a task that still parses, and no job of its own to settle it.
+    Anything else was never stamped, or loses its stamp here with one WARN, and
+    reads parked for a person.
     A handed-back, carded or acknowledged ending, one at least a day old, or one
     with no launch session still on record loses its stamp and waits for a person.
     An error a later merged run replaced is retried never: its retry stamps go the
@@ -4501,7 +4509,7 @@ def resume_errored(dry_run=False, log=print, now=None):
                 pass
 
 
-def resume_waiting(dry_run=False, log=print, now=None):
+def resume_waiting(dry_run=False, log=print, now=None, run=None):
     """Park rebase-conflict FAILs as `waiting`, and resume them after main moves.
 
     A FAIL whose merge note is a rebase conflict, with rounds still to spend, is
@@ -4520,14 +4528,17 @@ def resume_waiting(dry_run=False, log=print, now=None):
     Every wait must still pass admission before a fetch or resume: waits left by
     an older tick do not keep permission after a telling, a lost seat or a day.
     A dry run names what it would park and resume, and fetches nothing: a fetch
-    moves the very refs it reports on.
+    moves the very refs it reports on.  A job's run is its job's: the tick's pass
+    leaves it, and the job's own ladder passes it as `run` to resume its wait.
     """
     from . import run as run_mod
     now = time.time() if now is None else now
-    for run_dir in run_mod.run_dirs():
+    for run_dir in [run] if run else run_mod.run_dirs():
         try:
             state = run_mod.read_state(run_dir)
             if not state or state.get("state") not in ("fail", "waiting"):
+                continue
+            if state.get("job_id") and not run:
                 continue
             if state.get("state") == "fail" and not run_mod.parkable_conflict(
                     state, run_dir, now=now):
@@ -4613,7 +4624,8 @@ def resume_waiting(dry_run=False, log=print, now=None):
                 log(f"parked {run_dir.name} waiting on {ref} at {sha[:12]}")
                 continue
             try:
-                with redirect_stdout(io.StringIO()):
+                # a job's threads share its stdout: swapping it would swallow their lines
+                with nullcontext() if run else redirect_stdout(io.StringIO()):
                     run_mod.spawn_bg(run_dir, ["resume", run_dir.name], expected=decided,
                                      park_as=True)
             except (config.Error, OSError) as exc:

@@ -238,7 +238,7 @@ mid-turn to continue it, as a run is, over at most three ticks, so it reads `wor
 On `ak run status`'s dim line (`error · retry 14:32`, `waiting · retry after the next merge to origin/main`) an admitted
 ending says why: its launch session still exists, it ended under 24 hours ago, and it was not handed back, carded or
 acknowledged. Only those endings may be parked from a conflict FAIL or resumed from `error` or `waiting`, an older
-tick's waits included; by-hand runs and older endings wait for a person. The tick retries an admitted error on the
+tick's waits included; by-hand runs and older endings wait for a person, and a job's run for its job, which resumes its own merge wait. The tick retries an admitted error on the
 ladder above, an `exhausted` run after reviewer transport failures once a reviewer is eligible (at most hourly while it
 keeps dying), and an admitted conflict `waiting` after main moves, task rounds spent or not. `ak run status <id>` on a
 scheduled error keeps its retry and admission. When admission ends, an error loses its retry stamps, and it or a merge

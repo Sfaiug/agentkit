@@ -1580,11 +1580,11 @@ def stop_session(found, dry_run):
 
     With the keyboard `x` is the highlighted seat's instead (`loop`, `close_seat`).  The seat is
     picked by number or by name; Esc and an empty Enter go back
-    to the menu, as does anything but `y` to the one question. Stopping is the only
-    thing that ends a seat: the conversation is saved, and the seat's number opens
-    it again later. Its runs stop first, the same way `ak run stop` stops one, so
-    none is left to read as an accident afterwards. `ak orch stop` then removes
-    the checkouts, the state files and the tabs.
+    to the menu, as does anything but `y` to the one question, which says, as the
+    keyboard's card does, that nothing reopens the seat afterwards. Its runs stop
+    first, the same way `ak run stop` stops one, so none is left to read as an
+    accident afterwards. `ak orch stop` then removes the checkouts, the state files
+    and the tabs.
     """
     if not found:
         pause("no session to stop")
@@ -1599,8 +1599,7 @@ def stop_session(found, dry_run):
         stop_session_runs(session["name"], dry_run=True)
         print(f"would stop {session['name']}")
         return
-    terminal.frame("stop", terminal.wrap("The conversation is saved and the seat's number "
-                                           "reopens it later.", terminal.width()))
+    terminal.frame("stop", terminal.wrap(stop_means(None), terminal.width()))
     if read(stop_question(session["name"]), "") != "y":
         return
     stop_session_runs(session["name"])
@@ -1642,8 +1641,7 @@ def stop_this_session(dry_run):
     if not current:
         pause("stop: this menu was not opened from a session")
         return
-    terminal.frame("stop", terminal.wrap("The conversation is saved and the seat's number "
-                                         "reopens it later.", terminal.width()))
+    terminal.frame("stop", terminal.wrap(stop_means(None), terminal.width()))
     if dry_run:
         stop_session_runs(current, dry_run=True)
         print(f"would stop {current}")

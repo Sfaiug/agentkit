@@ -511,7 +511,7 @@ class QuotaDry(unittest.TestCase):
     def collect(self, cfg):
         return usage._gate_flags(self.providers, self.now, cfg)
 
-    def replenish(self, cfg, provider):
+    def replenish(self, cfg, provider, **_kw):
         """The real policy's contract: one credit at most, and only while the day allows."""
         self.replenished.append(provider)
         claimed = config.STATE / f"{provider}-reset.json"

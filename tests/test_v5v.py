@@ -76,11 +76,11 @@ class Picker(NewSession):
     def test_direct_orch_keeps_cwd_without_a_project_question(self):
         cwd = self.root / "outside"
         cwd.mkdir()
-        with patch.object(orch, "maintenance"), patch.object(orch, "attach"), \
+        with patch.object(orch, "maintenance"), patch.object(orch, "attach", return_value=0), \
                 patch.object(orch, "launch"), patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
                 patch.object(Path, "cwd", return_value=cwd), self.answers(["", "", "all"]), \
                 redirect_stdout(io.StringIO()):
-            self.assertEqual(orch.main(["--dry-run"]), 0)
+            self.assertEqual(orch.main([]), 0)
         record = config.load_session(self.cfg, "new")
         self.assertEqual(record["cwd"], str(cwd))
         self.assertIsNone(record["repo"])
@@ -88,19 +88,18 @@ class Picker(NewSession):
     def test_forced_workers_skip_the_picker(self):
         with patch.object(orch, "prompt_workers", side_effect=AssertionError("must skip")), \
                 patch.object(orch, "prompt_orchestrator", side_effect=AssertionError("must skip")), \
-                redirect_stdout(io.StringIO()):
+                redirect_stdout(io.StringIO()) as out:
             orch.main(["forced", "--model", "astra", "--workers", "opus", "--dry-run"])
-        record = config.load_session(self.cfg, "forced")
-        self.assertEqual((record["orchestrator"], record["workers"]), ("astra", ["opus"]))
+        self.assertIn("orch: astra (--model)\n", out.getvalue())
+        self.assertIn("\nworkers opus\n", out.getvalue())
 
     def test_model_flag_only_prompts_workers(self):
         with self.answers(["all"]), patch.object(orch, "prompt_workers", wraps=orch.prompt_workers) as ask, \
-                redirect_stdout(io.StringIO()):
+                redirect_stdout(io.StringIO()) as out:
             orch.main(["model-only", "--model", "astra", "--dry-run"])
         ask.assert_called_once()
-        record = config.load_session(self.cfg, "model-only")
-        self.assertEqual(record["orchestrator"], "astra")
-        self.assertEqual(record["workers"], config.offered(self.cfg))
+        self.assertIn("orch: astra (--model)\n", out.getvalue())
+        self.assertIn(f"\nworkers {' '.join(config.offered(self.cfg))}\n", out.getvalue())
 
     def test_esc_at_first_and_last_questions_create_nothing(self):
         self.assertIsNone(self.new(["\x1b"]))

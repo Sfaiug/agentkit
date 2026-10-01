@@ -1739,7 +1739,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 continue
             if account is not None and next_account(try_again_at(said), message):
                 continue
-            spent, left = (usage.replenish(cfg, entry["provider"])
+            spent, left = (usage.replenish(cfg, entry["provider"], account=account)
                            if refills < MAX_REFILLS else (False, 0.0))
             if spent:
                 refills += 1
@@ -10726,12 +10726,15 @@ def error_resumable(state, run_dir):
 
     The same checks `resume_run` refuses on, asked before anything is scheduled:
     a worktree that is still there, the keys a resume replays, and -- for a task
-    run -- a task that still parses with a done-when.  A run that fails any of
-    them is parked for a person, not for the tick: retrying a task nobody can run
-    would only fail on the hour, every hour, saying nothing new.
+    run -- a task that still parses with a done-when.  A job's run is its job's to
+    settle, never the tick's.  A run that fails any of the others is parked for a
+    person, not for the tick: retrying a task nobody can run would only fail on
+    the hour, every hour, saying nothing new.
     """
     if state.get("review_pr"):
         return False  # the watch relaunches the review itself; the run is never resumed
+    if state.get("job_id"):
+        return False  # its job settles it or reruns it elsewhere; a retry would race that
     wt = state.get("worktree")
     if not wt or not Path(wt).is_dir():
         return False
@@ -10861,8 +10864,11 @@ def parkable_conflict(state, run_dir=None, now=None):
     conflict FAIL at its budget is not one of these: more rounds are the owner's
     decision, never the tick's. Only an untold, unacknowledged ending under a
     day old from a session that still exists may be parked: anything the seat
-    moved past is history, and a by-hand run waits for a person.
+    moved past is history, and a by-hand run waits for a person.  A job's run is
+    never parked: its job has already settled that FAIL, and alone decides what next.
     """
+    if state.get("job_id"):
+        return False
     if not CONFLICT_NOTE.search(state.get("merge_note") or ""):
         return False  # cheap first: most FAILs never reach the log read below
     if len(state.get("round_summaries") or []) >= (state.get("rounds") or 0):
@@ -14812,10 +14818,15 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
     task["reviewer"] = run_state.get("reviewer") or task.get("reviewer")
     log(job_exit_line(task, run_dir, run_state, rc))
     if run_state.get("state") == "waiting":
-        # a PASS parked on the next merge to its target is no ending: the tick resumes it
-        # then, and the task follows it there, so its dependants wait instead of skipping
+        # a PASS parked on the next merge to its target is no ending: the job resumes it
+        # then, as the tick would a lone run, and the task follows it there, so its
+        # dependants wait instead of skipping
         log(f"{task['name']}: parked waiting ({run_state.get('error')}); following it")
+    asked = 0
     while run_state.get("state") == "waiting" and tick_admission(run_state):
+        if time.time() - asked >= JOB_PICKER_INTERVAL:
+            asked = time.time()   # each ask fetches: at the picker's rate, not every tick
+            watch.resume_waiting(log=log, run=run_dir)
         time.sleep(JOB_TICK)
         run_state = read_state(run_dir) or run_state
         if run_state.get("state") != "waiting":
