@@ -259,9 +259,9 @@ class LandReserve(LandingCase):
             # a hold is work, not a wait: the run keeps its slot and its silence watch
             self.assertEqual(run.slot_counts({"run_id": "probe"}), (2, 0))
             old = time.time() - 3600
-            for path in one.run_dir.rglob("*"):
-                os.utime(path, (old, old))
-            self.assertLess(watch.stall_clock(one.run_dir, state), old + 1)
+            # The landing thread keeps writing; pin silence instead of racing its files.
+            with patch.object(watch, "run_last_write", return_value=old):
+                self.assertLess(watch.stall_clock(one.run_dir, state), old + 1)
             second = self.land(two, results)
             second.join(60)
             self.assertFalse(second.is_alive(), "the second run never finished")
