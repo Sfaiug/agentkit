@@ -1433,7 +1433,7 @@ PY
   rm -rf -- "$d"
   return "$rc"
 }
-# Run the slot regressions in full: every_file.py skips each file smoke.sh names.
+# Fake-adapter loops: a second root waits at max_runs=1; a depth-1 test run shares the slot.
 slot_queue_check() {
   python3 "$REPO/tests/test_v5am.py" -v || return 1
   printf '%s\n' 'ok: max_runs=1 waits (ak run status says waiting for a slot · limit full (1 running) · 0 ahead), then starts; depth-1 tests share the parent slot'
