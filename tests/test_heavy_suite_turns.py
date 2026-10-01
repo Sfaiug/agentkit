@@ -142,18 +142,43 @@ class HeavySuiteTurns(unittest.TestCase):
                 self.assertIsNotNone(hold)
                 hold.release()
 
-    def test_memory_below_one_suite_waits_even_with_cpu_headroom(self):
-        readings = {**SMALL, "slice_memory_used_mb": 4100 - 409}
-        with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(readings)}), \
-                run.gate_lock(ACME, 0).open("a") as holder, \
-                patch.object(run.time, "sleep", side_effect=InterruptedError):
-            fcntl.flock(holder, fcntl.LOCK_EX)
-            directory = self.record("memory-full", WIDGET)
-            log_path = directory / "donewhen.log"
-            with self.assertRaises(InterruptedError):
-                run._acquire_gate_turn(directory, log_path, None)
-            self.assertEqual(log_path.read_text(),
-                             "waiting for a heavy suite turn · 1 running · 0 more fit\n")
+    def test_either_resource_below_one_suite_waits_with_one_running(self):
+        for resource, readings in (
+                ("cpu", {**SMALL, "slice_cpu_used": 8}),
+                ("memory", {**SMALL, "slice_memory_used_mb": 4100 - 409})):
+            with self.subTest(resource=resource), \
+                    patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(readings)}), \
+                    run.gate_lock(ACME, 0).open("a") as holder, \
+                    patch.object(run.time, "sleep", side_effect=InterruptedError):
+                fcntl.flock(holder, fcntl.LOCK_EX)
+                directory = self.record(resource, WIDGET)
+                log_path = directory / "donewhen.log"
+                with self.assertRaises(InterruptedError):
+                    run._acquire_gate_turn(directory, log_path, None)
+                self.assertEqual(log_path.read_text(),
+                                 "waiting for a heavy suite turn · 1 running · 0 more fit\n")
+
+    def test_waiting_line_uses_each_admission_reading(self):
+        directory = self.record("waiter", WIDGET)
+        log_path = directory / "donewhen.log"
+        seen = []
+        def poll(_seconds):
+            seen.append(log_path.read_text())
+            if len(seen) == 3:
+                raise InterruptedError
+        with ExitStack() as holders:
+            for index in range(4):
+                holder = holders.enter_context(run.gate_lock(ACME, index).open("a"))
+                fcntl.flock(holder, fcntl.LOCK_EX)
+            with patch.object(run, "host_readings", side_effect=[
+                    {**SMALL, "slice_cpu_used": used} for used in (5.8, 6.6, 8)]) as readings, \
+                    patch.object(run, "_gate_waiter_before", return_value=True), \
+                    patch.object(run.time, "sleep", side_effect=poll):
+                with self.assertRaises(InterruptedError):
+                    run._acquire_gate_turn(directory, log_path, None)
+            self.assertEqual(readings.call_count, 3)
+        self.assertEqual(seen, [f"waiting for a heavy suite turn · 4 running · {more} more fit\n"
+                                for more in (3, 2, 0)])
 
     def test_a_saturated_slice_waits_yet_one_turn_is_always_free(self):
         self.assertEqual(run.derived_heavy_limit(dict(SATURATED)), 1)
@@ -166,7 +191,7 @@ class HeavySuiteTurns(unittest.TestCase):
             second.start()
             gate_log = second.run_dir / "donewhen.log"
             self.until(lambda: gate_log.is_file() and gate_log.read_text() ==
-                       "waiting for a heavy suite turn · 1 running\n",
+                       "waiting for a heavy suite turn · 1 running · 0 more fit\n",
                        "the second suite to wait")
             self.assertEqual(run.gate_turn_note(run.read_state(second.run_dir)),
                              "waiting for a heavy suite turn")
