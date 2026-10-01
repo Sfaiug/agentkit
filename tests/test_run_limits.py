@@ -206,7 +206,7 @@ class Limits(unittest.TestCase):
         (directory / "task.md").write_text(self.task(["true"]).read_text())
         state = {"run_id": name, "title": "A run that stopped", "state": "error",
                  "verdict": None, "error": "`git fetch origin` was killed after 1s: "
-                 "nothing here can answer a credential prompt", "executor": "opus",
+                 "the remote did not answer", "executor": "opus",
                  "reviewer": "astra", "rounds": 1, "round_summaries": [], "findings": "",
                  "repo": str(self.work), "worktree": str(self.work), "branch": "main",
                  "base": "origin/main", "base_sha": run.git(self.work, "rev-parse", "HEAD"),
@@ -364,11 +364,11 @@ class Limits(unittest.TestCase):
             with self.assertRaises(run.Stopped) as stopped_call:
                 run.git_out(self.work, "fetch", "origin")
             self.assertIn("was killed after 1s", str(stopped_call.exception))
-            self.assertIn("gh auth status", str(stopped_call.exception))
+            self.assertIn("the remote did not answer", str(stopped_call.exception))
             with self.assertRaisesRegex(config.Error, "was killed after 1s"):
                 run.git(self.work, "fetch", "origin")
             self.assertIsNone(run.gh(self.root, "api", "user")[0])
-            self.assertIn("then resume the run", run.gh(self.root, "api", "user")[1])
+            self.assertIn("the remote did not answer", run.gh(self.root, "api", "user")[1])
         # a poll keeps a real round trip's budget to the end: shrinking the last poll
         # below one manufactures a stop out of a healthy gh, and the deadline branch that
         # names the unfinished checks never runs
@@ -642,7 +642,7 @@ class Limits(unittest.TestCase):
         self.assertFalse(state.get("merged"))
         self.assertIn("was killed after 5s", state["merge_note"])
         result = (directory / "result.md").read_text()
-        self.assertIn("gh auth status", result)             # the remedy, in result.md
+        self.assertIn("the remote did not answer", result)
         self.assertIn(f"retry delivery: ak run merge {directory.name}", result)
         self.assertFalse((self.root / "merged").exists())   # nothing was delivered on a guess
 
@@ -674,13 +674,13 @@ class Limits(unittest.TestCase):
         self.assertEqual(state["state"], "pass")
         self.assertTrue(state["merge_failed"])              # still retryable, not a dead end
         self.assertIn("was killed after 5s", state["merge_note"])
-        self.assertIn("gh auth status", (directory / "result.md").read_text())
+        self.assertIn("the remote did not answer", (directory / "result.md").read_text())
         (self.root / "slow-gh").unlink()
         with patch.object(run, "TOOL_CAP", 5), redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", directory.name]), 0)
         self.assertTrue(run.read_state(directory)["merged"])
 
-    def test_v5f_a_refused_credential_prompt_reads_like_a_timeout(self):
+    def test_v5f_a_refused_credential_prompt_stops_with_credential_advice(self):
         self.repo()
         blocked = self.root / "blocked"
         blocked.mkdir()
@@ -692,9 +692,9 @@ class Limits(unittest.TestCase):
             with self.assertRaises(run.Stopped) as refused:
                 run.git_out(self.work, "push", "origin", "main")
             self.assertIn("terminal prompts disabled", str(refused.exception))
-            self.assertIn("gh auth status", str(refused.exception))   # the same one-line remedy
-            self.assertIn("then resume the run", str(refused.exception))
-            with self.assertRaisesRegex(config.Error, "then resume the run"):
+            self.assertIn("gh auth status", str(refused.exception))
+            self.assertNotIn("resume", str(refused.exception))
+            with self.assertRaisesRegex(config.Error, "gh auth status"):
                 run.git(self.work, "push", "origin", "main")
         # and a git that never answered is never read as an empty result, check or no check
         slow = self.root / "slow"
@@ -730,7 +730,7 @@ class Limits(unittest.TestCase):
         self.assertIn("--- merge: rebasing", (directory / "log.txt").read_text())
         result = (directory / "result.md").read_text()
         self.assertIn("## Why this run stopped", result)
-        self.assertIn("gh auth status", result)
+        self.assertIn("the remote did not answer", result)
         self.assertFalse((self.root / "merged").exists())
         # `ak run merge` is not the command for this one, and says so rather than pretending
         with self.assertRaisesRegex(config.Error, "merge requires a finished PASS"):
@@ -809,7 +809,7 @@ class Limits(unittest.TestCase):
         third, _ = self.stopped_run("20260914-1202-stopped", state="running")
 
         def stop():
-            raise run.Stopped("`git fetch origin` was killed after 1s: check `gh auth status`")
+            raise run.Stopped("`git fetch origin` was killed after 1s: the remote did not answer")
 
         with redirect_stdout(io.StringIO()):
             self.assertEqual(run.drive(self.cfg, third, {}, lambda message: None, job=stop), 1)
@@ -877,7 +877,7 @@ class Limits(unittest.TestCase):
         text = (directory / "log.txt").read_text()
         self.assertNotIn("conflicted", text)
         self.assertIn("was killed after 2s", text)          # the remedy, in log.txt
-        self.assertIn("gh auth status", text)
+        self.assertIn("the remote did not answer", text)
         self.assertIn("aborted the stopped rebase", text)
         # the worktree is back on the branch head: no rebase state, the work intact
         wt = Path(state["worktree"])
@@ -885,7 +885,7 @@ class Limits(unittest.TestCase):
         self.assertEqual((wt / "work.txt").read_text(), "executor call 1\n")
         result = (directory / "result.md").read_text()
         self.assertIn("was killed after 2s", result)        # and in result.md
-        self.assertIn("gh auth status", result)
+        self.assertIn("the remote did not answer", result)
         self.assertIn(f"retry delivery: ak run merge {directory.name}", result)
 
         (self.root / "slow-git").unlink()
@@ -941,9 +941,9 @@ class Limits(unittest.TestCase):
             self.assertIsNone(state["pr"], verb)
             text = (directory / "log.txt").read_text()
             self.assertIn("was killed after 2s", text, verb)
-            self.assertIn("gh auth status", text, verb)
+            self.assertIn("the remote did not answer", text, verb)
             result = (directory / "result.md").read_text()
-            self.assertIn("gh auth status", result, verb)
+            self.assertIn("the remote did not answer", result, verb)
             self.assertIn(f"retry delivery: ak run merge {directory.name}", result, verb)
 
             (self.root / "slow-git").unlink()
@@ -969,17 +969,17 @@ class Limits(unittest.TestCase):
                 run.prepare(run_dir, {"--review-pr": None, "--no-worktree": False,
                                       "--no-merge": False}, log)
         self.assertIn("was killed after 1s", str(prelaunch.exception))
-        self.assertIn("gh auth status", str(prelaunch.exception))
+        self.assertIn("the remote did not answer", str(prelaunch.exception))
         state = run.read_state(run_dir)
         self.assertEqual(state["state"], "error")
         self.assertIn("was killed after 1s", state["error"])
         text = (run_dir / "log.txt").read_text()
         self.assertTrue(text.strip())                       # never empty
-        self.assertIn("gh auth status", text)               # the remedy, in log.txt
+        self.assertIn("the remote did not answer", text)
         result = (run_dir / "result.md").read_text()
         self.assertIn("VERDICT: none", result)
         self.assertIn("## Why this run stopped", result)
-        self.assertIn("gh auth status", result)
+        self.assertIn("the remote did not answer", result)
         self.assertIn(f"ak run {run_dir / 'task.md'}", result)
 
     def test_v5f_a_stop_while_reporting_is_recorded_and_keeps_the_delivery(self):
@@ -1000,7 +1000,7 @@ class Limits(unittest.TestCase):
         self.assertIn("was killed after 1s", result)
         self.assertNotIn("retry delivery:", result)         # merged: nothing to retry
         self.assertTrue(any("was killed after 1s" in line for line in logged))
-        self.assertTrue(any("gh auth status" in line for line in logged))
+        self.assertTrue(any("the remote did not answer" in line for line in logged))
         saved = run.read_state(directory)
         self.assertEqual((saved["state"], saved["verdict"]), ("pass", "PASS"))
         self.assertTrue(saved["merged"])
@@ -1018,10 +1018,10 @@ class Limits(unittest.TestCase):
         self.assertEqual(state["round_summaries"], [])      # no fixer round was spent on it
         text = (directory / "log.txt").read_text()
         self.assertIn("was killed after 2s", text)
-        self.assertIn("gh auth status", text)
+        self.assertIn("the remote did not answer", text)
         result = (directory / "result.md").read_text()
         self.assertIn("## Why this run stopped", result)
-        self.assertIn("gh auth status", result)
+        self.assertIn("the remote did not answer", result)
         self.assertTrue(run.needs_recovery(state))
 
         (self.root / "slow-git").unlink()
@@ -1152,9 +1152,8 @@ class Limits(unittest.TestCase):
         lp = run.Loop(self.cfg, directory, state, {}, lambda message: None, self.work,
                       "", [], "", [])
         refused = ("gh: prompts are disabled; run `gh auth login` to authenticate\n"
-                   "`gh api user` asked for a credential it may not ask for: nothing here can "
-                   "answer a credential prompt, so check `gh auth status` and the remote's "
-                   "credentials by hand, then resume the run")
+                   "`gh api user` asked for a credential it may not ask for: "
+                   "check `gh auth status` and the remote's credentials by hand")
         with patch.object(run, "require_review_pass"), \
                 patch.object(run, "git", return_value="origin"), \
                 patch.object(run, "git_out", return_value=(0, "")), \
@@ -1195,8 +1194,7 @@ class Limits(unittest.TestCase):
                 # poll_cap the final poll arrived with 1s and this raised Stopped
                 polls.append(kwargs.get("timeout"))
                 if kwargs.get("timeout") is not None and kwargs.get("timeout") < 2:
-                    raise run.Stopped("`gh api` was killed after 1s: nothing here can "
-                                      "answer a credential prompt")
+                    raise run.Stopped("`gh api` was killed after 1s: the remote did not answer")
                 return ([{"check_runs": [{"id": 1, "name": "ci", "status": "in_progress",
                                           "conclusion": None, "app": {"id": 123}}]}], "")
             return ([[{"type": "required_status_checks",

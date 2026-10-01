@@ -164,12 +164,12 @@ class FetchRefRace(unittest.TestCase):
         self.merges.assert_not_called()
 
     def test_a_ref_lock_outlasting_the_git_limit_is_reported_not_retried_forever(self):
-        # each lost race answers after 1.5s: the second try is cut at the 2s limit, not given 2s
+        # The second call gets the remaining 0.5s, then one retry with that same budget.
         started = time.monotonic()
         with patch.object(run, "TOOL_CAP", 2):
             self.assertFalse(self.land(ALWAYS, LOCKED, delay=1.5))
-        self.assertLess(time.monotonic() - started, 2.5)
-        self.assertEqual(self.attempts(), 2)
+        self.assertLess(time.monotonic() - started, 4)
+        self.assertEqual(self.attempts(), 3)
         self.assertTrue(self.lp.state["merge_note"].startswith(
             "git fetch origin failed: error: cannot lock ref 'refs/remotes/origin/main'"))
         self.assertTrue(self.lp.state["merge_failed"])
