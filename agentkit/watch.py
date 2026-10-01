@@ -1184,10 +1184,14 @@ def error_said(harness, lines):
     The last line is the error line.  One that names no failure of its own -- `Goal stalled`,
     `Error ID: ...` -- is read with the line above it only where the harness drew that line as
     its own error (`[stall] error_marks`); nothing else above is read, so a word in the model's
-    answer is never the provider's.
+    answer is never the provider's.  Nor is a last line drawn behind another mark, as Codex
+    draws its answer behind `•`: it says none, and a stall there is only typed at.
     """
+    marks = _words(harness, "stall", "error_marks")
+    if lines and marks and re.match(r"[^\w\s]\s", lines[-1]) and not lines[-1].startswith(marks):
+        return ""
     if (len(lines) > 1 and orch.harness_plugin(harness).failure(lines[-1])[0] is None
-            and lines[-2].startswith(_words(harness, "stall", "error_marks"))):
+            and lines[-2].startswith(marks)):
         return "\n".join(lines[-2:])
     return lines[-1] if lines else ""
 
@@ -1201,16 +1205,25 @@ def stalled_on(harness, pane, session, log):
     """The stall signature that pane is showing, or None: it is working, or it is not ours.
 
     A harness that draws its own notices in colour and the model's answer in the terminal's
-    own (`[stall] coloured`) says a stall word only in colour, where the pane has attributes;
-    the whole pane, as a colour drawn above its tail can still be on its last line.
+    own (`[stall] coloured`) says a stall word only on a line wholly in colour, where the pane
+    has attributes -- the whole pane, as a colour drawn above its tail can still be on its last
+    line -- since the answer styles a span of its own in colour too.  Where the pane has none,
+    its own line begins with the stall word, behind whatever mark it is drawn with: the
+    model's sentence about one names it further on.
     """
     lines = content_lines(harness, pane_tail(pane))
     last = lines[-1] if lines else ""
     block = config.manifest(harness).get("stall")
-    if lines and isinstance(block, dict) and block.get("coloured") is True and SGR_SEQ.search(pane):
+    coloured = isinstance(block, dict) and block.get("coloured") is True
+    if lines and coloured and SGR_SEQ.search(pane):
         drawn = [shown for raw, shown in zip(pane.splitlines(), in_colour(pane))
                  if strip_sgr(raw).strip()]      # the rows pane_tail keeps, in its order
-        last = drawn[-PANE_LINES:][len(lines) - 1]
+        if drawn[-PANE_LINES:][len(lines) - 1] != " ".join(last.split()):
+            last = ""
+    elif coloured:
+        said = re.sub(r"^[^\w\s]+\s*", "", last).lower()
+        if not any(said.startswith(mark.lower()) for mark in stalls(harness)):
+            last = ""
     if not any(says(last, mark) for mark in stalls(harness)):
         mark = next((mark for line in reversed(lines[:-1]) for mark in stalls(harness)
                      if says(line, mark)), None)
