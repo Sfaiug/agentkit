@@ -272,7 +272,7 @@ class MergeTurn(unittest.TestCase):
         # the failing re-check, the fixer's, and one on the main the second landed on
         self.assertEqual(self.rechecks[one.wt], [["base.txt", "one.txt", "outside.txt"]] * 2
                          + [["base.txt", "one.txt", "outside.txt", "two.txt"]])
-        self.assertIn("fixer opus (findings after the rebase of origin/main)",
+        self.assertIn("fixer opus (done-when after the rebase)",
                       (one.run_dir / "log.txt").read_text())
         run.git(owner, "pull", "--ff-only", "origin", "main")
         self.assertTrue((owner / "one.txt").exists() and (owner / "two.txt").exists())

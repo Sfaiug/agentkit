@@ -3972,9 +3972,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     that suite passed, and the reviewer is told its absence from the input is by design
     -- the output does not exist yet when the review starts.
 
-    `record` is off for a merge pipeline's conflict rounds only: they are not task rounds
-    and must not spend one, so no summary of them enters the rounds' own history -- see
-    `resolve_conflicts`.  The verdict is recorded either way, because delivery is decided
+    `record` is off for the merge pipeline's fixer rounds: they are not task rounds
+    and must not spend one, so no summary of them enters the rounds' own history.
+    The verdict is recorded either way, because delivery is decided
     on it.
     """
     lp.state.update(verdict=None, review=None,
@@ -4287,6 +4287,15 @@ def rounds(lp, execv=None):
     invalidate_saved_pass(lp.state, lp.cfg, lp.log)
     lp.rounds = lp.state["rounds"]
     lp.save()
+    pending = lp.state.get("review_pending")
+    if pending and pending.get("record") is False:
+        # A landing gate may be waiting on a changed target, not another task
+        # round. Bring that target in before verifying or reviewing the fixes.
+        upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
+        if not integrate(lp, upstream) and lp.state.get("merge_failed"):
+            # An unreachable target needs the tick's error retry, not a task verdict.
+            raise config.Error(lp.state["merge_note"])
+        return
     if review_pass(lp.state, lp.cfg) and not current_review(lp):
         pending_review(lp, "The saved reviewed commit changed; verify the current checkout.")
     if current_review(lp):
@@ -4546,21 +4555,20 @@ def wait_for_dependency(lp):
 
 
 def abort_integration(lp, how):
-    """Put the branch back, and drop the re-review the abandoned integration asked for.
+    """Put the branch back, keeping any earlier landing review.
 
-    `integrate` records that pending review before git rewrites HEAD, so an interruption
-    mid-rebase cannot leave a saved PASS.  Once the rebase or merge is aborted the branch is
-    exactly what it was and the record describes work that never happened: left behind, it
-    would spend a resumed run's next round re-reviewing instead of fixing, and record that
-    round twice.  The invalidated verdict stays invalidated -- only the pending work goes.
+    A task review describes the abandoned integration and goes with it. A non-task
+    review can predate it: the restored HEAD still holds unreviewed landing fixes,
+    so recovery must keep that pending review at the current round. The invalidated
+    verdict stays invalidated.
     """
     git_out(lp.wt, how, "--abort")
-    lp.state.pop("review_pending", None)
+    if (lp.state.get("review_pending") or {}).get("record") is not False:
+        lp.state.pop("review_pending", None)
     lp.write()
 
 
-CONFLICT_ROUNDS = 3      # the merge pipeline's own fixer rounds per conflicted rebase or merge,
-                         # and per final check that keeps failing
+CONFLICT_ROUNDS = 3      # the merge pipeline's own fixer rounds per conflict or failing re-run
 
 
 def fix_after_failed_review(lp, upstream, how):
@@ -4631,7 +4639,11 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
                f"fixer {lp.executor} ({how} conflict)")
         try:
             summary = execute(lp, "fixer", text, f"{how}-fixer")
-        except (Dead, Blocked, Exhausted, Killed, worker.LoginExpired):
+        except (Dead, Blocked, Exhausted, Killed, worker.LoginExpired) as exc:
+            pending = lp.state.get("review_pending")
+            if isinstance(exc, Exhausted) and pending:
+                # A dry conflict fixer retries landing even at the task round budget.
+                pending.update(round=lp.rnd, record=False)
             # whatever stops here, the retry starts from a clean tree: a rebase or merge
             # left in progress behind it would be a conflict round nobody asked for
             abort_integration(lp, how)
@@ -4771,9 +4783,14 @@ def integrate(lp, upstream):
         except Exception:
             was_pass = False
         old_head = pre_identity["head_sha"] if pre_identity else None
+        landing_review = (lp.state.get("review_pending") or {}).get("record") is False
         # Persist invalidation before git rewrites HEAD: interruption must not leave a saved PASS.
         if not integrated(lp.wt, tip):
-            pending_review(lp, f"Re-review after the {how} of {upstream}.")
+            if landing_review:
+                lp.state.update(verdict=None, review=None)
+                lp.save()
+            else:
+                pending_review(lp, f"Re-review after the {how} of {upstream}.")
         try:
             if how == "merge":
                 lp.log(f"--- merge: merging {upstream} ({tip[:12]}) into {lp.state['branch']}")
@@ -4797,7 +4814,7 @@ def integrate(lp, upstream):
         else:
             old_base = lp.state.get("base_sha")
             set_base(lp, tip)
-            if current_review(lp):
+            if current_review(lp) and not landing_review:
                 lp.log("--- merge: unchanged commit; reusing done-when and review evidence")
             else:
                 # a passed review survives a clean integration whatever it leaves, an empty
@@ -4809,7 +4826,7 @@ def integrate(lp, upstream):
                 carried_here = (isinstance(carried, dict)
                                 and carried.get("outcome") == "passed"
                                 and carried.get("sha") == old_head)
-                if (was_pass and saved is not None and pre_identity is not None
+                if (not landing_review and was_pass and saved is not None and pre_identity is not None
                         and saved.get("head_sha") == pre_identity.get("head_sha")
                         and saved.get("tree_sha") == pre_identity.get("tree_sha")
                         and not on_pass(lp) and old_base and old_head and carried_here
@@ -4827,9 +4844,9 @@ def integrate(lp, upstream):
                     lp.state.pop("review_pending", None)
                     lp.save()
                     lp.lap_every_sha = new_identity["head_sha"]
-                elif (was_pass and saved is not None and pre_identity is not None
+                elif (landing_review or (was_pass and saved is not None and pre_identity is not None
                         and saved.get("head_sha") == pre_identity.get("head_sha")
-                        and saved.get("tree_sha") == pre_identity.get("tree_sha")):
+                        and saved.get("tree_sha") == pre_identity.get("tree_sha"))):
                     try:
                         post_identity = commit_identity(lp.wt)
                     except Stopped:
@@ -4856,7 +4873,7 @@ def integrate(lp, upstream):
                         lp.log(f"done-when after the {how}: {'all passed' if ok else 'FAILED'}")
                         if ok:
                             new_identity = commit_identity(lp.wt)
-                            if new_identity != post_identity:
+                            if new_identity != post_identity or landing_review:
                                 if not lp.state.get("review_pending"):
                                     pending_review(lp, f"Re-review after the {how} of {upstream}.")
                                 with released_gate_turn():
@@ -4880,19 +4897,43 @@ def integrate(lp, upstream):
                                 lp.rnd = old_rnd
                                 lp.lap_every_sha = new_identity["head_sha"]
                         else:
+                            # The target moved under work that already passed: fix the
+                            # gate before reviewing it, without spending task rounds.
+                            lp.rnd = old_rnd
+                            reason = f"Re-review after the {how} of {upstream}."
+                            lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
+                                                          "reason": reason, "record": False}
+                            lp.save()
                             drop_reserved_turn()    # the lap failed; the probe runs unheld
-                            said = target_fails(lp, upstream, dw_log)
-                            if said:
-                                return park_waiting(
-                                    lp, f"{upstream} itself fails: {said}", upstream, tip)
-                            if not lp.state.get("review_pending"):
-                                pending_review(lp, f"Re-review after the {how} of {upstream}.")
-                            with released_gate_turn():
-                                passed = (resume_review(lp, verified=(ok, dw_log)) == "PASS"
-                                          or fix_after_failed_review(lp, upstream, how))
-                            if not passed:
-                                return note(lp, f"done-when or review after the {how} of {upstream} "
-                                                "did not pass")
+                            for attempt in range(CONFLICT_ROUNDS + 1):
+                                said = target_fails(lp, upstream, dw_log)
+                                if said:
+                                    return park_waiting(
+                                        lp, f"{upstream} itself fails: {said}", upstream, tip)
+                                if attempt == CONFLICT_ROUNDS:
+                                    return park_waiting(
+                                        lp, f"done-when after the {how} still fails after "
+                                            f"{CONFLICT_ROUNDS} fixer rounds: {first_failure(dw_log)}",
+                                        upstream, tip)
+                                lp.log(f"--- merge: re-run round {attempt + 1}/{CONFLICT_ROUNDS}: "
+                                       f"fixer {lp.executor} (done-when after the {how})")
+                                fix = (f"{lp.context}\n\n## The done-when commands failed. "
+                                       f"Fix the root cause.\n```\n{dw_log[-OUT_CAP:]}\n```")
+                                with released_gate_turn():
+                                    summary = execute(lp, "fixer", fix, "rerun-fixer")
+                                    lp.state["review_pending"]["summary"] = summary
+                                    lp.save()
+                                    lp.round_dir.mkdir(parents=True, exist_ok=True)
+                                    ok, dw_log = verify_work(lp)
+                                    lp.log(f"done-when after the fix: {'all passed' if ok else 'FAILED'}")
+                                    if ok:
+                                        passed = (review(lp, summary, ok, dw_log, reason,
+                                                         record=False) == "PASS"
+                                                  or fix_after_failed_review(lp, upstream, how))
+                                        if not passed:
+                                            return note(lp, f"done-when or review after the {how} "
+                                                            f"of {upstream} did not pass")
+                                        break
                             lp.lap_every_sha = git(lp.wt, "rev-parse", "HEAD")
                 else:
                     if not lp.state.get("review_pending"):
@@ -13215,19 +13256,18 @@ def resume_run(argv):
         if n_rounds < (state.get("rounds") or 0):
             raise config.Error("--rounds cannot reduce the saved round budget")
         state["rounds"] = n_rounds
-    # A FAIL that carries a pending review carries a stale one, and so does a `waiting`
-    # run the tick parked off one: every path that ends a run `fail` either recorded its
-    # review or had its integration aborted under it, and an abort puts the branch back
-    # exactly as it was. Runs saved before `abort_integration` dropped that record still
-    # hold one, and resuming on it would spend the next round re-reviewing a round already
-    # recorded instead of fixing what the reviewer found.
+    # A failed review or aborted integration carries a stale pending review. A
+    # landing gate wait keeps its non-task review so recovery first updates the
+    # target, then fixes and reviews without spending another task round.
     # Its delivery note is stale in the same way -- what it says did not deliver is exactly
     # what this resume is about to do again -- so it goes too, the way `ak run merge` drops it
     # before its own retry; `note` writes a fresh one the moment anything fails again.
     if state.get("state") in ("fail", "waiting"):
-        state.pop("review_pending", None)
+        if (state.get("state") == "fail"
+                or (state.get("review_pending") or {}).get("record") is not False):
+            state.pop("review_pending", None)
         state.update(merge_failed=False, merge_note=None)
-    if integration_record:
+    if integration_record and (state.get("review_pending") or {}).get("record") is not False:
         # Resume at the integration step, not with another executor round: the branch is
         # saved and only the merge is left to try again.  Integration invalidated the saved
         # PASS verdict when it started, so without this `drive` enters ordinary rounds and
