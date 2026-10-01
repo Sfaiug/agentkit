@@ -60,10 +60,12 @@ def make_loop(root, wt, rounds=3):
         with (run_dir / "log.txt").open("a") as fh:
             fh.write(line + "\n")
 
+    cfg = config.load()
+    executor_provider, reviewer_provider = run.review_providers(cfg, "opus", "astra")
     state = {
         "run_id": "v5aa-test", "title": "v5aa", "state": "running", "verdict": "PASS",
-        "review": {"executor": "opus", "executor_provider": "p1", "reviewer": "astra",
-                   "reviewer_provider": "p2", "returncode": 0, "verdict": "PASS",
+        "review": {"executor": "opus", "executor_provider": executor_provider, "reviewer": "astra",
+                   "reviewer_provider": reviewer_provider, "returncode": 0, "verdict": "PASS",
                    "done_when": True, "head_sha": head, "tree_sha": tree},
         "round_summaries": [{"round": 1, "verdict": "PASS", "done_when": True,
                              "summary": "work", "head_sha": head, "tree_sha": tree}],
@@ -74,7 +76,8 @@ def make_loop(root, wt, rounds=3):
         "merge_note": None,
     }
     run.save_state(run_dir, state)
-    lp = run.Loop({}, run_dir, state, {}, log, wt, "body", ["true"], "context", [])
+    lp = run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context", [])
+    lp.round_dir.mkdir(parents=True, exist_ok=True)
     return lp, run_dir, lines
 
 
@@ -116,7 +119,11 @@ class V5aa(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
+            self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
+            "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
             "PYTHONDONTWRITEBYTECODE": "1", "AGENTKIT_SESSION": "",
             "AGENTKIT_RUN_DIR": "", "AK_RUN_ROLE": "",
@@ -124,6 +131,17 @@ class V5aa(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
+        config.ensure_dirs()
+        # Keep review bookkeeping real across laps; only the model call is fake.
+        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=self.reviewer))
+        self.stack.enter_context(patch.object(run.worker, "marked_pids", return_value=[]))
+
+    def reviewer(self, cfg, name, body, workspace, out, role, session, log, limit=None, **_kw):
+        self.assertEqual(role, "reviewer")
+        answer = "VERDICT: PASS\n\n## Findings\n- none\n"
+        out.mkdir(parents=True)
+        (out / "final.md").write_text(answer)
+        return 0, answer, session, False
 
     def script(self, path, text):
         path.write_text(f"#!{sys.executable}\n{text}")
@@ -159,7 +177,6 @@ class V5aa(unittest.TestCase):
             return code, out
 
         with patch.object(run, "git_out", side_effect=hooked), \
-                patch.object(run, "current_review", return_value=True), \
                 patch.object(run, "set_base", side_effect=record_set_base):
             self.assertTrue(run.integrate(lp, "origin/main"))
         text = self.log_text(run_dir)
@@ -208,9 +225,6 @@ class V5aa(unittest.TestCase):
             return "## Summary\nResolved both sides."
 
         with patch.object(run, "execute", side_effect=fixer), \
-                patch.object(run, "verify_work", return_value=(True, "ok")), \
-                patch.object(run, "review", return_value="PASS"), \
-                patch.object(run, "current_review", return_value=True), \
                 patch.object(run, "set_base", side_effect=record_set_base):
             self.assertTrue(run.integrate(lp, "origin/main"))
         text = self.log_text(run_dir)
@@ -282,7 +296,6 @@ class V5aa(unittest.TestCase):
             return code, out
 
         with patch.object(run, "git_out", side_effect=hooked), \
-                patch.object(run, "current_review", return_value=True), \
                 patch.object(run, "set_base", side_effect=record_set_base):
             self.assertFalse(run.integrate(lp, "origin/main"))
         state = run.read_state(run_dir)
@@ -582,7 +595,6 @@ class V5aa(unittest.TestCase):
             return code, out
 
         with patch.object(run, "git_out", side_effect=hooked), \
-                patch.object(run, "current_review", return_value=True), \
                 patch.object(run, "set_base", side_effect=record_set_base):
             self.assertTrue(run.integrate(lp, "origin/main"))
         state = run.read_state(run_dir)
