@@ -71,7 +71,7 @@ menu.draw, menu.open_session, orch.ask_name = draw, open_session, ask_name
 sys.exit(menu.loop(config.load(), dry_run=True))
 """
 DOWN, ENTER = b"\x1b[B", b"\r"
-GIVEN = ("\x1b[?1006l", "\x1b[?1000l", "\x1b[?25h", "\x1b[?1049l")
+GIVEN = ("\x1b[?1006l", "\x1b[?1003l", "\x1b[?25h", "\x1b[?1049l")
 
 
 class Menu:
@@ -401,7 +401,7 @@ class MenuKeys(unittest.TestCase):
         self.assertIn("<lines None>", out)
         self.assertIn("<answered 'q'>", out)
         self.assertIn("<opened seat-b>", out)
-        for taken in ("\x1b[?1049h", "\x1b[?1000h", "›", "↑↓ move"):
+        for taken in ("\x1b[?1049h", "\x1b[?1003h", "›", "↑↓ move"):
             self.assertNotIn(taken, out)
 
     def test_the_list_selector_picks_one_or_several_and_esc_goes_back(self):
