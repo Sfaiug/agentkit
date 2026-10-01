@@ -6300,23 +6300,29 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         else:
             # cut from the base as origin has it now: a local branch, or a tracking ref nothing
             # has fetched lately, can stand merges behind, and a round spent there is spent on
-            # code that no longer exists.  Offline, the local ref is the best there is.
+            # code that no longer exists.  Offline, or for a base origin has no branch of, the
+            # local ref is the best there is.  Every branch, not only those the clone's own
+            # refspec follows (--single-branch follows one): the base, the target whose suite
+            # the run reads and origin's default can each be any of them.
             try:
-                code, out = fetch(repo, "origin", "--prune")
+                code, out = fetch(repo, "origin", "--prune", "+refs/heads/*:refs/remotes/origin/*")
             except Stopped as stop:
                 code, out = None, str(stop)
-            base = meta.get("base") or default_base(repo, log)
-            # where the PR goes: a run cut from `dev` can still be meant for `main`
-            target = meta.get("target") or base
-            ref = base
+            spelled = meta.get("base") or default_base(repo, log)
+            # where the PR goes: a run cut from `dev` can still be meant for `main`.  Every later
+            # step reads both as `<b>` or `origin/<b>`, so a full ref name is kept as the latter
+            base, target = (re.sub(r"^refs/(heads|remotes/origin)/", "origin/", spelling)
+                            for spelling in (spelled, meta.get("target") or spelled))
+            name = base.removeprefix("origin/")
+            # the tracking ref named in full, as `origin/main` could be a tag
+            ref = f"refs/remotes/origin/{name}"
+            if code == 0 and git_out(repo, "show-ref", "--verify", "--quiet", ref)[0] != 0:
+                code, out = 1, f"origin has no branch {name}"
             if code != 0:
-                log(f"WARN git fetch origin failed; basing this run on the local {base}: "
-                    f"{out[-400:]}")
-            elif git_out(repo, "show-ref", "--verify", "--quiet", f"refs/heads/{base}",
-                         f"refs/remotes/origin/{base}")[0] == 0:
-                # only a local branch gives way to origin's, named in full: `origin/main` could
-                # be a tag, and a base already on origin could be a branch called `origin/main`
-                ref = f"refs/remotes/origin/{base}"
+                # git's reason is its first line; the rest is advice
+                log(f"WARN could not fetch {name} from origin; basing this run on the local "
+                    f"{spelled}: {out.partition(chr(10))[0]}")
+                ref = spelled
             # a branch name moves with the executor's commits, so pin the diff to the commit it names
             base_sha = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
             from_branch = (meta.get("from") or "").strip()
