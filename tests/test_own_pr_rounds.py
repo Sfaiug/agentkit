@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, run, watch, worker
+from agentkit import config, gc, menu, orch, run, watch, worker
 
 URL = "https://github.com/acme/widget/pull/7"
 
@@ -66,11 +66,12 @@ class OwnPrRounds(unittest.TestCase):
         self.verdicts = []
         self.close = False
         for name, value in (("viewer_login", "owner"), ("checkout_for", self.repo),
-                            ("fetch", (0, "")), ("disk_pressure", False),
+                            ("fetch", (0, "")),
                             ("collect_usage", {}), ("checks", (True, "")),
                             ("process_active", True), ("scope_alive", None),
                             ("host_status_line", "fixture host")):
             self.stack.enter_context(patch.object(run, name, return_value=value))
+        self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run, "pr_view", side_effect=lambda *_: dict(self.pr)))
         self.stack.enter_context(patch.object(run, "gh_json", side_effect=lambda *a, **k: (dict(self.pr), "")))
         self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
