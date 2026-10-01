@@ -316,5 +316,28 @@ sys.exit(1)
         self.assertFalse((config.HOME / "followups").exists())
 
 
+class ReviewGateIsolation(unittest.TestCase):
+    def test_same_minute_sandboxes_have_distinct_process_markers(self):
+        now = run.datetime(2026, 1, 1, 9)
+        markers = []
+        with patch.object(run, "datetime", wraps=run.datetime) as clock, \
+                patch.object(worker, "marked_pids", return_value=[]), \
+                patch.object(run.orch, "stop_scope"), \
+                patch.object(run.history, "sample_rss", return_value=None):
+            clock.now.return_value = now
+            for _ in range(2):
+                fixture = ReviewGate()
+                try:
+                    fixture.setUp()
+                    fixture.reviews(PASS)
+                    code, directory, state = fixture.launch(rounds=1)
+                    self.assertEqual(code, 0, (directory / "log.txt").read_text())
+                    markers.append(state["run_id"])
+                finally:
+                    fixture.doCleanups()
+        self.assertNotEqual(markers[0], markers[1],
+                            "one sandbox's cleanup can kill the other's reviewer")
+
+
 if __name__ == "__main__":
     unittest.main()
