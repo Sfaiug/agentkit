@@ -313,9 +313,10 @@ time, with its cheapest turn (`haiku`, one word, no tools, no saved conversation
 
 `interactive` is where the rulebook goes: `python3 tools/rulebook.py "$AGENTKIT_SESSION"` writes it and prints its path,
 and the command line hands it to the harness, adding no instructions of its own, so an orchestrator behaves one way
-whatever runs it. A variable the seat's launch sets goes under `[launch] seat_env`, and the core drops it from child
-environments. What the harness runs as besides its `[update] version` program, such as Muse's `muse-bin-<build>`, is
-named under `[launch] programs`: a tmux session made by hand is a seat only while one of those runs in it.
+whatever runs it. Anything else the launch writes goes beside that path, so a dry run's is thrown away with it. A
+variable the seat's launch sets goes under `[launch] seat_env`, and the core drops it from child environments. What the
+harness runs as besides its `[update] version` program, such as Muse's `muse-bin-<build>`, is named under
+`[launch] programs`: a tmux session made by hand is a seat only while one of those runs in it.
 
 The manifest is everything else, as data: `[update]` (version, upgrade, revert, latest commands), `[usage]` flags,
 `[conversation]` (what a seat owns), `[hooks] installed`, `[stop] enforce`, `[authority]` and `[[hooks.event]]` (which
