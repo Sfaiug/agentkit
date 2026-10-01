@@ -3506,7 +3506,7 @@ def stall_clock(run_dir, state):
     the loop that recorded the wait is owed it: a resume after its death is a new loop, and
     its silence is its own.  A live loop waiting for its repository's merge turn
     (`run.merge_turn`), to take back its lent turn, or for its dependency to merge
-    (`run.wait_for_dependency`), is silent for as long as another run takes to land,
+    (`run.wait_for_dependency`), or for its seat to push PR fixes, is silent for as long as that takes,
     so its clock starts now, every tick, until the wait is over.
     """
     from . import run as run_mod

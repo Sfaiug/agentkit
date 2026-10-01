@@ -238,7 +238,7 @@ class OwnPr(unittest.TestCase):
         self.assertTrue(state["merge_failed"])
         self.assertIn("required checks failed", state["merge_note"])
 
-    def test_own_pr_fail_ends_fail_with_findings_and_no_merge(self):
+    def test_closed_own_pr_ends_fail_with_findings_and_no_merge(self):
         run_dir = self.launch_dir("20260927-0004-own-fail")
         opts = {"--review": None, "--review-pr": URL}
         merges, inbox, events = [], [], []
@@ -263,7 +263,7 @@ class OwnPr(unittest.TestCase):
         self.assertIn("## Reviewer findings", result)
         self.assertIn("off-by-one in the gate", result)
 
-    def test_own_pr_fail_is_handed_back_like_a_failed_task_run(self):
+    def test_closed_own_pr_fail_is_handed_back_like_a_failed_task_run(self):
         run_dir = self.launch_dir("20260927-0005-own-handback")
         opts = {"--review": None, "--review-pr": URL}
         events = []

@@ -68,7 +68,7 @@ class OwnPrRounds(unittest.TestCase):
         for name, value in (("viewer_login", "owner"), ("checkout_for", self.repo),
                             ("fetch", (0, "")), ("disk_pressure", False),
                             ("collect_usage", {}), ("checks", (True, "")),
-                            ("process_active", True)):
+                            ("process_active", True), ("scope_alive", None)):
             self.stack.enter_context(patch.object(run, name, return_value=value))
         self.stack.enter_context(patch.object(run, "pr_view", side_effect=lambda *_: dict(self.pr)))
         self.stack.enter_context(patch.object(run, "gh_json", side_effect=lambda *a, **k: (dict(self.pr), "")))
@@ -81,6 +81,7 @@ class OwnPrRounds(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "find", return_value={"name": "fix-api"}))
         self.stack.enter_context(patch.object(watch, "type_at_prompt", side_effect=self.tell))
         self.stack.enter_context(patch.object(watch, "frozen_cgroup", return_value=None))
+        self.stack.enter_context(patch.object(watch, "step_for_run", return_value=("none", "no child", None, [])))
         self.kill = self.stack.enter_context(patch.object(watch, "kill_tree"))
         self.resume = self.stack.enter_context(patch.object(watch, "launch_resume"))
 
@@ -186,6 +187,48 @@ class OwnPrRounds(unittest.TestCase):
         self.assertEqual(len(self.prompts), 1)
         self.assertEqual(self.waits, [])
         self.assertEqual(self.events, ["event=REQUEST_CHANGES"])
+
+    def test_wait_resumes_without_repeating_the_round_or_notice(self):
+        clock = run.time
+
+        def die(seconds):
+            if seconds == run.SLOT_POLL:
+                raise InterruptedError("fixture: loop died while waiting")
+
+        clock.sleep.side_effect = die
+        with self.assertRaises(InterruptedError):
+            self.review(["FAIL", "PASS"])
+        saved = run.read_state(self.run_dir)
+        self.assertEqual(saved["own_pr_round_told"], 1)
+        saved.update(state="queued", pid=999999991)
+        run.save_state(self.run_dir, saved)
+        clock.sleep.side_effect = self.push
+        state = self.review(["FAIL", "PASS"])
+        self.assertTrue(state["merged"])
+        self.assertEqual(len(self.prompts), 2)
+        self.assertEqual(len(self.notices), 1)
+        self.assertEqual(len(self.waits), 1)
+
+    def test_busy_seat_gets_the_findings_once_before_the_push(self):
+        sends = []
+
+        def busy(seat, line, *args, **kw):
+            sends.append(kw.get("typed"))
+            if len(sends) == 1:
+                kw["receipt"]({"fixture": "typed"})
+                return False
+            return self.tell(seat, line)
+
+        def wait(seconds):
+            if len(sends) > 1:
+                self.push(seconds)
+
+        run.time.sleep.side_effect = wait
+        with patch.object(watch, "type_at_prompt", side_effect=busy):
+            state = self.review(["FAIL", "PASS"])
+        self.assertTrue(state["merged"])
+        self.assertEqual(sends, [None, {"fixture": "typed"}])
+        self.assertEqual(len(self.notices), 1)
 
 
 if __name__ == "__main__":
