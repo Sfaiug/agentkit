@@ -4461,16 +4461,16 @@ def wait_for_dependency(lp):
 
 
 def abort_integration(lp, how):
-    """Put the branch back, and drop the re-review the abandoned integration asked for.
+    """Put the branch back, keeping any earlier landing review.
 
-    `integrate` records that pending review before git rewrites HEAD, so an interruption
-    mid-rebase cannot leave a saved PASS.  Once the rebase or merge is aborted the branch is
-    exactly what it was and the record describes work that never happened: left behind, it
-    would spend a resumed run's next round re-reviewing instead of fixing, and record that
-    round twice.  The invalidated verdict stays invalidated -- only the pending work goes.
+    A task review describes the abandoned integration and goes with it. A non-task
+    review can predate it: the restored HEAD still holds unreviewed landing fixes,
+    so recovery must keep that pending review at the current round. The invalidated
+    verdict stays invalidated.
     """
     git_out(lp.wt, how, "--abort")
-    lp.state.pop("review_pending", None)
+    if (lp.state.get("review_pending") or {}).get("record") is not False:
+        lp.state.pop("review_pending", None)
     lp.write()
 
 
