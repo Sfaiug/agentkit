@@ -327,8 +327,8 @@ class HandBack(Sandbox):
         run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.typed, [(SEAT, (
             "run run-fail finished FAIL: after 3 rounds, open findings: "
-            "- a.py:1 - one - why Quote: fixture evidence "
-            "- b.py:2 - two - why Quote: fixture evidence. "
+            "- a.py:1 - one - why $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence "
+            "- b.py:2 - two - why $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence. "
             f"Result: {directory / 'result.md'}. Decide the next step. "
             "three rounds spent: split or re-scope"))])
         self.assertEqual(self.cards, [])
@@ -383,7 +383,7 @@ class HandBack(Sandbox):
                           findings_file=str(answer))
         state = record.read_state(long)
         self.assertTrue(run.handback_reason(state).startswith(
-            f"after 3 rounds, open findings: {first} Quote: fixture evidence - n0.py:1 - "))
+            f"after 3 rounds, open findings: {first} $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence - n0.py:1 - "))
         self.assertTrue(run.handback_line(state, long).endswith(
             "three rounds spent: split or re-scope"))
         # a PASS the loop failed -- the reviewer exited 1, the checkout moved -- says so
@@ -465,7 +465,7 @@ class HandBack(Sandbox):
         run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.typed, [(SEAT, (
             "run run-10 finished FAIL: after 2 rounds, open findings: "
-            "- a.py:1 - one - why Quote: fixture evidence. "
+            "- a.py:1 - one - why $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence. "
             f"Result: {directory / 'result.md'}. Decide the next step. "
             "two rounds spent: split or re-scope"))])
         self.assertEqual(self.cards, [])

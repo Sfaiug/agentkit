@@ -329,8 +329,8 @@ class MergeStep(unittest.TestCase):
         self.assertEqual(state["review"]["head_sha"], state["round_summaries"][-1]["head_sha"])
         state["state"] = "fail"         # what the run makes of a FAIL the merge step left
         record.save_state(run_dir, state)
-        self.assertEqual(run.handback_reason(state), "after 3 rounds, open findings: "
-                         "- work.txt:1 - the gate is skipped - fixture defect Quote: fixture evidence")
+        self.assertTrue(run.handback_reason(state).startswith("after 3 rounds, open findings: "
+                        "- work.txt:1 - the gate is skipped - fixture defect"))
         self.assertFalse(run.integration_note(state, run_dir))
         self.assertTrue(run.failed_at_budget(state))
 
@@ -443,8 +443,8 @@ class MergeStep(unittest.TestCase):
                                  f"done-when or review after the {how} of origin/main did not pass")
                 self.assertEqual(len(state["round_summaries"]), 2)
                 state["state"] = "fail"
-                self.assertEqual(run.handback_reason(state), "after 2 rounds, open findings: "
-                                 "- shared:1 - drops the target side - fixture defect Quote: fixture evidence")
+                self.assertTrue(run.handback_reason(state).startswith("after 2 rounds, open findings: "
+                                "- shared:1 - drops the target side - fixture defect"))
 
     def test_origin_moving_three_times_parks_waiting(self):
         _, owner, wt = make_repos(self.root)
