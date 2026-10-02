@@ -153,20 +153,21 @@ def gate_turn_note(state):
     return "waiting for a heavy suite turn"
 
 
-def _gate_waiter_before(repo, exclude, is_first, since, is_landing=False):
+def _gate_waiter_before(repo, exclude, since, is_landing=False):
     """Whether a live heavy-suite waiter ranks before this gate; `repo` is ignored.
 
     Turns were per repository and only a waiter of the same main checkout counted.
     They are host-wide now, so every live waiter counts whichever repository it
-    checks.  Rank is a landing run before any round check, then `--first` before
-    the rest, then the longest wait, then the run id, so a freed turn finishes a
-    run ready to land before starting another round's check.  A lander's wait
+    checks.  Rank is a landing run before any round check, then the longest wait,
+    then the run id, so a freed turn finishes a run ready to land before starting
+    another round's check; `--first` plays no part, or loop repairs starve every
+    other suite under load.  A lander's wait
     counts from the start of its first landing wait, not from the lap; a mark from
     before landers ranked carries no landing and reads as a round check.  A mark
     whose process is gone, or whose pid no longer matches its record -- a kill or
     a resume left it behind -- holds nobody back.
     """
-    me = (not is_landing, not is_first, since, exclude or "")
+    me = (not is_landing, since, exclude or "")
     for directory in run_record.run_dirs():
         if directory.name == exclude:
             continue
@@ -184,7 +185,7 @@ def _gate_waiter_before(repo, exclude, is_first, since, is_landing=False):
             waited = turn.get("since") if landing else 0
             if not isinstance(waited, (int, float)) or isinstance(waited, bool):
                 waited = 0
-        if (not landing, not other.get("first"), waited, directory.name) < me:
+        if (not landing, waited, directory.name) < me:
             return True
     return False
 
@@ -267,7 +268,6 @@ def _acquire_gate_turn(run_dir, log_path, log):
     """Wait for and hold one host-wide heavy-suite turn; None when no turn is taken."""
     record = run_record.read_state(run_dir) or {} if run_dir else {}
     repo = record.get("repo")
-    is_first = bool(record.get("first"))
     is_landing = bool(record.get("landing"))
     landing_since = _first_landing_wait(run_dir) if run_dir else None
     self_id = run_dir.name if run_dir else None
@@ -312,7 +312,7 @@ def _acquire_gate_turn(run_dir, log_path, log):
             files.close()
             return None
         me_since = landing_since if is_landing and landing_since is not None else time.time()
-        if slot is None or _gate_waiter_before(repo, self_id, is_first, me_since, is_landing):
+        if slot is None or _gate_waiter_before(repo, self_id, me_since, is_landing):
             if slot is not None:
                 fcntl.flock(slot, fcntl.LOCK_UN)
                 slot = None
@@ -337,8 +337,7 @@ def _acquire_gate_turn(run_dir, log_path, log):
                     said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
                     if slot is None:
                         continue
-                    if _gate_waiter_before(repo, self_id, is_first, waited_since,
-                                             is_landing):
+                    if _gate_waiter_before(repo, self_id, waited_since, is_landing):
                         fcntl.flock(slot, fcntl.LOCK_UN)
                         slot = None
                         continue
@@ -380,9 +379,9 @@ def gate_turn(run_dir, log_path, log):
     all take no turn.  The limit is re-read on every poll, so a changed pin or a
     changed headroom reaches runs already queued.  A freed turn goes to the waiter
     that has waited longest among the highest rank, a landing run before any round
-    check and `--first` before the rest: a suite takes a free turn only when no
-    waiter ranks before it, and a lander's wait counts from the start of its first
-    landing wait.
+    check, whether `--first` or not: a suite takes a free turn only when no waiter
+    ranks before it, and a lander's wait counts from the start of its first landing
+    wait.
     A home config this cannot read -- it is read here, mid-run, so one hand-edit
     typo would fail the next suite of every running run -- means a derived count,
     and a log line naming the problem.

@@ -16,11 +16,14 @@ RUNNER = REPO / "tests" / "every_file.py"
 # Each fake file notes that it ran; the host readings keep the runner off the real host.
 PASSES = ('import os, pathlib\n'
           'with open(os.environ["ACME_LOG"], "a") as fh:\n'
-          '    fh.write(pathlib.Path(__file__).stem + "\\n")\n')
+          '    fh.write(pathlib.Path(__file__).stem + "\\n")\n'
+          'print("TESTS_RUN=1")\n')
 FAILS = 'for n in range(1, 41):\n    print(f"acme line {n}")\nraise SystemExit(1)\n'
 CLEAN = ('import os, sys\n'
          'leaked = sorted(k for k in os.environ if k.startswith(("AGENTKIT_", "AK_")))\n'
-         'sys.exit(f"leaked: {leaked}" if leaked or os.environ.get("ACME_KEPT") != "1" else 0)\n')
+         'if leaked or os.environ.get("ACME_KEPT") != "1":\n'
+         '    sys.exit(f"leaked: {leaked}")\n'
+         'print("TESTS_RUN=1")\n')
 SMOKE = '''#!/usr/bin/env bash
 # test_comment.py is named in a comment only
 if [ "${1:-}" = --acme ]; then

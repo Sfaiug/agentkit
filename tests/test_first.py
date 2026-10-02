@@ -1,4 +1,4 @@
-"""`ak run --first` jumps the admission queue and the heavy suite turns."""
+"""`ak run --first` jumps the admission queue, never a waiting heavy suite."""
 
 import fcntl
 import json
@@ -149,7 +149,7 @@ class First(unittest.TestCase):
             self.assertTrue(run.claim_slot(later, 1))
             self.assertEqual(later["state"], "running")
 
-    def test_first_takes_next_gate_turn_ahead_of_waiters(self):
+    def test_first_waits_its_gate_turn_behind_an_earlier_waiter(self):
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))
@@ -173,7 +173,7 @@ class First(unittest.TestCase):
         self.assertIsNone(waiter.error, waiter.error)
         self.assertIsNone(first.error, first.error)
         self.assertTrue(waiter.result[0] and first.result[0])
-        self.assertEqual(self.marks.read_text(), "first\nwaiter\n")
+        self.assertEqual(self.marks.read_text(), "waiter\nfirst\n")
 
     def test_status_marks_first(self):
         for name, first in (("20250925-1200-first", True), ("20250925-1201-plain", False)):
