@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from agentkit import host, config, run
 
 
@@ -108,7 +109,7 @@ class RedTarget(unittest.TestCase):
         config.ensure_dirs()
         self.turns, self.reviews = [], []
         self.stack.enter_context(patch.object(run, "execute", side_effect=self.fixer))
-        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=self.review_call))
+        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.review_call)))
 
     def fixer(self, lp, role, text, name):
         self.turns.append(name)

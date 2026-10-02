@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from agentkit import config, gc, run, worker
 from agentkit import task as taskfile
 
@@ -56,7 +57,7 @@ class Lessons(unittest.TestCase):
             self.stack.enter_context(patch.object(module, name, return_value=value))
         self.stack.enter_context(patch.object(run.usage, "pick_order",
                                              return_value=["opus", "astra"]))
-        self.stack.enter_context(patch.object(worker, "call", side_effect=self.worker))
+        self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.worker)))
         self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub")))
 
     def git(self, *args):
@@ -175,7 +176,7 @@ class Lessons(unittest.TestCase):
                 patch.object(run, "integrate", return_value=True), \
                 patch.object(run, "finish", return_value=0), \
                 patch.object(run, "target_fails", return_value=False), \
-                patch.object(worker, "call", side_effect=fix):
+                patch.object(worker, "call", side_effect=submitting(fix)):
             self.assertEqual(run.cmd_merge([directory.name]), 0)
         self.assertEqual([role for role, _ in self.prompts],
                          ["fixer", "reviewer", "fixer", "reviewer"])

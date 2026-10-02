@@ -22,6 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from agentkit import config, menu, run, usage
 
 
@@ -174,8 +175,8 @@ class SelfReviewLast(unittest.TestCase):
             return 0, "No verdict yet." if model == silent else "VERDICT: PASS", "sid", False
 
         with patch.object(run, "collect_usage", return_value=self.providers), \
-                patch.object(run, "call_retrying", side_effect=call), \
-                patch.object(run.worker, "call", side_effect=call):
+                patch.object(run, "call_retrying", side_effect=submitting(call)), \
+                patch.object(run.worker, "call", side_effect=submitting(call)):
             self.assertEqual(run.review(lp, "Work done.", True, "passed"), "PASS")
         return calls
 

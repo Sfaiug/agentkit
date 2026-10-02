@@ -14,7 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, hand_in, run, worker
-from fixtures.hand_in import scripted
+from fixtures.hand_in import findings_section, scripted
 
 
 def finding(site, what, command=None, quote=None, kind="finding"):
@@ -150,7 +150,7 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.lp.state["round_summaries"][0]["finding_count"], 1)
         self.assertIn("saw head", self.lp.findings)
         self.assertIn("saw base", self.lp.findings)
-        self.assertIn("[exit 0]", run.findings_section(self.lp.findings))
+        self.assertIn("[exit 0]", findings_section(self.lp.findings))
 
     def test_replays_ignore_preexisting_bytecode_from_the_base(self):
         (self.wt / "same.py").write_text('value = "base"\n')

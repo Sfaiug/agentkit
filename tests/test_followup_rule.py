@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from agentkit import config, run, worker
 
 DEFECT = "a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError"
@@ -55,7 +56,7 @@ class FollowupRule(unittest.TestCase):
         if items:
             answer += "## Follow-ups\n" + "\n".join(
                 "- " + item.replace("\n", "\n  ") for item in items) + "\n"
-        with patch.object(run, "call_retrying", return_value=(code, answer, None, False)):
+        with patch.object(run, "call_retrying", side_effect=submitting((code, answer, None, False))):
             return run.review(self.lp, "## Summary\nFixture", ok, output, record=record)
 
     def gate(self):

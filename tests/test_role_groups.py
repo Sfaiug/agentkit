@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 import test_worker_list as fixtures
+from fixtures.hand_in import submitting
 from agentkit import config, gc, run, usage, watch
 
 
@@ -254,7 +255,7 @@ class RoleGroups(unittest.TestCase):
             self.assertEqual(lp.spares, ["gamma"])
         lp.executor = "alpha"
         calls, fake = self.turn({"alpha": (1, "usage limit reached", "old", False)})
-        with patch.object(run.worker, "call", side_effect=fake), \
+        with patch.object(run.worker, "call", side_effect=submitting(fake)), \
                 self.refused(self.providers(c=0)), \
                 patch.object(run.time, "sleep"), redirect_stderr(io.StringIO()):
             self.assertEqual(run.execute(lp, "fixer", "Fix it.", "fixer"), "## Summary\nDone.")
@@ -422,8 +423,8 @@ class RoleGroups(unittest.TestCase):
                         return 0, "No verdict.", None, False
                     return 0, "VERDICT: PASS\n\n## Findings\n- none", None, False
 
-                with patch.object(run, "call_retrying", side_effect=call), \
-                        patch.object(run.worker, "call", side_effect=call), \
+                with patch.object(run, "call_retrying", side_effect=submitting(call)), \
+                        patch.object(run.worker, "call", side_effect=submitting(call)), \
                         patch.object(run, "collect_usage", return_value=self.providers(c=0)):
                     self.assertEqual(run.review(lp, "Done.", True, "passed"), "PASS")
                 self.assertEqual(lp.reviewer, "delta")

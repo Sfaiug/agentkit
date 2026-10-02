@@ -21,7 +21,7 @@ from unittest.mock import patch
 from urllib.parse import unquote_to_bytes
 
 from test_v4n import REPO, Sandbox
-from fixtures.hand_in import scripted
+from fixtures.hand_in import records, scripted
 from agentkit import host, browser, config, gc, job as jobs, menu, notify, orch, run, terminal, watch
 
 SEAT = "seat"
@@ -368,8 +368,7 @@ class HandBack(Sandbox):
             "three rounds spent: split or re-scope"))
 
     def test_a_long_review_and_an_overridden_pass_still_say_why(self):
-        # run.json keeps a review's last 8000 characters, and a long one's verdict and first
-        # findings are at its top: the line reads the whole answer the round left on disk
+        # The text tail drops the first findings; the receipt keeps the weighed records.
         first = "- a.py:1 - the gate is off by one - wrong outcome"
         whole = (f"VERDICT: FAIL\n\n## Findings\n{first}\n"
                  + "".join(f"- n{i}.py:1 - {'y' * 80}\n" for i in range(150)))
@@ -378,6 +377,7 @@ class HandBack(Sandbox):
         answer.write_text(whole)
         long = self.ended("run-43", owner=SEAT, state="fail", verdict="FAIL", rounds=3,
                           round_summaries=[{}, {}, {}], findings=whole.strip()[-8000:],
+                          review_records=records(whole),
                           findings_file=str(answer))
         state = run.read_state(long)
         self.assertTrue(run.handback_reason(state).startswith(

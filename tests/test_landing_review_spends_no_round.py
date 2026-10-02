@@ -11,6 +11,7 @@ import unittest
 
 from test_v4n import Sandbox
 from test_merge_step import make_loop, make_repos
+from fixtures.hand_in import submitting
 from agentkit import run
 
 
@@ -36,7 +37,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.verdicts = iter(["PASS"])
         self.stack.enter_context(patch.object(run, "run_done_when",
                                               return_value=(True, "$ true\n[exit 0]\n")))
-        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=self.reviewer))
+        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(run, "execute", side_effect=self.fixer))
         self.stack.enter_context(patch.object(run, "pickup_new_code"))
         self.stack.enter_context(patch.object(run, "merge_turn",

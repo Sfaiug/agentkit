@@ -16,6 +16,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, gc, menu, orch, run, terminal, usage
 from agentkit.harness import codex as codex_plugin
+from fixtures.hand_in import records
 
 
 @contextmanager
@@ -71,6 +72,8 @@ class Sandbox(unittest.TestCase):
                             "reviewer_provider": config.model(self.cfg, "astra")["provider"],
                             "verdict": "PASS", "done_when": True},
                  "finished_at": 9990, **extra}
+        if "findings" in extra and "review_records" not in extra:
+            state["review_records"] = records(extra["findings"])
         run.save_state(directory, state)
         return directory
 
