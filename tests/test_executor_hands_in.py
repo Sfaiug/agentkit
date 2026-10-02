@@ -121,14 +121,25 @@ class FixRunHandsIn(unittest.TestCase):
         followup.FollowupRuns.setUp(self)
         adapters(self)
 
-    def first_closing(self, kind, expected):
+    def first_closing(self, kind, expected, resume=False):
         directory, source = self.source()
         child = self.start(directory, source)[0]
         row = closing(kind, why="target already fixes empty input" if kind == "not-needed"
                       else "Should empty input return None or raise ValueError?", fix=kind == "done")
+        if resume and kind == "done":
+            row["text"] = "not needed: stale text"
         (self.root / "closings.json").write_text(json.dumps({
             "executor": [row], "reviewer": [{"text": gate.PASS}]}))
-        code, state = self.drive(child)
+        if resume:
+            with patch.object(run, "review_records", side_effect=run.StopRequested("fixture host ended")):
+                code, state = self.drive(child)
+            self.assertEqual(code, 1)
+            code = run.drive(self.cfg, child, state["launch_opts"], self.logs.append, prior=state)
+            state = run.read_state(child)
+            calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
+            self.assertEqual(sum(call["role"] == "executor" for call in calls), 1)
+        else:
+            code, state = self.drive(child)
         self.assertEqual((code, state["state"]), (int(kind == "blocked"), expected))
         if kind == "done":
             self.assertTrue(state["merged"])
@@ -149,6 +160,15 @@ class FixRunHandsIn(unittest.TestCase):
 
     def test_first_fix_turn_hands_in_done(self):
         self.first_closing("done", "pass")
+
+    def test_resume_keeps_the_blocked_closing(self):
+        self.first_closing("blocked", "blocked", resume=True)
+
+    def test_resume_keeps_the_not_needed_closing(self):
+        self.first_closing("not-needed", "not_needed", resume=True)
+
+    def test_resume_keeps_the_done_closing(self):
+        self.first_closing("done", "pass", resume=True)
 
 
 if __name__ == "__main__":

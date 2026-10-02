@@ -3193,14 +3193,14 @@ def open_review(round_dir):
     return (None, None, None) if best is None else (best[1], best[2], best[3])
 
 
-def saved_worker_text(round_dir):
-    """The executor or fixer answer already written for this round."""
+def saved_worker_answer(round_dir):
+    """The executor or fixer answer file already written for this round."""
     for name in ("fixer", "executor"):
         text = finished_answer(round_dir, name)
         if text is not None:
-            return text
+            return latest_turn(round_dir, name) / "final.md"
     if not Path(round_dir).is_dir():
-        return ""
+        return None
     for path in sorted(Path(round_dir).iterdir(), key=lambda item: item.name):
         if not path.is_dir() or "-retry" in path.name:
             continue
@@ -3209,8 +3209,8 @@ def saved_worker_text(round_dir):
             continue
         text = finished_answer(round_dir, base)
         if text:
-            return text
-    return ""
+            return latest_turn(round_dir, base) / "final.md"
+    return None
 
 
 def settled_gate(lp):
@@ -3311,6 +3311,24 @@ def followup_not_needed(lp, summary):
                            r"[*_`]*:[*_`]*[ \t]*(\S.*)", summary or "", re.M | re.I)
         if answer:
             raise NotNeeded(answer.group(1).strip())
+
+
+def worker_result(lp, summary, out, code=0):
+    """Read the same closing after a call or a host interruption; text is the fallback."""
+    submitted = review_records(out, summary)
+    closing = submitted.closing if submitted is not None else None
+    if closing:
+        if closing["kind"] == "blocked":
+            raise Blocked(closing["why"], f"## Blocked\n\n{closing['why']}")
+        if closing["kind"] == "not-needed":
+            raise NotNeeded(closing["why"])
+        return summary
+    section = blocked_section(summary)
+    if section:
+        raise Blocked(blocked_reason(section), section)
+    if code == 0:
+        followup_not_needed(lp, summary)
+    return summary
 
 
 def execute(lp, role, text, name):
@@ -3419,20 +3437,7 @@ def execute(lp, role, text, name):
             lp.log(f"WARN {role} {killed_word(code) or f'exited {code}'}; "
                    f"see {out / 'stderr.log'}")
         lp.save()
-        submitted = review_records(out, summary)
-        closing = submitted.closing if submitted is not None else None
-        if closing:
-            if closing["kind"] == "blocked":
-                raise Blocked(closing["why"], f"## Blocked\n\n{closing['why']}")
-            if closing["kind"] == "not-needed":
-                raise NotNeeded(closing["why"])
-            return summary
-        section = blocked_section(summary)
-        if section:
-            raise Blocked(blocked_reason(section), section)
-        if code == 0:
-            followup_not_needed(lp, summary)
-        return summary
+        return worker_result(lp, summary, out, code)
 
 
 def commit_identity(wt):
@@ -4545,8 +4550,8 @@ def rounds(lp, execv=None):
             # The worker already answered. A done-when that was cut off runs again;
             # a review that was the open step is continued, not preceded by another
             # executor turn.
-            summary = saved_worker_text(lp.round_dir)
-            followup_not_needed(lp, summary)
+            source = saved_worker_answer(lp.round_dir)
+            summary = worker_result(lp, read_answer(source) or "", source.parent) if source else ""
             settled = settled_gate(lp) if cut == "reviewer" else None
             if settled is None:
                 if cut == "done-when":
