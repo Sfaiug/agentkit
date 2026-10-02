@@ -703,7 +703,7 @@ for model in opus spark astra grok mimo; do model_unavailable "$model"; done
 
     def test_smoke_keeps_webhook_get_check_without_posting(self):
         setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
-        check = SMOKE[SMOKE.index('# --- 5: notify'):SMOKE.index('# --- 5b:')]
+        check = SMOKE[SMOKE.index('# --- 5: notify'):SMOKE.index('\nfi\n\n# --- 5b:')]
         methods = []
         status = [200]
 
@@ -757,7 +757,7 @@ smoke_home
         # file is configured and fails check 5, and one that cannot be read ends the setup,
         # whatever the environment names instead.
         setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
-        check = SMOKE[SMOKE.index('# --- 5: notify'):SMOKE.index('# --- 5b:')]
+        check = SMOKE[SMOKE.index('# --- 5: notify'):SMOKE.index('\nfi\n\n# --- 5b:')]
         cases = [('\n', '', 1, 'webhook configured but not reachable'),
                  ('\0\n', '', 1, 'webhook configured but not reachable'),
                  (Path('/nonexistent/hook'), 'https://example.invalid/env', 1, 'cannot read')]

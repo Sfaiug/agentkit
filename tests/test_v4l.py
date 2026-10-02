@@ -607,7 +607,7 @@ esac
 
     def test_smoke_checks_forced_harnesses_when_the_default_is_not_claude(self):
         source = (REPO / "tests/smoke.sh").read_text()
-        block = source[source.index("# --- 6: orch"):source.index("# --- 6c:")]
+        block = source[source.index("# --- 6: orch"):source.index("\nfi\n\n# --- 6c:")]
         with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             root = Path(directory)
             fake = root / "tmux"
@@ -640,7 +640,7 @@ esac
         helpers = "spent_until()" + source.split("spent_until()", 1)[1].split("\nprintf 'Create", 1)[0]
         helpers = f'. "{REPO}/tests/acceptance.sh"\n' + helpers
         run_block = source[source.index("# --- 4:"):source.index("# --- 5:")]
-        mcp_block = source[source.index("# 31d/31e:"):source.index("# --- 32:")]
+        mcp_block = source[source.index("# 31d/31e:"):source.index("\nfi\n\n# --- 32:")]
         with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             root = Path(directory)
             for name, answer in (("gh", ""), ("claude", "BROWSER_TABS=0 DESKTOP=ok"),
@@ -896,7 +896,7 @@ esac
         source = (REPO / "tests/smoke.sh").read_text()
         newrepo = source[source.index("newrepo()"):source.index('echo "workdir:')]
         calls = source[source.index("# --- 3:"):source.index("# --- 4:")]
-        mcp = source[source.index("# 31d/31e:"):source.index("# --- 32:")]
+        mcp = source[source.index("# 31d/31e:"):source.index("\nfi\n\n# --- 32:")]
         # Every live entry point is a shell fake. The stream checker returns the
         # worker's exit, or a fixture assertion failure after a successful turn.
         fakes = r'''
