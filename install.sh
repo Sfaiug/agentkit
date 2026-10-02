@@ -903,9 +903,12 @@ EOF
 [Slice]
 CPUWeight=$weight
 IOWeight=$weight$protect"
-    first=""
-    if [ -e "$dropin" ]; then first=$(head -n 1 -- "$dropin" 2>/dev/null || true); fi
-    case "$first" in ""|"# Written by agentkit's install.sh"*) ;; *) continue ;; esac
+    if [ -e "$dropin" ]; then
+      case "$(head -n 1 -- "$dropin" 2>/dev/null || true)" in
+        "# Written by agentkit's install.sh"*) ;;
+        *) continue ;;
+      esac
+    fi
     if [ "$(cat -- "$dropin" 2>/dev/null)" != "$want" ]; then
       mkdir -p -- "${dropin%/*}"
       printf '%s\n' "$want" >"$dropin"

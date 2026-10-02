@@ -371,11 +371,11 @@ class MemoryCap(unittest.TestCase):
         self.assertIn("MemoryLow=30%\n", seats)
         self.assertNotIn("MemoryLow", runs)
         # An earlier install's own file, from before the protection, gets it on the next one;
-        # a file somebody else wrote is theirs and left byte-identical.
+        # a file somebody else wrote is theirs and left byte-identical, a blank first line too.
         older = seats.replace("MemoryLow=30%\n", "")
         (home / ".config/systemd/user/agentkit-seats.slice.d/weights.conf").write_text(older)
         (home / ".config/systemd/user/agentkit-runs.slice.d/weights.conf").write_text(
-            "[Slice]\nCPUWeight=10\n")
+            "\n[Slice]\nCPUWeight=10\n")
         again = subprocess.run(
             ["bash", "-c", prelude + body], capture_output=True, text=True, timeout=60,
             env={**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}",
@@ -385,7 +385,7 @@ class MemoryCap(unittest.TestCase):
             (home / ".config/systemd/user/agentkit-seats.slice.d/weights.conf").read_text(), seats)
         self.assertEqual(
             (home / ".config/systemd/user/agentkit-runs.slice.d/weights.conf").read_text(),
-            "[Slice]\nCPUWeight=10\n")
+            "\n[Slice]\nCPUWeight=10\n")
         # The fake systemctl is the only one the installer could reach, and it
         # was asked to reload, not to stop anything.
         commands = log.read_text()
