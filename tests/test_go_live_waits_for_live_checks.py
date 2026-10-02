@@ -2,9 +2,10 @@
 
 The tick starts each check detached, in a directory of its own under the state directory, in a
 throwaway worktree of the commit with the acceptance gate's environment and a marker naming the
-check; one runs at a time, and one past its cap is ended by that marker and counted red.  A red
-check keeps the host where it is, is handed back once with its last lines, and is tried again on
-watch.RETRY_BACKOFF; a newer origin/main is tried at once.  Every caller of update_agentkit moves
+check; one runs while anything carries that marker, one at a time, and one past its cap is ended
+by it and counted red.  A red check keeps the host where it is, is handed back once with its last
+lines, however far main moved since, and is tried again on watch.RETRY_BACKOFF from its end, or
+from its cap; a newer origin/main is tried as soon as nothing runs.  Every caller of update_agentkit moves
 only to a commit that passed, exactly it, and a commit without tests/live.sh moves as before.
 `ak update`'s harness upgrade runs tests/live.sh after tests/smoke.sh and reverts on its failure.
 
@@ -40,6 +41,11 @@ HOLD = """#!/bin/sh
 echo "live: waiting"
 sh -c 'until [ -e "$HOME/release" ]; do sleep 0.05; done' &
 wait
+"""
+CHILD = """#!/bin/sh
+sh -c 'until [ -e "$HOME/release" ]; do sleep 0.05; done' &
+echo "live: check 4 red"
+exit 1
 """
 
 
@@ -122,12 +128,15 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         return said
 
     def finish(self, commit):
-        """The newest check of that commit, once it has written its exit code."""
+        """The newest check of that commit, once it has written its exit code and nothing
+        carries its marker."""
         check = [check for each, check in self.checks() if each == commit][-1]
         deadline = time.monotonic() + 60
-        while not (check / "exit").exists() and time.monotonic() < deadline:
+        while (not (check / "exit").exists() or worker.marked_pids(str(check))) \
+                and time.monotonic() < deadline:
             time.sleep(0.05)
         self.assertTrue((check / "exit").exists(), list(check.iterdir()))
+        self.assertEqual(worker.marked_pids(str(check)), [])
         return check
 
     def held(self):
@@ -229,11 +238,14 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         self.assertTrue(worker.marked_pids(str(check)))
         said = self.tick(now=self.cap(check))
         self.assertEqual(worker.marked_pids(str(check)), [])      # every process it started
-        self.assertEqual(said[:3], [
+        self.assertEqual(said, [
             f"WARN agentkit stays as it is: tests/live.sh failed at {new[:12]}:",
-            "  live: waiting", "  [stopped before it finished]"])
-        self.assertEqual(said[-1], f"checking agentkit at {new[:12]} with tests/live.sh "
-                                   "before it goes live")        # from its start: past
+            "  live: waiting", "  [stopped before it finished]",
+            f"handed agentkit's failed tests/live.sh at {new[:12]} back to fix"])
+        retry = self.cap(check) + watch.RETRY_BACKOFF[0]          # from its cap
+        self.assertEqual(self.tick(now=retry - 1), [])
+        self.assertEqual(self.tick(now=retry), [f"checking agentkit at {new[:12]} with "
+                                                "tests/live.sh before it goes live"])
         self.assertEqual(self.head(), self.first)
         # a commit without the script moves as before, and the checks it has go, trees and all
         (self.root / "release").touch()
@@ -245,6 +257,54 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         self.assertEqual(self.tick(), [])
         self.assertEqual(self.checks(), [])
         self.assertEqual(len(git(self.clone, "worktree", "list").splitlines()), 1)
+
+    def test_a_check_that_ends_past_its_cap_is_red_whatever_it_said(self):
+        new = self.merge("second", live=HOLD)
+        self.tick()
+        check = self.held()
+        (self.root / "release").touch()
+        cap = self.cap(check)
+        os.utime(self.finish(new) / "exit", (cap, cap))           # it said so only at its cap
+        said = self.tick(now=cap + 1)
+        self.assertEqual(said[-2:], ["  [stopped before it finished]", f"handed agentkit's "
+                                     f"failed tests/live.sh at {new[:12]} back to fix"])
+        self.assertEqual((self.head(), update.live_target()), (self.first, ""))
+        self.assertEqual(self.tick(now=cap + watch.RETRY_BACKOFF[0] - 1), [])
+        self.assertEqual(len(self.tick(now=cap + watch.RETRY_BACKOFF[0])), 1)
+
+    def test_a_child_it_left_holds_it_to_its_cap_and_its_red_outlives_a_newer_main(self):
+        new = self.merge("second", live=CHILD)
+        self.tick()
+        check = self.checks()[0][1]
+        deadline = time.monotonic() + 60
+        while not (check / "exit").exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(worker.marked_pids(str(check)))           # its script left a child
+        third = self.merge("third", live=LIVE)
+        self.assertEqual(self.tick(), [])                         # running still: waited for
+        said = self.tick(now=self.cap(check))
+        self.assertEqual(worker.marked_pids(str(check)), [])
+        self.assertEqual(said, [
+            f"WARN agentkit stays as it is: tests/live.sh failed at {new[:12]}:",
+            "  live: check 4 red", "  [exit 1]",
+            f"handed agentkit's failed tests/live.sh at {new[:12]} back to fix",
+            f"checking agentkit at {third[:12]} with tests/live.sh before it goes live"])
+
+    def test_a_check_its_kill_could_not_end_runs_on_and_keeps_its_directory(self):
+        self.merge("second", live=HOLD)
+        self.tick()
+        check = self.held()
+        self.merge("third", live=LIVE)
+        with patch.object(worker, "kill_marked", return_value=False):
+            self.assertEqual(self.tick(now=self.cap(check)), [])  # running: nothing starts
+        (self.seed / "tests" / "live.sh").unlink()
+        plain = self.merge("fourth")
+        self.assertEqual(self.tick(), [f"agentkit is live at {plain[:12]}"])
+        with patch.object(worker, "kill_marked", return_value=False):
+            self.assertEqual(self.tick(), [])
+        self.assertTrue(check.is_dir())                           # the next tick ends it
+        self.assertEqual(self.tick(), [])
+        self.assertEqual((self.checks(), worker.marked_pids(str(check))), ([], []))
 
     def test_with_no_proc_to_read_a_check_runs_until_its_cap(self):
         new = self.merge("second", live=HOLD)

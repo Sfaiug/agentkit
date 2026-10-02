@@ -857,8 +857,8 @@ def live_checks():
     """Every check of tests/live.sh, oldest first: (started, commit, directory).
 
     The tick makes the directory, named for both, and the check's own `LIVE_RUN` writes
-    `output` and `exit` in it; a check with no `exit` yet is running while processes carry its
-    marker -- where there is no /proc to read them, until `SMOKE_CAP` -- and red after that.
+    `output` and `exit` in it.  A check runs while processes carry its marker, whatever its
+    script said -- where there is no /proc to read them, until it has an exit code or its cap.
     """
     found = []
     for check in (config.STATE / LIVE).glob("*-*"):
@@ -868,12 +868,15 @@ def live_checks():
     return sorted(found)
 
 
-def _exit(check):
-    """A check's exit code, or None while it has written none."""
+def _exit(check, started):
+    """A check's exit code, or None while it has none from within its cap: one written after
+    `SMOKE_CAP`, as the cap ended it, is no verdict, so every reader counts that check red."""
     try:
-        return int((check / "exit").read_text())
+        if (check / "exit").stat().st_mtime < started + SMOKE_CAP:
+            return int((check / "exit").read_text())
     except (OSError, ValueError):
-        return None
+        pass
+    return None
 
 
 def live_target():
@@ -884,7 +887,7 @@ def live_target():
     so what moves is exactly what passed, however far origin/main has gone on since.
     """
     tip = _git("rev-parse", "--verify", "--quiet", "origin/main")[1]
-    passed = {commit for _, commit, check in live_checks() if _exit(check) == 0}
+    passed = {commit for started, commit, check in live_checks() if _exit(check, started) == 0}
     if (not tip or tip in passed or _git("cat-file", "-e", f"{tip}:tests/live.sh")[0]
             or not _git("merge-base", "--is-ancestor", tip, "HEAD")[0]):
         return tip
@@ -895,44 +898,51 @@ def live_target():
 def live_tick(log, now, fetched):
     """The tick's half of tests/live.sh: it starts the checks and ends them at their cap.
 
-    Checks of a commit the checkout already has go, worktree and all.  One past `SMOKE_CAP`
-    is ended with every process carrying its marker, and red from then on.  While origin/main
-    has a `tests/live.sh` and no check of it passed, one is started, detached, as soon as none
-    runs; a red one is handed back once (`live_hand_back`) and started again on
-    `watch.RETRY_BACKOFF` from its end, or from its start where it ended without saying how.
+    One past `SMOKE_CAP`, or of a commit the checkout already has, is ended by its marker,
+    and its directory goes, worktree and all, only once nothing carries that marker.  While
+    origin/main has a `tests/live.sh` and no check of it passed, one is started, detached, as
+    soon as none runs; a red one is started again on `watch.RETRY_BACKOFF` from its end, or
+    from its cap where it gave no verdict.  As `watch.after_merge_checks` does, the newest red
+    check no later check passed is handed back (`live_hand_back`), wherever main went since.
     Offline, no check starts: what was fetched last may be what origin has since moved on from.
     """
     from . import watch     # here, not at the top: watch imports this module
     tip = _git("rev-parse", "--verify", "--quiet", "origin/main")[1] if fetched else ""
-    had, running, passed, red = {}, False, False, []
+    had, running, pruned, done = {}, False, False, []
     for started, commit, check in live_checks():
         if commit not in had:
             had[commit] = not _git("merge-base", "--is-ancestor", commit, "HEAD")[0]
-        if had[commit]:
-            worker.kill_marked(str(check))
+        capped, code = now >= started + SMOKE_CAP, _exit(check, started)
+        alive = (bool(worker.marked_pids(str(check))) if host.PROC.is_dir()
+                 else code is None and not capped)
+        if (alive or code is None) and (capped or had[commit]):
+            alive = not worker.kill_marked(str(check))
+        if alive:
+            running = True
+        elif had[commit]:
             shutil.rmtree(check, ignore_errors=True)
-            continue
-        if _exit(check) is None:
-            if now >= started + SMOKE_CAP:
-                worker.kill_marked(str(check))
-            elif not host.PROC.is_dir() or worker.marked_pids(str(check)):
-                running = True
-                continue
-        code = _exit(check)     # again: one that finished as it was looked at says how
-        if commit == tip and code == 0:
-            passed = True
-        elif commit == tip:
-            red.append((started, check, code))
-    if any(had.values()):
+            pruned = True
+        else:
+            done.append((started, commit, check, _exit(check, started)))   # read once it ended
+    if pruned:
         _git("worktree", "prune")
-    if (running or passed or not tip or _git("merge-base", "--is-ancestor", tip, "HEAD")[0] != 1
+    episode = None      # a pass ends what was red before it; one handed back stands until then
+    for _, commit, check, code in done:
+        if code == 0:
+            episode = None
+        elif episode is None or not (episode[1] / "handed").exists():
+            episode = (commit, check, code)
+    if episode:
+        live_hand_back(*episode, log)
+    mine = [(started, check, code) for started, commit, check, code in done if commit == tip]
+    if (running or not tip or any(code == 0 for _, _, code in mine)
+            or _git("merge-base", "--is-ancestor", tip, "HEAD")[0] != 1
             or _git("cat-file", "-e", f"{tip}:tests/live.sh")[0]):
         return
-    if red:
-        live_hand_back(tip, red, log)
-        started, check, code = red[-1]
-        ended = started if code is None else (check / "exit").stat().st_mtime
-        if now < ended + watch.RETRY_BACKOFF[min(len(red), len(watch.RETRY_BACKOFF)) - 1]:
+    if mine:
+        started, check, code = mine[-1]
+        ended = started + SMOKE_CAP if code is None else (check / "exit").stat().st_mtime
+        if now < ended + watch.RETRY_BACKOFF[min(len(mine), len(watch.RETRY_BACKOFF)) - 1]:
             return
     log(f"checking agentkit at {tip[:12]} with tests/live.sh before it goes live")
     check = config.STATE / LIVE / f"{tip}-{int(now)}"
@@ -944,16 +954,14 @@ def live_tick(log, now, fetched):
                           worker.RUN_MARKER: str(check)})
 
 
-def live_hand_back(commit, red, log):
-    """Hand that commit's red check back to fix, once, with its last lines, as
-    `watch.after_merge_checks` hands back a red merge commit.
+def live_hand_back(commit, check, code, log):
+    """Hand that red check of that commit back to fix, once, with its last lines.
 
-    Its record is `handed` in the first red check's directory, the tick's own file: the line,
-    the composer's mark while its Enter has not landed, so it is entered and never typed twice,
+    Its record is `handed` in the check's directory, the tick's own file: the line, the
+    composer's mark while its Enter has not landed, so it is entered and never typed twice,
     and `told` once it has.
     """
     from . import run, watch    # here, not at the top: both import this module
-    _, check, code = red[0]
     handed = check / "handed"
 
     def keep(**change):
