@@ -217,15 +217,19 @@ out = pathlib.Path(sys.argv[6])
                                      edits={"reviewer-only": "defect\n"}), "PASS")
         self.assertEqual(len(self.lp.state["notes"]), 1)
 
-    def test_clean_proof_replays_do_not_hide_a_checkout_changed_by_the_suite(self):
-        def dirty_suite(lp):
-            (lp.wt / "api.py").write_text('mode = "suite edit"\n')
+    def test_clean_proof_replays_do_not_hide_a_checkout_changed_during_review(self):
+        turn = worker.turn
 
-        with patch.object(run, "join_suite", side_effect=dirty_suite):
+        def dirty_checkout(*args, **kwargs):
+            result = turn(*args, **kwargs)
+            (self.wt / "api.py").write_text('mode = "unchecked edit"\n')
+            return result
+
+        with patch.object(worker, "turn", side_effect=dirty_checkout):
             self.assertEqual(self.review(finding("api.py:1", "proven defect", self.fails)), "FAIL")
         self.assertEqual(self.lp.state["review"]["overridden"], "the checkout changed after verification")
         self.assertIn("proof on branch", self.lp.findings)
-        self.assertNotIn("proof on suite edit", self.lp.findings)
+        self.assertNotIn("proof on unchecked edit", self.lp.findings)
 
     def test_scratch_has_no_base_and_every_proven_finding_blocks(self):
         self.lp.scratch = self.lp.state["scratch"] = True

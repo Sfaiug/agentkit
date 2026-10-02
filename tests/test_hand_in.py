@@ -115,7 +115,7 @@ class HandIn(unittest.TestCase):
         self.assertIn("done", result.stderr)
         self.assertEqual(self.file.read_bytes(), before)
 
-    def review(self, *plan, ok=True, once_ok=True, reviewer="astra", prior=(), prior_suffix="", overrides=()):
+    def review(self, *plan, ok=True, reviewer="astra", prior=(), prior_suffix="", overrides=()):
         """The adapter invokes bin/ak, so these turns cross the real record-file boundary."""
         directory = self.root / "run"
         directory.mkdir()
@@ -164,7 +164,6 @@ sys.exit(row.get("code", 0))
             lp = run.Loop(cfg, directory, state, {}, logs.append, self.workspace,
                           "# Fixture", ["true"], "", ["spark"])
             lp.rnd = 1
-            lp.once_ok = once_ok
             if prior:
                 previous = directory / "round-1/reviewer"
                 previous.mkdir(parents=True)
