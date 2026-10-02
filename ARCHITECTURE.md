@@ -111,8 +111,8 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
   rebuild config.py's seat file names and rename chain.
 - `tools/`, called by adapters: `rulebook.py`, `idle-compact.py`, `codex-seat.py`,
   `trust.py`, `catalog.py`, `desktop-mcp.py`.
-- `tests/`: one file per behaviour, run straight; `smoke.sh` is the gate, with real calls;
-  `fixtures/` holds harness screens and an `echo` adapter. Moving code moves mocks.
+- `tests/`: `smoke.sh` makes real calls; `every_file.py` checks imports and case counts.
+  `fixtures/`: screens and an `echo` adapter.
 - Also: `config.default.toml` (model to harness and provider), `orchestrator.md` (the seat
   rulebook), `templates/`, `browser/`, `docs/`.
 
