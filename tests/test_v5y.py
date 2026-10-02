@@ -1,9 +1,9 @@
 """v5y: every seat shows its state on its own status bar, in the menu's words; offline.
 
 The seat's tmux status bar carries the menu row's own values -- the state word and the
-last column -- written through the one writer by the tick and every menu draw; `ak run`
-still writes the run tally at launch, on every state change and at the end, and a launch
-says where to look.  tmux writes go through the fake seam the status-bar tests use --
+last column -- written through the one writer by the tick and every menu draw; no run
+tally is written anywhere, and a launch says where to look.  tmux writes go through the
+fake seam the status-bar tests use --
 `orch.tmux_out` patched -- except the real-client tests, which show the bar's text on a
 throwaway `agentkit-test` server the way the isolated tmux test does.
 """
@@ -12,6 +12,7 @@ from contextlib import redirect_stderr, redirect_stdout
 import io
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -20,10 +21,15 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import config, gc, menu, orch, run, terminal, usage, watch
+from agentkit import config, gc, menu, orch, run, statusbar, terminal, usage, watch
 from agentkit import host, record
 
 TALLY = "2 running · 1 needs a look"
+
+
+def drawn(value):
+    """A bar option's text as tmux draws it: no styles, `#` single again."""
+    return re.sub(r"#\[[^\]]*\]", "", value).replace("##", "#")
 
 
 def colours_on(case):
@@ -61,14 +67,17 @@ class Bar(Sandbox):
         colours_on(self)
         offline(self)
 
-    def test_v5y_a_left_half_reads_state_and_last_column(self):
-        left, right, title = orch.bar("herdr", "fable", "working", "tasks x 2/5")
-        self.assertEqual(left, f" herdr · fable · {terminal.state_text('working')} · tasks x 2/5 ")
-        self.assertEqual(right, " Ctrl-b m  menu ")
+    def test_v5y_a_line_one_reads_state_and_last_column(self):
+        top, why, key, title = statusbar.lines("herdr", "fable", "#D97757", "working",
+                                               "tasks x 2/5")
+        self.assertEqual(drawn(top), f" ▐{terminal.state_text('working')}▌  herdr  "
+                                     "fable orchestrates   tasks x 2/5")
+        self.assertEqual(why, "")
+        self.assertEqual(drawn(key), "Ctrl-b m  menu ")
         self.assertEqual(title, "herdr · working")
         # the state word is the row's, from the same table
         for word in terminal.STATES:
-            labelled, _, titled = orch.bar("herdr", "fable", word, "")
+            labelled, _, _, titled = statusbar.lines("herdr", "fable", "#D97757", word)
             self.assertIn(terminal.state_text(word), labelled)
             self.assertEqual(titled, f"herdr · {word}")
 
@@ -102,18 +111,18 @@ class Bar(Sandbox):
                 "exited": False, "legacy": False, "resumable": False}
         with patch.object(orch, "tmux_out",
                           side_effect=lambda *a, **k: (0, tmux(*a))):
-            orch.dress("herdr", "fable")
-            menu.redress(seat, {"word": "working", "reason": "", "since": None},
-                         cfg=self.cfg, records=[])
-        left = tmux("show-options", "-t", "herdr", "-v", "status-left")
-        right = tmux("show-options", "-t", "herdr", "-v", "status-right")
-        title = tmux("show-options", "-t", "herdr", "-v", "set-titles-string")
-        shown = tmux("display-message", "-p", "-t", "herdr", left)
-        self.assertIn("herdr · fable", shown)
+            statusbar.dress("herdr", "fable")
+            statusbar.redress(seat, {"word": "working", "reason": "", "since": None},
+                              cfg=self.cfg)
+        self.assertEqual(tmux("show-options", "-t", "herdr", "-v", "status"), "2")
+        shown = drawn(tmux("display-message", "-p", "-t", "herdr", f"#{{E:{statusbar.TOP}}}"))
+        self.assertIn("herdr  fable orchestrates", shown)
         self.assertIn("working", shown)
         self.assertIn("tasks ", shown)
         self.assertIn("1/3", shown)
-        self.assertEqual(right.strip(), "Ctrl-b m  menu")
+        key = drawn(tmux("display-message", "-p", "-t", "herdr", f"#{{E:{statusbar.KEY}}}"))
+        self.assertEqual(key.strip(), "Ctrl-b m  menu")
+        title = tmux("show-options", "-t", "herdr", "-v", "set-titles-string")
         self.assertEqual(title, "herdr · working")
 
     def test_v5y_j_long_reason_draws_whole_on_a_wide_client(self):
@@ -128,35 +137,24 @@ class Bar(Sandbox):
         reason = "Merge the MOV helper before or after the schema lands?"
         with patch.object(orch, "tmux_out",
                           side_effect=lambda *a, **k: (0, tmux(*a))):
-            orch.dress(name, "fable")
-            # the length cap fits the longest true content: name, state and last, uncut
-            menu.redress(seat, {"word": "needs you", "reason": reason, "since": None},
-                         cfg=self.cfg, records=[])
-        self.assertEqual(tmux("show-options", "-t", name, "-v", "status-left-length"),
-                         "120")
-        left = tmux("show-options", "-t", name, "-v", "status-left")
-        shown = tmux("display-message", "-p", "-t", name, left)
-        self.assertIn(f"{name} · fable → opus · ! needs you · {reason}", shown)
+            statusbar.dress(name, "fable")
+            # no length cap: the client's own width is the only cut
+            statusbar.redress(seat, {"word": "needs you", "reason": reason, "since": None},
+                              cfg=self.cfg)
+        self.assertEqual(tmux("show-options", "-t", name, "-v", "status-left-length"), "")
+        top = drawn(tmux("display-message", "-p", "-t", name, f"#{{E:{statusbar.TOP}}}"))
+        self.assertEqual(top, f"▐! needs you▌  {name}  fable orchestrates")   # stripped
+        why = drawn(tmux("display-message", "-p", "-t", name, f"#{{E:{statusbar.WHY}}}"))
+        self.assertEqual(why, reason)
 
     def test_v5y_d_no_runs_draws_no_tally(self):
-        calls = []
-        with patch.object(orch, "tmux_out",
-                          side_effect=lambda *a, **k: calls.append((a, k)) or (0, "")):
-            orch.set_runs("herdr", None)
-            orch.set_runs("herdr", "")
-            orch.set_runs("herdr", menu.tally(None))
-        self.assertEqual(len(calls), 3)
-        for (args, _), label in zip(calls, ("None", "empty", "no runs yet")):
-            with self.subTest(tally=label):
-                # clearing unsets the option; no value with `0 running` is ever written
-                self.assertEqual(args[:4], ("set-option", "-u", "-t", "herdr"))
-                self.assertEqual(args[4], orch.RUNS_OPTION)
-        left, _, _ = orch.bar("herdr", "fable", "working", "")
-        self.assertNotIn("0 running", left)
-        self.assertEqual(left, f" herdr · fable · {terminal.state_text('working')} ")
+        top, why, _, _ = statusbar.lines("herdr", "fable", "#D97757", "working", "")
+        self.assertNotIn("running", top + why)
+        self.assertEqual(drawn(top), f" ▐{terminal.state_text('working')}▌  herdr  "
+                                     "fable orchestrates")
         # without a word yet -- a seat just started -- the bar carries no state at all
-        initial, _, _ = orch.bar("herdr", "fable")
-        self.assertEqual(initial, " herdr · fable ")
+        initial, _, _, _ = statusbar.lines("herdr", "fable", "#D97757")
+        self.assertEqual(drawn(initial), " herdr  fable orchestrates")
 
 
 class Writes(Sandbox):
@@ -175,17 +173,6 @@ class Writes(Sandbox):
         self.stack.enter_context(patch.object(
             orch, "tmux_out",
             side_effect=lambda *a, **k: self.calls.append((a, k)) or (0, "")))
-
-    def run_sets(self):
-        """Every `@ak_runs` write, as (seat, tally-or-unset)."""
-        found = []
-        for args, _ in self.calls:
-            if orch.RUNS_OPTION in args:
-                if "-u" in args:
-                    found.append((args[args.index("-t") + 1], None))
-                else:
-                    found.append((args[args.index("-t") + 1], args[-1]))
-        return found
 
     def launch(self, name, owner, **extra):
         directory = config.RUNS / name
@@ -217,57 +204,6 @@ class Writes(Sandbox):
         spent.update(used=100, exhausted=False)
         del spent["resets_at"]
         return usage._gate_flags(providers, now, self.cfg)
-
-    def test_v5y_c_run_writes_option_at_launch_change_and_end(self):
-        task = ("---\nrepo: none\n---\n# Ship it\n\n## Done when\n```bash\ntrue\n```\n")
-        with patch.dict(os.environ, {"AGENTKIT_SESSION": "herdr"}):
-            run_dir = config.RUNS / "20260917-1200-ship-it"
-            run_dir.mkdir(parents=True)
-            (run_dir / "task.md").write_text(task)
-            run.capture_launch(run_dir, {})
-            at_launch = self.run_sets()
-            run.mark_state(run_dir, "error", "boom")
-            at_change = self.run_sets()
-            state = record.read_state(run_dir)
-            with patch.object(run, "launcher_watched", return_value=True):
-                run.finish(state, run_dir, lambda line: None)
-            at_end = self.run_sets()
-        # the launching seat only: no other seat is ever targeted
-        self.assertTrue(at_launch)
-        self.assertTrue(at_change[len(at_launch):])
-        self.assertTrue(at_end[len(at_change):])
-        self.assertEqual({seat for seat, _ in at_end}, {"herdr"})
-        # launch counts the queued run as waiting, the state change its ending
-        self.assertEqual(at_launch[-1], ("herdr", "1 waiting"))
-        self.assertEqual(at_change[-1], ("herdr", "1 needs you"))
-        self.assertEqual(at_end[-1], ("herdr", "1 needs you"))
-        # launched from no seat, nothing is written anywhere
-        self.calls.clear()
-        with patch.dict(os.environ, {"AGENTKIT_SESSION": ""}):
-            run.capture_launch(config.RUNS / "20260917-1200-ship-it", {})
-        self.assertEqual(self.run_sets(), [])
-
-    def test_v5y_e_tick_recomputes_a_live_seat_whose_run_died(self):
-        self.launch("20260917-1200-ship-it", "herdr")
-        seats = [{"name": "herdr", "created": time.time() - 5, "attached": False,
-                  "exited": False, "legacy": False, "resumable": False}]
-        logs = []
-        with patch.object(orch, "sessions", return_value=seats), \
-                patch.object(watch, "seat_model", return_value=("claude", "anthropic")), \
-                patch.object(watch, "pane_text", return_value="output\n$ "), \
-                patch.object(watch, "live_state",
-                             return_value={"state": "at_prompt", "rule": "fixture"}), \
-                patch.object(watch.notify, "progress", return_value=False), \
-                patch.object(watch, "stalled_on", return_value=None), \
-                patch.object(watch, "stuck_on", return_value=False):
-            watch.health(self.cfg, {"stalls": {}}, False, logs.append)
-            self.assertEqual(self.run_sets()[-1], ("herdr", "1 running"))
-            # the run dies without a word: the record says fail, the bar still says going
-            state = record.read_state(config.RUNS / "20260917-1200-ship-it")
-            state.update(state="fail", verdict="FAIL", finished_at=time.time())
-            record.save_state(config.RUNS / "20260917-1200-ship-it", state)
-            watch.health(self.cfg, {"stalls": {}}, False, logs.append)
-            self.assertEqual(self.run_sets()[-1], ("herdr", "1 needs you"))
 
     def test_v5y_f_launch_line_is_printed_once(self):
         task = ("---\nrepo: none\n---\n# Ship it\n\n## Done when\n```bash\ntrue\n```\n")
@@ -467,7 +403,7 @@ class Writes(Sandbox):
         self.assertNotEqual(state["reviewer"], "astra")
         self.assertNotIn("launch_reviewer", record.read_state(run_dir))
 
-    def test_v5y_g_menu_draw_sets_each_live_seat_bar(self):
+    def test_v5y_g_menu_rows_count_runs_and_no_bar_carries_a_tally(self):
         now = time.time()
         seats = [
             {"name": "herdr", "repo": "r", "path": "p", "created": now - 5,
@@ -492,18 +428,7 @@ class Writes(Sandbox):
             groups = menu.projects(self.cfg, seats)
         tallies = {row[1]: row[6] for project in groups for row in project["rows"]}
         self.assertEqual(tallies["herdr"], "1 running · 0 merged")
-        written = dict(self.run_sets())
-        self.assertEqual(written.get("herdr"), "1 running")
-        # no runs: the option is unset, never `0 running`
-        self.assertIsNone(written.get("scribe"))
-        # merges alone never reach a bar either: the row shows them another way
-        self.assertIsNone(written.get("merger"))
-        self.assertIn(("set-option", "-u", "-t", "merger", orch.RUNS_OPTION),
-                      [args for args, _ in self.calls])
-        self.assertIn(("set-option", "-u", "-t", "scribe", orch.RUNS_OPTION),
-                      [args for args, _ in self.calls])
-        # a legacy seat lives on the user's own server: nothing is written there
-        self.assertNotIn("old", written)
+        self.assertFalse([args for args, _ in self.calls if "@ak_runs" in args])
 
 
 if __name__ == "__main__":
