@@ -705,6 +705,21 @@ def stop_scope(scope, log=lambda _: None, wait=True):
     return not refused and 0 in codes
 
 
+def set_cpu_weight(unit, weight):
+    """Ask the user manager to weigh `unit` so until it ends; whether it did.
+
+    The manager's own word rather than a write to the unit's cgroup, which it would put
+    back on its next reload.
+    """
+    try:
+        return subprocess.run(["systemctl", "--user", "set-property", "--runtime", unit,
+                               f"CPUWeight={weight}"], stdin=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              env=bus_env(), timeout=SLICE_WAIT).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def slice_cgroup():
     """The slice's own directory under the cgroup filesystem.
 

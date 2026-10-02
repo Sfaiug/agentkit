@@ -1836,6 +1836,7 @@ class _MergeHold:
         self._released = False
         self.reservation = None
         self.lent = False
+        self.weighed = None        # (unit, weight before) while `raise_cpu_weight` holds it
 
     def lend(self):
         """Keep the rebased branch's files reserved while other files can land."""
@@ -1881,6 +1882,8 @@ class _MergeHold:
                         pass
         finally:
             self.lock = None
+            if self.weighed is not None:
+                orch.set_cpu_weight(*self.weighed)
             held = getattr(_PICKUP_HELD, "count", 0)
             if held:
                 _PICKUP_HELD.count = held - 1
@@ -1895,6 +1898,35 @@ class _MergeHold:
                         pass
             if getattr(_MERGE_HELD, "hold", None) is self:
                 _MERGE_HELD.hold = None
+
+
+def raise_cpu_weight(lp):
+    """Weigh this run's scope above every other run's while it holds its merge turn.
+
+    Every passed run of the repository waits behind the holder, so its final check is the
+    repository's serial path; at the scope's own weight it would share the CPU evenly with
+    work that will wait hours to merge.  The raise outweighs the other scopes in the runs
+    slice together by the slice's cores and one, so that all of them share less than one
+    core while the check is busy, and stops at the kernel's top weight.  Another
+    repository's holder counts at a run's own weight, so two landings at once share alike
+    rather than the later one outweighing the earlier.  It is among the runs slice's own
+    children, so the seats beside that slice keep their weight over every run.  (unit,
+    weight before) to put back, or None where nothing was raised: no scope, no cgroup, no
+    other run, or a manager that refused.
+    """
+    scope_dir = run_scope_dir(lp.state.get("scope"))
+    weights = host.cpu_weights(scope_dir) if scope_dir is not None else None
+    if not weights or not weights[1]:
+        return None
+    own = weights[0]
+    others = sum(min(weight, own) for weight in weights[1])
+    cores = host._slice_cpu_quota(orch.slice_cgroup()) or host.cpu_count()
+    raised = min(host.CPU_WEIGHT_MAX, int(others * (cores + 1)))
+    if raised <= own or not orch.set_cpu_weight(scope_dir.name, raised):
+        return None
+    lp.log(f"--- merge: CPU weight {raised} while holding the merge turn, "
+           f"{others} for every other run together")
+    return scope_dir.name, own
 
 
 def drop_reserved_turn():
@@ -5704,6 +5736,7 @@ def merge_turn(lp, upstream, reserve=False):
         lock = None             # the hold owns the file from here
         _MERGE_HELD.hold = hold
         try:
+            hold.weighed = raise_cpu_weight(lp)
             yield
         finally:
             if getattr(_MERGE_HELD, "hold", None) is hold:
