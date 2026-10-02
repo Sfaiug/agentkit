@@ -186,7 +186,7 @@ usage)
              window_secs:(.w.limit_window_seconds // 604800)}) }
     # Bought credits answer turns once the windows are spent; ak reads them as usage left
     + ([.credits | objects | select(.has_credits == true and .overage_limit_reached == false)
-        | {credits:(.balance | tonumber)}] | first // {})' <<<"$body" \
+        | {credits:(.balance | tonumber?)}] | first // {})' <<<"$body" \
     2>/dev/null || err "unparsable response from chatgpt.com" ;;
 reset-status)
   # A subscription earns "usage limit resets" that refill the weekly window.  Two reads: the

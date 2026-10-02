@@ -142,13 +142,16 @@ def choose(cfg, providers):
     on credits (`usage.on_credits`) goes after every one with a window left.
     """
     default = cfg["defaults"]["orchestrator"]
-    notes = []
-    for name in sorted([default, *(name for name in config.offered(cfg) if name != default)],
-                       key=lambda name: usage.on_credits(cfg, name, providers)):
+    notes, credits = [], None
+    for name in [default, *(name for name in config.offered(cfg) if name != default)]:
         spent, why = usage.model_spent(cfg, name, providers)
-        if not spent:
+        if not spent and not usage.on_credits(cfg, name, providers):
             return name, "; ".join([why] + notes)
+        if not spent and credits is None:
+            credits = name, "; ".join([why] + notes)
         notes.append(f"skipped {name}: {why}")
+    if credits:
+        return credits
     return default, (f"WARN {'; '.join(notes)}; every model is exhausted, "
                      f"launching {default} anyway")
 

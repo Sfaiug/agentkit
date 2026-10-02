@@ -21,6 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, terminal, usage  # noqa: E402
+import test_usual_account_first as seats  # noqa: E402
 
 WEEK = 604800
 
@@ -63,11 +64,15 @@ class Adapter(unittest.TestCase):
     def test_codex_usage_leaves_credits_out_otherwise(self):
         for credits in ({"has_credits": False, "overage_limit_reached": False, "balance": "0"},
                         {"has_credits": True, "overage_limit_reached": True, "balance": "12"},
+                        # no balance to read leaves the credits out, never the meters
+                        {"has_credits": True, "unlimited": True, "overage_limit_reached": False,
+                         "balance": None},
                         None):
             with self.subTest(credits=credits):
                 said = self.usage(credits)
                 self.assertNotIn("credits", said)
                 self.assertIsNone(said["error"])
+                self.assertEqual(len(said["meters"]), 1)
 
 
 class Picks(unittest.TestCase):
@@ -153,7 +158,10 @@ class Picks(unittest.TestCase):
 
     def test_a_seat_takes_a_model_on_credits_only_after_every_window(self):
         providers = self.read(62469.67)
-        self.assertNotEqual(orch.choose(self.cfg, providers)[0], "astra")
+        model, why = orch.choose(self.cfg, providers)
+        self.assertNotEqual(model, "astra")
+        # the default passed over says why, as a spent one does
+        self.assertIn("skipped astra: weekly 100% used, 62,469 credits left", why)
         self.assertEqual(orch.spent_note(self.cfg, "astra", providers), "")
         providers = self.read(62469.67, anthropic=100, meta=100)
         model, why = orch.choose(self.cfg, providers)
@@ -186,6 +194,36 @@ class Picks(unittest.TestCase):
             shown = terminal.plain(usage.render(self.cfg, providers, self.order(providers)))
         self.assertIn("openai: 62,469 credits left", shown)
         self.assertNotIn("exhausted", shown)
+
+
+class Seat(unittest.TestCase):
+    """A live seat, on `seats`' fake tmux and meters: only the credits are this file's."""
+
+    def setUp(self):
+        self.seat = seats.UsualAccountFirst()
+        self.addCleanup(self.seat.doCleanups)
+        self.seat.setUp()
+
+    def account_after_tick(self, first, second, credited):
+        self.seat.meters(first, second)
+        path = config.STATE / "usage.json"
+        cached = json.loads(path.read_text())
+        claude = cached["providers"]["anthropic"]
+        for account in credited:
+            claude["accounts"][account]["credits"] = 500
+        claude["credits"] = claude["accounts"]["default"].get("credits")
+        path.write_text(json.dumps(cached))
+        self.seat.tick()
+        return config.session_records()[seats.NAME]["account"]
+
+    def test_a_seat_on_credits_moves_to_an_account_with_a_window_left(self):
+        self.assertEqual(self.account_after_tick(100, 20, ["default"]), "second")
+        # ... and does not come home onto credits while its account has a window
+        self.assertEqual(self.account_after_tick(100, 20, ["default"]), "second")
+
+    def test_a_seat_stays_on_credits_when_no_account_has_a_window(self):
+        self.assertEqual(self.account_after_tick(100, 100, ["default"]), "default")
+        self.assertEqual(self.seat.commands, [])
 
 
 if __name__ == "__main__":

@@ -2999,8 +2999,16 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         return True
     readings = (prov.get("accounts") or {}) if accounts else {current: prov}
 
+    def window(account):
+        read = {provider: readings[account]}
+        return not (usage.model_exhausted(cfg, model, read)[0]
+                    or usage.on_credits(cfg, model, read))
+
     def spent(account):
-        return usage.model_exhausted(cfg, model, {provider: readings.get(account, {})})[0]
+        # An account on credits is spent while another has a window left: credits cost money.
+        read = {provider: readings.get(account, {})}
+        return usage.model_exhausted(cfg, model, read)[0] or (
+            usage.on_credits(cfg, model, read) and any(map(window, readings)))
 
     lines = content_lines(harness, pane_tail(pane))
     line = recorded_error(harness, name)
@@ -3036,7 +3044,6 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         seat_write(name, usage_refusal=None)
     if not waiting and not refusal and not spent(current):
         if (accounts and current != home and home in readings and not spent(home)
-                and not usage.on_credits(cfg, model, {provider: readings[home]})
                 and live.get("state") == "at_prompt"
                 and not _turn_in_flight(harness, live)[0]
                 and orch.resumable(record)):
