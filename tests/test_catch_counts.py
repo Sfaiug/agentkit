@@ -109,7 +109,7 @@ class CatchCounts(unittest.TestCase):
             return menu.model_body(self.cfg, name)
 
     def assert_counts(self, reviewed, caught, already, unproven, name="reviewer"):
-        self.assertIn(f"  Reviewed {reviewed} times · caught {caught} · "
+        self.assertIn(f"  Reviewed {reviewed} time{'s' if reviewed != 1 else ''} · caught {caught} · "
                       f"{already} already on main · {unproven} unproven", self.screen(name)[0])
 
     def assert_unused(self, name="reviewer"):
@@ -195,9 +195,10 @@ class CatchCounts(unittest.TestCase):
         self.review(self.loop(), self.records())
         lines, places = self.screen(width=40)
         self.assertEqual([row for row, _ in places.values()], list(menu.MODEL_ROWS))
+        self.assertGreater(len(lines), 4)
         self.assertEqual(lines[3], "")
         self.assertEqual(" ".join(line.strip() for line in lines[4:]),
-                         "Reviewed 1 times · caught 1 · 1 already on main · 1 unproven")
+                         "Reviewed 1 time · caught 1 · 1 already on main · 1 unproven")
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
 

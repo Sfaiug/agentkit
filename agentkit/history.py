@@ -58,6 +58,19 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("task_checks", "INTEGER"), ("task_files", "TEXT"), ("orchestrator", "TEXT"),
               ("changed_lines", "INTEGER"))
 
+REVIEWS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS reviews (
+    run_id TEXT,
+    review_id TEXT,
+    harness TEXT,
+    model TEXT,
+    blocking INTEGER,
+    followup INTEGER,
+    note INTEGER,
+    PRIMARY KEY (run_id, review_id)
+)
+"""
+
 
 def path():
     """The history database follows the configured HOME, including test homes."""
@@ -73,6 +86,7 @@ def _connect(*, readonly=False):
     database.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database, timeout=2)
     connection.execute(SCHEMA)
+    connection.execute(REVIEWS_SCHEMA)
     have = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
     for name, kind in MIGRATIONS:
         if name not in have:
@@ -206,6 +220,35 @@ def add_tokens(run_id, role, tokens, *, log=None):
     _write(lambda connection: connection.execute(
         f"UPDATE runs SET {column}=COALESCE({column},0)+? WHERE run_id=?",
         (int(tokens), run_id)), log)
+
+
+def record_review(run_id, review_id, *, harness, model, blocking, followup, note, log=None):
+    """Keep one finished review's weighed counts, including landing reviews in the same round.
+
+    Its output directory identifies it, so recording it again cannot count it twice; only
+    runs already recorded in history can contribute.
+    """
+    _write(lambda connection: connection.execute(
+        "INSERT INTO reviews (run_id, review_id, harness, model, blocking, followup, note) "
+        "SELECT run_id, ?,?,?,?,?,? FROM runs WHERE run_id=? "
+        "ON CONFLICT(run_id, review_id) DO NOTHING",
+        (review_id, harness, model, blocking, followup, note, run_id)), log)
+
+
+def review_counts(harness, model):
+    """Finished reviews, blocking findings, follow-ups and notes for the identity that ran."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                return connection.execute(
+                    "SELECT COUNT(*), COALESCE(SUM(blocking),0), COALESCE(SUM(followup),0), "
+                    "COALESCE(SUM(note),0) FROM reviews JOIN runs USING (run_id) "
+                    f"WHERE harness=? AND model=? AND {REAL_WORK}", (harness, model)).fetchone()
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return (0, 0, 0, 0)
 
 
 def open_step(run_id, step, at=None, *, log=None):

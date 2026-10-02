@@ -2481,9 +2481,9 @@ def model_body(cfg, name, at=None):
     """A model's own screen's lines, and where its rows sit on them: {line: (row, cells)}, the
     cells `left` and `right` the arrows of the value on that line, counted from 1 (`under`).
 
-    Its model id and its effort, each between the arrows that step it, then `Remove`;
-    `at` is the highlighted row.  On a phone, where a label and its value do not fit on
-    one line, the value goes under its label.
+    Its model id and its effort, each between the arrows that step it, then `Remove` and
+    its reviewing so far; `at` is the highlighted row. On a phone, where a label and its
+    value do not fit on one line, the value goes under its label.
     """
     entry, room = cfg["models"][name], terminal.layout_width()
     arrows = "‹ {} ›" if terminal.utf8() else "< {} >"
@@ -2502,6 +2502,11 @@ def model_body(cfg, name, at=None):
             places[len(lines)] = (row, [(first, first + 1, "left"), (last - 1, last, "right")]
                                   if number == len(parts) - 1 and value else [])
             lines.append(terminal.highlight(line, number == 0) if row == at else line)
+    reviewed, caught, already, unproven = history.review_counts(entry.get("harness"), entry.get("model"))
+    summary = (f"Reviewed {reviewed} time{'s' if reviewed != 1 else ''} · caught {caught} · "
+               f"{already} already on main · {unproven} unproven" if reviewed
+               else "Not used as a reviewer yet")
+    lines.extend(["", *("  " + part for part in terminal.wrap(summary, room - 2))])
     return lines, places
 
 
