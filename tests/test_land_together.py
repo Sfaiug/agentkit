@@ -175,17 +175,49 @@ class LandTogether(unittest.TestCase):
         self.assertEqual(follower.state["final_check"]["suite"], SUITE)
         self.assertEqual(follower.state["final_check"]["tree_sha"], mine["tested"])
 
-    def test_a_failing_batch_records_nothing_and_the_holder_checks_itself(self):
+    def test_a_breaking_follower_leaves_the_leader_tested_alone_in_the_split(self):
         lp = self.leader()
         turn = self.wait(lp, "broken", self.branch("ak/broken", {"broken.txt": "x\n"}), 1)
         self.assertTrue(self.held(lp))
         suites = [cwd for cmds, cwd in self.checks if SUITE in cmds]
-        self.assertEqual(len(suites), 2)
-        self.assertEqual(suites[-1], self.repo)                  # alone, on its own commit
-        self.assertIn("final check: the suite on the runs landing together: FAILED; "
-                      "checking this run alone", self.lines)
-        self.assertIsNone(land.passed(turn, self.tree("HEAD")))
+        self.assertEqual(len(suites), 2)                         # the batch, then the leader
+        self.assertNotIn(self.repo, suites)
+        self.assertIn("--- merge: broken breaks the suite of the batch; the 1 run(s) before it "
+                      "pass and land", self.lines)
+        self.assertEqual(land.passed(turn, self.tree("HEAD"))["tested"], self.tree("HEAD"))
         self.assertEqual(lp.state["final_check"]["tree_sha"], self.tree("HEAD"))
+
+    def test_a_failing_batch_is_halved_and_the_runs_before_the_breaker_land(self):
+        lp = self.leader()
+        heads = [self.branch(f"ak/m{n}", {f"m{n}.txt": "m\n"}) for n in range(1, 4)]
+        heads.insert(2, self.branch("ak/broken", {"broken.txt": "x\n"}))
+        for rank, (run_id, head) in enumerate(zip(("m1", "m2", "broken", "m3"), heads), 1):
+            turn = self.wait(lp, run_id, head, rank)
+        self.assertTrue(self.held(lp))
+        suites = [cwd for cmds, cwd in self.checks if SUITE in cmds]
+        self.assertEqual(len(suites), 4)        # the batch, then prefixes of 2, 3 and 4
+        self.assertNotIn(self.repo, suites)    # the leader passed in the split
+        self.assertIn("--- merge: broken breaks the suite of the batch; the 3 run(s) before it "
+                      "pass and land", self.lines)
+        self.assertIn("final check: the suite on the runs landing together: FAILED; this run "
+                      "passed in the split", self.lines)
+        first = land.passed(turn, self.tree("HEAD"))
+        self.assertEqual(first["leader"], "leader")
+        self.assertEqual(len({entry["tested"] for entry in land._trees(turn)[1].values()}), 1)
+        self.assertEqual(len(land._trees(turn)[1]), 3)          # leader, m1, m2 -- not broken
+
+    def test_a_breaking_leader_checks_itself_alone(self):
+        self.git("checkout", "-q", "-b", "ak/leader")
+        (self.repo / "AGENTS.md").write_text(f"---\ntests: {SUITE}\n---\n")
+        (self.repo / "work.txt").write_text("work\n")
+        (self.repo / "broken.txt").write_text("x\n")
+        self.commit("leader")
+        lp = self.loop()
+        turn = self.wait(lp, "m1", self.branch("ak/m1", {"m1.txt": "m\n"}), 1)
+        self.assertFalse(self.held(lp))
+        self.assertIn("--- merge: leader breaks the suite of the batch; it is the first, so each "
+                      "run checks itself alone", self.lines)
+        self.assertEqual(land._trees(turn)[1], {})
 
     def test_alone_or_not_holding_the_turn_it_checks_itself_as_before(self):
         lp = self.leader()
