@@ -14,60 +14,73 @@ from . import box, command_help, config, hand_in, record
 
 # A worker session is not a seat: `ak notify` is suppressed there, and a finding names a class
 # the fixer has to finish, not a line to patch, so that a later round only confirms fixes.
-NO_NOTIFY = ("`ak notify` is not available in this session; anything you would report or ask goes "
-             "into your `## Summary`.")
-EVERY_INSTANCE = ('You may dispute a finding instead of changing code: use `ak hand-in dispute '
-                  'path:line "why it is wrong" --run COMMAND` or `--quote LINES`. Name only a '
-                  "blocking finding handed to this turn. A dispute's command must exit 0; "
-                  "a quote must exist in the named file. For every "
+NO_NOTIFY = ("[checked by ak: tests/test_notify_rule.py] ak suppresses `ak notify` in worker sessions.\n"
+             "[worker judgement] Anything you would report or ask goes into your `## Summary`.")
+EVERY_INSTANCE = ('[worker judgement] You may dispute a finding instead of changing code: use '
+                  '`ak hand-in dispute path:line "why it is wrong" --run COMMAND` or `--quote LINES`.\n'
+                  "[checked by ak: tests/test_dispute_hand_in.py] ak refuses disputes outside the "
+                  "handed blocking findings, commands that do not exit 0 and absent quotes.\n"
+                  "[worker judgement] For every "
                   "undisputed finding, fix every instance of that pattern in {work}, not only "
                   "the cited line, and list the sites you changed in your summary.")
-ONE_PASS = ("Report every finding you can establish in this one pass, grouped by pattern with "
-            "every site listed. In a re-review, ak supplies each dispute beside its finding "
-            "with ak's proof output. Uphold a disputed finding by handing it in again with "
-            "`ak hand-in finding`; it is weighed as any finding. Drop it by not handing it in "
+ONE_PASS = ("[worker judgement] Report every finding you can establish in this one pass, grouped by "
+            "pattern with every site listed.\n"
+            "[checked by ak: tests/test_dispute_hand_in.py] ak supplies each dispute beside its finding "
+            "with ak's proof output; findings handed in again are weighed normally, others are dropped.\n"
+            "[worker judgement] Uphold a disputed finding by handing it in again with "
+            "`ak hand-in finding`. Drop it by not handing it in "
             "again. Then say which earlier findings are fixed and which are not, then anything new.")
 # A task that cannot be done as written is the task's defect, not the worker's: handing it in ends
 # the run there, and the orchestrator that wrote the task gets the sentence back instead of a
 # reviewer's verdict on work nobody could do.
-BLOCKED = ('Close every turn with `ak hand-in done`, or `ak hand-in blocked "<why>"` if the task '
+BLOCKED = ('[worker judgement] Close every turn with `ak hand-in done`, or `ak hand-in blocked "<why>"` if the task '
            'cannot be completed as written, or `ak hand-in not-needed "<why>"` if a fix run\'s '
-           "first turn finds the defect gone or already being fixed. "
-           "The summary is prose for result.md; the closing is the hand-in. "
-           "`blocked` is only for a task that cannot be completed as written; never for a "
+           "first turn finds the defect gone or already being fixed.\n"
+           "[worker judgement] `blocked` is only for a task that cannot be completed as written; never for a "
            "transient provider failure, a capacity refusal, or a check the loop runs later such "
-           "as the `# once` suite.")
+           "as the `# once` suite.\n"
+           "[checked by ak: tests/test_hand_in.py] ak refuses malformed or wrong-role closings "
+           "and records after a closing.\n"
+           "[checked by ak: tests/test_executor_text_ignored.py] ak asks once for a missing closing, "
+           "then sends the work to checks and review.")
 # The reviewer supplies evidence; the loop weighs it outside the reviewer's editable copy.
-GATE = ("Hand in a **blocking** finding only for a correctness defect in "
+GATE = ("[worker judgement] Hand in a **blocking** finding only for a correctness defect in "
         "the task's outcome, a safety or data-loss risk, a check the executor weakened or "
         "skipped, or a scope violation (work the task did not ask for, or asked-for work "
-        "missing). A blocking finding must include evidence: a command that fails, a "
-        "reproduction, or quoted lines that show the defect. Use "
+        "missing). Use "
         "`ak hand-in finding path:line \"what\" \"why it matters\" --run 'command'` "
-        "or `--quote 'lines from that file'` for blocking findings only. "
-        "A `--run` proof must fail while the defect exists. ak re-runs it on a clean "
-        "checkout of the commit and on the base with the branch's changed tests overlaid, "
-        "so use only files on the branch. After your turn ak weighs each finding: "
-        "an unproven defect is a note; a proven defect on a changed line or a regression "
-        "that passes on base blocks; a defect already present elsewhere is a follow-up. "
-        "**Follow-ups** are defects "
+        "or `--quote 'lines from that file'` for blocking findings only; use only files on the branch.\n"
+        "[checked by ak: tests/test_hand_in.py] ak refuses malformed or evidence-free findings, "
+        "missing files, invalid lines, absent quotes, finding commands that exit 0 and "
+        "follow-ups without `--before`.\n"
+        "[checked by ak: tests/test_proof_weighed.py] ak replays finding commands on a clean "
+        "checkout of the commit and on the base with changed tests overlaid (scratch: workspace only). "
+        "Passing or unfinished proofs become notes; proven changed-line defects or regressions "
+        "that pass on base block; pre-existing defects elsewhere become follow-ups.\n"
+        "[worker judgement] **Follow-ups** are defects "
         "of a kind that would fail a round, with that same evidence, that existed before this "
         "task: prove that by naming the base commit or quoting main as it was before the task. "
         "Hand in only these with `ak hand-in follow-up` using the same arguments plus "
         "`--before 'base commit or quoted main proving it existed before the task'`; "
-        "they are never a reason to fail. Omit everything else everywhere. "
-        "Finish with `ak hand-in done`: the loop derives FAIL from any finding that stays blocking, "
-        "otherwise PASS, however long the follow-ups list is. A refused hand-in explains "
-        "what to correct; fix the call and try again before done.")
+        "Omit everything else everywhere.\n"
+        "[worker judgement] Finish with `ak hand-in done`.\n"
+        "[checked by ak: tests/test_hand_in.py] ak derives FAIL from any finding that stays blocking, "
+        "otherwise PASS, however long the follow-ups list is; follow-ups are never a reason to fail.")
 # A repository whose AGENTS.md says `users: real` ships a new feature hidden until the owner
 # turns it on for everyone, so its reviewer holds one more finding blocking.
-REAL_USERS = ("This repository has real users: new user-visible behaviour (something a user can "
+REAL_USERS = ("[worker judgement] This repository has real users: new user-visible behaviour (something a user can "
               "do that they could not before; an improvement to an existing feature is not) that "
               "is not behind the project's feature switch, or is on for anyone but the owner by "
               "default, is also a blocking finding.")
 # The owner's own words for how much to build, all four in every executor and fixer.
-LEAST = ("Minimum change that solves the task completely; the best part is no part. Less is "
+LEAST = ("[worker judgement] Minimum change that solves the task completely; the best part is no part. Less is "
          "more: brutal elimination, the least possible steps.")
+COMMITS = ("[checked by ak: tests/test_leftover_junk.py] ak commits uncommitted work before checks and review.")
+PROCESSES = ("[checked by ak: tests/test_turn_leftover_processes.py] ak stops processes left running "
+             "when your turn ends and asks once to finish in the foreground.")
+CHECKS = ("[checked by ak: tests/test_v5ab.py] ak runs per-round done-when commands even when the worker skips them.")
+REVIEW_COPY = ("[checked by ak: tests/test_reviewer_edits_never_land.py] ak reviews in an isolated copy, "
+               "archives and undoes edits; they never reach the branch.")
 TIMEOUT = 124       # what a turn killed for running past its limit exits with, as `timeout(1)` does
 KILL_GRACE = 5      # how long a killed process group is given to go quietly before SIGKILL
 RUN_MARKER = "AGENTKIT_RUN"   # every process of a run carries its directory path
@@ -214,54 +227,65 @@ def said_nothing(out_dir):
 
 PREAMBLES = {
     "executor": (
-        "You are the executor. Work only inside {workspace} on the current branch. Commit as you go "
-        f"with clear messages; never push. {LEAST} Finish with a `## Summary` section: what "
-        f"changed, how you verified it, open issues. {NO_NOTIFY} {BLOCKED}"),
+        "You are the executor.\n"
+        "[worker judgement] Work only inside {workspace} on the current branch; never push.\n"
+        f"{COMMITS}\n{CHECKS}\n{PROCESSES}\n{LEAST}\n"
+        "[worker judgement] Finish with a `## Summary` section: what changed, how you verified it, open issues.\n"
+        f"{NO_NOTIFY}\n{BLOCKED}"),
     "reviewer": (
-        "You are the reviewer. Read-only: do not edit files under review. The loop ran every done-when "
+        f"You are the reviewer.\n{REVIEW_COPY}\n{PROCESSES}\n"
+        "[checked by ak: tests/test_v5ab.py] ak ran every done-when "
         "command on exactly the commit under review; the complete output is below under "
         "`## Done-when output`, except the commands marked deferred, which run once "
-        "at landing on the commit to be merged. Run whatever is needed to prove or dismiss a finding, except "
+        "at landing on the commit to be merged.\n"
+        "[worker judgement] Run whatever is needed to prove or dismiss a finding, except "
         "done-when commands, the repository's `tests:` suite, and checks marked deferred; probes "
-        "must leave nothing behind outside a temporary directory. Judge "
-        "the diff against the task and its done-when criteria. "
+        "must leave nothing behind outside a temporary directory.\n"
+        "[worker judgement] Judge the diff against the task and its done-when criteria. "
         "A check the executor weakened, skipped or deleted is a FAIL unless the task asked for "
-        "exactly that. The full suite a repository declares as `tests:` in its AGENTS.md runs "
-        "once at landing; a task whose done-when leaves it out has weakened no check. "
-        "Their absence from your input is by design and is never a finding. "
-        f"{GATE} {ONE_PASS}"),
+        "exactly that.\n"
+        "[checked by ak: tests/test_suite_in_round.py] ak runs the full `tests:` suite once at landing.\n"
+        "[worker judgement] A task whose done-when leaves the suite out has weakened no check. "
+        "The deferred checks' absence from your input is by design and is never a finding.\n"
+        f"{GATE}\n{ONE_PASS}"),
     "fixer": (
-        "You are the executor, continuing. Address every finding below, re-run the per-round "
-        "done-when commands, "
-        f"commit any changes, and finish with `## Summary`. {EVERY_INSTANCE.format(work='the diff')} "
-        f"{LEAST} {NO_NOTIFY} {BLOCKED}"),
+        "You are the executor, continuing.\n"
+        f"{EVERY_INSTANCE.format(work='the diff')}\n{COMMITS}\n{CHECKS}\n{PROCESSES}\n{LEAST}\n"
+        "[worker judgement] Finish with `## Summary`: what changed, how you verified it, open issues.\n"
+        f"{NO_NOTIFY}\n{BLOCKED}"),
     # somebody else's PR: no executor ran, so the diff is judged against the repository itself
     "reviewer-pr": (
-        "You are the reviewer of a pull request by another author. Read-only: do not edit files "
-        "(running tests/commands is fine). Judge the diff against what the repository itself says "
+        f"You are the reviewer of a pull request by another author.\n{REVIEW_COPY}\n{PROCESSES}\n"
+        "[worker judgement] Run tests/commands as needed; probes must leave nothing behind "
+        "outside a temporary directory. Judge the diff against what the repository itself says "
         "-- its AGENTS.md, README, tests and conventions -- and against the intent the PR states. "
-        f"{GATE} {ONE_PASS}"),
+        f"\n{GATE}\n{ONE_PASS}"),
     # the same three roles for a run with no repository: nothing to commit, and the reviewer is
     # given the workspace rather than a diff
     "executor-scratch": (
-        "You are the executor. Work only inside {workspace}. It is a scratch workspace, not a git "
+        "You are the executor.\n"
+        "[worker judgement] Work only inside {workspace}. It is a scratch workspace, not a git "
         "repository: there is nothing to commit and nothing to push, and every deliverable is a "
-        f"file you leave there. {LEAST} Finish with a `## Summary` section: what you produced, "
-        f"how you verified it, open issues. {NO_NOTIFY} {BLOCKED}"),
+        f"file you leave there.\n{CHECKS}\n{PROCESSES}\n{LEAST}\n"
+        "[worker judgement] Finish with a `## Summary` section: what you produced, "
+        f"how you verified it, open issues.\n{NO_NOTIFY}\n{BLOCKED}"),
     "fixer-scratch": (
-        "You are the executor, continuing in {workspace}. Address every finding below, re-run the "
-        "per-round done-when commands, and finish with `## Summary`. "
-        f"{EVERY_INSTANCE.format(work='the workspace')} "
-        "Nothing is committed here: the files in the workspace are the deliverable. "
-        f"{LEAST} {NO_NOTIFY} {BLOCKED}"),
+        "You are the executor, continuing.\n"
+        "[worker judgement] Work only inside {workspace}; its files are the deliverable.\n"
+        f"{EVERY_INSTANCE.format(work='the workspace')}\n{CHECKS}\n{PROCESSES}\n{LEAST}\n"
+        "[worker judgement] Finish with `## Summary`: what changed, how you verified it, open issues.\n"
+        f"{NO_NOTIFY}\n{BLOCKED}"),
     "reviewer-scratch": (
-        "You are the reviewer. Read-only: do not edit files under review. The loop ran every done-when "
+        f"You are the reviewer.\n{PROCESSES}\n"
+        "[worker judgement] Read-only: do not edit files under review.\n"
+        "[checked by ak: tests/test_v5ab.py] ak ran every done-when "
         "command on exactly the workspace under review; the complete output is below under "
-        "`## Done-when output`. Run whatever is needed to prove or dismiss a finding, except "
+        "`## Done-when output`.\n"
+        "[worker judgement] Run whatever is needed to prove or dismiss a finding, except "
         "done-when commands; probes "
-        "must leave nothing behind outside a temporary directory. Judge "
-        "the contents of {workspace} against the task and its done-when criteria. "
-        f"{GATE} {ONE_PASS}"),
+        "must leave nothing behind outside a temporary directory.\n"
+        "[worker judgement] Judge the contents of {workspace} against the task and its done-when criteria.\n"
+        f"{GATE}\n{ONE_PASS}"),
 }
 
 
@@ -615,7 +639,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     if GATE in preamble:
         from . import run as loop
         if loop.users_declared(workspace) == "real":
-            preamble = preamble.replace(GATE, f"{GATE} {REAL_USERS}")
+            preamble = preamble.replace(GATE, f"{GATE}\n{REAL_USERS}")
     prompt = out_dir / "prompt.md"
     prompt.write_text(f"{preamble}\n\n{body}")
     cmd = [str(adapter), "run", entry["model"], entry["effort"], str(workspace), str(prompt), str(out_dir)]
