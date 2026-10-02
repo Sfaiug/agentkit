@@ -257,11 +257,12 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
     Returns the new executor, or None where none is eligible.  Both roles are re-picked
     as one pair (`best_pair`), so tier beats budget and the pair is always a legal one --
     a reviewer kept from before can be the very model now executing.  A refused provider
-    never gets the work back (that is how a handover becomes a circle); its review is a
-    different matter and takes the spares road if it refuses that too.  Records the move
+    never gets the work back (that is how a handover becomes a circle); its reviewers
+    are considered only when no pair forms without them.  Records the move
     in `executor_history` with the reason (`stalled`, `dry`); an attempt that finds nobody
     records nothing, since the same worker carries on. `dry` is every provider that
     already refused this piece of work.
+    Later re-picks follow the normal order; this preference applies only at handover.
     """
     current = state.get("executor")
     try:
@@ -279,7 +280,10 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
         order = [n for n in ready_order(cfg, providers, workers, log, reviewers=reviewers)
                  if n != current and config.model(cfg, n)["provider"] not in refused]
         review_order = ready_order(cfg, providers, reviewers, role="reviewer")
-        pair = best_pair(cfg, order, review_order)
+        pair = best_pair(cfg, order, [n for n in review_order
+                                     if config.model(cfg, n)["provider"] not in refused])
+        if pair is None:
+            pair = best_pair(cfg, order, review_order)
         if pair is not None:
             new, reviewer = pair
     except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
