@@ -10,7 +10,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import command_help, config, hand_in, record
+from . import box, command_help, config, hand_in, record
 
 # A worker session is not a seat: `ak notify` is suppressed there, and a finding names a class
 # the fixer has to finish, not a line to patch, so that a later round only confirms fixes.
@@ -613,6 +613,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     cmd = [str(adapter), "run", entry["model"], entry["effort"], str(workspace), str(prompt), str(out_dir)]
     if session:
         cmd.append(session)
+    cmd, turn_env = box.command(cmd, turn_env, out_dir, cwd=workspace)
     began = time.monotonic()
     # the same scan the turn is judged by afterwards, handed to the watchdog so a harness
     # that says it is logged out and then hangs -- or keeps emitting events, which resets
@@ -667,17 +668,21 @@ def turn(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
         result = call(cfg, model_name, body, workspace, out_dir, role, session, env=env,
                       limit=limit)
     finally:
-        left = marked_pids(marker, exact=True)
-        for pid in left:
+        left = box.leftovers(out_dir)
+        for pid, command in left:
+            log(f"{role} {model_name} left process {pid}: {command}; stopping it")
+        # Auth probes are helpers outside the turn's box; the marker still guards them.
+        probes = marked_pids(marker, exact=True)
+        for pid in probes:
             try:
                 command = (Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace")
                            .replace("\0", " ").strip())
             except OSError:
                 command = "command unavailable"
             log(f"{role} {model_name} left process {pid}: {command}; stopping it")
-        if left:
+        if probes:
             kill_marked(marker, log=log, exact=True)
-    return (*result, bool(left))
+    return (*result, bool(left or probes))
 
 
 def main(argv):

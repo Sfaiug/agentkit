@@ -30,7 +30,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import (command_help, config, gate, gc, hand_in, history, host, job as jobs,
+from . import (box, command_help, config, gate, gc, hand_in, history, host, job as jobs,
                land as landing, notify, orch, record as run_record, retention,
                task as taskfile, update, usage, watch, worker)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
@@ -1365,8 +1365,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     A turn killed for emitting no event for `limit` seconds is one of those retries: nothing
     judged it, so it is retried on the same session rather than scored, with the same waits.
 
-    Each turn's own process marker finds and ends its leftovers, without ending the suite or
-    the loop's helpers. A turn that left processes or reports background work is unfinished:
+    Each turn's box ends its leftovers, without ending the suite or the loop's helpers.
+    A turn that left processes or reports background work is unfinished:
     the same session is called once more, with no backoff, to run it in the
     foreground and report -- the same round, and not one of the transient waits.  That
     turn gets artifacts of its own (`<role>-retry-foreground`, beside the transient retries'
@@ -11398,6 +11398,7 @@ def cmd_merge(argv):
     """
     if len(argv) != 1 or Path(argv[0]).name != argv[0] or argv[0] in (".", ".."):
         raise config.Error("usage: ak run merge <runid>")
+    box.check()
     run_dir = config.RUNS / argv[0]
     # under the handoff lock: `watch.launch_resume` saves a detached retry's new scope
     # under it after the start, and a copy read before that would save the old one back
@@ -11535,6 +11536,7 @@ def cmd_resume(argv):
     if depth_refused():
         return 2
     try:
+        box.check()
         return resume_run(argv)
     except (config.Error, OSError) as exc:
         # A queued child that cannot replay its saved task/workspace must release its
@@ -12823,6 +12825,7 @@ def main(argv):
             raise config.Error(f"--parallel must be a positive integer (got {opts['--parallel']!r})")
         parallel = int(opts["--parallel"])
     opts.update(flags)
+    box.check()
     cfg = config.load()
     if not opts["--review-pr"]:
         selection = config.active_session(cfg)

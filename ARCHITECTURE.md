@@ -59,6 +59,8 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 - `worker.py`: headless turns, preambles, review, adapters, silence, auth, cleanup.
   API: `turn`, `call`, `kill_marked`, `auth_ok`.
   Used by run, gate, watch, usage, menu, harness. Leak: Claude shell timeout.
+- `box.py`: worker filesystem and PID namespaces, credential masks, launch probe and
+  leftover inventory. Offers `command`, `check`, `leftovers`; used by worker and run.
 - `hand_in.py`: checks and renders `ak hand-in` findings, disputes and closings with bounded
   evidence; worker names the channel; run replays proofs, weighs findings, drops disputes.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
