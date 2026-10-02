@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -662,16 +663,16 @@ esac
             def spend(*spent):
                 providers = {provider: {"meters": [{"name": "weekly", "used": 100 if provider in spent else 10,
                     "exhausted": provider in spent, "resets_at": 9999999999}]}
-                    for provider in ("anthropic", "openai")}
+                    for provider in dict.fromkeys(("anthropic", "openai", *spent)) if provider}
                 (root / "usage-real.json").write_text(json.dumps({"providers": providers}))
 
-            # check 4 runs on whichever worker has budget, so only every one spent skips it
-            spend("anthropic", "openai")
+            # check 4 runs on whichever configured model has budget, so only every one spent skips it
+            spend(*tomllib.loads((REPO / "config.default.toml").read_text())["providers"])
             result = subprocess.run(["bash", "-c", helpers + "\n" + run_block + '\nfinish'], env=env,
                                     text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             for label in ("4", "4b", "4c", "4d"):
-                self.assertIn(f"SKIP  {label}: every configured worker has a spent window", result.stdout)
+                self.assertIn(f"SKIP  {label}: every configured model has a spent window", result.stdout)
             self.assertIn("0 passed, 0 failed, 4 skipped", result.stdout)
             self.assertFalse((root / "calls").exists())
             self.assertFalse((root / "task.md").exists())

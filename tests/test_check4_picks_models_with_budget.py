@@ -1,7 +1,7 @@
-"""Check 4 runs on whichever workers have budget now, the pair ak's own pick gives.
+"""Check 4 runs on whichever configured models have budget now, the pair ak's own pick gives.
 
-tests/check4_pair.py is called in-process on fake usage files, with every harness taken as
-ready: no suite runs, no harness is asked and no model is called.
+tests/check4_pair.py is called in-process on fake usage files, each harness ready unless a test
+says it is missing: no suite runs, no harness is asked and no model is called.
 """
 
 from contextlib import redirect_stdout
@@ -43,9 +43,11 @@ class Check4PicksModelsWithBudget(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix="check4-pair-")
         self.addCleanup(tmp.cleanup)
         self.suite, self.host = Path(tmp.name) / "suite.json", Path(tmp.name) / "host.json"
-        for target, name, value in ((config, "load", lambda: copy.deepcopy(CFG)),
+        self.cfg, self.missing = copy.deepcopy(CFG), {}
+        for target, name, value in ((config, "load", lambda: copy.deepcopy(self.cfg)),
                                     (config, "active_session", lambda cfg: None),
-                                    (usage, "harness_unready", lambda *a, **_kw: None)):
+                                    (usage, "harness_unready",
+                                     lambda harness, **_kw: self.missing.get(harness))):
             patcher = patch.object(target, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -54,10 +56,10 @@ class Check4PicksModelsWithBudget(unittest.TestCase):
         """What the helper prints for this suite snapshot and host cache."""
         self.suite.write_text(json.dumps({"providers": suite}))
         self.host.write_text(json.dumps({"providers": host or {}}))
-        out = io.StringIO()
-        with redirect_stdout(out):
+        self.out = io.StringIO()
+        with redirect_stdout(self.out):
             check4_pair.main(str(self.suite), str(self.host))
-        return out.getvalue()
+        return self.out.getvalue()
 
     def test_one_open_model_executes_and_reviews(self):
         self.assertEqual(self.pair({"anthropic": reading(10), "openai": reading(100)}),
@@ -71,6 +73,22 @@ class Check4PicksModelsWithBudget(unittest.TestCase):
                          "astra opus\n")
 
     def test_everything_spent_prints_nothing(self):
+        self.assertEqual(self.pair({"anthropic": reading(100), "openai": reading(100)}), "")
+
+    def test_a_model_outside_the_default_workers_runs_it(self):
+        self.cfg["models"]["spark"] = {"harness": "spark-cli", "model": "spark-1",
+                                       "effort": "high", "provider": "meta"}
+        self.cfg["providers"]["meta"] = {}
+        self.assertEqual(self.pair({"anthropic": reading(100), "openai": reading(100),
+                                    "meta": reading(10)}), "spark spark\n")
+
+    def test_open_models_this_host_cannot_run_say_why(self):
+        self.missing["test"] = "test is not installed"
+        with self.assertRaises(SystemExit) as exited:
+            self.pair({"anthropic": reading(10), "openai": reading(100)})
+        self.assertEqual(exited.exception.code, 3)
+        self.assertEqual(self.out.getvalue(), "test is not installed\n")
+        # spent first: a host that lacks only spent models has nothing it could run anyway
         self.assertEqual(self.pair({"anthropic": reading(100), "openai": reading(100)}), "")
 
     def test_a_provider_the_suite_read_knows_nothing_of_reads_as_the_host_cache(self):
