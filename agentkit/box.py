@@ -10,6 +10,8 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
+import time
 from contextlib import contextmanager
 from string import Template
 
@@ -82,15 +84,52 @@ def command(argv, env, out_dir=None, *, cwd=None):
     # every descendant, even one with a new session or an empty environment.
     argv = [sys.executable, str(Path(__file__).resolve()), str(report), *argv]
     read, write = os.pipe()
+    target = None
+    lock = threading.Lock()
+
+    def namespace():
+        nonlocal write, target
+        with lock:
+            if write is not None:
+                os.close(write)
+                write = None
+                with os.fdopen(read) as info:
+                    target = _pidfd(info.read())
+        return target
+
+    def stop(proc, grace):
+        target = namespace()
+        deadline = time.monotonic() + grace
+        if target is not None:
+            fd, pid = target
+            # The info pipe precedes exec. PID 1 ignores TERM until the supervisor
+            # installs its handler, so an early interruption must wait for it.
+            while proc.poll() is None and time.monotonic() < deadline:
+                try:
+                    status = Path(f"/proc/{pid}/status").read_text()
+                    caught = next(line.split()[1] for line in status.splitlines()
+                                  if line.startswith("SigCgt:"))
+                    if int(caught, 16) & (1 << (signal.SIGTERM - 1)):
+                        signal.pidfd_send_signal(fd, signal.SIGTERM)
+                        break
+                except (FileNotFoundError, ProcessLookupError):
+                    break
+                time.sleep(.01)
+        try:
+            proc.wait(timeout=max(0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
     try:
-        yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {"pass_fds": (write,)}
+        yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
+            "pass_fds": (write,), "stop": stop}
     finally:
-        os.close(write)
-        with os.fdopen(read) as info:
-            _wait(info.read())
+        target = namespace()
+        if target is not None:
+            _wait(target[0])
 
 
-def _wait(info):
+def _pidfd(info):
     # A killed bwrap can exit before its PID 1 finishes killing descendants.
     # Its private info pipe names that process; a pidfd waits for the kernel's
     # teardown, not an environment sweep or a delay guessed to be long enough.
@@ -106,15 +145,25 @@ def _wait(info):
         except FileNotFoundError:
             # The namespace link disappears before PID 1 finishes teardown.
             same = True
-        if same:
-            # Also cover bwrap dying before it armed its parent-death signal.
-            try:
-                signal.pidfd_send_signal(fd, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            poll = select.poll()
-            poll.register(fd, select.POLLIN)
-            poll.poll()
+    except BaseException:
+        os.close(fd)
+        raise
+    if not same:
+        os.close(fd)
+        return None
+    return fd, pid
+
+
+def _wait(fd):
+    try:
+        # Also cover bwrap dying before it armed its parent-death signal.
+        try:
+            signal.pidfd_send_signal(fd, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        poll = select.poll()
+        poll.register(fd, select.POLLIN)
+        poll.poll()
     finally:
         os.close(fd)
 
@@ -149,16 +198,35 @@ def check():
                        "the host must allow nested unprivileged user and PID namespaces")
 
 
-def leftovers(out_dir):
-    """Processes recorded inside this turn's PID namespace, before it was destroyed."""
+def _report(out_dir):
     try:
         return json.loads((Path(out_dir) / PROCESSES).read_text())
     except (OSError, ValueError):
-        return []
+        return {}
+
+
+def returncode(out_dir, fallback):
+    """Keep signal deaths distinct from explicit exits like 137 and 143."""
+    return _report(out_dir).get("returncode", fallback)
+
+
+def leftovers(out_dir):
+    """Processes recorded inside this turn's PID namespace, before it was destroyed."""
+    return _report(out_dir).get("processes", [])
 
 
 def _supervise(report, argv):
-    proc = subprocess.Popen(argv)
+    proc = subprocess.Popen(argv, start_new_session=True)
+
+    def term(signum, _frame):
+        # Outer bwrap cannot forward TERM; leave it alive while the harness saves
+        # its session. The kernel still ends detached descendants with PID 1.
+        try:
+            os.killpg(proc.pid, signum)
+        except ProcessLookupError:
+            pass
+
+    signal.signal(signal.SIGTERM, term)
     # PID 1 also inherits orphans. Reap them while waiting for the adapter, so a
     # long turn cannot accumulate zombies from double-forked commands.
     while True:
@@ -180,7 +248,7 @@ def _supervise(report, argv):
         except OSError:
             command = "command unavailable"
         left.append([int(entry.name), command])
-    Path(report).write_text(json.dumps(left))
+    Path(report).write_text(json.dumps({"returncode": code, "processes": left}))
     return 128 - code if code < 0 else code
 
 
