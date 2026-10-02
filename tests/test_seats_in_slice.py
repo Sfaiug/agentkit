@@ -1,9 +1,9 @@
 """A seat's harness starts inside a scope of its own in the seats slice, whatever server it is on.
 
 Offline: a fake tmux that records what it is asked and answers the way tmux 3.5a does, a user
-manager that is a yes or a no, and a fake `systemd-run` on PATH of a version the test names: it
-records its argv and execs what follows its `--`, the way a scope hands over to the work.  No
-real tmux, unit or seat.
+manager that is a yes or a no, and fake `systemd-run`s of the versions the test names, one on
+ak's PATH and another first on the pane's: each records its argv and execs what follows its
+`--`, the way a scope hands over to the work.  No real tmux, unit or seat.
 """
 
 import json
@@ -23,7 +23,7 @@ from agentkit import config, orch
 # and one older than 254 knows no such switch and refuses the scope over it.
 SYSTEMD_RUN = '''#!{python}
 import json, os, re, sys
-said = os.environ["AK_SEATS_SYSTEMD"]
+said = "{said}"
 if sys.argv[1:] == ["--version"]:
     print(said)
     sys.exit(0)
@@ -53,18 +53,24 @@ class SeatsInSlice(Sandbox):
         self.server_up = True
         self.calls = []
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
-        self.bin = self.root / "bin"
-        self.bin.mkdir()
-        (self.bin / "systemd-run").write_text(SYSTEMD_RUN.format(python=sys.executable))
-        (self.bin / "systemd-run").chmod(0o755)
+        # ak's own `systemd-run`, and the other version a server's older PATH finds first
+        self.bin, self.stray = self.root / "bin", self.root / "stray"
+        self.systemd_run(258, 252)
         self.log = self.root / "systemd-run.jsonl"
         self.stack.enter_context(patch.dict(os.environ, {
             "PATH": f"{self.bin}:{os.environ['PATH']}", "AK_SEATS_LOG": str(self.log),
-            "XDG_RUNTIME_DIR": "/run/user/4242", "AK_SEATS_SYSTEMD": "systemd 258 (258.1-1)"}))
+            "XDG_RUNTIME_DIR": "/run/user/4242"}))
         # what `systemd-run` says of itself is asked once per process; each test names its own
         orch._LITERAL.clear()
         self.addCleanup(orch._LITERAL.clear)
         config.save_session(self.cfg, "acme", "opus", ["opus"])
+
+    def systemd_run(self, version, stray):
+        for where, said in ((self.bin, version), (self.stray, stray)):
+            where.mkdir(exist_ok=True)
+            (where / "systemd-run").write_text(SYSTEMD_RUN.format(
+                python=sys.executable, said=f"systemd {said} (fake)"))
+            (where / "systemd-run").chmod(0o755)
 
     def tmux(self, *args, socket=None, client=False, unit=None):
         self.calls.append((args, unit))
@@ -84,8 +90,8 @@ class SeatsInSlice(Sandbox):
         """The unit a pane command puts its harness in, after checking the line around it."""
         words = shlex.split(line)
         self.assertEqual(words[:2], ["env", "XDG_RUNTIME_DIR=/run/user/4242"])
-        self.assertEqual(words[2:6], ["systemd-run", "--user", "--slice=agentkit-seats.slice",
-                                      "--scope"])
+        self.assertEqual(words[2:6], [str(self.bin / "systemd-run"), "--user",
+                                      "--slice=agentkit-seats.slice", "--scope"])
         self.assertIn("--quiet", words[6:words.index("--")])
         self.assertEqual(words[words.index("--") + 1:], HARNESS)
         unit = next(word for word in words if word.startswith("--unit="))
@@ -93,7 +99,9 @@ class SeatsInSlice(Sandbox):
 
     def ran(self, line):
         """What the harness was handed when the pane's shell ran that line through the scope."""
-        out = subprocess.run(["sh", "-c", line], capture_output=True, text=True, timeout=60)
+        pane = {**os.environ, "PATH": f"{self.stray}:{os.environ['PATH']}"}
+        out = subprocess.run(["sh", "-c", line], capture_output=True, text=True, timeout=60,
+                             env=pane)
         self.assertEqual(out.returncode, 0, out.stderr)
         return json.loads(out.stdout)
 
@@ -137,7 +145,7 @@ class SeatsInSlice(Sandbox):
         self.assertEqual(lines, [shlex.join(HARNESS)] * 2)
 
     def test_e_a_systemd_run_too_old_for_the_switch_is_not_handed_it(self):
-        os.environ["AK_SEATS_SYSTEMD"] = "systemd 252 (252.39-1~deb12u1)"
+        self.systemd_run(252, 258)
         orch.start("acme", self.root, HARNESS, "opus")
         (line, _), = self.launched("new-session")
         self.scope(line)

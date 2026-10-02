@@ -128,7 +128,7 @@ _MANAGER = {}              # whether this host has a user systemd manager, asked
 _OOM_POLICY = {}           # whether its scopes take OOMPolicy=continue, asked once too,
 _OOM_POLICY_LOCK = threading.Lock()   # ... however many of a job's threads launch at once
 _SLICE = {}                # ... and what its slice says about itself, for the same reason
-_LITERAL = {}              # ... and how a seat's scope is told to run its command as written
+_LITERAL = {}              # ... and the `systemd-run` a seat's scope runs, and with what
 _PROCESSES = {}            # the last reading of the process table, when, and whether it is held
 
 
@@ -382,24 +382,26 @@ def scope_oom_policy():
         return _OOM_POLICY["answer"]
 
 
-def scope_literal():
-    """`--expand-environment=no` where this `systemd-run` knows it, else nothing.
+def seat_scope_run():
+    """The `systemd-run` a seat's pane runs, by its full path, and the switch it is handed.
 
     From systemd 258 a scope expands `${NAME}` and `$$` in the command it runs, the way a
     service does, and a harness's arguments are its own to the letter -- a path, a receipt, a
-    JSON value.  The switch came in 254 and is harmless before 258; an older `systemd-run`
-    refuses it, and the scope with it.  The version is `systemd-run`'s own, since it is what
-    expands.  Asked once per process.
+    JSON value.  `--expand-environment=no` came in 254 and is harmless before 258; an older
+    `systemd-run` refuses it, and the scope with it.  So the binary asked its version is the
+    one the pane runs: a tmux server keeps the PATH it was started with, and a bare name
+    there may find another.  Asked once per process.
     """
     if "argv" not in _LITERAL:
+        found_at = shutil.which("systemd-run") or "systemd-run"
         try:
-            said = subprocess.run(["systemd-run", "--version"], capture_output=True, text=True,
+            said = subprocess.run([found_at, "--version"], capture_output=True, text=True,
                                   stdin=subprocess.DEVNULL, timeout=SLICE_WAIT).stdout
         except (OSError, subprocess.SubprocessError):
             said = ""
         found = re.match(r"\s*systemd (\d+)", said)
-        _LITERAL["argv"] = (["--expand-environment=no"]
-                            if found and int(found.group(1)) >= 254 else [])
+        _LITERAL["argv"] = [found_at, *(["--expand-environment=no"]
+                                        if found and int(found.group(1)) >= 254 else [])]
     return _LITERAL["argv"]
 
 
@@ -1667,9 +1669,10 @@ def seat_command(name, cmd, socket=None):
     if not user_manager():
         return shlex.join(cmd)
     unit = f"agentkit-seat-{name}-{uuid.uuid4().hex[:8]}"
+    run, *literal = seat_scope_run()
     return shlex.join(["env", f"XDG_RUNTIME_DIR={bus_env()['XDG_RUNTIME_DIR']}",
-                       "systemd-run", "--user", f"--slice={seat_slice_name(socket)}", "--scope",
-                       "--quiet", f"--unit={unit}", *scope_literal(), "--", *cmd])
+                       run, "--user", f"--slice={seat_slice_name(socket)}", "--scope",
+                       "--quiet", f"--unit={unit}", *literal, "--", *cmd])
 
 
 def start(name, cwd, cmd, orchestrator):
