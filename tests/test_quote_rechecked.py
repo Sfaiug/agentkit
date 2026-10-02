@@ -1,5 +1,7 @@
 """Quoted findings must hold in the reviewed work, outside the reviewer's editable copy."""
 
+import json
+from pathlib import Path
 import unittest
 
 import test_proof_weighed as proof
@@ -21,8 +23,10 @@ class QuoteRechecked(unittest.TestCase):
         return row
 
     def weigh(self, *rows, head=None):
-        return run.weigh_review(self.lp, hand_in.Review([*rows, {"kind": "done"}]),
-                                head or self.head)
+        file = hand_in.start(self.directory, self.wt)
+        with Path(file).open("a") as output:
+            output.write("".join(json.dumps(row) + "\n" for row in [*rows, {"kind": "done"}]))
+        return run.weigh_review(self.lp, hand_in.read(file), head or self.head)
 
     def test_a_line_added_by_the_reviewer_is_a_note_and_starts_no_fix_round(self):
         quote = "reviewer_only = True"
@@ -63,6 +67,18 @@ class QuoteRechecked(unittest.TestCase):
         self.assertEqual([row["kind"] for row in weighed.records], ["finding", "note", "done"])
         self.assertEqual(run.git(self.wt, "rev-parse", "HEAD"), later)
         self.assertEqual((self.wt / "api.py").read_text(), 'mode = "later"\n')
+
+    def test_internal_links_and_multiline_quotes_use_the_same_rules_as_hand_in(self):
+        (self.wt / "alias.py").symlink_to("api.py")
+        self.commit("Add a file alias")
+        self.head = run.git(self.wt, "rev-parse", "HEAD")
+        for quote in ('mode = "branch"\nold_bug = True\n', "old_bug = True\nstable = True"):
+            with self.subTest(quote=quote):
+                checked = hand_in.checked(proof.finding("alias.py:1", "quoted defect", quote=quote),
+                                          self.wt)
+                weighed = self.weigh(self.quote(path="alias.py", quote=quote))
+                self.assertEqual(weighed.verdict, "FAIL")
+                self.assertEqual(weighed.records[0], checked)
 
     def test_scratch_quotes_are_checked_in_the_workspace_and_followups_are_untouched(self):
         self.lp.scratch = True
