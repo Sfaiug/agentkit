@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, config, run, worker
+from agentkit import gate as suite_gate, config, run, worker
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"        # main checkouts as the records name them; never opened
@@ -39,7 +39,7 @@ class Gate(threading.Thread):
 
     def run(self):
         try:
-            self.result = gate.run_done_when(*self.args, **self.kw)
+            self.result = suite_gate.run_done_when(*self.args, **self.kw)
         except BaseException as exc:      # noqa: BLE001 -- the test reads it
             self.error = exc
 
@@ -62,7 +62,7 @@ class GateTurns(unittest.TestCase):
                                                           "AGENTKIT_RUN": "", "AK_RUN_DEPTH": "0"}))
         os.environ.pop("AK_MAX_RUNS", None)
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
-        self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
+        self.stack.enter_context(patch.object(suite_gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))
         config.RUNS.mkdir(parents=True)
         config.HOME.mkdir()
@@ -123,7 +123,7 @@ class GateTurns(unittest.TestCase):
         self.until(lambda: gate_log.is_file() and gate_log.read_text() == WAITING + "\n",
                    "the gate log's waiting line")
         state = run_record.read_state(second.run_dir)
-        self.assertEqual(gate.gate_turn_note(state), "waiting for a heavy suite turn")
+        self.assertEqual(suite_gate.gate_turn_note(state), "waiting for a heavy suite turn")
         self.assertIn("  waiting for a heavy suite turn",
                       run.status_details(second.run_dir, state))
         first.join(20)
@@ -134,7 +134,7 @@ class GateTurns(unittest.TestCase):
         self.assertRegex(second.logs[1], r"^done-when: took a heavy suite turn after \d+s$")
         self.assertTrue(second.result[0], second.result[1])
         self.assertNotIn("waiting", second.result[1])
-        self.assertEqual(gate.gate_turn_note(run_record.read_state(second.run_dir)), "")
+        self.assertEqual(suite_gate.gate_turn_note(run_record.read_state(second.run_dir)), "")
 
     def test_gates_of_different_repositories_share_heavy_turns_host_wide(self):
         first = Gate(self, "one", ACME, [self.mark("start", 1), self.mark("end")])
@@ -166,17 +166,17 @@ class GateTurns(unittest.TestCase):
         self.assertIn("[exit 0]\n0\n1\n", second.result[1])
 
     def test_a_stop_while_waiting_runs_no_command(self):
-        with gate.gate_lock(ACME, 0).open("a") as holder:
+        with suite_gate.gate_lock(ACME, 0).open("a") as holder:
             fcntl.flock(holder, fcntl.LOCK_EX)
             waiter = Gate(self, "two", ACME, [self.mark("ran")])
             waiter.start()
-            self.until(lambda: gate.gate_turn_note(run_record.read_state(waiter.run_dir) or {}),
+            self.until(lambda: suite_gate.gate_turn_note(run_record.read_state(waiter.run_dir) or {}),
                        "the record's waiting mark")
             run_record.save_state(waiter.run_dir, {**run_record.read_state(waiter.run_dir), "state": "stopped"})
             waiter.join(20)
         self.assertIsInstance(waiter.error, run_record.StopRequested)
         self.assertEqual(self.marks.read_text(), "")
-        self.assertEqual(gate.gate_turn_note(run_record.read_state(waiter.run_dir)), "")
+        self.assertEqual(suite_gate.gate_turn_note(run_record.read_state(waiter.run_dir)), "")
 
     def test_a_killed_command_lets_the_turn_go_and_max_gates_zero_never_waits(self):
         killed = Gate(self, "one", ACME, ["sleep 30"], silence=0.3)
@@ -189,7 +189,7 @@ class GateTurns(unittest.TestCase):
         after.join(20)
         self.assertFalse(after.waited(), after.logs)
         self.gates(0)
-        with gate.gate_lock(ACME, 0).open("a") as holder:
+        with suite_gate.gate_lock(ACME, 0).open("a") as holder:
             fcntl.flock(holder, fcntl.LOCK_EX)
             uncapped = Gate(self, "three", ACME, [self.mark("uncapped")])
             uncapped.start()
@@ -198,7 +198,7 @@ class GateTurns(unittest.TestCase):
         self.assertEqual(self.marks.read_text(), "after\nuncapped\n")
 
     def test_no_repository_and_the_suites_escape_hatch_take_no_turn(self):
-        with gate.gate_lock(ACME, 0).open("a") as holder:
+        with suite_gate.gate_lock(ACME, 0).open("a") as holder:
             fcntl.flock(holder, fcntl.LOCK_EX)
             scratch = Gate(self, "one", None, [self.mark("scratch")])
             scratch.start()
@@ -219,7 +219,7 @@ class GateTurns(unittest.TestCase):
         gate_log = second.run_dir / "donewhen.log"
         self.until(lambda: gate_log.is_file() and gate_log.read_text() == WAITING + "\n",
                    "the linked worktree's gate to wait")
-        self.assertEqual(gate.gate_turn_note(run_record.read_state(second.run_dir)),
+        self.assertEqual(suite_gate.gate_turn_note(run_record.read_state(second.run_dir)),
                          "waiting for a heavy suite turn")
         self.assertEqual(self.marks.read_text(), "start\n")
         self.release()
@@ -236,7 +236,7 @@ class GateTurns(unittest.TestCase):
         readings = {"cpus": 8, "load": 8, "free_mb": 100, "mem_total_mb": 16384,
                     "unit_memory_current_mb": 900, "unit_memory_high_mb": 1000}
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(readings)}):
-            with gate.gate_lock(ACME, 0).open("a") as holder:
+            with suite_gate.gate_lock(ACME, 0).open("a") as holder:
                 fcntl.flock(holder, fcntl.LOCK_EX)
                 gate = Gate(self, "one", ACME, [self.mark("ran")])
                 gate.start()

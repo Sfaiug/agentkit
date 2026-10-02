@@ -22,7 +22,7 @@ from urllib.parse import unquote_to_bytes
 
 from test_v4n import REPO, Sandbox
 from fixtures.hand_in import records, scripted
-from agentkit import host, browser, config, gc, job as jobs, menu, notify, orch, run, terminal, watch
+from agentkit import gate, host, browser, config, gc, job as jobs, menu, notify, orch, run, terminal, watch
 from agentkit import record
 
 SEAT = "seat"
