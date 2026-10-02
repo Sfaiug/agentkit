@@ -2610,7 +2610,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     provider or a subscription was just added on glows (motion.glowing); on `Discord` its two
     secrets are typed on the same keys (config_discord).  `Version` is read, and does nothing.
     On a screen too short for every row the part the highlight is on is shown, and what the
-    last key could not do -- the last worker, a switch, a save or a catalog that failed -- has
+    last key could not do -- the last reviewer, a switch, a save or a catalog that failed -- has
     lines of its own under it, whatever the height, until the next key; `note` is said so
     before the first.  With the pointer on a model, a mark, an effort or a provider's name the
     key line says what it is (config_tips); the worker token's date is said of its provider's,

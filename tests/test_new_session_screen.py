@@ -313,10 +313,11 @@ class NewSessionScreen(unittest.TestCase):
         self.assertEqual([row for row in lines if "●" in row or "■" in row], [])
         # a week at 100% whose reset nobody knows is spent all the same, only with no time
         self.assertEqual(len([row for row in lines if "astra" in row and "spent" in row]), 1)
-        screen.send(ENTER + SPACE + ENTER)     # Fable orchestrates; executor column wants a choice
-        screen.send(SPACE + ENTER)             # Fable executes; reviewer column wants a choice
+        screen.send(ENTER + SPACE + ENTER)     # Fable orchestrates; reviewer column wants a choice
         screen.send(DOWN * 2 + SPACE + ENTER)  # Astra reviews
-        screen.saw("<created new fable fable astra>")
+        screen.saw("<created new fable  astra>")
+        self.assertEqual(json.loads((screen.home / ".agentkit/state/session-new.json")
+                                    .read_text())["workers"], [])
         screen.leave()
         self.assertEqual(screen.text().count("<created"), 1)
 
