@@ -2,11 +2,13 @@
 
 Not three minutes later at the next tick: every step a run enters (a new round enters its
 executor step again) and every ending rewrites the bar of the seat that launched it, through
-`watch.announce_state`, without looking at the seat's screen.  A run without a seat, a legacy
-seat and a seat tmux has lost get nothing written, and a writer that fails never reaches the
-run.  Offline: fake seats and run records in a temporary HOME, `orch.tmux_out` patched.
+`watch.announce_state`, without looking at the seat's screen, on a thread of its own: a writer
+that is busy or fails never reaches the run.  A run without a seat, a legacy seat and a seat tmux
+has lost get nothing written.  Offline: fake seats and run records in a temporary HOME,
+`orch.tmux_out` patched.
 """
 
+import threading
 import types
 import unittest
 from unittest.mock import patch
@@ -44,6 +46,7 @@ class BarFollowsRuns(Sandbox):
         self.loop = types.SimpleNamespace(
             state=self.state, log=lambda *_a, **_kw: None,
             save=lambda: record.save_state(self.run_dir, self.state))
+        self.before = set(threading.enumerate())
 
     def tmux(self, *args, **_kw):
         self.calls.append(args)
@@ -54,8 +57,14 @@ class BarFollowsRuns(Sandbox):
         return [args[-1] for args in self.calls
                 if args[:4] == ("set-option", "-t", name, "status-left")]
 
+    def settle(self):
+        """Wait for the redraws the run left on threads of their own."""
+        for thread in set(threading.enumerate()) - self.before:
+            thread.join(5)
+
     def step(self, name):
         run.Loop.step(self.loop, name)
+        self.settle()
 
     def test_every_step_rewrites_the_launching_seats_bar_without_a_look(self):
         for count, name in enumerate(("executor", "done-when", "reviewer", "executor", "merge"), 1):
@@ -74,6 +83,7 @@ class BarFollowsRuns(Sandbox):
 
     def test_an_ending_rewrites_the_bar(self):
         run.mark_state(self.run_dir, "error", error="the api is down")
+        self.settle()
         self.assertEqual(self.redress.call_count, 1)
         self.assertEqual(self.redress.call_args.args[0]["name"], "acme")
         self.assertEqual(len(self.bars()), 1)
@@ -93,12 +103,25 @@ class BarFollowsRuns(Sandbox):
                 self.assertFalse([args for args in self.calls if args[0] == "set-option"])
                 self.assertEqual(record.read_state(self.run_dir)["step"], "reviewer")
 
+    def test_a_busy_writer_never_holds_up_the_run(self):
+        stepped = threading.Event()
+        with watch.announcing("acme"):     # a menu, the tick or the seat's hook publishing it
+            threading.Thread(target=lambda: (run.Loop.step(self.loop, "reviewer"), stepped.set()),
+                             daemon=True).start()
+            self.assertTrue(stepped.wait(5), "the step waited on the bar's writer")
+            self.assertEqual(record.read_state(self.run_dir)["step"], "reviewer")
+            self.assertEqual(self.bars(), [])
+        self.settle()
+        self.assertEqual(len(self.bars()), 1)
+
     def test_a_failing_writer_never_reaches_the_run(self):
         for fault in (patch.object(watch, "announce_state", side_effect=RuntimeError("boom")),
                       patch.object(orch, "sessions", side_effect=OSError("no tmux"))):
-            with self.subTest(str(fault.attribute)), fault:
+            with self.subTest(str(fault.attribute)), fault, \
+                    patch.object(threading, "excepthook") as raised:
                 self.step("done-when")
                 self.assertEqual(record.read_state(self.run_dir)["step"], "done-when")
+                raised.assert_not_called()
 
 
 if __name__ == "__main__":

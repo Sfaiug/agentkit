@@ -7018,14 +7018,23 @@ def redress_seat(session):
     A run's step, round and ending are what the bar names, so each one is published the moment
     it happens, through the one writer the tick uses and from the facts already on record: no
     look at the seat's screen.  A run with no seat, a legacy seat and one tmux has lost get
-    nothing written, and nothing here ever raises into the run.
+    nothing written, and nothing here ever raises into the run.  The writer waits on the seat's
+    lock and on tmux, so it runs on a daemon thread of its own: the run never waits on it, not
+    even to exit.
     """
-    try:
-        seat = orch.find(session) if session else None
-        if seat is not None and orch.on_own_server(seat):
-            watch.announce_state(seat)
-    except Exception:  # noqa: BLE001 - the bar is dressing; the run beneath it is what matters
-        pass
+    def publish():
+        try:
+            seat = orch.find(session)
+            if seat is not None and orch.on_own_server(seat):
+                watch.announce_state(seat)
+        except Exception:  # noqa: BLE001 - the bar is dressing; the run beneath it is what matters
+            pass
+
+    if session:
+        try:
+            threading.Thread(target=publish, daemon=True).start()
+        except RuntimeError:    # no thread to be had: the next tick or draw writes the bar
+            pass
 
 
 def seat_tallies(records, now=None):
