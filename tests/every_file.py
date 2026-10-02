@@ -7,16 +7,21 @@ waits for none.  Each file runs once, in a process of its own from the checkout'
 no stdin, and without the caller's AGENTKIT_*/AK_* variables: a file started from inside a run
 must not pass for part of it (AGENTKIT_RUN, AK_RUN_DEPTH, AK_PARENT_RUN ...).  As many run at
 once as the host's idle cores and free memory fit, read as the loop reads them for heavy suites.
-A failing file fails the whole and is named with its last lines.
+A failing file, or one reporting no executed cases, fails the whole and is named with its
+last lines. Unittest's tally reports the count; other scripts print TESTS_RUN=<count> after
+their checks. Python imports under agentkit/, tools/, bin/ and tests/ must be from the
+standard library or this repository, including files smoke.sh already ran.
 
     python3 tests/every_file.py [checkout]
 """
 
+import ast
 import os
 import re
 import subprocess
 import sys
 import time
+import tokenize
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -27,6 +32,46 @@ from agentkit import gate, host, orch
 FILE_CPUS = 1.0     # one test file's cost: one Python process, one core busy at most,
 FILE_MEM_MB = 230   # and the largest file's measured peak with what it starts, 229 MB
 TAIL = 30           # a failing file's last lines: unittest ends on the traceback and tally
+
+
+def import_errors(root):
+    local = set()
+    for path in root.rglob("*.py"):
+        local.add(path.stem)
+        local.update(path.relative_to(root).parts[:-1])
+    allowed = sys.stdlib_module_names | local
+    errors = []
+    for folder in ("agentkit", "tools", "bin", "tests"):
+        for path in sorted((root / folder).rglob("*")):
+            if not path.is_file():
+                continue
+            if path.suffix != ".py":
+                first = path.read_bytes().split(b"\n", 1)[0]
+                if not first.startswith(b"#!") or b"python" not in first:
+                    continue
+            try:
+                with tokenize.open(path) as fh:
+                    tree = ast.parse(fh.read(), filename=str(path))
+            except (SyntaxError, UnicodeError) as exc:
+                errors.append(f"{path.relative_to(root)}: invalid Python: {exc}")
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom) and not node.level:
+                    names = [node.module]
+                else:
+                    continue
+                for name in names:
+                    if name.split(".")[0] not in allowed:
+                        errors.append(f"{path.relative_to(root)}:{node.lineno}: import {name} "
+                                      "is outside the standard library and repository")
+    return errors
+
+
+def cases_run(output):
+    return sum(int(tally or explicit) for tally, explicit in re.findall(
+        r"^Ran (\d+) tests? in [^\n]+$|^TESTS_RUN=(\d+)$", output, re.MULTILINE))
 
 
 def smoke_runs(smoke, offline):
@@ -59,6 +104,11 @@ def run_file(root, path, env):
 
 
 def main(root):
+    errors = import_errors(root)
+    if errors:
+        for error in errors:
+            print(f"FAIL  {error}", flush=True)
+        return 1
     tests = root / "tests"
     # smoke.sh ran in the mode this caller's environment gave it
     skip = smoke_runs((tests / "smoke.sh").read_text(),
@@ -81,11 +131,12 @@ def main(root):
         for done in as_completed(running):
             name = running[done].relative_to(root)
             code, out, took = done.result()
-            if code == 0:
+            if code == 0 and cases_run(out) > 0:
                 print(f"PASS  {name} ({took:.0f}s)", flush=True)
                 continue
             failed += 1
-            print(f"FAIL  {name}: exit {code} after {took:.0f}s, its last lines:")
+            reason = f"exit {code}" if code else "no tests ran"
+            print(f"FAIL  {name}: {reason} after {took:.0f}s, its last lines:")
             print("\n".join(f"      {line}" for line in out.splitlines()[-TAIL:]), flush=True)
     print(f"test files: {len(todo) - failed} passed, {failed} failed, {jobs} at once, "
           f"{time.monotonic() - began:.0f}s")
