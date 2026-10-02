@@ -83,11 +83,14 @@ def running(by):
 
 
 def ended(by):
-    while running(by):
+    empty = 0       # one reading misses a child forked while it read, by a parent gone since
+    while True:
+        empty = 0 if running(by) else empty + 1
+        if empty == 2:
+            return True
         if time.time() >= by:
             return False
         time.sleep(max(0, min(1, by - time.time())))
-    return True
 
 
 try:
