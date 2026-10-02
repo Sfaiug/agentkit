@@ -4,8 +4,10 @@ A module under agentkit/ or a harness under adapters/ the map does not name is o
 meets with no summary of what it hides.  Offline: the files of this checkout.
 """
 
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 MAP = REPO / "ARCHITECTURE.md"
@@ -26,6 +28,23 @@ class Architecture(unittest.TestCase):
 
     def test_the_map_is_under_8_kb(self):
         self.assertLessEqual(len(MAP.read_bytes()), 8 * 1024)
+
+
+class ArchitectureChecks(unittest.TestCase):
+    def test_deleted_module_is_rejected(self):
+        with tempfile.TemporaryDirectory(prefix=".ak-test-architecture-", dir=REPO) as tmp:
+            repo = Path(tmp)
+            (repo / "agentkit").mkdir()
+            (repo / "agentkit" / "present.py").touch()
+            map_path = repo / "ARCHITECTURE.md"
+            map_path.write_text("## agentkit/\n\n- `present.py`: present.\n"
+                                "- `deleted.py`: stale entry.\n")
+            result = unittest.TestResult()
+            with patch.dict(globals(), REPO=repo, MAP=map_path):
+                unittest.defaultTestLoader.loadTestsFromTestCase(Architecture).run(result)
+            self.assertEqual(result.errors, [])
+            self.assertEqual(len(result.failures), 1, "a stale module entry passed")
+            self.assertIn("deleted.py", result.failures[0][1])
 
 
 if __name__ == "__main__":
