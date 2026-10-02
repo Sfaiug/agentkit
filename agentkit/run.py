@@ -12228,12 +12228,13 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
 
         The basename itself has to look like a test: a shared runner such as
         `bash tests/smoke.sh` names no test file, however many jobs run it.
+        A glob pattern names no single test file.
         """
         found = set()
         for command in commands:
             for token in command.split():
                 name = token.strip("\"'")
-                if not name:
+                if not name or any(char in name for char in "*?["):
                     continue
                 stem = name.rsplit("/", 1)[-1]
                 base = stem.rsplit(".", 1)[0] if "." in stem else stem
