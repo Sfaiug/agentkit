@@ -2828,6 +2828,8 @@ def files_scope(lp):
 def regression_fails_before(lp):
     """Require the run's regression to fail on base with only its changed checks overlaid.
 
+    A branch that changes only checks fixes a defect in a check itself; overlaying them
+    would make base the branch, so its regression runs on base as it is.
     Keep a successful probe across rounds and resumes; a passing script must be fixed
     before it can earn that record. The probe's edits belong to neither commit.
     """
@@ -2838,8 +2840,11 @@ def regression_fails_before(lp):
         return "regression.sh cannot be checked without a base commit"
     head = git(lp.wt, "rev-parse", "HEAD")
     base = lp.base_sha
+    changed = [p for p in git(lp.wt, "diff", "--name-only", "-z", "--no-renames",
+                              f"{base}...{head}").split("\0") if p]
+    only_tests = changed_test_paths(lp, head) == changed
     proof = proof_on(lp, f"bash {shlex.quote(str(script))}", lp.run_dir / "regression-base.log",
-                     base, tests_from=head)
+                     base, tests_from=None if only_tests else head)
     if proof["killed"] or proof["returncode"] < 0:
         return f"regression.sh did not finish on base {base}: it does not show the defect"
     if proof["returncode"] == 0:
