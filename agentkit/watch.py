@@ -5162,6 +5162,12 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
     health = st.get("health") or {}
     command = health.get("command")
     if not st.get("live_at") and not command and inside and st.get("repo"):
+        # GitHub creates the merge commit remotely; a missing object is no declaration yet.
+        if run.git_out(st["repo"], "cat-file", "-e", f"{sha}^{{commit}}")[0] != 0:
+            if dry_run:
+                log(f"would fetch run {run_dir.name}'s merge commit to read health: {sha}")
+                return "unknown", None, None
+            run.fetch(st["repo"], "--no-tags", "--no-write-fetch-head", "origin", sha, check=True)
         command = run.declared_at(st["repo"], sha, "health")
     if not st.get("live_at"):
         if not command:
