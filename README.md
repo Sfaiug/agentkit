@@ -2,7 +2,7 @@
 
 You talk. It ships.
 
-One command installs it. One word opens it. You tell one orchestrator what you want, and agentkit works until the change is merged or it truly needs you. Then it tells you, once.
+One command installs it. One word opens it. You tell one orchestrator what you want, and agentkit works until the change is merged or it truly needs you. Then it tells you, once. Each orchestrator's rulebook opens with `What ak is for` from the agentkit checkout's `AGENTS.md`, where present.
 
 A seat's own `ak run --review-pr` sends FAIL findings back to the seat and waits for its push, for up to three review rounds; PASS merges with green checks. It must fit the changed-line ceiling learned from merged runs; larger PRs must be split before review. `ak run status --history` shows that ceiling and compares the last two weeks of products and ak: runs ended, first-round merges, endings without a merge, median hours to merge and tokens per merged run, plus ak's share of tokens and its code lines and README words now and seven days ago. The scoreboard never picks a model or changes a limit.
 

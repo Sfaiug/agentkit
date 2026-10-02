@@ -5969,7 +5969,7 @@ doc = json.loads(content)
 assert doc["model"] == "mimo/mimo-v2.6-pro#high", doc["model"]   # the shipped `high`
 variant = doc["provider"]["mimo"]["models"]["mimo-v2.6-pro"]["variants"]["high"]
 assert variant == {"extraBody": {"thinking": {"type": "enabled"}}}, variant   # thinking on
-assert doc["agents"]["build"]["system"].startswith("# You are the orchestrator"), "rulebook"
+assert "# You are the orchestrator\n" in doc["agents"]["build"]["system"], "rulebook"
 assert doc["plugins"][0].endswith("hooks/opencode-seat"), doc["plugins"]
 PY
 # (b) a worker turn executes through the adapter: final, session and appended usage
