@@ -123,6 +123,36 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assertEqual((self.directory / "regression-base.log").read_text(), base_output)
         self.assert_restored(head)
 
+    def test_base_bytecode_does_not_leak_into_done_when_on_head(self):
+        module = self.wt / "same.py"
+        module.write_text('value = "base"\n')
+        (self.wt / ".gitignore").write_text("__pycache__/\n")
+        self.commit("Add same-size fixture")
+        self.base = run.git(self.wt, "rev-parse", "HEAD")
+        size = module.stat().st_size
+        module.write_text('value = "head"\n')
+        self.assertEqual(module.stat().st_size, size)
+        # Equal whole-second mtimes make the base's bytecode look valid on HEAD.
+        (self.wt / "tests/check.py").write_text(
+            'import os\nos.utime("same.py", (1700000000, 1700000000))\n'
+            'import same\nprint("saw", same.value)\nassert same.value == "head", same.value\n')
+        self.script.write_text("PYTHONPATH=. python3 tests/check.py\n")
+        self.commit("Change the fixture without changing its size")
+        head = run.git(self.wt, "rev-parse", "HEAD")
+        lp = self.loop()
+        with patch.dict(os.environ, {"PYTHONDONTWRITEBYTECODE": "", "PYTHONPYCACHEPREFIX": ""}):
+            self.assertEqual(run.regression_fails_before(lp), "")
+            self.assertTrue(run.read_state(self.directory)["regression_checked"])
+            base_output = (self.directory / "regression-base.log").read_text()
+            self.assertIn("saw base", base_output)
+            self.assertIn("[exit 1]", base_output)
+            self.assert_restored(head)
+            ok, text = run.verify_work(lp)
+            self.assertTrue(ok, text)
+            self.assertIn("saw head", text)
+        self.assertTrue(list((self.wt / "__pycache__").glob("same.*.pyc")))
+        self.assert_restored(head)
+
     def test_other_runs_and_failing_done_when_do_not_probe(self):
         lp = self.loop(["true"])
         self.assertTrue(run.verify_work(lp)[0])
@@ -135,11 +165,11 @@ class RegressionFailsBefore(unittest.TestCase):
 
     def test_interrupted_probe_restores_the_branch_without_recording_success(self):
         self.script.write_text("exit 0\n")
-        lp = self.loop()
+        lp = self.loop(["true"])
         limited = worker.limited
 
         def interrupt(cmd, *args, **kwargs):
-            if cmd == ["bash", str(self.script)]:
+            if cmd == ["bash", "-c", f"bash {shlex.quote(str(self.script))}"]:
                 (self.wt / "broken.py").write_text("probe\n")
                 (self.wt / "probe-output").write_text("probe\n")
                 raise run.Stopped("fixture stop")
