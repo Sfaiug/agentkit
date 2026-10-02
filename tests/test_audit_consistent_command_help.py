@@ -137,10 +137,6 @@ def probe():
                     subprocess.run(request["extra_command"], check=True)
                     return limited(*args, **kwargs)
                 stack.enter_context(patch.object(worker, "limited", side_effect=extra_work))
-        if mode == "error":
-            from agentkit import box
-            # Parser errors must not depend on the host's namespace support.
-            stack.enter_context(patch.object(box, "check", return_value=None))
         if mode in ("help", "module"):
             for name in ("ensure_dirs", "load", "current_session", "resolve_session", "server_alias"):
                 stack.enter_context(patch.object(config, name, side_effect=blocked(f"config.{name}")))

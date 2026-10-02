@@ -11398,7 +11398,6 @@ def cmd_merge(argv):
     """
     if len(argv) != 1 or Path(argv[0]).name != argv[0] or argv[0] in (".", ".."):
         raise config.Error("usage: ak run merge <runid>")
-    box.check()
     run_dir = config.RUNS / argv[0]
     # under the handoff lock: `watch.launch_resume` saves a detached retry's new scope
     # under it after the start, and a copy read before that would save the old one back
@@ -11414,6 +11413,7 @@ def cmd_merge(argv):
     if (state.get("review_pr") or state.get("scratch")
             or not (state.get("pr") or state.get("merge_failed"))):
         raise config.Error(f"{argv[0]}: no delivery PR to merge")
+    box.check()
     cfg = config.load()
     if not review_pass(state, cfg):
         raise config.Error(f"{argv[0]}: merge requires a successful reviewer allowed by the model policy; "
@@ -11536,7 +11536,6 @@ def cmd_resume(argv):
     if depth_refused():
         return 2
     try:
-        box.check()
         return resume_run(argv)
     except (config.Error, OSError) as exc:
         # A queued child that cannot replay its saved task/workspace must release its
@@ -11582,6 +11581,7 @@ def resume_run(argv):
     state = run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None
     if state is None:
         raise config.Error(f"no resumable run: {argv[0]} (looked in {config.RUNS})")
+    box.check()
     # spawn_bg has already handed this queued receipt to this particular child. Ordinary
     # invocations must never adopt another process's launch, even with an inherited variable.
     with run_record.recovery_lock(run_dir):
