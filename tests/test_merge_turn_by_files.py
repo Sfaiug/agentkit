@@ -44,11 +44,11 @@ class MergeTurnByFiles(LandingCase):
             try:
                 threads.append(self.land(one, results))
                 self.assertTrue(checking.wait(20), "holder never reached its suite")
-                self.assertTrue(run.merge_hold_note(run.read_state(one.run_dir) or {}),
+                self.assertTrue(run.merge_hold_note(record.read_state(one.run_dir) or {}),
                                 "the suite needs the turn through delivery")
                 for lp in (two, three):
                     threads.append(self.land(lp, results))
-                    self.until(lambda lp=lp: run.merge_turn_note(run.read_state(lp.run_dir) or {}),
+                    self.until(lambda lp=lp: run.merge_turn_note(record.read_state(lp.run_dir) or {}),
                                "the disjoint run to wait for the suite holder")
                 self.assertEqual(self.merges, [])
             finally:

@@ -13,7 +13,7 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
   words still leak into some twenty files.
-- `run.py` (13.3k lines) holds most of the run side.
+- `run.py` (13.2k lines) holds most of the run side.
 
 ## Entry points
 
