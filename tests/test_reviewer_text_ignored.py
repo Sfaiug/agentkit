@@ -51,7 +51,7 @@ class ReviewerTextIgnored(unittest.TestCase):
     def review(self, *plan):
         responses = iter(plan)
 
-        def turn(_cfg, _model, body, cwd, out, _role, sid=None, **_kw):
+        def turn(_cfg, _model, body, cwd, out, _role, sid=None, *_args, **_kw):
             text, commands = next(responses)
             self.calls.append((body, sid))
             out.mkdir(parents=True, exist_ok=True)
