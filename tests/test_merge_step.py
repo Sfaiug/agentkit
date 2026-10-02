@@ -139,7 +139,7 @@ class MergeStep(unittest.TestCase):
             out.parent.mkdir(parents=True, exist_ok=True)
             return True, "$ true\n[exit 0]\n"
 
-        self.stack.enter_context(patch.object(run, "run_done_when", side_effect=checks))
+        self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=checks))
         self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.review_call)))
         # every failing gate here is the branch's own: the target is green, so the
         # red-target probe never parks (tests/test_red_target.py covers a red tip)
@@ -225,7 +225,7 @@ class MergeStep(unittest.TestCase):
             run.git(wt, "commit", "-m", "try the final check")
             return "## Summary\nTried."
 
-        with patch.object(run, "run_done_when", side_effect=checks), \
+        with patch.object(gate, "run_done_when", side_effect=checks), \
                 patch.object(run, "execute", side_effect=fixer):
             self.assertFalse(run.final_check(lp, "origin/main"))
         self.assertEqual(turns, [("final-fixer", 3)] * 3)
@@ -275,7 +275,7 @@ class MergeStep(unittest.TestCase):
             (out / "final.md").write_text(answer)
             return 0, answer, session, False
 
-        with patch.object(run, "run_done_when", side_effect=checks), \
+        with patch.object(gate, "run_done_when", side_effect=checks), \
                 patch.object(run, "execute", side_effect=fixer), \
                 patch.object(run, "call_retrying", side_effect=submitting(fake_review)):
             self.assertTrue(run.final_check(lp, "origin/main"))
@@ -314,7 +314,7 @@ class MergeStep(unittest.TestCase):
             (out / "final.md").write_text(answer)
             return 0, answer, session, False
 
-        with patch.object(run, "run_done_when", side_effect=checks), \
+        with patch.object(gate, "run_done_when", side_effect=checks), \
                 patch.object(run, "execute", side_effect=fixer), \
                 patch.object(run, "call_retrying", side_effect=submitting(fake_review)):
             self.assertFalse(run.final_check(lp, "origin/main"))
@@ -353,7 +353,7 @@ class MergeStep(unittest.TestCase):
             (out / "final.md").write_text(answer)
             return 1, answer, session, False
 
-        with patch.object(run, "run_done_when", side_effect=checks), \
+        with patch.object(gate, "run_done_when", side_effect=checks), \
                 patch.object(run, "execute", return_value="## Summary\nTried."), \
                 patch.object(run, "call_retrying", side_effect=submitting(fake_review)):
             self.assertFalse(run.final_check(lp, "origin/main"))
@@ -391,7 +391,7 @@ class MergeStep(unittest.TestCase):
             run.git(wt, "commit", "-m", "fix")
             return "## Summary\nFixed."
 
-        with patch.object(run, "run_done_when", side_effect=checks), \
+        with patch.object(gate, "run_done_when", side_effect=checks), \
                 patch.object(run, "execute", side_effect=fixer):
             self.assertTrue(run.final_check(lp, "origin/main"))
         self.assertEqual([(name, rnd) for name, rnd, _ in turns],
@@ -660,7 +660,7 @@ class MergeStep(unittest.TestCase):
 
         with patch.object(run, "execute", side_effect=fixer), \
                 patch.object(run, "call_retrying", side_effect=submitting(review_call)), \
-                patch.object(run, "run_done_when", side_effect=checks):
+                patch.object(gate, "run_done_when", side_effect=checks):
             self.assertTrue(run.integrate(lp, "origin/main"))
         self.assertEqual([(rnd, role) for rnd, role, _ in turns], [(3, "fixer")])
         self.assertIn(failure, turns[0][2])

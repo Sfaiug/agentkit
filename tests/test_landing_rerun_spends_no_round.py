@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import host, config, gc, run, usage, watch
+from agentkit import gate, host, config, gc, run, usage, watch
 from agentkit import record
 from test_merge_step import make_loop, make_repos
 
@@ -57,7 +57,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.fix_after = 1
         self.fixes = 0
         self.stack.enter_context(patch.object(run, "target_fails", return_value=False))
-        self.stack.enter_context(patch.object(run, "run_done_when", side_effect=self.gate))
+        self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=self.gate))
         self.stack.enter_context(patch.object(run, "execute", side_effect=self.fixer))
         self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.reviewer)))
 

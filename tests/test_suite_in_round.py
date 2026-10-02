@@ -12,7 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, gc, run, worker
+from agentkit import gate as suite_gate, config, gc, run, worker
 from agentkit import record as run_record
 
 SUITE = "test -f AGENTS.md"
@@ -77,7 +77,7 @@ class SuiteInRound(unittest.TestCase):
         task.write_text(f"---\nrepo: {repo}\nbase: main\nrounds: {rounds}\n---\n# Suite round\n\n"
                         "## Goal\nShip it.\n\n## Done when\n```bash\n"
                         + "\n".join(checks) + "\n```\n")
-        real = run.run_done_when
+        real = suite_gate.run_done_when
 
         def record(cmds, cwd, log_path, *args, **kwargs):
             self.gates.append((Path(log_path).name, list(cmds)))
@@ -87,7 +87,7 @@ class SuiteInRound(unittest.TestCase):
                     return mocked
             return real(cmds, cwd, log_path, *args, **kwargs)
 
-        with patch.object(run, "run_done_when", side_effect=record):
+        with patch.object(suite_gate, "run_done_when", side_effect=record):
             state = run.loop(self.cfg, directory, task, self.opts, self.logs.append)
         return directory, state
 
@@ -280,8 +280,8 @@ class SuiteInRound(unittest.TestCase):
         # Legacy round evidence must not skip the landing suite.
         wt, run_dir, lp = reviewed_run("still")
         before = counter.read_text()
-        with patch.object(run, "run_done_when",
-                          wraps=run.run_done_when) as watched:
+        with patch.object(suite_gate, "run_done_when",
+                          wraps=suite_gate.run_done_when) as watched:
             self.assertTrue(run.land(lp, "origin/main",
                                     lambda: run.integrate(lp, "origin/main")
                                     and run.final_check(lp, "origin/main"), lambda: True))
@@ -296,8 +296,8 @@ class SuiteInRound(unittest.TestCase):
         subprocess.run(["git", "-C", str(owner), "add", "."], check=True)
         subprocess.run(["git", "-C", str(owner), "commit", "-q", "-m", "overlap"], check=True)
         subprocess.run(["git", "-C", str(owner), "push", "-q", "origin", "main"], check=True)
-        with patch.object(run, "run_done_when",
-                          wraps=run.run_done_when) as wrapped:
+        with patch.object(suite_gate, "run_done_when",
+                          wraps=suite_gate.run_done_when) as wrapped:
             # the overlap conflicts, so resolve it like a fixer would, then land
             with patch.object(run, "execute",
                               side_effect=lambda lp0, *a: (
@@ -383,7 +383,7 @@ class SuiteInRound(unittest.TestCase):
         lp = run.Loop(self.cfg, run_dir, state, {}, logs.append, wt,
                       "body", ["true", once], "context", [])
         before = counter.read_text()
-        with patch.object(run, "run_done_when", wraps=run.run_done_when) as watched:
+        with patch.object(suite_gate, "run_done_when", wraps=suite_gate.run_done_when) as watched:
             self.assertTrue(run.land(lp, "origin/main",
                                     lambda: run.integrate(lp, "origin/main")
                                     and run.final_check(lp, "origin/main"), lambda: True))

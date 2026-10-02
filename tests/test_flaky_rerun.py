@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import gate, config, run
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"        # the main checkout as the record names it; never opened
@@ -59,7 +59,7 @@ class FlakyRerun(unittest.TestCase):
 
     def gate(self, cmds):
         logs = []
-        ok, text = run.run_done_when(cmds, self.root, self.run_dir / "donewhen.log", set(),
+        ok, text = gate.run_done_when(cmds, self.root, self.run_dir / "donewhen.log", set(),
                                      limit=60, log=logs.append, run_dir=self.run_dir)
         return ok, text, logs
 

@@ -82,7 +82,7 @@ class PushLease(unittest.TestCase):
             out.parent.mkdir(parents=True, exist_ok=True)
             return True, "$ true\n[exit 0]\n"
 
-        with patch.object(run, "run_done_when", side_effect=checks):
+        with patch.object(gate, "run_done_when", side_effect=checks):
             self.assertTrue(run.integrate(lp, "origin/main"))
         self.assertNotEqual(run.git(self.wt, "rev-parse", "HEAD"), pushed)
         self.assertTrue(run.push(lp), lp.state.get("merge_note"))

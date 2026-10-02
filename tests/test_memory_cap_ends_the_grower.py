@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, orch, run, worker
+from agentkit import gate, host, config, orch, run, worker
 from agentkit import record
 
 SCOPE = "agentkit-run-20260930-2300-acme"
@@ -132,7 +132,7 @@ class Loop(Sandbox):
         # the command is the process that grew: it exits 137, and its re-run is
         # ended the same way without a new kill being counted twice
         cmd = f"printf 'oom_kill 1\\n' > {self.events}; exit 137"
-        ok, text = run.run_done_when([cmd], self.root, self.root / "donewhen.log", set(),
+        ok, text = gate.run_done_when([cmd], self.root, self.root / "donewhen.log", set(),
                                      limit=60, silence=60, log=self.lines.append,
                                      run_dir=self.run_dir)
         self.assertFalse(ok)

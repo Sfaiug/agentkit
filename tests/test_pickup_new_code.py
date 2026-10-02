@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job as jobs, run, worker
+from agentkit import gate, config, job as jobs, run, worker
 from agentkit import record
 
 OLD = "aaa1111"
@@ -221,7 +221,7 @@ class PickupNewCode(unittest.TestCase):
                                "repo": "/home/fixture/code/acme", **record.process_owner(),
                                "started_at": time.time(), "round_summaries": []})
         with patch.dict(os.environ, {"AK_MAX_RUNS": "4"}):
-            with run.gate_turn(gated, gated / "gate.log", lambda msg: None):
+            with gate.gate_turn(gated, gated / "gate.log", lambda msg: None):
                 self.assertFalse(run.pickup_new_code(lp, execv=fake_exec, current=NEW))
         with run.merge_turn(lp, "origin/main"):
             self.assertFalse(run.pickup_new_code(lp, execv=fake_exec, current=NEW))

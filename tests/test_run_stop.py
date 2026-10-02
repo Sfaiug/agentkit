@@ -21,7 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
-from agentkit import config, job as jobs, menu, orch, run, worker
+from agentkit import gate, host, config, job as jobs, menu, orch, run, worker
 from agentkit import host, record
 from agentkit import task as taskfile
 
@@ -638,7 +638,7 @@ class RunStop(Sandbox):
             self.assertEqual(run.cmd_stop([run_id]), 0)
         marker = self.root / "gate-marker"
         with self.assertRaises(record.StopRequested):
-            run.run_done_when(["touch %s" % marker], self.root,
+            gate.run_done_when(["touch %s" % marker], self.root,
                               directory / "donewhen.log", set(), 60,
                               run_dir=directory)
         self.assertFalse(marker.exists(), "a done-when command ran on a stopped run")

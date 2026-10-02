@@ -170,7 +170,7 @@ class MergeTurn(unittest.TestCase):
                 finally:
                     self.holding.discard(lp.wt)
         self.stack.enter_context(patch.object(run, "merge_turn", turn))
-        self.stack.enter_context(patch.object(run, "run_done_when", side_effect=self.recheck))
+        self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=self.recheck))
         self.stack.enter_context(patch.object(run, "execute", side_effect=self.fix))
         self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(run, "rights", return_value=(None, None)))

@@ -20,7 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import host, config, run
+from agentkit import gate, host, config, run
 from agentkit import record
 
 
@@ -379,11 +379,11 @@ class RedTarget(unittest.TestCase):
         (config.HOME / config.CONFIG_NAME).write_text("max_gates = 1\n")
         os.environ.pop("AK_MAX_RUNS", None)
         dw_log = "$ false\n[exit 1]\nFAIL the gate"
-        with patch.object(run, "GATE_POLL", 0.05):
+        with patch.object(gate, "GATE_POLL", 0.05):
             (self.root / "heavy").mkdir()
             _, _, wt = make_repos(self.root / "heavy")
             lp, run_dir, _ = make_loop(self.root / "heavy", wt, ["true", "false  # once"])
-            holder = run.gate_lock(str(wt), 0).open("a")
+            holder = gate.gate_lock(str(wt), 0).open("a")
             self.addCleanup(holder.close)
             fcntl.flock(holder, fcntl.LOCK_EX)
             results = {}
@@ -412,7 +412,7 @@ class RedTarget(unittest.TestCase):
             (self.root / "light").mkdir()
             _, _, wt2 = make_repos(self.root / "light")
             lp2, run_dir2, _ = make_loop(self.root / "light", wt2, ["false"])
-            with run.gate_lock(str(wt2), 0).open("a") as held:
+            with gate.gate_lock(str(wt2), 0).open("a") as held:
                 fcntl.flock(held, fcntl.LOCK_EX)
                 light = {}
                 probe = threading.Thread(target=lambda: light.update(

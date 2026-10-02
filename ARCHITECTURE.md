@@ -13,7 +13,7 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
   words still leak into some twenty files.
-- `run.py` (13.1k lines) holds most of the run side.
+- `run.py` (12.5k lines) holds most of the run side.
 
 ## Entry points
 
@@ -23,24 +23,26 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 
 ## agentkit/
 
-- `run.py`: staffing, turns, gates, review, landing, hand-back, provider failures, slots,
-  admission and worktrees. Offers `main`, `going`, `pick_models`. For watch, job, gc, orch,
-  menu, notify, usage, worker and a hook.
-- `record.py`: run.json reads, stop-safe writes, recovery locks, defaults, folders and writer
-  identity. Offers `read_state`, `save_state`, `record`, `stop_check`, `process_active`,
-  `writing`. For run, job, menu, orch, watch, gc, retention, history and worker.
-- `gc.py`: plans and schedules removal of seats, stamps, temps, worktrees, runs and jobs.
-  Asks each harness's `tmp_rule` for temp ownership and live sessions; retention deletes.
+- `run.py`: staffing, review, landing, hand-back, provider failures, slots, admission,
+  worktrees and merge turns. API: `main`, `going`, `pick_models`; for watch, job, gc,
+  orch, menu, notify, usage, worker and a hook.
+- `gate.py`: check commands and host-wide heavy-suite turns; `run_done_when`, turn/env
+  helpers and wait notes. For run and tests. Leaks: run's `run_child_env`, `memory_cap_note`,
+  `dirty_paths`, `OUT_CAP`.
+- `record.py`: run.json, stop-safe writes, recovery locks, defaults, folders, writer id.
+  API: `read_state`, `save_state`, `record`, `stop_check`, `process_active`,
+  `writing`. For run, gate, job, menu, orch, watch, gc, retention, history and worker.
+- `gc.py`: plans/schedules cleanup of seats, stamps, temps, worktrees, runs and jobs.
+  Harness `tmp_rule` owns temps and live sessions; retention deletes.
   Used by bin/ak, run, menu, watch and retention; offers `cmd_gc`.
 - `task.py`: the task file's front matter, done-when groups, size and round refusals; for
   run and job.
-- `job.py`: several task files as one job. Hides the receipt (`job.json`), the scheduler,
-  each task's ladder (waits, one merge, one rerun), hand-back and relaunch; calls the loop
-  as `run.*`. Used by run (main, status, stop, resume), gc, watch and menu.
-- `watch.py`: tick. Hides watch.json, seat errors (harness record, else manifest
-  screen rules and words; `stalls`, `auth_expiry`), state (`session_state`, `waiting_on`),
-  typing and reviving seats, resuming runs, PR scans, `doctor`. For run, job, orch, menu, notify,
-  update, usage, worker and both hooks. Leaks: run.json writes (stall ladder,
+- `job.py`: task files as one job: receipt, scheduler, task ladders (waits, merge, rerun),
+  hand-back and relaunch. Calls `run.*`; for run (main, status, stop, resume), gc, watch, menu.
+- `watch.py`: tick, watch.json, seat errors (harness record or manifest screen words;
+  `stalls`, `auth_expiry`), state (`session_state`, `waiting_on`), typing, reviving,
+  run resumes, PR scans, `doctor`. For run, job, orch, menu, notify, update, usage,
+  worker and hooks. Leaks: run.json writes (stall ladder,
   freeze marks, resume passes; through `record.record`), run states (`GOING`).
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
@@ -52,9 +54,9 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 - `config.py`: every `~/.agentkit` path, config.toml, models, providers, accounts, adapter
   scripts and manifests, seat records, their rename chain and file names (`SEAT_FILES`), child
   env. Used by nearly everything.
-- `worker.py`: headless turns, preambles, review gate, adapters, silence, auth and process
-  cleanup. Offers `turn`, `call`, `kill_marked`, `auth_ok`.
-  Used by run, watch, usage, menu, harness. Leak: Claude shell timeout.
+- `worker.py`: headless turns, preambles, review, adapters, silence, auth, cleanup.
+  API: `turn`, `call`, `kill_marked`, `auth_ok`.
+  Used by run, gate, watch, usage, menu, harness. Leak: Claude shell timeout.
 - `hand_in.py`: checks and renders `ak hand-in` findings, disputes and closings, with bounded
   evidence. Worker names the channel; run replays proofs, weighs findings and records
   dropped disputes.
@@ -71,7 +73,7 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 - `update.py`: manifest `[update]` upgrades, rollback and agentkit's update (`go_live`).
   Used by menu, orch, run, watch. Leak: `MuseSnapshot` knows Muse's layout.
 - `history.py`: SQLite `history.db` of runs and steps; active duration estimates. For
-  run, menu, harness. Leak: parses harness event logs.
+  run, gate, menu, harness. Leak: parses harness event logs.
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
   cleanup, compression. Used by gc, run, orch, update, notify. Leaks: Claude and Codex
   config formats.
@@ -84,7 +86,7 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 - `macbridge.py`: `ak fetch` of Mac files: request, inbox, heartbeat, launchd agent. Used
   by bin/ak, menu, install.sh.
 - `host.py`: memory, load, CPUs, process/cgroup counters, `alive`, `process_identity`;
-  reads only, no agentkit imports. For config, orch, run, job, watch, gc and record.
+  reads only, no agentkit imports. For config, orch, run, gate, job, watch, gc and record.
 - `proc_snapshot.py`: read-only /proc inventory; no agentkit imports, so it runs under sudo.
   Used by gc.
 - `__init__.py`: empty.
@@ -122,7 +124,7 @@ Run side, out of `run.py`:
 - `record`: transition table.
 - `turn`: model calls and harness failures.
 - `staffing`: executor and reviewer budgets.
-- `gate`: commands, suite turns, admission.
+- `gate`: admission.
 - `prompts`: preambles and review contract.
 - `rounds`: loop calling the rest.
 - `land`: PR, checks, merge.

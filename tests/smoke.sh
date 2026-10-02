@@ -164,12 +164,12 @@ if hold:
 '
 smoke_pool_bound() {   # the heavy suites the host admits at once: 0 is no cap, 1 when unreadable
   HOME="${SMOKE_CALLER_HOME:-$HOME}" PYTHONPATH="$REPO" python3 - 2>/dev/null <<'PY' || echo 1
-from agentkit import config, run, record
+from agentkit import config, gate, record
 try:
     limit = config.max_gates()
-    print(limit if limit is not None else run.derived_heavy_limit())
+    print(limit if limit is not None else gate.derived_heavy_limit())
 except config.Error:
-    print(run.derived_heavy_limit())     # the loop's own fallback for a config it cannot read
+    print(gate.derived_heavy_limit())     # the loop's own fallback for a config it cannot read
 PY
 }
 smoke_lock_probe() {   # smoke_lock_probe <wait seconds>: prints held, held-2 ... (0) or busy (75)
