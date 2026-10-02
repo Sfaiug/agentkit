@@ -446,6 +446,18 @@ class StopNudge(unittest.TestCase):
         self.tick()
         self.tick()
 
+    def job_json(self, *states, **fields):
+        self.stack.enter_context(patch.object(host, "alive", lambda pid: pid == 42))
+        self.stack.enter_context(patch.object(
+            host, "process_identity", lambda pid: {"boot": "test-boot", "ticks": 7}))
+        directory = config.JOBS / "one"
+        directory.mkdir(parents=True, exist_ok=True)
+        jobs.save_job(directory, {
+            "seat": SEAT, "pid": 42, "process_identity": {"boot": "test-boot", "ticks": 7},
+            "started_at": self.now - 9000,
+            "tasks": [{"state": state, "run_id": None} for state in states], **fields})
+        return directory
+
     # --- the rule, as a tick reaches it -------------------------------------
 
     def test_a_prompt_with_no_question_no_done_and_no_run_is_typed_into_once(self):
@@ -471,17 +483,31 @@ class StopNudge(unittest.TestCase):
                 self.typed.assert_not_called()
 
     def test_a_live_job_with_tasks_to_start_holds_the_nudge_back(self):
-        directory = config.JOBS / "one"
-        directory.mkdir(parents=True)
-        jobs.save_job(directory, {
-            "seat": SEAT, "pid": 42, "process_identity": {"boot": "test-boot", "ticks": 7},
-            "tasks": [{"state": "queued", "run_id": None},
-                      {"state": "waiting", "run_id": None}]})
-        with patch.object(host, "alive", lambda pid: pid == 42), \
-                patch.object(host, "process_identity", lambda pid: {"boot": "test-boot", "ticks": 7}):
-            self.assertTrue(jobs.reap_job(directory, jobs.read_job(directory)))
-            self.stopped(RECOMMENDATION)
+        directory = self.job_json("queued", "waiting")
+        self.assertTrue(jobs.reap_job(directory, jobs.read_job(directory)))
+        self.stopped(RECOMMENDATION)
+        self.tick()
         self.typed.assert_not_called()
+
+    def test_a_jobs_wait_follows_renames_until_its_last_task_settles(self):
+        self.job_json("merged", "failed", "queued", seat="old-seat")
+        for before, after in (("old-seat", "middle-seat"), ("middle-seat", SEAT)):
+            config.session_path(before).write_text(json.dumps({"renamed": after}))
+        self.stopped(RECOMMENDATION)
+        self.typed.assert_not_called()
+        self.job_json("merged", "failed", "passed", seat="old-seat")
+        self.tick()
+        self.assertEqual([call.args[1] for call in self.typed.call_args_list], ["continue"])
+
+    def test_a_gone_settled_or_other_seats_job_does_not_hold_the_nudge_back(self):
+        for fields in ({"pid": 43}, {"process_identity": {"boot": "test-boot", "ticks": 8}},
+                       {"seat": "other-seat"}, {"seat": None}, {"tasks": []},
+                       {"tasks": [{"state": state} for state in jobs.JOB_TERMINAL]}):
+            with self.subTest(fields=fields):
+                self.setUp()
+                self.job_json("queued", "waiting", **fields)
+                self.stopped(RECOMMENDATION)
+                self.assertEqual([call.args[1] for call in self.typed.call_args_list], ["continue"])
 
     def test_a_question_over_two_lines_is_one_and_a_decision_under_one_is_not(self):
         """pane_tail keeps no blank line, so the rule reads the pane and not its tail."""
