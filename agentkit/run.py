@@ -30,8 +30,9 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import (command_help, config, gate, gc, hand_in, history, host, job as jobs, notify, orch,
-               record as run_record, retention, task as taskfile, update, usage, watch, worker)
+from . import (command_help, config, gate, gc, hand_in, history, host, job as jobs,
+               land as landing, notify, orch, record as run_record, retention,
+               task as taskfile, update, usage, watch, worker)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 DIFF_CAP = 300 * 1024
@@ -5296,6 +5297,11 @@ def final_check(lp, upstream):
             cmds_every, cmds_once = [], list(lp.once)
         else:
             cmds_every, cmds_once = list(lp.every), list(lp.once)
+        suite, shared = declared_suite(lp.wt, lp.target), None
+        if suite and suite in cmds_once:
+            shared = suite_shared(lp, upstream, sha, suite, together=not fixed)
+            if shared:
+                cmds_once.remove(suite)
         lp.log(f"--- merge: final check: {len(cmds_every) + len(cmds_once)} commands "
                f"({len(lp.once)} once) on {sha[:12]}")
         identity = commit_identity(lp.wt)
@@ -5311,7 +5317,7 @@ def final_check(lp, upstream):
         left = lp.done_when_limit - (time.monotonic() - began)
         ok_once, text_once = gate.run_done_when(
             cmds_once, lp.wt, log_path, lp.artifacts, max(0, left), lp.log,
-            silence=lp.turn_limit, run_dir=lp.run_dir, heavy=True)
+            silence=lp.turn_limit, run_dir=lp.run_dir, heavy=True) if cmds_once else (True, "")
         ok = ok_every and ok_once
         text = "\n\n".join(part.strip() for part in (text_every, text_once) if part.strip())
         if (not clean or commit_identity(lp.wt) != identity
@@ -5334,8 +5340,13 @@ def final_check(lp, upstream):
                           exc.section) from None
         if ok:
             lp.log("final check: all passed")
+            evidence = suite_evidence(lp, cmds_once, identity)
+            if shared:      # the suite ran on the batch's top tree: evidence for that tree only
+                evidence = ({"suite": suite, "tree_sha": shared["tested"]}
+                            if shared["tested"] == identity.get("tree_sha") else {})
+                evidence["together"] = shared["leader"]
             lp.state["final_check"] = {"outcome": "passed", "sha": sha, "where": "landing",
-                                       **suite_evidence(lp, cmds_once, identity)}
+                                       **evidence}
             if current_review(lp):
                 lp.state["review"]["passed_head_sha"] = sha
             record_flakes(lp.state, text)
@@ -5579,10 +5590,9 @@ def merge_turn(lp, upstream, reserve=False):
     if current is not None and not current.lent:
         yield
         return
-    url = git(lp.wt, "remote", "get-url", "origin", check=False) or str(lp.state.get("repo"))
     config.RUNS.mkdir(parents=True, exist_ok=True)
     what = f"{Path(lp.state.get('repo') or lp.wt).name} {upstream.removeprefix('origin/')}"
-    path = merge_turn_lock(url, upstream)
+    path = turn_path(lp, upstream)
     lock = current.lock if current is not None else path.open("a")
     rank = f"{0 if lp.state.get('first') else 1}{time.monotonic_ns():020d}"
     place = files = None
@@ -5785,6 +5795,12 @@ def merge_turn_ahead(path, rank):
         except FileNotFoundError:
             pass
     return None
+
+
+def turn_path(lp, upstream):
+    """The lock file of the merge turn `lp`'s repository lands on at `upstream`."""
+    url = git(lp.wt, "remote", "get-url", "origin", check=False) or str(lp.state.get("repo"))
+    return merge_turn_lock(url, upstream)
 
 
 def remote_key(url):
@@ -6658,6 +6674,37 @@ def retry_command(state):
             or state.get("review_pr") or not state.get("repo")):
         return None
     return f"ak run merge {state['run_id']}"
+
+
+def suite_shared(lp, upstream, sha, suite, together=True):
+    """The batch whose suite already passed on `sha`'s tree (landing.passed), else None.
+
+    Holding the merge turn, a run with no such batch first checks the passed runs waiting
+    behind it together with itself, in one run of `suite` (landing.together): a pass records
+    every stacked tree, its own first; a failure records nothing and it checks itself alone.
+    """
+    turn, tree = turn_path(lp, upstream), git(lp.wt, "rev-parse", f"{sha}^{{tree}}")
+    shared = landing.passed(turn, tree)
+    if shared:
+        if shared["leader"] != lp.state.get("run_id"):
+            lp.log(f"final check: the suite already passed on this tree with "
+                   f"{shared['leader']}; not running it again")
+        return shared
+    if not together or getattr(_MERGE_HELD, "hold", None) is None:
+        return None
+
+    def suite_run(cwd):
+        return gate.run_done_when([suite], cwd, lp.run_dir / "final-check-together.log",
+                                  lp.artifacts, lp.done_when_limit, lp.log,
+                                  silence=lp.turn_limit, run_dir=lp.run_dir, heavy=True)
+
+    ok, members, _ = landing.together(lp.wt, sha, upstream, turn, lp.state.get("run_id"),
+                                   suite_run, lp.log)
+    if not members:
+        return None
+    lp.log("final check: the suite on the runs landing together: "
+           + ("all passed" if ok else "FAILED; checking this run alone"))
+    return landing.passed(turn, tree) if ok else None
 
 
 def final_check_line(state, cmds):
