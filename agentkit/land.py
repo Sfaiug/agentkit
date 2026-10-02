@@ -11,13 +11,15 @@ it check themselves alone on their own turns.  Only a tested tree carries the su
 evidence.  Offers `passed`, `waiting` and `together`; `run.final_check` is the one caller.
 """
 
+from contextlib import ExitStack
 import fcntl
 import json
+import os
 import tempfile
 import time
 from pathlib import Path
 
-from . import config, record, retention
+from . import config, record
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 
@@ -100,8 +102,9 @@ def together(wt, head, upstream, turn, leader, suite_run, log):
     config.WT.mkdir(parents=True, exist_ok=True)
     # The open directory protects a live stack; a dead one's path belongs to the orphan sweep.
     with (tempfile.TemporaryDirectory(dir=config.WT, prefix="land-") as tmp,
-          retention.reading(Path(tmp), directory=True)):
+          ExitStack() as opened):
         stack = Path(tmp)
+        opened.callback(os.close, os.open(stack, os.O_RDONLY))
         run.git(wt, "worktree", "add", "--detach", str(stack), head)
         try:
             top = head

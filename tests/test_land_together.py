@@ -199,6 +199,28 @@ class LandTogether(unittest.TestCase):
         self.assertEqual(len(land._trees(turn)[1]), 2)
         self.assertFalse(any("breaks the suite" in line for line in self.lines))
 
+    def test_a_batch_lands_through_a_symlinked_worktree_home(self):
+        disk = self.root / "disk"
+        (disk / "wt").mkdir(parents=True)
+        linked = self.root / "linked"
+        linked.symlink_to(disk, target_is_directory=True)
+        lp = self.leader()
+        self.wait(lp, "member", self.branch("ak/member", {"member.txt": "m\n"}), 1)
+        with patch.object(config, "WT", linked / "wt"):
+            self.assertTrue(self.held(lp))
+            self.assertEqual(list(config.WT.glob("land-*")), [])
+        self.assertIn("final check: the suite on the runs landing together: all passed",
+                      self.lines)
+
+    def test_a_batch_lands_without_noatime_support(self):
+        lp = self.leader()
+        self.wait(lp, "member", self.branch("ak/member", {"member.txt": "m\n"}), 1)
+        with patch.object(os, "O_NOATIME", create=True):
+            del os.O_NOATIME
+            self.assertTrue(self.held(lp))
+        self.assertIn("final check: the suite on the runs landing together: all passed",
+                      self.lines)
+
     def test_an_abandoned_stack_is_collected_with_its_git_registration(self):
         lp = self.leader()
         self.wait(lp, "member", self.branch("ak/member", {"member.txt": "m\n"}), 1)
