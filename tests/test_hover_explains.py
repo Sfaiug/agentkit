@@ -315,7 +315,7 @@ class MainMenu(unittest.TestCase):
         child.frame()
         first = played(child.text())
         explains(self, child, [(at(first, item), "  " + TIPS[item]) for item in
-                               ("n start a session", "r rename this session",
+                               ("n start a session", "c models",
                                 "x stop this session")], keys_of(first))
         child.leave()
 
