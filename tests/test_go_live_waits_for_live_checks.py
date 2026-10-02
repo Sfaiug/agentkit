@@ -43,7 +43,7 @@ sh -c 'until [ -e "$HOME/release" ]; do sleep 0.05; done' &
 wait
 """
 CHILD = """#!/bin/sh
-sh -c 'until [ -e "$HOME/release" ]; do sleep 0.05; done' &
+sh -c 'until [ -e "$HOME/release" ]; do sleep 0.05; done' >/dev/null 2>&1 &
 echo "live: check 4 red"
 exit 1
 """
