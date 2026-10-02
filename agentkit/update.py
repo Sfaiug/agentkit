@@ -912,14 +912,14 @@ def live_tick(log, now, fetched):
             worker.kill_marked(str(check))
             shutil.rmtree(check, ignore_errors=True)
             continue
-        code = _exit(check)
-        if code is None and now >= started + SMOKE_CAP:
-            worker.kill_marked(str(check))
-            code = _exit(check)         # one that finished as it was ended says how
-        if code is None and now < started + SMOKE_CAP and (
-                not host.PROC.is_dir() or worker.marked_pids(str(check))):
-            running = True
-        elif commit == tip and code == 0:
+        if _exit(check) is None:
+            if now >= started + SMOKE_CAP:
+                worker.kill_marked(str(check))
+            elif not host.PROC.is_dir() or worker.marked_pids(str(check)):
+                running = True
+                continue
+        code = _exit(check)     # again: one that finished as it was looked at says how
+        if commit == tip and code == 0:
             passed = True
         elif commit == tip:
             red.append((started, check, code))
@@ -964,8 +964,9 @@ def live_hand_back(commit, red, log):
     if handed.exists():
         record = json.loads(handed.read_text())
     else:
+        output = check / "output"
         try:    # one that never finished has only what it was writing
-            said = (check / ("output" if code is not None else "output.tmp")).read_text(
+            said = (output if output.exists() else check / "output.tmp").read_text(
                 errors="replace")
         except OSError:
             said = ""
