@@ -158,13 +158,15 @@ class WorkerBox(unittest.TestCase):
         default.symlink_to(store)
         xdg, gh = self.root / "xdg", self.root / "gh"
         for path in (xdg / "gh/hosts.yml", xdg / "git/credentials", gh / "hosts.yml",
-                     self.root / "named-store"):
+                     self.root / "named-store", self.root / "env-store"):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("fixture-secret")
         (self.root / ".gitconfig").write_text(
-            '[credential]\n\thelper = store --file "~/named-store"\n')
+            '[credential]\n\thelper = store --file "~/named-store"\n'
+            '\thelper = store --file "$HOME/env-store"\n')
         paths = [login, store, xdg / "gh/hosts.yml", xdg / "git/credentials", gh / "hosts.yml",
-                 self.root / "named-store", Path("/proc/1/root") / str(hosts).lstrip("/")]
+                 self.root / "named-store", self.root / "env-store",
+                 Path("/proc/1/root") / str(hosts).lstrip("/")]
         with patch.dict(os.environ, {
                 "XDG_CONFIG_HOME": str(xdg), "GH_CONFIG_DIR": str(gh),
                 "BOX_PATHS": json.dumps([str(path) for path in paths]),

@@ -7,9 +7,11 @@ import pwd
 import select
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 from contextlib import contextmanager
+from string import Template
 
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
 PROCESSES = "box-processes.json"
@@ -48,6 +50,7 @@ def _credentials(env, cwd):
             value = word[len(flag) + 1:] if word.startswith(flag + "=") else (
                 words[i + 1] if word == flag and i + 1 < len(words) else None)
             if value:
+                value = Template(value).safe_substitute(env)
                 path = Path(value.replace("~/", str(env.get("HOME") or Path.home()) + "/", 1)
                             if value.startswith("~/") else value)
                 files.add(path if path.is_absolute() else Path(cwd or os.getcwd()) / path)
@@ -101,6 +104,11 @@ def _wait(info):
             # The namespace link disappears before PID 1 finishes teardown.
             same = True
         if same:
+            # Also cover bwrap dying before it armed its parent-death signal.
+            try:
+                signal.pidfd_send_signal(fd, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             poll = select.poll()
             poll.register(fd, select.POLLIN)
             poll.poll()
