@@ -122,7 +122,8 @@ def _write(name, model, word=None, last="", cfg=None, height=False):
     cfg = config.load() if cfg is None else cfg
     top, why, key, title = lines(name, model, company(cfg, model), word, last)
     options = (("set-titles", "on"), ("status", "2")) if height else ()
-    for option, value in (*options, ("set-titles-string", title), *LAYOUT,
-                          (TOP, top), (WHY, why), (KEY, key)):
+    # the title last, so whoever sees it has the whole bar to read
+    for option, value in (*options, *LAYOUT, (TOP, top), (WHY, why), (KEY, key),
+                          ("set-titles-string", title)):
         # set-option takes the session name plain: it is the one target that rejects `=name`
         orch.tmux_out("set-option", "-t", name, option, value, socket=orch.socket_name())

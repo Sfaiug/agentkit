@@ -3453,7 +3453,7 @@ def health(cfg, state, dry_run, log):
                                harness=harness, auth_out=state.get("auth_out") or {},
                                gh_out=state.get("gh_out") or {},
                                token_out=state.get("worker_tokens"),
-                               records=records if tallies is not None else None)
+                               records=records)
 
 
 # --- silent runs: the tick recovers what the loop cannot --------------------

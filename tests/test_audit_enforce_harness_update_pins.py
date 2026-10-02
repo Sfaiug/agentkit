@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, update
+from agentkit import config, orch, statusbar, update
 
 
 class PinnedHome(unittest.TestCase):
@@ -123,7 +123,7 @@ class HarnessUpdatePins(PinnedHome):
         conf = root / "tmux.conf"
         conf.write_text("set -g remain-on-exit on\nset -g default-shell /bin/bash\n")
         self.enterContext(patch.object(orch, "tmux_conf", lambda: conf))
-        self.enterContext(patch.object(orch, "dress", lambda *a, **kw: None))
+        self.enterContext(patch.object(statusbar, "dress", lambda *a, **kw: None))
         # The private tmux server needs no unit in the host's real systemd manager.
         self.enterContext(patch.object(orch, "in_slice",
                                        lambda argv, unit, socket=None, env=None, **_kw: (argv, env)))

@@ -26,7 +26,6 @@ class SoloSwitch(Sandbox):
             config.RUN_DIR_ENV: "", config.SESSION_ENV: "fix-api",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
-        self.stack.enter_context(patch.object(run, "refresh_seat_tally"))
         self.stack.enter_context(patch.object(record, "process_owner", return_value={}))
         self.stack.enter_context(patch.object(run, "history_start"))
         config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra"],

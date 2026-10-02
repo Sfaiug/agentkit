@@ -146,7 +146,6 @@ class Slots(unittest.TestCase):
             with patch.object(config, "RUNS", runs), \
                     patch.object(host, "host_readings", return_value=HEALTHY), \
                     patch.object(run, "history_start"), \
-                    patch.object(run, "refresh_seat_tally"), \
                     patch.dict(os.environ, {"AGENTKIT_SESSION": "",
                                             "AK_RUN_DEPTH": "0"}):
                 directory = runs / "r"
@@ -164,8 +163,7 @@ class Slots(unittest.TestCase):
             with patch.object(config, "RUNS", runs), patch.object(run, "SLOT_POLL", .001), \
                     patch.object(run, "slot_counts", return_value=(0, 0)), \
                     patch.object(host, "host_readings",
-                                 side_effect=[{**HEALTHY, "free_mb": 1024}, HEALTHY, HEALTHY]), \
-                    patch.object(run, "refresh_seat_tally"):
+                                 side_effect=[{**HEALTHY, "free_mb": 1024}, HEALTHY, HEALTHY]):
                 directory = runs / "r"
                 directory.mkdir()
                 (directory / "log.txt").write_text("started\n")

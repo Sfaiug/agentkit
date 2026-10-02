@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, orch, usage, watch
+from agentkit import config, notify, orch, statusbar, usage, watch
 from agentkit.harness import codex
 from agentkit.usage import replenish
 from agentkit.worker import auth_ok
@@ -63,7 +63,7 @@ class SeatAccount(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[self.seat]))
         self.stack.enter_context(patch.object(orch, "listing", return_value=[self.seat]))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
-        self.stack.enter_context(patch.object(orch, "dress"))
+        self.stack.enter_context(patch.object(statusbar, "dress"))
         self.stack.enter_context(patch.object(watch, "pane_text", side_effect=lambda _: self.pane))
         # The refusals here are on the pane, as for a harness keeping no record; the stand-in
         # transcript below is only what makes the conversation resumable.  What a harness's

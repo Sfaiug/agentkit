@@ -151,8 +151,7 @@ class NewSession(Sandbox):
         task = directory / "task.md"
         task.write_text(f"---\nrepo: {repo or 'none'}\n---\n# First project\n"
                         "\n## Done when\n```bash\ntrue\n```\n")
-        with patch.dict(os.environ, {config.SESSION_ENV: "seat", "AK_MAX_RUNS": "0"}), \
-                patch.object(run, "refresh_seat_tally"):
+        with patch.dict(os.environ, {config.SESSION_ENV: "seat", "AK_MAX_RUNS": "0"}):
             run.capture_launch(directory, {}, task_file=task_file)
         worktree = self.root / name
         worktree.mkdir()
@@ -213,8 +212,7 @@ class NewSession(Sandbox):
         config.save_session(self.cfg, "seat", "fable", ["opus"], {"cwd": str(config.CODE), "repo": None})
         directory = config.RUNS / "review"
         directory.mkdir()
-        with patch.dict(os.environ, {config.SESSION_ENV: "seat", "AK_MAX_RUNS": "0"}), \
-                patch.object(run, "refresh_seat_tally"):
+        with patch.dict(os.environ, {config.SESSION_ENV: "seat", "AK_MAX_RUNS": "0"}):
             run.capture_launch(directory, {})
         info = {"state": "OPEN", "headRefOid": "f" * 40, "baseRefName": "main", "title": "Fix",
                 "author": "someone", "body": ""}
