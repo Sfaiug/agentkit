@@ -2801,13 +2801,13 @@ def in_flight(name, repo):
         state = run_record.read_state(directory) or {}
         seat = run.launched_session(state)
         if seat in seats and not menu.smoke_run(state) and run.going(state):
-            seats[seat][1].update(changed_files(state))
+            seats[seat][1].update(changed_files(state, directory))
     return [(seat, lines, files) for seat, (lines, files) in seats.items() if lines or files]
 
 
-def changed_files(state):
+def changed_files(state, directory):
     """Tracked paths a run's worktree changes against its base, committed or not; before it
-    has a worktree, the pathspecs its task's `files:` allows."""
+    has a worktree, the pathspecs its saved task's `files:` allows."""
     tree, base = state.get("worktree"), state.get("base_sha")
     if tree and base and os.path.isdir(tree):
         try:
@@ -2819,7 +2819,7 @@ def changed_files(state):
             if done.returncode == 0 else []
     from . import task
     try:
-        return task.task_files(Path(state["task_file"])) if state.get("task_file") else []
+        return task.task_files(directory / "task.md")
     except (OSError, ValueError, config.Error):
         return []
 

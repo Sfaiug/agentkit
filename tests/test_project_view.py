@@ -44,6 +44,8 @@ class ProjectView(Sandbox):
     def add_run(self, name, seat, **state):
         directory = config.RUNS / name
         directory.mkdir(parents=True)
+        if source := state.get("task_file"):
+            (directory / "task.md").write_text(Path(source).read_text())
         run_record.save_state(directory, {"run_id": name, "launched_session": seat,
                                           "repo": str(self.acme), **state})
 
@@ -91,6 +93,16 @@ class ProjectView(Sandbox):
             "    changing: docs/guide.md, menu.py",
         ])
 
+    def test_queued_run_uses_its_saved_task_after_original_is_reused_or_removed(self):
+        original = self.root / "t.md"
+        original.write_text("---\nfiles: menu.py\n---\n# fix the menu\n")
+        self.add_run("r1", "design", state="queued", task_file=str(original))
+        expected = [("design", [], {"menu.py"})]
+        original.write_text("---\nfiles: billing.py\n---\n# the next task\n")
+        self.assertEqual(orch.in_flight("fix-api", self.acme), expected)
+        original.unlink()
+        self.assertEqual(orch.in_flight("fix-api", self.acme), expected)
+
     def test_renamed_seat_uses_its_latest_plan_and_owns_its_old_runs(self):
         config.rename_session("design", "design-api")
         config.rename_session("design-api", "design-ui")
@@ -114,13 +126,17 @@ class ProjectView(Sandbox):
         for name in names:
             (tree / name).write_text("new\n")
         git(tree, "add", *names)
-        self.assertEqual(set(orch.changed_files({"worktree": str(tree), "base_sha": base})),
-                         {"added.py", "app.py", "kept.py", "moved.py", *names})
+        self.add_run("r1", "builder", state="running", worktree=str(tree), base_sha=base)
+        self.assertEqual(orch.in_flight("fix-api", self.acme),
+                         [("builder", [], {"added.py", "app.py", "kept.py", "moved.py", *names})])
 
     def test_view_leaves_seat_records_plans_and_runs_unchanged(self):
         self.plan("design", "- [ ] current line\n")
         tree, base = self.worktree()
         self.add_run("r1", "builder", state="running", worktree=str(tree), base_sha=base)
+        task = self.root / "t.md"
+        task.write_text("---\nfiles: docs/guide.md\n---\n# t\n")
+        self.add_run("r2", "design", state="queued", task_file=str(task))
 
         def snapshot():
             return {path: (path.read_bytes(), path.stat().st_mtime_ns)
