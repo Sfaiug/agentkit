@@ -22,7 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import host, config, run, watch
+from agentkit import gate, host, config, run, watch
 from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/7"
@@ -143,7 +143,7 @@ class LandingCase(unittest.TestCase):
         self.fixer_seen = {}
         self.fixer = None
         real_turn = run.merge_turn
-        real_done_when = run.run_done_when
+        real_done_when = gate.run_done_when
         real_git_out = run.git_out
         real_target_fails = run.target_fails
 
@@ -160,7 +160,7 @@ class LandingCase(unittest.TestCase):
             own = getattr(run._MERGE_HELD, "hold", None) is not None
             self.checks.append((Path(wt).name, own))
             return real_done_when(cmds, wt, out, *args, **kwargs)
-        self.stack.enter_context(patch.object(run, "run_done_when", side_effect=done_when))
+        self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=done_when))
 
         def git_out(repo, *args, **kw):
             if args[:1] == ("rebase",):

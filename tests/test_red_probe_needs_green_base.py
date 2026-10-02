@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_red_target as red
-from agentkit import run
+from agentkit import gate, run
 from agentkit import record
 
 
@@ -56,7 +56,7 @@ class GreenBase(unittest.TestCase):
         cmd = "python3 -m unittest tests.test_new"
         lp, run_dir, lines = red.make_loop(root, wt, [every, f"{cmd}  # once"])
         base = run.git(wt, "merge-base", "HEAD", "origin/main")
-        self.assertTrue(run.run_done_when([cmd], wt, run_dir / "before.log", set())[0])
+        self.assertTrue(gate.run_done_when([cmd], wt, run_dir / "before.log", set())[0])
         lp.state["landing"] = True
         return lp, owner, base, lines, cmd
 
@@ -203,7 +203,7 @@ class GreenBase(unittest.TestCase):
         cmd = "test ! -f breakage"
         lp, run_dir, _ = red.make_loop(self.root, wt, ["true", f"{cmd}  # once"])
         base = run.git(wt, "merge-base", "HEAD", "origin/main")
-        self.assertTrue(run.run_done_when([cmd], wt, run_dir / "before.log", set())[0])
+        self.assertTrue(gate.run_done_when([cmd], wt, run_dir / "before.log", set())[0])
         self.move_target(owner, wt)
         self.assertTrue(run.integrate(lp, "origin/main"))
         (owner / "poison").touch()
@@ -256,7 +256,7 @@ class GreenBase(unittest.TestCase):
         (owner / "poison").touch()
         tip = self.move_target(owner, wt)
         head = self.integrate(lp, tip)
-        ok, text = run.run_done_when([cmd], wt, run_dir / "failed.log", set())
+        ok, text = gate.run_done_when([cmd], wt, run_dir / "failed.log", set())
         self.assertFalse(ok)
         self.assertEqual(run.target_fails(lp, "origin/main", text), "")
         self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))

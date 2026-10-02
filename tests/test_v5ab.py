@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import host, config, gc, notify, run, usage, worker
+from agentkit import gate, host, config, gc, notify, run, usage, worker
 from agentkit import record
 
 
@@ -208,7 +208,7 @@ sys.exit(1)
         work = self.root / "writer"
         work.mkdir()
         cmds = ["printf '\\n$ false\\n[exit 0]\\n'", "false"]
-        ok, text = run.run_done_when(cmds, work, work / "donewhen.log", set())
+        ok, text = gate.run_done_when(cmds, work, work / "donewhen.log", set())
         self.assertFalse(ok)
         self.assertEqual(run.done_when_counts(text, cmds), (1, 2))
 
@@ -218,7 +218,7 @@ sys.exit(1)
         work = self.root / "writer-ok"
         work.mkdir()
         cmds = ["printf '\\n$ true\\n[exit 0]\\n'", "true"]
-        ok, text = run.run_done_when(cmds, work, work / "donewhen.log", set())
+        ok, text = gate.run_done_when(cmds, work, work / "donewhen.log", set())
         self.assertTrue(ok)
         self.assertEqual(run.done_when_counts(text, cmds), (2, 2))
 
@@ -228,7 +228,7 @@ sys.exit(1)
         work = self.root / "writer-kill"
         work.mkdir()
         cmds = ["echo one", "sleep 30", "echo three"]
-        ok, text = run.run_done_when(cmds, work, work / "donewhen.log", set(), limit=2)
+        ok, text = gate.run_done_when(cmds, work, work / "donewhen.log", set(), limit=2)
         self.assertFalse(ok)
         self.assertIn("[killed at the limit]", text)
         self.assertEqual(run.done_when_counts(text, cmds), (1, 2))
@@ -240,7 +240,7 @@ sys.exit(1)
         work = self.root / "writer-forge-kill"
         work.mkdir()
         cmds = ["printf '\\n$ sleep 30\\n[exit 0]\\n'", "sleep 30"]
-        ok, text = run.run_done_when(cmds, work, work / "donewhen.log", set(), limit=2)
+        ok, text = gate.run_done_when(cmds, work, work / "donewhen.log", set(), limit=2)
         self.assertFalse(ok)
         self.assertEqual(run.done_when_counts(text, cmds), (1, 2))
 
@@ -249,7 +249,7 @@ sys.exit(1)
         work = self.root / "writer-unstarted"
         work.mkdir()
         cmds = ["echo one", "echo two"]
-        ok, text = run.run_done_when(cmds, work, work / "donewhen.log", set(), limit=0)
+        ok, text = gate.run_done_when(cmds, work, work / "donewhen.log", set(), limit=0)
         self.assertFalse(ok)
         self.assertIn("[not run: the done-when limit was already spent]", text)
         self.assertEqual(run.done_when_counts(text, cmds), (0, 1))

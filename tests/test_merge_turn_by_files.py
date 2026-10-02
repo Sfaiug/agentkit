@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import patch
 
 from test_land_reserve import LandingCase, REPO, commit, make_origin, make_run
-from agentkit import config, run, watch
+from agentkit import gate, config, run, watch
 from agentkit import record
 
 
@@ -31,7 +31,7 @@ class MergeTurnByFiles(LandingCase):
         commit(owner, "outside.txt", "outside")
         run.git(owner, "push", "origin", "main")
         checking, finish_check = threading.Event(), threading.Event()
-        real_checks = run.run_done_when
+        real_checks = gate.run_done_when
 
         def checks(cmds, wt, *args, **kwargs):
             if Path(wt) == one.wt and cmds == one.once:
@@ -40,7 +40,7 @@ class MergeTurnByFiles(LandingCase):
             return real_checks(cmds, wt, *args, **kwargs)
 
         results, threads = {}, []
-        with patch.object(run, "run_done_when", side_effect=checks):
+        with patch.object(gate, "run_done_when", side_effect=checks):
             try:
                 threads.append(self.land(one, results))
                 self.assertTrue(checking.wait(20), "holder never reached its suite")
@@ -85,7 +85,7 @@ class MergeTurnByFiles(LandingCase):
         self.queuing = move
         checking, finish_check = threading.Event(), threading.Event()
         delivering, finish_delivery = threading.Event(), threading.Event()
-        real_checks = run.run_done_when
+        real_checks = gate.run_done_when
 
         def checks(cmds, wt, *args, **kwargs):
             hold = getattr(run._MERGE_HELD, "hold", None)
@@ -101,7 +101,7 @@ class MergeTurnByFiles(LandingCase):
             return True
 
         results, threads = {}, []
-        with patch.object(run, "run_done_when", side_effect=checks), \
+        with patch.object(gate, "run_done_when", side_effect=checks), \
                 patch.object(run, "wait_checks", side_effect=required):
             try:
                 threads.append(self.land(one, results))
@@ -165,7 +165,7 @@ class MergeTurnByFiles(LandingCase):
         self.queuing = move
         checking, finish_check = threading.Event(), threading.Event()
         delivering, finish_delivery = threading.Event(), threading.Event()
-        real_checks = run.run_done_when
+        real_checks = gate.run_done_when
 
         def checks(cmds, wt, *args, **kwargs):
             hold = getattr(run._MERGE_HELD, "hold", None)
@@ -181,7 +181,7 @@ class MergeTurnByFiles(LandingCase):
             return True
 
         results, threads = {}, []
-        with patch.object(run, "run_done_when", side_effect=checks), \
+        with patch.object(gate, "run_done_when", side_effect=checks), \
                 patch.object(run, "wait_checks", side_effect=required):
             try:
                 threads.append(self.land(one, results))

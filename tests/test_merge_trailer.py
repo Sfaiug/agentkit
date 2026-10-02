@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, gc, run
+from agentkit import gate, config, gc, run
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -54,7 +54,7 @@ class MergeTrailer(unittest.TestCase):
         self.calls = []
         self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(run, "merge_turn", side_effect=lambda *a, **_kw: nullcontext()))
-        self.stack.enter_context(patch.object(run, "run_done_when", side_effect=self.check))
+        self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=self.check))
 
     def git(self, *args):
         return subprocess.run(["git", "-C", str(self.repo), *args], check=True,

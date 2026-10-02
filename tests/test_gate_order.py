@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, worker
+from agentkit import gate, config, run, worker
 from agentkit import host, record as run_record
 
 ACME = "/home/fixture/code/acme"        # main checkouts as the records name them; never opened
@@ -40,7 +40,7 @@ class Gate(threading.Thread):
 
     def run(self):
         try:
-            self.result = run.run_done_when(*self.args, **self.kw)
+            self.result = gate.run_done_when(*self.args, **self.kw)
         except BaseException as exc:      # noqa: BLE001 -- the test reads it
             self.error = exc
 
@@ -63,7 +63,7 @@ class GateOrder(unittest.TestCase):
                                                           "AGENTKIT_RUN": "", "AK_RUN_DEPTH": "0"}))
         os.environ.pop("AK_MAX_RUNS", None)
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
-        self.stack.enter_context(patch.object(run, "GATE_POLL", 0.05))
+        self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))
         config.RUNS.mkdir(parents=True)
         config.HOME.mkdir()
@@ -123,7 +123,7 @@ class GateOrder(unittest.TestCase):
         one = Gate(self, "one", ACME, [self.mark("one")])
         two = Gate(self, "two", ACME, [self.mark("two")])
         three = Gate(self, "three", ACME, [self.mark("three")])
-        holder = run.gate_lock(ACME, 0).open("a")
+        holder = gate.gate_lock(ACME, 0).open("a")
         self.addCleanup(holder.close)
         fcntl.flock(holder, fcntl.LOCK_EX)
         one.start()
@@ -137,9 +137,9 @@ class GateOrder(unittest.TestCase):
         self.assertLess(second, third)
         repo = run.main_checkout(ACME)
         # whatever order they poll in, the last to wait still finds two before it
-        self.assertTrue(run._gate_waiter_before(repo, "three", False, third))
-        self.assertTrue(run._gate_waiter_before(repo, "two", False, second))
-        self.assertFalse(run._gate_waiter_before(repo, "one", False, first))
+        self.assertTrue(gate._gate_waiter_before(repo, "three", False, third))
+        self.assertTrue(gate._gate_waiter_before(repo, "two", False, second))
+        self.assertFalse(gate._gate_waiter_before(repo, "one", False, first))
         fcntl.flock(holder, fcntl.LOCK_UN)
         one.join(20)
         two.join(20)
@@ -157,28 +157,28 @@ class GateOrder(unittest.TestCase):
         self.waiter("dead-first", ACME, 500, first=True, owner={"pid": self.dead})
         self.waiter("stale-first", ACME, 400, first=True, stale=True)
         dead = run_record.read_state(config.RUNS / "dead-first")
-        self.assertEqual(run.gate_turn_note(dead), "waiting for a heavy suite turn")
+        self.assertEqual(gate.gate_turn_note(dead), "waiting for a heavy suite turn")
         self.assertEqual(dead["gate_turn"]["of"], ACME)
         stale = run_record.read_state(config.RUNS / "stale-first")
-        self.assertEqual(run.gate_turn_note(stale), "")
-        self.assertFalse(run._gate_waiter_before(repo, "ghost", False, 3000))
-        self.assertFalse(run._gate_waiter_before(repo, "ghost-first", True, 3000))
+        self.assertEqual(gate.gate_turn_note(stale), "")
+        self.assertFalse(gate._gate_waiter_before(repo, "ghost", False, 3000))
+        self.assertFalse(gate._gate_waiter_before(repo, "ghost-first", True, 3000))
         self.waiter("plain", ACME, 1000)
         self.waiter("first-run", ACME, 2000, first=True)
-        self.assertFalse(run._gate_waiter_before(repo, "first-run", True, 2000))
-        self.assertTrue(run._gate_waiter_before(repo, "plain", False, 1000))
+        self.assertFalse(gate._gate_waiter_before(repo, "first-run", True, 2000))
+        self.assertTrue(gate._gate_waiter_before(repo, "plain", False, 1000))
 
     def test_waiter_of_another_checkout_counts_host_wide(self):
         self.waiter("elsewhere-first", ELSEWHERE, 500, first=True)
         state = run_record.read_state(config.RUNS / "elsewhere-first")
-        self.assertEqual(run.gate_turn_note(state), "waiting for a heavy suite turn")
+        self.assertEqual(gate.gate_turn_note(state), "waiting for a heavy suite turn")
         self.assertEqual(state["gate_turn"]["of"], ELSEWHERE)
         repo = run.main_checkout(ACME)
-        self.assertTrue(run._gate_waiter_before(repo, "ghost", False, 3000))
-        self.assertTrue(run._gate_waiter_before(repo, "ghost-first", True, 3000))
+        self.assertTrue(gate._gate_waiter_before(repo, "ghost", False, 3000))
+        self.assertTrue(gate._gate_waiter_before(repo, "ghost-first", True, 3000))
         # a live waiter holds a newcomer back whichever checkout it checks
         self.waiter("plain", ACME, 1000)
-        self.assertTrue(run._gate_waiter_before(repo, "ghost", False, 3000))
+        self.assertTrue(gate._gate_waiter_before(repo, "ghost", False, 3000))
 
 
 if __name__ == "__main__":

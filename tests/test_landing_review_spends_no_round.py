@@ -12,7 +12,7 @@ import unittest
 from test_v4n import Sandbox
 from test_merge_step import make_loop, make_repos
 from fixtures.hand_in import submitting
-from agentkit import run
+from agentkit import gate, run
 from agentkit import record
 
 
@@ -36,7 +36,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.tip = run.git(self.wt, "rev-parse", "origin/main")
         self.events = []
         self.verdicts = iter(["PASS"])
-        self.stack.enter_context(patch.object(run, "run_done_when",
+        self.stack.enter_context(patch.object(gate, "run_done_when",
                                               return_value=(True, "$ true\n[exit 0]\n")))
         self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(run, "execute", side_effect=self.fixer))
@@ -135,7 +135,7 @@ class LandingReviewSpendsNoRound(Sandbox):
 
     def test_interrupted_landing_review_resumes_at_the_budget_and_lands(self):
         self.history = copy.deepcopy(self.lp.state["round_summaries"])
-        with patch.object(run, "run_done_when", side_effect=run.Exhausted("check interrupted")):
+        with patch.object(gate, "run_done_when", side_effect=run.Exhausted("check interrupted")):
             with self.assertRaisesRegex(run.Exhausted, "check interrupted"):
                 run.integrate(self.lp, "origin/main")
         saved = record.read_state(self.run_dir)
@@ -188,7 +188,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         run.git(self.wt, "add", ".")
         run.git(self.wt, "commit", "-m", "change reviewed checkout")
         head = run.git(self.wt, "rev-parse", "HEAD")
-        with patch.object(run, "run_done_when", side_effect=run.Exhausted("check interrupted")):
+        with patch.object(gate, "run_done_when", side_effect=run.Exhausted("check interrupted")):
             with self.assertRaisesRegex(run.Exhausted, "check interrupted"):
                 run.rounds(self.lp)
         saved = record.read_state(self.run_dir)

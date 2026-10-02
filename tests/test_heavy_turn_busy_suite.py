@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, worker
+from agentkit import gate, config, run, worker
 from agentkit import record
 from test_red_target import make_loop, make_repos
 
@@ -62,7 +62,7 @@ class Gate(threading.Thread):
 
     def run(self):
         try:
-            self.result = run.run_done_when(*self.args, **self.kw)
+            self.result = gate.run_done_when(*self.args, **self.kw)
         except BaseException as exc:      # noqa: BLE001 -- the test reads it
             self.error = exc
 
@@ -89,7 +89,7 @@ class BusySuite(unittest.TestCase):
                      "AK_RUN_LOG"):
             os.environ.pop(name, None)
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
-        self.stack.enter_context(patch.object(run, "GATE_POLL", 0.05))
+        self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))
         config.RUNS.mkdir(parents=True)
         config.HOME.mkdir()
@@ -133,7 +133,7 @@ class BusySuite(unittest.TestCase):
     def test_a_busy_suite_gives_its_turn_to_another_repositorys_and_runs_once_free(self):
         self.gates(2)
         self.addCleanup(self.go.touch)     # a test that fails first must not leave one running
-        with patch.object(run, "GATE_POLL", 2):
+        with patch.object(gate, "GATE_POLL", 2):
             first = Gate(self, "one", ACME, [self.suite("one", hold=True)])
             first.start()
             self.until(lambda: self.marks.read_text() == "one\n", "the first copy to start")
@@ -188,7 +188,7 @@ class BusySuite(unittest.TestCase):
         probe = threading.Thread(target=body, daemon=True)
         # a wait for the turn longer than the probe's whole limit, which is charged none of it
         lp.done_when_limit = 2
-        with run.gate_lock(ACME, 0).open("a") as turn:
+        with gate.gate_lock(ACME, 0).open("a") as turn:
             fcntl.flock(turn, fcntl.LOCK_EX)
             probe.start()
             self.until(lambda: (record.read_state(run_dir) or {}).get("gate_turn"),

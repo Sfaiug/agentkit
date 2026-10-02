@@ -22,7 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import host, config, gc, notify, orch, run, usage, watch, worker
+from agentkit import gate, host, config, gc, notify, orch, run, usage, watch, worker
 from agentkit import record as run_record
 from agentkit import task as taskfile
 
@@ -594,7 +594,7 @@ class Limits(unittest.TestCase):
 
         with patch.object(run.time, "monotonic", side_effect=lambda: clock[0]), \
                 patch.object(worker, "limited", side_effect=finish_first):
-            ok, text = run.run_done_when(["true", "echo never"], self.work, spent, set(), 60)
+            ok, text = gate.run_done_when(["true", "echo never"], self.work, spent, set(), 60)
         self.assertFalse(ok)
         self.assertEqual(text.count("[exit"), 1)            # only the first command ever ran
         self.assertIn("[not run: the done-when limit was already spent]", text)
