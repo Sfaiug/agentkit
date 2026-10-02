@@ -50,7 +50,7 @@ class GateCountsTests(unittest.TestCase):
 
     def test_empty_unittest_suite_fails(self):
         self.write("tests/test_acme.py", "import unittest\nunittest.main()\n")
-        self.assert_rejected(self.gate(), "tests/test_acme.py", "no tests ran")
+        self.assert_rejected(self.gate(), "tests/test_acme.py", "Ran 0 tests")
 
     def test_unittest_cases_pass_with_the_tally_on_stderr(self):
         self.write("tests/test_acme.py", UNITTEST)
