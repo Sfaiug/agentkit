@@ -1,6 +1,6 @@
 """A live update whose install.sh failed is retried by the next tick until it passes.
 
-The pull already moved HEAD to origin's main, so the tick has nothing to pull: it runs
+The fast-forward already moved HEAD to origin's main, so the tick has nothing to move: it runs
 install.sh again for the code checked out, origin answering or not, says the failure once, and
 says the pass.  An update running meanwhile is waited for, so its pass cannot clear what the
 retry still owes.
@@ -93,16 +93,16 @@ class GoLiveRetriesInstall(unittest.TestCase):
         self.assertIn("  broken", said)
         self.assertEqual(git(self.clone, "rev-parse", "HEAD"), self.new)
         self.assertEqual(self.installs(), 1)
-        said, ran = self.tick()                  # retried, not said again, nothing pulled
+        said, ran = self.tick()                  # retried, not said again, nothing moved
         self.assertEqual(said, [])
         self.assertEqual(self.installs(), 2)
-        self.assertFalse([cmd for cmd in ran if "pull" in cmd], ran)
+        self.assertFalse([cmd for cmd in ran if "merge" in cmd], ran)
         (self.root / "broken").unlink()
         git(self.clone, "remote", "set-url", "origin", str(self.root / "gone.git"))
         said, ran = self.tick()                  # offline, retried still; the pass says so
         self.assertEqual(said, [f"agentkit is live at {self.new[:12]}"])
         self.assertEqual(self.installs(), 3)
-        self.assertFalse([cmd for cmd in ran if "pull" in cmd], ran)
+        self.assertFalse([cmd for cmd in ran if "merge" in cmd], ran)
         self.assertEqual(self.tick()[0], [])     # passed: no further install
         self.assertEqual(self.installs(), 3)
 
