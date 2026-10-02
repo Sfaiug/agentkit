@@ -163,6 +163,16 @@ class SeatsInSlice(Sandbox):
         self.scope(line)
         self.assertEqual(self.ran(line, cwd=seat), HARNESS[3:])
 
+    def test_g_a_path_entry_through_a_symlink_and_dot_dot_runs_the_file_it_found(self):
+        (self.root / "versions/current").mkdir(parents=True)
+        self.bin.rename(self.root / "versions/bin")
+        (self.root / "current").symlink_to(self.root / "versions/current")
+        with patch.dict(os.environ, {"PATH": f"{self.root}/current/../bin:{os.environ['PATH']}"}):
+            orch.start("acme", self.root, HARNESS, "opus")
+        (line, _), = self.launched("new-session")
+        self.assertEqual(self.ran(line), HARNESS[3:])
+        self.assertEqual(len(self.log.read_text().splitlines()), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
