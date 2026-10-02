@@ -8183,19 +8183,22 @@ def place_here(run_dir, log):
     Nothing new is started: the user manager moves this very process into the run's scope,
     so the terminal keeps its output and its Ctrl-C, and the pid on the receipt stays the
     run's.  Where no scope can be made the run goes on here as it always did, and the log
-    says why.  Only `ak` itself is moved: a process that imported this module and calls
-    `main` (a test) is its caller's, never the run's to put under a cap.
+    says why.  Only a process that is this one run is moved: `ak` itself, never a caller
+    that imported this module (a test), and from its main thread, never a job's, whose
+    process all its tasks share.  One already in the scope its receipt names -- a recovery
+    the tick placed -- is where it belongs.
     """
-    if Path(sys.argv[0]).resolve() != (config.REPO / "bin" / "ak").resolve():
+    if (Path(sys.argv[0]).resolve() != (config.REPO / "bin" / "ak").resolve()
+            or threading.current_thread() is not threading.main_thread()):
         return None
     with run_record.record(run_dir) as state:
-        if state.stopped:
+        if state.stopped or any(host.cgroup_contains(f"/{unit}")
+                                for unit in _scope_units(state.get("scope"))):
             return None
         placement, cap = {}, None
         try:
             unit, cap, properties = run_placement(run_dir, state)
-            if orch.scope_self(unit, orch.run_slice_name(), properties, placement):
-                os.nice(10)   # the work `--bg` puts in a scope runs under `nice -n 10`
+            orch.scope_self(unit, orch.run_slice_name(), properties, placement)
         except OSError as exc:
             placement = {"scope": "none", "scope_reason": str(exc)}
         state.update(scope=placement["scope"], scope_reason=placement.get("scope_reason"))

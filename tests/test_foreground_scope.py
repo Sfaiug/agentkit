@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 from unittest.mock import patch
 import unittest
 
@@ -67,8 +68,6 @@ class ForegroundScope(Sandbox):
         self.stack.enter_context(patch.object(run, "refresh_seat_tally"))
         # `ak run` itself, not this test: only that process is a run's to move
         self.stack.enter_context(patch.object(sys, "argv", [str(REPO / "bin" / "ak"), "run"]))
-        self.niced = []
-        self.stack.enter_context(patch.object(run.os, "nice", side_effect=self.niced.append))
         (config.HOME / "config.toml").write_text("run_memory_max_mb = 512\n")
         self.task = self.root / "fix-api.md"
         self.task.write_text("---\nrepo: none\n---\n# Fix the API\n\n"
@@ -107,7 +106,6 @@ class ForegroundScope(Sandbox):
         self.assertEqual(seen["state"]["pid"], os.getpid())
         self.assertEqual(seen["state"]["scope"], unit)
         self.assertEqual(seen["state"]["memory_cap_mb"], 512)
-        self.assertEqual(self.niced, [10])
         self.assertTrue(host.cgroup_contains(f"/agentkit-test-runs.slice/{unit}.scope"))
         mib = str(512 * 1024 * 1024)
         self.assertEqual(self.called(), [[
@@ -150,30 +148,27 @@ class ForegroundScope(Sandbox):
             with self.subTest(name), patch.dict(os.environ, {"FAKE_REFUSE": refuse or ""}):
                 self.own.write_text(cgroup or SEAT)
                 self.calls.unlink(missing_ok=True)
-                self.niced.clear()
                 seen = self.launch(manager)
                 self.assertEqual(seen["pid"], os.getpid())
                 self.assertEqual((seen["state"]["scope"], seen["state"]["scope_reason"]),
                                  ("none", reason))
                 self.assertNotIn("memory_cap_mb", seen["state"])
-                self.assertEqual(self.niced, [])
                 self.assertEqual(self.scope_lines(seen["log"]),
                                  ["scope: pending", f"scope: none ({reason})"])
                 self.assertEqual([call[0] for call in self.called()],
                                  ["busctl"] if refuse else [])
 
-    def test_a_foreground_resume_goes_on_in_a_scope_of_its_own(self):
-        # an earlier attempt's scope may linger under the plain name, so the resume takes the
-        # next one, and the loop goes on from a copy that names it rather than the last one
+    def resume(self, thread=False):
+        """`ak run resume` of a run an earlier attempt placed; what the loop went on from."""
         directory = config.RUNS / "20261002-0900-fix-the-api"
-        worktree = self.root / "wt-fix-the-api"
-        worktree.mkdir()
-        directory.mkdir(parents=True)
-        (directory / "task.md").write_text(self.task.read_text())
-        (directory / "log.txt").touch()
+        if not directory.exists():
+            (self.root / "wt-fix-the-api").mkdir()
+            directory.mkdir(parents=True)
+            (directory / "task.md").write_text(self.task.read_text())
+        (directory / "log.txt").write_text("")
         record.save_state(directory, {
             "run_id": directory.name, "state": "interrupted", "recovery_pending": True,
-            "scratch": True, "worktree": str(worktree), "rounds": 3,
+            "scratch": True, "worktree": str(self.root / "wt-fix-the-api"), "rounds": 3,
             "scope": f"agentkit-run-{directory.name}", "memory_cap_mb": 512})
         seen = {}
 
@@ -184,21 +179,43 @@ class ForegroundScope(Sandbox):
         with patch.object(orch, "user_manager", return_value=True), \
                 patch.object(orch, "next_scope_unit", side_effect=lambda unit: f"{unit}-2"), \
                 patch.object(run, "drive", side_effect=loop), redirect_stdout(io.StringIO()):
-            self.assertEqual(run.main(["resume", directory.name]), 0)
+            if thread:
+                # a job adopting one of its tasks' runs, in one of its worker threads
+                worker = threading.Thread(target=run.main, args=(["resume", directory.name],))
+                worker.start()
+                worker.join(60)
+            else:
+                self.assertEqual(run.main(["resume", directory.name]), 0)
+        seen["log"] = (directory / "log.txt").read_text()
+        return directory, seen
+
+    def test_a_foreground_resume_goes_on_in_a_scope_of_its_own(self):
+        # an earlier attempt's scope may linger under the plain name, so the resume takes the
+        # next one, and the loop goes on from a copy that names it rather than the last one
+        directory, seen = self.resume()
         unit = f"agentkit-run-{directory.name}-2"
         self.assertEqual(seen["pid"], os.getpid())
         self.assertEqual((seen["prior"]["scope"], seen["prior"]["memory_cap_mb"]), (unit, 512))
         self.assertEqual(record.read_state(directory)["scope"], unit)
         self.assertEqual([call[8] for call in self.called()], [f"{unit}.scope"])
-        self.assertEqual(self.scope_lines((directory / "log.txt").read_text()),
-                         [f"scope: {unit}"])
+        self.assertEqual(self.scope_lines(seen["log"]), [f"scope: {unit}"])
 
-    def test_a_process_that_only_imported_ak_is_never_moved(self):
+    def test_a_process_that_is_not_the_run_alone_or_is_placed_already_stays(self):
+        # a caller that only imported ak (a test), and a job's worker thread, whose process
+        # every task of the job shares: neither is one run's to move
         with patch.object(sys, "argv", [__file__]):
             seen = self.launch()
-        self.assertEqual(self.called(), [])
         self.assertNotIn("scope", seen["state"])
         self.assertEqual(self.scope_lines(seen["log"]), ["scope: pending"])
+        directory, seen = self.resume(thread=True)
+        self.assertEqual(seen["prior"]["scope"], f"agentkit-run-{directory.name}")
+        # a recovery the tick started in the scope its receipt names is where it belongs
+        self.own.write_text(f"0::{USER}/agentkit.slice/agentkit-test.slice/"
+                            f"agentkit-test-runs.slice/agentkit-run-{directory.name}.scope\n")
+        directory, seen = self.resume()
+        self.assertEqual(seen["prior"]["scope"], f"agentkit-run-{directory.name}")
+        self.assertEqual(self.called(), [])
+        self.assertEqual(self.scope_lines(seen["log"]), [])
 
     def test_stopping_its_own_scope_on_the_way_out_keeps_the_exit_status(self):
         # The run's ending stops its scope with this process inside it.  The fake `systemctl`
