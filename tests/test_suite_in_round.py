@@ -102,8 +102,10 @@ class SuiteInRound(unittest.TestCase):
             if role.startswith("reviewer"):
                 reviews.append(role)
                 if len(reviews) == 1:
-                    text = "VERDICT: FAIL\n## Findings\n- AGENTS.md:4 - fixture finding"
+                    text = "VERDICT: FAIL\n## Findings\n- deliverable:1 - fixture finding"
                     (out_dir / "final.md").write_text(text)
+            else:
+                (workspace / "deliverable").write_text("fixture work\n")
             return code, text, sid, dead
 
         with patch.object(worker, "call", side_effect=submitting(worker_call)):

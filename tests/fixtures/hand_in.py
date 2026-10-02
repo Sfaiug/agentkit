@@ -24,26 +24,13 @@ def review_verdicts(text):
     return re.findall(r"^[\s>#*_`]*VERDICT:\s*(PASS|FAIL)(?=[\W_]|$)", text, re.M | re.I)
 
 
-
 def finding_count(text):
-    """How much the reviewer found: the list items under its `## Findings` heading.
-
-    The section ends at the next heading of the same level or higher, never at a deeper one:
-    a reviewer asked to group its findings by pattern writes `### <pattern>` subheadings
-    inside the list, and those sites are findings like any other.  Counted the same way for
-    every round, because what it is for is comparing one round's count with the round before.
-    No heading, or no list under it, is none.
-    """
+    """Count scripted findings, including sites grouped under deeper headings."""
     return len(FINDING_ITEM.findall(findings_section(text)))
 
 
-
 def findings_section(text):
-    """What the reviewer wrote under its `## Findings` heading, or "" without one.
-
-    Bounded the way `finding_count` counts it, so the follow-ups listed after it are never
-    read as blocking.
-    """
+    """Scripted findings stop at the next peer or higher heading."""
     text = text or ""
     heading = FINDINGS.search(text)
     if not heading:
@@ -53,15 +40,8 @@ def findings_section(text):
     return section[:end.start()] if end else section
 
 
-
 def followups_in(text):
-    """The reviewer's `## Follow-ups` items, in order, markers stripped.
-
-    Read like `finding_count` reads `## Findings`: the section ends at the next heading of
-    the same level or higher, never at a deeper one. Evidence indented past its item's
-    marker stays with it, however wide the marker. An item saying there are none is no
-    follow-up: it would start a fix run for nothing.
-    """
+    """Keep each scripted follow-up's indented evidence and omit empty lists."""
     heading = FOLLOWUPS.search(text or "")
     if not heading:
         return []
@@ -79,7 +59,6 @@ def followups_in(text):
             items.append(item.group(1))
     return [item for item in map(str.strip, items)
             if not re.fullmatch(r"(?:none|n/a)\.?", item, re.I)]
-
 
 
 def records(text):
