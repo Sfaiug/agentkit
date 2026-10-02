@@ -480,7 +480,7 @@ TIPS = {
                 "and Discord",
     "esc leave": "Esc leaves ak; the sessions go on working without it",
     "n start a session": "n starts a session and switches this terminal to it, closing the popup",
-    "r rename this session": "r renames this session: its record, its bar and its title follow",
+    "c models": "c opens this session's models: who orchestrates, executes and reviews",
     "x stop this session": "x stops this session and everything it runs, asking first",
     "x close this session": "x closes this session, which is done: its runs, checkouts and files "
                             "go",
