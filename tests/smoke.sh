@@ -1678,7 +1678,7 @@ PY
 retrylaunch retry-exec flaky pass '["opus", "astra"]'
 retrylaunch retry-review work dead    # reviewer never comes back -> fall back to another provider
 
-# Checks 1 to 5, and 6, 6b, 6d, 31d and 31e below, need the outside world: real models,
+# Checks 1 to 5, and 6, 6b, 6d, 31a, 31d and 31e below, need the outside world: real models,
 # GitHub, Discord, live meters, the shared browser.  They run only in the live mode, which
 # tests/live.sh starts before a host takes new code and when a harness upgrades; the landing
 # suite reaches nothing beyond loopback.  Offline twins run in both modes: 19 the delivery
@@ -5065,11 +5065,13 @@ else
 fi
 
 # --- 31: the shared browser and the desktop ---------------------------------
-# 31a-c are offline and run on every machine. 31d and 31e make real model calls through the
+# 31b and 31c are offline and run on every machine; the rest run in the live mode alone.  31a
+# reads the host's own browser stack.  31d and 31e make real model calls through the
 # MCP servers `ak browser mcp-register` wrote, so they only run where the shared Chromium is
 # actually listening on 9222 -- the server. On a Mac they are skipped, not failed. Where the
 # browser answers but its shared MCP server does not, they fail without installing anything:
 # the suite never touches the machine-wide service itself.
+if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 BST=0
 ak browser status >"$WORK/browser-status.txt" 2>&1 || BST=$?
 BSO=$(cat "$WORK/browser-status.txt")
@@ -5082,6 +5084,7 @@ if [ "$BST" = 0 ] &&
 else
   no "31a ak browser status exited $BST"
   sed 's/^/      /' "$WORK/browser-status.txt" | head -8
+fi
 fi
 
 # 31b: mcp-register writes both servers into a claude and a codex config that already hold
