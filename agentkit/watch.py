@@ -36,6 +36,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -5107,15 +5108,110 @@ def say(dry_run, log, text, url, session, merged=False):
     return True
 
 
-# --- after a merge: the target's own checks ---------------------------------
+# --- after a merge: the target's checks and the project's live product ------
 # A merge to a repository's target starts that repository's own checks on the merge
 # commit -- for one project a release gate of 12-25 min that must pass before
 # production deploys.  The tick follows them for three hours, and a failed one goes
-# back to a seat that can fix the target, never to the owner.  One break is said
+# back to a seat that can fix the target, never to the owner. A project's health
+# command follows its deploy in the same window. One break is said
 # once, for its newest failing commit; a later commit all green ends the break.
 
 AFTER_MERGE_WINDOW = 3 * 3600  # seconds a merge commit's checks are followed
 AFTER_MERGE_PASS = ("success", "neutral", "skipped")  # the conclusions that mean green
+HEALTH_TIMEOUT = 30  # a project's live probe must leave time for the rest of the tick
+
+
+def health_command(repo, sha, command):
+    """A bounded live probe and its last output, without inherited pipes holding the tick."""
+    try:
+        with tempfile.TemporaryFile() as output:
+            proc = subprocess.Popen(["bash", "-c", command], cwd=repo,
+                                    env={**os.environ, "AK_MERGE_SHA": sha},
+                                    stdin=subprocess.DEVNULL, stdout=output,
+                                    stderr=subprocess.STDOUT, start_new_session=True)
+            timed_out = False
+            try:
+                proc.wait(timeout=HEALTH_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+            finally:
+                # Even a shell that exited can have left children in its process group.
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            if timed_out:
+                try:
+                    proc.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
+            output.seek(0, os.SEEK_END)
+            output.seek(max(0, output.tell() - 4096))
+            tail = "\n".join(output.read(4096).decode("utf-8", errors="replace").splitlines()[-10:])
+            if timed_out:
+                tail += f"\nhealth command timed out after {HEALTH_TIMEOUT}s"
+            return not timed_out and proc.returncode == 0, tail.strip()
+    except OSError as exc:
+        return False, str(exc)
+
+
+def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes):
+    """Follow the merge's declaration in its original checkout, stopping at its first pass."""
+    from . import history, run
+    inside = now - st["finished_at"] < AFTER_MERGE_WINDOW
+    health = st.get("health") or {}
+    command = health.get("command")
+    if not st.get("live_at") and not command and inside and st.get("repo"):
+        command = run.declared_at(st["repo"], sha, "health")
+    if not st.get("live_at"):
+        if not command:
+            return None
+        if inside:
+            if dry_run:
+                log(f"would check run {run_dir.name}'s live product: {command}")
+                return "pending", None, None
+            probe = (key, sha)
+            if probe not in probes:
+                probes[probe] = health_command(st["repo"], sha, command)
+            passed, output = probes[probe]
+            with run_record.record(run_dir) as current:
+                current["merge_sha"] = sha
+                if passed:
+                    current.setdefault("live_at", now)
+                    current.pop("health", None)
+                else:
+                    current["health"] = {"command": command, "output": output}
+                st.clear()
+                st.update(current)
+            if not passed:
+                return "pending", None, None
+        else:
+            return "failed", f"health: {command}", (
+                f"{pr_url}\n{health.get('output') or 'command exited nonzero without output'}")
+    if not dry_run:
+        history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
+    if not st.get("live_notified"):
+        line = f"run {run_dir.name} is live: {pr_url}."
+        if dry_run:
+            log(f"would tell its launching seat: {line}")
+            return "passed", None, None
+        session = run.launched_session(st)
+        if not session:
+            with run_record.record(run_dir) as current:
+                current["live_notified"] = now
+            return "passed", None, None
+        seat = orch.find(session) if session else None
+        if after_merge_live(seat):
+            def kept(mark):
+                with run_record.record(run_dir) as current:
+                    current["live_typed"] = mark
+
+            if type_at_prompt(seat, line, log, typed=st.get("live_typed"), receipt=kept):
+                with run_record.record(run_dir) as current:
+                    current["live_notified"] = now
+                    current.pop("live_typed", None)
+                log(f"told the {seat['name']} seat: {line}")
+    return "passed", None, None
 
 
 def after_merge_line(check, target, url):
@@ -5315,7 +5411,7 @@ def after_merge_seat(run_state, repo_key):
 
 
 def after_merge_checks(state, dry_run, log, now=None):
-    """Follow merged runs' target checks, and hand one break per repository back to fix.
+    """Follow target checks and health, and hand one break per repository back to fix.
 
     Each merge commit younger than three hours is read the way the loop reads a PR's:
     its latest check runs from `gh`.  Only the newest commit with a failed check is
@@ -5349,13 +5445,17 @@ def after_merge_checks(state, dry_run, log, now=None):
         log(f"WARN merged runs were not followed this tick: {exc}")
         return
     grouped = {}
+    probes = {}
     for run_dir in directories:
         st = run_record.read_state(run_dir)
         if not st or not st.get("merged"):
             continue
         finished = st.get("finished_at")
         if (not isinstance(finished, (int, float)) or isinstance(finished, bool)
-                or not 0 <= now - finished <= AFTER_MERGE_WINDOW):
+                or now < finished):
+            continue
+        if (now - finished > AFTER_MERGE_WINDOW and not st.get("health")
+                and not (st.get("live_at") and not st.get("live_notified"))):
             continue
         pr_url = st.get("pr")
         if not isinstance(pr_url, str) or not pr_url:
@@ -5370,12 +5470,35 @@ def after_merge_checks(state, dry_run, log, now=None):
     for key in sorted(set(grouped) | set(episodes)):
         found = sorted(grouped.get(key, []))
         statuses = []
+        expired_health = []
+
+        def close_health():
+            # Once the episode owns the evidence, an expired probe no longer needs polling.
+            if not dry_run:
+                for directory in expired_health:
+                    with run_record.record(directory) as current:
+                        current.pop("health", None)
+
         for finished, name, run_dir, st, owner, repo, host, sha, pr_url in found:
             if sha is None:
                 statuses.append((finished, name, run_dir, st, None, pr_url,
                                  "unknown", None, None))
                 continue
-            verdict, check, url = after_merge_status(owner, repo, host, sha, log)
+            if now - finished <= AFTER_MERGE_WINDOW:
+                verdict, check, url = after_merge_status(owner, repo, host, sha, log)
+            else:
+                verdict, check, url = "ignored", None, None
+            if now - finished >= AFTER_MERGE_WINDOW and st.get("health"):
+                expired_health.append(run_dir)
+            try:
+                health = after_merge_health(run_dir, st, key, sha, pr_url, now,
+                                            dry_run, log, probes)
+            except (config.Error, OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
+                log(f"WARN run {name}'s health could not be followed: {exc}")
+                health = ("unknown", None, None)
+            if health and verdict != "failed" and (health[0] != "passed" or verdict == "ignored"):
+                if health[0] == "failed" or verdict != "unknown":
+                    verdict, check, url = health
             statuses.append((finished, name, run_dir, st, sha, pr_url, verdict, check, url))
         episode = episodes.get(key)
         if isinstance(episode, str):
@@ -5399,6 +5522,7 @@ def after_merge_checks(state, dry_run, log, now=None):
                     episodes.pop(key, None)
                     notified = None
                 else:
+                    close_health()
                     continue
             elif ended is None:
                 episodes.pop(key, None)
@@ -5411,6 +5535,7 @@ def after_merge_checks(state, dry_run, log, now=None):
                 episodes.pop(key, None)
                 notified = None
             else:
+                close_health()
                 continue
             if notified:
                 continue
@@ -5425,7 +5550,7 @@ def after_merge_checks(state, dry_run, log, now=None):
             check = pending.get("check")
             target = pending.get("target") or "main"
             session = pending.get("session")
-            if (not isinstance(line, str) or not line or typed is None
+            if (not isinstance(line, str) or not line
                     or not isinstance(sha, str) or not sha or finished is None
                     or not isinstance(run_name, str) or not run_name):
                 episode.pop("pending", None)
@@ -5457,6 +5582,7 @@ def after_merge_checks(state, dry_run, log, now=None):
                 else:
                     log(f"run {run_name}'s after-merge notice sits in a composer; "
                         "the next tick presses Enter")
+                close_health()
                 continue
         candidate, at = None, -1
         for i in range(len(statuses) - 1, -1, -1):
@@ -5464,8 +5590,10 @@ def after_merge_checks(state, dry_run, log, now=None):
                 candidate, at = statuses[i], i
                 break
         if candidate is None:
+            close_health()
             continue
         if any(entry[6] == "passed" for entry in statuses[at + 1:]):
+            close_health()
             continue
         if any(entry[6] == "unknown" for entry in statuses[at + 1:]):
             log(f"WARN {key}: a newer merge's checks are unreadable; "
@@ -5491,6 +5619,11 @@ def after_merge_checks(state, dry_run, log, now=None):
             composed.append(True)
             _save()
 
+        if expired_health:
+            # Keep a deadline failure even when no seat is available to compose it yet.
+            fresh(None)
+            composed.clear()
+            close_health()
         if after_merge_deliver(run_dir, st, key, line, log, typed=None, receipt=fresh):
             episodes[key] = {"notified": sha, "at": now, "run": name, "check": check,
                              "finished": finished}

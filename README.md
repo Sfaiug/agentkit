@@ -2,7 +2,7 @@
 
 You talk. It ships.
 
-One command installs it. One word opens it. You tell one orchestrator what you want, and agentkit works until the change is merged or it truly needs you. Then it tells you, once. Each orchestrator's rulebook opens with `What ak is for` from the agentkit checkout's `AGENTS.md`, where present.
+One command installs it. One word opens it. You tell one orchestrator what you want, and agentkit works until the change ships or it truly needs you. Then it tells you, once. Each orchestrator's rulebook opens with `What ak is for` from the agentkit checkout's `AGENTS.md`, where present.
 
 Jobs keep your words since the seat's previous job, capped at the newest 64 KiB, from Claude, Codex or Grok records. ak's notices are excluded; relayed owner replies count. Delivery checks will use them.
 
@@ -68,7 +68,9 @@ After `/clear` in a Claude seat's launched pane, reopening and title changes fol
 
 ## While you are away
 
-Agentkit does not stop until the work is merged, or until it truly needs you. Truly needs you means exactly two things: a question only you can answer, or a failure it has tried every way around. Everything else it handles itself: a provider running dry or down for hours, a crash, a reboot, main moving underneath, its own upgrade (the host moves only to a commit whose `tests/live.sh`, agentkit's checks that need the outside world, passed on it; a run takes the new code at its next round, saying `picked up agentkit <old>..<new>`), a reviewer that hesitates, a test budget that was too small, a stuck session.
+Agentkit does not stop until the work ships, or until it truly needs you. Truly needs you means exactly two things: a question only you can answer, or a failure it has tried every way around. Everything else it handles itself: a provider running dry or down for hours, a crash, a reboot, main moving underneath, its own upgrade (the host moves only to a commit whose `tests/live.sh`, agentkit's checks that need the outside world, passed on it; a run takes the new code at its next round, saying `picked up agentkit <old>..<new>`), a reviewer that hesitates, a test budget that was too small, a stuck session.
+
+A project's `AGENTS.md` front matter can declare `health: <shell command>`, which exits 0 only when the live product works with the change deployed. After merging, each tick reads that declaration at the merge commit and runs it in the original repository checkout with `AK_MERGE_SHA` set to that commit, at most once per commit per tick, with a 30-second timeout that kills its process group. The first pass records `live_at` and tells the launching seat the change is live. A command still failing after three hours goes back once, with its last output, through the same hand-back as failed merge-commit checks. Deploys stay with the project; without `health:`, merging behaves as before.
 
 A turn can end waiting on its job while the launcher is alive and any task is unsettled, even before the first run starts and after a seat rename. A job whose launcher is gone or whose tasks have all settled gives no wait.
 

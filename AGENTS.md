@@ -35,6 +35,7 @@ Every change to ak is judged by what it does for what you build with it, and by 
 - Everything is umbrella: it works for any ak user, machine, provider and project type, never only for this owner's setup. [23 Sep]
 - Only a person opens a seat, and a seat keeps its conversation: `ak orch` with no terminal opens none; Claude seats run with `/background`'s daemon off. Stray seats paged the owner; the daemon mixed them up. [4 Oct]
 - Nothing may ever get stuck: every state recovers by itself, a dead seat or run resumes where it stopped, and the owner hears only when recovery failed. [16 Sep, 19 Sep]
+- Done means live: a project's `health:` line says how to tell its live product works, and a merged change counts as done once that passes with the change deployed; what breaks live comes back in by itself. [2 Oct]
 - The owner sees only what needs them (a seat's question, their own unsent draft, a final failure nobody handles) or a finished job. Of every line on a screen ask "what would the owner do with it?"; if nothing, it goes. The system cleans up after itself. [15 Sep, 18 Sep]
 - Every screen follows `docs/cli-design.md`: plain words that explain themselves, every glyph followed by its word, nothing cut mid-sentence, the same back, forward and exit keys everywhere. [15 Sep, 16 Sep]
 - No test-selection engine and no automatic affected-test selection: a repository declares its own suite, and ak runs it once, at landing, for the passed changes landing together; a round runs only the task's own checks. [16 Sep, 25 Sep, 1 Oct]

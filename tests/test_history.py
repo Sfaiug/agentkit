@@ -40,6 +40,17 @@ class HistoryTests(unittest.TestCase):
         row = self.row()
         self.assertEqual(row[1:7], ("project", "opus", "astra", 2, "pass", "PASS"))
 
+    def test_live_at_migrates_an_existing_database_without_changing_its_ending(self):
+        with sqlite3.connect(history.path()) as db:
+            db.execute(history.SCHEMA)
+            db.execute("INSERT INTO runs (run_id, final_state, finished_at) VALUES (?,?,?)",
+                       ("r1", "pass", 20))
+            self.assertNotIn("live_at", {row[1] for row in db.execute("PRAGMA table_info(runs)")})
+        history.update_run("r1", live_at=30)
+        history.update_run("r1", verdict="PASS")
+        row = history.get("r1")
+        self.assertEqual((row["live_at"], row["finished_at"], row["final_state"]), (30, 20, "pass"))
+
     def test_step_seconds_are_summed(self):
         history.start_run("r1", started_at=10)
         history.add_seconds("r1", "executor", 2)
