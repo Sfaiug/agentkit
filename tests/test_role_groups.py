@@ -255,7 +255,7 @@ class RoleGroups(unittest.TestCase):
             self.assertEqual(lp.spares, ["gamma"])
         lp.executor = "alpha"
         calls, fake = self.turn({"alpha": (1, "usage limit reached", "old", False)})
-        with patch.object(run.worker, "call", side_effect=submitting(fake)), \
+        with patch.object(run.worker, "call", side_effect=fake), \
                 self.refused(self.providers(c=0)), \
                 patch.object(run.time, "sleep"), redirect_stderr(io.StringIO()):
             self.assertEqual(run.execute(lp, "fixer", "Fix it.", "fixer"), "## Summary\nDone.")

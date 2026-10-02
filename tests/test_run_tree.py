@@ -234,7 +234,7 @@ class RunTree(unittest.TestCase):
             return 0, "## Summary\nall done", None, False
 
         self.enter_run_context()
-        with patch.object(worker, "call", side_effect=submitting(attempt)), \
+        with patch.object(worker, "call", side_effect=attempt), \
                 patch.object(run, "TRANSIENT_BACKOFF", (0, 0)):
             code, _, _, dead = run.call_retrying(
                 cfg, "w", "do the thing", self.root, self.root / "out",
@@ -278,7 +278,7 @@ class RunTree(unittest.TestCase):
             seen["worker"] = (env or {}).get("AGENTKIT_RUN")
             return 0, "## Summary\nall done", None, False
 
-        with patch.object(worker, "call", side_effect=submitting(attempt)):
+        with patch.object(worker, "call", side_effect=attempt):
             run.call_retrying(cfg, "w", "do the thing", self.root, self.root / "out",
                               "executor", None, lambda _: None)
         self.assertTrue(seen["worker"].startswith(f"{self.marker}/turn-"))

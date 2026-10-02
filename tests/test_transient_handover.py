@@ -87,7 +87,7 @@ class TransientHandover(unittest.TestCase):
             (0, "## Summary\nDone by the next worker.\n", "sess-b"),
         ])
         sleeps = []
-        with patch.object(run.worker, "call", side_effect=submitting(fake)), \
+        with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append), \
                 patch.object(run, "collect_usage", return_value=self.providers):
             summary = run.execute(lp, "executor", "Do the thing.", "executor")
@@ -149,7 +149,7 @@ class TransientHandover(unittest.TestCase):
             self.assertEqual(why, "transient")
             return None
 
-        with patch.object(run.worker, "call", side_effect=submitting(fake)), \
+        with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append), \
                 patch.object(run, "hand_executor", side_effect=hand):
             summary = run.execute(lp, "executor", "Do the thing.", "executor")
@@ -175,7 +175,7 @@ class TransientHandover(unittest.TestCase):
             (0, "## Summary\nDone after the outage.\n", "sess-a"),
         ])
         sleeps = []
-        with patch.object(run.worker, "call", side_effect=submitting(fake)), \
+        with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append), \
                 patch.object(run, "collect_usage", return_value=self.providers):
             summary = run.execute(lp, "executor", "Do the thing.", "executor")

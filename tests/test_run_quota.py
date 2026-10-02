@@ -124,7 +124,7 @@ class Quota(unittest.TestCase):
                    (1, "HTTP 503 Service Unavailable", "s1", False),
                    (0, "## Summary\nDone.", "s1", False)]
         with patch.object(run.worker, "call",
-                          side_effect=submitting(lambda *a, **k: calls.append(a) or answers[len(calls) - 1])), \
+                          side_effect=lambda *a, **k: calls.append(a) or answers[len(calls) - 1]), \
                 patch.object(run, "time", Clock(sleeps.append)):
             code, text, session, dead = run.call_retrying(
                 self.cfg, "astra", "body", self.root, self.root / "round-1" / "executor", "executor",
@@ -139,7 +139,7 @@ class Quota(unittest.TestCase):
         calls, sleeps, logs = [], [], []
         answers = [(1, "", None, False)] * 6 + [(0, "## Summary\nDone.", "s1", False)]
         with patch.object(run.worker, "call",
-                          side_effect=submitting(lambda *a, **k: calls.append(a) or answers[len(calls) - 1])), \
+                          side_effect=lambda *a, **k: calls.append(a) or answers[len(calls) - 1]), \
                 patch.object(run, "time", Clock(sleeps.append)):
             code, text, session, dead = run.call_retrying(
                 self.cfg, "astra", "body", self.root, self.root / "round-1" / "executor", "executor",
@@ -211,7 +211,7 @@ class Quota(unittest.TestCase):
             return 0, "## Summary\nDone.", "s-opus", False
         # The handover must leave a reviewer with budget too.
         providers = self.providers(openai_used=100, anthropic_used=40, meta_used=50)
-        with patch.object(run.worker, "call", side_effect=submitting(turn)), \
+        with patch.object(run.worker, "call", side_effect=turn), \
                 patch.object(usage, "collect", return_value=providers), \
                 patch.object(run, "time", Clock(
                     MagicMock(side_effect=AssertionError("quota waits on nothing")))), \
@@ -240,7 +240,7 @@ class Quota(unittest.TestCase):
         sent, sleeps = [], []
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
-        with patch.object(run.worker, "call", side_effect=submitting(turn)), \
+        with patch.object(run.worker, "call", side_effect=turn), \
                 patch.object(usage, "collect", return_value=providers), \
                 patch.object(run, "time", Clock(sleeps.append)), \
                 patch.object(notify, "shaped",
@@ -371,7 +371,7 @@ class Quota(unittest.TestCase):
         def turn(cfg, name, body, workspace, out_dir, role, session, env=None, limit=None):
             return 1, "usage limit reached", "s", False
         providers = self.providers(openai_used=100, anthropic_used=40, meta_used=100)
-        with patch.object(run.worker, "call", side_effect=submitting(turn)), \
+        with patch.object(run.worker, "call", side_effect=turn), \
                 patch.object(usage, "collect", return_value=providers), \
                 patch.object(run, "time", Clock(
                     MagicMock(side_effect=AssertionError("quota waits on nothing")))), \
