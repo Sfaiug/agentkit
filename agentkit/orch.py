@@ -2664,6 +2664,8 @@ def cmd_stop(argv):
     """
     if len(argv) != 1:
         raise config.Error("usage: ak orch stop <name>")
+    name = config.resolve_session(argv[0])
+    config.check_stop_owner(name)
     from . import notify, watch
     # Stopping the session this runs in -- the overlay's `x`, or `ak orch stop` from the seat
     # itself -- hangs this very process up halfway through, and the menu redraws the moment
@@ -2674,7 +2676,6 @@ def cmd_stop(argv):
     old = signal.signal(signal.SIGHUP, signal.SIG_IGN)
     try:
         from . import run as run_mod
-        name = config.resolve_session(argv[0])
         # Unfinished runs stop before the lock: each one costs up to STALL_KILL_WAIT
         # inside kill_tree, and nothing it touches is the seat's state. The peek is
         # best effort -- the lock below decides authoritatively -- so a name nobody

@@ -59,7 +59,7 @@ tmux is swept, unless a run of the seat's is unfinished or a question in it is u
 Stopping a session (`x` on its highlighted row, after its one question under the row, `Keep` or `Stop`; `x` on a done session and `ak orch stop <name>` ask
 nothing, so a finished session closes with one `x`) stops every run it launched, removes each run's worktree and local branch, deletes every
 state file named for the seat or for a name it had before a rename, rulebook, idle-compact stamps and locks included, edits its open Discord card to `Answered`, and closes the tabs the seat or its
-runs opened; the collector takes the stop mark a day later. The remote branch stays for the PR, and the run directory for its result. Leaving the menu with Esc leaves a seat running and is not a stop.
+runs opened; the collector takes the stop mark a day later. The remote branch stays for the PR, and the run directory for its result. Leaving the menu with Esc leaves a seat running and is not a stop. From a seat, `ak run stop` and `ak orch stop` refuse another seat's work and name the seat to message instead; own runs and runs without a seat still stop. Without `AGENTKIT_SESSION`, the owner can stop any run or seat.
 
 ## The run
 

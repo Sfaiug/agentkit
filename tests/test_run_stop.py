@@ -42,6 +42,12 @@ def alive(pid):
 
 
 class RunStop(Sandbox):
+    def setUp(self):
+        super().setUp()
+        self.stack.enter_context(patch.dict(os.environ, {"AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
+        for name in ("AGENTKIT_SESSION", "AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG"):
+            os.environ.pop(name, None)
+
     def running(self, name, owner="seat", **extra):
         """A running receipt with a dead pid, unless the caller names a live one."""
         directory = config.RUNS / name
