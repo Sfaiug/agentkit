@@ -3,7 +3,7 @@
 Offline: a local git history, a sandbox HOME and recorded run rows.
 """
 
-from contextlib import ExitStack, redirect_stdout
+from contextlib import ExitStack, closing, redirect_stdout
 import io
 import json
 import os
@@ -118,7 +118,7 @@ class Scoreboard(unittest.TestCase):
         # Old databases kept both suite names and suite repos identifiable only by their record.
         self.ended("old-e2e", tokens=(10000, 10000))
         self.ended("old-tmp", tokens=(10000, 10000))
-        with sqlite3.connect(history.path()) as db:
+        with closing(sqlite3.connect(history.path())) as db, db:
             db.execute("UPDATE runs SET repo='agentkit-e2e' WHERE run_id='old-e2e'")
         self.saved("old-tmp", repo="/home/acme/.agentkit/tmp/suite/repo-retry")
         board = history.scoreboard(NOW)
@@ -146,6 +146,8 @@ class Scoreboard(unittest.TestCase):
             self.ended(name, hours=hours, tokens=tokens)
         stats = history.scoreboard(NOW)["products"][0]
         self.assertEqual((stats["hours"], stats["tokens"]), (1.5, 200))
+        self.ended("large-cost", repo="toolkit", tokens=(1200000, 300001))
+        self.assertIn("1,500,001 tokens", " ".join(self.status("--history").split()))
 
     def test_install_root_identifies_ak_under_any_name_even_in_a_worktree(self):
         (self.repo / "README.md").write_text("fixture\n")
@@ -197,7 +199,7 @@ class Scoreboard(unittest.TestCase):
 
     def test_old_schema_can_supply_a_merge_without_being_migrated_or_rewritten(self):
         config.HOME.mkdir(parents=True)
-        with sqlite3.connect(history.path()) as db:
+        with closing(sqlite3.connect(history.path())) as db, db:
             db.execute("CREATE TABLE runs (run_id TEXT, repo TEXT, final_state TEXT, "
                        "rounds_used INTEGER, started_at REAL, finished_at REAL, "
                        "executor_tokens INTEGER, reviewer_tokens INTEGER)")

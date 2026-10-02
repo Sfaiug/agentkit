@@ -9658,7 +9658,8 @@ def scoreboard_lines():
         if stats["merged"] and stats["tokens"] is None:
             text += "median tokens per merged run unknown"
         elif stats["merged"]:
-            text += f"median {stats['tokens']:g} tokens per merged run"
+            tokens = f"{stats['tokens']:,}".removesuffix(".0")
+            text += f"median {tokens} tokens per merged run"
         if own:
             share = stats["token_share"]
             text += f"; {share:.0%} of all recorded tokens" if share is not None else "; no tokens recorded"
