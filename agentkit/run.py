@@ -3065,7 +3065,7 @@ def latest_turn(round_dir, name):
         return None
     out = dirs[-1]
     return max([out, *out.parent.glob(f"{out.name}-retry*")],
-               key=lambda path: path.stat().st_mtime_ns)
+               key=lambda path: (path.stat().st_mtime_ns, path.name))
 
 
 def open_turn(round_dir, name):
@@ -3615,7 +3615,7 @@ def written_answer(out, text):
     """
     out = Path(out)
     directories = sorted([out, *out.parent.glob(f"{out.name}-retry*")],
-                         key=lambda path: path.stat().st_mtime_ns if path.exists() else 0,
+                         key=lambda path: (path.stat().st_mtime_ns if path.exists() else 0, path.name),
                          reverse=True)
     for directory in directories:
         if read_answer(directory / "final.md") == text:

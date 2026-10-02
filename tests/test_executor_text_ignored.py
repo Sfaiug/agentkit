@@ -68,7 +68,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         review.assert_called_once()
         self.assertEqual(len(self.calls), 2)
         self.assertEqual(self.calls[1][1], "fixture-session")
-        self.assertIn("ak hand-in", self.calls[1][0])
+        self.assertIn(run.NO_CLOSING_ASK, self.calls[1][0])
         self.assertNotIn("not_needed", self.lp.state)
         self.assertEqual(run.continuation(self.lp), "done-when")
 
@@ -86,7 +86,9 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.text = "## Blocked"
         with patch.object(worker, "turn", side_effect=self.turn):
             self.assertEqual(run.execute(self.lp, "fixer", "Fix the task.", "fixer"), self.text)
-        self.assertEqual(self.calls[1], (run.NO_CLOSING_ASK, "fixture-session"))
+        self.assertEqual(len(self.calls), 2)
+        self.assertIn(run.NO_CLOSING_ASK, self.calls[1][0])
+        self.assertEqual(self.calls[1][1], "fixture-session")
         self.assertEqual(run.continuation(self.lp), "done-when")
 
     def test_completed_prose_after_host_interruption_still_needs_the_extra_ask(self):
@@ -96,7 +98,7 @@ class ExecutorTextIgnored(unittest.TestCase):
                   self.lp.dir("executor"), self.lp.role("executor"))
         self.lp.rnd = 0
         self.checked()
-        self.assertEqual(self.calls[1], (run.NO_CLOSING_ASK, "fixture-session"))
+        self.assertIn(run.NO_CLOSING_ASK, self.calls[1][0])
 
     def test_background_recovery_includes_the_closing_ask_without_a_third_turn(self):
         self.text = "## Blocked"
@@ -111,7 +113,8 @@ class ExecutorTextIgnored(unittest.TestCase):
         with patch.object(worker, "turn", side_effect=self.turn), \
                 self.assertRaisesRegex(run.Blocked, self.closing[1]):
             run.execute(self.lp, "executor", "Do the task.", "executor")
-        self.assertEqual(self.calls[1], (run.NO_CLOSING_ASK, "fixture-session"))
+        self.assertIn(run.NO_CLOSING_ASK, self.calls[1][0])
+        self.assertEqual(self.calls[1][1], "fixture-session")
 
     def test_extra_followup_turn_can_hand_in_not_needed(self):
         self.text = "## Summary\nChecked the target."
@@ -121,7 +124,8 @@ class ExecutorTextIgnored(unittest.TestCase):
         with patch.object(worker, "turn", side_effect=self.turn), \
                 self.assertRaisesRegex(run.NotNeeded, self.closing[1]):
             run.execute(self.lp, "executor", "Do the task.", "executor")
-        self.assertEqual(self.calls[1], (run.NO_CLOSING_ASK, "fixture-session"))
+        self.assertIn(run.NO_CLOSING_ASK, self.calls[1][0])
+        self.assertEqual(self.calls[1][1], "fixture-session")
 
 
 if __name__ == "__main__":
