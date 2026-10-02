@@ -7871,15 +7871,21 @@ def handback_line(state, run_dir, cfg=None):
     reviews spent the whole round budget says so and says to split: the task was too big, not
     the worker.  A FAIL a check left behind says no such thing: more rounds of the same task
     would not have passed it either.  A scratch run names its workspace too: the files
-    there are what it delivered.  A run whose lessons file was past its cap says so: the
-    orchestrator keeps that file, and only it can tighten it.
+    there are what it delivered.  A run whose lessons were cut short and whose file is
+    still past its cap says so: the orchestrator keeps that file, and only it can tighten it.
     """
     workspace = (f" Workspace: {state['worktree']}."
                  if state.get("scratch") and state.get("worktree") else "")
     repo = state.get("repo")
-    lessons = (f" {config.HOME / 'lessons' / Path(repo).name}.md is past its 4 KB cap and "
-               "reached the workers cut short: tighten it."
-               if state.get("lessons_truncated") and repo else "")
+    lessons = ""
+    if state.get("lessons_truncated") and repo:
+        path = config.HOME / "lessons" / f"{Path(repo).name}.md"
+        try:
+            if path.stat().st_size > LESSONS_CAP:
+                lessons = (f" {path} is past its 4 KB cap and "
+                           "reached the workers cut short: tighten it.")
+        except OSError:
+            pass
     line = (f"run {run_dir.name} finished {handback_verdict(state, cfg)}: "
             f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace}{lessons} "
             + (f"Started fix runs: {', '.join(state['followup_runs'])}. "
