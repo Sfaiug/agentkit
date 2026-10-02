@@ -70,12 +70,11 @@ def command(argv, env, out_dir=None, *, cwd=None):
     if out_dir is None:
         yield [*cmd, "--", *argv], clean, {}
         return
-    else:
-        report = Path(out_dir).resolve() / PROCESSES
-        report.unlink(missing_ok=True)
-        # PID 1 records children before exiting; its exit makes the kernel kill
-        # every descendant, even one with a new session or an empty environment.
-        argv = [sys.executable, str(Path(__file__).resolve()), str(report), *argv]
+    report = Path(out_dir).resolve() / PROCESSES
+    report.unlink(missing_ok=True)
+    # PID 1 records children before exiting; its exit makes the kernel kill
+    # every descendant, even one with a new session or an empty environment.
+    argv = [sys.executable, str(Path(__file__).resolve()), str(report), *argv]
     read, write = os.pipe()
     try:
         yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {"pass_fds": (write,)}
@@ -96,12 +95,15 @@ def _wait(info):
     except (ValueError, KeyError, ProcessLookupError):
         return
     try:
-        if Path(f"/proc/{pid}/ns/pid").stat().st_ino == info["pid-namespace"]:
+        try:
+            same = Path(f"/proc/{pid}/ns/pid").stat().st_ino == info["pid-namespace"]
+        except FileNotFoundError:
+            # The namespace link disappears before PID 1 finishes teardown.
+            same = True
+        if same:
             poll = select.poll()
             poll.register(fd, select.POLLIN)
             poll.poll()
-    except FileNotFoundError:
-        pass
     finally:
         os.close(fd)
 
