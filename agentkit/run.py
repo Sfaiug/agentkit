@@ -3314,15 +3314,23 @@ def followup_not_needed(lp, summary, why=None):
             raise NotNeeded(answer.group(1).strip())
 
 
+def record_disputes(lp, out):
+    """A provider handover must not lose disputes already accepted during the turn."""
+    out = Path(out)
+    for directory in (out, *out.parent.glob(f"{out.name}-retry*")):
+        submitted = hand_in.read(directory / hand_in.FILE)
+        if submitted is not None and submitted.disputes:
+            path = str(directory / hand_in.FILE)
+            files = lp.state.setdefault("dispute_files", [])
+            if path not in files:
+                files.append(path)
+                lp.save()
+
+
 def worker_result(lp, summary, out, code=0):
     """Read the same closing after a call or a host interruption; text is the fallback."""
+    record_disputes(lp, out)
     submitted = review_records(out, summary)
-    if submitted is not None and submitted.disputes:
-        path = str(written_answer(out, summary).parent / hand_in.FILE)
-        files = lp.state.setdefault("dispute_files", [])
-        if path not in files:
-            files.append(path)
-        lp.save()
     closing = submitted.closing if submitted is not None else None
     if closing:
         if closing["kind"] == "blocked":
@@ -3370,6 +3378,9 @@ def execute(lp, role, text, name):
     # what free_dir writes through, so the round is read exactly where it is written.
     rd = lp.dir(name).parent
     kind, sid = open_turn(rd, name) if rd.is_dir() else (None, None)
+    previous = latest_turn(rd, name) if kind else None
+    if previous is not None:
+        record_disputes(lp, previous)
     out, body, dry = free_dir(lp, name), text, set()
 
     def handover(detail):
@@ -3383,7 +3394,7 @@ def execute(lp, role, text, name):
         lp.exec_sid = sid
         note = {"at": time.time(), "role": role, "restarted": False}
         lp.state["resume_notice"] = note
-        resume = {"fresh_body": text, "resume_note": note}
+        resume = {"fresh_body": text, "resume_note": note, "previous": previous}
     elif kind == "fresh":
         # The host cut the turn off before a session id was recorded. A fresh
         # conversation gets the original prompt; an older id must not be resumed.
@@ -3444,6 +3455,7 @@ def execute(lp, role, text, name):
         finally:
             history_role_tokens(lp.state.get("run_id"), "executor", attempt, lp.log,
                                 lp.cfg, model)
+            record_disputes(lp, attempt)
         if code != 0:
             lp.log(f"WARN {role} {killed_word(code) or f'exited {code}'}; "
                    f"see {out / 'stderr.log'}")

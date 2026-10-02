@@ -53,7 +53,7 @@ class DisputeHandIn(unittest.TestCase):
         run.git(self.wt, "init", "-qb", "main")
         run.git(self.wt, "config", "user.name", "Fixture")
         run.git(self.wt, "config", "user.email", "fixture@example.invalid")
-        (self.wt / "api.py").write_text("enabled = False\nanswer = 1\n")
+        (self.wt / "api.py").write_text("enabled = False\nanswer = 1\nuntouched = True\n")
         run.git(self.wt, "add", ".")
         run.git(self.wt, "commit", "-qm", "Existing behaviour")
         self.base = run.git(self.wt, "rev-parse", "HEAD")
@@ -95,14 +95,15 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         self.lp = run.Loop(self.cfg, self.directory, state, {}, self.logs.append, self.wt,
                            "# Enable the feature and keep the answer correct", ["true"], "context", [])
 
-    def rounds(self, evidence, review_commands=()):
+    def rounds(self, evidence, review_commands=(), extra_disputes=()):
         plans = [
-            {"edits": {"api.py": "enabled = True\nanswer = 0\n"}},
+            {"edits": {"api.py": "enabled = True\nanswer = 0\nuntouched = True\n"}},
             {"commands": [(FINDING, 0), (OTHER, 0)]},
-            {"edits": {"api.py": "enabled = True\nanswer = 1\n"}, "commands": [
+            {"edits": {"api.py": "enabled = True\nanswer = 1\nuntouched = True\n"}, "commands": [
                 (["dispute", "api.py:2", WHY, "--run", "false"], 2),
                 (["dispute", "api.py:1", WHY, *evidence], 0),
-                (["dispute", "api.py:3", WHY, "--run", "touch unhanded-proof"], 2)]},
+                (["dispute", "api.py:3", WHY, "--run", "touch unhanded-proof"], 2)]
+                + [(args, 0) for args in extra_disputes]},
             {"commands": [(args, 0) for args in review_commands]}]
         self.plan.write_text(json.dumps(plans))
         self.lp.rnd = 0
@@ -125,7 +126,7 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         self.assertIn("feature disabled", calls[3]["prompt"])
         self.assertIn(WHY, calls[3]["prompt"])
         self.assertNotIn("## Disputes", calls[1]["prompt"])
-        self.assertEqual((self.wt / "api.py").read_text(), "enabled = True\nanswer = 1\n")
+        self.assertEqual((self.wt / "api.py").read_text(), "enabled = True\nanswer = 1\nuntouched = True\n")
         run.write_result(self.directory, self.lp.state, ["true"], cfg=self.cfg)
         return calls, (self.directory / "result.md").read_text()
 
@@ -154,19 +155,54 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         self.assertEqual(self.lp.state["verdict"], "FAIL")
         self.assertNotIn("## Disputes", result)
 
+    def test_rehanding_a_finding_cannot_bypass_the_loops_proof_weighing(self):
+        command = 'if test "$PROOF_ORIGIN" = fixer; then exit 7; fi; echo "no defect in loop proof"'
+        finding = [*FINDING[:4], "--run", command]
+        _, result = self.rounds(["--run", PROOF], [finding])
+        self.assertEqual(self.lp.state["verdict"], "PASS")
+        self.assertIn("## Disputes", result)
+        self.assertIn("no defect in loop proof", self.lp.state["notes"][0])
+
+    def test_every_dispute_reaches_the_next_review_and_the_dropped_list(self):
+        why = "The quoted assignment also proves it is enabled."
+        calls, result = self.rounds(["--run", PROOF], extra_disputes=[
+            ["dispute", "api.py:1", why, "--quote", "enabled = True"]])
+        self.assertEqual(len(hand_in.read(calls[2]["file"]).disputes), 2)
+        for text in (WHY, why, "proof from loop", "Quote:\n  enabled = True"):
+            self.assertIn(text, calls[3]["prompt"])
+            self.assertIn(text, result)
+
     def cli(self, file, *args):
         return subprocess.run([sys.executable, str(REPO / "bin/ak"), "hand-in", *args],
                               cwd=self.wt, env={**os.environ, hand_in.ENV: str(file)},
                               capture_output=True, text=True, timeout=30)
 
-    def turn(self, role):
-        file = Path(hand_in.start(self.directory, self.wt, role=role))
+    def turn(self, role, out=None):
+        file = Path(hand_in.start(out or self.directory, self.wt, role=role))
         header = json.loads(file.read_text())
         header["findings"] = [{"kind": "finding", "path": "api.py", "line": 1,
                                "what": "feature disabled", "why": "task requires it",
                                "evidence": {"quote": "enabled = False"}}]
         file.write_text(json.dumps(header) + "\n")
         return file
+
+    def test_a_host_ended_fixer_keeps_its_disputes_and_handed_findings(self):
+        self.lp.rnd = 2
+        out = self.lp.dir("executor")
+        out.mkdir(parents=True)
+        file = self.turn("fixer", out)
+        dispute = ["dispute", "api.py:1", "The disabled default is correct.", "--quote", "enabled = False"]
+        result = self.cli(file, *dispute)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        (out / "session_id").write_text("fixture-session")
+        self.plan.write_text(json.dumps([{"commands": [(dispute, 0)]}]))
+        run.execute(self.lp, "fixer", "Continue the fixes.", "executor")
+        call = json.loads(self.calls.read_text())
+        self.assertEqual([row["code"] for row in call["results"]], [0, 0], call["results"])
+        submitted = hand_in.read(call["file"])
+        self.assertTrue(submitted.done)
+        self.assertEqual(len(submitted.disputes), 2)
+        self.assertEqual(submitted.handed_findings, hand_in.read(file).handed_findings)
 
     def test_review_and_first_executor_turns_refuse_disputes_before_running_the_proof(self):
         for role in ("reviewer", "reviewer-pr", "reviewer-scratch", "executor", "executor-scratch"):
