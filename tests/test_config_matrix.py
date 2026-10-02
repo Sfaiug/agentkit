@@ -403,8 +403,8 @@ class Matrix(unittest.TestCase):
         lines = screen.press(DOWN * 10, lambda lines: highlighted(lines).startswith("› Version"))
         self.assertLessEqual(len(lines), 23)
         self.assertNotIn("exec needs", "\n".join(lines))   # until the next key
-        # The lower rows scroll into view to leave room for explanations.
-        lines = screen.press(UP * 3, lambda lines: "add a model" in "\n".join(lines))
+        # Wait for selection: the row is already visible on the first Up redraw.
+        lines = screen.press(UP * 3, lambda lines: highlighted(lines) == "› + add a model")
         self.assertEqual(highlighted(lines), "› + add a model")
         self.assertLessEqual(len(lines), 23)
         screen.leave()
