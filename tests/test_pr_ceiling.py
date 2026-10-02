@@ -140,6 +140,20 @@ class PrCeiling(unittest.TestCase):
         self.change(300)
         self.assertEqual(self.review()[0]["state"], "pass")
 
+    def test_an_own_pr_review_carries_the_seats_open_plan_lines(self):
+        config.plan_path("fix-api").write_text(
+            "- [x] the gate opens · your eye · acme · written 2026-10-01 10:00"
+            " · done your yes 2026-10-01 11:00\n"
+            "- [ ] the fence holds · check: `test -f fence.txt` · acme · written 2026-10-02 12:00\n")
+        self.change(5)
+        own = Path(self.review()[0]["task"]).read_text()
+        self.assertIn("## The plan this PR serves", own)
+        self.assertIn("- [ ] the fence holds · check: `test -f fence.txt`", own)
+        self.assertNotIn("the gate opens", own)
+        self.assertIn("a finding whose proof is that line's check, run with `--run`", own)
+        theirs = Path(self.review(author="acme-friend")[0]["task"]).read_text()
+        self.assertNotIn("## The plan this PR serves", theirs)
+
     def test_another_authors_pr_and_a_review_without_a_seat_run(self):
         self.change(1000)
         for author, seat in (("other", "fix-api"), ("owner", "")):
