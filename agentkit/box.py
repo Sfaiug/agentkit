@@ -38,7 +38,8 @@ def _credentials(env, cwd):
     # A named credential store is just as readable as the default one. Ask Git so
     # includes and repository-local settings use its own precedence and quoting.
     result = subprocess.run(["git", "config", "--get-regexp", r"^credential(\..*)?\.helper$"],
-                            cwd=cwd, env=env, capture_output=True, text=True, timeout=10)
+                            cwd=cwd, env={**env, "GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1"},
+                            capture_output=True, text=True, timeout=10)
     for line in result.stdout.splitlines():
         try:
             helper = line.split(None, 1)[1]
