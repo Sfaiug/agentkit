@@ -2,7 +2,7 @@
 # The end-of-turn rule, where prose cannot enforce it.
 #
 # An orchestrator turn ends in exactly one of three ways -- a question the user must answer,
-# `ak notify done` because the job is finished, or a run it is waiting on, which includes the
+# `ak notify done` because the job is finished, or a run or live job it is waiting on, including
 # background work it started in its own harness while the harness still lists it in flight, and
 # another session's work it said it waits on with `ak wait`, for as long as `watch.waiting_on`
 # says that session is working.  A turn the owner opened with a question ends on its answer too:
@@ -63,6 +63,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit.run import going, handback_reason, unfinished, ways_out
+from agentkit.job import JOB_TERMINAL, job_dirs, read_job, reap_job
 from agentkit.watch import waiting_on
 
 HOPS = 8            # how many renames a seat name is followed through, as agentkit/config does
@@ -232,11 +233,11 @@ def told(seat, turn, kind, peer=False):
 
 
 def waiting(seat, turn):
-    """A run this turn launched from this seat, or one of this seat's runs still going."""
+    """A run this turn launched from this seat, or one of its runs or live jobs still going."""
     try:
         directories = sorted(path for path in RUNS.iterdir() if path.is_dir())
     except OSError:
-        return False
+        directories = []
     for directory in directories:
         state = read(directory / "run.json")
         owner = state.get("launched_session") or state.get("session")
@@ -251,6 +252,22 @@ def waiting(seat, turn):
             when = moment(state.get(key))
             if when is not None and when >= turn:
                 return True
+    # A job can still be waiting for workers before any task has a run directory.
+    try:
+        directories = job_dirs()
+    except OSError:
+        return False
+    for directory in directories:
+        job = read_job(directory)
+        if not job or not isinstance(job.get("tasks"), list):
+            continue
+        owner = job.get("seat")
+        if not isinstance(owner, str) or not owner or (owner != seat and resolve(owner) != seat):
+            continue
+        if reap_job(directory, job) and any(
+                isinstance(task, dict) and task.get("state") not in JOB_TERMINAL
+                for task in job["tasks"]):
+            return True
     return False
 
 
