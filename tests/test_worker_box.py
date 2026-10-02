@@ -5,6 +5,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import signal
 import sys
 import tempfile
 import time
@@ -16,13 +17,19 @@ sys.path.insert(0, str(REPO))
 from agentkit import box, config, run, worker
 
 
-ADAPTER = r'''import json, os, subprocess, sys, time
+ADAPTER = r'''import json, os, signal, subprocess, sys, time
 from pathlib import Path
 if sys.argv[1] == "auth":
     print("fixture login")
     sys.exit(0)
 root = Path(os.environ["BOX_FIXTURE"])
 out = Path(sys.argv[6])
+if os.environ.get("BOX_TERM"):
+    def term(*_):
+        (out / "session_id").write_text("fixture-session")
+        if os.environ["BOX_TERM"] == "exit":
+            sys.exit(0)
+    signal.signal(signal.SIGTERM, term)
 def read(path):
     try:
         return path.read_text()
@@ -65,6 +72,8 @@ if os.environ.get("BOX_LEAK", "1") == "1":
         time.sleep(.01)
 (out / "final.md").write_text(json.dumps(seen))
 (out / "events.jsonl").write_text("{}\n")
+if os.environ.get("BOX_SIGNAL"):
+    os.kill(os.getpid(), int(os.environ["BOX_SIGNAL"]))
 if os.environ.get("BOX_HANG"):
     time.sleep(300)
 sys.exit(int(os.environ.get("BOX_EXIT", "0")))
@@ -95,7 +104,7 @@ class WorkerBox(unittest.TestCase):
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "GH_CONFIG_DIR",
                     "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "BOX_LEAK", "BOX_NEST", "BOX_HANG",
-                    "BOX_EXIT", "BOX_INSPECT", "BOX_PATHS"):
+                    "BOX_EXIT", "BOX_INSPECT", "BOX_PATHS", "BOX_SIGNAL", "BOX_TERM"):
             os.environ.pop(key, None)
         self.stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
         # The only real child is our fixture. No marker sweep may inspect the hosting run.
@@ -204,11 +213,62 @@ class WorkerBox(unittest.TestCase):
         self.assertFalse(self.alive(self.root / "nested"))
         self.assertFalse(self.alive())
 
+    def test_signal_deaths_keep_their_status_without_reinterpreting_exit_codes(self):
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            with self.subTest(signal=sig), patch.dict(os.environ, {
+                    "BOX_LEAK": "0", "BOX_SIGNAL": str(sig)}):
+                code, _, _, killed, left = self.turn()
+                self.assertEqual((code, killed, left), (-sig, False, False))
+                self.assertEqual(run.killed_word(code), f"killed ({sig.name})")
+        for status in (137, 143):
+            with self.subTest(exit=status), patch.dict(os.environ, {
+                    "BOX_LEAK": "0", "BOX_EXIT": str(status)}):
+                code, _, _, killed, left = self.turn()
+                self.assertEqual((code, killed, left), (status, False, False))
+                self.assertIsNone(run.killed_word(code))
+
     def test_silence_kills_unmarked_detached_children_too(self):
-        with patch.dict(os.environ, {"BOX_HANG": "1"}):
-            code, _, _, killed, _ = self.turn(limit=2)
-        self.assertEqual((code, killed), (worker.TIMEOUT, True))
+        with patch.dict(os.environ, {"BOX_HANG": "1", "BOX_TERM": "exit"}):
+            code, _, session, killed, _ = self.turn(limit=2)
+        self.assertEqual((code, session, killed), (worker.TIMEOUT, "fixture-session", True))
         self.assertTrue((self.out / "ready").exists())
+        self.assertFalse(self.alive())
+
+    def test_abort_and_interrupt_allow_harness_cleanup(self):
+        with patch.dict(os.environ, {"BOX_HANG": "1", "BOX_TERM": "exit", "BOX_LEAK": "0"}):
+            with self.subTest(stop="abort"), patch.object(worker, "auth_scanner", return_value=(
+                    lambda out: "fixture login expired" if (out / "events.jsonl").exists() else None)):
+                with self.assertRaises(worker.LoginExpired) as expired:
+                    self.turn()
+                self.assertEqual(expired.exception.session, "fixture-session")
+
+            self.out = self.root / "interrupt"
+            original = worker.subprocess.Popen.communicate
+            interrupted = False
+
+            def interrupt(proc, *args, **kwargs):
+                nonlocal interrupted
+                if proc.args[0] == "bwrap" and not interrupted:
+                    deadline = time.monotonic() + 5
+                    while not (self.out / "events.jsonl").exists():
+                        if time.monotonic() > deadline:
+                            raise RuntimeError("fixture adapter never started")
+                        time.sleep(.01)
+                    interrupted = True
+                    raise KeyboardInterrupt
+                return original(proc, *args, **kwargs)
+
+            with self.subTest(stop="interrupt"), \
+                    patch.object(worker.subprocess.Popen, "communicate", interrupt), \
+                    self.assertRaises(KeyboardInterrupt):
+                self.turn()
+            self.assertEqual((self.out / "session_id").read_text(), "fixture-session")
+
+    def test_term_resistant_turn_is_still_forcibly_destroyed(self):
+        with patch.dict(os.environ, {"BOX_HANG": "1", "BOX_TERM": "ignore"}), \
+                patch.object(worker, "KILL_GRACE", .2):
+            code, _, session, killed, _ = self.turn(limit=2)
+        self.assertEqual((code, session, killed), (worker.TIMEOUT, "fixture-session", True))
         self.assertFalse(self.alive())
 
     def test_launch_refuses_before_allocating_without_bubblewrap(self):
