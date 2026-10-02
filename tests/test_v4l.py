@@ -661,7 +661,7 @@ esac
                    "PATH": f"{root}:{os.environ['PATH']}", "AGENTKIT_ACCEPTANCE_REQUIRED": "0"}
 
             def spend(*spent):
-                providers = {provider: {"meters": [{"name": "weekly", "used": 100 if provider in spent else 10,
+                providers = {provider: {"meters": [{"name": "weekly_all", "used": 100 if provider in spent else 10,
                     "exhausted": provider in spent, "resets_at": 9999999999}]}
                     for provider in dict.fromkeys(("anthropic", "openai", *spent)) if provider}
                 (root / "usage-real.json").write_text(json.dumps({"providers": providers}))
