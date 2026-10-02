@@ -786,7 +786,7 @@ esac
                  "working", "opus/astra 2/3", "15m"],
                 ["2", "Another title", "parser", "needs you", "spark/fable 1/1", "2h"]]
         rows.append(["3", "Title", "owner", "exited", "spark/fable 100/100", "125d"])
-        with patch.object(menu.shutil, "get_terminal_size", return_value=os.terminal_size((40, 24))):
+        with patch.object(menu.terminal, "width", return_value=40):
             out = io.StringIO()
             with redirect_stdout(out):
                 menu.table(rows)
@@ -799,7 +799,7 @@ esac
             self.assertEqual(lines[2 * index + 1].split(), row[4].split() + [row[5]])
 
     def test_40_columns_always_uses_two_lines_even_for_short_titles(self):
-        with patch.object(menu.shutil, "get_terminal_size", return_value=os.terminal_size((40, 24))):
+        with patch.object(menu.terminal, "width", return_value=40):
             out = io.StringIO()
             with redirect_stdout(out):
                 menu.table([["1", "t", "a", "done", "opus/astra 1/1", "1s"]])

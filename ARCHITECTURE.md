@@ -68,7 +68,7 @@ Each module: its knowledge, API and callers. Leaks are named;
   up into menu, run, watch and orch.
 - `update.py`: manifest `[update]` upgrades, rollback and agentkit's update (`go_live`).
   Used by menu, orch, run, watch. Leak: `MuseSnapshot` knows Muse's layout.
-- `history.py`: SQLite `history.db` of runs and steps; duration and memory estimates. Used
+- `history.py`: SQLite `history.db` of runs and steps; active duration estimates. Used
   by run, menu, harness. Leaks: reads run.json directly; parses harness event logs.
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
   cleanup, compression. Used by gc, run, orch, update, notify. Leaks: Claude and Codex

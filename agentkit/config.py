@@ -20,10 +20,10 @@ RUNS, WT, STATE, SECRETS, TMP, ENV, WORK = (
     HOME / n for n in ("runs", "wt", "state", "secrets", "tmp", "env", "work"))
 
 
+# Python calls __getattr__ for config.JOBS: it follows HOME wherever a test or a checkout
+# moves it, so sandboxing HOME keeps job receipts out of the owner's real ~/.agentkit.
+# Anything patching config.JOBS explicitly keeps working, since it shadows this fallback.
 def __getattr__(name):
-    # JOBS follows HOME wherever a test or a checkout moves it, so sandboxing HOME is
-    # enough to keep job receipts out of the owner's real ~/.agentkit; anything patching
-    # config.JOBS explicitly keeps working, since that shadows this fallback.
     if name == "JOBS":
         return HOME / "jobs"
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -617,7 +617,7 @@ class Limits(unittest.TestCase):
         self.repo()
         for key, value in (("turn_hours", "inf"), ("turn_hours", "1e999"), ("turn_hours", "nan"),
                            ("turn_hours", "-0"), ("done_when_minutes", "inf"),
-                           ("done_when_minutes", str(worker.LIMIT_MAX)),
+                           ("done_when_minutes", "1e20"),
                            ("done_when_minutes", "0"), ("done_when_minutes", "never"),
                            ("stall_minutes", "never")):
             with self.subTest(key=key, value=value):

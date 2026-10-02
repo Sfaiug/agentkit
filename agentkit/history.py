@@ -12,7 +12,6 @@ from statistics import median
 from . import config
 
 _LOCK = threading.Lock()
-MIN_FREE_MB = 512
 SUMMARY_TASKS = 20    # the status line looks back over this many finished runs per repo
 SUMMARY_WORDS = 400   # ... and contrasts tasks over this many words outside the checks block
 SUMMARY_POINTS = 3    # ... and tasks over this many numbered goal points, by median rounds
@@ -374,21 +373,6 @@ def estimate_seconds(repo):
         return None
     values = [seconds for seconds in map(active_seconds, rows) if seconds]
     return float(median(values)) if len(values) >= 5 else None
-
-
-def estimate_memory_mb(repo):
-    rows = _rows(repo, "peak_rss_mb", limit=20)
-    values = sorted(float(row[_index()["peak_rss_mb"]]) for row in rows
-                    if row[_index()["peak_rss_mb"]] is not None)
-    if not values:
-        return None
-    rank = max(0, min(len(values) - 1, math.ceil(.9 * len(values)) - 1))
-    return values[rank]
-
-
-def memory_requirement(repo, min_free_mb=MIN_FREE_MB):
-    estimate = estimate_memory_mb(repo) if repo else None
-    return max(float(min_free_mb), 1.2 * estimate) if estimate is not None else None
 
 
 def _ensure_migrated():

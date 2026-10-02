@@ -68,7 +68,6 @@ KILL_GRACE = 5      # how long a killed process group is given to go quietly bef
 RUN_MARKER = "AGENTKIT_RUN"   # every process of a run carries its directory path
 MARK_KILL_GRACE = 10   # how long marked processes get to go quietly after TERM before KILL
 ACTIVITY_POLL = 1   # file-backed harness output has no portable readiness notification
-LIMIT_MAX = threading.TIMEOUT_MAX    # the longest wait a timer can actually be armed for
 AUTH_CAP = 20       # the `auth` verb reads a file; one still silent after this is not answering
 AUTH_GRACE = 60     # a turn that was over this fast and said nothing never reached the model
 STDERR_CHUNK = 64 * 1024   # how much of a turn's diagnostics is held in memory while scanning
