@@ -26,13 +26,21 @@ from agentkit import record
 USER = f"/user.slice/user-{os.getuid()}.slice/user@{os.getuid()}.service"
 SEAT = f"0::{USER}/agentkit.slice/agentkit-test.slice/agentkit-test-seats.slice/acme.scope\n"
 BUSCTL = """#!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, time
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps(["busctl", *sys.argv[1:]]) + "\\n")
 if os.environ.get("FAKE_REFUSE"):
     sys.stderr.write(os.environ["FAKE_REFUSE"] + "\\n")
     sys.exit(1)
 unit = sys.argv[sys.argv.index("fail") - 1]
+if os.environ.get("FAKE_QUEUE"):
+    # the manager queued the move as a job, and the reply is lost or never comes in time
+    with open(os.environ["FAKE_CGROUP"] + ".queued", "w") as queued:
+        queued.write(unit)
+    if os.environ["FAKE_QUEUE"] == "timeout":
+        time.sleep(5)
+    sys.stderr.write("Failed to receive reply: Connection reset by peer\\n")
+    sys.exit(1)
 with open(os.environ["FAKE_CGROUP"], "w") as cgroup:
     cgroup.write(f"0::{os.environ['FAKE_USER']}/agentkit.slice/agentkit-test.slice/"
                  f"agentkit-test-runs.slice/{unit}\\n")
@@ -68,6 +76,8 @@ class ForegroundScope(Sandbox):
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         self.stack.enter_context(patch.object(host, "OWN_CGROUP", self.own))
         self.stack.enter_context(patch.object(orch, "scope_oom_policy", return_value=True))
+        # a refusal is waited on as long as any answer; the fake busctl still starts in time
+        self.stack.enter_context(patch.object(orch, "SLICE_WAIT", 2))
         self.stack.enter_context(patch.object(run, "refresh_seat_tally"))
         # `ak run` itself, not this test: only that process is a run's to move
         self.stack.enter_context(patch.object(sys, "argv", [str(REPO / "bin" / "ak"), "run"]))
@@ -186,6 +196,27 @@ class ForegroundScope(Sandbox):
                                  (unit, 512))
                 self.assertEqual(self.niced, [10])
                 self.assertEqual(self.scope_lines(seen["log"])[-1], f"scope: {unit}")
+
+    def test_a_move_queued_before_busctl_failed_is_waited_for(self):
+        # The queued move lands just after this process first reads its old cgroup.
+        queued, contains = Path(f"{self.own}.queued"), host.cgroup_contains
+
+        def cgroup_contains(name, pid="self"):
+            answer = contains(name, pid)
+            if queued.exists() and name == f"/{queued.read_text()}":
+                self.own.write_text(f"0::{USER}/agentkit-test-runs.slice/{queued.read_text()}\n")
+                queued.unlink()
+            return answer
+
+        for mode in ("reply-error", "timeout"):
+            with self.subTest(mode), patch.dict(os.environ, {"FAKE_QUEUE": mode}), \
+                    patch.object(host, "cgroup_contains", side_effect=cgroup_contains):
+                self.own.write_text(SEAT)
+                seen = self.launch()
+                unit = f"agentkit-run-{seen['run_dir'].name}"
+                self.assertTrue(contains(f"/{unit}.scope"))
+                self.assertEqual((seen["state"]["scope"], seen["state"]["memory_cap_mb"]),
+                                 (unit, 512))
 
     def resume(self, thread=False):
         """`ak run resume` of a run an earlier attempt placed; what the loop went on from."""

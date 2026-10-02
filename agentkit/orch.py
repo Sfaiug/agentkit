@@ -710,9 +710,9 @@ def scope_self(unit, target_slice, properties=(), placement=None):
                   if asked.returncode != 0 else None)
     except (OSError, subprocess.SubprocessError) as exc:
         failed = f"busctl failed ({exc})"
-    # The cgroup is the answer whatever the client says: a reply lost after the manager took
-    # the request still moved this process.  A failed call is looked at once, not waited on.
-    deadline = time.monotonic() + (0 if failed else SLICE_WAIT)
+    # The cgroup is the answer whatever the client says: the manager queues the move as a job,
+    # so one it took before the reply was lost or late may still land, and is waited for.
+    deadline = time.monotonic() + SLICE_WAIT
     while not host.cgroup_contains(f"/{unit}.scope"):
         if time.monotonic() >= deadline:
             return unplaced(failed or f"{unit}.scope never took this process")
