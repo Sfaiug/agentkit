@@ -3119,31 +3119,25 @@ def host_ended_prompt(state):
             "do not start over.")
 
 
+def latest_worker_turn(round_dir):
+    """The latest worker attempt supersedes earlier attempts, even when it closed."""
+    rd = Path(round_dir)
+    if not rd.is_dir():
+        return None
+    turns = [latest_turn(rd, role_base(path.name)) for path in rd.iterdir()
+             if path.is_dir() and "-retry" not in path.name
+             and not path.name.startswith("reviewer")]
+    return max(turns, key=lambda path: (path.stat().st_mtime_ns, path.name), default=None)
+
+
 def open_worker(lp):
     """`(name, kind, session)` of the open executor/fixer attempt, or three Nones."""
-    rd = lp.round_dir
-    if not rd.is_dir():
+    latest = latest_worker_turn(lp.round_dir)
+    if latest is None:
         return None, None, None
-    best = None
-    for path in rd.iterdir():
-        if not path.is_dir() or "-retry" in path.name:
-            continue
-        base = role_base(path.name)
-        if base.startswith("reviewer"):
-            continue
-        kind, sid = open_turn(rd, base)
-        if not kind:
-            continue
-        latest = latest_turn(rd, base)
-        try:
-            mtime = latest.stat().st_mtime
-        except OSError:
-            mtime = 0
-        if best is None or mtime >= best[0]:
-            best = (mtime, base, kind, sid)
-    if best is None:
-        return None, None, None
-    return best[1], best[2], best[3]
+    name = role_base(latest.name.split("-retry", 1)[0])
+    kind, sid = open_turn(lp.round_dir, name)
+    return (name, kind, sid) if kind else (None, None, None)
 
 
 def open_review(round_dir):
@@ -3177,22 +3171,9 @@ def open_review(round_dir):
 
 def saved_worker_answer(round_dir):
     """The executor or fixer answer file already written for this round."""
-    for name in ("fixer", "executor"):
-        text = finished_answer(round_dir, name)
-        if text is not None:
-            return latest_turn(round_dir, name) / "final.md"
-    if not Path(round_dir).is_dir():
-        return None
-    for path in sorted(Path(round_dir).iterdir(), key=lambda item: item.name):
-        if not path.is_dir() or "-retry" in path.name:
-            continue
-        base = role_base(path.name)
-        if base.startswith("reviewer"):
-            continue
-        text = finished_answer(round_dir, base)
-        if text:
-            return latest_turn(round_dir, base) / "final.md"
-    return None
+    latest = latest_worker_turn(round_dir)
+    answer = latest / "final.md" if latest is not None else None
+    return answer if answer is not None and answer.is_file() else None
 
 
 def settled_gate(lp):
@@ -3246,8 +3227,7 @@ def continuation(lp):
         return "reviewer"
     if open_worker(lp)[0]:
         return "worker"
-    if (lp.state.get("step") == "done-when" or finished_answer(rd, "executor") is not None
-            or finished_answer(rd, "fixer") is not None):
+    if lp.state.get("step") == "done-when" or saved_worker_answer(rd) is not None:
         return "done-when"
     return None
 
@@ -3268,7 +3248,8 @@ def record_disputes(lp, out):
 def worker_result(lp, summary, out):
     """Read the same closing after a call or a host interruption."""
     record_disputes(lp, out)
-    submitted = review_records(out, summary)
+    answer = written_answer(out, summary).parent
+    submitted = hand_in.read(answer / hand_in.FILE)
     closing = submitted.closing if submitted is not None else None
     if closing:
         if closing["kind"] == "blocked":
@@ -3276,6 +3257,11 @@ def worker_result(lp, summary, out):
         if (closing["kind"] == "not-needed" and lp.state.get("followup")
                 and not lp.state.get("round_summaries")):
             raise NotNeeded(closing["why"])
+    # A closing reply may be only an acknowledgement; retain the work prose on restart too.
+    name = re.split(r"-retry-(?:hand-in|foreground)", answer.name, maxsplit=1)[0]
+    work = read_answer(answer.with_name(name) / "final.md")
+    if work and work != summary:
+        summary = f"{work}\n\n{summary}"
     return summary
 
 
@@ -3339,7 +3325,7 @@ def execute(lp, role, text, name):
                        or "-retry-hand-in" in previous.name or "-retry-foreground" in previous.name)
     if closing_asked:
         body = NO_CLOSING_ASK
-        out = free_dir(lp, f"{name}-retry-hand-in")
+        out = free_dir(lp, f"{previous.name}-retry-hand-in")
     if role == "fixer" and "## Reviewer findings to fix\n" in text and lp.state.get("findings_file"):
         findings = Path(lp.state["findings_file"]).with_name(hand_in.FINDINGS_FILE)
         if findings.is_file():
@@ -3409,7 +3395,7 @@ def execute(lp, role, text, name):
             resume["previous"] = written_answer(out, summary).parent
             body = NO_CLOSING_ASK
             closing_asked = True
-            out = free_dir(lp, f"{name}-retry-hand-in")
+            out = free_dir(lp, f"{resume['previous'].name}-retry-hand-in")
             continue
         return worker_result(lp, summary, out)
 
