@@ -6,9 +6,9 @@ tests: bash tests/smoke.sh; smoke=$?; python3 tests/every_file.py && exit $smoke
 
 ## What ak is for
 
-You state an intent and get the finished result, live. It always takes one path: intent → alignment → build → review → live. ak delegates, asks the user only what only they can answer, and keeps running review rounds until the work passes.
+ak builds whatever software you want. You state an intent and get the finished result, live. It always takes one path: intent → alignment → build → review → live, and what breaks live comes back in as a new intent. ak delegates, asks the user only what only they can answer, and keeps running review rounds until the work passes.
 
-Every change to ak is judged by these four rules:
+Every change to ak is judged by what it does for the software built with it, and by these four rules:
 
 1. **Less.** Use the fewest features, steps, options and concepts that reach the goal. The best part is no part, and the best process is no process. ak decides everything it can and never offers a choice it could make itself. It explains itself in plain words, so nobody needs a manual. If an addition is not a clear yes, it is a no.
 2. **Quality, then speed, then cost.** The ideal is the best result, instantly, for nothing. When two of these pull apart, the one earlier in this list wins.
