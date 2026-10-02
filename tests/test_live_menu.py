@@ -46,8 +46,12 @@ class LiveMenu(Sandbox):
         return found
 
     def cache(self, providers, fetched_at=NOW):
-        (config.STATE / "usage.json").write_text(
+        # The watcher can read during this write; production also replaces the whole file.
+        cache = config.STATE / "usage.json"
+        tmp = cache.with_suffix(".tmp")
+        tmp.write_text(
             json.dumps({"fetched_at": fetched_at, "providers": providers}))
+        tmp.replace(cache)
 
     def rows(self, width=100):
         return [terminal.plain(line) for line in menu.usage_lines(self.cfg, width)]

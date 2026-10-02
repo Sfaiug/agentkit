@@ -149,7 +149,7 @@ class ToolRetry(unittest.TestCase):
             self.assertIn("PASS not merged", line)
             self.assertEqual(run.retry_command(state), "ak run merge fix-api")
             self.assertIn(run.retry_command(state), line)
-            self.assertNotIn("resume", line)
+            self.assertNotIn("resume", line.replace(str(REPO), ""))
 
 
 if __name__ == "__main__":
