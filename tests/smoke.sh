@@ -2078,7 +2078,7 @@ elif [ "$PAIRRC" != 0 ]; then
   skip_checks 4b/4c/4d "prerequisite run did not happen: no executor and reviewer were picked"
 elif [ -z "$PAIR" ]; then
   # skip before cloning or resetting the remote baseline, not after a worker's 429
-  skip_checks 4/4b/4c/4d "every model this host can run has a spent window"
+  skip_spent_checks 4/4b/4c/4d "every model this host can run has a spent window"
 elif ! smoke_lock_hold "$SMOKE_LOCK_WAIT"; then
   no "4 ak run: every smoke target is still another suite's after ${SMOKE_LOCK_WAIT}s; none was this suite's to reset"
   skip_checks 4b/4c/4d "prerequisite run did not happen: every smoke target is another suite's"
