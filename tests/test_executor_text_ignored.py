@@ -192,6 +192,35 @@ class ExecutorTextIgnored(unittest.TestCase):
                 self.assertIn(work, review.call_args.args[1])
                 self.assertEqual(len(self.calls), 2)
 
+    def test_review_checkout_left_after_interruption_cannot_hide_the_work_summary(self):
+        for name in ("executor", "fixer", "final-fixer", "executor-fable-attempt2"):
+            with self.subTest(worker=name):
+                work = f"## Summary\nChanged api.py in the {name} turn."
+                self.lp.rnd = 1
+                answered = self.lp.dir(name)
+                answered.mkdir(parents=True)
+                (answered / "final.md").write_text(work)
+                role = "executor" if name.startswith("executor") else "fixer"
+                file = hand_in.start(answered, self.lp.wt, role=role)
+                with patch.dict(os.environ, {hand_in.ENV: file}):
+                    self.assertEqual(hand_in.main(["done"]), 0)
+                (self.lp.round_dir / "donewhen.log").write_text("$ true\n[exit 0]\n")
+                # The host stopped before reviewer_checkout could remove its copy.
+                stale = self.lp.dir("review-checkout")
+                stale.mkdir(exist_ok=True)
+                (stale / f"{name}.py").write_text("print(1)\n")
+                for step in ("reviewer", "done-when"):
+                    with self.subTest(step=step):
+                        self.lp.rnd = 0
+                        self.lp.state["step"] = step
+                        with patch.object(worker, "turn", side_effect=AssertionError(
+                                "the worker already closed")) as turns, \
+                                patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]")), \
+                                patch.object(run, "review", return_value="PASS") as review:
+                            run.rounds(self.lp)
+                        turns.assert_not_called()
+                        self.assertIn(work, review.call_args.args[1])
+
     def test_host_interruption_during_the_extra_ask_resumes_it_without_another_ask(self):
         work = "## Summary\nChanged api.py and added a regression test."
         self.text = "Closed."
