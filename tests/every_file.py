@@ -152,11 +152,12 @@ def main(root):
     readings = dict(readings, slice_cpu_quota=None, cpus=cores)
     # A run holding its merge turn weighs its scope above every other run's: the kernel owes
     # this suite that share of the cores however busy the others keep them, so it counts no
-    # fewer idle.  Its share, not more: the others' weights still claim the rest.
+    # fewer idle.  Its share, not more: the others' weights, another repository's holder's
+    # among them, still claim the rest.
     own = host.process_cgroup()
     weights = host.cpu_weights(host.cgroup_path(own)) if own else None
     load = host._reading(readings, "load", "load1", "load_1m")
-    if weights and weights[1] and weights[0] > max(weights[1]) and cores and load is not None:
+    if weights and weights[1] and weights[0] > min(weights[1]) and cores and load is not None:
         entitled = cores * weights[0] / (weights[0] + sum(weights[1]))
         readings["load"] = min(load, cores - entitled)
     jobs = gate.derived_heavy_limit(readings, running=0, job_cpus=FILE_CPUS,

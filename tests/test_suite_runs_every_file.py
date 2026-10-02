@@ -95,23 +95,27 @@ class SuiteRunsEveryFile(unittest.TestCase):
         # other runs keep the load at the 8 cores; the holder's raise, their 140 times 9,
         # entitles it to 8 * 1260 / 1400 = 7.2 of them, and 1000 MB fits 4 files of 230
         root = self.checkout({"test_acme": PASSES})
-        runs = root / "cgroup" / "agentkit-runs.slice"
-        for scope, weight in (("agentkit-run-acme", 1260), ("agentkit-run-fix-api", 40),
-                              ("agentkit-job-widget", 60), ("agentkit-run-plain", 40)):
-            (runs / f"{scope}.scope").mkdir(parents=True)
-            (runs / f"{scope}.scope" / "cpu.weight").write_text(f"{weight}\n")
+        one = {"agentkit-run-acme": 1260, "agentkit-run-fix-api": 40,
+               "agentkit-job-widget": 60, "agentkit-run-plain": 40}
+        # two repositories' holders at the kernel's top weight split the cores between them
+        two = {"agentkit-run-acme": 10000, "agentkit-run-atlas": 10000,
+               "agentkit-run-fix-api": 40, "agentkit-run-plain": 40}
         busy = '{"cpus": 16, "slice_cpu_quota": 8, "load": 8, "free_mb": %d}'
-        for scope, free_mb, jobs in (("agentkit-run-acme", 8192, 7),
-                                     ("agentkit-run-acme", 1000, 4),
-                                     ("agentkit-run-plain", 8192, 1),    # no raise: idle cores
-                                     (None, 8192, 1)):                   # by hand, no scope
-            with self.subTest(scope=scope, free_mb=free_mb):
-                cgroup = root / "cgroup-file"
-                if scope:
-                    cgroup.write_text(f"0::/agentkit-runs.slice/{scope}.scope\n")
+        for n, (weights, scope, free_mb, jobs) in enumerate((
+                (one, "agentkit-run-acme", 8192, 7),
+                (one, "agentkit-run-acme", 1000, 4),
+                (two, "agentkit-run-acme", 8192, 3),
+                (one, "agentkit-run-plain", 8192, 1),     # no raise: idle cores
+                (one, None, 8192, 1))):                    # by hand, no scope
+            with self.subTest(case=n, scope=scope, free_mb=free_mb):
+                runs = root / f"cgroup-{n}" / "agentkit-runs.slice"
+                for name, weight in weights.items():
+                    (runs / f"{name}.scope").mkdir(parents=True)
+                    (runs / f"{name}.scope" / "cpu.weight").write_text(f"{weight}\n")
+                cgroup = root / f"cgroup-{n}.txt"
+                cgroup.write_text(f"0::/agentkit-runs.slice/{scope}.scope\n" if scope else "")
                 proc = self.suite(root, AK_HOST_READINGS=busy % free_mb,
-                                  AK_CGROUP_ROOT=str(root / "cgroup"),
-                                  AK_CGROUP_FILE=str(cgroup if scope else root / "no-cgroup"))
+                                  AK_CGROUP_ROOT=str(runs.parent), AK_CGROUP_FILE=str(cgroup))
                 self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
                 self.assertIn(f", {jobs} at once,", proc.stdout)
 
