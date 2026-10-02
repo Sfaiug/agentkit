@@ -1,4 +1,4 @@
-"""Check 4's pair, `executor reviewer`, as ak would pick them now; nothing when all it can run are spent.
+"""Check 4's `executor reviewer`, as ak would pick them now; nothing when all it can run are spent.
 
 tests/smoke.sh asks this before check 4 takes a smoke target, so its one real `ak run` goes on
 whichever configured models have budget and names none.  The pick is ak's own, `run.pick_models`
