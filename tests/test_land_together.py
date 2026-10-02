@@ -3,14 +3,15 @@
 The run holding the turn stacks the waiting runs' reviewed commits onto its own, runs the
 declared suite once on the top, and records the stacked trees; a waiting run whose rebased
 commit has one of them lands without running the suite again, and only the tested tree
-carries the suite's evidence.  A conflict ends the stack; a failed suite records nothing and
-the holder checks itself alone.
+carries the suite's evidence.  A conflict ends the stack; a failed suite is split to record
+the passing prefix, and the failing run and those after it check themselves alone.
 
-Offline: real git commits in an acme sandbox, live `sleep` processes as the waiters, and the
+Offline: real git commits and queue flocks in an acme sandbox, and the
 declared suite run directly in place of the heavy-suite gate.
 """
 
 from contextlib import ExitStack
+import fcntl
 import os
 from pathlib import Path
 import subprocess
@@ -53,8 +54,9 @@ class LandTogether(unittest.TestCase):
         self.commit("base")
         self.base = self.git("rev-parse", "HEAD")
         self.git("update-ref", "refs/remotes/origin/main", self.base)
-        self.checks, self.lines = [], []
+        self.checks, self.lines, self.places = [], [], []
         self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=self.check))
+        self.stack.enter_context(patch("os.kill", return_value=None))
         self.addCleanup(lambda: hasattr(run._MERGE_HELD, "hold") and delattr(run._MERGE_HELD,
                                                                                 "hold"))
 
@@ -113,18 +115,21 @@ class LandTogether(unittest.TestCase):
         return self.loop()
 
     def wait(self, lp, run_id, head, rank):
-        """`run_id` waits for lp's merge turn behind a live process, at `rank` in the queue."""
-        sleeper = subprocess.Popen(["sleep", "120"])
-        self.addCleanup(sleeper.wait)
-        self.addCleanup(sleeper.kill)
+        """`run_id` holds its queue place at `rank`, without probing any real process."""
+        pid = 1000 + rank
         directory = config.RUNS / run_id
         directory.mkdir()
         record.save_state(directory, {
             "run_id": run_id, "state": "running", "merge_method": "squash",
-            "merge_turn": {"pid": sleeper.pid, "of": "acme main"},
+            "pid": pid, "merge_turn": {"pid": pid, "of": "acme main"},
             "review": {"verdict": "PASS", "passed_head_sha": head}})
         turn = run.turn_path(lp, "origin/main")
-        (turn.parent / f"{turn.stem}.1{rank:020d}-{sleeper.pid}-1-1.wait").write_text("null")
+        place = self.stack.enter_context(
+            (turn.parent / f"{turn.stem}.1{rank:020d}-{pid}-1-1.wait").open("w"))
+        fcntl.flock(place, fcntl.LOCK_EX)
+        place.write("null")
+        place.flush()
+        self.places.append(place)
         return turn
 
     def tree(self, rev, cwd=None):
@@ -205,6 +210,65 @@ class LandTogether(unittest.TestCase):
         self.assertEqual(first["leader"], "leader")
         self.assertEqual(len({entry["tested"] for entry in land._trees(turn)[1].values()}), 1)
         self.assertEqual(len(land._trees(turn)[1]), 3)          # leader, m1, m2 -- not broken
+        # Each passing member lands without another suite, including the tested prefix top.
+        self.git("update-ref", "refs/remotes/origin/main", self.git("rev-parse", "HEAD"))
+        for run_id in ("m1", "m2"):
+            self.git("checkout", "-q", f"ak/{run_id}")
+            self.git("rebase", "-q", "origin/main")
+            self.checks.clear()
+            follower = self.loop(run_id, f"ak/{run_id}")
+            self.assertTrue(self.held(follower))
+            self.assertEqual([cmds for cmds, _ in self.checks], [["true"]])
+            self.assertEqual("suite" in follower.state["final_check"], run_id == "m2")
+            self.git("update-ref", "refs/remotes/origin/main", self.git("rev-parse", "HEAD"))
+        # The breaker and the rest of that batch do not form another failing batch.
+        self.git("checkout", "-q", "ak/broken")
+        self.git("rebase", "-q", "origin/main")
+        breaker = self.loop("broken", "ak/broken")
+        self.checks.clear()
+        with patch.object(run, "target_fails", return_value="red target"), \
+                patch.object(run, "park_waiting", return_value=False):
+            self.assertFalse(self.held(breaker))
+        self.assertEqual([cwd for cmds, cwd in self.checks if SUITE in cmds], [self.repo])
+        self.git("checkout", "-q", "ak/m3")
+        self.git("rebase", "-q", "origin/main")
+        follower = self.loop("m3", "ak/m3")
+        self.wait(follower, "fresh", self.branch("ak/fresh", {"fresh.txt": "fresh\n"}), 5)
+        self.checks.clear()
+        self.assertTrue(self.held(follower))
+        self.assertEqual([cwd for cmds, cwd in self.checks if SUITE in cmds], [self.repo])
+
+    def test_a_suite_that_changes_the_stack_cannot_certify_its_committed_tree(self):
+        for how in ("dirty", "commit"):
+            with self.subTest(how=how):
+                lp = self.leader() if how == "dirty" else self.loop()
+                if how == "dirty":
+                    turn = self.wait(lp, "member", self.branch("ak/member", {"member.txt": "m\n"}), 1)
+
+                def changes(cmds, cwd, *args, **kw):
+                    if SUITE in cmds and Path(cwd) != self.repo:
+                        (Path(cwd) / "work.txt").write_text("changed\n")
+                        if how == "commit":
+                            self.git("add", "work.txt", cwd=cwd)
+                            self.git("commit", "-q", "-m", "suite changed the tree", cwd=cwd)
+                    return self.check(cmds, cwd, *args, **kw)
+
+                with patch.object(gate, "run_done_when", side_effect=changes):
+                    self.assertTrue(self.held(lp))
+                self.assertEqual(land._trees(turn)[1], {})
+                self.assertEqual([cwd for cmds, cwd in self.checks if SUITE in cmds][-1], self.repo)
+                self.assertEqual(lp.state["final_check"]["tree_sha"], self.tree("HEAD"))
+                self.checks.clear()
+                turn.with_suffix(".green").unlink(missing_ok=True)
+
+    def test_an_unlocked_queue_place_is_not_a_live_waiter(self):
+        lp = self.leader()
+        turn = self.wait(lp, "member", self.branch("ak/member", {"member.txt": "m\n"}), 1)
+        place = next(turn.parent.glob(f"{turn.stem}.*.wait"))
+        # A stale place must not become live merely because its old pid was reused.
+        fcntl.flock(self.places[-1], fcntl.LOCK_UN)
+        self.assertEqual(land.waiting(turn), [])
+        self.assertTrue(place.exists())
 
     def test_a_breaking_leader_checks_itself_alone(self):
         self.git("checkout", "-q", "-b", "ak/leader")
