@@ -2381,7 +2381,7 @@ def _running_commands(pid):
     for child, (_, _, args) in live.items():
         if child in parents or not args:
             continue
-        birth = process_identity(child)
+        birth = host.process_identity(child)
         if birth is None:
             continue
         command = " ".join(" ".join(args).split())

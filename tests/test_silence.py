@@ -148,7 +148,7 @@ class Silence(unittest.TestCase):
         }
         with patch.object(watch, "_proc_table", return_value=table), \
                 patch.object(os, "getpgid", side_effect=lambda pid: pid if pid >= 106 else 100), \
-                patch.object(run, "process_identity", side_effect=lambda pid: {"started_at": pid}), \
+                patch.object(host, "process_identity", side_effect=lambda pid: {"started_at": pid}), \
                 patch.object(run.time, "time", return_value=131):
             self.assertEqual(run._running_commands(100), [
                 "python3 tests/check.py (29s)", f"{long[:159]}… (28s)",
