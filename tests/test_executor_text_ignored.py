@@ -132,6 +132,8 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.assertEqual(checks.call_count, 2)
         self.assertEqual(review.call_count, 2)
         self.assertEqual(run.continuation(self.lp), "done-when")
+        for call in review.call_args_list:
+            self.assertIn(self.text, call.args[1])
 
     def test_restart_after_a_handover_and_its_ask_does_not_ask_again(self):
         self.text = "## Summary\nwork"
@@ -161,6 +163,8 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.assertEqual(checks.call_count, 2)
         self.assertEqual(review.call_count, 2)
         self.assertEqual(run.continuation(self.lp), "done-when")
+        for call in review.call_args_list:
+            self.assertIn(self.text, call.args[1])
 
     def test_work_summary_survives_the_closing_ask_and_a_restart(self):
         work = "## Summary\nChanged api.py and added a regression test."
@@ -171,18 +175,22 @@ class ExecutorTextIgnored(unittest.TestCase):
             self.text = texts[min(len(self.calls), 1)]
             return self.turn(*args, **kw)
 
-        self.lp.rnd = 1
-        with patch.object(worker, "turn", side_effect=turn):
-            summary = run.execute(self.lp, "executor", "Do the task.", "executor")
-        self.assertIn(work, summary)
-        self.lp.rnd = 0
-        self.lp.state["step"] = "done-when"
-        with patch.object(worker, "turn", side_effect=turn), \
-                patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]")), \
-                patch.object(run, "review", return_value="PASS") as review:
-            run.rounds(self.lp)
-        self.assertIn(work, review.call_args.args[1])
-        self.assertEqual(len(self.calls), 2)
+        for role, background in (("executor", False), ("fixer", False), ("executor", True)):
+            with self.subTest(role=role, background=background):
+                self.calls = []
+                self.background = background
+                self.lp.rnd = 1
+                with patch.object(worker, "turn", side_effect=turn):
+                    summary = run.execute(self.lp, role, "Do the task.", role)
+                self.assertIn(work, summary)
+                self.lp.rnd = 0
+                self.lp.state["step"] = "done-when"
+                with patch.object(worker, "turn", side_effect=turn), \
+                        patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]")), \
+                        patch.object(run, "review", return_value="PASS") as review:
+                    run.rounds(self.lp)
+                self.assertIn(work, review.call_args.args[1])
+                self.assertEqual(len(self.calls), 2)
 
     def test_host_interruption_during_the_extra_ask_resumes_it_without_another_ask(self):
         work = "## Summary\nChanged api.py and added a regression test."
