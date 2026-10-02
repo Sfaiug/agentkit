@@ -27,6 +27,7 @@ tick is running right now and how big the log it writes has grown.
 """
 
 from contextlib import contextmanager, nullcontext, redirect_stdout
+import base64
 import fcntl
 import io
 import json
@@ -4863,11 +4864,11 @@ def pushing_seats():
     return sorted(seats)
 
 
-def gh_json(cwd, *args):
+def gh_json(cwd, *args, timeout=120):
     """The parsed JSON a gh command prints, or (None, why)."""
     try:
         proc = subprocess.run(["gh", *args], cwd=str(cwd if cwd.is_dir() else config.REPO), capture_output=True,
-                              encoding="utf-8", errors="replace", timeout=120,
+                              encoding="utf-8", errors="replace", timeout=timeout,
                               stdin=subprocess.DEVNULL,
                               env={**config.child_env(), "GIT_TERMINAL_PROMPT": "0",
                                    "GH_PROMPT_DISABLED": "1"})
@@ -5162,13 +5163,18 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
     health = st.get("health") or {}
     command = health.get("command")
     if not st.get("live_at") and not command and inside and st.get("repo"):
-        # GitHub creates the merge commit remotely; a missing object is no declaration yet.
-        if run.git_out(st["repo"], "cat-file", "-e", f"{sha}^{{commit}}")[0] != 0:
-            if dry_run:
-                log(f"would fetch run {run_dir.name}'s merge commit to read health: {sha}")
-                return "unknown", None, None
-            run.fetch(st["repo"], "--no-tags", "--no-write-fetch-head", "origin", sha, check=True)
-        command = run.declared_at(st["repo"], sha, "health")
+        if run.git_out(st["repo"], "cat-file", "-e", f"{sha}^{{commit}}")[0] == 0:
+            command = run.declared_at(st["repo"], sha, "health")
+        else:
+            # The merge may exist only on GitHub; discovering health must not depend on origin.
+            owner, repo, host, _ = after_merge_repo(pr_url)
+            api = ("api",) if host == "github.com" else ("api", "--hostname", host)
+            data, _ = gh_json(config.RUNS, *api,
+                              f"repos/{owner}/{repo}/contents/AGENTS.md?ref={sha}",
+                              timeout=HEALTH_TIMEOUT)
+            if isinstance(data, dict) and data.get("encoding") == "base64":
+                text = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
+                command = run.front_value(text, "health")
     if not st.get("live_at"):
         if not command:
             return None
@@ -5498,8 +5504,10 @@ def after_merge_checks(state, dry_run, log, now=None):
                 health = after_merge_health(run_dir, st, key, sha, pr_url, now,
                                             dry_run, log, probes)
             except (config.Error, OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
-                log(f"WARN run {name}'s health could not be followed: {exc}")
-                health = ("unknown", None, None)
+                # Until a command is known, discovery cannot change the target's check verdict.
+                health = ("unknown", None, None) if st.get("health") or st.get("live_at") else None
+                if health:
+                    log(f"WARN run {name}'s health could not be followed: {exc}")
             if now - finished >= AFTER_MERGE_WINDOW and health and health[0] == "failed":
                 expired_health.append(run_dir)
             if health and verdict != "failed" and (health[0] != "passed" or verdict == "ignored"):

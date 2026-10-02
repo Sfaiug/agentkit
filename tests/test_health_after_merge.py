@@ -4,6 +4,7 @@ Offline: temporary HOME and repositories, fake checks and seats, and an injected
 """
 
 from contextlib import ExitStack
+import base64
 import os
 from pathlib import Path
 import signal
@@ -45,6 +46,8 @@ class HealthAfterMerge(unittest.TestCase):
         self.rows = [{"name": SEAT, "created": 100, "exited": False}]
         self.lines = []
         self.logs = []
+        self.remote = {}
+        self.api = stack.enter_context(patch.object(watch, "gh_json", side_effect=self.github))
         stack.enter_context(patch.object(orch, "sessions", lambda: list(self.rows)))
         stack.enter_context(patch.object(orch, "find", lambda name: next(
             (seat for seat in self.rows if seat["name"] == name), None)))
@@ -80,7 +83,15 @@ class HealthAfterMerge(unittest.TestCase):
         sha = self.git("-C", str(hub), "rev-parse", "HEAD")
         with self.assertRaises(subprocess.CalledProcessError):
             self.git("cat-file", "-e", f"{sha}^{{commit}}")
+        self.remote[sha] = {"encoding": "base64", "content": base64.b64encode(
+            (hub / "AGENTS.md").read_bytes()).decode()}
         return sha
+
+    def github(self, cwd, *args, **_kw):
+        if args[:2] == ("pr", "view"):
+            return {"mergeCommit": {"oid": next(iter(self.remote))}}, ""
+        endpoint = next((arg for arg in args if "/contents/AGENTS.md?ref=" in arg), "")
+        return self.remote.get(endpoint.partition("?ref=")[2]), "AGENTS.md unavailable"
 
     def merged(self, sha, name="run-a", age=600, seat=SEAT):
         directory = config.RUNS / name
@@ -116,15 +127,16 @@ class HealthAfterMerge(unittest.TestCase):
         self.assertEqual((self.probes.call_count, len(self.lines)), (1, 1))
         self.assertEqual(record.read_state(directory)["live_at"], NOW)
 
-    def test_remote_merge_commit_is_fetched_without_changing_the_checkout(self):
+    def test_remote_merge_declaration_is_read_without_fetching_or_changing_the_checkout(self):
         sha = self.remote_merge("echo \"$AK_MERGE_SHA\" > live-proof")
         head = self.git("rev-parse", "HEAD")
         agents = (self.repo / "AGENTS.md").read_text()
         directory = self.merged(sha)
         with record.record(directory) as current:
             current.pop("merge_sha")
-        with patch.object(watch, "gh_json", return_value=({"mergeCommit": {"oid": sha}}, "")):
+        with patch.object(run, "fetch", wraps=run.fetch) as fetch:
             self.tick()
+        fetch.assert_not_called()
         self.assertEqual(self.probes.call_count, 1)
         self.assertEqual((self.repo / "live-proof").read_text().strip(), sha)
         self.assertEqual(record.read_state(directory)["live_at"], NOW)
@@ -132,21 +144,31 @@ class HealthAfterMerge(unittest.TestCase):
         self.assertEqual(self.lines, [(SEAT, f"run run-a is live: {PR}.")])
         self.assertEqual(self.git("rev-parse", "HEAD"), head)
         self.assertEqual((self.repo / "AGENTS.md").read_text(), agents)
+        self.assertIn(f"repos/acme/widget/contents/AGENTS.md?ref={sha}", self.api.call_args.args)
+        self.assertEqual(self.api.call_args.kwargs["timeout"], watch.HEALTH_TIMEOUT)
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.git("cat-file", "-e", f"{sha}^{{commit}}")
 
-    def test_failed_fetch_retries_the_remote_declaration_next_tick(self):
+    def test_failed_discovery_preserves_green_checks_and_retries_next_tick(self):
         sha = self.remote_merge("exit 0")
         directory = self.merged(sha)
         self.git("remote", "set-url", "origin", str(self.root / "unavailable.git"))
+        self.api.side_effect = [(None, "GitHub unavailable")]
+        key = watch.after_merge_repo(PR)[3]
+        self.state = {"after_merge": {key: {"notified": "a" * 40, "at": NOW - 1200,
+                                           "finished": NOW - 1200}}}
         self.tick()
         self.probes.assert_not_called()
         self.assertNotIn("live_at", record.read_state(directory))
         self.assertEqual(self.lines, [])
-        self.git("remote", "set-url", "origin", str(self.root / "origin.git"))
+        self.assertNotIn(key, self.state["after_merge"])
+        self.assertFalse(any("WARN" in line for line in self.logs), self.logs)
+        self.api.side_effect = self.github
         self.tick(now=NOW + 60)
         self.assertEqual(self.probes.call_count, 1)
         self.assertEqual(record.read_state(directory)["live_at"], NOW + 60)
 
-    def test_dry_run_does_not_fetch_a_missing_merge_commit(self):
+    def test_dry_run_can_read_a_remote_declaration_without_fetching_or_running_health(self):
         sha = self.remote_merge("exit 0")
         directory = self.merged(sha)
         before = record.read_state(directory)
@@ -157,6 +179,18 @@ class HealthAfterMerge(unittest.TestCase):
         self.assertEqual(record.read_state(directory), before)
         with self.assertRaises(subprocess.CalledProcessError):
             self.git("cat-file", "-e", f"{sha}^{{commit}}")
+
+    def test_discovery_exception_leaves_existing_checks_unchanged(self):
+        sha = self.remote_merge("exit 0")
+        self.merged(sha)
+        key = watch.after_merge_repo(PR)[3]
+        self.state = {"after_merge": {key: {"notified": "a" * 40, "at": NOW - 1200,
+                                           "finished": NOW - 1200}}}
+        self.api.side_effect = OSError("checkout unavailable")
+        self.tick()
+        self.assertNotIn(key, self.state["after_merge"])
+        self.assertFalse(any("WARN" in line for line in self.logs), self.logs)
+        self.probes.assert_not_called()
 
     def test_failure_repeats_until_deployment_passes(self):
         sha = self.declare("echo deployment pending; test -f deployed")
