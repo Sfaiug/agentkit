@@ -25,8 +25,7 @@ class Remote(unittest.TestCase):
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
-        self.root = Path(self.stack.enter_context(tempfile.TemporaryDirectory(
-            prefix='.ak-test-codex-remote-', dir=REPO)))
+        self.root = Path(self.stack.enter_context(tempfile.TemporaryDirectory(prefix='.remote-')))
         (self.root / 'sitecustomize.py').write_text(
             (REPO / 'tests/fixtures/codex-remote-http-fake.py').read_text())
         self.stack.enter_context(patch.dict(os.environ, {'PYTHONPATH': str(self.root)}))
