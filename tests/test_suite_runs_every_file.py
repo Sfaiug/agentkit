@@ -133,7 +133,9 @@ unittest.main()
                 self.assertEqual(self.ran(), ran)
 
     def test_lifecycle_runs_the_original_alias_regression(self):
-        smoke = (REPO / "tests" / "smoke.sh").read_text()
+        # The base probe overlays smoke.sh as a changed check; read the commit under test.
+        smoke = subprocess.check_output(["git", "show", "HEAD:tests/smoke.sh"],
+                                        cwd=REPO, text=True)
         start = smoke.index("lifecycle_check() {")
         body = smoke[smoke.index("from contextlib", start):smoke.index("\nPY\n", start)]
         name = "test_pruning_an_alias_preserves_the_live_seats_notice_and_latch"
