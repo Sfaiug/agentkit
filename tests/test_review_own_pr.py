@@ -17,6 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, gc, orch, run, watch
+from fixtures.hand_in import records
 
 URL = "https://github.com/acme/widget/pull/7"
 HEAD = "b" * 40
@@ -75,6 +76,7 @@ class OwnPr(unittest.TestCase):
                                            "summary": summary, "head_sha": head, "tree_sha": tree})
         lp.findings = "VERDICT: PASS\n"
         lp.state["findings"] = "VERDICT: PASS\n"
+        lp.state["review_records"] = records(lp.findings)
         lp.save()
         return "PASS"
 
@@ -85,6 +87,7 @@ class OwnPr(unittest.TestCase):
                 "- a.py:1 - off-by-one in the gate - wrong outcome for edge input\n")
         lp.findings = text
         lp.state["findings"] = text
+        lp.state["review_records"] = records(text)
         lp.state["verdict"] = "FAIL"
         lp.state["review"] = {"executor": None, "executor_provider": None,
                               "reviewer": lp.reviewer, "reviewer_provider": "openai",
