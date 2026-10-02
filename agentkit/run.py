@@ -4077,7 +4077,7 @@ def changed_line(lp, row, head):
 
 def proof_on(lp, command, log_path, revision=None, tests_from=None):
     """Replay evidence with the regression probe's overlay and crash-safe checkout recovery."""
-    stop_check(lp.run_dir)
+    run_record.stop_check(lp.run_dir)
     if not lp.scratch:
         head = git(lp.wt, "rev-parse", "HEAD")
         branch = git(lp.wt, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
@@ -4091,7 +4091,7 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
             if paths:
                 git(lp.wt, "restore", f"--source={tests_from}", "--staged", "--worktree", "--",
                     *(f":(literal){p}" for p in paths))
-        stop_check(lp.run_dir)
+        run_record.stop_check(lp.run_dir)
         lp.log(f"--- review proof: checking {revision or 'workspace'}")
         env = suite_env()
         env.pop(hand_in.ENV, None)
