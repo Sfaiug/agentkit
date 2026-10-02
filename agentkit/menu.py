@@ -19,7 +19,8 @@ the moment it is pressed, and from a pipe it is a line.
 `n` asks for a name, then shows the orchestrator and both roles with the last created session's
 chosen already.
 Enter leaves naming to the orchestrator once it knows the work. The name is the row, the
-status bar and the title of every message it sends until `r` renames it.
+status bar and the title of every message it sends until a rename of its conversation or
+`ak orch rename` changes it.
 
 A session is **working**, **needs you** or **done**, and nothing else exists: it works until
 it is done or it is blocked on him.  `watch.session_state` decides which, once, from the
@@ -100,10 +101,9 @@ it is drawn, so what a number opens never depends on the page that is up.
 
 `ak attach --overlay` is the same menu inside a seat, where `ak orch` binds it to `Ctrl-b m` as
 a tmux popup: a number switches this client to that session and `n` starts one and switches to
-it, both of which close the popup, `r` renames this session, `x` stops this session -- or,
-done, closes it at once -- and Esc closes the popup.  The
-popup offers those four keys and the
-numbers; `c` lives on the menu outside.
+it, both of which close the popup, `c` opens this session's models as `c` does on the menu,
+`x` stops this session -- or, done, closes it at once -- and Esc closes the popup.  The
+popup offers those four keys and the numbers.
 
 On the server the menu is this process.  On a client -- a machine where install.sh recorded the
 server's ssh alias in ~/.agentkit/state/server -- `ak` runs the same menu over `ssh -t <alias>
@@ -131,7 +131,7 @@ from . import record
 from .harness import load as harness_plugin
 
 KEYS = "n new   x stop   c config   esc leave"
-OVERLAY_KEYS = "n start a session   r rename this session   x stop this session   esc leave"
+OVERLAY_KEYS = "n start a session   c models   x stop this session   esc leave"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done
 PAGE_KEYS = "j more   k previous"   # added to the key line when the list runs to more pages
 LEAST = 3                # rows a page keeps; the usage block gives way before it holds fewer
@@ -1630,35 +1630,6 @@ def stop_session(found, dry_run):
         return
     stop_session_runs(session["name"])
     orch.cmd_stop([session["name"]])
-
-
-def rename_this_session(dry_run):
-    """`r` in the overlay: rename the session this menu was opened from.
-
-    `Name [<current>]:`, validated as `session_name`, against every taken name but its own;
-    Esc goes back.  The rename is `orch.rename`'s -- the tmux session, the record, every
-    state file, its runs' records and the bar -- and afterwards this process answers to the
-    new name too, because the popup lives in the renamed session.
-    """
-    current = config.current_session()
-    if not current:
-        pause("rename: this menu was not opened from a session")
-        return
-    terminal.frame("rename")
-    name = orch.ask_name(set(orch.taken_names()) - {current}, current)
-    if name is None or name is orch.BACK:
-        return
-    if dry_run:
-        pause(f"would rename {current} -> {name}")
-        return
-    messages = []
-    try:
-        renamed = orch.rename(current, name, log=messages.append)
-    except config.Error as exc:
-        pause(*messages, f"rename: {exc}")
-        return
-    os.environ[config.SESSION_ENV] = renamed
-    pause(*messages, f"renamed {current} -> {renamed}")
 
 
 def stop_this_session(dry_run):
@@ -3490,9 +3461,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
 
     `overlay` is the menu as a tmux popup over a running seat, offering the five keys and
     the numbers.  A number and `n` both hand this client to a session, and the popup has
-    to come down for it to be seen, so those two return; `r` and `x` rename and stop this
-    session and leave it up, `x` acting on this session wherever the highlight is.  `c` is not
-    offered here.  Read a line at a time, `j` and `k` turn the pages of a list
+    to come down for it to be seen, so those two return; `c` opens this session's models and
+    `x` stops it, both leaving it up, acting on this session wherever the highlight is.  Read a line at a time, `j` and `k` turn the pages of a list
     longer than the screen, and a number is answered from whichever page is up.
 
     The main screen is live: the read waits at most TICK seconds, and a wait that ends with
@@ -3526,13 +3496,13 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     kept for after, with the screen it was read on.  The highlight is the seat's name, so it
     stays on its seat whatever comes or goes above it.  A key that does nothing here is let
     go without a word, `i` among them, and every key that does something gives the terminal back
-    before it does it -- but `c`, `n`, `r` and `x`'s question, which are read with the keys on
+    before it does it -- but `c`, `n` and `x`'s question, which are read with the keys on
     the screen the menu has: `x` on a done seat closes it at once, and on any other asks `Keep`
     or `Stop` under its row, Enter or a click answering and Esc keeping it.  Esc, and a click
     on `esc leave`, leaves at once, whatever a thread is doing (`Live.close`); `q` is no key.
     """
     keys = OVERLAY_KEYS if overlay else KEYS
-    actions = ("n", "x", "r") if overlay else ("n", "x", "c")
+    actions = ("n", "x", "c")
     cursor = os.environ.pop("AK_MENU_CURSOR", "") or None
     if cursor and cursor.startswith("/"):
         cursor = Path(cursor)
@@ -3689,9 +3659,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                     stop_this_session(dry_run)
                 else:
                     stop_session(found, dry_run)
-            elif key == "r" and overlay:
-                rename_this_session(dry_run)
-            elif key == "c" and not overlay:
+            elif key == "c":
                 # read with the keys, too; the looks and probes go on with what it saved
                 cfg = live.cfg = show_config(dry_run, keyboard,
                                              seat if isinstance(seat, str) else None) or cfg

@@ -144,8 +144,8 @@ class SeatNameAsked(Sandbox):
         self.assertNotIn("unnamed", config.load_session(self.cfg, "fix-api"))
         self.assertNotIn(RULE, self.rules[-1])
 
-    def test_cli_and_menu_rename_clear_the_mark_even_when_keeping_the_name(self):
-        for entry in ("orch", "menu"):
+    def test_cli_rename_clears_the_mark_even_when_keeping_the_name(self):
+        for entry in ("orch",):
             for new in ("fix-api", "new"):
                 with self.subTest(entry=entry, new=new):
                     # Each case has its own state so `new` is free again.
@@ -158,10 +158,7 @@ class SeatNameAsked(Sandbox):
                             patch.object(watch, "announce_state"), \
                             patch.object(sys, "stdin", io.StringIO(new + "\n")), \
                             redirect_stdout(io.StringIO()):
-                        if entry == "orch":
-                            self.assertEqual(orch.main(["rename", new]), 0)
-                        else:
-                            menu.rename_this_session(False)
+                        self.assertEqual(orch.main(["rename", new]), 0)
                     self.assertNotIn("unnamed", config.load_session(self.cfg, new))
                     self.assertNotIn(RULE, rulebook.write(new).read_text())
 
@@ -181,7 +178,7 @@ class SeatNameAsked(Sandbox):
         orch.tmux_out.assert_not_called()
 
     def test_auto_keeps_an_owner_name_but_a_plain_rename_can_change_it(self):
-        for entry in ("orch", "menu"):
+        for entry in ("orch",):
             with self.subTest(entry=entry):
                 for path in config.STATE.glob("session-*.json"):
                     path.unlink()
@@ -189,10 +186,7 @@ class SeatNameAsked(Sandbox):
                 seat = self.running("new")
                 with patch.object(sys, "stdin", io.StringIO("fix-api\n")), \
                         redirect_stdout(io.StringIO()):
-                    if entry == "orch":
-                        self.assertEqual(orch.main(["rename", "fix-api"]), 0)
-                    else:
-                        menu.rename_this_session(False)
+                    self.assertEqual(orch.main(["rename", "fix-api"]), 0)
                 # The running conversation still carries the placeholder in its environment.
                 os.environ[config.SESSION_ENV] = "new"
                 before = config.session_path("fix-api").read_bytes()
@@ -227,7 +221,7 @@ class SeatNameAsked(Sandbox):
         orch.tmux_out.assert_not_called()
 
     def test_cli_and_menu_can_take_back_the_seats_own_name(self):
-        for entry in ("orch", "menu"):
+        for entry in ("orch",):
             with self.subTest(entry=entry):
                 for path in config.STATE.glob("session-*.json"):
                     path.unlink()
@@ -237,11 +231,7 @@ class SeatNameAsked(Sandbox):
                 seat = self.running("foo")
                 with redirect_stdout(io.StringIO()):
                     self.assertEqual(orch.main(["rename", "bar"]), 0)
-                    if entry == "orch":
-                        self.assertEqual(orch.main(["rename", "foo"]), 0)
-                    else:
-                        with patch.object(sys, "stdin", io.StringIO("foo\n")):
-                            menu.rename_this_session(False)
+                    self.assertEqual(orch.main(["rename", "foo"]), 0)
                 self.assertEqual(seat["name"], "foo")
                 self.assertEqual(set(config.session_records()), {"foo"})
                 self.assertEqual(config.resolve_session("foo"), "foo")

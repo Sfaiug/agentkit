@@ -242,7 +242,7 @@ UTF-8 key (`enter` is `⏎`):
 - `c config`: `c sets the highlighted session's models, every model's effort, the providers and Discord`
 - `esc leave`: `Esc leaves ak; the sessions go on working without it`
 - in the popup, `n start a session`: `n starts a session and switches this terminal to it, closing the popup`
-- `r rename this session`: `r renames this session: its record, its bar and its title follow`
+- `c models`: `c opens this session's models: who orchestrates, executes and reviews`
 - `x stop this session`: `x stops this session and everything it runs, asking first`
 - `x close this session`: `x closes this session, which is done: its runs, checkouts and files go`
 - a session row: `{name}: Enter or a click opens it, where you talk to its orchestrator`

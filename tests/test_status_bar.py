@@ -159,10 +159,9 @@ class StatusBar(Sandbox):
 
     def test_overlay_lists_the_four_entries(self):
         self.assertEqual(menu.OVERLAY_KEYS,
-                         "n start a session   r rename this session   "
-                         "x stop this session   esc leave")
+                         "n start a session   c models   x stop this session   esc leave")
         entries = menu.OVERLAY_KEYS.split("   ")
-        self.assertEqual(entries, ["n start a session", "r rename this session",
+        self.assertEqual(entries, ["n start a session", "c models",
                                    "x stop this session", "esc leave"])
         with patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
@@ -176,39 +175,22 @@ class StatusBar(Sandbox):
         for gone in ("c config", "i info", "close the menu", "stop one"):
             self.assertNotIn(gone, screen)
 
-    def test_overlay_r_renames_x_stops_and_c_is_not_a_key(self):
+    def test_overlay_c_opens_its_models_x_stops_and_r_is_not_a_key(self):
         with patch.object(orch, "listing", return_value=[self.seat]), \
                 patch.object(orch, "job_notices", return_value=[]), \
-                menu_input(side_effect=["r", "x", "c", "i", ""]), \
-                patch.object(menu, "rename_this_session") as renamed, \
+                menu_input(side_effect=["c", "x", "r", "i", ""]), \
+                patch.object(menu, "show_config", return_value=None) as models, \
                 patch.object(menu, "stop_this_session") as stopped, \
                 patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(menu.loop(self.cfg, dry_run=True, overlay=True), 0)
-        renamed.assert_called_once_with(True)
+        models.assert_called_once()
+        self.assertTrue(models.call_args.args[0])
         stopped.assert_called_once_with(True)
         screen = out.getvalue()
-        self.assertIn("not a key: 'c'", screen)
+        self.assertIn("not a key: 'r'", screen)
         self.assertIn("not a key: 'i'", screen)
-
-    def test_rename_asks_with_current_and_validates(self):
-        with patch.dict(os.environ, {config.SESSION_ENV: "herdr"}), \
-                patch.object(orch, "taken_names", return_value={"herdr", "other"}), \
-                patch.object(orch, "ask_name", return_value="parser") as asked, \
-                patch.object(orch, "rename", return_value="parser") as renamed, \
-                redirect_stdout(io.StringIO()) as out:
-            menu.rename_this_session(True)
-        asked.assert_called_once_with({"other"}, "herdr")
-        renamed.assert_not_called()       # a dry run asks, then only says so
-        self.assertIn("would rename herdr -> parser", out.getvalue())
-        with patch.dict(os.environ, {config.SESSION_ENV: "herdr"}), \
-                patch.object(orch, "taken_names", return_value={"herdr", "other"}), \
-                patch.object(orch, "ask_name", return_value="parser"), \
-                patch.object(orch, "rename", return_value="parser"), \
-                redirect_stdout(io.StringIO()):
-            menu.rename_this_session(False)
-            self.assertEqual(os.environ[config.SESSION_ENV], "parser")
 
     def test_legacy_seat_keeps_no_bar(self):
         ghost = dict(self.seat, legacy=True)

@@ -239,9 +239,9 @@ class Pages(Sandbox):
         # of them than it did when the row was a word and nothing else.
         for width, height, keys, size, meters, compact in (
                 (40, 24, menu.KEYS, 6, False, False), (100, 30, menu.KEYS, 12, True, False),
-                (40, 12, menu.KEYS, 3, False, True), (30, 14, menu.OVERLAY_KEYS, 2, False, True),
+                (40, 12, menu.KEYS, 3, False, True), (30, 14, menu.OVERLAY_KEYS, 3, False, True),
                 (78, 19, menu.OVERLAY_KEYS, 8, False, False),
-                (38, 22, menu.OVERLAY_KEYS, 4, False, False),
+                (38, 22, menu.OVERLAY_KEYS, 5, False, False),
                 (38, 10, menu.OVERLAY_KEYS, 1, False, True)):
             with self.subTest(width=width, height=height):
                 seen, pages = set(), None
@@ -655,16 +655,17 @@ class Phone(Sandbox):
         self.fits(screen, width, height)
         bar = screen[-1]
         self.assertTrue(bar.endswith("Ctrl-b m  menu"), bar)
-        # the popup: r renames it; Esc closes it; n starts a second seat and switches to it; a
+        # renamed the way an owner does, outside the menu; then the popup: c opens its models
+        # and Esc comes back; Esc closes it; n starts a second seat and switches to it; a
         # number switches back; x stops this session, and the client falls back to the other
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(orch.main(["rename", "new", "Phone Audit"]), 0)
         phone.keys("C-b", "m")
-        phone.until("esc leave", "1  new", prompt="esc leave")
-        phone.press("r")
-        phone.until("Name: new", prompt="Name: new")
-        phone.type("Phone Audit")
-        screen = phone.until("agentkit · note", "renamed new -> phone-audit", prompt="esc back")
+        phone.until("esc leave", "1  phone-au", prompt="esc leave")
+        phone.press("c")
+        screen = phone.until("config · phone-audit", "esc back", prompt="esc back")
         self.fits(screen, width, height)
-        phone.keys("Escape")                 # the rename note must go before the popup can leave
+        phone.keys("Escape")
         screen = phone.until("esc leave", "1  phone-au", prompt="esc leave")
         record = json.loads(config.session_path("phone-audit").read_text())
         self.assertEqual((record["orchestrator"], record["workers"]),
