@@ -125,6 +125,13 @@ class Rulebook(unittest.TestCase):
 
     # --- what the file says, and whose session it is for -------------------------
 
+    def test_agents_body_fits_worker_rules_cap(self):
+        text = (REPO / "AGENTS.md").read_text(encoding="utf-8")
+        front = run.FRONT.match(text)
+        body = (text[front.end():] if front else text).strip().encode("utf-8")
+        self.assertLessEqual(len(body), run.RULES_CAP,
+                             "AGENTS.md body exceeds RULES_CAP; workers would receive it cut short")
+
     def test_this_host_s_own_rules_ride_along_after_the_repo_s(self):
         words = self.adapter("claude", "claude-opus-5", "high", seat="atoll")
         path = self.named(words, "--append-system-prompt-file")

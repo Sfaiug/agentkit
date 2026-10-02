@@ -420,7 +420,7 @@ def project_lessons(repo, state, log):
             f"of this task's scope.\n\n{text}")
 
 
-def repo_rules(wt, ref, log):
+def repo_rules(wt, ref, state, log):
     """The body of the repository's AGENTS.md at `ref`, for every worker prompt.
 
     ak reads only its front matter itself, and a harness loads the body on its own terms
@@ -438,8 +438,9 @@ def repo_rules(wt, ref, log):
     data = (text[match.end():] if match else text).strip().encode("utf-8")
     if not data:
         return ""
-    if len(data) > RULES_CAP:
+    if len(data) > RULES_CAP and not state.get("rules_truncated"):
         log(f"AGENTS.md over {RULES_CAP // 1024} KB; truncated")
+        state["rules_truncated"] = True
     # Omit an incomplete UTF-8 character at the byte limit.
     text = data[:RULES_CAP].decode("utf-8", errors="ignore")
     return ("\n\n## Repository AGENTS.md\n"
@@ -6311,7 +6312,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     else:
         cmds = with_suite(cmds, wt, target, landing=not state.get("no_merge"))
     every, once = taskfile.group_commands(cmds)
-    body += project_lessons(repo, state, log) + repo_rules(wt, state.get("base_sha"), log)
+    body += project_lessons(repo, state, log) + repo_rules(wt, state.get("base_sha"), state, log)
     run_record.save_state(run_dir, state)
     context = (f"{where}\n\n{body}\n\n"
                f"{shell_foreground_note()}\n\n"
@@ -7358,23 +7359,29 @@ def handback_line(state, run_dir, cfg=None):
     reviews spent the whole round budget says so and says to split: the task was too big, not
     the worker.  A FAIL a check left behind says no such thing: more rounds of the same task
     would not have passed it either.  A scratch run names its workspace too: the files
-    there are what it delivered.  A run whose lessons were cut short and whose file is
-    still past its cap says so: the orchestrator keeps that file, and only it can tighten it.
+    there are what it delivered.  Cut rules are reported from the base commit even if the
+    file changed since; cut lessons are reported while their file is still past its cap.
     """
     workspace = (f" Workspace: {state['worktree']}."
                  if state.get("scratch") and state.get("worktree") else "")
     repo = state.get("repo")
-    lessons = ""
-    if state.get("lessons_truncated") and repo:
-        path = config.HOME / "lessons" / f"{Path(repo).name}.md"
-        try:
-            if path.stat().st_size > LESSONS_CAP:
-                lessons = (f" {path} is past its 4 KB cap and "
-                           "reached the workers cut short: tighten it.")
-        except OSError:
-            pass
+    notices = ""
+    if repo:
+        for field, path, cap in (
+                ("lessons_truncated", config.HOME / "lessons" / f"{Path(repo).name}.md", LESSONS_CAP),
+                ("rules_truncated", Path(repo) / "AGENTS.md", RULES_CAP)):
+            if not state.get(field):
+                continue
+            if field == "lessons_truncated":
+                try:
+                    if path.stat().st_size <= cap:
+                        continue
+                except OSError:
+                    continue
+            notices += (f" {path} reached the workers cut short at its "
+                        f"{cap // 1024} KB cap: tighten it.")
     line = (f"run {run_dir.name} finished {handback_verdict(state, cfg)}: "
-            f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace}{lessons} "
+            f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace}{notices} "
             + (f"Started fix runs: {', '.join(state['followup_runs'])}. "
                if state.get("followup_runs") else "") + "Decide the next step.")
     spent = len(state.get("round_summaries") or [])
@@ -11147,7 +11154,7 @@ def cmd_merge(argv):
     cmds = with_suite(taskfile.done_when(body, run_dir / "task.md"), state["worktree"],
                       state.get("target") or state.get("base"))
     body += (project_lessons(state.get("repo") or None, state, log)
-             + repo_rules(state["worktree"], state.get("base_sha"), log))
+             + repo_rules(state["worktree"], state.get("base_sha"), state, log))
     run_record.save_state(run_dir, state)  # the Loop measures its saves against the record it is handed
     lp = Loop(cfg, run_dir, state, {}, log, Path(state["worktree"]),
               body, cmds, f"Repo checkout: {state['worktree']}\n\n{body}", [])
@@ -12145,7 +12152,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         print(launch_line(run_dir.name, title, None, reviewer,
                           self_review=bool(is_own and same_model(cfg, orchestrator,
                                                                  reviewer))))
-    body += project_lessons(repo, state, log) + repo_rules(wt, base_sha, log)
+    body += project_lessons(repo, state, log) + repo_rules(wt, base_sha, state, log)
     run_record.save_state(run_dir, state)
     context = f"Repo checkout: {wt}\nBranch: {branch} (PR #{number} head, based on origin/{base})\n\n{body}"
     lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, context, spares)
