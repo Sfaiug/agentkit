@@ -92,7 +92,11 @@ def records(text):
 
 
 def reported(text):
-    return hand_in.Review(records(text)).text
+    rows = records(text)
+    for row in rows:
+        if row["kind"] == "finding":
+            row["evidence"]["commit"] = "workspace"
+    return hand_in.Review(rows).text
 
 
 def executor_records(text):
