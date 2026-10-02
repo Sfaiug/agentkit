@@ -30,10 +30,10 @@ class FollowupRule(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
-            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
+            "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": ""}))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
-        self.stack.enter_context(patch.object(run, "review_providers", return_value=("a", "b")))
         self.stack.enter_context(patch.object(run, "history_role_tokens"))
         self.stack.enter_context(patch.object(run.history, "update_run"))
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
@@ -46,7 +46,11 @@ class FollowupRule(unittest.TestCase):
                  "rounds": 3, "round_summaries": [], "executor": "executor",
                  "reviewer": "reviewer", "scratch": True, "repo": str(self.workspace),
                  "worktree": str(self.workspace)}
-        self.lp = run.Loop({}, directory, state, {}, lambda _: None, self.workspace,
+        cfg = {"models": {name: {"harness": "test", "model": name, "effort": "high",
+                                "provider": provider}
+                          for name, provider in (("executor", "acme"), ("reviewer", "beta"))},
+               "providers": {"acme": {}, "beta": {}}}
+        self.lp = run.Loop(cfg, directory, state, {}, lambda _: None, self.workspace,
                            "# Fixture", ["true"], "", [])
         self.lp.rnd = 1
         self.lp.save()

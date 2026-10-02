@@ -11,7 +11,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import run, worker
+from agentkit import config, run, worker
 
 
 class DeferredChecks(unittest.TestCase):
@@ -19,8 +19,12 @@ class DeferredChecks(unittest.TestCase):
         root = Path(tempfile.mkdtemp(prefix=".ak-test-deferred-checks-", dir=REPO))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
         self.enterContext(patch.dict(os.environ, {
-            "HOME": str(root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
-            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
+            "HOME": str(root), "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
+            "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": ""}))
+        for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
+            self.enterContext(patch.object(config, name, root / name.lower()))
         workspace = root / "workspace"
         workspace.mkdir()
         run.git(workspace, "init", "-b", "main")
@@ -32,7 +36,10 @@ class DeferredChecks(unittest.TestCase):
 
         class Fixture:
             def __init__(self):
-                self.cfg = {}
+                self.cfg = {"models": {name: {"harness": "test", "model": name, "effort": "high",
+                                             "provider": provider}
+                                       for name, provider in (("executor", "acme"), ("reviewer", "beta"))},
+                            "providers": {"acme": {}, "beta": {}}}
                 self.run_dir = root
                 self.wt = workspace
                 self.body = "# Fixture task"
@@ -70,9 +77,8 @@ class DeferredChecks(unittest.TestCase):
 
     def reviewer_prompt(self, once=()):
         _root, lp = self.review_fixture(once)
-        with patch.object(run, "review_providers", return_value=("provider-a", "provider-b")), \
-                patch.object(run, "call_retrying",
-                             side_effect=submitting((0, "VERDICT: PASS\n## Findings\n- none", None, False))) as call:
+        with patch.object(run, "call_retrying",
+                          side_effect=submitting((0, "VERDICT: PASS\n## Findings\n- none", None, False))) as call:
             self.assertEqual(run.review(lp, "Fixture summary", True, "$ true\n[exit 0]"), "PASS")
         return call.call_args.args[2]
 
