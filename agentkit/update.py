@@ -56,56 +56,45 @@ SWAPS = "harness-swaps.json"  # the latest installs and reverts, [harness, began
 SWAPS_KEPT = 16               # far more than can begin between a turn's end and the look at it
 LIVE = "live-checks"          # under config.STATE: one directory per check, `<commit>-<started>`
 # A check of agentkit's tests/live.sh, detached: a throwaway worktree of exactly the commit,
-# the script in it, then the output and the exit code, each written whole.  Both run in a
-# process group of their own, which this runner, outside it, ends at the check's cap -- TERM,
-# then KILL after the grace -- or as soon as the tick's TERM tells it to, and then writes a red
-# exit code: so a check ends on a host with no /proc for `worker.kill_marked` to read.  Until
-# then it leaves the group's leader unreaped, so the group's id names no other process, and it
-# writes nothing while anything in the group runs, as `ps` lists it: a script's child is the
-# check's too, and a `ps` that fails or stalls says something runs, so the cap still ends it.
+# the script in it, then the output and the exit code, each written whole.  Both run in the
+# process group of a holder, a `sleep` this runner starts first and reaps last, after every
+# signal to the group, so the group's id names no other process while it signals it.  Once the
+# script exits, KILL to the group ends whatever it left there; at the check's cap, or as soon
+# as the tick's TERM tells it to, TERM, then KILL after the grace, and a red exit code: so a
+# check ends on a host with no /proc for `worker.kill_marked` to read.
 # This script is the only writer of both files; the tick only creates the directory and reads it.
 LIVE_RUN = r'''import os, signal, subprocess, sys, time
 check, repo, commit, cap, grace = sys.argv[1:]
+holder = subprocess.Popen(["sleep", "99999999"], process_group=0)
 with open("output.tmp", "w") as out:
-    group = subprocess.Popen(["sh", "-c", 'git -C "$0" worktree add --quiet --detach "$1" "$2" '
-                              '&& cd "$1" && bash tests/live.sh', repo, f"{check}/tree", commit],
-                             stdout=out, stderr=out, process_group=0)
+    script = subprocess.Popen(["sh", "-c", 'git -C "$0" worktree add --quiet --detach "$1" "$2" '
+                               '&& cd "$1" && bash tests/live.sh', repo, f"{check}/tree", commit],
+                              stdout=out, stderr=out, process_group=holder.pid)
 
 
-def running(by):
+def end(sig):
     try:
-        rows = subprocess.run(["ps", "-A", "-o", "pgid=", "-o", "stat="], capture_output=True,
-                              text=True, check=True, timeout=max(0.1, by - time.time()))
-        return any(row.split()[0] == str(group.pid) and row.split()[1][0] != "Z"
-                   for row in rows.stdout.splitlines())
-    except (OSError, subprocess.SubprocessError, IndexError):
-        return True
-
-
-def ended(by):
-    empty = 0       # one reading misses a child forked while it read, by a parent gone since
-    while True:
-        empty = 0 if running(by) else empty + 1
-        if empty == 2:
-            return True
-        if time.time() >= by:
-            return False
-        time.sleep(max(0, min(1, by - time.time())))
+        os.killpg(holder.pid, sig)
+    except OSError:     # macOS finds no group where only zombies are left
+        pass
 
 
 try:
     signal.signal(signal.SIGTERM, signal.default_int_handler)
-    done = ended(float(cap))
-except KeyboardInterrupt:
-    done = False
+    code = script.wait(max(0, float(cap) - time.time()))
+except (KeyboardInterrupt, subprocess.TimeoutExpired):
+    code = None
 signal.signal(signal.SIGTERM, lambda *_: None)
-if not done:
-    os.killpg(group.pid, signal.SIGTERM)
-    ended(time.time() + float(grace))
-    os.killpg(group.pid, signal.SIGKILL)
-code = group.wait()
-if not done:
+if code is None:
+    end(signal.SIGTERM)
+    try:
+        script.wait(float(grace))
+    except subprocess.TimeoutExpired:
+        pass
     code = 124      # as timeout(1) says of what it ended
+end(signal.SIGKILL)
+script.wait()
+holder.wait()
 subprocess.run(["git", "-C", repo, "worktree", "remove", "--force", f"{check}/tree"],
                capture_output=True)
 with open("output.tmp", "a") as out:

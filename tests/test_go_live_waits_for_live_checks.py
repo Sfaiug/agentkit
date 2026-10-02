@@ -43,13 +43,16 @@ echo "live: waiting"
 sh -c 'until [ -e "$HOME/release" ]; do sleep 0.05; done' &
 wait
 """
-CHILD = """#!/bin/sh
-sh -c 'until [ -e "$HOME/release" ]; do sleep 0.05; done' >/dev/null 2>&1 &
-echo "live: check 3 green"
-"""
 AWAY = """#!/bin/sh
 python3 -c 'import os, sys; os.setsid(); os.execvp("sh", ["sh", *sys.argv[1:]])' \\
-  -c 'until [ -e "$HOME/release" ]; do sleep 0.05; done' >/dev/null 2>&1 &
+  -c 'touch "$HOME/away"; until [ -e "$HOME/release" ]; do sleep 0.05; done' >/dev/null 2>&1 &
+until [ -e "$HOME/away" ]; do sleep 0.05; done
+echo "live: check 3 green"
+"""
+CHAIN = """#!/bin/sh
+python3 -c 'import os; print(os.getpgrp())' >"$HOME/group"
+hop='sleep 0.05; sh -c "$0" "$0" &'
+sh -c "$hop" "$hop" &
 echo "live: check 3 green"
 """
 
@@ -381,9 +384,9 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
     def test_with_no_proc_a_check_past_its_cap_is_ended_by_its_own_runner(self):
         self.enterContext(patch.object(update, "SMOKE_CAP", 3))
         self.enterContext(patch.object(worker, "MARK_KILL_GRACE", 1))
-        new = self.merge("second", live=CHILD)                    # its child stays in its group
+        new = self.merge("second", live=HOLD)
         self.tick()
-        check = self.held("live: check 3 green")
+        check = self.held()
         third = self.merge("third", live=LIVE)
 
         def tick(**kw):                                           # /proc hidden from the tick
@@ -396,9 +399,28 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         self.assertEqual((self.finish(new) / "exit").read_text(), "124\n")
         self.assertEqual(tick(now=self.cap(check) + worker.MARK_KILL_GRACE), [
             f"WARN agentkit stays as it is: tests/live.sh failed at {new[:12]}:",
-            "  live: check 3 green", "  [exit 124]", "  [stopped before it finished]",
+            "  live: waiting", "  [exit 124]", "  [stopped before it finished]",
             f"handed agentkit's failed tests/live.sh at {new[:12]} back to fix",
             f"checking agentkit at {third[:12]} with tests/live.sh before it goes live"])
+
+    def test_children_its_script_left_forking_end_before_its_exit_code(self):
+        self.enterContext(patch.object(update, "SMOKE_CAP", 10))  # a runner that waits ends red
+        self.merge("second", live=CHAIN)
+        self.tick()
+        check = self.checks()[0][1]
+        deadline = time.monotonic() + 60
+        while not (check / "exit").exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertEqual((check / "exit").read_text(), "0\n")
+        group, running = (self.root / "group").read_text().strip(), []
+        for stat in Path("/proc").glob("[0-9]*/stat"):
+            try:
+                state, _, pgid = stat.read_text().rsplit(")", 1)[1].split()[:3]
+            except OSError:                                       # gone as it was read
+                continue
+            if pgid == group and state != "Z":
+                running.append(stat.parent.name)
+        self.assertEqual(running, [])
 
     def test_an_install_owed_is_retried_while_the_check_waits(self):
         new = self.merge("second")
