@@ -204,7 +204,7 @@ class Seat(unittest.TestCase):
         self.addCleanup(self.seat.doCleanups)
         self.seat.setUp()
 
-    def account_after_tick(self, first, second, credited):
+    def account_after_tick(self, first, second, credited, login=lambda *_a, **_k: (True, "")):
         self.seat.meters(first, second)
         path = config.STATE / "usage.json"
         cached = json.loads(path.read_text())
@@ -213,7 +213,8 @@ class Seat(unittest.TestCase):
             claude["accounts"][account]["credits"] = 500
         claude["credits"] = claude["accounts"]["default"].get("credits")
         path.write_text(json.dumps(cached))
-        self.seat.tick()
+        with patch.object(seats.watch.worker, "auth_ok", side_effect=login):
+            self.seat.tick()
         return config.session_records()[seats.NAME]["account"]
 
     def test_a_seat_on_credits_moves_to_an_account_with_a_window_left(self):
@@ -224,6 +225,23 @@ class Seat(unittest.TestCase):
     def test_a_seat_stays_on_credits_when_no_account_has_a_window(self):
         self.assertEqual(self.account_after_tick(100, 100, ["default"]), "default")
         self.assertEqual(self.seat.commands, [])
+
+    def test_a_seat_stays_on_credits_when_the_window_cannot_take_it(self):
+        def worker_only(*_a, account=None, **_k):
+            return account != "second", "no seat login"
+        self.assertEqual(self.account_after_tick(100, 20, ["default"], worker_only), "default")
+        with patch.object(orch, "resumable", return_value=False):
+            self.assertEqual(self.account_after_tick(100, 20, ["default"]), "default")
+        self.assertEqual(self.seat.commands, [])
+        self.assertIsNone(seats.watch.seat_read(seats.NAME).get("usage_wait"))
+
+    def test_a_seat_waiting_for_usage_continues_on_credits(self):
+        seats.watch.seat_write(seats.NAME, usage_wait={"reason": "anthropic out of usage",
+                                                       "until": self.seat.now + 3600,
+                                                       "since": self.seat.now})
+        with patch.object(orch, "resumable", return_value=False):
+            self.assertEqual(self.account_after_tick(100, 20, ["default"]), "default")
+        self.assertIsNone(seats.watch.seat_read(seats.NAME).get("usage_wait"))
 
 
 if __name__ == "__main__":

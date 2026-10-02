@@ -2999,16 +2999,17 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         return True
     readings = (prov.get("accounts") or {}) if accounts else {current: prov}
 
+    def dry(account):
+        return usage.model_exhausted(cfg, model, {provider: readings.get(account, {})})[0]
+
     def window(account):
-        read = {provider: readings[account]}
-        return not (usage.model_exhausted(cfg, model, read)[0]
-                    or usage.on_credits(cfg, model, read))
+        return not dry(account) and not usage.on_credits(cfg, model,
+                                                         {provider: readings[account]})
 
     def spent(account):
         # An account on credits is spent while another has a window left: credits cost money.
-        read = {provider: readings.get(account, {})}
-        return usage.model_exhausted(cfg, model, read)[0] or (
-            usage.on_credits(cfg, model, read) and any(map(window, readings)))
+        return dry(account) or (account in readings and not window(account)
+                                and any(map(window, readings)))
 
     lines = content_lines(harness, pane_tail(pane))
     line = recorded_error(harness, name)
@@ -3090,6 +3091,11 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         a for a in orch.account_order(cfg, model, eligible, home) if a != current]
     target = next((a for a in order if a == current
                    or orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
+    if target is None and not refusal and not dry(current):
+        # Nothing with a window takes this seat, and its own credits still answer turns.
+        if not waiting:
+            return False
+        target = current
     with state_lock():
         # Slow meters must not undo a stop, rename, manual open or another launch.
         current_seat = orch.find(name)
