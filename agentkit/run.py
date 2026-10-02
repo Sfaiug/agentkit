@@ -6695,9 +6695,18 @@ def suite_shared(lp, upstream, sha, suite, together=True):
         return None
 
     def suite_run(cwd):
-        return gate.run_done_when([suite], cwd, lp.run_dir / "final-check-together.log",
-                                  lp.artifacts, lp.done_when_limit, lp.log,
-                                  silence=lp.turn_limit, run_dir=lp.run_dir, heavy=True)
+        identity = commit_identity(cwd)
+        clean = git_out(cwd, "diff", "--quiet", "HEAD")[0] == 0
+        log_path = lp.run_dir / "final-check-together.log"
+        ok, text = gate.run_done_when([suite], cwd, log_path, lp.artifacts,
+                                     lp.done_when_limit, lp.log, silence=lp.turn_limit,
+                                     run_dir=lp.run_dir, heavy=True)
+        if (not clean or commit_identity(cwd) != identity
+                or git_out(cwd, "diff", "--quiet", "HEAD")[0] != 0):
+            ok = False
+            text += "\n\nCheckout changed during the shared suite; it does not verify the pinned commit."
+        log_path.write_text(f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}")
+        return ok, text
 
     ok, members, _ = landing.together(lp.wt, sha, upstream, turn, lp.state.get("run_id"),
                                    suite_run, lp.log)

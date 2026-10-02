@@ -7,11 +7,12 @@ target once the runs ahead of it merged, has one of those trees lands on its own
 running the suite again, because the same tree is the same code.  A conflict ends the stack
 before that run.  A failed suite is split in halves over the stack's prefixes to find the first
 run that breaks it: the passing prefix is recorded as above, and that run and the ones after
-it land on their own turns.  Only a tested tree carries the suite's evidence.  Offers `passed`, `waiting` and `together`; `run.final_check` is the one caller.
+it check themselves alone on their own turns.  Only a tested tree carries the suite's
+evidence.  Offers `passed`, `waiting` and `together`; `run.final_check` is the one caller.
 """
 
+import fcntl
 import json
-import os
 import tempfile
 import time
 from pathlib import Path
@@ -21,13 +22,13 @@ from . import config, record
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 
 
-def _trees(turn):
+def _trees(turn, kind="trees"):
     path = turn.with_suffix(".green")
     try:
         data = json.loads(path.read_text())
     except (OSError, ValueError):
         return path, {}
-    kept = data.get("trees") if isinstance(data, dict) else None
+    kept = data.get(kind) if isinstance(data, dict) else None
     now = time.time()
     return path, {tree: entry for tree, entry in (kept or {}).items()
                   if isinstance(entry, dict) and now - entry.get("at", 0) < KEEP}
@@ -38,13 +39,15 @@ def passed(turn, tree):
     return _trees(turn)[1].get(tree)
 
 
-def note(turn, trees, leader):
-    """Record `trees`, the last one tested, as passed with `leader`'s suite run."""
+def note(turn, trees, leader, alone=()):
+    """Record the passing trees and the runs that must check themselves alone."""
     path, kept = _trees(turn)
+    solo = _trees(turn, "alone")[1]
     kept.update({tree: {"at": time.time(), "tested": trees[-1], "leader": leader}
                  for tree in trees})
+    solo.update({run_id: {"at": time.time()} for run_id in alone})
     fresh = path.with_name(path.name + ".new")
-    fresh.write_text(json.dumps({"trees": kept}))
+    fresh.write_text(json.dumps({"trees": kept, "alone": solo}))
     fresh.replace(path)
 
 
@@ -59,8 +62,14 @@ def waiting(turn):
     for place in sorted(turn.parent.glob(f"{turn.stem}.*.wait")):
         try:
             pid = int(place.name[len(turn.stem) + 1:].split("-")[1])
-            os.kill(pid, 0)
-        except (IndexError, ValueError, ProcessLookupError, PermissionError):
+            with place.open() as probe:
+                try:
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    pass
+                else:
+                    continue      # the queue flock, not a reusable pid, proves it is live
+        except (IndexError, ValueError, FileNotFoundError):
             continue
         if pid not in pids:
             pids.append(pid)
@@ -69,7 +78,7 @@ def waiting(turn):
         state = record.read_state(directory) or {}
         mark = state.get("merge_turn")
         if (state.get("state") == "running" and isinstance(mark, dict)
-                and mark.get("pid") in pids):
+                and mark.get("pid") == state.get("pid") and mark.get("pid") in pids):
             found[mark["pid"]] = (directory, state)
     return [found[pid] for pid in pids if pid in found]
 
@@ -83,6 +92,9 @@ def together(wt, head, upstream, turn, leader, suite_run, log):
     prefixes until the first failing one is found, and the passing prefix before it recorded.
     """
     from . import run   # here, not at the top: run imports this module
+    alone = _trees(turn, "alone")[1]
+    if leader in alone:
+        return None, [], ""
     trees, members = [run.git(wt, "rev-parse", f"{head}^{{tree}}")], []
     commits, green = [head], 0
     config.TMP.mkdir(parents=True, exist_ok=True)
@@ -92,6 +104,8 @@ def together(wt, head, upstream, turn, leader, suite_run, log):
         try:
             top = head
             for _, state in waiting(turn):
+                if state.get("run_id") in alone:
+                    break
                 review = state.get("review") or {}
                 commit = review.get("passed_head_sha")
                 if (state.get("run_id") == leader or review.get("verdict") != "PASS"
@@ -117,8 +131,7 @@ def together(wt, head, upstream, turn, leader, suite_run, log):
                                                 log)
         finally:
             run.git_out(wt, "worktree", "remove", "--force", str(stack))
-    if green:
-        note(turn, trees[:green], leader)
+    note(turn, trees[:green], leader, [] if ok else [leader, *members][green:])
     return ok, members, text
 
 
@@ -128,7 +141,9 @@ def split(stack, commits, suite_run, ids, log):
     passing, failing = 0, len(commits)        # the first `passing` pass; prefix `failing` fails
     while failing - passing > 1:
         middle = (passing + failing) // 2
-        run.git(stack, "checkout", "-q", "--detach", commits[middle - 1])
+        # A failed suite can leave tracked edits or build output behind; test a fresh prefix.
+        run.git(stack, "reset", "--hard", commits[middle - 1])
+        run.git(stack, "clean", "-fdx")
         ok, _ = suite_run(stack)
         passing, failing = (middle, failing) if ok else (passing, middle)
     log(f"--- merge: {ids[failing - 1]} breaks the suite of the batch; "
