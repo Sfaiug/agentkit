@@ -85,7 +85,9 @@ class Sandbox(unittest.TestCase):
     def failed_at_budget(self):
         return {"state": "fail", "verdict": "FAIL", "rounds": 3,
                 "round_summaries": [{}, {}, {}],
-                "findings": "VERDICT: FAIL\n\n## Findings\n- a.py:1 - one - why\n"}
+                "review_records": [{"kind": "finding", "path": "a.py", "line": 1,
+                                    "what": "one", "why": "why", "evidence": {"quote": "one"}},
+                                   {"kind": "done"}]}
 
     def finished(self, run_id, repo, rounds, words, points, at):
         history.start_run(run_id, repo=repo, rounds_used=rounds, started_at=at,
