@@ -171,7 +171,7 @@ sys.exit(1)
         sleep = MagicMock()
 
         def heard(seconds):
-            if sys._getframe(1).f_globals.get("__name__") == run.__name__:
+            if sys._getframe(1).f_globals.get("__name__") in (run.__name__, gate.__name__):
                 sleep(seconds)
 
         with patch.object(run.time, "sleep", heard):

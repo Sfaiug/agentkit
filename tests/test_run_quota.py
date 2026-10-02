@@ -277,7 +277,7 @@ class Quota(unittest.TestCase):
         with patch.dict(os.environ, {"AK_MAX_RUNS": "1"}), \
                 patch.object(run.worker, "call", side_effect=submitting(turn)), \
                 patch.object(usage, "collect", return_value=providers), \
-                patch.object(run, "time", Clock(sleeps.append)), \
+                patch.object(gate, "time", Clock(sleeps.append)), \
                 patch.object(notify, "shaped",
                              side_effect=lambda *a, **k: sent.append((a, k)) or 0), \
                 patch.object(notify, "post", return_value=None), \
@@ -451,6 +451,7 @@ class QuotaDry(unittest.TestCase):
                                               side_effect=AssertionError("notification")))
         self.sleep = MagicMock()
         self.stack.enter_context(patch.object(run, "time", Clock(self.sleep)))
+        self.stack.enter_context(patch.object(gate, "time", run.time))
         self.now = time.mktime(time.strptime("2026-09-15 07:00", "%Y-%m-%d %H:%M"))
         self.stack.enter_context(patch.object(usage.time, "time", side_effect=lambda: self.now))
 
