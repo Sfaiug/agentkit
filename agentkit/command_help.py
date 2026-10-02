@@ -112,7 +112,9 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                     "ak orch rename parser-fix parser-review"),
     "orch project": ("usage: ak orch project [SEAT] CHECKOUT",
                      "File a seat under a checkout by name or path; omit SEAT for this session.\n"
-                     "Only known checkouts are accepted; it stays there until it is filed again.",
+                     "Only known checkouts are accepted; it stays there until it is filed again.\n"
+                     "Then lists what the project's other sessions have in flight: their open\n"
+                     "plan lines and the files their going runs change.",
                      "ak orch project acme"),
     "orch solo": ("usage: ak orch solo SESSION on|off",
                   "Save solo on a session: refuse task launches while allowing PR reviews.",

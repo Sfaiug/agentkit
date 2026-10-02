@@ -2763,7 +2763,63 @@ def cmd_project(argv):
         if config.update_session(name, repo=str(repo), filed=True) is None:
             raise config.Error(f"no orchestrator session {name!r}")
     print(f"filed {name} under {repo.name}")
+    flight = in_flight(name, repo)
+    print(f"in flight on {repo.name}, plan around it:" if flight
+          else f"nothing else in flight on {repo.name}")
+    for seat, lines, files in flight:
+        print(f"  {seat}")
+        for line in lines:
+            print(f"    plan: {line}")
+        if files:
+            print(f"    changing: {', '.join(sorted(files))}")
     return 0
+
+
+PLAN_OPEN = re.compile(r"^\s*- \[ \] (.+)$")
+
+
+def in_flight(name, repo):
+    """What the other seats filed under the same checkout have in flight, so two sessions
+    never build the same thing unaware: [(seat, open plan lines, changed files)] by name.
+
+    A seat's open lines are its plan's unticked ones; its files are what its going runs
+    change against their base, committed or not, or a queued run's task `files:`.  A seat
+    with neither is left out.
+    """
+    from . import menu, run   # here, not at the top: menu imports this module
+    target = checkout_of(repo)
+    seats = {seat: ([], set()) for seat, record in sorted(config.session_records().items())
+             if seat != name and target and checkout_of(record.get("repo")) == target}
+    for seat, (lines, _) in seats.items():
+        try:
+            plan = config.plan_path(seat).read_text(errors="replace")
+        except (OSError, config.Error):
+            plan = ""
+        lines.extend(m.group(1).strip() for m in map(PLAN_OPEN.match, plan.splitlines()) if m)
+    for directory in run_record.run_dirs():
+        state = run_record.read_state(directory) or {}
+        seat = run.launched_session(state)
+        if seat in seats and not menu.smoke_run(state) and run.going(state):
+            seats[seat][1].update(changed_files(state))
+    return [(seat, lines, files) for seat, (lines, files) in seats.items() if lines or files]
+
+
+def changed_files(state):
+    """Tracked paths a run's worktree changes against its base, committed or not; before it
+    has a worktree, the pathspecs its task's `files:` allows."""
+    tree, base = state.get("worktree"), state.get("base_sha")
+    if tree and base and os.path.isdir(tree):
+        try:
+            done = subprocess.run(["git", "-C", tree, "diff", "--name-only", base],
+                                  capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return []
+        return done.stdout.splitlines() if done.returncode == 0 else []
+    from . import task
+    try:
+        return task.task_files(Path(state["task_file"])) if state.get("task_file") else []
+    except (OSError, ValueError, config.Error):
+        return []
 
 
 def set_solo(name, enabled=None):
