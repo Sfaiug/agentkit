@@ -2066,19 +2066,19 @@ done
 # taken before the seed, given back once the delivery on it is read.  A suite that finds none
 # free before its wait runs out fails this check alone and runs the rest.
 # Its executor and reviewer are the pair ak would pick now from the suite's snapshot, so it runs
-# on whichever configured models have budget, and skips only when every one is spent, or when
-# none with an open window is on this host.
+# on whichever configured models have budget, and skips only when every one it can run is spent,
+# or when it can run none.
 PAIR=$(python3 "$REPO/tests/check4_pair.py" "$WORK/usage-real.json" \
   "$SMOKE_CALLER_HOME/.agentkit/state/usage.json")
 PAIRRC=$? EXEC=${PAIR% *} REVIEW=${PAIR#* }
 if [ "$PAIRRC" = 3 ]; then
-  skip_checks 4/4b/4c/4d "every model with an open window is not on this host: $PAIR"
+  skip_checks 4/4b/4c/4d "the configured models are not on this host: $PAIR"
 elif [ "$PAIRRC" != 0 ]; then
   no "4 ak run: picking its executor and reviewer exited $PAIRRC"
   skip_checks 4b/4c/4d "prerequisite run did not happen: no executor and reviewer were picked"
 elif [ -z "$PAIR" ]; then
   # skip before cloning or resetting the remote baseline, not after a worker's 429
-  skip_checks 4/4b/4c/4d "every configured model has a spent window"
+  skip_checks 4/4b/4c/4d "every model this host can run has a spent window"
 elif ! smoke_lock_hold "$SMOKE_LOCK_WAIT"; then
   no "4 ak run: every smoke target is still another suite's after ${SMOKE_LOCK_WAIT}s; none was this suite's to reset"
   skip_checks 4b/4c/4d "prerequisite run did not happen: every smoke target is another suite's"

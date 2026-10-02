@@ -672,7 +672,7 @@ esac
                                     text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             for label in ("4", "4b", "4c", "4d"):
-                self.assertIn(f"SKIP  {label}: every configured model has a spent window", result.stdout)
+                self.assertIn(f"SKIP  {label}: every model this host can run has a spent window", result.stdout)
             self.assertIn("0 passed, 0 failed, 4 skipped", result.stdout)
             self.assertFalse((root / "calls").exists())
             self.assertFalse((root / "task.md").exists())

@@ -82,13 +82,17 @@ class Check4PicksModelsWithBudget(unittest.TestCase):
         self.assertEqual(self.pair({"anthropic": reading(100), "openai": reading(100),
                                     "meta": reading(10)}), "spark spark\n")
 
-    def test_open_models_this_host_cannot_run_say_why(self):
+    def test_a_host_that_can_run_no_model_says_why(self):
+        self.cfg["models"]["astra"]["harness"] = "other"
+        self.missing["other"] = "other is not installed"
+        # the one model it can run is spent: a spent window, open models elsewhere or not
+        self.assertEqual(self.pair({"anthropic": reading(100), "openai": reading(10)}), "")
         self.missing["test"] = "test is not installed"
         with self.assertRaises(SystemExit) as exited:
             self.pair({"anthropic": reading(10), "openai": reading(100)})
         self.assertEqual(exited.exception.code, 3)
-        self.assertEqual(self.out.getvalue(), "test is not installed\n")
-        # spent first: a host that lacks only spent models has nothing it could run anyway
+        self.assertEqual(self.out.getvalue(), "test is not installed; other is not installed\n")
+        # spent first, as the suite always judged it
         self.assertEqual(self.pair({"anthropic": reading(100), "openai": reading(100)}), "")
 
     def test_a_provider_the_suite_read_knows_nothing_of_reads_as_the_host_cache(self):
