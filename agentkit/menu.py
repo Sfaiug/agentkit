@@ -2002,6 +2002,7 @@ def usage_lines(cfg, width):
     and `NN% left`.  A provider that lists `accounts` has one row per account in config
     order, the provider's name numbered in roman numerals (`Claude I`, `Claude II`), each
     from its own reading; a provider without them keeps its single row.  After the percentage, joined with ` · ` and each only when it applies:
+    `62,469 credits left` for the credits it can spend past a spent window;
     `resets <weekday> <HH:MM>` from that meter, or `resets <day> <month>` more than six days
     out in a window longer than a week; one note per scoped meter whose figure differs
     (`Fable 41%`); `5h 40% left` for the 5-hour window, or `5h spent until 14:00` once it
@@ -2050,7 +2051,7 @@ def usage_lines(cfg, width):
         five = session_note(prov, now)
         # In the order the row reads them, each with how much it is worth keeping (`fitting`).
         notes = [(rank, part) for rank, part in
-                 [(0, resets_note(week, now)),
+                 [(-1, usage.credits_note(prov)), (0, resets_note(week, now)),
                   *((3, note) for note in scoped_notes(cfg, name, readable, week)),
                   *((five,) if five else ()),
                   (1, fault(prov)), (1, usage.as_of(prov, now))] if part]

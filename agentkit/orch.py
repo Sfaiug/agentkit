@@ -138,11 +138,13 @@ def choose(cfg, providers):
     reason to pass the default over is that it cannot be spent at all: its gate meter, or the
     5h session window it runs inside, reads 100% used.  Then the first model in list order that
     can still be spent takes the seat.  Never refuses either -- a refusal costs more than an
-    overspend, so with every model spent the default is launched anyway with a WARN.
+    overspend, so with every model spent the default is launched anyway with a WARN.  A model
+    on credits (`usage.on_credits`) goes after every one with a window left.
     """
     default = cfg["defaults"]["orchestrator"]
     notes = []
-    for name in [default, *(name for name in config.offered(cfg) if name != default)]:
+    for name in sorted([default, *(name for name in config.offered(cfg) if name != default)],
+                       key=lambda name: usage.on_credits(cfg, name, providers)):
         spent, why = usage.model_spent(cfg, name, providers)
         if not spent:
             return name, "; ".join([why] + notes)
@@ -193,20 +195,21 @@ def account_order(cfg, model, readings, first=None):
 
     `first` -- a seat's home; for a new seat the provider's `seat_account`, else the usual
     login -- first while it has room for this model, the rest by room: a seat lives where
-    its owner follows it, and only spills over when that one is spent.
+    its owner follows it, and only spills over when that one is spent.  An account on
+    credits (`usage.on_credits`) has room only after every one with a window left.
     """
     provider = config.model(cfg, model)["provider"]
 
     def rank(account):
         providers = {provider: readings[account]}
         amount, unknown = usage.model_budget(cfg, model, providers)
-        return usage.model_exhausted(cfg, model, providers)[0], unknown is not None, -amount
+        return (usage.model_exhausted(cfg, model, providers)[0],
+                usage.on_credits(cfg, model, providers), unknown is not None, -amount)
     accounts = config.accounts(cfg, provider) or list(readings)
     ordered = sorted((a for a in accounts if a in readings), key=rank)
     if first is None:
         first = (cfg["providers"].get(provider) or {}).get("seat_account", config.DEFAULT_ACCOUNT)
-    if first in ordered and not usage.model_exhausted(
-            cfg, model, {provider: readings[first]})[0]:
+    if first in ordered and not any(rank(first)[:2]):
         ordered = [first, *(a for a in ordered if a != first)]
     return ordered
 

@@ -3036,6 +3036,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         seat_write(name, usage_refusal=None)
     if not waiting and not refusal and not spent(current):
         if (accounts and current != home and home in readings and not spent(home)
+                and not usage.on_credits(cfg, model, {provider: readings[home]})
                 and live.get("state") == "at_prompt"
                 and not _turn_in_flight(harness, live)[0]
                 and orch.resumable(record)):

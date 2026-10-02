@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Codex CLI adapter.  run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]
-#                     usage        -> ChatGPT subscription meters as JSON
+#                     usage        -> ChatGPT subscription meters, and the credits left, as JSON
 #                     reset-status -> usage-limit resets available, with the weekly meter, as JSON
 #                     reset        -> spend one usage-limit reset, and print the meter it left
 #                     interactive <model> <effort> [session-id [new]] -> the TUI command line,
@@ -183,7 +183,10 @@ usage)
       {name:"secondary_window", w:.rate_limit.secondary_window} ]
     | map(select(.w != null and .w.used_percent != null and .w.reset_at != null)
           | {name, used:.w.used_percent, resets_at:.w.reset_at,
-             window_secs:(.w.limit_window_seconds // 604800)}) }' <<<"$body" \
+             window_secs:(.w.limit_window_seconds // 604800)}) }
+    # Bought credits answer turns once the windows are spent; ak reads them as usage left
+    + ([.credits | objects | select(.has_credits == true and .overage_limit_reached == false)
+        | {credits:(.balance | tonumber)}] | first // {})' <<<"$body" \
     2>/dev/null || err "unparsable response from chatgpt.com" ;;
 reset-status)
   # A subscription earns "usage limit resets" that refill the weekly window.  Two reads: the
