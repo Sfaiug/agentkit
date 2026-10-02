@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, config, gc, history, run, status, watch
+from agentkit import gate, config, gc, history, plan, run, status, watch
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -125,6 +125,24 @@ class OwnPrReview(unittest.TestCase):
                 self.assertEqual(usage.call_count, 2 if background else 1)
                 run.history_finish(state)
                 self.assertEqual(history.get(state["run_id"])["changed_lines"], 5000)
+
+    def test_an_own_pr_review_carries_the_seats_open_plan_lines_on_its_repository(self):
+        here = plan.named(self.repo)
+        config.plan_path("fix-api").write_text(
+            f"- [x] the gate opens · your eye · {here} · written 2026-10-01 10:00"
+            " · done your yes 2026-10-01 11:00\n"
+            f"- [ ] the fence holds · check: `test -f fence.txt` · {here} · written 2026-10-02 12:00\n"
+            "- [ ] the other site loads · check: `true` · ~/code/site#0123456789ab"
+            " · written 2026-10-02 12:00\n")
+        self.change(5)
+        own = Path(self.review()[0]["task"]).read_text()
+        self.assertIn("## The plan this PR serves", own)
+        self.assertIn("- [ ] the fence holds · check: `test -f fence.txt`", own)
+        self.assertNotIn("the gate opens", own)
+        self.assertNotIn("the other site loads", own)       # another project's outcome
+        self.assertIn("a finding whose proof is that line's check, run with `--run`", own)
+        theirs = Path(self.review(author="acme-friend")[0]["task"]).read_text()
+        self.assertNotIn("## The plan this PR serves", theirs)
 
     def test_another_authors_pr_and_a_review_without_a_seat_run(self):
         self.change(1000)
