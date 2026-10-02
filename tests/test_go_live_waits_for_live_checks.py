@@ -283,8 +283,8 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         new = self.merge("second", live=HOLD)
         self.tick()
         check = self.held()
-        for pid in worker.marked_pids(str(check)):                # as a reboot would
-            os.kill(pid, signal.SIGKILL)
+        with patch.object(signal, "SIGTERM", signal.SIGKILL):     # as a reboot would: no TERM
+            worker.kill_marked(str(check), grace=2)
         seen = self.cap(check) - update.SMOKE_CAP + 60
         said = self.tick(now=seen)
         self.assertEqual(said[1:3], ["  live: waiting", "  [stopped before it finished]"])
@@ -394,7 +394,7 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         self.assertEqual(tick(now=self.cap(check)), [])           # its runner still ending it
         self.assertEqual([commit for commit, _ in self.checks()], [new])
         self.assertEqual((self.finish(new) / "exit").read_text(), "124\n")
-        self.assertEqual(tick(), [
+        self.assertEqual(tick(now=self.cap(check) + worker.MARK_KILL_GRACE), [
             f"WARN agentkit stays as it is: tests/live.sh failed at {new[:12]}:",
             "  live: check 3 green", "  [exit 124]", "  [stopped before it finished]",
             f"handed agentkit's failed tests/live.sh at {new[:12]} back to fix",
