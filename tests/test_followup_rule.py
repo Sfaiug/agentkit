@@ -13,8 +13,8 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import submitting
-from agentkit import config, run, worker
+from fixtures.hand_in import records, submitting
+from agentkit import config, hand_in, run, worker
 
 DEFECT = "a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError"
 OTHER = "b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"
@@ -73,6 +73,9 @@ class FollowupRule(unittest.TestCase):
         return output, flake
 
     def assert_followups(self, items):
+        items = [item if item.startswith("flaky: ") else hand_in.Review(records(
+            "VERDICT: PASS\n## Follow-ups\n- " + item.replace("\n", "\n  "))).followups[0]
+                 for item in items]
         self.assertEqual(self.lp.state["followups"], items)
         self.assertEqual(run.read_state(self.lp.run_dir)["followups"], items)
 
