@@ -1499,13 +1499,12 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 continue
         else:
             session, calls = sid or session, calls + 1
-        if not killed and (unfinished or turn_unfinished(target)):
+        if (not killed and (unfinished or turn_unfinished(target))
+                and "-retry-hand-in" not in out_dir.name):
             log(f"{role} {name} ended its turn with a command still in the background; asking "
                 "it to finish in the foreground")
             finish = target.with_name(f"{target.name}-retry-foreground")
-            # One extra call per turn covers both reasons it can be needed: a reviewer
-            # that left work in the background is asked for its verdict in the same
-            # call, so review() never spends a second extra call on the same turn.
+            # Foreground recovery also asks for the closing, so neither role spends another ask.
             finish_body = (f"{FINISH_IN_FOREGROUND} "
                            f"{NO_VERDICT_ASK if role.startswith('reviewer') else NO_CLOSING_ASK}")
             code, text, sid, killed, unfinished = turn(finish_body, finish, session)
@@ -1516,6 +1515,9 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 log(f"WARN {role} {name} ended its turn with a command still in the background "
                     "again; carrying on with what it reported")
             target = finish
+        elif not killed and (unfinished or turn_unfinished(target)):
+            log(f"WARN {role} {name} ended its turn with a command still in the background "
+                "again; carrying on with what it reported")
         # A harness that never ran the turn says so on stderr, and that outranks the refusal
         # words below: a 404 for a model it does not have reads `API Error` like a 500, and
         # Codex's missing model suggests `try a different model` like its capacity refusal.

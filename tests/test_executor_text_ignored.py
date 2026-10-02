@@ -45,6 +45,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.calls = []
         self.closing = None
         self.background = False
+        self.background_on_ask = False
         self.channel = False
 
     def turn(self, _cfg, _model, body, cwd, out, role, sid=None, env=None, **_kw):
@@ -59,7 +60,9 @@ class ExecutorTextIgnored(unittest.TestCase):
             if len(self.calls) == 2 and self.closing:
                 with patch.dict(os.environ, {hand_in.ENV: file}):
                     hand_in.main(self.closing)
-        return 0, self.text, "fixture-session", False, self.background and len(self.calls) == 1
+        unfinished = (self.background and len(self.calls) == 1
+                      or self.background_on_ask and len(self.calls) == 2)
+        return 0, self.text, "fixture-session", False, unfinished
 
     def checked(self):
         with patch.object(worker, "turn", side_effect=self.turn), \
@@ -138,6 +141,11 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.background = True
         self.checked()
         self.assertIn(run.FINISH_IN_FOREGROUND, self.calls[1][0])
+
+    def test_extra_closing_turn_leaving_background_work_does_not_buy_a_third_turn(self):
+        self.text = "## Blocked"
+        self.background_on_ask = True
+        self.checked()
 
     def test_extra_turn_can_hand_in_blocked(self):
         self.text = "## Summary\nWork cannot finish."
