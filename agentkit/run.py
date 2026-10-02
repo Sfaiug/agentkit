@@ -1868,37 +1868,39 @@ class _MergeHold:
         if self._released:
             return
         self._released = True
-        # Publish the saved place before another waiter can take the freed flock.
-        if self.reserved:
-            try:
-                self.lp.state.pop("merge_hold", None)
-                self.lp.write()
-            except (OSError, run_record.StopRequested):
+        try:
+            # Publish the saved place before another waiter can take the freed flock.
+            if self.reserved:
                 try:
                     self.lp.state.pop("merge_hold", None)
-                except Exception:
-                    pass
-        try:
-            try:
-                if self.reservation is not None:
-                    path = Path(self.reservation.name)
-                    self.reservation.close()
-                    path.unlink(missing_ok=True)
-            finally:
-                if self.lock is not None:
+                    self.lp.write()
+                except (OSError, run_record.StopRequested):
                     try:
-                        self.lock.close()
-                    except (OSError, ValueError):
+                        self.lp.state.pop("merge_hold", None)
+                    except Exception:
                         pass
         finally:
-            self.lock = None
-            if self.weighed is not None:
-                orch.set_cpu_weight(*self.weighed)
-            held = getattr(_PICKUP_HELD, "count", 0)
-            if held:
-                _PICKUP_HELD.count = held - 1
-            if getattr(_MERGE_HELD, "hold", None) is self:
-                _MERGE_HELD.hold = None
+            try:
+                try:
+                    if self.reservation is not None:
+                        path = Path(self.reservation.name)
+                        self.reservation.close()
+                        path.unlink(missing_ok=True)
+                finally:
+                    if self.lock is not None:
+                        try:
+                            self.lock.close()
+                        except (OSError, ValueError):
+                            pass
+            finally:
+                self.lock = None
+                if self.weighed is not None:
+                    orch.set_cpu_weight(*self.weighed)
+                held = getattr(_PICKUP_HELD, "count", 0)
+                if held:
+                    _PICKUP_HELD.count = held - 1
+                if getattr(_MERGE_HELD, "hold", None) is self:
+                    _MERGE_HELD.hold = None
 
 
 def raise_cpu_weight(lp):

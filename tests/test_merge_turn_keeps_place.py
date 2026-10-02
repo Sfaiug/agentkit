@@ -214,6 +214,18 @@ class KeepsPlace(unittest.TestCase):
         self.finish()
         self.assertTrue(taken.is_set())
 
+    def test_an_interrupted_release_save_still_closes_the_turn(self):
+        lp = self.loop("early")
+        lp.state["landing"] = True
+        with self.assertRaisesRegex(RuntimeError, "save interrupted"):
+            with run.merge_turn(lp, "origin/main", reserve=True):
+                def interrupted():
+                    raise RuntimeError("save interrupted")
+                lp.write = interrupted
+        self.assertIsNone(getattr(run._MERGE_HELD, "hold", None))
+        with run.turn_path(lp, "origin/main").open("a") as probe:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
     def test_pickup_keeps_a_live_place_until_the_resumed_landing_takes_it(self):
         early, late = self.loop("early"), self.loop("late")
         early.state["landing"] = True
