@@ -56,16 +56,34 @@ SWAPS = "harness-swaps.json"  # the latest installs and reverts, [harness, began
 SWAPS_KEPT = 16               # far more than can begin between a turn's end and the look at it
 LIVE = "live-checks"          # under config.STATE: one directory per check, `<commit>-<started>`
 # A check of agentkit's tests/live.sh, detached: a throwaway worktree of exactly the commit,
-# the script in it, then the output and the exit code, each written whole.  This script is
-# the only writer of both; the tick only creates the directory and reads it.
-LIVE_RUN = r'''check=$1 repo=$2 commit=$3
-git -C "$repo" worktree add --quiet --detach "$check/tree" "$commit" >"$check/output.tmp" 2>&1 &&
-  (cd "$check/tree" && bash tests/live.sh) >>"$check/output.tmp" 2>&1
-code=$?
-git -C "$repo" worktree remove --force "$check/tree" >/dev/null 2>&1
-echo "[exit $code]" >>"$check/output.tmp"
-mv "$check/output.tmp" "$check/output" && echo "$code" >"$check/exit.tmp" &&
-  mv "$check/exit.tmp" "$check/exit"
+# the script in it, then the output and the exit code, each written whole.  Both run in a
+# process group of their own, which this runner, outside it, ends at the check's cap -- TERM,
+# then KILL after the grace -- and then writes a red exit code: so a check ends on a host with
+# no /proc for `worker.kill_marked` to read.  It reaps the group's leader only after the KILL,
+# so the group's id names no other process meanwhile.  This script is the only writer of both
+# files; the tick only creates the directory and reads it.
+LIVE_RUN = r'''import os, signal, subprocess, sys, time
+check, repo, commit, cap, grace = sys.argv[1:]
+with open("output.tmp", "w") as out:
+    group = subprocess.Popen(["sh", "-c", 'git -C "$0" worktree add --quiet --detach "$1" "$2" '
+                              '&& cd "$1" && bash tests/live.sh', repo, f"{check}/tree", commit],
+                             stdout=out, stderr=out, process_group=0)
+try:
+    code = group.wait(timeout=max(0, float(cap) - time.time()))
+except subprocess.TimeoutExpired:
+    os.killpg(group.pid, signal.SIGTERM)
+    time.sleep(float(grace))
+    os.killpg(group.pid, signal.SIGKILL)
+    group.wait()
+    code = 124      # as timeout(1) says of what it ended
+subprocess.run(["git", "-C", repo, "worktree", "remove", "--force", f"{check}/tree"],
+               capture_output=True)
+with open("output.tmp", "a") as out:
+    out.write(f"[exit {code}]\n")
+os.replace("output.tmp", "output")
+with open("exit.tmp", "w") as out:
+    out.write(f"{code}\n")
+os.replace("exit.tmp", "exit")
 '''
 
 
@@ -881,10 +899,16 @@ def _exit(check, started):
 
 def _alive(check, started, now):
     """Whether anything of that check still runs: whatever carries its marker, whatever its
-    script said -- where there is no /proc to read that, until it has an exit code or its cap."""
+    script said -- where there is no /proc to read that, until it has an exit code or its cap
+    and the grace its runner gives the group after it have passed.
+
+    Every reader asks this before it reads the check's verdict: the tick writes `stopped`
+    before it signals anything, so a check it capped that is found ended reads `stopped`, never
+    the exit code it wrote before its cap.
+    """
     if host.PROC.is_dir():
         return bool(worker.marked_pids(str(check)))
-    return _exit(check, started) is None and now < started + SMOKE_CAP
+    return _exit(check, started) is None and now < started + SMOKE_CAP + worker.MARK_KILL_GRACE
 
 
 def _put(path, text):
@@ -910,7 +934,7 @@ def live_target():
     """
     tip = _git("rev-parse", "--verify", "--quiet", "origin/main")[1]
     passed = {commit for started, commit, check in live_checks()
-              if _exit(check, started) == 0 and not _alive(check, started, time.time())}
+              if not _alive(check, started, time.time()) and _exit(check, started) == 0}
     if (not tip or tip in passed or _git("cat-file", "-e", f"{tip}:tests/live.sh")[0]
             or not _git("merge-base", "--is-ancestor", tip, "HEAD")[0]):
         return tip
@@ -921,9 +945,11 @@ def live_target():
 def live_tick(log, now, fetched):
     """The tick's half of tests/live.sh: it starts the checks and ends them at their cap.
 
-    One past `SMOKE_CAP`, or of a commit the checkout already has, is ended by its marker,
-    and its directory goes, worktree and all, only once nothing carries that marker.  One the
-    cap ends, or that ended with no exit code in time, is `stopped`: red from then on, whatever
+    One past `SMOKE_CAP` is ended by its runner (`LIVE_RUN`); that, or one of a commit the
+    checkout already has, is ended by its marker too, for whatever left its group -- out of
+    reach on a host with no /proc, as for every ak run there -- and its directory goes,
+    worktree and all, only once nothing of it runs.  One the cap ends, or that ended with no
+    exit code in time, is `stopped` before anything is signalled: red from then on, whatever
     it says later.  While origin/main has a `tests/live.sh` and no check of it passed, one is
     started, detached, as soon as none runs; a red one is started again on
     `watch.RETRY_BACKOFF` from its end.  As `watch.after_merge_checks` does, the newest red
@@ -943,7 +969,8 @@ def live_tick(log, now, fetched):
         if stop:
             _put(check / "stopped", f"{now}\n")
         if (alive or stop) and (capped or had[commit]):
-            alive = not worker.kill_marked(str(check))
+            worker.kill_marked(str(check))
+            alive = _alive(check, started, now)
         if alive:
             running = True
         elif had[commit]:
@@ -976,7 +1003,8 @@ def live_tick(log, now, fetched):
     log(f"checking agentkit at {tip[:12]} with tests/live.sh before it goes live")
     check = config.STATE / LIVE / f"{tip}-{int(now)}"
     check.mkdir(parents=True)
-    subprocess.Popen(["bash", "-c", LIVE_RUN, "live-check", str(check), str(agentkit_dir()), tip],
+    subprocess.Popen([sys.executable, "-c", LIVE_RUN, str(check), str(agentkit_dir()), tip,
+                      str(int(now) + SMOKE_CAP), str(worker.MARK_KILL_GRACE)],
                      cwd=check, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL, start_new_session=True,
                      env={**config.child_env(), **PINS, "AGENTKIT_ACCEPTANCE_REQUIRED": "1",

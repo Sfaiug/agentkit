@@ -3,7 +3,7 @@
 The tick starts each check detached, in a directory of its own under the state directory, in a
 throwaway worktree of the commit with the acceptance gate's environment and a marker naming the
 check; one runs while anything carries that marker, one at a time, and one past its cap is ended
-by it and counted red.  A red check keeps the host where it is, is handed back once with its last
+by its own runner and by that marker, and counted red.  A red check keeps the host where it is, is handed back once with its last
 lines, however far main moved since, and is tried again on watch.RETRY_BACKOFF from its end, or
 from its cap; a newer origin/main is tried as soon as nothing runs.  Every caller of update_agentkit moves
 only to a commit that passed, exactly it, and a commit without tests/live.sh moves as before.
@@ -322,6 +322,28 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
             f"handed agentkit's failed tests/live.sh at {new[:12]} back to fix",
             f"checking agentkit at {third[:12]} with tests/live.sh before it goes live"])
 
+    def test_a_check_the_tick_caps_as_a_caller_reads_it_is_never_moved_to(self):
+        new = self.merge("second", live=CHILD)
+        self.tick()
+        check = self.checks()[0][1]
+        deadline = time.monotonic() + 60
+        while not (check / "exit").exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        real, capped = worker.marked_pids, []
+
+        def scan(run_id, **kw):                   # the tick caps it as the caller looks at it
+            if not capped:
+                capped.append(None)
+                capped[0] = self.tick(now=self.cap(check))
+            return real(run_id, **kw)
+
+        with patch.object(worker, "marked_pids", side_effect=scan), \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(update.update_agentkit(), 0)
+        self.assertEqual(capped[0][-1], f"handed agentkit's failed tests/live.sh at {new[:12]} "
+                                        "back to fix")
+        self.assertEqual((self.head(), self.count("installs")), (self.first, 0))
+
     def test_a_check_its_kill_could_not_end_runs_on_and_keeps_its_directory(self):
         self.merge("second", live=HOLD)
         self.tick()
@@ -338,15 +360,38 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         self.assertEqual(self.tick(), [])
         self.assertEqual((self.checks(), worker.marked_pids(str(check))), ([], []))
 
-    def test_with_no_proc_to_read_a_check_runs_until_its_cap(self):
+    def test_with_no_proc_to_read_a_check_runs_until_its_cap_and_grace(self):
         new = self.merge("second", live=HOLD)
         self.tick()
         check = self.held()
+        ended = self.cap(check) + worker.MARK_KILL_GRACE          # its runner has ended it
         with patch.object(update.host, "PROC", self.root / "no-proc"):
-            self.assertEqual(self.tick(now=self.cap(check) - 1), [])
-            said = self.tick(now=self.cap(check))
+            self.assertEqual(self.tick(now=ended - 1), [])
+            said = self.tick(now=ended)
         self.assertEqual(said[0], f"WARN agentkit stays as it is: tests/live.sh failed at "
                                   f"{new[:12]}:")
+
+    def test_with_no_proc_a_check_past_its_cap_is_ended_by_its_own_runner(self):
+        self.enterContext(patch.object(update, "SMOKE_CAP", 3))
+        self.enterContext(patch.object(worker, "MARK_KILL_GRACE", 1))
+        new = self.merge("second", live=HOLD)
+        self.tick()
+        check = self.held()
+        third = self.merge("third", live=LIVE)
+
+        def tick(**kw):                                           # /proc hidden from the tick
+            with patch.object(update.host, "PROC", self.root / "no-proc"), \
+                    patch.object(worker, "marked_pids", return_value=[]):
+                return self.tick(**kw)
+
+        self.assertEqual(tick(now=self.cap(check)), [])           # its runner still ending it
+        self.assertEqual([commit for commit, _ in self.checks()], [new])
+        self.assertEqual((self.finish(new) / "exit").read_text(), "124\n")
+        self.assertEqual(tick(), [
+            f"WARN agentkit stays as it is: tests/live.sh failed at {new[:12]}:",
+            "  live: waiting", "  [exit 124]", "  [stopped before it finished]",
+            f"handed agentkit's failed tests/live.sh at {new[:12]} back to fix",
+            f"checking agentkit at {third[:12]} with tests/live.sh before it goes live"])
 
     def test_an_install_owed_is_retried_while_the_check_waits(self):
         new = self.merge("second")
