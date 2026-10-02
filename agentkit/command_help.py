@@ -28,7 +28,7 @@ COMMANDS = {
                 "--before proves a follow-up existed before the task.\n"
                 "done closes any turn; in a review, any blocking finding means FAIL, otherwise PASS.\n"
                 "Executors and fixers use blocked when the task cannot be done as written, or\n"
-                "not-needed when a fix run finds the defect gone or already being fixed.\n"
+                "not-needed when a fix run's first turn finds the defect gone or already being fixed.\n"
                 "Review turns refuse blocked and not-needed; other turns refuse finding and follow-up.\n"
                 "A closing record refuses later records.",
                 'ak hand-in finding api.py:12 "Wrong result" "Breaks callers" --quote "return None"'),
@@ -44,7 +44,7 @@ COMMANDS = {
                         "End an executor or fixer run whose task cannot be done as written.",
                         'ak hand-in blocked "The task requires an unavailable file"'),
     "hand-in not-needed": ('usage: ak hand-in not-needed "WHY"',
-                           "End a fix run whose defect is gone or already being fixed.",
+                           "End a fix run on its first turn if its defect is gone or already being fixed.",
                            'ak hand-in not-needed "The target already fixes empty input"'),
     "run": ("""usage: ak run TASK [TASK ...] [--rounds N] [--exec MODEL] [--review MODEL]
               [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N]

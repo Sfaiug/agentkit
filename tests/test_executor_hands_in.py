@@ -75,24 +75,28 @@ class ExecutorHandsIn(unittest.TestCase):
 
     def test_executor_closings_determine_the_run_state_and_why(self):
         for kind, expected in (("done", "pass"), ("blocked", "blocked"),
-                               ("not-needed", "not_needed")):
+                               ("not-needed", "pass")):
             with self.subTest(kind=kind):
                 row = closing(kind, text="## Blocked\nStale text." if kind == "done"
                               else "## Summary\nClosed this turn.")
                 (self.root / "closings.json").write_text(json.dumps({
-                    "executor": [row], "reviewer": [{"text": gate.PASS}]}))
+                    "executor": [row], "fixer": [closing("done")],
+                    "reviewer": [{"text": gate.PASS}]}))
                 code, directory, state = self.launch(rounds=1)
                 self.assertEqual((code, state["state"]), (int(kind == "blocked"), expected))
-                if kind != "done":
-                    self.assertEqual(state["error" if kind == "blocked" else "not_needed"], row["why"])
+                if kind == "blocked":
+                    self.assertEqual(state["error"], row["why"])
                     self.assertIn(row["why"], (directory / "result.md").read_text())
                     self.assertEqual(state["round_summaries"], [])
+                else:
+                    self.assertTrue(run.review_pass(state, self.cfg))
+                    self.assertEqual(len(state["round_summaries"]), 1)
                 records = next(directory.glob("round-1/executor/hand-in.jsonl")).read_text()
                 self.assertEqual(json.loads(records.splitlines()[-1])["kind"], kind)
 
     def test_fixer_closings_determine_the_run_state_and_why(self):
         for kind, expected in (("done", "pass"), ("blocked", "blocked"),
-                               ("not-needed", "not_needed")):
+                               ("not-needed", "pass")):
             with self.subTest(kind=kind):
                 row = closing(kind, text="## Blocked\nStale text." if kind == "done"
                               else "## Summary\nClosed this turn.")
@@ -101,9 +105,12 @@ class ExecutorHandsIn(unittest.TestCase):
                     "reviewer": [{"text": gate.fail(1)}, {"text": gate.PASS}]}))
                 code, directory, state = self.launch(rounds=3)
                 self.assertEqual((code, state["state"]), (int(kind == "blocked"), expected))
-                if kind != "done":
-                    self.assertEqual(state["error" if kind == "blocked" else "not_needed"], row["why"])
+                if kind == "blocked":
+                    self.assertEqual(state["error"], row["why"])
                     self.assertEqual(len(state["round_summaries"]), 1)
+                else:
+                    self.assertTrue(run.review_pass(state, self.cfg))
+                    self.assertEqual(len(state["round_summaries"]), 2)
                 records = next(directory.glob("round-2/executor/hand-in.jsonl")).read_text()
                 self.assertEqual(json.loads(records.splitlines()[-1])["kind"], kind)
 
@@ -121,11 +128,13 @@ class FixRunHandsIn(unittest.TestCase):
         followup.FollowupRuns.setUp(self)
         adapters(self)
 
-    def first_closing(self, kind, expected, resume=False):
+    def first_closing(self, kind, expected, resume=False, why=None):
         directory, source = self.source()
         child = self.start(directory, source)[0]
         row = closing(kind, why="target already fixes empty input" if kind == "not-needed"
                       else "Should empty input return None or raise ValueError?", fix=kind == "done")
+        if why is not None:
+            row["why"] = why
         if resume and kind == "done":
             row["text"] = "not needed: stale text"
         (self.root / "closings.json").write_text(json.dumps({
@@ -146,7 +155,8 @@ class FixRunHandsIn(unittest.TestCase):
             self.assertTrue(state["regression_checked"])
         else:
             self.assertEqual(state["error" if kind == "blocked" else "not_needed"], row["why"])
-            self.assertIn(row["why"], self.endings[-1])
+            self.assertIn(" ".join(row["why"].split()), self.endings[-1])
+            self.assertNotIn("\n", self.endings[-1])
             self.assertIsNone(state["pr"])
             self.assertEqual(state["round_summaries"], [])
         records = next(child.glob("round-1/executor/hand-in.jsonl")).read_text()
@@ -158,8 +168,25 @@ class FixRunHandsIn(unittest.TestCase):
     def test_first_fix_turn_hands_in_not_needed(self):
         self.first_closing("not-needed", "not_needed")
 
+    def test_not_needed_handback_keeps_a_multiline_why_on_one_line(self):
+        self.first_closing("not-needed", "not_needed", why="gone on the target\n\nsee commit abc123")
+
     def test_first_fix_turn_hands_in_done(self):
         self.first_closing("done", "pass")
+
+    def test_later_fix_turn_not_needed_still_checks_and_reviews(self):
+        directory, source = self.source()
+        child = self.start(directory, source)[0]
+        (self.root / "closings.json").write_text(json.dumps({
+            "executor": [closing("done", fix=True)], "fixer": [closing("not-needed")],
+            "reviewer": [{"text": gate.fail(1).replace("file.py:1", "broken.py:2")},
+                         {"text": gate.PASS}]}))
+        code, state = self.drive(child)
+        self.assertEqual((code, state["state"]), (0, "pass"))
+        self.assertTrue(state["merged"])
+        self.assertTrue(state["regression_checked"])
+        self.assertEqual(len(state["round_summaries"]), 2)
+        self.assertNotIn("not_needed", state)
 
     def test_resume_keeps_the_blocked_closing(self):
         self.first_closing("blocked", "blocked", resume=True)

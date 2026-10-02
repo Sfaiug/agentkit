@@ -3303,8 +3303,10 @@ def blocked_reason(section):
     return first if len(first) <= 200 else first[:199] + "\u2026"
 
 
-def followup_not_needed(lp, summary):
+def followup_not_needed(lp, summary, why=None):
     if lp.state.get("followup") and not lp.state.get("round_summaries"):
+        if why is not None:
+            raise NotNeeded(why)
         # Any line that starts with the verdict, wherever the summary puts it: workers
         # preamble before the heading and verify before they conclude, and decorate.
         answer = re.search(r"^[ \t>]*?(?:[-*+][ \t]+|\d+[.)][ \t]+)?[*_`]*not needed"
@@ -3321,7 +3323,7 @@ def worker_result(lp, summary, out, code=0):
         if closing["kind"] == "blocked":
             raise Blocked(closing["why"], f"## Blocked\n\n{closing['why']}")
         if closing["kind"] == "not-needed":
-            raise NotNeeded(closing["why"])
+            followup_not_needed(lp, None, why=closing["why"])
         return summary
     section = blocked_section(summary)
     if section:
@@ -7921,7 +7923,7 @@ def handback_verdict(state, cfg=None):
 def handback_reason(state, cfg=None):
     """The one line after the verdict: why it ended that way, in the run's own words."""
     if state.get("state") == "not_needed":
-        return delivery(state, cfg)
+        return " ".join(delivery(state, cfg).split())
     if state.get("state") in ("blocked", "error", "waiting"):
         return " ".join((state.get("error") or "no reason was recorded").split())[:300]
     # A memory-cap death is the whole news: rounds and findings say nothing about a

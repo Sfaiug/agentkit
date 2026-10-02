@@ -71,11 +71,9 @@ def scripted(body):
 
 def smoke(out, workspace):
     """A fake smoke worker still crosses the same checker as a real harness."""
-    env = {**os.environ, hand_in.ENV: hand_in.start(out, workspace)}
-    for args in (["finding", "hello.txt:1", "Smoke record", "Checks the hand-in channel", "--quote", "hello"],
-                 ["done"]):
-        subprocess.run([sys.executable, str(REPO / "bin/ak"), "hand-in", *args],
-                       cwd=workspace, env=env, check=True)
+    env = {**os.environ, hand_in.ENV: hand_in.start(out, workspace, role="executor")}
+    subprocess.run([sys.executable, str(REPO / "bin/ak"), "hand-in", "done"],
+                   cwd=workspace, env=env, check=True)
 
 
 if __name__ == "__main__":
