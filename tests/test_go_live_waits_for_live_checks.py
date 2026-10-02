@@ -19,6 +19,7 @@ from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from pathlib import Path
 import io
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -44,6 +45,11 @@ wait
 """
 CHILD = """#!/bin/sh
 sh -c 'until [ -e "$HOME/release" ]; do sleep 0.05; done' >/dev/null 2>&1 &
+echo "live: check 3 green"
+"""
+AWAY = """#!/bin/sh
+python3 -c 'import os, sys; os.setsid(); os.execvp("sh", ["sh", *sys.argv[1:]])' \\
+  -c 'until [ -e "$HOME/release" ]; do sleep 0.05; done' >/dev/null 2>&1 &
 echo "live: check 3 green"
 """
 
@@ -140,12 +146,12 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         self.assertEqual(worker.marked_pids(str(check)), [])
         return check
 
-    def held(self):
-        """The one check, once its script waits on `release`: its directory."""
+    def held(self, said="live: waiting"):
+        """The one check, once its script said that: its directory."""
         check = self.checks()[0][1]
         output = check / "output.tmp"
         deadline = time.monotonic() + 60
-        while not (output.exists() and "live: waiting" in output.read_text()) \
+        while not (output.exists() and said in output.read_text()) \
                 and time.monotonic() < deadline:
             time.sleep(0.05)
         self.assertTrue(worker.marked_pids(str(check)))
@@ -241,8 +247,9 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         self.assertEqual(worker.marked_pids(str(check)), [])      # every process it started
         self.assertEqual(said, [
             f"WARN agentkit stays as it is: tests/live.sh failed at {new[:12]}:",
-            "  live: waiting", "  [stopped before it finished]",
+            "  live: waiting", "  [exit 124]", "  [stopped before it finished]",
             f"handed agentkit's failed tests/live.sh at {new[:12]} back to fix"])
+        self.assertFalse((check / "tree").exists())               # its runner outlived it
         retry = self.cap(check) + watch.RETRY_BACKOFF[0]          # from its cap
         self.assertEqual(self.tick(now=retry - 1), [])
         self.assertEqual(self.tick(now=retry), [f"checking agentkit at {new[:12]} with "
@@ -254,7 +261,6 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         (self.seed / "tests" / "live.sh").unlink()
         plain = self.merge("third")
         self.assertEqual(self.tick(), [f"agentkit is live at {plain[:12]}"])
-        self.assertTrue((check / "tree").is_dir())                # its killed runner left it
         self.assertEqual(self.tick(), [])
         self.assertEqual(self.checks(), [])
         self.assertEqual(len(git(self.clone, "worktree", "list").splitlines()), 1)
@@ -277,7 +283,8 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         new = self.merge("second", live=HOLD)
         self.tick()
         check = self.held()
-        worker.kill_marked(str(check), grace=2)                   # as a reboot would
+        for pid in worker.marked_pids(str(check)):                # as a reboot would
+            os.kill(pid, signal.SIGKILL)
         seen = self.cap(check) - update.SMOKE_CAP + 60
         said = self.tick(now=seen)
         self.assertEqual(said[1:3], ["  live: waiting", "  [stopped before it finished]"])
@@ -304,8 +311,8 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         self.assertIn(third[:12], self.handed[-1][1])
         self.assertEqual(self.tick(), [])                         # once
 
-    def test_a_child_it_left_holds_it_to_its_cap_and_its_red_outlives_a_newer_main(self):
-        new = self.merge("second", live=CHILD)
+    def test_a_child_that_left_its_group_holds_it_to_its_cap_and_its_red_outlives_main(self):
+        new = self.merge("second", live=AWAY)
         self.tick()
         check = self.checks()[0][1]
         deadline = time.monotonic() + 60
@@ -323,7 +330,7 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
             f"checking agentkit at {third[:12]} with tests/live.sh before it goes live"])
 
     def test_a_check_the_tick_caps_as_a_caller_reads_it_is_never_moved_to(self):
-        new = self.merge("second", live=CHILD)
+        new = self.merge("second", live=AWAY)
         self.tick()
         check = self.checks()[0][1]
         deadline = time.monotonic() + 60
@@ -374,9 +381,9 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
     def test_with_no_proc_a_check_past_its_cap_is_ended_by_its_own_runner(self):
         self.enterContext(patch.object(update, "SMOKE_CAP", 3))
         self.enterContext(patch.object(worker, "MARK_KILL_GRACE", 1))
-        new = self.merge("second", live=HOLD)
+        new = self.merge("second", live=CHILD)                    # its child stays in its group
         self.tick()
-        check = self.held()
+        check = self.held("live: check 3 green")
         third = self.merge("third", live=LIVE)
 
         def tick(**kw):                                           # /proc hidden from the tick
@@ -389,7 +396,7 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         self.assertEqual((self.finish(new) / "exit").read_text(), "124\n")
         self.assertEqual(tick(), [
             f"WARN agentkit stays as it is: tests/live.sh failed at {new[:12]}:",
-            "  live: waiting", "  [exit 124]", "  [stopped before it finished]",
+            "  live: check 3 green", "  [exit 124]", "  [stopped before it finished]",
             f"handed agentkit's failed tests/live.sh at {new[:12]} back to fix",
             f"checking agentkit at {third[:12]} with tests/live.sh before it goes live"])
 

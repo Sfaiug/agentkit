@@ -58,23 +58,51 @@ LIVE = "live-checks"          # under config.STATE: one directory per check, `<c
 # A check of agentkit's tests/live.sh, detached: a throwaway worktree of exactly the commit,
 # the script in it, then the output and the exit code, each written whole.  Both run in a
 # process group of their own, which this runner, outside it, ends at the check's cap -- TERM,
-# then KILL after the grace -- and then writes a red exit code: so a check ends on a host with
-# no /proc for `worker.kill_marked` to read.  It reaps the group's leader only after the KILL,
-# so the group's id names no other process meanwhile.  This script is the only writer of both
-# files; the tick only creates the directory and reads it.
+# then KILL after the grace -- or as soon as the tick's TERM tells it to, and then writes a red
+# exit code: so a check ends on a host with no /proc for `worker.kill_marked` to read.  Until
+# then it leaves the group's leader unreaped, so the group's id names no other process, and it
+# writes nothing while anything else in the group runs, as `ps` lists it: a script's child is
+# the check's too.  This script is the only writer of both files; the tick only creates the
+# directory and reads it.
 LIVE_RUN = r'''import os, signal, subprocess, sys, time
 check, repo, commit, cap, grace = sys.argv[1:]
 with open("output.tmp", "w") as out:
     group = subprocess.Popen(["sh", "-c", 'git -C "$0" worktree add --quiet --detach "$1" "$2" '
                               '&& cd "$1" && bash tests/live.sh', repo, f"{check}/tree", commit],
                              stdout=out, stderr=out, process_group=0)
+
+
+def running():
+    if not os.waitid(os.P_PID, group.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT):
+        return True
+    try:
+        rows = subprocess.run(["ps", "-A", "-o", "pgid=", "-o", "stat="], capture_output=True,
+                              text=True).stdout.splitlines()
+    except OSError:
+        rows = []
+    return any(row.split()[0] == str(group.pid) and row.split()[1][0] != "Z" for row in rows)
+
+
+def ended(by):
+    while running():
+        if time.time() >= by:
+            return False
+        time.sleep(max(0, min(1, by - time.time())))
+    return True
+
+
 try:
-    code = group.wait(timeout=max(0, float(cap) - time.time()))
-except subprocess.TimeoutExpired:
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
+    done = ended(float(cap))
+except KeyboardInterrupt:
+    done = False
+signal.signal(signal.SIGTERM, lambda *_: None)
+if not done:
     os.killpg(group.pid, signal.SIGTERM)
-    time.sleep(float(grace))
+    ended(time.time() + float(grace))
     os.killpg(group.pid, signal.SIGKILL)
-    group.wait()
+code = group.wait()
+if not done:
     code = 124      # as timeout(1) says of what it ended
 subprocess.run(["git", "-C", repo, "worktree", "remove", "--force", f"{check}/tree"],
                capture_output=True)
@@ -969,7 +997,8 @@ def live_tick(log, now, fetched):
         if stop:
             _put(check / "stopped", f"{now}\n")
         if (alive or stop) and (capped or had[commit]):
-            worker.kill_marked(str(check))
+            # its runner, told to, ends its group within one grace and writes its exit in the next
+            worker.kill_marked(str(check), grace=2 * worker.MARK_KILL_GRACE)
             alive = _alive(check, started, now)
         if alive:
             running = True
