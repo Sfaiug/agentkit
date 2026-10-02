@@ -16,14 +16,17 @@ from . import command_help, config, hand_in
 # the fixer has to finish, not a line to patch, so that a later round only confirms fixes.
 NO_NOTIFY = ("`ak notify` is not available in this session; anything you would report or ask goes "
              "into your `## Summary`.")
-EVERY_INSTANCE = ("You may dispute a finding instead of changing code: list the finding and "
-                  "evidence that it is wrong under `## Disputed` in your summary. For every "
+EVERY_INSTANCE = ('You may dispute a finding instead of changing code: use `ak hand-in dispute '
+                  'path:line "why it is wrong" --run COMMAND` or `--quote LINES`. Name only a '
+                  "blocking finding handed to this turn. A dispute's command must exit 0; "
+                  "a quote must exist in the named file. For every "
                   "undisputed finding, fix every instance of that pattern in {work}, not only "
                   "the cited line, and list the sites you changed in your summary.")
 ONE_PASS = ("Report every finding you can establish in this one pass, grouped by pattern with "
-            "every site listed. In a re-review, first rule on each disputed finding: upheld or "
-            "dropped, and why; then say which earlier findings are fixed and which are not, "
-            "then anything new.")
+            "every site listed. In a re-review, ak supplies each dispute beside its finding "
+            "with ak's proof output. Uphold a disputed finding by handing it in again with "
+            "`ak hand-in finding`; it is weighed as any finding. Drop it by not handing it in "
+            "again. Then say which earlier findings are fixed and which are not, then anything new.")
 # A task that cannot be done as written is the task's defect, not the worker's: saying so ends
 # the run there, and the orchestrator that wrote the task gets the sentence back instead of a
 # reviewer's verdict on work nobody could do.
@@ -599,7 +602,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     turn_env[hand_in.ENV] = hand_in.start(out_dir, workspace, turn_env.pop(hand_in.CONTINUE, None),
-                                       role=role)
+                                       role=role, findings=turn_env.pop(hand_in.FINDINGS_ENV, None))
     preamble = PREAMBLES[role].format(workspace=workspace)
     if GATE in preamble:
         from . import run as loop

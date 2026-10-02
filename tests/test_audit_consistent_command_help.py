@@ -31,6 +31,7 @@ MATRIX = [
     ("hand-in finding", "usage: ak hand-in finding PATH:LINE", ["api.py:1"], {"--run", "--quote"}),
     ("hand-in follow-up", "usage: ak hand-in follow-up PATH:LINE", ["api.py:1"],
      {"--run", "--quote", "--before"}),
+    ("hand-in dispute", "usage: ak hand-in dispute PATH:LINE", ["api.py:1"], {"--run", "--quote"}),
     ("hand-in done", "usage: ak hand-in done", ["extra"], set()),
     ("hand-in blocked", 'usage: ak hand-in blocked "WHY"', [], set()),
     ("hand-in not-needed", 'usage: ak hand-in not-needed "WHY"', [], set()),

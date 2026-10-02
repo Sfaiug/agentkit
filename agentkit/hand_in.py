@@ -1,6 +1,6 @@
 """One checked worker channel for every harness: append evidence and close turns."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import fcntl
 import json
 import os
@@ -14,6 +14,8 @@ FILE = "hand-in.jsonl"
 REPORT = "review.md"
 ENV = "AK_HAND_IN"
 CONTINUE = "AK_HAND_IN_CONTINUE"
+FINDINGS_ENV = "AK_HAND_IN_FINDINGS"
+FINDINGS_FILE = "findings.json"
 OUTPUT_CAP = 8 * 1024
 CLOSING = ("done", "blocked", "not-needed")
 
@@ -35,7 +37,8 @@ def proof_text(proof):
 
 
 def item_text(row):
-    text = f"{row['path']}:{row['line']} - {row['what']} - {row['why']}"
+    text = (item_text(row["finding"]) + "\nDispute: " + row["why"] if row["kind"] == "dispute"
+            else f"{row['path']}:{row['line']} - {row['what']} - {row['why']}")
     evidence = row["evidence"]
     if "quote" in evidence:
         text += "\nQuote:\n" + evidence["quote"]
@@ -54,6 +57,7 @@ def item_text(row):
 @dataclass
 class Review:
     records: list
+    handed_findings: list = field(default_factory=list)
 
     @property
     def closing(self):
@@ -66,6 +70,10 @@ class Review:
     @property
     def findings(self):
         return [row for row in self.records if row["kind"] == "finding"]
+
+    @property
+    def disputes(self):
+        return [row for row in self.records if row["kind"] == "dispute"]
 
     @property
     def verdict(self):
@@ -82,7 +90,8 @@ class Review:
     @property
     def text(self):
         parts = [f"VERDICT: {self.verdict}"] if self.done else []
-        for kind, heading in (("finding", "Findings"), ("follow-up", "Follow-ups"), ("note", "Notes")):
+        for kind, heading in (("finding", "Findings"), ("follow-up", "Follow-ups"),
+                              ("note", "Notes"), ("dispute", "Disputes")):
             items = ["- " + item_text(row).replace("\n", "\n  ")
                      for row in self.records if row["kind"] == kind]
             if items:
@@ -100,8 +109,9 @@ def read(path):
         if not rows or rows[0].get("kind") != "turn":
             return Review([])
         records = rows[1:]
-        allowed = (("finding", "follow-up", "done") if rows[0].get("role", "reviewer").startswith("reviewer")
-                   else CLOSING)
+        role = rows[0].get("role", "reviewer")
+        allowed = (("finding", "follow-up", "done") if role.startswith("reviewer")
+                   else ("dispute", *CLOSING) if role.startswith("fixer") else CLOSING)
         if any(row.get("kind") not in allowed for row in records):
             return Review([])
         for row in records:
@@ -112,23 +122,26 @@ def read(path):
                 item_text(row)
         if any(row["kind"] in CLOSING for row in records[:-1]):
             return Review([])
-        return Review(records)
+        return Review(records, rows[0].get("findings", []))
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
         return Review([])
 
 
-def start(out_dir, workspace, previous=None, role="reviewer"):
+def start(out_dir, workspace, previous=None, role="reviewer", findings=None):
     """A resumed session keeps its records, but completion belongs to this call alone."""
     path = Path(out_dir).resolve() / FILE
     review = read(previous) if previous else None
-    rows = [{"kind": "turn", "workspace": str(Path(workspace).resolve()), "role": role}]
+    handed = (json.loads(Path(findings).read_text()) if findings
+              else review.handed_findings if review else [])
+    rows = [{"kind": "turn", "workspace": str(Path(workspace).resolve()), "role": role,
+             "findings": handed}]
     if review:
         rows += [row for row in review.records if row["kind"] not in CLOSING]
     path.write_text("".join(json.dumps(row) + "\n" for row in rows))
     return str(path)
 
 
-def checked(argv, workspace, role="reviewer"):
+def checked(argv, workspace, role="reviewer", findings=()):
     reviewing = role.startswith("reviewer")
     if argv and argv[0] in ("blocked", "not-needed"):
         if reviewing:
@@ -138,11 +151,23 @@ def checked(argv, workspace, role="reviewer"):
         return {"kind": argv[0], "why": argv[1].strip()}
     if argv and argv[0] in ("finding", "follow-up") and not reviewing:
         raise config.Error("finding and follow-up are only for review turns")
+    if argv and argv[0] == "dispute" and not role.startswith("fixer"):
+        raise config.Error("dispute is only for fixer turns")
     if argv == ["done"]:
         return {"kind": "done"}
-    if not argv or argv[0] not in ("finding", "follow-up") or len(argv) < 4:
-        raise config.Error("use finding or follow-up with path:line, what, why it matters and evidence, or done alone")
-    kind, site, what, why, *args = argv
+    if argv and argv[0] == "dispute":
+        if len(argv) < 3 or not argv[2].strip():
+            raise config.Error('use dispute with path:line, "why it is wrong" and evidence')
+        kind, site, why, *args = argv
+        finding = next((row for row in findings if site == f"{row['path']}:{row['line']}"), None)
+        if finding is None:
+            allowed = ", ".join(f"{row['path']}:{row['line']}" for row in findings) or "none"
+            raise config.Error(f"dispute must name a blocking finding handed to this turn; you may dispute: {allowed}")
+        what = finding["what"]
+    else:
+        if not argv or argv[0] not in ("finding", "follow-up") or len(argv) < 4:
+            raise config.Error("use finding or follow-up with path:line, what, why it matters and evidence, dispute, or done alone")
+        kind, site, what, why, *args = argv
     if not what.strip() or not why.strip():
         raise config.Error("supply both what is wrong and why it matters")
     flags = {}
@@ -155,7 +180,7 @@ def checked(argv, workspace, role="reviewer"):
         raise config.Error("supply evidence with exactly one of --run COMMAND or --quote LINES")
     if kind == "follow-up" and not flags.get("--before", "").strip():
         raise config.Error("add --before with the base commit or a quote proving the defect existed before the task")
-    if kind == "finding" and "--before" in flags:
+    if kind != "follow-up" and "--before" in flags:
         raise config.Error("use follow-up for a defect that existed before the task")
     name, colon, line = site.rpartition(":")
     if not colon or not name or not line.isdecimal():
@@ -176,6 +201,7 @@ def checked(argv, workspace, role="reviewer"):
         env = dict(os.environ)
         env.pop(ENV, None)
         env.pop(CONTINUE, None)
+        env.pop(FINDINGS_ENV, None)
         # Spool rather than holding an arbitrarily large reproduction in memory.
         with tempfile.TemporaryFile(dir=root) as output:
             result = subprocess.run(["bash", "-c", flags["--run"]], cwd=root, env=env,
@@ -183,12 +209,16 @@ def checked(argv, workspace, role="reviewer"):
             text = output_excerpt(output)
         if kind == "finding" and result.returncode == 0:
             raise config.Error("the command exited 0; write it to fail while the defect exists, or use --quote")
+        if kind == "dispute" and result.returncode != 0:
+            raise config.Error("a dispute's command must exit 0 to show the behaviour is right")
         evidence = {"run": flags["--run"], "returncode": result.returncode,
                     "output": text}
     row = {"kind": kind, "path": str(path.relative_to(root)), "line": line,
            "what": what, "why": why, "evidence": evidence}
     if kind == "follow-up":
         row["before"] = flags["--before"]
+    if kind == "dispute":
+        row["finding"] = finding
     return row
 
 
@@ -206,7 +236,8 @@ def main(argv):
                 raise config.Error("the worker turn's record file is invalid; ask the loop to retry")
             if any(row.get("kind") in CLOSING for row in rows):
                 raise config.Error("this turn is already closed; hand in records before done, blocked or not-needed")
-            row = checked(argv, rows[0]["workspace"], rows[0].get("role", "reviewer"))
+            row = checked(argv, rows[0]["workspace"], rows[0].get("role", "reviewer"),
+                          rows[0].get("findings", []))
             fh.write(json.dumps(row) + "\n")
     except (OSError, ValueError, KeyError, AttributeError) as exc:
         raise config.Error("cannot hand in this record: " + " ".join(str(exc).split())) from None
