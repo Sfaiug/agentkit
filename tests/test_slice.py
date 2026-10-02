@@ -193,8 +193,9 @@ class Seats(Slice):
         self.assertEqual(self.commands("systemd-run"), [])
 
     def test_c_a_server_already_up_keeps_the_slice_it_was_started_in(self):
-        # only the command that starts a server can place it; a second seat joins it where
-        # it is, and asking for a scope around a client would leave a unit nobody wants
+        # only the command that starts a server can place it, and asking for a scope around a
+        # client would leave a unit nobody wants; the seat's harness gets a scope of its own
+        # inside the pane (test_seats_in_slice.py)
         self.stack.enter_context(patch.dict(os.environ, {"AK_SLICE_SERVER_UP": "1"}))
         orch.start("joining", self.root, ["sleep", "60"], "astra")
         self.assertEqual(self.started()[:3], ["tmux", "-L", "agentkit-test"])
