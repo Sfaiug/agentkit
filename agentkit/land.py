@@ -63,7 +63,7 @@ def waiting(turn):
     pids = []
     for place in sorted(turn.parent.glob(f"{turn.stem}.*.wait")):
         try:
-            pid = int(place.name[len(turn.stem) + 1:].split("-")[2])
+            pid = int(place.name[len(turn.stem) + 1:].split("-")[-3])
             with place.open() as probe:
                 try:
                     fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)

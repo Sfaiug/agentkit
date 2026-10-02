@@ -220,13 +220,14 @@ class KeepsPlace(unittest.TestCase):
         early.state["landing"] = True
         with run.merge_turn(early, "origin/main"):
             pass
-        for change in ({"state": "stopped"}, {"process_identity": {"boot": "old", "ticks": 1}},
-                       {"merge_rank": {**early.state["merge_rank"], "boot": "old-boot"}}):
+        for change in ({"process_identity": {"boot": "old", "ticks": 1}},
+                       {"merge_rank": {**early.state["merge_rank"], "boot": "old-boot"}},
+                       {"state": "stopped"}):
             with self.subTest(change=change):
                 record.save_state(early.run_dir, {**early.state, **change})
                 self.assertIsNone(run.merge_turn_ahead(run.turn_path(late, "origin/main"), "1" * 21))
 
-    def test_a_finished_or_parked_landing_clears_its_rank(self):
+    def test_a_finished_or_failed_landing_clears_its_rank(self):
         for result in (True, False):
             with self.subTest(result=result):
                 lp = self.loop(f"landing-{result}")
