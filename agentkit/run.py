@@ -7349,6 +7349,18 @@ def history_role_tokens(run_id, role, out, log=None, cfg=None, model=None):
     history.add_tokens(run_id, role, sum(values), log=log)
 
 
+def park_exhausted(state, exc):
+    """Only a quota stop waits on a window, whether in a round or during delivery."""
+    state["state"] = "exhausted"
+    if exc:
+        state["error"] = str(exc)
+    if isinstance(exc, QuotaDry):
+        state["quota_dry"] = True
+    else:
+        state.pop("quota_dry", None)
+        state.pop("refusal_retry", None)
+
+
 def mark_state(run_dir, name, error=None, log=None):
     """Record how a run died, so `ak run status` never shows a dead run as running.
 
@@ -7379,7 +7391,9 @@ def mark_state(run_dir, name, error=None, log=None):
         # an error's retry belongs to the error: any other mark ends that episode
         state.pop("error_retry_at", None)
         state.pop("error_retries", None)
-    if error:
+    if name == "exhausted":
+        park_exhausted(state, error)
+    elif error:
         state["error"] = error
     try:
         save_state(run_dir, state)
@@ -12060,7 +12074,7 @@ def cmd_merge(argv):
         interrupt(state, str(exc))
         note(lp, str(exc), failed=True)
     except Exhausted as exc:
-        state.update(state="exhausted", error=str(exc))
+        park_exhausted(state, exc)
         note(lp, str(exc), failed=True)
     except Dead as exc:
         state.update(state="error", verdict="ERROR", error=str(exc), finished_at=time.time())
@@ -12076,7 +12090,7 @@ def cmd_merge(argv):
         # run retryable by the same command, not raise past the receipt that says so; with the
         # review invalidated by integration it is `ak run resume` that finishes it instead
         if state.get("review_pending"):
-            state.update(state="exhausted", error=str(exc))
+            park_exhausted(state, exc)
         else:
             state["state"] = "pass" if review_pass(state, cfg) else "fail"
         note(lp, str(exc), failed=True)
@@ -12476,16 +12490,7 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
         # recovery for.  An `error` here would be a remedy nothing can act on.  Only the
         # quota kind waits on a window: the tick resumes nothing else by itself.
         log(f"exhausted: {exc}")
-        state = mark_state(run_dir, "exhausted", str(exc), log)
-        if isinstance(exc, QuotaDry):
-            state["quota_dry"] = True
-            save_state(run_dir, state)
-        elif "quota_dry" in state:
-            # a stale mark from an earlier quota stop must not survive a stop for any
-            # other reason: the tick resumes quota runs only, and this one is not one.
-            del state["quota_dry"]
-            state.pop("refusal_retry", None)
-            save_state(run_dir, state)
+        state = mark_state(run_dir, "exhausted", exc, log)
         record_result(run_dir, state, log, cfg)
         announce(state, run_dir, log, cfg)
         stop_after_finally = True
