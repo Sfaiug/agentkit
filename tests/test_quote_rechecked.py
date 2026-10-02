@@ -49,9 +49,13 @@ class QuoteRechecked(unittest.TestCase):
         self.assertEqual(self.lp.state["notes"], [])
 
     def test_unchecked_records_with_bad_sites_or_quotes_are_notes(self):
+        (self.wt / "loop.py").symlink_to("loop.py")
+        self.commit("Record a broken file link")
+        self.head = run.git(self.wt, "rev-parse", "HEAD")
         (self.wt / "untracked.py").write_text('mode = "branch"\n')
         for row in (self.quote(path="missing.py"), self.quote(path="tests"),
-                    self.quote(path="untracked.py"), self.quote(line=0), self.quote(line=6),
+                    self.quote(path="untracked.py"), self.quote(path="loop.py"),
+                    self.quote(line=0), self.quote(line=6),
                     self.quote(line="two"), self.quote(quote="absent"), self.quote(quote=" ")):
             with self.subTest(row=row):
                 weighed = self.weigh(row)

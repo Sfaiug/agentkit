@@ -3521,7 +3521,7 @@ def quoted_sites(lp, submitted, head):
                 root, path, line = hand_in.checked_site(
                     f"{row['path']}:{row['line']}", checkout, row["evidence"]["quote"])
                 sites[index] = {"path": str(path.relative_to(root)), "line": line}
-            except (config.Error, OSError, ValueError):
+            except (config.Error, OSError, ValueError, RuntimeError):
                 sites[index] = None
         return sites
 
