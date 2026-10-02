@@ -5200,7 +5200,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
             with run_record.record(run_dir) as current:
                 current["live_notified"] = now
             return "passed", None, None
-        seat = orch.find(session) if session else None
+        seat = orch.find(session)
         if after_merge_live(seat):
             def kept(mark):
                 with run_record.record(run_dir) as current:
@@ -5452,7 +5452,7 @@ def after_merge_checks(state, dry_run, log, now=None):
             continue
         finished = st.get("finished_at")
         if (not isinstance(finished, (int, float)) or isinstance(finished, bool)
-                or now < finished):
+                or not 0 <= now - finished):
             continue
         if (now - finished > AFTER_MERGE_WINDOW and not st.get("health")
                 and not (st.get("live_at") and not st.get("live_notified"))):
@@ -5488,14 +5488,14 @@ def after_merge_checks(state, dry_run, log, now=None):
                 verdict, check, url = after_merge_status(owner, repo, host, sha, log)
             else:
                 verdict, check, url = "ignored", None, None
-            if now - finished >= AFTER_MERGE_WINDOW and st.get("health"):
-                expired_health.append(run_dir)
             try:
                 health = after_merge_health(run_dir, st, key, sha, pr_url, now,
                                             dry_run, log, probes)
             except (config.Error, OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
                 log(f"WARN run {name}'s health could not be followed: {exc}")
                 health = ("unknown", None, None)
+            if now - finished >= AFTER_MERGE_WINDOW and health and health[0] == "failed":
+                expired_health.append(run_dir)
             if health and verdict != "failed" and (health[0] != "passed" or verdict == "ignored"):
                 if health[0] == "failed" or verdict != "unknown":
                     verdict, check, url = health

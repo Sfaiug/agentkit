@@ -41,7 +41,7 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(row[1:7], ("project", "opus", "astra", 2, "pass", "PASS"))
 
     def test_live_at_migrates_an_existing_database_without_changing_its_ending(self):
-        with sqlite3.connect(history.path()) as db:
+        with closing(sqlite3.connect(history.path())) as db, db:
             db.execute(history.SCHEMA)
             db.execute("INSERT INTO runs (run_id, final_state, finished_at) VALUES (?,?,?)",
                        ("r1", "pass", 20))
@@ -235,7 +235,8 @@ class HistoryTests(unittest.TestCase):
 
         def written():
             with closing(sqlite3.connect(history.path())) as db:
-                return db.execute("SELECT * FROM runs WHERE run_id != 'new' "
+                columns = ",".join(history._index())
+                return db.execute(f"SELECT {columns} FROM runs WHERE run_id != 'new' "
                                   "ORDER BY run_id").fetchall()
 
         before = written()
