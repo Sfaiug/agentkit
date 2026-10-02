@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, orch, record, watch
+from agentkit import config, history, orch, record, run, watch
 
 NOW = 2000000
 PR = "https://github.com/acme/widget/pull/7"
@@ -65,6 +65,23 @@ class HealthAfterMerge(unittest.TestCase):
         self.git("commit", "-qm", "Declare live probe")
         return self.git("rev-parse", "HEAD")
 
+    def remote_merge(self, command):
+        self.declare(None)
+        self.git("branch", "-M", "main")
+        origin = self.root / "origin.git"
+        hub = self.root / "hub"
+        self.git("clone", "-q", "--bare", str(self.repo), str(origin))
+        self.git("remote", "add", "origin", str(origin))
+        self.git("clone", "-q", str(origin), str(hub))
+        (hub / "AGENTS.md").write_text(f"---\nhealth: {command}\n---\n")
+        self.git("-C", str(hub), "add", "AGENTS.md")
+        self.git("-C", str(hub), "commit", "-qm", "Merge pull request #7")
+        self.git("-C", str(origin), "fetch", "-q", str(hub), "HEAD:refs/heads/main")
+        sha = self.git("-C", str(hub), "rev-parse", "HEAD")
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.git("cat-file", "-e", f"{sha}^{{commit}}")
+        return sha
+
     def merged(self, sha, name="run-a", age=600, seat=SEAT):
         directory = config.RUNS / name
         directory.mkdir()
@@ -98,6 +115,48 @@ class HealthAfterMerge(unittest.TestCase):
         self.tick(now=NOW + 60)
         self.assertEqual((self.probes.call_count, len(self.lines)), (1, 1))
         self.assertEqual(record.read_state(directory)["live_at"], NOW)
+
+    def test_remote_merge_commit_is_fetched_without_changing_the_checkout(self):
+        sha = self.remote_merge("echo \"$AK_MERGE_SHA\" > live-proof")
+        head = self.git("rev-parse", "HEAD")
+        agents = (self.repo / "AGENTS.md").read_text()
+        directory = self.merged(sha)
+        with record.record(directory) as current:
+            current.pop("merge_sha")
+        with patch.object(watch, "gh_json", return_value=({"mergeCommit": {"oid": sha}}, "")):
+            self.tick()
+        self.assertEqual(self.probes.call_count, 1)
+        self.assertEqual((self.repo / "live-proof").read_text().strip(), sha)
+        self.assertEqual(record.read_state(directory)["live_at"], NOW)
+        self.assertEqual(history.get("run-a")["live_at"], NOW)
+        self.assertEqual(self.lines, [(SEAT, f"run run-a is live: {PR}.")])
+        self.assertEqual(self.git("rev-parse", "HEAD"), head)
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), agents)
+
+    def test_failed_fetch_retries_the_remote_declaration_next_tick(self):
+        sha = self.remote_merge("exit 0")
+        directory = self.merged(sha)
+        self.git("remote", "set-url", "origin", str(self.root / "unavailable.git"))
+        self.tick()
+        self.probes.assert_not_called()
+        self.assertNotIn("live_at", record.read_state(directory))
+        self.assertEqual(self.lines, [])
+        self.git("remote", "set-url", "origin", str(self.root / "origin.git"))
+        self.tick(now=NOW + 60)
+        self.assertEqual(self.probes.call_count, 1)
+        self.assertEqual(record.read_state(directory)["live_at"], NOW + 60)
+
+    def test_dry_run_does_not_fetch_a_missing_merge_commit(self):
+        sha = self.remote_merge("exit 0")
+        directory = self.merged(sha)
+        before = record.read_state(directory)
+        with patch.object(run, "fetch") as fetch:
+            self.tick(dry_run=True)
+        fetch.assert_not_called()
+        self.probes.assert_not_called()
+        self.assertEqual(record.read_state(directory), before)
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.git("cat-file", "-e", f"{sha}^{{commit}}")
 
     def test_failure_repeats_until_deployment_passes(self):
         sha = self.declare("echo deployment pending; test -f deployed")
