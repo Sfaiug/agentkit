@@ -55,6 +55,7 @@ class QuoteRechecked(unittest.TestCase):
         (self.wt / "untracked.py").write_text('mode = "branch"\n')
         for row in (self.quote(path="missing.py"), self.quote(path="tests"),
                     self.quote(path="untracked.py"), self.quote(path="loop.py"),
+                    self.quote(path=".git/HEAD", quote=self.head),
                     self.quote(line=0), self.quote(line=6),
                     self.quote(line="two"), self.quote(quote="absent"), self.quote(quote=" ")):
             with self.subTest(row=row):
