@@ -79,18 +79,18 @@ class LandingPriority(unittest.TestCase):
         holder = self.runs / "agentkit-run-acme.scope"
         self.weigh(holder, 40)
         self.weigh(self.runs / "agentkit-run-fix-api.scope", 40)
-        self.weigh(self.runs / "agentkit-job-widget.scope", 60)
+        self.weigh(self.runs / "agentkit-job-widget.scope", 20)
         with run.merge_turn(self.loop(), "origin/main"):
-            # the others' 100 together, times the slice's 8 cores and one
-            self.assertEqual(self.weight(holder), 900)
+            # the others' 60 together, times the slice's 8 cores and one
+            self.assertEqual(self.weight(holder), 540)
         self.assertEqual(self.weight(holder), 40)
         self.assertEqual(self.said(), [
-            "--user set-property --runtime agentkit-run-acme.scope CPUWeight=900",
+            "--user set-property --runtime agentkit-run-acme.scope CPUWeight=540",
             "--user set-property --runtime agentkit-run-acme.scope CPUWeight=40"])
         # the seats keep their weight over the runs slice, which nothing raised
         self.assertEqual(self.weight(self.runs), 40)
         self.assertEqual(self.weight(self.runs.parent / "agentkit-test-seats.slice"), 100)
-        self.assertTrue(any("CPU weight 900 while holding the merge turn" in line
+        self.assertTrue(any("CPU weight 540 while holding the merge turn" in line
                             for line in self.logs), self.logs)
 
     def test_a_reserved_lap_that_lets_go_early_comes_back_down(self):
