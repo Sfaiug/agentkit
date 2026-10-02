@@ -419,6 +419,8 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
     timer for every event; it is cheap enough to share with the ceiling check.
     The external ladder allows this observation delay and TERM cleanup to finish
     before intervening, so this watchdog can preserve the reason for the stop.
+    `on_timeout(reason, pid)` runs before any signal, while the command's children
+    can still be read for the stop diagnostic.
 
     `abort` is asked on the same poll and outranks both windows: a harness that has already
     said it cannot authenticate is not going to finish, and waiting out the silence window
@@ -468,9 +470,11 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
                       "silence" if silence is not None and now - last >= silence else None)
             if reason:
                 expired.set()
-                if on_timeout is not None:
-                    on_timeout(reason)
-                kill_group(proc, run_id)
+                try:
+                    if on_timeout is not None:
+                        on_timeout(reason, proc.pid)
+                finally:
+                    kill_group(proc, run_id)
                 return
             remaining = [ACTIVITY_POLL]
             if limit is not None:

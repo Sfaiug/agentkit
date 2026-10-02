@@ -2373,6 +2373,42 @@ def flaky_key(line):
                   r"\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", "<varying>", line, flags=re.I)
 
 
+def _running_commands(pid):
+    """The live leaves of a command, before its group is ended."""
+    table = watch._proc_table()
+    found = {pid}
+    # A shell can exit while its background child still holds the output pipe.
+    # Its group keeps that child with the command after reparenting.
+    for child in table:
+        try:
+            if os.getpgid(child) == pid:
+                found.add(child)
+        except OSError:
+            pass
+    while True:
+        children = {child for child, (parent, _, _) in table.items()
+                    if parent in found} - found
+        if not children:
+            break
+        found.update(children)
+    live = {child: row for child, row in table.items()
+            if child in found and row[1] not in ("Z", "X")}
+    parents = {row[0] for row in live.values()}
+    running = []
+    for child, (_, _, args) in live.items():
+        if child in parents or not args:
+            continue
+        birth = process_identity(child)
+        if birth is None:
+            continue
+        command = " ".join(" ".join(args).split())
+        if len(command) > 160:
+            command = command[:159] + "…"
+        elapsed = max(0, int(time.time() - birth["started_at"]))
+        running.append(f"{command} ({elapsed}s)")
+    return running
+
+
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False):
     """Run commands while they produce output, with a ceiling on the whole list.
@@ -2414,7 +2450,12 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     chunks, ok = [], True
     spent, killed, kept = None, False, ""   # the command the limit ran out on, whether it had
                                             # begun, and the output it had produced by then
-    reason = []
+    reason, running = [], []
+
+    def stopped(why, pid):
+        reason.append(why)
+        running.extend(_running_commands(pid))
+
     with gate_turn(run_dir, log_path, log) if heavy else nullcontext():
         deadline = time.monotonic() + limit
         log_path.write_text("")
@@ -2433,7 +2474,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     offset = progress.tell()
                     code, _, killed = worker.limited(
                         ["bash", "-c", cmd], left, silence=silence, activity=log_path,
-                        on_timeout=reason.append, cwd=str(cwd), output=progress,
+                        on_timeout=stopped, cwd=str(cwd), output=progress,
                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=suite_env())
                     end = progress.tell()
                 if log is not None and run_dir is not None:
@@ -2501,6 +2542,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             cause = (f"{silence / 60:g} min of silence" if reason == ["silence"] else
                      f"{limit / 3600:g}h ceiling")
             stopped_line = f"done-when: stopped after {cause}: {spent} (last output: {last})"
+            stopped_line += "".join(f"; still running: {command}" for command in running)
         else:
             stopped_line = (f"done-when: stopped after {limit / 3600:g}h ceiling: {spent} "
                             f"(the limit was spent before it could start)")
@@ -7639,6 +7681,16 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
         parts += ["", state["blocked"], ""]
     parts += ["", "## Done-when", "```", "\n".join(result_done_when(cmds, state)), "```", ""]
     parts += [final_check_line(state, cmds), ""]
+    # A model's summary need not repeat a stop; a fix started from this result
+    # still needs the diagnostic the gate recorded before ending the children.
+    try:
+        with (run_dir / "log.txt").open(errors="replace") as progress:
+            stopped = [line.rstrip().split("] ", 1)[1] for line in progress
+                       if re.match(r"^\[\d\d:\d\d:\d\d\] done-when: stopped ", line)]
+    except OSError:
+        stopped = []
+    if stopped:
+        parts += ["## Stopped checks", "", "```", *stopped, "```", ""]
     for entry in state["round_summaries"]:
         dw = {True: "done-when passed", False: "done-when failed"}.get(
             entry["done_when"], "done-when not run")
