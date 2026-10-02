@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from agentkit import config, gc, run, usage, watch  # noqa: E402
 from agentkit import record as run_record
 
@@ -56,7 +57,7 @@ class TransientResume(unittest.TestCase):
             (out / "session_id").write_text(session)
             return code, text, session, False
 
-        return calls, call
+        return calls, submitting(call)
 
     def test_500_resumes_the_same_session_id(self):
         calls, fake = self.worker([

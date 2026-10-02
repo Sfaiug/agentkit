@@ -27,12 +27,13 @@ ONE_PASS = ("Report every finding you can establish in this one pass, grouped by
             "with ak's proof output. Uphold a disputed finding by handing it in again with "
             "`ak hand-in finding`; it is weighed as any finding. Drop it by not handing it in "
             "again. Then say which earlier findings are fixed and which are not, then anything new.")
-# A task that cannot be done as written is the task's defect, not the worker's: saying so ends
+# A task that cannot be done as written is the task's defect, not the worker's: handing it in ends
 # the run there, and the orchestrator that wrote the task gets the sentence back instead of a
 # reviewer's verdict on work nobody could do.
 BLOCKED = ('Close every turn with `ak hand-in done`, or `ak hand-in blocked "<why>"` if the task '
            'cannot be completed as written, or `ak hand-in not-needed "<why>"` if a fix run\'s '
            "first turn finds the defect gone or already being fixed. "
+           "The summary is prose for result.md; the closing is the hand-in. "
            "`blocked` is only for a task that cannot be completed as written; never for a "
            "transient provider failure, a capacity refusal, or a check the loop runs later such "
            "as the `# once` suite.")

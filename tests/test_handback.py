@@ -1341,13 +1341,6 @@ class BlockedRuns(unittest.TestCase):
         self.assertIn(f"Result: {directory / 'result.md'}. Workspace: {work}. Decide the next step.",
                       run.handback_line(state, directory))
 
-    def test_a_blocked_section_keeps_its_own_subheadings(self):
-        section = run.blocked_section("## Blocked\n\nno token for the registry\n\n"
-                                      "### Missing access\n\nthe task assumes one\n")
-        self.assertIn("### Missing access", section)
-        self.assertIn("the task assumes one", section)
-        self.assertEqual(run.blocked_reason(section), "no token for the registry")
-
     def test_a_blank_line_in_a_command_s_output_does_not_hide_what_it_said(self):
         # `run_done_when` separates records with a blank line; a command that prints one of
         # its own must not have its last word cut off, or two failures would look the same
@@ -1363,9 +1356,6 @@ class BlockedRuns(unittest.TestCase):
                   reviewer=["VERDICT: PASS\n\n## Findings\n- none\n"])
         code, _, state = self.launch()
         self.assertEqual((code, state["state"]), (0, "pass"))
-        self.assertEqual(run.blocked_section("## Summary\nsaid `## Blocked` once"), None)
-        self.assertEqual(run.blocked_section("## Blocked\n\nwhy\n\n## Notes\nmore"),
-                         "## Blocked\n\nwhy")
 
 
 if __name__ == "__main__":

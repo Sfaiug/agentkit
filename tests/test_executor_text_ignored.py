@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, worker
+from agentkit import config, hand_in, run, worker
 
 
 class ExecutorTextIgnored(unittest.TestCase):
@@ -43,6 +43,8 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.lp = run.Loop(config.load(), directory, state, {}, lambda _s: None, workspace,
                            "# Fixture", ["true"], "Do the task.", [])
         self.calls = []
+        self.closing = None
+        self.background = False
 
     def turn(self, _cfg, _model, body, cwd, out, role, sid=None, env=None, **_kw):
         self.calls.append((body, sid))
@@ -51,7 +53,11 @@ class ExecutorTextIgnored(unittest.TestCase):
         (out / "prompt.md").write_text(worker.PREAMBLES[role].format(workspace=cwd) + "\n\n" + body)
         (out / "final.md").write_text(self.text)
         (out / "session_id").write_text("fixture-session")
-        return 0, self.text, "fixture-session", False, False
+        if len(self.calls) == 2 and self.closing:
+            file = hand_in.start(out, cwd, (env or {}).get(hand_in.CONTINUE), role=role)
+            with patch.dict(os.environ, {hand_in.ENV: file}):
+                hand_in.main(self.closing)
+        return 0, self.text, "fixture-session", False, self.background and len(self.calls) == 1
 
     def checked(self):
         with patch.object(worker, "turn", side_effect=self.turn), \
@@ -64,6 +70,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.assertEqual(self.calls[1][1], "fixture-session")
         self.assertIn("ak hand-in", self.calls[1][0])
         self.assertNotIn("not_needed", self.lp.state)
+        self.assertEqual(run.continuation(self.lp), "done-when")
 
     def test_blocked_heading_without_hand_in_is_asked_once_then_checked(self):
         self.text = "## Blocked"
@@ -73,6 +80,48 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.lp.state["followup"] = {"place": "api.py:1"}
         self.text = "not needed: gone"
         self.checked()
+
+    def test_fixer_without_hand_in_is_asked_once(self):
+        self.lp.rnd = 1
+        self.text = "## Blocked"
+        with patch.object(worker, "turn", side_effect=self.turn):
+            self.assertEqual(run.execute(self.lp, "fixer", "Fix the task.", "fixer"), self.text)
+        self.assertEqual(self.calls[1], (run.NO_CLOSING_ASK, "fixture-session"))
+        self.assertEqual(run.continuation(self.lp), "done-when")
+
+    def test_completed_prose_after_host_interruption_still_needs_the_extra_ask(self):
+        self.text = "## Blocked"
+        self.lp.rnd = 1
+        self.turn(self.lp.cfg, self.lp.executor, "Do the task.", self.lp.wt,
+                  self.lp.dir("executor"), self.lp.role("executor"))
+        self.lp.rnd = 0
+        self.checked()
+        self.assertEqual(self.calls[1], (run.NO_CLOSING_ASK, "fixture-session"))
+
+    def test_background_recovery_includes_the_closing_ask_without_a_third_turn(self):
+        self.text = "## Blocked"
+        self.background = True
+        self.checked()
+        self.assertIn(run.FINISH_IN_FOREGROUND, self.calls[1][0])
+
+    def test_extra_turn_can_hand_in_blocked(self):
+        self.text = "## Summary\nWork cannot finish."
+        self.closing = ["blocked", "the task requires an unavailable file"]
+        self.lp.rnd = 1
+        with patch.object(worker, "turn", side_effect=self.turn), \
+                self.assertRaisesRegex(run.Blocked, self.closing[1]):
+            run.execute(self.lp, "executor", "Do the task.", "executor")
+        self.assertEqual(self.calls[1], (run.NO_CLOSING_ASK, "fixture-session"))
+
+    def test_extra_followup_turn_can_hand_in_not_needed(self):
+        self.text = "## Summary\nChecked the target."
+        self.closing = ["not-needed", "gone on the target"]
+        self.lp.state["followup"] = {"place": "api.py:1"}
+        self.lp.rnd = 1
+        with patch.object(worker, "turn", side_effect=self.turn), \
+                self.assertRaisesRegex(run.NotNeeded, self.closing[1]):
+            run.execute(self.lp, "executor", "Do the task.", "executor")
+        self.assertEqual(self.calls[1], (run.NO_CLOSING_ASK, "fixture-session"))
 
 
 if __name__ == "__main__":

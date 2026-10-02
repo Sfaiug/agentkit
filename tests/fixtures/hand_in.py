@@ -1,4 +1,4 @@
-"""Typed review records for fake adapters whose scripted plans still use Markdown."""
+"""Typed records for fake adapters whose scripted plans still use Markdown."""
 
 import json
 import os
@@ -92,14 +92,29 @@ def reported(text):
     return hand_in.Review(records(text)).text
 
 
+def executor_records(text):
+    summary = re.search(r"^##[ \t]*Summary\b", text or "", re.M | re.I)
+    blocked = re.search(r"^##[ \t]*Blocked\b[^\n]*\n(.*)", text or "", re.S | re.M | re.I)
+    if blocked and not summary:
+        return [{"kind": "blocked", "why": blocked.group(1).strip()}]
+    unnecessary = re.search(r"^[ \t>]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?[*_`]*not needed"
+                            r"[*_`]*:[*_`]*[ \t]*(\S.*)", text or "", re.M | re.I)
+    if unnecessary:
+        return [{"kind": "not-needed", "why": unnecessary.group(1).strip()}]
+    return [{"kind": "done"}] if summary else []
+
+
 def submitting(fake):
-    """Mocked worker calls must hand in their scripted review just like fake adapters."""
+    """Mocked worker calls hand in their scripted result just like fake adapters."""
     def call(*args, **kwargs):
         answer = fake(*args, **kwargs) if callable(fake) else fake
         role = kwargs.get("role", args[5] if len(args) > 5 else "executor")
-        if role.startswith("reviewer") and (rows := records(answer[1])):
+        rows = (records(answer[1]) if role.startswith("reviewer") else
+                executor_records(answer[1]) if answer[0] == 0 else [])
+        if rows:
             out = Path(args[4])
             out.mkdir(parents=True, exist_ok=True)
+            (out / "final.md").write_text(answer[1])
             file = hand_in.start(out, args[3], role=role)
             with Path(file).open("a") as fh:
                 fh.write("".join(json.dumps(row) + "\n" for row in rows))
@@ -113,9 +128,11 @@ def write(out):
     file = os.environ.get(hand_in.ENV)
     if file != str((out / hand_in.FILE).resolve()) or not (out / "final.md").exists():
         return
-    if not (out / "prompt.md").read_text().startswith("You are the reviewer"):
+    if hand_in.read(file).closing:
         return
-    rows = records((out / "final.md").read_text())
+    reviewing = (out / "prompt.md").read_text().startswith("You are the reviewer")
+    text = (out / "final.md").read_text()
+    rows = records(text) if reviewing else executor_records(text)
     if rows:
         with Path(file).open("a") as fh:
             fh.write("".join(json.dumps(row) + "\n" for row in rows))
