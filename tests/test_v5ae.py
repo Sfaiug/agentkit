@@ -22,6 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import browser, config, gc, notify, orch, run as run_mod, usage, watch
+from agentkit import record
 
 NOW = 1_750_000_000.0
 
@@ -257,7 +258,7 @@ class V5AE(unittest.TestCase):
                    patch.object(watch, "outgoing"),
                    patch.object(watch, "save_state"),
                    patch.object(usage, "collect", return_value={}),
-                   patch.object(run_mod, "run_dirs", return_value=[]),
+                   patch.object(record, "run_dirs", return_value=[]),
                    patch.object(gc, "schedule_gc"),
                    patch.object(orch, "stamp"),
                    patch.object(orch, "sweep"),

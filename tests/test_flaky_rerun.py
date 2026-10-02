@@ -18,6 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, run
+from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"        # the main checkout as the record names it; never opened
 RUN_ID = "20260101-0900-flaky-fixture"
@@ -42,9 +43,9 @@ class FlakyRerun(unittest.TestCase):
         self.run_dir = config.RUNS / RUN_ID
         self.run_dir.mkdir()
         self.state = {"run_id": RUN_ID, "title": "flaky", "state": "running", "verdict": None,
-                      "repo": ACME, **run.process_owner(), "started_at": time.time(),
+                      "repo": ACME, **run_record.process_owner(), "started_at": time.time(),
                       "round_summaries": []}
-        run.save_state(self.run_dir, self.state)
+        run_record.save_state(self.run_dir, self.state)
         self.runs = self.root / "runs.txt"      # one line per run of a command
         self.runs.touch()
         self.followups = config.HOME / "followups" / "acme.md"
@@ -193,7 +194,7 @@ class FlakyRerun(unittest.TestCase):
         record = self.run_dir / "run.json"
         cmd = self.check(f"cp {shlex.quote(str(stopped))} {shlex.quote(str(record))}; exit 143")
         after = f"echo after >> {shlex.quote(str(self.runs))}"
-        with self.assertRaises(run.StopRequested):
+        with self.assertRaises(run_record.StopRequested):
             self.gate([cmd, after])
         self.assertEqual(self.runs.read_text(), "ran\nran\n")
         self.assertFalse(self.followups.exists())
@@ -204,7 +205,7 @@ class FlakyRerun(unittest.TestCase):
         cmd = (f"echo ran >> {shlex.quote(str(self.runs))}; "
                f"cp {shlex.quote(str(stopped))} {shlex.quote(str(self.run_dir / 'run.json'))}; "
                "exit 143")
-        with self.assertRaises(run.StopRequested):
+        with self.assertRaises(run_record.StopRequested):
             self.gate([cmd])
         self.assertEqual(self.count(), 1)
 

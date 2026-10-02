@@ -31,7 +31,7 @@ from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 from . import (command_help, config, gc, hand_in, history, host, job as jobs, notify, orch,
-               retention, task as taskfile, update, usage, watch, worker)
+               record as run_record, retention, task as taskfile, update, usage, watch, worker)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 DIFF_CAP = 300 * 1024
@@ -92,8 +92,6 @@ MERGE_METHODS = {"squash": "--squash", "merge": "--merge", "rebase": "--rebase"}
 CHECKS_CAP = 60 * 60            # a check suite still running after an hour is not going to finish
 CHECKS_POLL = 10
 TOOL_CAP = 120                  # seconds allowed for each git or gh attempt
-SILENCE_MINUTES = 20            # no command output or harness event for this long is a death
-CEILING_HOURS = 6               # the whole done-when list, even if it keeps printing
 PR_URL = re.compile(r"https://\S+?/pull/\d+")
 # the race a merge can lose to a merge to the target between the push and this call; the
 # answer is a retry, never an ending -- see `do_merge`
@@ -146,7 +144,6 @@ except ValueError:
     SLOT_POLL = 30
 _RUN_CONTEXT = threading.local()  # job threads export their own depth and slot owner
 _DELIVERY_HELD = threading.local()   # the delivery locks this thread is already inside
-_RECOVERY_HELD = threading.local()   # the recovery locks this thread is already inside
 _PICKUP_START = None    # the installed agentkit this process started on, for in-flight pickup
 _PICKUP_HELD = threading.local()   # gate and merge turns this thread holds now
 _GATE_HELD = threading.local()     # the gate turn this thread holds now, if any
@@ -162,15 +159,6 @@ class Stopped(config.Error):
 
     Not the same as a tool that answered `no`: nothing was learned, so nothing can be decided
     on it, and the run keeps its work for the command that picks it up once the tool works again.
-    """
-
-
-class StopRequested(Exception):
-    """A stop landed while this attempt still ran: the disk already says `stopped`.
-
-    Raised by `save_state` when it would overwrite a deliberate end, so a job thread
-    whose children were just killed aborts instead of saving `running` back over it.
-    Never user-facing: `drive` catches it and keeps the record as the stop left it.
     """
 
 
@@ -228,15 +216,7 @@ def stopped(code, text):
 
 def stall_minutes_for(run_dir, state):
     """The shared silence limit, preserving the one recorded when this run launched."""
-    return state.get("silence_minutes", SILENCE_MINUTES)
-
-
-def record_limits(state):
-    """Migrate old receipts without reviving task-specific time budgets."""
-    for key in ("done_when_minutes", "turn_hours", "stall_minutes"):
-        state.pop(key, None)
-    state.setdefault("silence_minutes", SILENCE_MINUTES)
-    state.setdefault("ceiling_hours", CEILING_HOURS)
+    return state.get("silence_minutes", run_record.SILENCE_MINUTES)
 
 
 def ignore_time_keys(run_dir, meta, log):
@@ -329,7 +309,7 @@ def park_stalled(run_dir, state, entry):
     state.update(state="stalled", stalls=stalls, finished_at=None, stalled_notified=False,
                  error=f"stalled three times at {entry.get('step')}; parked: "
                        f"ak run resume {run_dir.name}")
-    save_state(run_dir, state)
+    run_record.save_state(run_dir, state)
     try:
         _, body, _ = taskfile.parse_task(run_dir / "task.md")
         cmds = taskfile.done_when(body, run_dir / "task.md")
@@ -1070,11 +1050,11 @@ def transient_wait(out_dir, delay):
     run_dir = Path(out_dir).parent.parent
     if (run_dir / "run.json").is_file():
         try:
-            with recovery_lock(run_dir):
-                state = read_state(run_dir)
+            with run_record.recovery_lock(run_dir):
+                state = run_record.read_state(run_dir)
                 if state and state.get("state") == "running":
                     state["transient_wait"] = {"until": time.time() + delay, "pid": os.getpid()}
-                    save_state(run_dir, state)
+                    run_record.save_state(run_dir, state)
         except OSError:
             pass            # an unwritten mark costs a stall rung, never the wait itself
     step = history.close_step(run_dir.name)     # the wait is no step's work
@@ -1414,7 +1394,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     loop restarts the role fresh; None waits out the growing waits on the same session, as
     without it, and tries only once -- the waits after that are the run's own.
     """
-    limit = 60 * SILENCE_MINUTES if limit is None else limit
+    limit = 60 * run_record.SILENCE_MINUTES if limit is None else limit
     out_dir = Path(out_dir)
     note = shell_foreground_note()
     if note not in body:
@@ -1440,7 +1420,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         record wants anymore.
         """
         nonlocal account, span, last_dir, last_sid
-        stop_check(out_dir.parent.parent)
+        run_record.stop_check(out_dir.parent.parent)
         account = usage.account(cfg, entry["provider"])[0]
         began = time.time()
         named = env if account is None else {**env, **config.account_env(account)}
@@ -1930,8 +1910,8 @@ def mark_gate_wait(run_dir, of):
     """
     since = time.time()
     try:
-        with recovery_lock(run_dir):
-            state = read_state(run_dir)
+        with run_record.recovery_lock(run_dir):
+            state = run_record.read_state(run_dir)
             if state and state.get("state") == "running":
                 if of:
                     if state.get("landing"):
@@ -1944,13 +1924,13 @@ def mark_gate_wait(run_dir, of):
                                 pass    # without the marker this wait still ranks as landing
                         state["gate_turn"] = {"pid": os.getpid(), "of": str(of),
                                               "since": since, "landing": True}
-                        save_state(run_dir, state)
+                        run_record.save_state(run_dir, state)
                         return first
                     state["gate_turn"] = {"pid": os.getpid(), "of": str(of), "since": since}
                 else:
                     state.pop("gate_turn", None)
                     since = None
-                save_state(run_dir, state)
+                run_record.save_state(run_dir, state)
                 return since
     except OSError:
         pass            # an unmarked record costs a status line, never the turn
@@ -1980,16 +1960,16 @@ def _gate_waiter_before(repo, exclude, is_first, since, is_landing=False):
     a resume left it behind -- holds nobody back.
     """
     me = (not is_landing, not is_first, since, exclude or "")
-    for directory in run_dirs():
+    for directory in run_record.run_dirs():
         if directory.name == exclude:
             continue
-        other = read_state(directory) or {}
+        other = run_record.read_state(directory) or {}
         if other.get("state") != "running":
             continue
         turn = other.get("gate_turn")
         if not isinstance(turn, dict) or turn.get("pid") != other.get("pid"):
             continue
-        if not process_active(other):
+        if not run_record.process_active(other):
             continue
         landing = bool(turn.get("landing"))
         waited = _first_landing_wait(directory) if landing else turn.get("since")
@@ -2094,7 +2074,7 @@ class _MergeHold:
                 try:
                     self.lp.state.pop("merge_hold", None)
                     self.lp.write()
-                except (OSError, StopRequested):
+                except (OSError, run_record.StopRequested):
                     try:
                         self.lp.state.pop("merge_hold", None)
                     except Exception:
@@ -2156,7 +2136,7 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
 
 def _acquire_gate_turn(run_dir, log_path, log):
     """Wait for and hold one host-wide heavy-suite turn; None when no turn is taken."""
-    record = read_state(run_dir) or {} if run_dir else {}
+    record = run_record.read_state(run_dir) or {} if run_dir else {}
     repo = record.get("repo")
     is_first = bool(record.get("first"))
     is_landing = bool(record.get("landing"))
@@ -2219,7 +2199,7 @@ def _acquire_gate_turn(run_dir, log_path, log):
             try:
                 while True:
                     log_path.write_text(said + "\n")
-                    stop_check(run_dir)
+                    run_record.stop_check(run_dir)
                     time.sleep(GATE_POLL)
                     slot, limit, held = admit()
                     if not limit:
@@ -2322,7 +2302,7 @@ def busy_turn(run_dir, log_path, log):
     hold, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
     if hold is not None:
         hold.release()
-    stop_check(run_dir)
+    run_record.stop_check(run_dir)
     time.sleep(GATE_POLL)
     if hold is None:
         return 0.0
@@ -2401,7 +2381,7 @@ def _running_commands(pid):
     for child, (_, _, args) in live.items():
         if child in parents or not args:
             continue
-        birth = process_identity(child)
+        birth = host.process_identity(child)
         if birth is None:
             continue
         command = " ".join(" ".join(args).split())
@@ -2447,8 +2427,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     command that exits `SUITE_BUSY` never ran: it is no failure and no re-run, it gives
     its turn back for a poll (`busy_turn`) and runs again.
     """
-    limit = 3600 * CEILING_HOURS if limit is None else limit
-    silence = 60 * SILENCE_MINUTES if silence is None else silence
+    limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
+    silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
     before = set(dirty_paths(cwd))
     chunks, ok = [], True
     spent, killed, kept = None, False, ""   # the command the limit ran out on, whether it had
@@ -2467,7 +2447,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             first_span = None   # its byte span in the gate log: the flaky diff reads whole runs
             busy = False
             while True:
-                stop_check(run_dir)
+                run_record.stop_check(run_dir)
                 left = deadline - time.monotonic()
                 if left <= 0:
                     break
@@ -2565,7 +2545,7 @@ def leftover_junk(path):
     """Match names, not targets: a dependency symlink is junk even when Git ignores only directories."""
     parts = path.rstrip("/").split("/")
     return (parts[0].startswith(SANDBOX_PREFIX)
-            or any(part in ("recovery.lock", "delivery.lock", "node_modules", "venv", ".venv")
+            or any(part in (run_record.RECOVERY_LOCK, "delivery.lock", "node_modules", "venv", ".venv")
                    for part in parts))
 
 
@@ -2832,8 +2812,8 @@ class Loop:
         self.rnd = len(state["round_summaries"])
         self.scratch = bool(state.get("scratch"))
         # Keep the launch limits on resume; older receipts and review-only runs get defaults.
-        self.done_when_limit = 3600 * state.get("ceiling_hours", CEILING_HOURS)
-        self.turn_limit = 60 * state.get("silence_minutes", SILENCE_MINUTES)
+        self.done_when_limit = 3600 * state.get("ceiling_hours", run_record.CEILING_HOURS)
+        self.turn_limit = 60 * state.get("silence_minutes", run_record.SILENCE_MINUTES)
         # the record as this loop was handed it -- every caller saves it first -- or last wrote
         # it: what `save` measures its own changes by.  Never read back off the disk, where a
         # key another writer set since would read as one this loop removed.
@@ -2881,9 +2861,9 @@ class Loop:
         ends here; the merge pipeline's and a PR review's change neither seats nor history.
         """
         if not (self.run_dir / "run.json").exists():
-            save_state(self.run_dir, self.state)
+            run_record.save_state(self.run_dir, self.state)
         else:
-            with record(self.run_dir) as current:
+            with run_record.record(self.run_dir) as current:
                 for key in {"state", *self.state, *self.written}:
                     if key not in self.state:
                         current.pop(key, None)
@@ -3766,7 +3746,7 @@ def followup_open(state):
     """Whether this fix run is still on its way: running, about to, or resuming itself."""
     return (state.get("state") == "running"
             or (state.get("state") == "queued"
-                and (process_active(state) or state.get("slot_waiting")))
+                and (run_record.process_active(state) or state.get("slot_waiting")))
             or (state.get("state") in ("waiting", "waiting_login", "exhausted", "error")
                 and going(state))
             or (state.get("state") == "interrupted" and state.get("deaths")
@@ -3796,8 +3776,8 @@ def open_followup(state, text, repair=None, tip=None):
     the same repository, target and command from any seat, open at the target's `tip`: the
     target is everybody's.
     """
-    for directory in run_dirs():
-        other = read_state(directory) or {}
+    for directory in run_record.run_dirs():
+        other = run_record.read_state(directory) or {}
         if (other.get("run_id") != state.get("run_id") and other.get("followup")
                 and other.get("repo") == state.get("repo")
                 and other.get("repair") == repair
@@ -3830,12 +3810,12 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
         return None
     with watch.state_lock():
         if not repair:
-            current = read_state(run_dir) or state
+            current = run_record.read_state(run_dir) or state
             if "followup_runs" in current:
                 state["followup_runs"] = current["followup_runs"]
                 return None
             state["followup_runs"] = []
-            save_state(run_dir, state)
+            run_record.save_state(run_dir, state)
         if watch.seat_closed(session):
             return None
         cfg = report_config(cfg)
@@ -3898,7 +3878,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                     lists = config.load_session(config.load(), session, required=False) or state
                 except config.Error:
                     lists = state
-                save_state(directory, {"followup": {"run": run_dir.name, "text": item,
+                run_record.save_state(directory, {"followup": {"run": run_dir.name, "text": item,
                                                    "place": followup_place(item)},
                                        **({"repair": key, "repair_tip": repair["sha"]}
                                           if repair else {}),
@@ -3912,7 +3892,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                         "--bg": True, **({"--first": True} if repair else {})}
                 prepare(directory, opts, logger(directory, True), cfg)
                 spawn_bg(directory, [str(directory / "task.md")])
-            except StopRequested as exc:
+            except run_record.StopRequested as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
                 return None
             except (config.Error, OSError) as exc:
@@ -3920,15 +3900,15 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
                 if repair:
                     # a launch that raised can leave its receipt queued for a slot, and the
                     # tick starts that: it is the repair all the same
-                    return directory.name if repair_open(read_state(directory) or {},
+                    return directory.name if repair_open(run_record.read_state(directory) or {},
                                                          repair["sha"]) else None
                 continue
             if repair:
                 return directory.name
             try:
                 state["followup_runs"].append(directory.name)
-                save_state(run_dir, state)
-            except StopRequested as exc:
+                run_record.save_state(run_dir, state)
+            except run_record.StopRequested as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
                 return None
             except (config.Error, OSError) as exc:
@@ -4097,7 +4077,7 @@ def changed_line(lp, row, head):
 
 def proof_on(lp, command, log_path, revision=None, tests_from=None):
     """Replay evidence with the regression probe's overlay and crash-safe checkout recovery."""
-    stop_check(lp.run_dir)
+    run_record.stop_check(lp.run_dir)
     if not lp.scratch:
         head = git(lp.wt, "rev-parse", "HEAD")
         branch = git(lp.wt, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
@@ -4111,7 +4091,7 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
             if paths:
                 git(lp.wt, "restore", f"--source={tests_from}", "--staged", "--worktree", "--",
                     *(f":(literal){p}" for p in paths))
-        stop_check(lp.run_dir)
+        run_record.stop_check(lp.run_dir)
         lp.log(f"--- review proof: checking {revision or 'workspace'}")
         env = suite_env()
         env.pop(hand_in.ENV, None)
@@ -4403,7 +4383,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         env2 = {**run_child_env(), "AK_RUN_ROLE": "worker",
                 "AK_RUN_LOG": str(out2.parent.parent / "log.txt"),
                 hand_in.CONTINUE: str(written_answer(out, text).parent / hand_in.FILE)}
-        stop_check(lp.run_dir)
+        run_record.stop_check(lp.run_dir)
         try:
             with reviewer_checkout(lp.wt, out2, lp.log) if not lp.scratch else nullcontext(lp.wt) as cwd:
                 code2, text2, sid2, killed2, unfinished2 = worker.turn(
@@ -4739,7 +4719,7 @@ def wait_for_dependency(lp):
         return True
     waited, step = False, None
     while True:
-        stop_check(lp.run_dir)
+        run_record.stop_check(lp.run_dir)
         job = jobs.read_job(config.JOBS / str(lp.state.get("job_id")))
         word = (jobs.job_task_by_name(job, dep) or {}).get("state") if job else None
         if word in ("merged", "passed"):
@@ -5842,7 +5822,7 @@ def target_fails(lp, upstream, dw_log):
                "no probe, the fixer runs")
         return ""
     branch = git(lp.wt, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
-    stop_check(lp.run_dir)
+    run_record.stop_check(lp.run_dir)
     before = set(dirty_paths(lp.wt))
     probe_log = lp.run_dir / "target-probe.log"
     heavy_probe = cmd in (getattr(lp, "once", None) or [])
@@ -5910,7 +5890,7 @@ def target_fails(lp, upstream, dw_log):
             "command": cmd, "check": f"{cmd}  # once" if heavy_probe else cmd, "sha": tip,
             "text": f"`{cmd}` fails on {upstream} at {tip}, the target's own tip, whichever "
                     f"branch runs it. What it printed there:\n\n{printed}"})
-    except StopRequested:
+    except run_record.StopRequested:
         raise
     except Exception as exc:  # noqa: BLE001 - the park matters, not its repair
         lp.log(f"WARN no repair of {upstream} could start: {exc}")
@@ -6141,7 +6121,7 @@ def land(lp, upstream, verify, deliver, execv=None):
             pass            # the next landing counts from its own first wait
         try:
             lp.write()
-        except (OSError, StopRequested):
+        except (OSError, run_record.StopRequested):
             pass            # the landing is over however the record ends
 
 
@@ -6563,7 +6543,7 @@ def merge(lp):
 
 
 def loop(cfg, run_dir, task_path, opts, log, prior=None):
-    receipt = read_state(run_dir) or {}
+    receipt = run_record.read_state(run_dir) or {}
     # a --bg parent's pick, consumed here: one launch, one pick, whichever process prints it
     preset_exec = receipt.pop("launch_executor", None)
     preset_rev = receipt.pop("launch_reviewer", None)
@@ -6576,7 +6556,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         gc.gc(log)     # before this run adds a worktree of its own
     if prior:
         state = stamp_origin(prior)
-        state.update(state="running", **process_owner(), finished_at=None, error=None,
+        state.update(state="running", **run_record.process_owner(), finished_at=None, error=None,
                      reported=False, task_words=sized_words, task_points=sized_points,
                      task_checks=sized_checks)
         clear_delivery(state)
@@ -6591,12 +6571,12 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         # worktree that cannot be made ends the run before the full state below is written, and
         # mark_state can only keep what run.json already says -- without this, an early error
         # would be a run with no owner, and the dead-seat fallback would have nobody to tell
-        save_state(run_dir, stamp_origin({**receipt, "run_id": run_dir.name, "title": title, "task": str(task_path),
+        run_record.save_state(run_dir, stamp_origin({**receipt, "run_id": run_dir.name, "title": title, "task": str(task_path),
                              "launched_session": session_at_launch, "state": "running",
-                             "verdict": None, **process_owner(), "started_at": time.time(),
+                             "verdict": None, **run_record.process_owner(), "started_at": time.time(),
                              "reported": False, "task_words": sized_words,
                              "task_points": sized_points, "task_checks": sized_checks}))
-        history_start(read_state(run_dir) or receipt, log)
+        history_start(run_record.read_state(run_dir) or receipt, log)
         repo = task_repo(meta, task_path)
         scratch = repo is None
         raw_rounds = opts["--rounds"] or meta.get("rounds") or 3
@@ -6678,7 +6658,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                  "base": base, "target": target, "base_sha": base_sha, "branch": branch,
                  "worktree": str(wt), "stalls": [],
                  "executor": None, "reviewer": None, "rounds": n_rounds, "state": "running",
-                 "verdict": None, **process_owner(), "started_at": time.time(),
+                 "verdict": None, **run_record.process_owner(), "started_at": time.time(),
                  "finished_at": None, "round_summaries": [], "findings": "",
                  "merge_method": method, "no_merge": bool(opts["--no-merge"]) or scratch,
                  "pr": None, "merged": False, "merge_note": None, "reported": False,
@@ -6702,8 +6682,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         history_start(state, log)
     invalidate_saved_pass(state, cfg, log)
     try:
-        save_state(run_dir, state)
-    except StopRequested:
+        run_record.save_state(run_dir, state)
+    except run_record.StopRequested:
         # A stop landed after a fresh checkout was cut but before its paths reached
         # the record: the stop removed nothing for lack of paths, so the checkout
         # goes here instead of orphaning a worktree and branch nobody names.  A
@@ -6740,7 +6720,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                     f"{upstream} will be taken in at landing")
             else:
                 state["base_sha"] = tip
-                save_state(run_dir, state)
+                run_record.save_state(run_dir, state)
                 log(f"from: merged {source} into {state['branch']} before round 1")
     join_session_project(session_at_launch)     # this run on disk, so it votes too
     if not state.get("scratch"):
@@ -6863,7 +6843,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     spares = [n for n in order if n != reviewer]
     log(f"executor={executor} reviewer={reviewer} rounds={state['rounds']}")
     state["executor"], state["reviewer"] = executor, reviewer
-    save_state(run_dir, state)
+    run_record.save_state(run_dir, state)
     if prior is None and session_at_launch and not preset_exec:
         # A launch from a seat says where to look: this run counts on the seat's own
         # bar and in the menu from here, and the seat is told when it ends.  A plain
@@ -6888,7 +6868,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         cmds = with_suite(cmds, wt, target, landing=not state.get("no_merge"))
     every, once = taskfile.group_commands(cmds)
     body += project_lessons(repo, state, log) + repo_rules(wt, state.get("base_sha"), log)
-    save_state(run_dir, state)
+    run_record.save_state(run_dir, state)
     context = (f"{where}\n\n{body}\n\n"
                f"{shell_foreground_note()}\n\n"
                f"Done-when commands, all must exit 0 (run them in {wt}):\n"
@@ -6920,7 +6900,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     except NotNeeded as exc:
         state.update(state="not_needed", verdict=None, not_needed=str(exc),
                      finished_at=time.time())
-        save_state(run_dir, state)
+        run_record.save_state(run_dir, state)
         write_result(run_dir, state, cmds, log, cfg)
         settle_run(state, run_dir, log)
         return state
@@ -6929,7 +6909,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         state.update({"state": "error", "verdict": "ERROR", "error": str(exc),
                       "finished_at": time.time()})
         park_error(run_dir, state)
-        save_state(run_dir, state)
+        run_record.save_state(run_dir, state)
         write_result(run_dir, state, cmds, log, cfg)
         settle_run(state, run_dir, log)
         return state
@@ -6941,7 +6921,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
                       "blocked": exc.section, "finished_at": time.time()})
         state.pop("quota_dry", None)
-        save_state(run_dir, state)
+        run_record.save_state(run_dir, state)
         write_result(run_dir, state, cmds, log, cfg)
         settle_run(state, run_dir, log)
         return state
@@ -6959,120 +6939,10 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     for key in ("waiting_for", "login_resume_at", "login_back_at"):
         state.pop(key, None)
     state["finished_at"] = time.time()
-    save_state(run_dir, state)
+    run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds, log, cfg)
     settle_run(state, run_dir, log)
     return state
-
-
-def _write_state(run_dir, state, temp="run.tmp"):
-    """The bare record write every save ends in; the guard and the lock live in `save_state`.
-
-    One temporary file per lock a writer holds: `mark_delivery` writes under another lock
-    than a save, and two writers filling one temporary file would put a torn record in place.
-    """
-    record_limits(state)
-    tmp = run_dir / temp
-    tmp.write_text(json.dumps(state, indent=2))
-    tmp.replace(run_dir / "run.json")
-
-
-def save_state(run_dir, state):
-    """Write the record, unless a stop landed first -- the check and the write are atomic.
-
-    The guard reads under `recovery_lock`, the same lock a stop marks under, so a
-    writer that read `running` can never replace the `stopped` receipt afterward: it
-    either lands first and the stop re-reads it, or it raises `StopRequested` and the
-    deliberate end stands.  `mark_delivery` alone writes past this, through
-    `_write_state`: it holds `delivery_lock`, marks endings a stop always refuses, and
-    taking this lock there would invert `reap`'s lock order into a deadlock.
-
-    A first write skips the lock: a stop refuses a run with no receipt, so none can
-    be racing it -- and no lock file is left behind for a record written once.
-    """
-    if not (run_dir / "run.json").exists():
-        return _write_state(run_dir, state)
-    with recovery_lock(run_dir):
-        if state.get("state") != "stopped":
-            try:
-                existing = json.loads((run_dir / "run.json").read_text())
-            except (OSError, ValueError):
-                existing = None
-            if isinstance(existing, dict) and existing.get("state") == "stopped":
-                raise StopRequested(f"{run_dir.name} was stopped")
-        _write_state(run_dir, state)
-
-
-class Record(dict):
-    """A run's record as `record` read it; changed as a dict, written by `record` or `flush`."""
-
-    def __init__(self, run_dir, loaded):
-        super().__init__(loaded)
-        self.run_dir, self.stopped = run_dir, loaded.get("state") == "stopped"
-        self.written = copy.deepcopy(loaded)
-
-    def flush(self):
-        """Write now what changed since the read or the last flush, and only if something did.
-
-        For a caller whose next step reads this write's time.  The guard is `save_state`'s: a
-        record that says `stopped` never goes back to anything else.
-        """
-        if self == self.written:
-            return
-        if self.stopped and self.get("state") != "stopped":
-            raise StopRequested(f"{self.run_dir.name} was stopped")
-        _write_state(self.run_dir, self)
-        self.written = copy.deepcopy(dict(self))
-
-
-class Unreadable(OSError):
-    """`record` found no run.json it could read, and wrote nothing: the caller skips the run."""
-
-
-@contextmanager
-def record(run_dir):
-    """The one way to change a record that exists: read, change and write it under one lock.
-
-    Yields the record as it stands under `recovery_lock`, the lock every save and a stop hold;
-    the caller changes keys (a key popped is removed) and a clean exit writes once, if anything
-    changed.  An exception writes nothing.  A run.json that is missing or cannot be read raises
-    `Unreadable` before the block runs: nobody can tell what it held, so nothing is written
-    over it -- not a copy read before the lock, and not a record of only the changed keys.
-    One block per run at a time: a second one inside would read the record without the first
-    one's changes, and write over them.
-    """
-    run_dir = Path(run_dir)
-    with recovery_lock(run_dir):
-        loaded = read_state(run_dir)
-        if loaded is None:
-            raise Unreadable("run.json cannot be read")
-        current = Record(run_dir, loaded)
-        yield current
-        current.flush()
-
-
-def stop_check(run_dir):
-    """Raise `StopRequested` if the run was stopped: every spawn boundary asks first.
-
-    Read under `recovery_lock`, the lock a stop marks under, so the read itself
-    cannot straddle the commit: a checker queued behind the stop sees the stopped
-    record and never starts work the sweep already passed.  A missing run, or a
-    receipt that cannot be read, is not a stop -- direct unit-test callers and a
-    record removed underfoot carry on as before.
-    """
-    if run_dir is None:
-        return
-    try:
-        with recovery_lock(run_dir):
-            try:
-                stopped = (json.loads((Path(run_dir) / "run.json").read_text())
-                           .get("state") == "stopped")
-            except (OSError, ValueError):
-                return
-    except OSError:
-        return
-    if stopped:
-        raise StopRequested(f"{Path(run_dir).name} was stopped")
 
 
 def history_start(state, log=None):
@@ -7231,9 +7101,8 @@ def mark_state(run_dir, name, error=None, log=None):
     history and the tally already heard it from the stop, and there is nothing left
     to record, so the disk as it stands is returned instead of raising.
     """
-    try:
-        state = json.loads((run_dir / "run.json").read_text())
-    except (OSError, ValueError):
+    state = run_record.read_state(run_dir)
+    if state is None:
         state = {"run_id": run_dir.name, "verdict": None}
     if not state.get("title"):
         # nothing had written the title yet, and the message the user gets has to carry it
@@ -7259,9 +7128,9 @@ def mark_state(run_dir, name, error=None, log=None):
     elif error:
         state["error"] = error
     try:
-        save_state(run_dir, state)
-    except StopRequested:
-        return read_state(run_dir) or state
+        run_record.save_state(run_dir, state)
+    except run_record.StopRequested:
+        return run_record.read_state(run_dir) or state
     history_finish(state, log)
     try:
         refresh_seat_tally(launched_session(state))   # every state change lands on the bar
@@ -7558,8 +7427,8 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
 
 def run_for_pr(url):
     """(run_dir, state) of the run that opened that PR, or (None, None)."""
-    for run_dir in run_dirs():
-        state = read_state(run_dir)
+    for run_dir in run_record.run_dirs():
+        state = run_record.read_state(run_dir)
         if state and state.get("pr") == url:
             return run_dir, state
     return None, None
@@ -7574,7 +7443,7 @@ def record_decision(run_dir, state, reason, merged=False):
     state["merge_note"] = note = " ".join(reason.split())
     if merged:
         state["merged"] = True
-    save_state(run_dir, state)
+    run_record.save_state(run_dir, state)
     if merged:
         history_finish(state)
         start_followups(state, run_dir, logger(run_dir, True))
@@ -7713,7 +7582,7 @@ def join_session_project(session, runs=None):
             return None
         repo = record.get("repo")
         if not record.get("filed") and (runs is None or not repo):
-            repo = session_vote(session, (read_state(directory) or {} for directory in run_dirs())
+            repo = session_vote(session, (run_record.read_state(directory) or {} for directory in run_record.run_dirs())
                                 if runs is None else runs, repo)
             if repo != record.get("repo"):
                 config.update_session(session, repo=repo)
@@ -8095,7 +7964,7 @@ def delivery_lock(run_dir):
     The loop that finished a run and the `ak watch` tick that found it unheard can both be
     holding a snapshot of the same ending.  Without this they both type the line and then
     write their own snapshot back, one of them over the other's marks, and the seat reads the
-    ending twice.  Its own file, never `recovery.lock`: `reap` already holds that one while it
+    ending twice.  Its own file, apart from the recovery lock: `reap` already holds that one while it
     calls down to here.
 
     Reentrant within a thread, and counted here because flock is not: `mark_delivery` takes it
@@ -8146,7 +8015,7 @@ def mark_delivery(run_dir, state, **marks):
     record had moved on and the marks were dropped.
     """
     with delivery_lock(run_dir):
-        current = read_state(run_dir)
+        current = run_record.read_state(run_dir)
         if current is None:
             current = dict(state)
         elif not same_attempt(state, current):
@@ -8160,7 +8029,7 @@ def mark_delivery(run_dir, state, **marks):
         # Past `save_state`'s guard on purpose: these are endings a stop always
         # refuses, so no stop can race them, and this lock plus that one in this
         # order would invert the order `reap` takes them in.  See `save_state`.
-        _write_state(run_dir, current, "delivery.tmp")
+        run_record._write_state(run_dir, current, run_record.DELIVERY_TEMP)
         return True
 
 
@@ -8183,7 +8052,7 @@ def hand_back(state, run_dir, log, cfg=None):
     seat = orch.find(session) or {"name": session}
     line = handback_line(state, run_dir, cfg)
     with delivery_lock(run_dir):
-        said = read_state(run_dir) or state
+        said = run_record.read_state(run_dir) or state
         if not same_attempt(state, said):
             # the run was resumed since this ending: nobody is waiting on it any more, and
             # the attempt running now will hand back an ending of its own
@@ -8200,7 +8069,7 @@ def hand_back(state, run_dir, log, cfg=None):
                           handback_wait_reason=None, notification_pending=None)
             log(f"run {run_dir.name} is a {watch.PREEXISTING_NOTE}")
             # The seat is not going to read the tree: the ending is history.
-            _drop_told(read_state(run_dir) or state, log, run_dir)
+            _drop_told(run_record.read_state(run_dir) or state, log, run_dir)
             return True
         if watch.type_at_prompt(seat, line, log, cfg=cfg, typed=said.get("handback_typed"),
                                 receipt=lambda mark: mark_delivery(run_dir, state,
@@ -8210,7 +8079,7 @@ def hand_back(state, run_dir, log, cfg=None):
                           handback_wait_reason=None, notification_pending=None)
             log(f"handed run {run_dir.name} back to the {session} seat")
             # The seat was told. It reads result.md, not the checkout.
-            _drop_told(read_state(run_dir) or state, log, run_dir)
+            _drop_told(run_record.read_state(run_dir) or state, log, run_dir)
             return True
         if not said.get("handback_pending") or state.get("handed_back"):
             # an ending is either said or waiting to be, never both: a mark the attempt
@@ -8294,7 +8163,7 @@ def announce(state, run_dir, log, cfg=None):
     # History is never replayed, even when the run's own loop meets it directly -- but only
     # when first seen unmarked; a pending mark is the record of having been seen.
     with delivery_lock(run_dir):
-        current = read_state(run_dir) or state
+        current = run_record.read_state(run_dir) or state
         if not same_attempt(state, current):
             log(f"run {run_dir.name} has moved on since this ending; nothing to hand back")
             return
@@ -8313,7 +8182,7 @@ def announce(state, run_dir, log, cfg=None):
     # rewrite and no second line every tick.
     if watch.seat_closed_by_owner(session):
         with delivery_lock(run_dir):
-            current = read_state(run_dir) or state
+            current = run_record.read_state(run_dir) or state
             if not same_attempt(state, current):
                 log(f"run {run_dir.name} has moved on since this ending; nothing to hand back")
                 return
@@ -8361,70 +8230,6 @@ def announce(state, run_dir, log, cfg=None):
 
 
 # --- status, clean, resume --------------------------------------------------
-
-
-def run_dirs():
-    return sorted(d for d in config.RUNS.iterdir() if d.is_dir()) if config.RUNS.exists() else []
-
-
-def alive(pid):
-    """Process existence only; run ownership also requires process_active's identity check."""
-    if not isinstance(pid, int) or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
-def process_identity(pid):
-    """Linux process birth, including the boot so a reboot cannot recycle an identity."""
-    try:
-        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-        if fields[0] in ("Z", "X"):
-            return None
-        ticks = int(fields[19])
-        boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
-        btime = next(line.split()[1] for line in Path("/proc/stat").read_text().splitlines()
-                     if line.startswith("btime "))
-        return {"boot": boot, "ticks": ticks,
-                "started_at": int(btime) + ticks / os.sysconf("SC_CLK_TCK")}
-    except (OSError, ValueError, IndexError, StopIteration):
-        return None
-
-
-def process_owner(pid=None):
-    pid = os.getpid() if pid is None else pid
-    return {"pid": pid, "process_identity": process_identity(pid)}
-
-
-def process_active(state):
-    pid = state.get("pid")
-    if not alive(pid):
-        return False
-    current = process_identity(pid)
-    if current is None:
-        # A zombie still answers kill(0). An unreadable /proc, however, is not proof of death.
-        try:
-            return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] not in ("Z", "X")
-        except (OSError, IndexError):
-            return True
-    saved = state.get("process_identity")
-    if saved:
-        return all(saved.get(key) == current[key] for key in ("boot", "ticks"))
-    # Old records lack the fingerprint: check birth time and the actual run command. A
-    # recycled PID starts after the old receipt, or belongs to a different kind of process.
-    if state.get("started_at") and current["started_at"] > state["started_at"] + 1:
-        return False
-    try:
-        args = Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace").split("\0")
-    except OSError:
-        return True
-    return any(Path(arg).name == "ak" and args[i + 1:i + 2] == ["run"]
-               for i, arg in enumerate(args))
 
 
 def installed_head():
@@ -8491,7 +8296,7 @@ def pickup_new_code(lp, execv=None, current=None, extra=None):
     try:
         lp.state["pickup"] = {"pid": os.getpid(), "from": start, "to": now, **(extra or {})}
         lp.write()
-    except StopRequested:
+    except run_record.StopRequested:
         raise
     except Exception:
         return False
@@ -8501,30 +8306,6 @@ def pickup_new_code(lp, execv=None, current=None, extra=None):
     except OSError:
         return False
     return True
-
-
-@contextmanager
-def recovery_lock(run_dir):
-    """Serialize reaping, acknowledgment and launch handoff; never hold across model work.
-
-    Reentrant within a thread, and counted here because flock is not: `save_state`
-    takes it for every write it makes, and `reap`, `cmd_stop` and the launch handoff
-    hold it across the read-decide-write the save is the end of.
-    """
-    held = getattr(_RECOVERY_HELD, "paths", None)
-    if held is None:
-        held = _RECOVERY_HELD.paths = set()
-    mine = str(run_dir)
-    if mine in held:
-        yield
-        return
-    held.add(mine)
-    try:
-        with (Path(run_dir) / "recovery.lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            yield
-    finally:
-        held.discard(mine)
 
 
 def run_depth():
@@ -8661,11 +8442,11 @@ def slot_counts(state):
     A run waiting for its merge turn owns no slot while it waits: it only sits there.
     """
     running, ahead = 0, 0
-    for directory in run_dirs():
-        other = read_state(directory) or {}
+    for directory in run_record.run_dirs():
+        other = run_record.read_state(directory) or {}
         if other.get("run_id") == state.get("run_id") or other.get("run_depth", 0):
             continue
-        if (other.get("state") == "running" and process_active(other)
+        if (other.get("state") == "running" and run_record.process_active(other)
                 and not merge_turn_note(other)):
             running += 1
         elif (other.get("state") == "queued" and other.get("slot_waiting") and
@@ -8682,11 +8463,11 @@ def frozen_runs(state):
     process itself, so a dead run and a reused pid count nothing.
     """
     frozen = 0
-    for directory in run_dirs():
-        other = read_state(directory) or {}
+    for directory in run_record.run_dirs():
+        other = run_record.read_state(directory) or {}
         if other.get("run_id") == state.get("run_id") or other.get("run_depth", 0):
             continue
-        if (other.get("state") == "running" and process_active(other)
+        if (other.get("state") == "running" and run_record.process_active(other)
                 and not merge_turn_note(other)
                 and host.frozen_cgroup(other.get("pid"))):
             frozen += 1
@@ -8791,7 +8572,7 @@ def claim_slot(state, limit, readings=None):
     ungated = os.environ.get("AK_MAX_RUNS") == "0"
     if state.get("run_depth", 0) or ungated:
         state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
-                     **process_owner())
+                     **run_record.process_owner())
         state.pop("resume_from", None)
         return True
     is_first = bool(state.get("first"))
@@ -8843,7 +8624,7 @@ def claim_slot(state, limit, readings=None):
                 f"ak cpu pressure {_pct(pressure)}")
         return False
     state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
-                 **process_owner())
+                 **run_record.process_owner())
     for key in ("resume_from", "slot_healthy_polls", "reservation_pending",
                 "slot_wait_reason", "slot_wait_kind"):
         state.pop(key, None)
@@ -8857,28 +8638,28 @@ def wait_for_slot(run_dir):
     wait_kind = None
     while True:
         limit = config.max_runs()
-        with slot_lock(), recovery_lock(run_dir):
-            state = read_state(run_dir) or {}
+        with slot_lock(), run_record.recovery_lock(run_dir):
+            state = run_record.read_state(run_dir) or {}
             if state.get("state") == "running" and state.get("pid") == os.getpid():
                 return state
-            if first_poll and state.get("state") != "queued" and not process_active(state):
+            if first_poll and state.get("state") != "queued" and not run_record.process_active(state):
                 # drive also accepts a saved receipt directly (the job/recovery API).
                 state.update(run_id=run_dir.name, state="queued", slot_waiting=True,
-                             queued_at=time.time(), **process_owner())
+                             queued_at=time.time(), **run_record.process_owner())
                 state.setdefault("run_depth", run_depth())
                 # A new queue episode starts with no memory of the last one's wait.
                 for key in ("slot_waited", "slot_wait_reason", "slot_wait_kind"):
                     state.pop(key, None)
-                save_state(run_dir, state)
+                run_record.save_state(run_dir, state)
             if state.get("state") != "queued" or state.get("pid") != os.getpid():
                 raise config.Error(f"{run_dir.name}: another process owns this launch")
             first_poll = False
             if claim_slot(state, limit):
-                save_state(run_dir, state)
+                run_record.save_state(run_dir, state)
                 break
             # Admission clears the kind, so the receipt below reads this copy.
             wait_kind = state.get("slot_wait_kind") or wait_kind
-            save_state(run_dir, state)
+            run_record.save_state(run_dir, state)
         if not announced:
             print(slot_note(state), flush=True)
             refresh_seat_tally(state.get("launched_session"))
@@ -8991,7 +8772,7 @@ def notify_recovery(run_dir, state):
     # left alone: no rewrite and no second line every tick.
     if watch.seat_closed_by_owner(owner):
         with delivery_lock(run_dir):
-            current = read_state(run_dir) or state
+            current = run_record.read_state(run_dir) or state
             if not same_attempt(state, current):
                 log(f"run {run_dir.name} has moved on since this ending; nothing to hand back")
                 return
@@ -9023,14 +8804,6 @@ def notify_recovery(run_dir, state):
         if notify.shaped("needs", line, session=owner, event_id=event_id) == 0:
             mark_delivery(run_dir, state, recovery_notified="needs", handback_pending=None,
                           handback_wait_reason=None)
-
-
-def read_state(run_dir):
-    try:
-        state = json.loads((run_dir / "run.json").read_text())
-        return state if isinstance(state, dict) else None
-    except (OSError, ValueError, RecursionError):
-        return None
 
 
 # One run's memory, below the slice ceiling.  40% of that ceiling: a leak has to die
@@ -9199,7 +8972,7 @@ def memory_cap_note(run_dir, log):
     worker does.  The count is the cgroup's this loop runs in, and only when that is the
     run's own scope: a run from a seat's shell sits in the seat's, whose kills are not its.
     """
-    state = read_state(Path(run_dir)) or {}
+    state = run_record.read_state(Path(run_dir)) or {}
     cap, scope = state.get("memory_cap_mb"), state.get("scope")
     if type(cap) is not int or cap <= 0 or not scope_is_real(scope):
         return
@@ -9233,7 +9006,7 @@ def conclude_memory_cap(run_dir, state, reason):
     for key in ("recovery_pending", "interruption_reason", "interrupted_at",
                 "waiting_for", "login_resume_at", "login_back_at"):
         state.pop(key, None)
-    save_state(run_dir, state)
+    run_record.save_state(run_dir, state)
     try:
         with (run_dir / "log.txt").open("a") as fh:
             fh.write(f"[{datetime.now():%H:%M:%S}] {reason}\n")
@@ -9299,14 +9072,14 @@ def reap(run_dir, state, memory_probe=None):
     stands in for the manager so a test can say what the scope reported without
     asking a real one.
     """
-    state = read_state(run_dir) or state
+    state = run_record.read_state(run_dir) or state
     if state.get("state") not in ("running", "queued") and not needs_recovery(state):
         if state.get("state") not in ENDED:
             return state
         # else: an ended run whose loop may have died before its final cleanup --
         # fall through and sweep what it left behind, once per loop
-    with recovery_lock(run_dir):
-        state = read_state(run_dir) or state  # a menu snapshot may predate a resume
+    with run_record.recovery_lock(run_dir):
+        state = run_record.read_state(run_dir) or state  # a menu snapshot may predate a resume
         status = state.get("state")
         if status == "queued" and state.get("slot_waiting"):
             return state  # the tick adopts dead waiters without losing their place
@@ -9324,7 +9097,7 @@ def reap(run_dir, state, memory_probe=None):
         grace = (status == "queued" and
                  (state.get("launch_pending") or not state.get("process_identity")) and
                  time.time() - (state.get("queued_at") or state.get("started_at") or 0) < QUEUED_GRACE)
-        if status in ("running", "queued") and not grace and not process_active(state):
+        if status in ("running", "queued") and not grace and not run_record.process_active(state):
             cap_reason = (memory_cap_reason(state, probe=memory_probe)
                           if status == "running" else None)
             if cap_reason:
@@ -9347,12 +9120,12 @@ def reap(run_dir, state, memory_probe=None):
                     state["deaths"] = [*(state.get("deaths") or []),
                                        {"at": time.time(), "pid": state.get("pid"),
                                         "reason": reason}]
-                save_state(run_dir, state)
+                run_record.save_state(run_dir, state)
         elif status == "interrupted" and not state.get("interrupted_at"):
             interrupt(state, state.get("error") or "Earlier interruption; detection time recorded now.")
-            save_state(run_dir, state)
+            run_record.save_state(run_dir, state)
         if status in ("pass", "fail", "error", "blocked", "exhausted", "waiting_login",
-                      "interrupted") and not process_active(state):
+                      "interrupted") and not run_record.process_active(state):
             swept = [state.get("pid"), state.get("process_identity")]
             if state.get("tree_stopped") != swept:
                 # The loop recorded its ending and died before its final cleanup, so the
@@ -9361,7 +9134,7 @@ def reap(run_dir, state, memory_probe=None):
                 # without anyone clearing the stamp.
                 stop_run_tree(state)
                 state["tree_stopped"] = swept
-                save_state(run_dir, state)
+                run_record.save_state(run_dir, state)
         # A death the tick resumes is nobody's news however many reaps see it before it does,
         # the tick's own included while it waits out a backoff.
         if needs_recovery(state) and not (state.get("state") == "interrupted" and state.get("deaths")
@@ -9434,8 +9207,8 @@ def superseded_by(state, records=None, index=None, merged_only=False):
     found = []
     if records is None:
         from . import menu  # here, not at the top: the menu draws without the loop
-        for run_dir in run_dirs():
-            other = read_state(run_dir)
+        for run_dir in run_record.run_dirs():
+            other = run_record.read_state(run_dir)
             if other and not menu.smoke_run(other):
                 found.append(other)
     else:
@@ -9495,8 +9268,8 @@ def mark_looked_at(run_dir, state=None):
     A PASS still waiting on its merge leaves the menu the same way: looked at is
     looked at. Returns True when it marked.
     """
-    with recovery_lock(run_dir):
-        current = read_state(run_dir) if state is None else dict(state)
+    with run_record.recovery_lock(run_dir):
+        current = run_record.read_state(run_dir) if state is None else dict(state)
         if not current:
             return False
         if current.get("state") not in ENDED:
@@ -9508,13 +9281,13 @@ def mark_looked_at(run_dir, state=None):
         current["recovery_acknowledged_at"] = time.time()
         current.pop("error_retry_at", None)
         current.pop("error_retries", None)
-        save_state(run_dir, current)
+        run_record.save_state(run_dir, current)
         return True
 
 
 def acknowledge(run_dir):
-    with recovery_lock(run_dir):
-        state = read_state(run_dir)
+    with run_record.recovery_lock(run_dir):
+        state = run_record.read_state(run_dir)
         if not state:
             raise config.Error("the run is no longer waiting for recovery")
         waiting = needs_recovery(state) or state.get("state") in ("fail", "error", "blocked")
@@ -9523,7 +9296,7 @@ def acknowledge(run_dir):
         state["recovery_acknowledged_at"] = time.time()
         state.pop("error_retry_at", None)
         state.pop("error_retries", None)
-        save_state(run_dir, state)
+        run_record.save_state(run_dir, state)
 
 
 def _cached_providers():
@@ -10063,7 +9836,7 @@ def scope_alive(state, scope_dir=None, _marker=None, _rss=None, _active=None):
         pids = list(marker(run_id)) if run_id else []
     except (OSError, ValueError, TypeError):
         return None
-    active = _active or process_active
+    active = _active or run_record.process_active
     try:
         loop_alive = bool(active(state))
     except (OSError, ValueError, TypeError, AttributeError):
@@ -10480,8 +10253,8 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
     """
     paths = result_paths(directory, state)
     lines = [f"  result: {paths['result']}", f"  record: {paths['record']}",
-             f"  limits: silence_minutes={state.get('silence_minutes', SILENCE_MINUTES):g}, "
-             f"ceiling_hours={state.get('ceiling_hours', CEILING_HOURS):g}"]
+             f"  limits: silence_minutes={state.get('silence_minutes', run_record.SILENCE_MINUTES):g}, "
+             f"ceiling_hours={state.get('ceiling_hours', run_record.CEILING_HOURS):g}"]
     for role in ("workers", "reviewers"):
         if state.get(role) is not None:
             lines.append(f"  {role}: {', '.join(state[role])}")
@@ -10572,7 +10345,7 @@ def cmd_status(argv):
     # Whether a run was superseded asks every record, whichever run or job is shown, but
     # never the smoke suite's own, as on the menu.
     index = None if machine else supersession_index(
-        state for state in map(read_state, run_dirs()) if state and not menu.smoke_run(state))
+        state for state in map(run_record.read_state, run_record.run_dirs()) if state and not menu.smoke_run(state))
     if wanted:
         for directory, job in receipts:
             if directory.name == wanted:
@@ -10594,7 +10367,7 @@ def cmd_status(argv):
                     print(line)
                 print(f"  record/log: {jobs.receipt_path(directory)} {directory}/log.txt")
                 return 0
-    dirs = run_dirs()
+    dirs = run_record.run_dirs()
     if wanted:
         dirs = [d for d in dirs if d.name == wanted]
         if not dirs:
@@ -10614,7 +10387,7 @@ def cmd_status(argv):
         print(host_status_line())
     found, hidden = [], 0
     for directory in dirs:
-        state = read_state(directory)
+        state = run_record.read_state(directory)
         # the smoke suite's own runs are the toolkit testing itself, as on the menu;
         # naming one by id still shows it
         if state and not wanted and menu.smoke_run(state):
@@ -10731,8 +10504,8 @@ def cmd_status(argv):
                 if ended:
                     print("  " + _terminal.styled(ended, "dim"))
             if why:
-                print(f"  limits: silence_minutes={state.get('silence_minutes', SILENCE_MINUTES):g}, "
-                      f"ceiling_hours={state.get('ceiling_hours', CEILING_HOURS):g}")
+                print(f"  limits: silence_minutes={state.get('silence_minutes', run_record.SILENCE_MINUTES):g}, "
+                      f"ceiling_hours={state.get('ceiling_hours', run_record.CEILING_HOURS):g}")
             paths = result_paths(d, state)
             print(f"  result: {paths['result']}  record/logs: {d}")
             if paths["workspace"]:
@@ -10826,7 +10599,7 @@ def cmd_clean(argv):
     run_dir = config.RUNS / argv[0]
     if not (run_dir / "run.json").exists():
         raise config.Error(f"no such run: {argv[0]} (looked in {config.RUNS})")
-    state = read_state(run_dir)
+    state = run_record.read_state(run_dir)
     if state is None:
         raise config.Error(f"{argv[0]}: cannot read {run_dir / 'run.json'}")
     if state.get("scratch"):
@@ -11063,12 +10836,12 @@ def stop_owned_runs(name):
     state. A run that refuses is named and left; the seat still ends.
     """
     try:
-        dirs = run_dirs()
+        dirs = run_record.run_dirs()
     except OSError:
         return
     for run_dir in dirs:
         try:
-            state = read_state(run_dir)
+            state = run_record.read_state(run_dir)
         except (OSError, ValueError):
             continue
         if not state:
@@ -11099,12 +10872,12 @@ def release_session(name):
     stop_owned_runs(name)
     ids = []
     try:
-        dirs = run_dirs()
+        dirs = run_record.run_dirs()
     except OSError:
         dirs = []
     for run_dir in dirs:
         try:
-            state = read_state(run_dir)
+            state = run_record.read_state(run_dir)
         except (OSError, ValueError):
             continue
         if not state:
@@ -11121,10 +10894,10 @@ def release_session(name):
             # the branch went with the checkout: the status row reads this mark,
             # since only a stop without `--keep` says so on its own
             try:
-                with recovery_lock(run_dir):
-                    current = read_state(run_dir) or state
+                with run_record.recovery_lock(run_dir):
+                    current = run_record.read_state(run_dir) or state
                     current["branch_removed"] = True
-                    save_state(run_dir, current)
+                    run_record.save_state(run_dir, current)
             except (OSError, ValueError, TypeError):
                 pass
     try:
@@ -11192,7 +10965,7 @@ def run_repo_cleanup(wt, run_dir):
             fh.write(f"$ {cmd}\n")
             fh.flush()
             try:
-                repo = (read_state(Path(run_dir)) or {}).get("repo")
+                repo = (run_record.read_state(Path(run_dir)) or {}).get("repo")
                 env = {**os.environ, **(config.repo_env(repo) if repo else {})}
                 proc = subprocess.run(["bash", "-c", cmd], cwd=str(wt), stdout=fh,
                                       stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
@@ -11282,7 +11055,7 @@ def cmd_stop(argv):
     run_dir = config.RUNS / run_id
     if not (run_dir / "run.json").exists():
         raise config.Error(f"no such run: {run_id} (looked in {config.RUNS})")
-    state = read_state(run_dir)
+    state = run_record.read_state(run_dir)
     if state is None:
         raise config.Error(f"{run_id}: cannot read {run_dir / 'run.json'}")
     if state.get("state") == "stopped":
@@ -11292,8 +11065,8 @@ def cmd_stop(argv):
         raise config.Error(f"{run_id} is already {state.get('state')}; "
                            "only unfinished work can be stopped")
     log = note_in(run_dir / "log.txt")
-    with recovery_lock(run_dir):
-        current = read_state(run_dir) or state
+    with run_record.recovery_lock(run_dir):
+        current = run_record.read_state(run_dir) or state
         if current.get("state") == "stopped":
             print(stop_line(run_id, current.get("branch"),
                             current.get("stop_kept", False)))
@@ -11311,7 +11084,7 @@ def cmd_stop(argv):
                     "resume_after", "error_retry_at", "error_retries", "waiting_on",
                     "waiting_resume_at", "slot_waiting", "launch_pending", "resume_from"):
             current.pop(key, None)
-        save_state(run_dir, current)
+        run_record.save_state(run_dir, current)
         history_finish(current, log)
         try:
             refresh_seat_tally(launched_session(current))
@@ -11340,7 +11113,7 @@ def cmd_stop(argv):
     # scheduler's is ended by its marker below, and a task resumed by hand -- a new
     # pid under an old stamp -- is ended by its tree like any run of its own.
     if not jobs.job_scheduler_owns(run_id, state) and isinstance(pid, int) and pid > 0 \
-            and pid != os.getpid() and process_active(state):
+            and pid != os.getpid() and run_record.process_active(state):
         try:
             watch.kill_tree(pid, log)
         except (OSError, ValueError):
@@ -11357,10 +11130,10 @@ def cmd_stop(argv):
         # back under the lock: the dict above predates the kill by whole seconds.
         state["stop_kept"] = True
         try:
-            with recovery_lock(run_dir):
-                current = read_state(run_dir) or state
+            with run_record.recovery_lock(run_dir):
+                current = run_record.read_state(run_dir) or state
                 current["stop_kept"] = True
-                save_state(run_dir, current)
+                run_record.save_state(run_dir, current)
         except (OSError, ValueError, TypeError):
             pass
     try:
@@ -11376,8 +11149,8 @@ def cmd_stop(argv):
 def queued(run_dir):
     """The background launch receipt, possibly already holding its slot."""
     try:
-        with recovery_lock(run_dir):
-            state = json.loads((run_dir / "run.json").read_text())
+        with run_record.recovery_lock(run_dir):
+            state = run_record.read_state(run_dir)
             return (state.get("state") == "queued" or
                     (state.get("state") == "running" and state.get("pid") == os.getpid()
                      and state.get("slot_waiting") is False))
@@ -11395,8 +11168,8 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
     log_path = run_dir / "log.txt"
     env = dict(os.environ, **{config.RUN_DIR_ENV: str(run_dir)})
     child = [sys.executable, str(config.REPO / "bin" / "ak"), "run"] + [a for a in argv if a != "--bg"]
-    with slot_lock(), recovery_lock(run_dir):
-        previous = read_state(run_dir) or {}
+    with slot_lock(), run_record.recovery_lock(run_dir):
+        previous = run_record.read_state(run_dir) or {}
         if previous.get("followup"):
             # These are siblings owned by the seat, not descendants for the ending's
             # process sweep to kill or tests sharing its admission slot.
@@ -11420,7 +11193,7 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
         state = {**previous, "run_id": run_dir.name, "state": "running" if claimed else "queued",
                  "queued_at": (previous.get("queued_at") if claimed or previous.get("state") == "queued"
                                else None) or time.time(),
-                 "slot_waiting": not claimed, "launch_pending": True, **process_owner()}
+                 "slot_waiting": not claimed, "launch_pending": True, **run_record.process_owner()}
         state.setdefault("scope", None)
         state.setdefault("run_depth", run_depth())
         if previous.get("state") != "queued":
@@ -11429,7 +11202,7 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
         if argv[:1] == ["resume"]:
             state["resume_from"] = previous.get("resume_from") or (
                 "interrupted" if previous.get("state") == "queued" else previous["state"])
-        save_state(run_dir, state)
+        run_record.save_state(run_dir, state)
         try:
             unit = f"agentkit-run-{run_dir.name}"
             if (previous.get("scope") and
@@ -11450,12 +11223,12 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
                 nice=True, placement=placement)
             # The child waits on this lock before adopting the receipt. The parent can never
             # overwrite a running child's state, and reaping sees the child, not its launcher.
-            state.update(process_owner(pid), scope=placement.get("scope"),
+            state.update(run_record.process_owner(pid), scope=placement.get("scope"),
                          scope_reason=placement.get("scope_reason"))
             remember_memory_cap(state, placement, cap)
             state["launch_pending"] = False
             state.pop("reservation_pending", None)
-            save_state(run_dir, state)
+            run_record.save_state(run_dir, state)
             update_scope_line(run_dir, state)
         except (OSError, config.Error) as exc:
             reason = f"Could not launch the run: {exc}"
@@ -11469,7 +11242,7 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
                          "launch_pending": False, "launch_error": reason}
             else:
                 state = interrupt(previous, reason)
-            save_state(run_dir, state)
+            run_record.save_state(run_dir, state)
             update_scope_line(run_dir, state)
             raise config.Error(reason) from exc
     print(run_dir.name)
@@ -11504,7 +11277,7 @@ def logger(run_dir, to_file):
 
 def launch_session(run_dir):
     """The owner captured by the parent before preflight, including an explicit no-seat."""
-    state = read_state(run_dir) or {}
+    state = run_record.read_state(run_dir) or {}
     return (state["launched_session"] if "launched_session" in state else
             config.current_session())
 
@@ -11527,7 +11300,7 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
     The task file it was launched from goes on too, because the run keeps only a copy:
     where the file lives is what files a scratch run's seat under a project (`run_project`).
     """
-    receipt = read_state(run_dir) or {}
+    receipt = run_record.read_state(run_dir) or {}
     followup = receipt.get("followup")
     session_at_launch = receipt["launched_session"] if followup else config.current_session()
     workers = (receipt.get("workers") if followup else
@@ -11550,7 +11323,7 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
                          "parent_run": None if followup else os.environ.get("AK_PARENT_RUN"),
                          "reservation_pending": True,
                          "unattended": not session_at_launch and config.unattended(),
-                         **process_owner(), "launch_opts": opts or {},
+                         **run_record.process_owner(), "launch_opts": opts or {},
                          **groups,
                          "review_pr": (opts or {}).get("--review-pr"), "reported": False})
         if job_id is not None:
@@ -11564,7 +11337,7 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None):
         # launch check only records an early reason, and admission still needs
         # two consecutive healthy polls from the waiter itself.
         state.pop("slot_healthy_polls", None)
-        save_state(run_dir, state)
+        run_record.save_state(run_dir, state)
     history_start(state)
     refresh_seat_tally(session_at_launch)   # the seat's bar counts it from the start
 
@@ -11600,7 +11373,7 @@ def preset_models(cfg, opts, log, run_dir):
     """
     try:
         providers = collect_usage(cfg)
-        state = read_state(run_dir) or {}
+        state = run_record.read_state(run_dir) or {}
         workers, reviewers = run_workers(cfg, state), state.get("reviewers")
         try:
             executor, reviewer = pick_models(cfg, providers, opts["--exec"], opts["--review"],
@@ -11616,7 +11389,7 @@ def preset_models(cfg, opts, log, run_dir):
         raise
     except Exception:  # noqa: BLE001 - the child reproduces any real failure itself
         return None, None
-    save_state(run_dir, {**(read_state(run_dir) or {}),
+    run_record.save_state(run_dir, {**(run_record.read_state(run_dir) or {}),
                          "launch_executor": executor, "launch_reviewer": reviewer})
     return executor, reviewer
 
@@ -11697,7 +11470,7 @@ def preflight(run_dir, opts, log):
     if url:
         info = pr_view(url)
         owner, name, number = PR_PARTS.match(url).groups()
-        state = read_state(run_dir) or {}
+        state = run_record.read_state(run_dir) or {}
         state["title"] = f"Review PR #{number}: {info['title']}"
         try:
             launched_cfg = config.load()
@@ -11707,7 +11480,7 @@ def preflight(run_dir, opts, log):
             is_own, orch = False, None
         state["own_pr"] = is_own
         state["own_orchestrator"] = orch if is_own else None
-        save_state(run_dir, state)
+        run_record.save_state(run_dir, state)
         if is_own and not orch:
             raise config.Error(f"no session record names the writer of this PR; "
                                f"review of the seat's own PR needs its orchestrator")
@@ -11721,9 +11494,9 @@ def preflight(run_dir, opts, log):
         commands = "AGENTS.md tests: command from the PR checkout, if declared"
     else:
         meta, body, title = taskfile.parse_task(run_dir / "task.md")
-        state = read_state(run_dir) or {}
+        state = run_record.read_state(run_dir) or {}
         state["title"] = title
-        save_state(run_dir, state)
+        run_record.save_state(run_dir, state)
         every, once = taskfile.done_when_groups(body, run_dir / "task.md")
         repo = task_repo(meta, run_dir / "task.md")
         if opts["--no-merge"] or repo is None:
@@ -11741,7 +11514,7 @@ def preflight(run_dir, opts, log):
         # here because only the process that launched the run stands in the checkout the task
         # inherits when it names none, or the one a relative `repo:` means.
         checkout = task_project(repo if meta.get("repo") else None, state.get("task_file"))
-        save_state(run_dir, {**(read_state(run_dir) or {}),
+        run_record.save_state(run_dir, {**(run_record.read_state(run_dir) or {}),
                              "no_merge": bool(opts["--no-merge"]) or repo is None,
                              "project": str(checkout) if checkout else None})
         join_session_project(state.get("launched_session"))
@@ -11808,23 +11581,23 @@ def update_scope_line(run_dir, state):
 def finish(state, run_dir, log, cfg=None):
     try:
         start_followups(state, run_dir, log, cfg)
-    except StopRequested as exc:
+    except run_record.StopRequested as exc:
         # A stop on a fix run being launched is that fix's failure, not this
         # run's: only this run's own `stopped` receipt aborts its ending.
-        if (read_state(run_dir) or {}).get("state") == "stopped":
+        if (run_record.read_state(run_dir) or {}).get("state") == "stopped":
             raise
         log(f"WARN could not start follow-ups: {exc}")
     except Exception as exc:  # noqa: BLE001 - the ending matters, not the follow-ups
         log(f"WARN could not start follow-ups: {exc}")
     try:
         refresh_seat_tally(launched_session(state))   # the ending lands on the bar too
-    except StopRequested:
+    except run_record.StopRequested:
         raise
     except Exception as exc:  # noqa: BLE001 - the ending matters, not the bar
         log(f"WARN could not refresh seat tally: {exc}")
     announce(state, run_dir, log, cfg)
     history_finish(state, log)
-    settle_run(read_state(run_dir) or state, run_dir, log)
+    settle_run(run_record.read_state(run_dir) or state, run_dir, log)
     if state["state"] == "error":
         log(f"FAIL -> {run_dir / 'result.md'} (error)")
         return 2
@@ -11849,8 +11622,8 @@ def cmd_merge(argv):
     run_dir = config.RUNS / argv[0]
     # under the handoff lock: `watch.launch_resume` saves a detached retry's new scope
     # under it after the start, and a copy read before that would save the old one back
-    with recovery_lock(run_dir) if run_dir.is_dir() else nullcontext():
-        state = read_state(run_dir)
+    with run_record.recovery_lock(run_dir) if run_dir.is_dir() else nullcontext():
+        state = run_record.read_state(run_dir)
     if state is not None:
         # a finished PASS waits on no window: a quota mark left over from an earlier
         # stop is stale by definition, so a delivery retry that exhausts cannot
@@ -11877,7 +11650,7 @@ def cmd_merge(argv):
                       state.get("target") or state.get("base"))
     body += (project_lessons(state.get("repo") or None, state, log)
              + repo_rules(state["worktree"], state.get("base_sha"), log))
-    save_state(run_dir, state)  # the Loop measures its saves against the record it is handed
+    run_record.save_state(run_dir, state)  # the Loop measures its saves against the record it is handed
     lp = Loop(cfg, run_dir, state, {}, log, Path(state["worktree"]),
               body, cmds, f"Repo checkout: {state['worktree']}\n\n{body}", [])
     # A delivery retry stays a delivery retry: a pickup would resume the run through
@@ -11889,7 +11662,7 @@ def cmd_merge(argv):
     # watch tick -- marks it interrupted, rather than a finished PASS with its failure cleared
     # off and nobody to pick it up.  The step is what `ak run status` shows while it works.
     state.update(state="running", merge_failed=False, merge_note=None, on_target=False,
-                 reported=False, finished_at=None, **process_owner())
+                 reported=False, finished_at=None, **run_record.process_owner())
     # The delivery below runs fixer turns and gates outside run_slot: they still need
     # the run's marker, so this merge lends them its run context until it is done.
     previous = getattr(_RUN_CONTEXT, "state", {})
@@ -11971,7 +11744,7 @@ def cmd_merge(argv):
         sampler.join(timeout=2)
         history.close_step(run_dir.name, log=log)
     state["finished_at"] = time.time()
-    save_state(run_dir, state)
+    run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds, log, cfg)
     result = finish(state, run_dir, log, cfg)
     stop_run_tree(state, log)
@@ -11992,8 +11765,8 @@ def cmd_resume(argv):
             directory = Path(child)
             if not directory.is_dir():
                 raise
-            with recovery_lock(directory):
-                state = read_state(directory) or {}
+            with run_record.recovery_lock(directory):
+                state = run_record.read_state(directory) or {}
                 if (state.get("state") == "queued" and state.get("slot_waiting") and
                         state.get("pid") == os.getpid()):
                     # the ending is announced from here on, and a hand-back naming a
@@ -12025,22 +11798,22 @@ def resume_run(argv):
         raise config.Error(refusal)
     config.ensure_dirs()
     run_dir = config.RUNS / argv[0]
-    state = read_state(run_dir) if (run_dir / "run.json").exists() else None
+    state = run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None
     if state is None:
         raise config.Error(f"no resumable run: {argv[0]} (looked in {config.RUNS})")
     # spawn_bg has already handed this queued receipt to this particular child. Ordinary
     # invocations must never adopt another process's launch, even with an inherited variable.
-    with recovery_lock(run_dir):
-        state = read_state(run_dir)
+    with run_record.recovery_lock(run_dir):
+        state = run_record.read_state(run_dir)
     child = (os.environ.get(config.RUN_DIR_ENV) == str(run_dir) and
              state.get("state") == "queued" and state.get("resume_from") and
-             state.get("pid") == os.getpid() and process_active(state))
+             state.get("pid") == os.getpid() and run_record.process_active(state))
     pickup = state.get("pickup") if isinstance(state.get("pickup"), dict) else None
     in_place = (pickup is not None and not background and not child
                 and state.get("state") == "running"
                 and pickup.get("pid") == os.getpid()
                 and state.get("pid") == os.getpid()
-                and process_active(state))
+                and run_record.process_active(state))
     if in_place:
         # The same process, new code: the pickup before a round exec'd to this resume.
         # The pid, the scope and the slot stay the same, so the run is not queued
@@ -12063,10 +11836,10 @@ def resume_run(argv):
                 "--no-merge": bool(state.get("no_merge")),
                 "--no-worktree": bool(state.get("repo")) and wt == Path(state["repo"]),
                 "--bg": False}
-        with slot_lock(), recovery_lock(run_dir):
-            if read_state(run_dir) != expected:
+        with slot_lock(), run_record.recovery_lock(run_dir):
+            if run_record.read_state(run_dir) != expected:
                 raise config.Error("the run changed while choosing recovery; select it again")
-            save_state(run_dir, state)
+            run_record.save_state(run_dir, state)
         cfg = config.load()
         log = logger(run_dir, os.environ.get(config.RUN_DIR_ENV) != str(run_dir))
         log(f"picked up agentkit {old}..{new}; continuing on it")
@@ -12075,7 +11848,7 @@ def resume_run(argv):
                          job=lambda: review_pr(cfg, run_dir, state["review_pr"], opts, log))
         return drive(cfg, run_dir, opts, log, prior=state)
     if not child and state.get("state") in ("running", "queued"):
-        if process_active(state):
+        if run_record.process_active(state):
             raise config.Error(f"{argv[0]} is still running as pid {state['pid']}")
         state = reap(run_dir, state)
     if state.get("state") == "blocked":
@@ -12231,13 +12004,13 @@ def resume_run(argv):
             opts["--rounds"] = str(n_rounds)
     if background:
         return spawn_bg(run_dir, ["resume", *requested], expected=expected)
-    with slot_lock(), recovery_lock(run_dir):
-        if read_state(run_dir) != expected:
+    with slot_lock(), run_record.recovery_lock(run_dir):
+        if run_record.read_state(run_dir) != expected:
             raise config.Error("the run changed while choosing recovery; select it again")
         state.update(resume_from=state["state"], state="queued", slot_waiting=True,
                      queued_at=(expected.get("queued_at") if expected.get("state") == "queued"
                                 else None) or time.time(),
-                     **process_owner(), recovery_pending=not legacy_pass,
+                     **run_record.process_owner(), recovery_pending=not legacy_pass,
                      recovery_acknowledged_at=None, error=None, finished_at=None)
         clear_delivery(state)
         # the harness a login parked it on, and the stamps that paced and released the
@@ -12257,7 +12030,7 @@ def resume_run(argv):
         state.pop("stall_resume_at", None)
         state.pop("resume_after", None)
         state.pop("pickup", None)
-        save_state(run_dir, state)
+        run_record.save_state(run_dir, state)
     log = logger(run_dir, not child)
     log(f"resume {run_dir.name}: {run_dir / 'task.md'}")
     if unstarted and not state.get("launch_opts"):
@@ -12307,7 +12080,7 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
             _PICKUP_START = installed_head() or None
         except Exception:
             pass
-    existing = read_state(run_dir)
+    existing = run_record.read_state(run_dir)
     if existing is not None and existing.get("state") == "stopped":
         return 1  # a stop landed before this attempt started; the record stands as left
     sampler = history.Sampler(run_dir.name, log=log)
@@ -12316,7 +12089,7 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
     try:
         with run_slot(run_dir, prior):
             state = job() if job else loop(cfg, run_dir, run_dir / "task.md", opts, log, prior)
-    except StopRequested:
+    except run_record.StopRequested:
         # A stop landed mid-attempt: the disk already says `stopped`, so there is
         # nothing to write and -- a deliberate end -- nothing to announce either.
         return 1
@@ -12330,13 +12103,13 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
         # the harness goes down before the state word does, so there is never a
         # `waiting_login` receipt on disk without the login it names: a tick that read one
         # between the two writes would have a parked run and nothing to watch for it
-        parked = read_state(run_dir) or {}
+        parked = run_record.read_state(run_dir) or {}
         parked["waiting_for"] = expired.harness
-        save_state(run_dir, parked)
+        run_record.save_state(run_dir, parked)
         state = mark_state(run_dir, "waiting_login", str(expired))
         record_result(run_dir, state, log, cfg)
         announce(state, run_dir, log, cfg)
-        stop_run_tree(read_state(run_dir) or state, log)
+        stop_run_tree(run_record.read_state(run_dir) or state, log)
         return 1
     except Killed as exc:
         # A worker turn killed by signal twice within a minute: nothing was executed and
@@ -12344,13 +12117,13 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
         # killed.  The run parks as an interruption -- resumable, reading `needs you`
         # with the signal for a reason -- on the worktree, the round and the session.
         log(f"killed: {exc}")
-        parked = read_state(run_dir) or {}
+        parked = run_record.read_state(run_dir) or {}
         interrupt(parked, str(exc))
-        save_state(run_dir, parked)
+        run_record.save_state(run_dir, parked)
         state = parked
         record_result(run_dir, state, log, cfg)
         announce(state, run_dir, log, cfg)
-        stop_run_tree(read_state(run_dir) or state, log)
+        stop_run_tree(run_record.read_state(run_dir) or state, log)
         return 1
     except (Exhausted, Stopped) as exc:
         # Both leave work a later run can pick up -- a provider that is spent, or a git or gh
@@ -12385,20 +12158,20 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
         history.close_step(run_dir.name, log=log)
         latest = history.sample_rss(run_dir.name, log=log)
         if latest is not None:
-            state = read_state(run_dir) or state
+            state = run_record.read_state(run_dir) or state
             state["peak_rss_mb"] = max(float(state.get("peak_rss_mb") or 0), latest)
-            save_state(run_dir, state)
+            run_record.save_state(run_dir, state)
         if stop_after_finally:
-            stop_run_tree(read_state(run_dir) or state, log)
+            stop_run_tree(run_record.read_state(run_dir) or state, log)
         # Endings that raise never reach finish(); the checkout and the tabs still go.
         try:
-            settled = read_state(run_dir) or state
+            settled = run_record.read_state(run_dir) or state
         except NameError:
             settled = None  # the stop landed before the loop saved anything
         if isinstance(settled, dict):
             settle_run(settled, run_dir, log)
     result = finish(state, run_dir, log, cfg)
-    stop_run_tree(read_state(run_dir) or state, log)
+    stop_run_tree(run_record.read_state(run_dir) or state, log)
     return result
 
 
@@ -12654,7 +12427,7 @@ def tell_own_pr_round(cfg, run_dir, state, log):
     rnd = len(state["round_summaries"])
     session = launched_session(state)
     with delivery_lock(run_dir):
-        said = read_state(run_dir) or state
+        said = run_record.read_state(run_dir) or state
         if not same_attempt(state, said) or said.get("own_pr_round_told") == rnd:
             return
         line = handback_line({**state, "state": "fail"}, run_dir, cfg).replace(
@@ -12670,13 +12443,13 @@ def tell_own_pr_round(cfg, run_dir, state, log):
 
 def wait_for_own_pr(cfg, run_dir, url, state, log):
     """The seat fixes the reviewed head; a push, close or stop ends this wait."""
-    state.update(state="running", **process_owner(), finished_at=None,
+    state.update(state="running", **run_record.process_owner(), finished_at=None,
                  step="waiting for the seat's push", step_at=time.time())
-    save_state(run_dir, state)
+    run_record.save_state(run_dir, state)
     history.open_step(run_dir.name, state["step"], log=log)
     log(own_pr_wait_note(state))
     while True:
-        stop_check(run_dir)
+        run_record.stop_check(run_dir)
         if state.get("verdict") == "FAIL":
             tell_own_pr_round(cfg, run_dir, state, log)
         try:
@@ -12691,7 +12464,7 @@ def wait_for_own_pr(cfg, run_dir, url, state, log):
             state.update(state="fail", error=f"{url} is {info.get('state', '?')}; review ended",
                          finished_at=time.time())
             state.pop("own_pr_wait", None)
-            save_state(run_dir, state)
+            run_record.save_state(run_dir, state)
             _, body, _ = taskfile.parse_task(run_dir / "task.md")
             write_result(run_dir, state, taskfile.done_when(body, run_dir / "task.md"), log, cfg)
             return False
@@ -12703,7 +12476,7 @@ def wait_for_own_pr(cfg, run_dir, url, state, log):
 def review_pr(cfg, run_dir, url, opts, log):
     """Own PRs wait for fixes between reviews; other authors get a single review."""
     while True:
-        state = read_state(run_dir) or {}
+        state = run_record.read_state(run_dir) or {}
         if state.get("own_pr_wait") and state.get("own_pr"):
             if not wait_for_own_pr(cfg, run_dir, url, state, log):
                 return state
@@ -12713,8 +12486,8 @@ def review_pr(cfg, run_dir, url, opts, log):
             # A durable verdict still owes its post and delivery, even in round three.
             _, body, _ = taskfile.parse_task(run_dir / "task.md")
             cmds = taskfile.done_when(body, run_dir / "task.md")
-            state.update(state="running", **process_owner(), error=None, finished_at=None)
-            save_state(run_dir, state)
+            state.update(state="running", **run_record.process_owner(), error=None, finished_at=None)
+            run_record.save_state(run_dir, state)
             lp = Loop(cfg, run_dir, state, opts, log, Path(state["worktree"]), body,
                       cmds, body, [])
             state = settle_pr_round(lp, url, pr_view(url))
@@ -12726,7 +12499,7 @@ def review_pr(cfg, run_dir, url, opts, log):
 
 def review_pr_round(cfg, run_dir, url, opts, log):
     """Check out the PR head, have the reviewer judge it, post the verdict, land or offer."""
-    receipt = read_state(run_dir) or {}
+    receipt = run_record.read_state(run_dir) or {}
     workers, reviewers = config.role_groups(cfg, run_workers(cfg, receipt),
                                             receipt.get("reviewers"))
     if reviewers is not None:
@@ -12736,7 +12509,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     info = pr_view(url)
     if info.get("state") != "OPEN":
         raise config.Error(f"{url} is {info.get('state', '?')}, not open")
-    prior = read_state(run_dir) or {}
+    prior = run_record.read_state(run_dir) or {}
     if "own_pr" in prior:
         # The writer was captured at launch, in preflight or the first attempt: a
         # session record rewritten since must not replace it, or the reviewer's
@@ -12765,8 +12538,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         raise config.Error("the PR head or review checkout changed; existing work is kept for inspection")
     previous = saved_findings(run_dir, prior) if is_own else ""
     # Persist before fetch/checkout/provider work: the PR can move at any of those steps.
-    receipt = stamp_origin({**(read_state(run_dir) or {}), "run_id": run_dir.name,
-                         "state": "running", **process_owner(),
+    receipt = stamp_origin({**(run_record.read_state(run_dir) or {}), "run_id": run_dir.name,
+                         "state": "running", **run_record.process_owner(),
                          "launched_session": session_at_launch,
                          "review_pr": url, "head_sha": prior["head_sha"] if advancing else info["headRefOid"],
                          "own_pr": is_own, "own_orchestrator": orchestrator if is_own else None,
@@ -12775,7 +12548,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     receipt.pop("own_pr_round_typed", None)
     if advancing:
         receipt["review_session"] = None
-    save_state(run_dir, receipt)
+    run_record.save_state(run_dir, receipt)
     owner, name, number = PR_PARTS.match(url).groups()
     repo = checkout_for(f"{owner}/{name}", log)
     if gc.disk_pressure():
@@ -12805,14 +12578,14 @@ def review_pr_round(cfg, run_dir, url, opts, log):
             f"## The PR says\n{(info.get('body') or '(no description)').strip()}\n\n"
             "## Done when\n```bash\n" + (tests or "true   # AGENTS.md declares no tests:") + "\n```\n")
     (run_dir / "task.md").write_text(f"---\nrepo: {repo}\nrounds: {n_rounds}\n---\n{body}")
-    state = stamp_origin({**(read_state(run_dir) or {}), "run_id": run_dir.name,
+    state = stamp_origin({**(run_record.read_state(run_dir) or {}), "run_id": run_dir.name,
              "title": title, "task": str(run_dir / "task.md"),
              "launched_session": session_at_launch, "repo": str(repo), "scratch": False,
              "review_pr": url, "pr": url, "head_sha": head, "author": info["author"],
              "own_pr": is_own, "own_orchestrator": orchestrator if is_own else None,
              "base": f"origin/{base}", "target": base, "base_sha": base_sha, "branch": branch,
              "worktree": str(wt), "executor": None, "reviewer": None, "rounds": n_rounds,
-             "state": "running", "verdict": None, **process_owner(), "started_at": receipt["started_at"],
+             "state": "running", "verdict": None, **run_record.process_owner(), "started_at": receipt["started_at"],
              "finished_at": None, "round_summaries": summaries, "findings": previous, "merge_method": "squash",
              "no_merge": not is_own, "merged": False, "merge_note": None, "reported": False})
     # a review is a run like any other: its history row carries its task's size, measured
@@ -12824,7 +12597,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     if is_own:
         # Kept through post failures and cleared only when this verdict is settled.
         state["own_pr_round_pending"] = len(summaries) + 1
-    save_state(run_dir, state)
+    run_record.save_state(run_dir, state)
     join_session_project(session_at_launch)     # a review is a launch too, and votes
     history_start(state, log)
     log(f"worktree {wt} on {branch}: PR #{number} by {info['author']} at {head[:12]}, "
@@ -12841,7 +12614,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                                                            reviewers, log,
                                                            role="reviewer"))
     # a --bg parent's reviewer, adopted when it is still in the live order
-    preset_rev = (read_state(run_dir) or {}).get("launch_reviewer")
+    preset_rev = (run_record.read_state(run_dir) or {}).get("launch_reviewer")
     try:
         if preset_rev:
             config.model(cfg, preset_rev)
@@ -12862,7 +12635,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     spares = [n for n in order if n != reviewer]
     state["reviewer"] = reviewer
     state.pop("launch_reviewer", None)   # consumed: a resume re-picks, as before
-    save_state(run_dir, state)
+    run_record.save_state(run_dir, state)
     if is_own:
         log(f"reviewer={reviewer} (own PR of the {session_at_launch} seat; "
             f"picked against orchestrator {orchestrator})")
@@ -12875,7 +12648,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                           self_review=bool(is_own and same_model(cfg, orchestrator,
                                                                  reviewer))))
     body += project_lessons(repo, state, log) + repo_rules(wt, base_sha, log)
-    save_state(run_dir, state)
+    run_record.save_state(run_dir, state)
     context = f"Repo checkout: {wt}\nBranch: {branch} (PR #{number} head, based on origin/{base})\n\n{body}"
     lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, context, spares)
     lp.rnd += 1
@@ -12914,7 +12687,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
                       "blocked": exc.section, "finished_at": time.time()})
         state.pop("own_pr_round_pending", None)
-        save_state(run_dir, state)
+        run_record.save_state(run_dir, state)
         write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
         return state
     return settle_pr_round(lp, url, info)
@@ -12933,7 +12706,7 @@ def settle_pr_round(lp, url, info):
         # run is an error -- no merge offer -- and `ak watch` launches it again next tick
         state["error"] = f"the review was not posted to {url}: {state.get('review_error')}"
         state["state"], state["finished_at"] = "error", time.time()
-        save_state(run_dir, state)
+        run_record.save_state(run_dir, state)
         write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
         log(f"ERROR {state['error']}")
         return state
@@ -12972,7 +12745,7 @@ def settle_pr_round(lp, url, info):
         if not posted:
             state["error"] = state["review_error"]
     state.pop("own_pr_round_pending", None)
-    save_state(run_dir, state)
+    run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
     return state
 
@@ -13074,8 +12847,8 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
         nonlocal named
         if named is None and files:
             named = {}
-            for directory in run_dirs():
-                state = read_state(directory)
+            for directory in run_record.run_dirs():
+                state = run_record.read_state(directory)
                 if not state:
                     continue
                 try:
@@ -13096,13 +12869,13 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
     mine_files = test_files(cmds)
     mine_words = significant_words(title, repo.name)
     matches = []
-    for directory in run_dirs():
+    for directory in run_record.run_dirs():
         if exclude is not None and Path(directory) == Path(exclude):
             continue
-        state = read_state(directory)
+        state = run_record.read_state(directory)
         if not state or state.get("state") not in ("running", "queued"):
             continue
-        if not process_active(state):
+        if not run_record.process_active(state):
             continue
         try:
             rival_meta, body, parsed_title = taskfile.parse_task(directory / "task.md")
@@ -13147,14 +12920,14 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
         (run_dir / "log.txt").touch()
         try:
             prepare(run_dir, opts, logger(run_dir, True), cfg)
-        except StopRequested:
+        except run_record.StopRequested:
             # A stop landed during preflight: the receipt already says so, and the
             # stopper printed the line -- this end names it and stands down alike.
             print(stop_line(run_dir.name, None, False))
             return 1
         if flags["--bg"]:
             try:
-                receipt = read_state(run_dir) or {}
+                receipt = run_record.read_state(run_dir) or {}
                 # Usage probes can spend model calls: check own PR size before the pick.
                 if receipt.get("own_pr"):
                     info = pr_view(url)
@@ -13167,18 +12940,18 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
             except config.Error as exc:
                 refused(run_dir, exc, logger(run_dir, True), cfg)
                 raise
-            title = (read_state(run_dir) or {}).get("title")
+            title = (run_record.read_state(run_dir) or {}).get("title")
             if reviewer:
                 try:
-                    save_state(run_dir, {**(read_state(run_dir) or {}),
+                    run_record.save_state(run_dir, {**(run_record.read_state(run_dir) or {}),
                                          "launch_reviewer": reviewer})
-                except StopRequested:
+                except run_record.StopRequested:
                     print(stop_line(run_dir.name, None, False))
                     return 1
             rc = spawn_bg(run_dir, argv)
             if reviewer and title and launch_session(run_dir):
                 # the seat's terminal sees the launch line; the child's stdout is the log
-                saved = read_state(run_dir) or {}
+                saved = run_record.read_state(run_dir) or {}
                 print(launch_line(run_dir.name, title, None, reviewer,
                                   self_review=bool(saved.get("own_pr") and same_model(
                                       cfg, saved.get("own_orchestrator"), reviewer))))
@@ -13287,7 +13060,7 @@ def main(argv):
 
     resumed = os.environ.get(config.RUN_DIR_ENV)
     if resumed and not queued(Path(resumed)):
-        receipt = read_state(Path(resumed)) or {}
+        receipt = run_record.read_state(Path(resumed)) or {}
         if needs_recovery(receipt):
             name = receipt.get("run_id") or Path(resumed).name
             raise config.Error(f"this launch was interrupted; ak run resume {name} to recover it")
@@ -13351,7 +13124,7 @@ def main(argv):
         (run_dir / "log.txt").touch()
         try:
             prepare(run_dir, opts, logger(run_dir, True), cfg, task_file=task_path)
-        except StopRequested:
+        except run_record.StopRequested:
             # A stop landed during preflight: the receipt already says so, and the
             # stopper printed the line -- this end names it and stands down alike.
             print(stop_line(run_dir.name, None, False))
@@ -13359,7 +13132,7 @@ def main(argv):
         if opts["--bg"]:
             try:
                 executor, reviewer = preset_models(cfg, opts, logger(run_dir, True), run_dir)
-            except StopRequested:
+            except run_record.StopRequested:
                 print(stop_line(run_dir.name, None, False))
                 return 1
             rc = spawn_bg(run_dir, argv)

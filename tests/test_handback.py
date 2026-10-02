@@ -23,6 +23,7 @@ from urllib.parse import unquote_to_bytes
 from test_v4n import REPO, Sandbox
 from fixtures.hand_in import records, scripted
 from agentkit import host, browser, config, gc, job as jobs, menu, notify, orch, run, terminal, watch
+from agentkit import record
 
 SEAT = "seat"
 TYPE_CHECKED = watch.type_checked   # the real confirmed send, for the tests that drive it
@@ -164,7 +165,7 @@ class HandBack(Sandbox):
 
     def ended_review(self):
         """The successful review `Sandbox.ended` writes, for a record that adds to it."""
-        return run.read_state(self.ended(".review-shape"))["review"]
+        return record.read_state(self.ended(".review-shape"))["review"]
 
     def live(self):
         return {"name": SEAT, "path": str(self.root), "created": 1, "attached": False,
@@ -192,13 +193,13 @@ class HandBack(Sandbox):
         directory = self.ended("run-1", owner=SEAT, merged=True,
                                pr="https://github.com/o/r/pull/7")
         self.rows = [self.live()]
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.typed, [(SEAT, (
             "run run-1 finished PASS merged: https://github.com/o/r/pull/7. "
             f"Result: {directory / 'result.md'}. Decide the next step."))])
         self.assertEqual(self.cards, [])        # the owner is never the fallback
         self.assertEqual(self.reopened, [])     # nothing to reopen: somebody is in it
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertNotIn("handback_pending", state)
         self.assertTrue(state["reported"])
 
@@ -206,16 +207,16 @@ class HandBack(Sandbox):
         directory = self.ended("run-2", owner=SEAT, no_merge=True)
         self.rows = [self.live()]
         self.screen = "working"
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual((self.typed, self.cards), ([], []))
-        self.assertTrue(run.read_state(directory)["handback_pending"])
+        self.assertTrue(record.read_state(directory)["handback_pending"])
         # back at its prompt, the next tick types the line and clears the flag
         self.screen = "at_prompt"
         self.tick()
         self.assertEqual(self.typed, [(SEAT, (
             "run run-2 finished PASS not merged: --no-merge. "
             f"Result: {directory / 'result.md'}. Decide the next step."))])
-        self.assertNotIn("handback_pending", run.read_state(directory))
+        self.assertNotIn("handback_pending", record.read_state(directory))
         # once: the tick that follows has nothing left to deliver
         self.tick()
         self.assertEqual(len(self.typed), 1)
@@ -236,13 +237,13 @@ class HandBack(Sandbox):
         directory = self.ended("run-once", owner=SEAT, no_merge=True)
         self.rows = [self.live()]
         seat = self.claude()
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.tick()
         self.tick()
         self.assertEqual(seat.read, [
             "run run-once finished PASS not merged: --no-merge. "
             f"Result: {directory / 'result.md'}. Decide the next step."])
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertTrue(state["handed_back"])
         self.assertNotIn("handback_pending", state)
         self.assertEqual(self.cards, [])
@@ -267,9 +268,9 @@ class HandBack(Sandbox):
         self.rows = [self.live()]
         seat = self.claude()
         seat.takes = False          # both Enters leave it where it was typed
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(seat.read, [])
-        self.assertTrue(run.read_state(directory)["handback_pending"])
+        self.assertTrue(record.read_state(directory)["handback_pending"])
         seat.takes = True
         lock = notify.session_lock
 
@@ -280,13 +281,13 @@ class HandBack(Sandbox):
                 yield held
 
         with patch.object(notify, "session_lock", dialog_meanwhile):
-            run.announce(run.read_state(directory), directory, self.logs.append)
+            run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual((seat.read, seat.chosen), ([], 0))
         seat.dialog = False
         self.tick()                 # the Enter it is owed, and not the text again
         # another ending is said before a pass reads that this one left its composer
         other = self.ended("run-other", owner=SEAT, no_merge=True)
-        run.announce(run.read_state(other), other, self.logs.append)
+        run.announce(record.read_state(other), other, self.logs.append)
         self.tick()                 # gone from the composer: the seat has it
         self.tick()
         self.assertEqual(seat.read, [
@@ -295,7 +296,7 @@ class HandBack(Sandbox):
             for name, path in (("run-held", directory), ("run-other", other))])
         self.assertEqual((seat.typed, seat.chosen), (2, 0))
         for path in (directory, other):
-            state = run.read_state(path)
+            state = record.read_state(path)
             self.assertTrue(state["handed_back"])
             self.assertNotIn("handback_pending", state)
             self.assertNotIn("handback_typed", state)
@@ -323,7 +324,7 @@ class HandBack(Sandbox):
     def test_a_fail_at_the_last_round_hands_back_and_sends_no_card(self):
         directory = self.failed()
         self.rows = [self.live()]
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.typed, [(SEAT, (
             "run run-fail finished FAIL: after 3 rounds, open findings: "
             "- a.py:1 - one - why Quote: fixture evidence "
@@ -343,7 +344,7 @@ class HandBack(Sandbox):
                              round_summaries=[{}, {}, {}],
                              findings="VERDICT: PASS\n\n## Findings\n- none\n",
                              final_check={"outcome": "failed", "sha": "a" * 40, "line": scope})
-        line = run.handback_line(run.read_state(checked), checked)
+        line = run.handback_line(record.read_state(checked), checked)
         self.assertIn(f"finished FAIL: after 3 rounds, the final check failed: {scope}. Result:",
                       line)
         self.assertNotIn("split or re-scope", line)
@@ -353,7 +354,7 @@ class HandBack(Sandbox):
                            final_check={"outcome": "failed", "sha": "a" * 40},
                            done_when_failure={"every": [], "once": [
                                ["bash tests/smoke.sh", "acceptance: FAILED"]]})
-        self.assertEqual(run.handback_reason(run.read_state(older)), "after 3 rounds, the final "
+        self.assertEqual(run.handback_reason(record.read_state(older)), "after 3 rounds, the final "
                          "check failed: `bash tests/smoke.sh` — acceptance: FAILED")
         # a review FAIL carries its blocking findings, the first 600 characters, and never
         # the follow-ups listed after them
@@ -362,7 +363,7 @@ class HandBack(Sandbox):
                             round_summaries=[{}, {}, {}], findings=(
                                 f"VERDICT: FAIL\n\n## Findings\n{finding}\n\n"
                                 "## Follow-ups\n- c.py:3 - rename it - clarity\n"))
-        state = run.read_state(failed)
+        state = record.read_state(failed)
         self.assertEqual(run.handback_reason(state),
                          f"after 3 rounds, open findings: {finding[:600]}")
         self.assertTrue(run.handback_line(state, failed).endswith(
@@ -380,7 +381,7 @@ class HandBack(Sandbox):
                           round_summaries=[{}, {}, {}], findings=whole.strip()[-8000:],
                           review_records=records(whole),
                           findings_file=str(answer))
-        state = run.read_state(long)
+        state = record.read_state(long)
         self.assertTrue(run.handback_reason(state).startswith(
             f"after 3 rounds, open findings: {first} Quote: fixture evidence - n0.py:1 - "))
         self.assertTrue(run.handback_line(state, long).endswith(
@@ -391,7 +392,7 @@ class HandBack(Sandbox):
         exited = self.ended("run-44", owner=SEAT, state="fail", verdict="FAIL", rounds=3,
                             round_summaries=[{}, {}, {}], review=review,
                             findings="VERDICT: PASS\n\n## Findings\n- none\n")
-        line = run.handback_line(run.read_state(exited), exited)
+        line = run.handback_line(record.read_state(exited), exited)
         self.assertIn("finished FAIL: after 3 rounds, the reviewer said PASS but exited 1. "
                       "Result:", line)
         self.assertNotIn("split or re-scope", line)
@@ -399,18 +400,18 @@ class HandBack(Sandbox):
     def test_a_gone_seat_keeps_the_orphan_path_it_always_had(self):
         directory = self.ended("run-3", owner=SEAT, handback_pending=True)
         self.rows = []                       # nobody is in it and tmux holds nothing
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.reopened, [(SEAT, True)])
         self.assertEqual(self.typed, [(SEAT, "continue Finished run-3: run run-3 finished "
                                              f"PASS, result at {directory / 'result.md'}")])
         self.assertEqual(self.cards, [])
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertTrue(state["reported"])
         self.assertNotIn("handback_pending", state)
         # ... and when the seat cannot be reopened at all, the owner is asked as before
         gone = self.ended("run-4", owner=SEAT, state="fail", verdict="FAIL")
         with patch.object(watch, "seat_closed", return_value=True):
-            run.announce(run.read_state(gone), gone, self.logs.append)
+            run.announce(record.read_state(gone), gone, self.logs.append)
         self.assertEqual([kind for kind, _, _ in self.cards], ["needs"])
         self.assertIn(f"Its orchestrator session {SEAT} is gone.", self.cards[0][1])
 
@@ -424,14 +425,14 @@ class HandBack(Sandbox):
     def test_an_ending_already_handed_back_stays_the_orchestrators_when_the_seat_closes(self):
         directory = self.failed("run-8")
         self.rows = [self.live()]
-        run.announce(run.read_state(directory), directory, self.logs.append)
-        self.assertTrue(run.read_state(directory)["handed_back"])
+        run.announce(record.read_state(directory), directory, self.logs.append)
+        self.assertTrue(record.read_state(directory)["handed_back"])
         # the seat closes afterwards: the ending was said, so no row sends the owner to it
         self.rows = [{**self.live(), "exited": True}]
         found = watch.session_state(SEAT, session=self.rows[0], cfg=self.cfg, number=1)
         self.assertEqual(found["reason"], "session closed: press 1 to reopen")
         # and the tick leaves it alone however it is flagged
-        run.save_state(directory, {**run.read_state(directory), "notification_pending": True})
+        record.save_state(directory, {**record.read_state(directory), "notification_pending": True})
         self.rows = [self.live()]
         self.tick()
         self.assertEqual(len(self.typed), 1)
@@ -441,8 +442,8 @@ class HandBack(Sandbox):
         self.rows = []              # it died, the continue line never landed, and the card
         self.sent = False           # the owner was offered was not accepted either
         with patch.object(notify, "shaped", return_value=1):
-            run.announce(run.read_state(directory), directory, self.logs.append)
-        self.assertTrue(run.read_state(directory)["notification_pending"])
+            run.announce(record.read_state(directory), directory, self.logs.append)
+        self.assertTrue(record.read_state(directory)["notification_pending"])
         # it comes back: one hand-back, and nothing pending for any later tick to repeat
         self.rows = [self.live()]
         self.sent = True
@@ -450,7 +451,7 @@ class HandBack(Sandbox):
         self.tick()
         self.tick()
         self.assertEqual(len(self.typed), 1)
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertNotIn("notification_pending", state)
         self.assertNotIn("handback_pending", state)
 
@@ -461,7 +462,7 @@ class HandBack(Sandbox):
                                recovery_pending=True, rounds=2, round_summaries=[{}, {}],
                                findings="VERDICT: FAIL\n\n## Findings\n- a.py:1 - one - why\n")
         self.rows = [self.live()]
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.typed, [(SEAT, (
             "run run-10 finished FAIL: after 2 rounds, open findings: "
             "- a.py:1 - one - why Quote: fixture evidence. "
@@ -469,16 +470,16 @@ class HandBack(Sandbox):
             "two rounds spent: split or re-scope"))])
         self.assertEqual(self.cards, [])
         # reaping it afterwards is not a second chance to say the same thing
-        run.reap(directory, run.read_state(directory))
+        run.reap(directory, record.read_state(directory))
         self.assertEqual(len(self.typed), 1)
         self.assertEqual(self.cards, [])
 
     def test_a_new_attempt_forgets_what_the_last_ending_said(self):
         directory = self.failed("run-18")
         self.rows = [self.live()]
-        run.announce(run.read_state(directory), directory, self.logs.append)
-        self.assertTrue(run.read_state(directory)["handed_back"])
-        run.save_state(directory, {**run.read_state(directory), "state": "interrupted",
+        run.announce(record.read_state(directory), directory, self.logs.append)
+        self.assertTrue(record.read_state(directory)["handed_back"])
+        record.save_state(directory, {**record.read_state(directory), "state": "interrupted",
                                    "recovery_pending": True, "finished_at": None,
                                    "scratch": True, "worktree": str(self.root), "rounds": 3})
         (directory / "task.md").write_text(
@@ -486,16 +487,16 @@ class HandBack(Sandbox):
         with patch.object(run, "drive", return_value=0), patch.object(run, "logger",
                                                                       return_value=print):
             run.cmd_resume([directory.name])
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertNotIn("handed_back", state)
         self.assertNotIn("handback_pending", state)
         # and a mark that outlived an attempt anyway cannot outlive the next pending ending:
         # this attempt ended long after that line was typed, so nobody has heard this one
-        run.save_state(directory, {**run.read_state(directory), "state": "fail",
+        record.save_state(directory, {**record.read_state(directory), "state": "fail",
                                    "verdict": "FAIL", "finished_at": 9995, "handed_back": 1})
         self.screen = "working"
-        run.announce(run.read_state(directory), directory, self.logs.append)
-        state = run.read_state(directory)
+        run.announce(record.read_state(directory), directory, self.logs.append)
+        state = record.read_state(directory)
         self.assertTrue(state["handback_pending"])
         self.assertNotIn("handed_back", state)
         self.screen = "at_prompt"
@@ -510,7 +511,7 @@ class HandBack(Sandbox):
                                rounds=2, round_summaries=[], findings="")
         (directory / "result.md").unlink(missing_ok=True)
         self.rows = [self.live()]
-        run.notify_recovery(directory, run.read_state(directory))
+        run.notify_recovery(directory, record.read_state(directory))
         self.assertEqual(self.typed, [(SEAT, (
             "run run-19 finished FAIL: Run process exited or its identity changed. "
             f"Result: {directory / 'result.md'}. Decide the next step."))])
@@ -521,48 +522,48 @@ class HandBack(Sandbox):
                                finished_at=None, interrupted_at=9990, recovery_pending=True,
                                rounds=2, round_summaries=[], findings="")
         self.rows = []                      # nobody is in it any more
-        run.notify_recovery(directory, run.read_state(directory))
+        run.notify_recovery(directory, record.read_state(directory))
         self.assertEqual(self.reopened, [(SEAT, True)])
         self.assertEqual(len(self.typed), 1)
         self.assertIn("is unfinished:", self.typed[0][1])
         self.assertEqual(self.cards, [])
-        self.assertEqual(run.read_state(directory)["recovery_notified"], "orchestrator")
+        self.assertEqual(record.read_state(directory)["recovery_notified"], "orchestrator")
         # ... and the owner is asked only when there is no seat to bring back
         other = self.ended("run-21", owner=SEAT, state="interrupted", verdict=None,
                            finished_at=None, interrupted_at=9991, recovery_pending=True,
                            rounds=2, round_summaries=[], findings="")
         with patch.object(watch, "seat_closed", return_value=True):
-            run.notify_recovery(other, run.read_state(other))
+            run.notify_recovery(other, record.read_state(other))
         self.assertEqual([kind for kind, _, _ in self.cards], ["needs"])
 
     def test_a_task_inside_a_job_still_hands_its_own_ending_back(self):
         directory = self.failed("run-22")
         self.rows = [self.live()]
         with jobs.job_muted():
-            run.announce(run.read_state(directory), directory, self.logs.append)
+            run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(len(self.typed), 1)
         self.assertEqual(self.cards, [])
         # its orphan, though, is the job's card and never a per-task one
         gone = self.failed("run-23")
         self.rows = []
         with jobs.job_muted():
-            run.announce(run.read_state(gone), gone, self.logs.append)
+            run.announce(record.read_state(gone), gone, self.logs.append)
         self.assertEqual((len(self.typed), self.cards), (1, []))
 
     def test_an_ending_the_orchestrator_has_is_in_no_tally_of_his(self):
         directory = self.failed("run-26")
-        states = [run.read_state(directory)]
+        states = [record.read_state(directory)]
         # untouched, it is his: one ending needing him on the seat's own bar
         self.assertEqual(run.seat_tallies(states, now=9995)[SEAT], (0, 1, 0))
         self.assertTrue(menu.v5o_needs_look(states[0], now=9995))
         # waiting for the seat's next quiet prompt, and once it has been told: neither
         for mark in ({"handback_pending": True}, {"handed_back": 9991}):
             with self.subTest(mark=mark):
-                run.save_state(directory, {**run.read_state(directory), **mark})
-                state = run.read_state(directory)
+                record.save_state(directory, {**record.read_state(directory), **mark})
+                state = record.read_state(directory)
                 self.assertFalse(menu.v5o_needs_look(state, now=9995))
                 self.assertEqual(run.seat_tallies([state], now=9995)[SEAT], (0, 0, 0))
-                run.save_state(directory, {k: v for k, v in state.items() if k not in mark})
+                record.save_state(directory, {k: v for k, v in state.items() if k not in mark})
 
     def test_the_owner_glancing_at_a_run_is_not_the_orchestrator_hearing_it(self):
         # `r` and `ak run status <id>` mark an ending looked at, which settles it for him --
@@ -570,12 +571,12 @@ class HandBack(Sandbox):
         directory = self.failed("run-27")
         self.rows = [self.live()]
         self.screen = "working"
-        run.announce(run.read_state(directory), directory, self.logs.append)
-        self.assertTrue(run.read_state(directory)["handback_pending"])
+        run.announce(record.read_state(directory), directory, self.logs.append)
+        self.assertTrue(record.read_state(directory)["handback_pending"])
         with redirect_stdout(io.StringIO()):
             run.cmd_status([directory.name])
-        self.assertTrue(run.read_state(directory)["recovery_acknowledged_at"])
-        self.assertTrue(run.owes_ending(run.read_state(directory)))
+        self.assertTrue(record.read_state(directory)["recovery_acknowledged_at"])
+        self.assertTrue(run.owes_ending(record.read_state(directory)))
         self.screen = "at_prompt"
         self.tick()
         self.assertEqual(len(self.typed), 1)
@@ -586,12 +587,12 @@ class HandBack(Sandbox):
         # whoever takes the delivery lock second reads the record, not its own snapshot
         directory = self.failed("run-28")
         self.rows = [self.live()]
-        loops, ticks = run.read_state(directory), run.read_state(directory)
+        loops, ticks = record.read_state(directory), record.read_state(directory)
         run.announce(loops, directory, self.logs.append)
         self.assertEqual(len(self.typed), 1)
         run.announce(ticks, directory, self.logs.append)
         self.assertEqual(len(self.typed), 1)
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertTrue(state["handed_back"])       # the stale snapshot did not erase it
         self.assertTrue(state["reported"])
         self.assertNotIn("handback_pending", state)
@@ -603,11 +604,11 @@ class HandBack(Sandbox):
         directory = self.failed("run-29")
         self.rows = []
         with jobs.job_muted():
-            run.announce(run.read_state(directory), directory, self.logs.append)
+            run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual((self.typed, self.cards, self.reopened), ([], [], []))
         # the tick runs in another process with no mute of its own: the record has to say
         # the ending went somewhere, or every pass would revive the seat or card the owner
-        self.assertFalse(run.owes_ending(run.read_state(directory)))
+        self.assertFalse(run.owes_ending(record.read_state(directory)))
         self.tick()
         self.assertEqual((self.typed, self.cards, self.reopened), ([], [], []))
 
@@ -639,33 +640,33 @@ class HandBack(Sandbox):
         # what a tick or a draw is holding when a resume starts under it: the ending it is
         # about is nobody's business any more, and the attempt running now owes its own
         directory = self.failed("run-33")
-        stale = run.read_state(directory)
-        run.save_state(directory, {**run.clear_delivery(run.read_state(directory)),
+        stale = record.read_state(directory)
+        record.save_state(directory, {**run.clear_delivery(record.read_state(directory)),
                                    "state": "running", "finished_at": None, "pid": 4242})
-        self.assertFalse(run.same_attempt(stale, run.read_state(directory)))
-        running = run.read_state(directory)
+        self.assertFalse(run.same_attempt(stale, record.read_state(directory)))
+        running = record.read_state(directory)
         for marks in ({"reported": True}, {"handed_back": 9991},
                       {"handback_pending": True}, {"pending_inbox": None}):
             with self.subTest(marks=marks):
                 self.assertFalse(run.mark_delivery(directory, dict(stale), **marks))
-                self.assertEqual(run.read_state(directory), running)
+                self.assertEqual(record.read_state(directory), running)
         # the new attempt ends, and its own ending is handed back as any other
-        run.save_state(directory, {**run.read_state(directory), "state": "fail",
+        record.save_state(directory, {**record.read_state(directory), "state": "fail",
                                    "verdict": "FAIL", "finished_at": 9995})
         self.rows = [self.live()]
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(len(self.typed), 1)
-        self.assertTrue(run.read_state(directory)["handed_back"])
+        self.assertTrue(record.read_state(directory)["handed_back"])
 
     def test_a_stale_snapshot_never_types_a_replaced_attempts_line(self):
         directory = self.failed("run-34")
-        stale = run.read_state(directory)
-        run.save_state(directory, {**run.clear_delivery(run.read_state(directory)),
+        stale = record.read_state(directory)
+        record.save_state(directory, {**run.clear_delivery(record.read_state(directory)),
                                    "state": "running", "finished_at": None, "pid": 4242})
         self.rows = [self.live()]
         self.assertFalse(run.hand_back(stale, directory, self.logs.append))
         self.assertEqual(self.typed, [])
-        self.assertNotIn("handback_pending", run.read_state(directory))
+        self.assertNotIn("handback_pending", record.read_state(directory))
         self.assertIn(f"run {directory.name} has moved on since this ending", self.logs[-1])
 
     def test_a_stale_snapshot_cannot_clear_a_resumed_jobs_pending_line(self):
@@ -683,7 +684,7 @@ class HandBack(Sandbox):
         # the tick defers the line because the seat is mid-turn, then posts the run's merge
         # question -- and the run's own loop hands the ending back while that is in flight
         directory = self.failed("run-31")
-        run.save_state(directory, {**run.read_state(directory), "pending_inbox": {
+        record.save_state(directory, {**record.read_state(directory), "pending_inbox": {
             "question": "Merge PR #9?", "url": "https://github.com/o/r/pull/9", "sha": "abc"}})
         self.rows = [self.live()]
         self.screen = "working"
@@ -693,12 +694,12 @@ class HandBack(Sandbox):
             self.cards.append((kind, text, kw))
             if kind == "needs" and "Merge PR" in text:
                 self.screen = "at_prompt"
-                run.announce(run.read_state(directory), directory, self.logs.append)
+                run.announce(record.read_state(directory), directory, self.logs.append)
             return 0
 
         with patch.object(notify, "shaped", side_effect=deliver):
             self.tick()
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertTrue(state["handed_back"])       # the tick's own copy did not undo it
         self.assertNotIn("handback_pending", state)
         self.assertNotIn("pending_inbox", state)    # ... and the question is still struck off
@@ -720,32 +721,32 @@ class HandBack(Sandbox):
         self.assertEqual([seat for seat, text in self.typed if question in text],
                          [watch.inbox()] * 2)
         self.assertEqual(self.cards, [card])
-        self.assertNotIn("pending_inbox", run.read_state(directory))
+        self.assertNotIn("pending_inbox", record.read_state(directory))
         # typed, but the ping failed: the next tick only pings, and never types it again
-        run.save_state(directory, {**run.read_state(directory), "pending_inbox": pending})
+        record.save_state(directory, {**record.read_state(directory), "pending_inbox": pending})
         with patch.object(notify, "shaped", return_value=1):
             self.tick()
-        self.assertTrue(run.read_state(directory)["pending_inbox"]["asked"])
+        self.assertTrue(record.read_state(directory)["pending_inbox"]["asked"])
         self.tick()
         self.assertEqual(len(self.typed), 3)
         self.assertEqual(self.cards, [card] * 2)
-        self.assertNotIn("pending_inbox", run.read_state(directory))
+        self.assertNotIn("pending_inbox", record.read_state(directory))
         # one kept before `asked` was may already be in the seat: it is only pinged, as then
         legacy = {key: pending[key] for key in ("question", "url", "sha")}
-        run.save_state(directory, {**run.read_state(directory), "pending_inbox": legacy})
+        record.save_state(directory, {**record.read_state(directory), "pending_inbox": legacy})
         self.tick()
         self.assertEqual(len(self.typed), 3)
         self.assertEqual(self.cards, [card] * 3)
-        self.assertNotIn("pending_inbox", run.read_state(directory))
+        self.assertNotIn("pending_inbox", record.read_state(directory))
 
     def test_the_runs_list_marking_an_ending_seen_cannot_undo_a_hand_back(self):
         directory = self.failed("run-32")
-        stale = run.read_state(directory)            # what a draw minutes ago is holding
+        stale = record.read_state(directory)            # what a draw minutes ago is holding
         self.rows = [self.live()]
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         run.mark_delivery(directory, stale, reported=True)
-        self.assertTrue(run.read_state(directory)["handed_back"])
-        self.assertFalse(run.owes_ending(run.read_state(directory)))
+        self.assertTrue(record.read_state(directory)["handed_back"])
+        self.assertFalse(run.owes_ending(record.read_state(directory)))
 
     def test_an_ending_no_flag_marks_is_still_offered_by_the_tick(self):
         # a resumed attempt that ended carries no pending flag at all: `reap` leaves an
@@ -753,14 +754,14 @@ class HandBack(Sandbox):
         directory = self.ended("run-24", owner=SEAT, state="fail", verdict="FAIL",
                                recovery_pending=True, rounds=2, round_summaries=[{}, {}],
                                findings="VERDICT: FAIL\n\n## Findings\n- a.py:1 - one - why\n")
-        self.assertTrue(run.owes_ending(run.read_state(directory)))
+        self.assertTrue(run.owes_ending(record.read_state(directory)))
         self.rows = [self.live()]
         self.tick()
         self.assertEqual(len(self.typed), 1)
         self.assertIn("finished FAIL: after 2 rounds, open findings: - a.py:1 - one - why",
                       self.typed[0][1])
         # said once: the next tick finds it heard
-        self.assertFalse(run.owes_ending(run.read_state(directory)))
+        self.assertFalse(run.owes_ending(record.read_state(directory)))
         self.tick()
         self.assertEqual(len(self.typed), 1)
 
@@ -776,10 +777,10 @@ class HandBack(Sandbox):
                                recovery_notified="needs", rounds=2, round_summaries=[],
                                findings="")
         self.rows = [self.live()]
-        run.notify_recovery(directory, run.read_state(directory))
+        run.notify_recovery(directory, record.read_state(directory))
         self.assertEqual(self.typed, [])            # the stale mark keeps it quiet
-        run.save_state(directory, run.clear_delivery(run.read_state(directory)))
-        run.notify_recovery(directory, run.read_state(directory))
+        record.save_state(directory, run.clear_delivery(record.read_state(directory)))
+        run.notify_recovery(directory, record.read_state(directory))
         self.assertEqual(len(self.typed), 1)
 
     def test_nothing_is_collected_while_it_still_owes_its_seat_a_line(self):
@@ -788,7 +789,7 @@ class HandBack(Sandbox):
                                repo=str(self.root / "repo"), handback_pending=True)
         plans = [item for item in gc.gc_plan(now=9_000_000) if item.get("run") == str(directory)]
         self.assertEqual(plans, [])
-        run.save_state(directory, {k: v for k, v in run.read_state(directory).items()
+        record.save_state(directory, {k: v for k, v in record.read_state(directory).items()
                                    if k != "handback_pending"})
         job_dir = config.JOBS / "job-gc"
         job_dir.mkdir(parents=True)
@@ -806,9 +807,9 @@ class HandBack(Sandbox):
         # `ak run merge` runs fixer turns of its own; when one of them says the task is
         # wrong, the receipt keeps that word rather than calling it a failed delivery
         directory = self.failed("run-30")
-        run.save_state(directory, {**run.read_state(directory), "state": "blocked",
+        record.save_state(directory, {**record.read_state(directory), "state": "blocked",
                                    "verdict": "BLOCKED", "error": run.BLOCKED_SAME})
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         task = {"name": "a.md", "state": "running", "run_id": directory.name}
         job = {"job_id": "j", "seat": SEAT, "tasks": [task]}
         job_dir = config.JOBS / "j"
@@ -816,7 +817,7 @@ class HandBack(Sandbox):
         jobs.save_job(job_dir, job)
         import threading
         with patch.object(run, "cmd_merge", return_value=1), \
-                patch.object(run, "read_state", return_value=state):
+                patch.object(record, "read_state", return_value=state):
             jobs.job_ladder(self.cfg, job_dir, job, task,
                            directory, {**state, "state": "pass", "merge_failed": True},
                            1, self.logs.append, threading.Lock())
@@ -839,8 +840,8 @@ class HandBack(Sandbox):
         # the seat the way a single run does, and the ladder neither resumes it with more
         # rounds nor reruns it on another model
         directory = self.failed("run-45")
-        run.save_state(directory, {**run.read_state(directory), "worktree": str(self.root)})
-        state = run.read_state(directory)
+        record.save_state(directory, {**record.read_state(directory), "worktree": str(self.root)})
+        state = record.read_state(directory)
         self.assertTrue(run.failed_at_budget(state))
         self.rows = [self.live()]
         with jobs.job_muted():
@@ -880,7 +881,7 @@ class HandBack(Sandbox):
                 patch.object(jobs, "job_start_task",
                              side_effect=config.Error("fixture stop")) as start:
             jobs.job_ladder(self.cfg, job_dir, {**job, "tasks": [task]}, task, checked,
-                           run.read_state(checked), 1, self.logs.append, threading.Lock())
+                           record.read_state(checked), 1, self.logs.append, threading.Lock())
         start.assert_called_once()
         self.assertTrue(task["rerun_attempted"])
         self.assertEqual(task["state"], "failed")
@@ -935,7 +936,7 @@ class HandBack(Sandbox):
                 patch.object(run, "run_done_when",
                              return_value=(False, "$ bash tests/smoke.sh\n[exit 1]\nE no")), \
                 patch.object(run, "target_fails", return_value=False), \
-                patch.object(run, "save_state"), patch.object(run, "note", return_value=False), \
+                patch.object(record, "save_state"), patch.object(run, "note", return_value=False), \
                 patch.object(run, "execute",
                              side_effect=lambda *a, **k: fixers.append(1) or "## Summary\nfix"), \
                 patch.object(run, "verify_work", return_value=(True, "$ pytest\n[exit 0]")), \
@@ -972,7 +973,7 @@ class HandBack(Sandbox):
                              return_value={"head_sha": "a" * 40, "tree_sha": "b" * 40}), \
                 patch.object(run, "run_done_when", return_value=(False, failure)), \
                 patch.object(run, "target_fails", return_value=False), \
-                patch.object(run, "save_state"), patch.object(run, "note", return_value=False), \
+                patch.object(record, "save_state"), patch.object(run, "note", return_value=False), \
                 patch.object(run, "execute",
                              side_effect=lambda *a, **k: fixers.append(1) or "## Summary\nfix"), \
                 patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]")), \
@@ -989,25 +990,25 @@ class HandBack(Sandbox):
         self.rows = [self.live()]
         quota = self.ended("run-11", owner=SEAT, state="exhausted", quota_dry=True,
                            finished_at=None, error="every provider is spent")
-        run.notify_recovery(quota, run.read_state(quota))
+        run.notify_recovery(quota, record.read_state(quota))
         self.assertEqual((self.typed, self.cards), ([], []))
         # nothing resumes a stop that is not a window: the seat hears it like any ending
         stuck = self.ended("run-12", owner=SEAT, state="exhausted", finished_at=None,
                            error="the reviewer gave no verdict twice")
-        run.notify_recovery(stuck, run.read_state(stuck))
+        run.notify_recovery(stuck, record.read_state(stuck))
         self.assertEqual(self.typed, [(SEAT, (
             "run run-12 finished FAIL: the reviewer gave no verdict twice. "
             f"Result: {stuck / 'result.md'}. Decide the next step."))])
         self.assertEqual(self.cards, [])
-        self.assertEqual(run.read_state(stuck)["recovery_notified"], "orchestrator")
+        self.assertEqual(record.read_state(stuck)["recovery_notified"], "orchestrator")
 
     def test_a_seat_with_no_readable_screen_is_never_typed_into(self):
         directory = self.failed("run-13")
         self.rows = [self.live()]
         self.pane = "   \n"                   # a failed capture reads as nothing at all
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual((self.typed, self.cards), ([], []))
-        self.assertTrue(run.read_state(directory)["handback_pending"])
+        self.assertTrue(record.read_state(directory)["handback_pending"])
 
     def test_a_screen_nothing_recognised_is_not_a_prompt_on_any_harness(self):
         # claude's word is its hooks': with no hook fact and no rule that matched, `classify`
@@ -1016,17 +1017,17 @@ class HandBack(Sandbox):
         self.rows = [self.live()]
         self.rule = "none"
         self.assertFalse(watch.at_prompt(self.live(), cfg=self.cfg))
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual((self.typed, self.cards), ([], []))
-        self.assertTrue(run.read_state(directory)["handback_pending"])
+        self.assertTrue(record.read_state(directory)["handback_pending"])
 
     def test_a_seat_that_leaves_its_prompt_under_the_lock_is_not_typed_into(self):
         directory = self.failed("run-14")
         self.rows = [self.live()]
         self.leaves = True                    # another ending got there first
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual((self.typed, self.cards), ([], []))
-        self.assertTrue(run.read_state(directory)["handback_pending"])
+        self.assertTrue(record.read_state(directory)["handback_pending"])
 
     def test_the_seat_is_typed_into_in_the_world_the_lookup_found_it_in(self):
         # a suite running inside a seat points the lookup at servers of its own: the seat is
@@ -1039,7 +1040,7 @@ class HandBack(Sandbox):
             orch, "find",
             side_effect=lambda _n: seen.append(os.environ.get(orch.SOCKET_ENV)) or self.live()))
         directory = self.failed("run-15")
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(len(self.typed), 1)
         self.assertEqual(seen, [None])        # looked up where it was found, not in the suite
         self.assertEqual(os.environ[orch.SOCKET_ENV], "suite-socket")
@@ -1103,7 +1104,7 @@ class HandBack(Sandbox):
                 patch.object(run, "require_review_pass",
                              side_effect=run.Blocked("the merge target does not exist", section)):
             run.cmd_merge([directory.name])
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual((state["state"], state["verdict"]), ("blocked", "BLOCKED"))
         self.assertIn("# BLOCKED \u2014", (directory / "result.md").read_text())
         self.assertIn("finished BLOCKED:", self.typed[-1][1])
@@ -1115,12 +1116,12 @@ class HandBack(Sandbox):
         with self.assertRaisesRegex(
                 config.Error, "blocked runs are not resumed; the orchestrator writes a new task"):
             run.cmd_resume([directory.name])
-        self.assertFalse(run.needs_recovery(run.read_state(directory)))
-        self.assertFalse(run.unfinished(run.read_state(directory)))
+        self.assertFalse(run.needs_recovery(record.read_state(directory)))
+        self.assertFalse(run.unfinished(record.read_state(directory)))
 
     def test_blocked_reads_with_its_glyph_and_its_reason_in_status(self):
         directory = self.blocked_record("run-7")
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual(menu.run_state_word(state), "needs you")
         self.assertEqual(run.blocked_note(state),
                          f"{terminal.state_glyph('needs you')} blocked · the checks are wrong")
@@ -1136,7 +1137,7 @@ class HandBack(Sandbox):
         directory = self.ended("run-ending", owner=SEAT, merged=True,
                                pr="https://github.com/o/r/pull/7")
         self.rows = [self.live()]
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         histories, settles = [], []
         followup_boom = AttributeError("module 'agentkit.orch' has no attribute 'ROLE_HEADS'")
         tally_boom = AttributeError("module 'agentkit.orch' has no attribute 'ROLE_HEADS'")
@@ -1169,13 +1170,13 @@ class HandBack(Sandbox):
         self.rows = [self.live()]
         histories, settles = [], []
         with patch.object(run, "start_followups",
-                          side_effect=run.StopRequested("fix-child was stopped")), \
+                          side_effect=record.StopRequested("fix-child was stopped")), \
                 patch.object(run, "refresh_seat_tally"), \
                 patch.object(run, "history_finish",
                              side_effect=lambda s, log=None: histories.append(s["run_id"])), \
                 patch.object(run, "settle_run",
                              side_effect=lambda s, d, log=None: settles.append(s["run_id"])):
-            code = run.finish(run.read_state(directory), directory,
+            code = run.finish(record.read_state(directory), directory,
                               self.logs.append, self.cfg)
         self.assertEqual(code, 0)
         self.assertEqual(len(self.typed), 1)
@@ -1185,11 +1186,11 @@ class HandBack(Sandbox):
         self.assertEqual(len(failures), 1)
         self.assertIn("fix-child was stopped", failures[0])
         # ... and this run's own stop still aborts its ending, as the stop left it
-        run.save_state(directory, {**run.read_state(directory), "state": "stopped"})
+        record.save_state(directory, {**record.read_state(directory), "state": "stopped"})
         with patch.object(run, "start_followups",
-                          side_effect=run.StopRequested("run-fixstop was stopped")):
-            with self.assertRaises(run.StopRequested):
-                run.finish(run.read_state(directory), directory,
+                          side_effect=record.StopRequested("run-fixstop was stopped")):
+            with self.assertRaises(record.StopRequested):
+                run.finish(record.read_state(directory), directory,
                            self.logs.append, self.cfg)
 
     def blocked_record(self, name):
@@ -1259,10 +1260,10 @@ class BlockedRuns(unittest.TestCase):
         task = self.root / "task.md"
         task.write_text(f"---\nrepo: none\nrounds: {rounds}\n---\n# Blocked fixture\n\n"
                         f"## Done when\n```bash\n{check}\n```\n")
-        before = set(run.run_dirs())
+        before = set(record.run_dirs())
         code = run.main([str(task), "--exec", self.executor, "--review", self.reviewer])
-        directory = (set(run.run_dirs()) - before).pop()
-        return code, directory, run.read_state(directory)
+        directory = (set(record.run_dirs()) - before).pop()
+        return code, directory, record.read_state(directory)
 
     def calls(self, role):
         path = self.root / "calls.jsonl"

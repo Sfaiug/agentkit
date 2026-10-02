@@ -19,6 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, menu, notify, orch, run, usage, watch
+from agentkit import record
 
 WEEK = 604800
 
@@ -78,7 +79,7 @@ class ExhaustedResume(unittest.TestCase):
         wt = self.root / f"wt-{name}"
         if worktree:
             wt.mkdir(parents=True)
-        run.save_state(run_dir, {"run_id": name, "title": f"A run out of budget ({name})",
+        record.save_state(run_dir, {"run_id": name, "title": f"A run out of budget ({name})",
                                  "state": "exhausted", "verdict": None,
                                  "executor": executor, "reviewer": "spark",
                                  "rounds": 2, "round_summaries": [],
@@ -98,7 +99,7 @@ class ExhaustedResume(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1], ["resume", run_dir.name])
         self.assertIn(f"resumed {run_dir.name}: openai window refilled", self.logs)
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["executor"], "astra")   # still good: no handover
         self.assertNotIn("executor_history", state)
         self.assertEqual(state["exhausted_resume_at"], self.now)
@@ -110,7 +111,7 @@ class ExhaustedResume(unittest.TestCase):
                           calls.append((d, a, expected)) or 0):
             watch.resume_exhausted(self.cfg, self.providers(), log=self.log, now=self.now)
         self.assertEqual(len(calls), 1)
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["executor"], "astra")
         self.assertEqual(state["executor_history"],
                          [{"at": self.now, "from": "opus", "to": "astra", "reason": "dry"}])
@@ -123,7 +124,7 @@ class ExhaustedResume(unittest.TestCase):
                           side_effect=AssertionError("no resume while dry")):
             watch.resume_exhausted(self.cfg, providers, log=self.log, now=self.now)
         self.assertNotIn("resumed", " ".join(self.logs))
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["state"], "exhausted")
         self.assertNotIn("exhausted_resume_at", state)
 
@@ -132,9 +133,9 @@ class ExhaustedResume(unittest.TestCase):
         # put the run back to exhausted, stay silent, and relaunch after RESUME_EVERY.
         from types import SimpleNamespace
         run_dir = self.receipt("20260916-1203-retry")
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         state["launched_session"] = "seat"
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         launches = []
         def fork(*args, **kwargs):
             launches.append(args)
@@ -150,7 +151,7 @@ class ExhaustedResume(unittest.TestCase):
             self.assertEqual(len(launches), 1)
             self.assertTrue(any("WARN could not resume" in line for line in self.logs),
                             self.logs)
-            state = run.read_state(run_dir)
+            state = record.read_state(run_dir)
             self.assertEqual(state["state"], "exhausted")
             self.assertNotIn("recovery_pending", state)
             run.reap(run_dir, state)           # the same tick's reaper stays silent too
@@ -159,7 +160,7 @@ class ExhaustedResume(unittest.TestCase):
             watch.resume_exhausted(self.cfg, self.providers(), log=self.log,
                                    now=self.now + watch.RESUME_EVERY)
             self.assertEqual(len(launches), 2)    # retried once the window allows
-            state = run.read_state(run_dir)
+            state = record.read_state(run_dir)
             self.assertEqual((state["state"], state["resume_from"]), ("queued", "exhausted"))
         self.assertEqual(sent, [])
 
@@ -182,7 +183,7 @@ class ExhaustedResume(unittest.TestCase):
             watch.resume_exhausted(self.cfg, providers, log=self.log, now=self.now)
         self.assertTrue(any("WARN" in line and "gone" in line for line in self.logs),
                         self.logs)
-        self.assertEqual(run.read_state(run_dir)["state"], "exhausted")
+        self.assertEqual(record.read_state(run_dir)["state"], "exhausted")
 
     def test_v5r_session_worker_selection_excludes_other_providers(self):
         config.save_session(self.cfg, "seat", "astra", ["astra", "spark"])
@@ -193,11 +194,11 @@ class ExhaustedResume(unittest.TestCase):
                              side_effect=AssertionError("opus is not this session's worker")):
             watch.resume_exhausted(self.cfg, providers, log=self.log, now=self.now)
         self.assertNotIn("resumed", " ".join(self.logs))
-        self.assertEqual(run.read_state(run_dir)["state"], "exhausted")
+        self.assertEqual(record.read_state(run_dir)["state"], "exhausted")
         for prov, at in (("anthropic", self.now + 3600), ("openai", self.now + 7200)):
             providers[prov]["meters"][0]["resets_at"] = at
         with patch.dict(os.environ, {"AGENTKIT_SESSION": "seat"}):
-            provider, _, dry = run.exhausted_waits_for(state=run.read_state(run_dir),
+            provider, _, dry = run.exhausted_waits_for(state=record.read_state(run_dir),
                                                        providers=providers, cfg=self.cfg,
                                                        now=self.now)
         self.assertTrue(dry)
@@ -207,16 +208,16 @@ class ExhaustedResume(unittest.TestCase):
         # a git-stopped exhausted run carries no quota_dry flag: the tick leaves it
         # alone however refilled the providers are, and the row keeps the state word.
         run_dir = self.receipt("20260916-1211-toolstop")
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         state["error"] = "git push stopped: timed out"
         del state["quota_dry"]   # a tool stop is exhausted, but waits on no window
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         with patch.object(run, "spawn_bg",
                           side_effect=AssertionError("no window was ever spent")):
             watch.resume_exhausted(self.cfg, self.providers(), log=self.log, now=self.now)
         self.assertEqual(self.logs, [])
-        self.assertEqual(run.read_state(run_dir)["state"], "exhausted")
-        self.assertEqual(run.waiting_word(run.read_state(run_dir), self.providers(),
+        self.assertEqual(record.read_state(run_dir)["state"], "exhausted")
+        self.assertEqual(run.waiting_word(record.read_state(run_dir), self.providers(),
                                           self.cfg, now=self.now), "exhausted")
         with redirect_stdout(io.StringIO()) as out:
             self.assertEqual(run.cmd_status([run_dir.name]), 0)
@@ -231,16 +232,16 @@ class ExhaustedResume(unittest.TestCase):
         # pair is re-picked by budget under the one-provider rule: spark executes and
         # astra reviews, rather than keeping the reviewer and forcing a dearer executor.
         run_dir = self.receipt("20260916-1212-spare-reviewer", executor="opus")
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         state["reviewer"] = "spark"
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         providers = self.providers(openai_used=10, anthropic_used=100, meta_used=5)
         calls = []
         with patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None, park_as=False:
                           calls.append((d, a, expected)) or 0):
             watch.resume_exhausted(self.cfg, providers, log=self.log, now=self.now)
         self.assertEqual(len(calls), 1)
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual((state["executor"], state["reviewer"]), ("spark", "astra"))
         self.assertIn(f"resumed {run_dir.name}: meta window refilled", self.logs)
 
@@ -259,7 +260,7 @@ class ExhaustedResume(unittest.TestCase):
             watch.resume_exhausted(self.cfg, self.providers(), log=self.log, now=self.now)
         self.assertTrue(any("gone" in line and "WARN" in line for line in self.logs),
                         self.logs)
-        self.assertEqual(run.read_state(run_dir)["state"], "exhausted")
+        self.assertEqual(record.read_state(run_dir)["state"], "exhausted")
 
     def test_v5r_status_and_row_wait_on_window(self):
         run_dir = self.receipt("20260916-1205-waiting")
@@ -272,7 +273,7 @@ class ExhaustedResume(unittest.TestCase):
                 "other": {"meters": [meter("weekly", 100, self.now + 60)]}}}))
         want = (f"waiting for openai until "
                 f"{time.strftime('%H:%M', time.localtime(known))}")
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(run.exhausted_waits_for(state, json.loads(
             (config.STATE / "usage.json").read_text())["providers"], cfg=self.cfg,
             now=self.now), ("openai", known, True))
@@ -283,21 +284,21 @@ class ExhaustedResume(unittest.TestCase):
         self.assertTrue(lines[0].startswith("host: "), lines[0])
         status_row = next(line for line in lines if want in line)
         self.assertNotIn("exhausted", status_row)
-        self.assertEqual(run.read_state(run_dir)["state"], "exhausted")  # drill-down keeps it
+        self.assertEqual(record.read_state(run_dir)["state"], "exhausted")  # drill-down keeps it
         (config.STATE / "usage.json").unlink()
         self.assertEqual(run.waiting_word(state), "waiting for a provider window")
 
     def test_v5r_no_notification_on_exhaustion_or_resume(self):
         run_dir = self.receipt("20260916-1206-quiet")
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         state["launched_session"] = "seat"
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         sent = []
         with patch.object(notify, "shaped",
                           side_effect=lambda *a, **k: sent.append((a, k)) or 0), \
                 patch("agentkit.orch.find", return_value=None):
-            run.reap(run_dir, run.read_state(run_dir))   # the exhaustion path notifies nobody
-            self.assertEqual(run.read_state(run_dir)["state"], "exhausted")
+            run.reap(run_dir, record.read_state(run_dir))   # the exhaustion path notifies nobody
+            self.assertEqual(record.read_state(run_dir)["state"], "exhausted")
             with patch.object(run, "spawn_bg", return_value=0):
                 watch.resume_exhausted(self.cfg, self.providers(), log=self.log,
                                        now=self.now)

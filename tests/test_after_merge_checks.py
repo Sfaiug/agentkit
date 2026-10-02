@@ -15,6 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, orch, run, watch
+from agentkit import record
 
 PR = "https://github.com/acme/widget/pull/7"
 NOW = 2000000
@@ -112,7 +113,7 @@ class AfterMerge(unittest.TestCase):
                  "started_at": NOW - age - 60, "finished_at": NOW - age}
         if sha is not None:
             state["merge_sha"] = sha
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         return directory
 
     def set_checks(self, mapping):

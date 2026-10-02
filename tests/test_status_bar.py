@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from test_v4n import Sandbox, menu_input
 from agentkit import config, menu, notify, orch, run, terminal, watch
+from agentkit import record
 
 NOW = 1_800_000_000
 DAY = 86400
@@ -51,7 +52,7 @@ class StatusBar(Sandbox):
                  "launched_session": owner, "reported": False, "repo": self.repo,
                  "executor": "opus", "reviewer": "astra", "rounds": 2, "round_summaries": [],
                  "finished_at": NOW - 1800, "started_at": NOW - 3600, **extra}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         for path in list(directory.rglob("*")) + [directory]:
             try:
                 os.utime(path, (NOW, NOW))
@@ -147,9 +148,9 @@ class StatusBar(Sandbox):
                      config.compact_path("herdr"), config.plan_path("herdr"),
                      config.stop_path("herdr")):
             self.assertFalse(path.exists(), path)
-        self.assertEqual(run.read_state(config.RUNS / "20260101-0900-mine")["launched_session"],
+        self.assertEqual(record.read_state(config.RUNS / "20260101-0900-mine")["launched_session"],
                          "parser")
-        self.assertEqual(run.read_state(config.RUNS / "20260101-0900-theirs")["launched_session"],
+        self.assertEqual(record.read_state(config.RUNS / "20260101-0900-theirs")["launched_session"],
                          "other")
         # the record moved and the pointer stayed; the bar says the new name at once
         self.assertEqual(config.resolve_session("herdr"), "parser")

@@ -20,6 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, run, terminal
+from agentkit import record
 from test_v4n import menu_input
 
 
@@ -184,8 +185,8 @@ class Back(unittest.TestCase):
     def test_v5u_x_dry_run_reads_no_real_run(self):
         # The dry run lists the seat's runs through the fixture's mock too: the real listing
         # reads ~/.agentkit/runs, a state this file promised never to touch.
-        with patch.object(run, "run_dirs", return_value=[Path("fake-active-run")]), \
-                patch.object(run, "read_state") as read_state:
+        with patch.object(record, "run_dirs", return_value=[Path("fake-active-run")]), \
+                patch.object(record, "read_state") as read_state:
             self.test_v5u_x_asks_through_terminal_ask()
         self.assertEqual(read_state.call_count, 0)
 

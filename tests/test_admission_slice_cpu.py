@@ -19,6 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, run  # noqa: E402
+from agentkit import record
 
 READINGS = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000,
@@ -42,7 +43,7 @@ class AdmissionSliceCpu(unittest.TestCase):
         os.environ.pop("AK_MAX_LOAD", None)
         self.stack.enter_context(patch.object(run, "slot_counts", return_value=(0, 0)))
         self.stack.enter_context(patch.object(run, "frozen_runs", return_value=0))
-        self.stack.enter_context(patch.object(run, "process_owner",
+        self.stack.enter_context(patch.object(record, "process_owner",
                                               return_value={"pid": 1}))
 
     def claim(self, readings, state=None):

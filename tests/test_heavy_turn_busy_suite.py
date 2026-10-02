@@ -19,6 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, run, worker
+from agentkit import record
 from test_red_target import make_loop, make_repos
 
 ACME = "/home/fixture/code/acme"        # main checkouts as the records name them; never opened
@@ -52,8 +53,8 @@ class Gate(threading.Thread):
         super().__init__(daemon=True)
         directory = config.RUNS / name
         directory.mkdir()
-        run.save_state(directory, {"run_id": name, "title": name, "state": "running",
-                                   "verdict": None, "repo": repo, **run.process_owner(),
+        record.save_state(directory, {"run_id": name, "title": name, "state": "running",
+                                   "verdict": None, "repo": repo, **record.process_owner(),
                                    "started_at": time.time(), "round_summaries": []})
         self.logs, self.result, self.error = [], None, None
         self.args = (cmds, case.root, directory / "donewhen.log", set())
@@ -190,7 +191,7 @@ class BusySuite(unittest.TestCase):
         with run.gate_lock(ACME, 0).open("a") as turn:
             fcntl.flock(turn, fcntl.LOCK_EX)
             probe.start()
-            self.until(lambda: (run.read_state(run_dir) or {}).get("gate_turn"),
+            self.until(lambda: (record.read_state(run_dir) or {}).get("gate_turn"),
                        "the probe to wait for a turn")
             time.sleep(2.5)
         self.until(lambda: "busy" in self.marks.read_text(), "the probe to say busy")

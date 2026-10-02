@@ -21,6 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, run, worker
+from agentkit import host, record as run_record
 
 ACME = "/home/fixture/code/acme"        # main checkouts as the records name them; never opened
 ELSEWHERE = "/home/fixture/other/acme"  # the same folder name, another repository
@@ -76,7 +77,7 @@ class GateOrder(unittest.TestCase):
         for _ in range(10):
             proc = subprocess.Popen(["true"])
             proc.wait()
-            if not run.alive(proc.pid):
+            if not host.alive(proc.pid):
                 return proc.pid
         self.fail("could not find a dead pid")
 
@@ -85,11 +86,11 @@ class GateOrder(unittest.TestCase):
         directory = config.RUNS / name
         directory.mkdir()
         state = {"run_id": name, "title": name, "state": "running", "verdict": None,
-                 "repo": repo, **(owner if owner is not None else run.process_owner()),
+                 "repo": repo, **(owner if owner is not None else run_record.process_owner()),
                  "started_at": time.time(), "round_summaries": []}
         if first:
             state["first"] = True
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         return directory
 
     def waiter(self, name, repo, since, first=False, owner=None, stale=False):
@@ -99,14 +100,14 @@ class GateOrder(unittest.TestCase):
         record's, so the note is gone but the dict is still there.
         """
         directory = self.record(name, repo, first, owner)
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         pid = self.dead if stale else state["pid"]
         state["gate_turn"] = {"pid": pid, "of": str(run.main_checkout(repo)), "since": since}
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         return directory
 
     def since(self, name):
-        turn = (run.read_state(config.RUNS / name) or {}).get("gate_turn") or {}
+        turn = (run_record.read_state(config.RUNS / name) or {}).get("gate_turn") or {}
         return turn.get("since")
 
     def mark(self, word, seconds=0):
@@ -155,10 +156,10 @@ class GateOrder(unittest.TestCase):
         # left its dict behind; neither holds another back
         self.waiter("dead-first", ACME, 500, first=True, owner={"pid": self.dead})
         self.waiter("stale-first", ACME, 400, first=True, stale=True)
-        dead = run.read_state(config.RUNS / "dead-first")
+        dead = run_record.read_state(config.RUNS / "dead-first")
         self.assertEqual(run.gate_turn_note(dead), "waiting for a heavy suite turn")
         self.assertEqual(dead["gate_turn"]["of"], ACME)
-        stale = run.read_state(config.RUNS / "stale-first")
+        stale = run_record.read_state(config.RUNS / "stale-first")
         self.assertEqual(run.gate_turn_note(stale), "")
         self.assertFalse(run._gate_waiter_before(repo, "ghost", False, 3000))
         self.assertFalse(run._gate_waiter_before(repo, "ghost-first", True, 3000))
@@ -169,7 +170,7 @@ class GateOrder(unittest.TestCase):
 
     def test_waiter_of_another_checkout_counts_host_wide(self):
         self.waiter("elsewhere-first", ELSEWHERE, 500, first=True)
-        state = run.read_state(config.RUNS / "elsewhere-first")
+        state = run_record.read_state(config.RUNS / "elsewhere-first")
         self.assertEqual(run.gate_turn_note(state), "waiting for a heavy suite turn")
         self.assertEqual(state["gate_turn"]["of"], ELSEWHERE)
         repo = run.main_checkout(ACME)

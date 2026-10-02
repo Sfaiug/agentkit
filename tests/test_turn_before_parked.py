@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from test_v4n import Sandbox
 from agentkit import config, menu, run, watch
+from agentkit import record
 
 NOW = 1_800_000_000
 SPENT = ("unfinished review; done-when and review are pending at round 4, but the round "
@@ -41,7 +42,7 @@ class TurnBeforeParked(Sandbox):
                  "launched_session": "acme", "reported": False, "repo": self.repo,
                  "executor": "opus", "reviewer": "astra", "rounds": 3, "round_summaries": [],
                  "finished_at": NOW - 600, "started_at": NOW - 3600, "error": SPENT, **extra}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         return directory, state
 
     def decide(self, live, records):

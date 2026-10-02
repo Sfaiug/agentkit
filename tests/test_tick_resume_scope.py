@@ -18,6 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, job as jobs, run, watch
+from agentkit import record
 
 CONFLICT_NOTE = "the fixer did not finish the rebase of origin/main; it was aborted"
 TASK = "# Fix the parser\n\n## Done when\n\n```bash\ntest -f deliverable\n```\n"
@@ -49,7 +50,7 @@ class TickResumeScope(unittest.TestCase):
         run_dir.mkdir(parents=True)
         (run_dir / "task.md").write_text(TASK)
         (wt := self.root / f"wt-{name}").mkdir()
-        run.save_state(run_dir, {
+        record.save_state(run_dir, {
             "run_id": name, "title": f"Task {name}", "state": "error", "verdict": None,
             "executor": "astra", "reviewer": "opus", "rounds": 3, "round_summaries": [],
             "launched_session": "seat", "repo": str(config.CODE / "acme"),
@@ -62,17 +63,17 @@ class TickResumeScope(unittest.TestCase):
         for job in (None, "20261001-0100-job"):
             with self.subTest(job=job):
                 run_dir = self.receipt(f"20261001-0101-err-{bool(job)}", job_id=job)
-                state = run.park_error(run_dir, run.read_state(run_dir), now=self.now)
+                state = run.park_error(run_dir, record.read_state(run_dir), now=self.now)
                 # the control without a job is born scheduled: the fixture is admitted
                 self.assertEqual("error_retry_at" in state, not job)
                 # an older record's due stamp is no licence either: its job settles it
-                run.save_state(run_dir, {**state, "error_retry_at": self.now - 1,
+                record.save_state(run_dir, {**state, "error_retry_at": self.now - 1,
                                          "error_retries": 0})
                 self.spawned.clear()
                 watch.resume_errored(log=self.logs.append, now=self.now)
                 self.assertEqual(self.spawned, [] if job else [run_dir.name])
-                self.assertEqual("error_retry_at" in run.read_state(run_dir), not job)
-                self.assertEqual(run.going(run.read_state(run_dir), now=self.now), not job)
+                self.assertEqual("error_retry_at" in record.read_state(run_dir), not job)
+                self.assertEqual(run.going(record.read_state(run_dir), now=self.now), not job)
 
     def test_b_jobs_conflict_fail_is_never_parked(self):
         for job in (None, "20261001-0100-job"):
@@ -82,11 +83,11 @@ class TickResumeScope(unittest.TestCase):
                                        merge_note=CONFLICT_NOTE,
                                        round_summaries=[{"round": 1}])
                 (run_dir / "log.txt").write_text(f"not merged: {CONFLICT_NOTE}\n")
-                self.assertEqual(run.parkable_conflict(run.read_state(run_dir), run_dir,
+                self.assertEqual(run.parkable_conflict(record.read_state(run_dir), run_dir,
                                                        now=self.now), not job)
                 with patch.object(run, "upstream_sha", return_value="1" * 40):
                     watch.resume_waiting(log=self.logs.append, now=self.now)
-                self.assertEqual(run.read_state(run_dir)["state"],
+                self.assertEqual(record.read_state(run_dir)["state"],
                                  "fail" if job else "waiting")
 
     def test_c_a_jobs_wait_is_resumed_by_its_job_never_by_the_tick(self):
@@ -94,17 +95,17 @@ class TickResumeScope(unittest.TestCase):
                 "merge_note": CONFLICT_NOTE, "waiting_on": {"ref": "origin/main", "sha": "0" * 40}}
         lone = self.receipt("20261001-0103-lone", **wait)
         mine = self.receipt("20261001-0103-mine", job_id="20261001-0100-job", **wait)
-        resumed = lambda d, a, **_kw: run.save_state(d, {**run.read_state(d), "state": "queued"})
+        resumed = lambda d, a, **_kw: record.save_state(d, {**record.read_state(d), "state": "queued"})
         with patch.object(run, "upstream_sha", return_value="1" * 40), \
                 patch.object(run, "spawn_bg", side_effect=resumed) as spawn:
             watch.resume_waiting(log=self.logs.append, now=self.now)
             self.assertEqual([call.args[0] for call in spawn.call_args_list], [lone])
             # the job follows its own wait and resumes it once main moved
             with patch.object(run.time, "sleep"), \
-                    patch.object(jobs, "job_await", side_effect=run.read_state), \
+                    patch.object(jobs, "job_await", side_effect=record.read_state), \
                     patch.object(jobs, "job_wait_login", return_value=True):
                 jobs.job_ladder(self.cfg, None, {}, {"name": "fix-api"}, mine,
-                               run.read_state(mine), 0, self.logs.append, None)
+                               record.read_state(mine), 0, self.logs.append, None)
             self.assertEqual([call.args[0] for call in spawn.call_args_list], [lone, mine])
 
 

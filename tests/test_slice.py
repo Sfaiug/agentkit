@@ -23,6 +23,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from test_v4n import REPO, Sandbox
 from agentkit import host, config, job as jobs, orch, run, watch
+from agentkit import record
 
 # One spy for every command the slice rests on: it records its argv and answers the way the
 # case under test needs it to, so nothing here can reach the account's own manager.
@@ -218,7 +219,7 @@ class Seats(Slice):
     def test_f_the_ticks_resume_runs_in_the_slice_with_the_user_bus(self):
         run_id = "20260101-0900-resume"
         (config.RUNS / run_id).mkdir(parents=True)
-        run.save_state(config.RUNS / run_id, {"run_id": run_id, "state": "running"})
+        record.save_state(config.RUNS / run_id, {"run_id": run_id, "state": "running"})
         # a tick from cron inherits no session at all, so the bus is derived from the uid --
         # and a service is what the manager starts inside the slice itself, which is the only
         # way in from a cgroup a scope may not be moved out of
@@ -243,7 +244,7 @@ class Seats(Slice):
         run_id = "20260101-0900-refused"
         self.from_cron()                 # a service, and the manager will not take its unit
         (config.RUNS / run_id).mkdir(parents=True)
-        run.save_state(config.RUNS / run_id, {"run_id": run_id, "state": "running"})
+        record.save_state(config.RUNS / run_id, {"run_id": run_id, "state": "running"})
         said = []
         with self.popen(status=1) as popen:      # the manager would not take the unit
             self.assertTrue(watch.launch_resume(run_id, log=said.append))
@@ -322,7 +323,7 @@ class Detached(Slice):
     def test_i_a_background_run_and_a_job_are_started_in_the_slice(self):
         run_dir = config.RUNS / "20260101-0900-detached"
         run_dir.mkdir(parents=True)
-        run.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
+        record.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
         with self.popen() as popen, redirect_stdout(io.StringIO()):
             run.spawn_bg(run_dir, ["resume", run_dir.name])
         argv = popen.call_args.args[0]
@@ -332,7 +333,7 @@ class Detached(Slice):
         self.assertEqual(argv[-3:], ["run", "resume", run_dir.name])
         # the receipt still names a process that is alive for as long as the run is: the scope
         # holds the loop, so reaping sees a launcher rather than a gap
-        self.assertEqual(run.read_state(run_dir)["pid"], 4242)
+        self.assertEqual(record.read_state(run_dir)["pid"], 4242)
         job_dir = config.RUNS / "20260101-0900-job"
         job_dir.mkdir(parents=True)
         with self.popen(pid=4343) as popen, patch.object(jobs, "read_job", return_value={}), \
@@ -357,7 +358,7 @@ class Detached(Slice):
         self.from_cron()
         run_dir = config.RUNS / "20260101-0900-from-cron"
         run_dir.mkdir(parents=True)
-        run.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
+        record.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
         with self.popen(pid=5151) as popen, redirect_stdout(io.StringIO()):
             run.spawn_bg(run_dir, ["resume", run_dir.name])
         argv = popen.call_args.args[0]
@@ -366,33 +367,33 @@ class Detached(Slice):
         self.assertIn(f"--unit=agentkit-run-{run_dir.name}", argv)
         # the client is gone the moment the unit is taken; the receipt names what the manager
         # forked, so nothing reaps a run for a launcher that was never the work
-        self.assertEqual(run.read_state(run_dir)["pid"], 5151)
+        self.assertEqual(record.read_state(run_dir)["pid"], 5151)
 
     def test_l_a_run_nothing_can_place_at_all_is_started_plainly(self):
         self.from_cron()
         self.no_manager()
         run_dir = config.RUNS / "20260101-0900-plainly"
         run_dir.mkdir(parents=True)
-        run.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
+        record.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
         self.assertFalse(orch.user_manager())    # asked before Popen is taken away
         with patch.object(orch.subprocess, "Popen", return_value=Mock(pid=4242)) as popen, \
                 redirect_stdout(io.StringIO()):
             run.spawn_bg(run_dir, ["resume", run_dir.name])
         self.assertEqual(popen.call_args.args[0][-3:], ["run", "resume", run_dir.name])
         self.assertNotIn("systemd-run", popen.call_args.args[0][0])
-        self.assertEqual(run.read_state(run_dir)["pid"], 4242)
+        self.assertEqual(record.read_state(run_dir)["pid"], 4242)
 
     def test_m_work_that_finishes_at_once_is_never_started_twice(self):
         # the mark is written before the work begins, so a task that ends in a moment is
         # still a task that ran: neither its exit status nor its speed starts it again
         run_dir = config.RUNS / "20260101-0900-brief"
         run_dir.mkdir(parents=True)
-        run.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
+        record.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
         with self.popen(status=7) as popen, redirect_stdout(io.StringIO()):
             run.spawn_bg(run_dir, ["resume", run_dir.name])   # the work ran, and failed fast
         self.assertEqual(popen.call_count, 1)
         self.assertIn("--scope", popen.call_args.args[0])
-        self.assertEqual(run.read_state(run_dir)["pid"], 4242)   # the pid it marked as its own
+        self.assertEqual(record.read_state(run_dir)["pid"], 4242)   # the pid it marked as its own
         # and the same where only a service can reach: the manager took the unit and the
         # work was over before anything looked, which is not work that never began
         self.from_cron()
@@ -416,7 +417,7 @@ class Detached(Slice):
             where()
             run_dir = config.RUNS / f"20260101-0900-lost-{kind}"
             run_dir.mkdir(parents=True)
-            run.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
+            record.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
             with self.popen(ran=False) as popen, redirect_stdout(io.StringIO()):
                 run.spawn_bg(run_dir, ["resume", run_dir.name])
             argvs = [call.args[0] for call in popen.call_args_list]
@@ -432,7 +433,7 @@ class Detached(Slice):
             plain = argvs[-1]
             self.assertNotIn("systemd-run", plain[0])
             self.assertEqual(plain[-3:], ["run", "resume", run_dir.name])
-            saved = run.read_state(run_dir)
+            saved = record.read_state(run_dir)
             self.assertEqual(saved["pid"], 4242)      # the plain launch, named and reapable
             self.assertFalse(saved["launch_pending"])
             self.assertIn("did not go into", (run_dir / "log.txt").read_text())
@@ -443,7 +444,7 @@ class Detached(Slice):
         self.stack.enter_context(patch.object(orch, "SLICE_WAIT", 0.2))
         run_dir = config.RUNS / "20260101-0900-on-its-way"
         run_dir.mkdir(parents=True)
-        run.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
+        record.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
         with self.popen(ran=None) as popen, redirect_stdout(io.StringIO()):
             run.spawn_bg(run_dir, ["resume", run_dir.name])
         argvs = [call.args[0] for call in popen.call_args_list]
@@ -463,7 +464,7 @@ class Detached(Slice):
         self.from_cron()
         run_dir = config.RUNS / "20260101-0900-in-doubt"
         run_dir.mkdir(parents=True)
-        run.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
+        record.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
         with self.popen(ran=None, stopped=False) as popen, redirect_stdout(io.StringIO()):
             with self.assertRaises(config.Error) as refused:
                 run.spawn_bg(run_dir, ["resume", run_dir.name])
@@ -472,7 +473,7 @@ class Detached(Slice):
         self.assertEqual([argvs[0][0], argvs[1][:3]],
                          ["systemd-run", ["systemctl", "--user", "stop"]])
         self.assertEqual(len(argvs), 2)          # and no second start of the work
-        self.assertEqual(run.read_state(run_dir)["state"], "interrupted")
+        self.assertEqual(record.read_state(run_dir)["state"], "interrupted")
         self.assertEqual((config.TMP / f"agentkit-run-{run_dir.name}.placed").read_text(),
                          f"agentkit-run-{run_dir.name}.service")
 
@@ -483,7 +484,7 @@ class Detached(Slice):
         self.from_cron()
         run_dir = config.RUNS / "20260101-0900-claimed"
         run_dir.mkdir(parents=True)
-        run.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
+        record.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
         unit = f"agentkit-run-{run_dir.name}"
         (config.TMP / f"{unit}.placed").write_text(f"{unit}.service")
         with self.popen(loaded="loaded") as popen, redirect_stdout(io.StringIO()):
@@ -505,7 +506,7 @@ class Detached(Slice):
         # of that work, and outside the slice at that
         run_dir = config.RUNS / "20260101-0900-no-bus"
         run_dir.mkdir(parents=True)
-        run.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
+        record.save_state(run_dir, {"run_id": run_dir.name, "state": "queued"})
         unit = f"agentkit-run-{run_dir.name}"
         claim = config.TMP / f"{unit}.placed"
         claim.write_text(f"{unit}.service")
@@ -540,7 +541,7 @@ class Detached(Slice):
         # has to start: the plain start is tried before anything is given up on
         run_id = "20260101-0900-gone"
         (config.RUNS / run_id).mkdir(parents=True)
-        run.save_state(config.RUNS / run_id, {"run_id": run_id, "state": "running"})
+        record.save_state(config.RUNS / run_id, {"run_id": run_id, "state": "running"})
         said = []
         self.assertTrue(orch.user_manager())
         with patch.object(orch.subprocess, "Popen",
@@ -662,8 +663,8 @@ class Frozen(Slice):
         self.held = self.cgroup / CGROUP.strip("/").rsplit("/", 1)[0] / "cgroup.freeze"
         self.run_dir = config.RUNS / "20260101-0900-held"
         self.run_dir.mkdir(parents=True)
-        run.save_state(self.run_dir, {"run_id": self.run_dir.name, "state": "running",
-                                      "silence_minutes": 30, **run.process_owner()})
+        record.save_state(self.run_dir, {"run_id": self.run_dir.name, "state": "running",
+                                      "silence_minutes": 30, **record.process_owner()})
         # the run's own newest write, not the clock: a fixture's mtime is when this test made
         # it, and the sandbox around it holds `time.time` still
         self.started = watch.run_last_write(self.run_dir)
@@ -687,7 +688,7 @@ class Frozen(Slice):
         self.assertEqual(self.tick(frozen + 300), [])
         self.assertEqual(len(self.frozen_lines()), 1, self.log_lines())
         self.assertIn("host frozen since", self.frozen_lines()[0])
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         self.assertEqual(state["state"], "running")
         self.assertEqual(state.get("stalls", []), [])
         self.assertEqual(state["frozen_since"], frozen)
@@ -696,7 +697,7 @@ class Frozen(Slice):
         self.held.write_text("0\n")
         self.assertEqual(self.tick(frozen + 600, dry_run=True),
                          [f"would restart the stall clock of {self.run_dir.name} at the thaw"])
-        self.assertEqual(run.read_state(self.run_dir)["frozen_since"], frozen)
+        self.assertEqual(record.read_state(self.run_dir)["frozen_since"], frozen)
 
     def test_o_a_freeze_between_two_ticks_is_not_counted_against_the_run(self):
         # the clock is stopped as soon as the host takes the run, not once it looks stalled:
@@ -704,11 +705,11 @@ class Frozen(Slice):
         self.held.write_text("1\n")
         frozen = self.started + 60
         self.assertEqual(self.tick(frozen), [])
-        self.assertEqual(run.read_state(self.run_dir)["frozen_since"], frozen)
+        self.assertEqual(record.read_state(self.run_dir)["frozen_since"], frozen)
         self.held.write_text("0\n")
         thaw = frozen + 6 * 3600
         self.assertEqual(self.tick(thaw), [])
-        self.assertEqual(run.read_state(self.run_dir)["thawed_at"], thaw)
+        self.assertEqual(record.read_state(self.run_dir)["thawed_at"], thaw)
         self.assertEqual(self.tick(thaw + 25 * 60), [])
         self.assertEqual((self.resumed, self.killed), ([], []))
 
@@ -719,7 +720,7 @@ class Frozen(Slice):
         self.held.write_text("0\n")
         thaw = frozen + 4 * 3600
         self.assertEqual(self.tick(thaw), [])
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         self.assertEqual(state["thawed_at"], thaw)
         self.assertNotIn("frozen_since", state)
         # silence under the freeze was the host's: the run has the whole window again
@@ -734,12 +735,12 @@ class Frozen(Slice):
         # the kernel hands a pid on; a frozen stranger wearing this run's number would
         # otherwise hold its clock for good
         self.held.write_text("1\n")
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         state["process_identity"] = {**state["process_identity"], "ticks": 1}
-        run.save_state(self.run_dir, state)
+        record.save_state(self.run_dir, state)
         self.tick(self.started + 10 * 3600)
         self.assertEqual(self.frozen_lines(), [])
-        self.assertNotIn("frozen_since", run.read_state(self.run_dir))
+        self.assertNotIn("frozen_since", record.read_state(self.run_dir))
         self.assertEqual(self.resumed, [self.run_dir.name])
 
     def test_r_a_run_nothing_holds_is_read_exactly_as_before(self):

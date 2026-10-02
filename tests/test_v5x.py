@@ -22,6 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, menu, notify, orch, run, watch
+from agentkit import record
 
 TASK = """---
 rounds: 3
@@ -201,7 +202,7 @@ class V5X(unittest.TestCase):
         if minutes is not None:
             state["stall_minutes"] = minutes
         if pid is not None:
-            state.update(run.process_owner(pid))
+            state.update(record.process_owner(pid))
         else:
             state["pid"] = 2 ** 30
         (run_dir / "run.json").write_text(json.dumps(state, indent=2))
@@ -508,7 +509,7 @@ class V5X(unittest.TestCase):
         parent = self.spawn_loop(self.gate_child())
         run_dir, state = self.make_run("20260916-0000-v5x-scoped-first", pid=parent.pid)
         state["scope"] = "agentkit-run-20260916-0000-v5x-scoped-first"
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         children = self.child_pids(parent.pid)
         self.assertTrue(children)
         self.age_run(run_dir, 61)

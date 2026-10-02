@@ -18,6 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, run
+from agentkit import record
 
 GUIDE = "docs/guide.md"
 NOTES = "docs/über.md"      # git quotes it unless asked not to
@@ -68,7 +69,7 @@ def make_run(root, remote, name, cmds, edits):
 
     state = {
         "run_id": run_dir.name, "title": name, "state": "running", "verdict": "PASS",
-        **run.process_owner(), "started_at": time.time(),
+        **record.process_owner(), "started_at": time.time(),
         "review": {"executor": "opus", "executor_provider": executor_provider,
                    "reviewer": "astra", "reviewer_provider": reviewer_provider,
                    "returncode": 0, "verdict": "PASS", "done_when": True,
@@ -81,7 +82,7 @@ def make_run(root, remote, name, cmds, edits):
         "merge_method": "squash", "merged": False, "merge_failed": False,
         "merge_note": None, "findings": "",
     }
-    run.save_state(run_dir, state)
+    record.save_state(run_dir, state)
     return run.Loop(cfg, run_dir, state, {}, log, wt, "body", cmds, "context", [])
 
 
@@ -161,7 +162,7 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         self.assertEqual((lp.wt / GUIDE).read_text(), "acme\n2\n3\n4\nfive\n")
         self.assertEqual([row[0] for row in self.rows()], ["every"])
         self.assertEqual(self.rows()[-1][1], head)
-        state = run.read_state(lp.run_dir)
+        state = record.read_state(lp.run_dir)
         self.assertEqual(state["base_sha"], tip)
         self.assertEqual(state["review"]["head_sha"], head)
         self.assertNotIn("final_check", state)
@@ -214,7 +215,7 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         lp = make_run(self.root, remote, "delta", self.cmds(), {GUIDE: "delta\n2\n3\n4\n5\n"})
         self.assertFalse(self.land(lp, owner, {GUIDE: "delta\n2\n3\n4\n5\n"}))
         self.assertEqual(self.delivered, [])
-        self.assertTrue(run.read_state(lp.run_dir).get("on_target"))
+        self.assertTrue(record.read_state(lp.run_dir).get("on_target"))
         self.assertIn("its work is already on main", (lp.run_dir / "log.txt").read_text())
 
     def test_code_overlap_takes_the_reserved_lap(self):

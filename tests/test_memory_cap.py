@@ -26,6 +26,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, job as jobs, orch, run, worker
+from agentkit import record
 
 
 # The allocator refuses to touch a page unless its own cgroup is the throwaway
@@ -139,12 +140,12 @@ class MemoryCap(unittest.TestCase):
         with patch.object(
                 orch, "stop_scope",
                 side_effect=lambda scope, log=None, wait=True: self.stopped.append(scope) or True):
-            return run.reap(directory, run.read_state(directory), memory_probe=probe)
+            return run.reap(directory, record.read_state(directory), memory_probe=probe)
 
     def run_dir(self, name, **extra):
         directory = config.RUNS / name
         directory.mkdir(parents=True)
-        run.save_state(directory, {
+        record.save_state(directory, {
             "run_id": name, "title": "a leaking executor", "state": "running",
             "verdict": None, "scope": f"agentkit-test-cap-{name}",
             "memory_cap_mb": 4096, **extra})
@@ -174,10 +175,10 @@ class MemoryCap(unittest.TestCase):
         self.assertFalse(log.exists() and "memory cap" in log.read_text())
         # No cap was recorded, so the reaper must not go looking for one.
         bare = self.run_dir("bare", memory_cap_mb=None)
-        run.save_state(bare, {**run.read_state(bare), "memory_cap_mb": None})
-        state = run.read_state(bare)
+        record.save_state(bare, {**record.read_state(bare), "memory_cap_mb": None})
+        state = record.read_state(bare)
         state.pop("memory_cap_mb", None)
-        run.save_state(bare, state)
+        record.save_state(bare, state)
 
         def explode(_state):
             raise AssertionError("a run with no cap was probed")
@@ -222,7 +223,7 @@ class MemoryCap(unittest.TestCase):
         self.assertIn("MemorySwapMax=512M", props)
         directory = config.RUNS / "20260922-0900-capped"
         directory.mkdir()
-        run.save_state(directory, {"run_id": directory.name, "state": "queued"})
+        record.save_state(directory, {"run_id": directory.name, "state": "queued"})
         seen = {}
 
         def placed(*args, **kwargs):
@@ -231,7 +232,7 @@ class MemoryCap(unittest.TestCase):
             kwargs["placement"].update(scope="agentkit-test-run-capped")
             return 4242
 
-        with patch.object(run, "process_owner",
+        with patch.object(record, "process_owner",
                           return_value={"pid": 4242, "process_identity": None}), \
                 patch.object(orch, "start_in_slice", side_effect=placed), \
                 redirect_stdout(io.StringIO()):
@@ -239,7 +240,7 @@ class MemoryCap(unittest.TestCase):
         self.assertEqual(seen["slice"], "agentkit-test-runs.slice")
         self.assertIn("MemoryMax=512M", seen["properties"])
         self.assertIn("MemorySwapMax=512M", seen["properties"])
-        self.assertEqual(run.read_state(directory)["memory_cap_mb"], 512)
+        self.assertEqual(record.read_state(directory)["memory_cap_mb"], 512)
         (config.HOME / "config.toml").write_text("run_memory_max_mb = 0\n")
         with self.assertRaises(config.Error):
             config.run_memory_max_mb()
@@ -266,7 +267,7 @@ class MemoryCap(unittest.TestCase):
             # the kernel ends the leaking task at its cap; the steady one ends on its own
             for pid, directory in list(live.items()):
                 if directory.name == steady:
-                    run.save_state(directory, {**run.read_state(directory),
+                    record.save_state(directory, {**record.read_state(directory),
                                                "state": "pass", "verdict": "PASS"})
                 del live[pid]
 
@@ -275,7 +276,7 @@ class MemoryCap(unittest.TestCase):
                 patch.object(orch, "start_in_slice", side_effect=place), \
                 patch.object(orch, "stop_scope", side_effect=lambda scope, log=None, wait=False:
                              self.stopped.append((scope, wait)) or True), \
-                patch.object(run, "process_active", side_effect=lambda s: s.get("pid") in live), \
+                patch.object(record, "process_active", side_effect=lambda s: s.get("pid") in live), \
                 patch.object(run, "_scope_oom_probe", side_effect=lambda s: (
                     ("oom-kill", 1) if s.get("scope") == f"agentkit-run-{leaking}"
                     else ("success", 0))), \
@@ -286,7 +287,7 @@ class MemoryCap(unittest.TestCase):
                 directory = config.RUNS / name
                 directory.mkdir()
                 (directory / "task.md").write_text("---\nrepo: none\n---\n# A job task\n")
-                run.save_state(directory, {"run_id": name, "state": "running",
+                record.save_state(directory, {"run_id": name, "state": "running",
                                            "slot_waiting": False, "job_id": job["job_id"],
                                            "pid": os.getpid()})
                 boxes[name] = {}
@@ -474,7 +475,7 @@ class MemoryCap(unittest.TestCase):
             return real_stop(scope, log, wait=wait)
 
         with patch.object(orch, "stop_scope", side_effect=stop_only):
-            state = run.reap(directory, run.read_state(directory))
+            state = run.reap(directory, record.read_state(directory))
         self.assertEqual(state["state"], "fail")
         self.assertEqual(state["error"], "killed: memory cap 0.03 GB")
         self.assertIn("killed: memory cap 0.03 GB", (directory / "log.txt").read_text())

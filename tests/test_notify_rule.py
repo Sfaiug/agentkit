@@ -21,6 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, notify, orch, run, watch
+from agentkit import record
 
 PR = "https://github.com/other/theirs/pull/7"
 SHA = "b" * 40
@@ -137,7 +138,7 @@ class Rule(unittest.TestCase):
                  "merged": False, "merge_note": "waiting for the maintainer",
                  "worktree": str(wt), "executor": "opus", "reviewer": "astra",
                  "launched_session": "seat"}
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         run.write_result(run_dir, state, ["true"])
         return run_dir
 
@@ -172,7 +173,7 @@ class Rule(unittest.TestCase):
                     shutil.rmtree(stale)
                 run_dir = self.finished_run(f"20260915-0001-{pr_state.lower()}", worktree)
                 state = self.decision(pr_state, seat=None)
-                saved = run.read_state(run_dir)
+                saved = record.read_state(run_dir)
                 self.assertEqual(saved["merge_note"], f"PR #7 Fix the parser: {expected}")
                 self.assertEqual(saved["merged"], pr_state == "MERGED")
                 result = (run_dir / "result.md").read_text()
@@ -198,7 +199,7 @@ class Rule(unittest.TestCase):
                 lines = self.typed()
                 self.assertEqual(len(lines), 1, lines)
                 self.assertIn(expected, lines[0])
-                saved = run.read_state(run_dir)
+                saved = record.read_state(run_dir)
                 self.assertEqual(saved["merge_note"], f"PR #7 Fix the parser: {expected}")
                 self.assertEqual(saved["merged"], pr_state == "MERGED")
                 self.assertIn(expected, (run_dir / "result.md").read_text())
@@ -218,11 +219,11 @@ class Rule(unittest.TestCase):
                 patch.object(run, "start_followups") as starts:
             self.assertFalse(watch.say(False, self.log.append, text, PR, "seat", merged=True))
             # the run learns it even though the seat is still owed its line
-            self.assertEqual(run.read_state(run_dir)["merge_note"], text)
-            self.assertTrue(run.read_state(run_dir)["merged"])
+            self.assertEqual(record.read_state(run_dir)["merge_note"], text)
+            self.assertTrue(record.read_state(run_dir)["merged"])
             self.assertTrue(watch.say(False, self.log.append, text, PR, "seat", merged=True))
             self.assertEqual((typ.call_count, starts.call_count), (2, 1))
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         self.assertEqual((saved["merge_note"], saved["merged"]), (text, True))
         self.assertEqual(len([line for line in self.log if line.startswith("told the")]), 1,
                          self.log)
@@ -245,7 +246,7 @@ class Rule(unittest.TestCase):
                 patch.object(orch, "find", return_value=self.seat()), \
                 patch.object(run, "record_decision", side_effect=counting):
             self.assertFalse(watch.say(False, self.log.append, changes, PR, "seat"))
-            self.assertEqual(run.read_state(run_dir)["merge_note"], changes)
+            self.assertEqual(record.read_state(run_dir)["merge_note"], changes)
             self.assertTrue(watch.say(False, self.log.append, changes, PR, "seat"))
             self.assertEqual((typ.call_count, len(records)), (2, 1))
 
@@ -497,33 +498,33 @@ class Rule(unittest.TestCase):
         run_dir.mkdir(parents=True, exist_ok=True)
         with patch.dict(os.environ, {notify.SINK_ENV: "dry-run"}):
             run.capture_launch(run_dir, {})
-        self.assertEqual(run.read_state(run_dir)["notify_sink"], "dry-run")
+        self.assertEqual(record.read_state(run_dir)["notify_sink"], "dry-run")
         plain_dir = config.RUNS / "20260915-0002-owner"
         plain_dir.mkdir(parents=True, exist_ok=True)
         with patch.dict(os.environ, {notify.SINK_ENV: ""}):
             run.capture_launch(plain_dir, {})
-        self.assertNotIn("notify_sink", run.read_state(plain_dir))
+        self.assertNotIn("notify_sink", record.read_state(plain_dir))
         # the capture is asserted; a going run would keep the word working below
         shutil.rmtree(plain_dir)
         # the suite is over and the marker is gone, and the launching seat with it
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         state.update(state="pass", verdict="PASS", finished_at=time.time(), reported=False)
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         with patch.dict(os.environ, {notify.SINK_ENV: ""}), \
                 patch.object(orch, "find", return_value=None):
-            run.announce(run.read_state(run_dir), run_dir, self.log.append)
+            run.announce(record.read_state(run_dir), run_dir, self.log.append)
         self.assertEqual(self.requests, [])          # the orphan notice went nowhere near Discord
-        self.assertTrue(run.read_state(run_dir)["reported"])
+        self.assertTrue(record.read_state(run_dir)["reported"])
         self.assertIn("went to the test sink", self.err.getvalue())
-        interrupted = run.read_state(run_dir)
+        interrupted = record.read_state(run_dir)
         interrupted.update(state="interrupted", interrupted_at=time.time(),
                            recovery_pending=True)
-        run.save_state(run_dir, interrupted)
+        record.save_state(run_dir, interrupted)
         with patch.dict(os.environ, {notify.SINK_ENV: ""}), \
                 patch.object(orch, "find", return_value=None):
-            run.notify_recovery(run_dir, run.read_state(run_dir))
+            run.notify_recovery(run_dir, record.read_state(run_dir))
         self.assertEqual(self.requests, [])
-        self.assertEqual(run.read_state(run_dir)["recovery_notified"], "needs")
+        self.assertEqual(record.read_state(run_dir)["recovery_notified"], "needs")
 
     def test_v5d_the_watchers_reap_path_obeys_the_runs_record(self):
         run_dir = config.RUNS / "20260915-0001-sink"
@@ -531,33 +532,33 @@ class Rule(unittest.TestCase):
         with patch.dict(os.environ, {notify.SINK_ENV: "dry-run"}):
             run.capture_launch(run_dir, {})
         # the loop died mid-run, long after any launch grace
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         state.update(state="running", pid=2 ** 30, started_at=time.time() - 7200)
         state.pop("process_identity", None)
         state.pop("launch_pending", None)
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         with patch.dict(os.environ, {notify.SINK_ENV: ""}), \
                 patch.object(orch, "find", return_value=None):
-            state = run.reap(run_dir, run.read_state(run_dir))
+            state = run.reap(run_dir, record.read_state(run_dir))
         self.assertEqual(state["state"], "interrupted")
         self.assertEqual(self.requests, [])          # the interruption notice stayed off Discord
-        self.assertEqual(run.read_state(run_dir)["recovery_notified"], "needs")
+        self.assertEqual(record.read_state(run_dir)["recovery_notified"], "needs")
 
     def test_v5d_a_run_without_the_record_is_the_owners(self):
         run_dir = config.RUNS / "20260915-0001-owner"
         run_dir.mkdir(parents=True, exist_ok=True)
         with patch.dict(os.environ, {notify.SINK_ENV: ""}):
             run.capture_launch(run_dir, {})
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         state.update(state="interrupted", interrupted_at=time.time(), recovery_pending=True)
-        run.save_state(run_dir, state)
+        record.save_state(run_dir, state)
         with patch.dict(os.environ, {notify.SINK_ENV: ""}), \
                 patch.object(orch, "find", return_value=None):
-            run.notify_recovery(run_dir, run.read_state(run_dir))
+            run.notify_recovery(run_dir, record.read_state(run_dir))
         self.assertEqual(len(self.requests), 1)      # the owner hears it, as today
         self.assertTrue(self.requests[0][0].startswith(WEBHOOK.split("?")[0]),
                         self.requests[0][0])
-        self.assertEqual(run.read_state(run_dir)["recovery_notified"], "needs")
+        self.assertEqual(record.read_state(run_dir)["recovery_notified"], "needs")
 
 
 if __name__ == "__main__":

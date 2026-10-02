@@ -13,6 +13,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, run, usage, watch  # noqa: E402
+from agentkit import record
 
 
 class RefusalTests(unittest.TestCase):
@@ -217,7 +218,7 @@ class RefusalTests(unittest.TestCase):
         run_dir.mkdir(parents=True)
         worktree = self.root / f"wt-{name}"
         worktree.mkdir()
-        run.save_state(run_dir, {
+        record.save_state(run_dir, {
             "run_id": name, "title": name, "state": "exhausted", "verdict": None,
             "executor": executor, "reviewer": "opus", "rounds": 1,
             "round_summaries": [], "repo": None, "worktree": str(worktree),

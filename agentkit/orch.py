@@ -42,6 +42,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import command_help, config, host, motion, retention, terminal, update, usage
+from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
 MARK = "@ak_orch"          # the tmux session option that says agentkit opened this seat
@@ -1319,8 +1320,8 @@ def session_projects(kept):
     missing = {name for name, record in kept.items() if "repo" not in record}
     votes = {name: Counter() for name in missing}
     if missing:
-        for directory in run.run_dirs():
-            state = run.read_state(directory) or {}
+        for directory in run_record.run_dirs():
+            state = run_record.read_state(directory) or {}
             if menu.smoke_run(state):
                 continue
             name = run.launched_session(state)
@@ -2051,8 +2052,8 @@ def sweep(log):
     from . import notify, run
     found = {s["name"]: s for s in sessions()}
     protected = set()
-    for directory in run.run_dirs():
-        state = run.read_state(directory)
+    for directory in run_record.run_dirs():
+        state = run_record.read_state(directory)
         if state and run.unfinished(state):
             try:
                 protected.add(run.launched_session(state))
@@ -2213,9 +2214,9 @@ def rename(old, new, log=print, *, auto=False):
         stamp = max(time.time(), math.nextafter(max(state["seen_at"].values(), default=0), math.inf))
         state["seen_at"].update({old: stamp, new: stamp})
         watch._write_state(state)
-        for run_dir in run_mod.run_dirs():
+        for run_dir in run_record.run_dirs():
             try:
-                record = run_mod.read_state(run_dir)
+                record = run_record.read_state(run_dir)
             except (config.Error, OSError, ValueError):
                 continue
             # a first look without the lock, so a run the seat never launched is left as it is
@@ -2223,7 +2224,7 @@ def rename(old, new, log=print, *, auto=False):
                                                            record.get("session")):
                 continue
             try:
-                with run_mod.record(run_dir) as record:
+                with run_record.record(run_dir) as record:
                     for key in ("launched_session", "session"):
                         if record.get(key) == old:
                             record[key] = new
@@ -2256,9 +2257,9 @@ def reconcile(run, log):
     the seat that launched it and to nobody when no seat did.  A record too broken to read
     costs that run and no other.
     """
-    for run_dir in run.run_dirs():
+    for run_dir in run_record.run_dirs():
         try:
-            state = run.read_state(run_dir)
+            state = run_record.read_state(run_dir)
             if state is not None:
                 run.reap(run_dir, state)
         except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:

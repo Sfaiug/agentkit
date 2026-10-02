@@ -41,6 +41,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import browser, command_help, config, gc, host, notify, orch, update, usage, worker
+from . import record as run_record
 from .harness import LIMITED, SPENT, says
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
@@ -1953,7 +1954,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
 
         def quiet(run_dir, state):
             """How long this run has gone without a write, from one draw's map or from disk."""
-            if run_mod.own_pr_wait_note(state) and run_mod.process_active(state):
+            if run_mod.own_pr_wait_note(state) and run_record.process_active(state):
                 return None
             if silent_map is not None:
                 return silent_map.get(run_dir.name)
@@ -2732,13 +2733,13 @@ def sweep_preexisting(log, now=None):
     from . import run as run_mod
     at = time.time() if now is None else now
     try:
-        dirs = run_mod.run_dirs()
+        dirs = run_record.run_dirs()
     except OSError:
         return 0
     marked = []
     for run_dir in dirs:
         try:
-            state = run_mod.read_state(run_dir)
+            state = run_record.read_state(run_dir)
         except (OSError, ValueError):
             continue
         if not state or not run_mod.owes_ending(state):
@@ -2749,7 +2750,7 @@ def sweep_preexisting(log, now=None):
             continue
         try:
             with run_mod.delivery_lock(run_dir):
-                current = run_mod.read_state(run_dir) or state
+                current = run_record.read_state(run_dir) or state
                 if not run_mod.owes_ending(current):
                     continue
                 if current.get("handback_pending") or current.get("notification_pending"):
@@ -3524,7 +3525,7 @@ def stall_clock(run_dir, state):
     if ((run_mod.merge_turn_note(state) or run_mod.dep_wait_note(state)
             or run_mod.own_pr_wait_note(state)
             or run_mod.merge_retaking(state))
-            and run_mod.process_active(state)):
+            and run_record.process_active(state)):
         return time.time()
     wait = state.get("transient_wait")
     until = (wait.get("until") or 0) if (isinstance(wait, dict)
@@ -3540,8 +3541,7 @@ def note_freeze(run_dir, frozen, now):
     Read again under the record's lock, so two ticks over one frozen run say it once between
     them, and neither writes over a run that has moved on.
     """
-    from . import run as run_mod
-    with run_mod.record(run_dir) as state:
+    with run_record.record(run_dir) as state:
         if state.get("state") != "running":
             return
         if frozen:
@@ -3563,7 +3563,7 @@ def run_last_write(run_dir):
         for root, _, files in os.walk(run_dir):
             for name in files:
                 # Locks and temp files are the tick's own bookkeeping, not the run's life.
-                if name in ("recovery.lock",) or name.endswith((".lock", ".tmp")):
+                if name.endswith((".lock", ".tmp")):
                     continue
                 try:
                     stamp = Path(root, name).stat().st_mtime
@@ -3764,8 +3764,8 @@ def launch_resume(run_id, log=lambda _: None, verb="resume"):
     """
     run_dir = config.RUNS / run_id
     from . import run as run_mod
-    with run_mod.recovery_lock(run_dir):
-        receipt = run_mod.read_state(run_dir)
+    with run_record.recovery_lock(run_dir):
+        receipt = run_record.read_state(run_dir)
         if receipt is None:
             log(f"WARN could not {verb} {run_id}: run.json cannot be read")
             return False
@@ -3791,14 +3791,14 @@ def launch_resume(run_id, log=lambda _: None, verb="resume"):
             log(f"WARN could not {verb} {run_id}: {exc}")
             return False
         try:
-            with run_mod.record(run_dir) as state:
+            with run_record.record(run_dir) as state:
                 state["scope"] = placement.get("scope")
                 if placement.get("scope_reason"):
                     state["scope_reason"] = placement["scope_reason"]
                 else:
                     state.pop("scope_reason", None)
                 run_mod.remember_memory_cap(state, placement, cap)
-        except run_mod.Unreadable as exc:
+        except run_record.Unreadable as exc:
             # the child owns the run now and its caller waits on it: only the scope goes unsaid
             log(f"WARN {run_id} was started, but its scope is not recorded: {exc}")
     return pid
@@ -3987,9 +3987,9 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
     """
     from . import run as run_mod
     now = time.time() if now is None else now
-    for run_dir in run_mod.run_dirs():
+    for run_dir in run_record.run_dirs():
         try:
-            state = run_mod.read_state(run_dir)
+            state = run_record.read_state(run_dir)
             if not state:
                 continue
             status = state.get("state")
@@ -4005,7 +4005,7 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
                 continue
             if _launch_grace(state, now):
                 continue
-            if run_mod.process_active(state):
+            if run_record.process_active(state):
                 continue
             if run_mod.memory_cap_reason(state):
                 # The kernel ended this scope on its own memory cap. That is a `fail` for
@@ -4023,7 +4023,7 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
                 if dry_run:
                     log(f"would leave {run_dir.name} alone: worktree {wt} is gone")
                     continue
-                with run_mod.record(run_dir) as state:
+                with run_record.record(run_dir) as state:
                     if not state.get("dead_worktree_warned"):
                         state["dead_worktree_warned"] = now
                 log(f"WARN {run_dir.name}: worktree {wt} is gone; "
@@ -4045,9 +4045,9 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
             launch = False
             notice = False
             line = ""
-            with run_mod.record(run_dir) as state:
+            with run_record.record(run_dir) as state:
                 if (state.get("state") == "stopped" or _dead_parked(state)
-                        or _launch_grace(state, now) or run_mod.process_active(state)):
+                        or _launch_grace(state, now) or run_record.process_active(state)):
                     continue
                 action, deaths, reason = _dead_plan(state, run_dir, now)
                 role, rnd = _dead_where(state, run_dir)
@@ -4078,10 +4078,10 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
                 _note_run(run_dir, line)
                 log(line)
             if notice:
-                run_mod.notify_recovery(run_dir, run_mod.read_state(run_dir) or state)
+                run_mod.notify_recovery(run_dir, run_record.read_state(run_dir) or state)
             if launch:
                 launch_resume(run_dir.name, log)
-        except run_mod.StopRequested:
+        except run_record.StopRequested:
             continue
         except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
             try:
@@ -4138,13 +4138,13 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
         except config.Error as exc:
             log(f"WARN the stall pass did not run: {exc}")
             return
-    for run_dir in run_mod.run_dirs():
+    for run_dir in run_record.run_dirs():
         try:
-            state = run_mod.read_state(run_dir)
+            state = run_record.read_state(run_dir)
             if not state:
                 continue
             if state.get("state") == "queued" and state.get("slot_waiting"):
-                if run_mod.process_active(state) or _resume_ordered(state, now):
+                if run_record.process_active(state) or _resume_ordered(state, now):
                     continue
                 if dry_run:
                     log(f"would restart the slot waiter for {run_dir.name}")
@@ -4159,7 +4159,7 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
                 if dry_run:
                     log(f"would notify the parking of {run_dir.name} again")
                     continue
-                with run_mod.record(run_dir) as state:
+                with run_record.record(run_dir) as state:
                     if state.get("state") != "stalled" or state.get("stalled_notified"):
                         continue
                     last = (state.get("stalls") or [{}])[-1]
@@ -4176,13 +4176,13 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
             # A dead loop whose resume is already ordered is the dead-loop pass's, or
             # the stall ladder's own order from earlier in this tick. Measuring its
             # silence would launch a second resume on top of the one still adopting.
-            if _resume_ordered(state, now) and not run_mod.process_active(state):
+            if _resume_ordered(state, now) and not run_record.process_active(state):
                 continue
             # Read before the silence is measured, and every tick: a freeze that begins and
             # ends between two ticks is still the host's, and a clock that only stopped once a
             # run looked stalled would have counted it.  Only the run's own process is asked --
             # a pid the kernel has handed to somebody else says nothing about this run.
-            frozen = (host.frozen_cgroup(state.get("pid")) if run_mod.process_active(state)
+            frozen = (host.frozen_cgroup(state.get("pid")) if run_record.process_active(state)
                       else None)
             if frozen or state.get("frozen_since"):
                 # The stall rules never act on a run the host is holding, and the silence a
@@ -4199,11 +4199,11 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
             if silent < minutes * 60:
                 continue
             resume_after_lock = False
-            with run_mod.record(run_dir) as state:
+            with run_record.record(run_dir) as state:
                 if state.get("state") != "running":
                     continue
                 pid = state.get("pid")
-                alive = run_mod.process_active(state)
+                alive = run_record.process_active(state)
                 if not alive:
                     kind, step, target, argv = "none", "loop gone", None, []
                 else:
@@ -4272,7 +4272,7 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
                     log(f"{run_dir.name}: {line}")
             if resume_after_lock:
                 launch_resume(run_dir.name, log)
-        except run_mod.StopRequested:
+        except run_record.StopRequested:
             continue  # a stop landed mid-pass; the deliberate end stands, nothing to check
         except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
             try:
@@ -4294,9 +4294,9 @@ def resume_waiting_login(dry_run=False, log=print, now=None):
     from . import run as run_mod
     now = time.time() if now is None else now
     answers = {}
-    for run_dir in run_mod.run_dirs():
+    for run_dir in run_record.run_dirs():
         try:
-            state = run_mod.read_state(run_dir)
+            state = run_record.read_state(run_dir)
             if not state or state.get("state") != "waiting_login":
                 continue
             harness = state.get("waiting_for")
@@ -4314,13 +4314,13 @@ def resume_waiting_login(dry_run=False, log=print, now=None):
                 # timed against the last one.  Written only where there is something to take
                 # off, so an ordinary outage costs the same nothing it always did.
                 if state.get("login_back_at") or state.get("login_resume_at"):
-                    with run_mod.record(run_dir) as state:
+                    with run_record.record(run_dir) as state:
                         if state.get("state") == "waiting_login":
                             state.pop("login_resume_at", None)
                             if state.pop("login_back_at", None) is not None:
                                 log(f"{run_dir.name}: the {harness} login went out again")
                 continue
-            with run_mod.record(run_dir) as state:
+            with run_record.record(run_dir) as state:
                 if state.get("state") != "waiting_login":
                     continue
                 # The login is back, and that goes on the record before anything below can
@@ -4370,7 +4370,7 @@ def resume_waiting_login(dry_run=False, log=print, now=None):
                 log(f"WARN could not resume {run_dir.name}: {exc}")
                 continue
             log(f"resumed {run_dir.name}: the {harness} login is back")
-        except run_mod.StopRequested:
+        except run_record.StopRequested:
             continue  # a stop landed mid-pass; the deliberate end stands, nothing to check
         except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
             try:
@@ -4421,7 +4421,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
         except (config.Error, KeyError, TypeError, AttributeError) as exc:
             log(f"WARN the exhausted-resume pass did not run: {exc}")
             return
-    found = [(run_dir, run_mod.read_state(run_dir)) for run_dir in run_mod.run_dirs()]
+    found = [(run_dir, run_record.read_state(run_dir)) for run_dir in run_record.run_dirs()]
     index = run_mod.supersession_index(
         state for run_dir, state in found if state and not menu_mod.smoke_run(state))
     for run_dir, state in found:
@@ -4448,7 +4448,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
             skipped = []
             available = run_mod.executable_models(cfg, providers, bound, now, skipped.append,
                                                  reviewers=review_bound)
-            with run_mod.record(run_dir) as state:
+            with run_record.record(run_dir) as state:
                 if state.get("state") != "exhausted":
                     continue
                 waits = run_mod.exhausted_wait(state)
@@ -4548,7 +4548,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                 log(f"WARN could not resume {run_dir.name}: {exc}")
                 continue
             log(f"resumed {run_dir.name}: {why}")
-        except run_mod.StopRequested:
+        except run_record.StopRequested:
             continue  # a stop landed mid-pass; the deliberate end stands, nothing to check
         except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
             try:
@@ -4579,14 +4579,14 @@ def resume_errored(dry_run=False, log=print, now=None):
     """
     from . import menu as menu_mod, run as run_mod
     now = time.time() if now is None else now
-    found = [(run_dir, run_mod.read_state(run_dir)) for run_dir in run_mod.run_dirs()]
+    found = [(run_dir, run_record.read_state(run_dir)) for run_dir in run_record.run_dirs()]
     index = run_mod.supersession_index(
         state for run_dir, state in found if state and not menu_mod.smoke_run(state))
     for run_dir, state in found:
         try:
             if not state or state.get("state") != "error":
                 continue
-            with run_mod.record(run_dir) as state:
+            with run_record.record(run_dir) as state:
                 if state.get("state") != "error":
                     continue
                 if run_mod.is_superseded(state, None, index, merged_only=True):
@@ -4638,7 +4638,7 @@ def resume_errored(dry_run=False, log=print, now=None):
                 log(f"WARN could not resume {run_dir.name}: {exc}")
                 continue
             log(f"resumed {run_dir.name}: error retry {decided.get('error_retries')}")
-        except run_mod.StopRequested:
+        except run_record.StopRequested:
             continue  # a stop landed mid-pass; the deliberate end stands, nothing to check
         except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
             try:
@@ -4671,9 +4671,9 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
     """
     from . import run as run_mod
     now = time.time() if now is None else now
-    for run_dir in [run] if run else run_mod.run_dirs():
+    for run_dir in [run] if run else run_record.run_dirs():
         try:
-            state = run_mod.read_state(run_dir)
+            state = run_record.read_state(run_dir)
             if not state or state.get("state") not in ("fail", "waiting"):
                 continue
             if state.get("job_id") and not run:
@@ -4690,7 +4690,7 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
                         log(f"would interrupt {run_dir.name}: waiting on a merge, but its "
                             f"worktree {wt or '(none)'} is gone")
                         continue
-                    with run_mod.record(run_dir) as state:
+                    with run_record.record(run_dir) as state:
                         if (state.get("state") != "waiting"
                                 or not run_mod.tick_admission(state, now=now)):
                             continue
@@ -4715,7 +4715,7 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
                 sha = run_mod.upstream_sha(wt, ref)
                 if sha is None:
                     continue  # origin did not answer; the waiter keeps waiting, silently
-                with run_mod.record(run_dir) as state:
+                with run_record.record(run_dir) as state:
                     if (state.get("state") != "waiting"
                             or not run_mod.tick_admission(state, now=now)):
                         continue
@@ -4731,7 +4731,7 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
                     if sha != waiting_on.get("sha"):
                         why = f"{ref} moved ({(waiting_on.get('sha') or '')[:12]}..{sha[:12]})"
                     elif repair and not run_mod.repair_open(
-                            run_mod.read_state(config.RUNS / repair) or {}, sha):
+                            run_record.read_state(config.RUNS / repair) or {}, sha):
                         why = f"its repair {repair} ended"
                     else:
                         continue  # main has not moved; the waiter keeps waiting, silently
@@ -4746,7 +4746,7 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
                 sha = run_mod.upstream_sha(wt, ref)
                 if sha is None:
                     continue  # origin did not answer; the FAIL keeps for the next pass
-                with run_mod.record(run_dir) as state:
+                with run_record.record(run_dir) as state:
                     if state.get("state") != "fail" or not run_mod.parkable_conflict(
                             state, run_dir, now=now):
                         continue
@@ -4770,7 +4770,7 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
                 log(f"WARN could not resume {run_dir.name}: {exc}")
                 continue
             log(f"resumed {run_dir.name}: {why}")
-        except run_mod.StopRequested:
+        except run_record.StopRequested:
             continue  # a stop landed mid-pass; the deliberate end stands, nothing to check
         except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
             try:
@@ -4793,8 +4793,8 @@ def revive_seats(cfg, log):
     """
     from . import run as run_mod
     going, states = {}, []
-    for run_dir in run_mod.run_dirs():
-        state = run_mod.read_state(run_dir)
+    for run_dir in run_record.run_dirs():
+        state = run_record.read_state(run_dir)
         if state:
             states.append(state)
         if not state or state.get("state") not in ("running", "queued"):
@@ -4871,12 +4871,12 @@ def pushing_seats():
     from . import run   # here, not at the top: run imports this module
     seats = set()
     try:
-        directories = run.run_dirs()
+        directories = run_record.run_dirs()
     except OSError:
         return []
     for run_dir in directories:
         try:
-            state = run.read_state(run_dir)
+            state = run_record.read_state(run_dir)
             if state and wants_github(state):
                 name = run.launched_session(state)
                 if name:
@@ -4945,11 +4945,11 @@ def settled(entry, dry_run=False):
     if not entry.get("run"):
         return "failed" if entry.get("error") else "done"
     run_dir = config.RUNS / entry["run"]
-    st = run.read_state(run_dir)
+    st = run_record.read_state(run_dir)
     if st is None:
         return "failed"
     if dry_run:
-        if st.get("state") in ("running", "queued") and not run.process_active(st):
+        if st.get("state") in ("running", "queued") and not run_record.process_active(st):
             return "pending"  # interruption requires an explicit recovery choice
     else:
         st = run.reap(run_dir, st)
@@ -5044,8 +5044,8 @@ def own_prs(state, me, log):
     """
     from . import run   # here, not at the top: run imports this module
     urls = {}
-    for run_dir in run.run_dirs():
-        st = run.read_state(run_dir)
+    for run_dir in run_record.run_dirs():
+        st = run_record.read_state(run_dir)
         if st and st.get("foreign") and st.get("pr"):
             urls[st["pr"]] = run.launched_session(st)
     # /issues?filter=created omits repositories we do not belong to. Search includes PRs
@@ -5266,12 +5266,12 @@ def after_merge_fallback(repo_key):
     if not live:
         return None
     try:
-        directories = run_mod.run_dirs()
+        directories = run_record.run_dirs()
     except OSError:
         return None
     qualified = set()
     for run_dir in directories:
-        st = run_mod.read_state(run_dir)
+        st = run_record.read_state(run_dir)
         if not st or not st.get("merged") or not st.get("pr"):
             continue
         try:
@@ -5368,13 +5368,13 @@ def after_merge_checks(state, dry_run, log, now=None):
                 else None)
 
     try:
-        directories = run_mod.run_dirs()
+        directories = run_record.run_dirs()
     except OSError as exc:
         log(f"WARN merged runs were not followed this tick: {exc}")
         return
     grouped = {}
     for run_dir in directories:
-        st = run_mod.read_state(run_dir)
+        st = run_record.read_state(run_dir)
         if not st or not st.get("merged"):
             continue
         finished = st.get("finished_at")
@@ -5682,9 +5682,9 @@ def main(argv):
                 log(f"WARN the pre-existing sweep did not run: {exc}")
             # Detect lost loops even when no phone opens the menu and GitHub is unavailable.
             from . import job as jobs, run
-            for run_dir in run.run_dirs():
+            for run_dir in run_record.run_dirs():
                 try:
-                    receipt = run.read_state(run_dir)
+                    receipt = run_record.read_state(run_dir)
                     if receipt:
                         receipt = run.reap(run_dir, receipt)
                         if receipt.get("state") in run.ENDED:

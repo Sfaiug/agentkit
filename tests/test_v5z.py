@@ -21,6 +21,7 @@ import unittest
 
 from test_v4n import REPO, Sandbox, menu_input
 from agentkit import host, command_help, config, menu, orch, run, terminal
+from agentkit import record
 
 NOW = 1_800_000_000      # what every draw reads as the time
 DAY = 86400
@@ -63,7 +64,7 @@ class Listings(Sandbox):
                                   state="running", executor="opus", reviewer="astra",
                                   rounds=3, round_summaries=[{}], started_at=NOW - 420,
                                   finished_at=None, worktree=str(present),
-                                  **run.process_owner())
+                                  **record.process_owner())
         self.unfinished = self.state(UNFINISHED_ID, owner=None, title="Fix the parser",
                                      state="interrupted", executor="opus", reviewer="astra",
                                      rounds=2, round_summaries=[], started_at=NOW - 3600,
@@ -81,7 +82,7 @@ class Listings(Sandbox):
         directory = config.RUNS / name
         directory.mkdir()
         state = {"run_id": name, "launched_session": owner, **extra}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         return directory
 
     def tallies(self):
@@ -163,7 +164,7 @@ class Listings(Sandbox):
     def test_v5z_e_plain_prints_todays_first_line_byte_for_byte(self):
         directory = config.RUNS / "20260101-0900-plain-check"
         directory.mkdir()
-        run.save_state(directory, {"run_id": directory.name, "title": "Plain check",
+        record.save_state(directory, {"run_id": directory.name, "title": "Plain check",
                                    "state": "pass", "verdict": "PASS", "merged": True,
                                    "executor": "opus", "reviewer": "astra", "branch": "main",
                                    "review": {"executor": "opus", "reviewer": "astra",
@@ -270,11 +271,11 @@ class Listings(Sandbox):
         long_id = "20260101-0900-this-run-id-is-far-too-long-for-its-own-good"
         directory = config.RUNS / long_id
         directory.mkdir()
-        run.save_state(directory, {"run_id": long_id, "title": "Long", "state": "running",
+        record.save_state(directory, {"run_id": long_id, "title": "Long", "state": "running",
                                    "executor": "opus", "reviewer": "astra", "rounds": 3,
                                    "round_summaries": [{}, {}],
                                    "started_at": NOW - 420, "finished_at": None,
-                                   **run.process_owner()})
+                                   **record.process_owner()})
         table = self.status([])
         header = table.splitlines()[2]
         for column in ("id", "title", "state", "worker", "round", "age"):
@@ -318,14 +319,14 @@ class Listings(Sandbox):
         waiting_id = "20260101-0600-wait-for-a-window"
         directory = config.RUNS / waiting_id
         directory.mkdir()
-        run.save_state(directory, {"run_id": waiting_id, "title": "Wait for a window",
+        record.save_state(directory, {"run_id": waiting_id, "title": "Wait for a window",
                                    "state": "exhausted", "quota_dry": True,
                                    "error": "provider quota spent",
                                    "executor": "opus", "reviewer": "astra",
                                    "rounds": 2, "round_summaries": [],
                                    "started_at": NOW - 3600, "finished_at": None,
-                                   **run.process_owner()})
-        state = run.read_state(directory)
+                                   **record.process_owner()})
+        state = record.read_state(directory)
         # no quota run waits on a window: the row keeps the state word, and with
         # nothing to resume it the run is his
         self.assertEqual(run.waiting({**state, "quota_dry": False}), "")
@@ -367,17 +368,17 @@ class Listings(Sandbox):
         waiting_id = "20260101-0600-wait-for-a-window"
         directory = config.RUNS / waiting_id
         directory.mkdir()
-        run.save_state(directory, {"run_id": waiting_id, "title": "Wait for a window",
+        record.save_state(directory, {"run_id": waiting_id, "title": "Wait for a window",
                                    "state": "exhausted", "quota_dry": True,
                                    "error": "provider quota spent",
                                    "executor": "opus", "reviewer": "astra",
                                    "rounds": 2, "round_summaries": [],
                                    "started_at": NOW - 3600, "finished_at": None,
-                                   **run.process_owner()})
+                                   **record.process_owner()})
         # a caller handing the scope down reads nothing further
         with patch.object(run, "_cached_providers",
                           wraps=run._cached_providers) as cached:
-            lines = run.status_details(directory, run.read_state(directory), {}, None)
+            lines = run.status_details(directory, record.read_state(directory), {}, None)
             self.assertEqual(cached.call_count, 0)
         self.assertIn("waiting for a provider window", "\n".join(lines))
 
@@ -438,12 +439,12 @@ class Listings(Sandbox):
             **failed, "title": "Relaunched (continued from its branch)",
             "state": "pass", "verdict": "PASS", "merged": True, "finished_at": NOW - 600,
             "unattended": True, "repo": str(config.TMP / "smoke-20260101-000000" / "repo-hello")})
-        records = [run.read_state(directory) for directory in config.RUNS.iterdir()]
+        records = [record.read_state(directory) for directory in config.RUNS.iterdir()]
         index = run.supersession_index(records)
-        relaunched = run.read_state(config.RUNS / "20260101-0604-relaunched")
+        relaunched = record.read_state(config.RUNS / "20260101-0604-relaunched")
         for kwargs in ({"records": records}, {"index": index}):
             self.assertEqual(run.superseded_by(relaunched, **kwargs), continued.name)
-            self.assertIsNone(run.superseded_by(run.read_state(
+            self.assertIsNone(run.superseded_by(record.read_state(
                 config.RUNS / "20260101-0612-elsewhere"), **kwargs))
         table = self.status([])
         rows = {name: next(line for line in table.splitlines() if line.startswith(name))
@@ -463,7 +464,7 @@ class Listings(Sandbox):
         # `ak run status <id>` acknowledges the ending it shows as it found it; after that
         # it reads done
         self.assertIn("! needs you", self.status([continued.name]))
-        self.assertTrue(run.read_state(continued).get("recovery_acknowledged_at"))
+        self.assertTrue(record.read_state(continued).get("recovery_acknowledged_at"))
         self.assertIn("✓ done", self.status([continued.name]))
 
     def test_v5z_s_the_host_line_names_a_count_cap(self):
@@ -488,9 +489,9 @@ class Listings(Sandbox):
 
     def test_v5z_i_state_words_come_from_terminal_states(self):
         # A run is working, needs you or done, like every session and every project.
-        self.assertEqual(menu.run_state_word(run.read_state(self.working)), "working")
-        self.assertEqual(menu.run_state_word(run.read_state(self.unfinished)), "needs you")
-        self.assertEqual(menu.run_state_word(run.read_state(self.done)), "done")
+        self.assertEqual(menu.run_state_word(record.read_state(self.working)), "working")
+        self.assertEqual(menu.run_state_word(record.read_state(self.unfinished)), "needs you")
+        self.assertEqual(menu.run_state_word(record.read_state(self.done)), "done")
         self.assertEqual(menu.run_state_word({"state": "fail"}), "needs you")
         self.assertEqual(menu.run_state_word({"state": "error"}), "needs you")
         for word in ("working", "needs you", "done"):

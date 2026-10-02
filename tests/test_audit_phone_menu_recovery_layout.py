@@ -32,6 +32,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, run, terminal
+from agentkit import record as run_record
 from test_v4n import menu_input
 
 REAL_TMUX = shutil.which("tmux")
@@ -129,8 +130,8 @@ class Sandbox(unittest.TestCase):
                 # a review that ran out of providers, with the diagnostic the loop really writes
                 state.update(state="exhausted", error=reason.format(directory))
             elif n == count:
-                state.update(state="running", finished_at=None, **run.process_owner())
-            run.save_state(directory, state)
+                state.update(state="running", finished_at=None, **run_record.process_owner())
+            run_record.save_state(directory, state)
 
 
 # --- offline: the picker, the pages and the bar -----------------------------

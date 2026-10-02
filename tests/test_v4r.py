@@ -13,6 +13,7 @@ import unittest
 
 from test_v4n import REPO, Sandbox, menu_input
 from agentkit import config, macbridge, menu, orch, run, terminal, usage
+from agentkit import record as run_record
 
 
 class UsageLeft(Sandbox):
@@ -62,7 +63,7 @@ class UsageLeft(Sandbox):
         for seat in seats:
             config.save_session(self.cfg, seat["name"], "fable", ["opus"])
         self.ended("active", owner="atoll-fix", title="Hidden active work-run",
-                   state="running", **run.process_owner(), started_at=9100, finished_at=None,
+                   state="running", **run_record.process_owner(), started_at=9100, finished_at=None,
                    rounds=3, round_summaries=[{}])
         for n in range(9):
             self.ended(f"ended-{n}", owner=None, title=f"Hidden completed work-run {n}")
@@ -70,7 +71,7 @@ class UsageLeft(Sandbox):
                    state="interrupted", started_at=1000, interrupted_at=9900)
         self.ended("smoke-secret", title="Hidden smoke run", state="running",
                    task=str(config.TMP / "smoke-20260923-110800" / "task.md"),
-                   **run.process_owner(), started_at=9900, finished_at=None)
+                   **run_record.process_owner(), started_at=9900, finished_at=None)
         return seats
 
     def draw(self, seats, width):
@@ -300,7 +301,7 @@ class UsageLeft(Sandbox):
                 self.assertNotIn("Finished old-owned", screen)
                 self.assertNotIn("Finished old-owned", notices.getvalue())
                 self.assertNotIn(warning, screen)
-                self.assertFalse(run.read_state(directory)["reported"])
+                self.assertFalse(run_record.read_state(directory)["reported"])
 
     def test_notice_pause_wraps_complete_messages_on_a_phone(self):
         message = "WARN could not check the runs: the repository is temporarily unavailable"

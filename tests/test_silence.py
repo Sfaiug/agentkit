@@ -18,6 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, run, watch, worker
+from agentkit import record
 from agentkit import task as taskfile
 from test_v5j import E2E, SMOKE, lock_argv, lock_program
 
@@ -104,10 +105,10 @@ class Silence(unittest.TestCase):
 
     def test_silent_done_when_is_killed_after_silence_minutes(self):
         cmd = self.command("import time; time.sleep(600)")
-        clock = Clock(60 * run.SILENCE_MINUTES / 2)
+        clock = Clock(60 * record.SILENCE_MINUTES / 2)
         ok, text, logs = self.gate([cmd], clock)
         self.assertFalse(ok)
-        self.assertGreaterEqual(clock.now, 60 * run.SILENCE_MINUTES)
+        self.assertGreaterEqual(clock.now, 60 * record.SILENCE_MINUTES)
         self.assertIn("[killed at the limit]", text)
         self.assertEqual(len(logs), 1)
         self.assertTrue(logs[0].startswith(f"done-when: stopped after 20 min of silence: {cmd} "
@@ -147,7 +148,7 @@ class Silence(unittest.TestCase):
         }
         with patch.object(watch, "_proc_table", return_value=table), \
                 patch.object(os, "getpgid", side_effect=lambda pid: pid if pid >= 106 else 100), \
-                patch.object(run, "process_identity", side_effect=lambda pid: {"started_at": pid}), \
+                patch.object(host, "process_identity", side_effect=lambda pid: {"started_at": pid}), \
                 patch.object(run.time, "time", return_value=131):
             self.assertEqual(run._running_commands(100), [
                 "python3 tests/check.py (29s)", f"{long[:159]}… (28s)",
@@ -168,16 +169,16 @@ class Silence(unittest.TestCase):
         clock = Clock(600)
         ok, text, logs = self.gate([cmd], clock)
         self.assertTrue(ok, text)
-        self.assertGreater(clock.now, 60 * run.SILENCE_MINUTES)
+        self.assertGreater(clock.now, 60 * record.SILENCE_MINUTES)
         self.assertIn("[exit 0]", text)
         self.assertEqual(logs, [])
 
     def test_ceiling_kills_a_command_that_prints_forever(self):
         cmd = self.command("import time\nwhile True:\n print('still going', flush=True)\n time.sleep(.05)")
-        clock = Clock(3600 * run.CEILING_HOURS / 3)
+        clock = Clock(3600 * record.CEILING_HOURS / 3)
         ok, text, logs = self.gate([cmd, "echo never"], clock)
         self.assertFalse(ok)
-        self.assertGreaterEqual(clock.now, 3600 * run.CEILING_HOURS)
+        self.assertGreaterEqual(clock.now, 3600 * record.CEILING_HOURS)
         self.assertIn("6h ceiling", logs[0])
         self.assertIn("last output: still going", logs[0])
         self.assertIn("; still running: ", logs[0])
@@ -217,11 +218,11 @@ class Silence(unittest.TestCase):
                 "executor", None, lambda _: None)
         self.assertEqual((code, dead), (0, False))
         self.assertIn("Finished", text)
-        self.assertGreater(clock.now, 3600 * run.CEILING_HOURS)
+        self.assertGreater(clock.now, 3600 * record.CEILING_HOURS)
 
     def test_run_json_records_new_fields_and_removes_old_fields(self):
         state = {"done_when_minutes": 45, "turn_hours": 3, "stall_minutes": 60}
-        run.save_state(self.root, state)
+        record.save_state(self.root, state)
         self.assertEqual(json.loads((self.root / "run.json").read_text()),
                          {"silence_minutes": 20, "ceiling_hours": 6})
 
@@ -229,10 +230,10 @@ class Silence(unittest.TestCase):
         state = {"silence_minutes": 17, "ceiling_hours": 5,
                  "base": None, "rounds": 3, "executor": None, "reviewer": None,
                  "round_summaries": [], "scratch": True}
-        run.save_state(self.root, state)
-        with patch.object(run, "SILENCE_MINUTES", 21), patch.object(run, "CEILING_HOURS", 7):
-            saved = run.read_state(self.root)
-            run.save_state(self.root, saved)
+        record.save_state(self.root, state)
+        with patch.object(record, "SILENCE_MINUTES", 21), patch.object(record, "CEILING_HOURS", 7):
+            saved = record.read_state(self.root)
+            record.save_state(self.root, saved)
             lp = run.Loop({}, self.root, saved, {}, lambda _: None, self.root, "", [], "", [])
             self.assertEqual((lp.turn_limit, lp.done_when_limit), (17 * 60, 5 * 3600))
             self.assertEqual(run.stall_minutes_for(self.root, saved), 17)
@@ -324,11 +325,11 @@ class Silence(unittest.TestCase):
         directory.mkdir(parents=True, exist_ok=True)
         state = {"run_id": directory.name, "state": "running", "pid": 999999999,
                  "round_summaries": [], "stalls": stalls, "silence_minutes": 17}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         args = ["bash", "-c", "sleep 600"]
         child = 999999998 if kind != "none" else None
-        stack.enter_context(patch.object(run, "run_dirs", return_value=[directory]))
-        stack.enter_context(patch.object(run, "process_active", return_value=True))
+        stack.enter_context(patch.object(record, "run_dirs", return_value=[directory]))
+        stack.enter_context(patch.object(record, "process_active", return_value=True))
         stack.enter_context(patch.object(run, "handover_executor", return_value=None))
         stack.enter_context(patch.object(watch, "step_for_run",
                                          return_value=(kind, kind, child, args)))
@@ -350,7 +351,7 @@ class Silence(unittest.TestCase):
                         watch.recover_runs({}, log=lambda _: None, now=due + offset)
                     kill.assert_not_called()
                     resume.assert_not_called()
-                    self.assertEqual(run.read_state(directory)["stalls"], stalls)
+                    self.assertEqual(record.read_state(directory)["stalls"], stalls)
                     # The loop writes its diagnostic before the next tick; no recovery
                     # was charged to this normal watchdog stop, even on rung two.
                     written.return_value = due + worker.KILL_GRACE
@@ -365,14 +366,14 @@ class Silence(unittest.TestCase):
                 directory, _, kill, resume = self.recovering(stack, kind, [])
                 watch.recover_runs({}, log=lambda _: None, now=1000 + 17 * 60 + grace + 0.01)
                 kill.assert_called_once()
-                self.assertEqual(len(run.read_state(directory)["stalls"]), 1)
+                self.assertEqual(len(record.read_state(directory)["stalls"]), 1)
                 self.assertIn("no output for 17 min", (directory / "log.txt").read_text())
                 self.assertEqual(resume.call_count, 1 if kind == "none" else 0)
 
     def waiting(self, directory, until, pid=999999999):
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         state["transient_wait"] = {"until": until, "pid": pid}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
 
     def test_tick_leaves_a_loop_in_its_own_transient_wait_alone(self):
         grace = worker.KILL_GRACE + 2 * worker.ACTIVITY_POLL
@@ -389,12 +390,12 @@ class Silence(unittest.TestCase):
                         watch.recover_runs({}, log=lambda _: None, now=now)
                     kill.assert_not_called()
                     resume.assert_not_called()
-                    state = run.read_state(directory)
+                    state = record.read_state(directory)
                     self.assertEqual((state["state"], state["stalls"]), ("running", stalls))
                     # past the wait, the silence is the loop's own again
                     watch.recover_runs({}, log=lambda _: None,
                                        now=1000 + 3600 + 17 * 60 + grace + 0.01)
-                    self.assertEqual(len(run.read_state(directory)["stalls"]), len(stalls) + 1)
+                    self.assertEqual(len(record.read_state(directory)["stalls"]), len(stalls) + 1)
 
     def test_a_dead_loops_wait_does_not_hold_the_clock_for_its_resume(self):
         grace = worker.KILL_GRACE + 2 * worker.ACTIVITY_POLL
@@ -403,7 +404,7 @@ class Silence(unittest.TestCase):
             self.waiting(directory, 1000 + 3600, pid=999999997)
             watch.recover_runs({}, log=lambda _: None, now=1000 + 17 * 60 + grace + 0.01)
             kill.assert_called_once()
-            self.assertEqual(len(run.read_state(directory)["stalls"]), 1)
+            self.assertEqual(len(record.read_state(directory)["stalls"]), 1)
 
     def test_foreground_tool_output_without_harness_events_is_retried(self):
         cfg = self.adapter(
@@ -439,7 +440,7 @@ class Silence(unittest.TestCase):
         state = {"run_id": "fixture", "title": "Fixture", "state": "pass", "verdict": "PASS",
                  "rounds": 3, "round_summaries": [], "reported": True,
                  "silence_minutes": 17, "ceiling_hours": 5}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         for extra in ([], ["--plain"]):
             with self.subTest(extra=extra):
                 out = io.StringIO()

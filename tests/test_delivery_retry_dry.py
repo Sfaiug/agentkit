@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import config, record, run
 
 
 class DeliveryRetryDry(unittest.TestCase):
@@ -47,7 +47,7 @@ class DeliveryRetryDry(unittest.TestCase):
         (run_dir / "task.md").write_text("# Fix API\n\n## Done when\n```bash\ntrue\n```\n")
         head = run.git(self.wt, "rev-parse", "HEAD")
         tree = run.git(self.wt, "rev-parse", "HEAD^{tree}")
-        run.save_state(run_dir, {
+        record.save_state(run_dir, {
             "run_id": run_dir.name, "title": "Fix API", "state": "pass", "verdict": "PASS",
             "executor": "opus", "reviewer": "astra", "rounds": 1,
             "round_summaries": [{"round": 1, "verdict": "PASS", "done_when": True,
@@ -74,7 +74,7 @@ class DeliveryRetryDry(unittest.TestCase):
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.cmd_merge([run_dir.name]), 1)
         self.assertEqual(turn.call_count, 1)
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "exhausted")
         self.assertEqual(saved["error"], str(exc))
         self.assertIs(saved["review_pending"]["record"], False)

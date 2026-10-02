@@ -13,6 +13,7 @@ import unittest
 
 from test_v4n import REPO, Sandbox, menu_input
 from agentkit import config, menu, notify, orch, run, terminal, watch
+from agentkit import record as run_record
 
 NOW = 1_800_000_000
 DAY = 86400
@@ -49,7 +50,7 @@ class MenuRows(Sandbox):
                  "verdict": "PASS", "launched_session": owner, "reported": False,
                  "executor": "opus", "reviewer": "astra",
                  "finished_at": NOW - 1800, "started_at": NOW - 3600, **extra}
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         for path in list(directory.rglob("*")) + [directory]:
             try:
                 if path.is_file() or path == directory:
@@ -106,7 +107,7 @@ class MenuRows(Sandbox):
         self.plan("fix-api", 2, 5)
         self.record("fix-going", owner=seat["name"], repo=seat["repo"],
                     state="running", finished_at=None, started_at=NOW - 600,
-                    rounds=2, round_summaries=[], **run.process_owner())
+                    rounds=2, round_summaries=[], **run_record.process_owner())
         screen, _ = self.draw(100, 30)
         expected = f"tasks {terminal.progress_bar(2, 5)}"
         self.assertIn(expected, screen)
@@ -148,14 +149,14 @@ class MenuRows(Sandbox):
         self.plan("planned-work", 1, 3)
         self.record("planned-going", owner=planned["name"], repo=planned["repo"],
                     state="running", finished_at=None, started_at=NOW - 600,
-                    rounds=2, round_summaries=[], **run.process_owner())
+                    rounds=2, round_summaries=[], **run_record.process_owner())
         running = self.seat("running-work", "atoll", live="working")
         self.record("run-one", owner=running["name"], repo=running["repo"],
                     state="running", finished_at=None, started_at=NOW - 600,
-                    rounds=2, round_summaries=[], **run.process_owner())
+                    rounds=2, round_summaries=[], **run_record.process_owner())
         self.record("run-two", owner=running["name"], repo=running["repo"],
                     state="running", finished_at=None, started_at=NOW - 500,
-                    rounds=2, round_summaries=[], **run.process_owner())
+                    rounds=2, round_summaries=[], **run_record.process_owner())
         idle = self.seat("idle-work", "atoll", live="working")
         screen, _ = self.draw(100, 30)
         self.assertIn("tasks ", next(line for line in screen.splitlines() if "planned-work" in line))

@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from statistics import median
 
-from . import config
+from . import config, record
 
 _LOCK = threading.Lock()
 SUMMARY_TASKS = 20    # the status line looks back over this many finished runs per repo
@@ -125,11 +125,8 @@ def suite_run(run_id, repo):
     """
     if sandbox(repo):
         return True
-    try:
-        saved = json.loads((config.RUNS / str(run_id) / "run.json").read_text()).get("repo")
-    except (OSError, ValueError, AttributeError):
-        return False
-    return sandbox(saved)
+    saved = record.read_state(config.RUNS / str(run_id))
+    return sandbox(saved.get("repo") if saved else None)
 
 
 def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,

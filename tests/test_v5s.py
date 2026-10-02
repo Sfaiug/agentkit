@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
 from agentkit import config, notify, orch, run, watch
+from agentkit import record as run_record
 
 SEAT = "seat"
 REAL_ENSURE = orch.ensure
@@ -61,7 +62,7 @@ class V5s(Sandbox):
     def going(self, name="run-2", state="running"):
         directory = config.RUNS / name
         directory.mkdir()
-        run.save_state(directory, {"run_id": name, "title": "Going", "state": state,
+        run_record.save_state(directory, {"run_id": name, "title": "Going", "state": state,
                                    "launched_session": SEAT, "pid": os.getpid(),
                                    "started_at": 1, "reported": False})
         return directory
@@ -81,20 +82,20 @@ class V5s(Sandbox):
 
     def test_v5s_a_finished_run_reopens_its_gone_seat_and_types_the_continue_line(self):
         directory = self.ended("run-1", owner=SEAT)
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(run_record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.reopened, [(SEAT, True)])
         self.assertEqual(self.slept, [watch.INBOX_WARMUP])
         self.assertEqual(self.typed, [(SEAT, "continue Finished run-1: run run-1 finished PASS, "
                                              f"result at {directory / 'result.md'}")])
         self.assertEqual(self.cards, [])
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertTrue(state["reported"])
         self.assertNotIn("notification_pending", state)
 
     def test_v5s_a_seat_that_came_back_fresh_is_told_so_and_a_live_one_is_not_warmed_up(self):
         directory = self.ended("run-1", owner=SEAT)
         self.back = "fresh"
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(run_record.read_state(directory), directory, self.logs.append)
         self.assertTrue(self.typed[-1][1].endswith(f"result at {directory / 'result.md'}"
                                                    + watch.FRESH_NOTE), self.typed)
         self.assertIn("could not be resumed", watch.FRESH_NOTE)
@@ -102,7 +103,7 @@ class V5s(Sandbox):
         self.back = False
         self.slept.clear()
         failed = self.ended("run-3", owner=SEAT, state="fail")
-        run.announce(run.read_state(failed), failed, self.logs.append)
+        run.announce(run_record.read_state(failed), failed, self.logs.append)
         self.assertEqual(self.slept, [])
         self.assertEqual(self.typed[-1], (SEAT, "continue Finished run-3: run run-3 finished FAIL, "
                                                 f"result at {failed / 'result.md'}"))
@@ -113,21 +114,21 @@ class V5s(Sandbox):
     def test_v5s_a_seat_that_cannot_be_started_sends_the_needs_with_the_added_sentence(self):
         directory = self.ended("run-1", owner=SEAT)
         self.back = config.Error(f"tmux could not start the session {SEAT} in /gone: no server")
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(run_record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.reopened, [(SEAT, True)])
         self.assertEqual(self.typed, [])
         self.assertEqual(self.cards, [("needs", self.old_needs() + " agentkit tried to reopen the "
                                        f"seat and could not: tmux could not start the session "
                                        f"{SEAT} in /gone: no server",
                                        {"session": SEAT, "event_id": "orphan:run-1:None:9990"})])
-        self.assertTrue(run.read_state(directory)["reported"])
+        self.assertTrue(run_record.read_state(directory)["reported"])
 
     # (c) when the line is not confirmed sent, the same
 
     def test_v5s_an_unconfirmed_continue_line_sends_the_needs_with_the_added_sentence(self):
         directory = self.ended("run-1", owner=SEAT)
         self.sent = False
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(run_record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.reopened, [(SEAT, True)])
         self.assertEqual(len(self.typed), 1)
         self.assertEqual([card[1] for card in self.cards],
@@ -209,11 +210,11 @@ class V5s(Sandbox):
         self.assertTrue(watch.seat_read(SEAT)["closed_by_owner"])
         self.record()             # the marker alone has to carry the decision
         directory = self.ended("run-1", owner=SEAT)
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(run_record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.reopened, [])
         # a seat the owner closed keeps its ending waiting, never a revival nor a card
         self.assertEqual((self.typed, self.cards), ([], []))
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         self.assertFalse(state["handed_back"])
         self.assertTrue(state["handback_pending"])
         self.assertEqual(state["handback_wait_reason"], "session closed by the owner")
@@ -227,14 +228,14 @@ class V5s(Sandbox):
         self.assertFalse(watch.seat_read(SEAT).get("stopped_at"))
         self.assertFalse(watch.seat_read(SEAT).get("closed_by_owner"))
         self.rows = []
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(run_record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.reopened, [(SEAT, True)])
 
     def test_v5s_nothing_to_reopen_keeps_the_notice_as_it_was(self):
         # neither a pane nor a record: stopped, forgotten or never agentkit's to open
         config.session_path(SEAT).unlink()
         directory = self.ended("run-1", owner=SEAT)
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(run_record.read_state(directory), directory, self.logs.append)
         self.assertEqual((self.reopened, self.typed), ([], []))
         self.assertEqual([card[1] for card in self.cards], [self.old_needs()])
         self.assertEqual(self.logs, [f"the orchestrator session {SEAT} this run was launched from "
@@ -244,7 +245,7 @@ class V5s(Sandbox):
 
     def test_v5s_the_log_lines_read_as_specified(self):
         directory = self.ended("run-1", owner=SEAT)
-        run.announce(run.read_state(directory), directory, self.logs.append)
+        run.announce(run_record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.logs, [
             f"the orchestrator session {SEAT} this run was launched from is gone; reopening it",
             f"reopened {SEAT} and asked it to continue run-1"])
@@ -256,7 +257,7 @@ class V5s(Sandbox):
         self.logs.clear()
         self.back = config.Error("cannot resume the session seat: no pane")
         failed = self.ended("run-3", owner=SEAT)
-        run.announce(run.read_state(failed), failed, self.logs.append)
+        run.announce(run_record.read_state(failed), failed, self.logs.append)
         self.assertEqual(self.logs, [
             f"the orchestrator session {SEAT} this run was launched from is gone; reopening it",
             f"the orchestrator session {SEAT} this run was launched from is gone; asking the "

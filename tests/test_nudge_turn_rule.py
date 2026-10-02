@@ -22,6 +22,7 @@ from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
 from agentkit import config, menu, notify, orch, run, watch
+from agentkit import record
 
 SEAT, OTHER = "acme-api", "fix-api"
 HARNESSES = ("muse", "opencode", "antigravity")
@@ -98,14 +99,14 @@ class NudgeTurnRule(Sandbox):
     def receipt(self, name, owner, state, **extra):
         directory = config.RUNS / name
         directory.mkdir(parents=True, exist_ok=True)
-        run.save_state(directory, {"run_id": name, "title": f"Task {name}", "state": state,
+        record.save_state(directory, {"run_id": name, "title": f"Task {name}", "state": state,
                                    "launched_session": owner, "started_at": time.time() - 86400,
                                    "finished_at": None, **extra})
 
     def decided(self, name):
         """That parked run decided on: its recovery acknowledged, so `unfinished` lets it go."""
-        state = run.read_state(config.RUNS / name)
-        run.save_state(config.RUNS / name, {**state, "recovery_acknowledged_at": time.time()})
+        state = record.read_state(config.RUNS / name)
+        record.save_state(config.RUNS / name, {**state, "recovery_acknowledged_at": time.time()})
 
     def wait(self):
         with redirect_stdout(io.StringIO()):

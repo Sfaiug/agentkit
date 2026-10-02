@@ -12,6 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, run  # noqa: E402
+from agentkit import record
 
 
 class HandoverToNobody(unittest.TestCase):
@@ -71,7 +72,7 @@ class HandoverToNobody(unittest.TestCase):
                 patch.object(run.time, "sleep"), \
                 patch.object(run, "collect_usage", return_value=providers):
             run.execute(lp, "executor", "Do the thing.", "executor")
-        saved = run.read_state(run_dir)
+        saved = record.read_state(run_dir)
         self.assertEqual(saved["executor"], "alpha")
         self.assertEqual(saved.get("executor_history") or [], [])
         self.assertEqual(run.executor_line(saved), "alpha")

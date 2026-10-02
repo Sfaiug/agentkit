@@ -22,6 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, orch, run, watch
+from agentkit import record
 
 WEEK = 604800
 TITLE = "Fix the smoke-test flake"
@@ -64,7 +65,7 @@ class SmokeRunNamedByOwner(unittest.TestCase):
                 "base_sha": "0" * 40, "error": "every provider is out of budget",
                 "started_at": self.now - 3600, "finished_at": self.now - 600}
         base.update(extra)
-        run.save_state(run_dir, base)
+        record.save_state(run_dir, base)
         return run_dir
 
     def merged(self, name, **extra):
@@ -79,7 +80,7 @@ class SmokeRunNamedByOwner(unittest.TestCase):
         with patch.object(run, "spawn_bg") as spawn:
             watch.resume_exhausted(self.cfg, providers, log=lambda line: None, now=self.now)
         spawn.assert_not_called()
-        self.assertTrue(run.read_state(parked).get("replaced"))
+        self.assertTrue(record.read_state(parked).get("replaced"))
 
     def test_errored_pass_stands_down_a_run_an_owner_smoke_run_merged(self):
         parked = self.receipt("20260925-1257-fix-the-smoke-test-flake", state="error",
@@ -90,10 +91,10 @@ class SmokeRunNamedByOwner(unittest.TestCase):
         with patch.object(run, "spawn_bg") as spawn:
             watch.resume_errored(log=lambda line: None, now=self.now)
         spawn.assert_not_called()
-        self.assertNotIn("error_retry_at", run.read_state(parked))
+        self.assertNotIn("error_retry_at", record.read_state(parked))
 
     def test_superseded_by_reads_an_owner_smoke_run_but_not_the_suites(self):
-        parked = run.read_state(self.receipt("20260925-1257-fix-the-smoke-test-flake"))
+        parked = record.read_state(self.receipt("20260925-1257-fix-the-smoke-test-flake"))
         # the suite's merged run of the same title, the newest of all, replaces nothing
         self.merged("20260925-1800-smoke-fix", repo=str(config.TMP / "smoke-abc" / "acme"),
                     finished_at=self.now - 30)

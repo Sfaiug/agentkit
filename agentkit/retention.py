@@ -12,7 +12,7 @@ import stat
 import time
 import tomllib
 
-from . import config
+from . import config, record as run_record
 
 EPHEMERAL_AGE = 86400            # ~/.agentkit/tmp older than a day goes
 INTERRUPTED_AGE = 86400          # a dead writer is not a reason to keep yesterday's tmp
@@ -350,12 +350,11 @@ def marker(path):
 
 def begin(path, kind, pid=None):
     """Best-effort ownership registration. Unregistrable artifacts stay outside collection."""
-    from . import run
     path = Path(path)
     if kind not in KINDS or path.parent != config.TMP or not safe(path):
         return False
     record = {"version": 1, "kind": kind, "path": str(path), "created_at": time.time(),
-              **run.process_owner(pid)}
+              **run_record.process_owner(pid)}
     try:
         with marker(path).open("x") as fh:
             json.dump(record, fh)
@@ -428,7 +427,6 @@ def throwaway(repo):
 
 def writer_active(record):
     """Malformed or unreadable writer identity is uncertainty, never evidence of an exit."""
-    from . import run
     pid, identity = record.get("pid"), record.get("process_identity")
     if pid is not None and (type(pid) is not int or pid <= 0):
         return True
@@ -436,7 +434,7 @@ def writer_active(record):
                                  or type(identity.get("ticks")) is not int):
         return True
     try:
-        return run.process_active(record)
+        return run_record.process_active(record)
     except (TypeError, ValueError, AttributeError):
         return True
 

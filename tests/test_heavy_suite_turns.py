@@ -22,6 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, run, worker
+from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"
 WIDGET = "/home/fixture/code/widget"
@@ -89,8 +90,8 @@ class HeavySuiteTurns(unittest.TestCase):
         """A running run's record, this process its loop, of `repo`."""
         directory = config.RUNS / name
         directory.mkdir()
-        run.save_state(directory, {"run_id": name, "title": name, "state": "running",
-                                   "verdict": None, "repo": repo, **run.process_owner(),
+        run_record.save_state(directory, {"run_id": name, "title": name, "state": "running",
+                                   "verdict": None, "repo": repo, **run_record.process_owner(),
                                    "started_at": time.time(), "round_summaries": []})
         return directory
 
@@ -113,7 +114,7 @@ class HeavySuiteTurns(unittest.TestCase):
             self.assertIsNone(light.error, light.error)
             self.assertTrue(light.result[0], light.result[1])
             self.assertFalse(light.waited(), light.logs)
-            self.assertEqual(run.gate_turn_note(run.read_state(light.run_dir)), "")
+            self.assertEqual(run.gate_turn_note(run_record.read_state(light.run_dir)), "")
         self.assertEqual(self.marks.read_text(), "light\n")
 
     def test_more_headroom_allows_more_suites(self):
@@ -258,7 +259,7 @@ class HeavySuiteTurns(unittest.TestCase):
             self.until(lambda: gate_log.is_file() and gate_log.read_text() ==
                        "waiting for a heavy suite turn · 1 running · 0 more fit\n",
                        "the second suite to wait")
-            self.assertEqual(run.gate_turn_note(run.read_state(second.run_dir)),
+            self.assertEqual(run.gate_turn_note(run_record.read_state(second.run_dir)),
                              "waiting for a heavy suite turn")
             first.join(20)
             second.join(20)
@@ -276,7 +277,7 @@ class HeavySuiteTurns(unittest.TestCase):
             fcntl.flock(holder, fcntl.LOCK_EX)
             waiter = Gate(self, "waiter", ACME, [self.mark("waiter")])
             waiter.start()
-            self.until(lambda: run.gate_turn_note(run.read_state(waiter.run_dir) or {}),
+            self.until(lambda: run.gate_turn_note(run_record.read_state(waiter.run_dir) or {}),
                        "the waiter to mark its wait")
             self.gates(2)
             waiter.join(20)
@@ -297,7 +298,7 @@ class HeavySuiteTurns(unittest.TestCase):
                 third = Gate(self, "three", ACME, [self.mark("third")])
                 third.start()
                 self.until(lambda: run.gate_turn_note(
-                    run.read_state(third.run_dir) or {}),
+                    run_record.read_state(third.run_dir) or {}),
                     "the third suite to wait on the saturated turn")
                 self.assertNotIn("third", self.marks.read_text())
             third.join(20)

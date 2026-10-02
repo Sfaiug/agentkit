@@ -19,6 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, run
+from agentkit import record
 from test_merge_step import make_loop, make_repos
 
 
@@ -75,7 +76,7 @@ class PushLease(unittest.TestCase):
         run.git(self.owner, "add", ".")
         run.git(self.owner, "commit", "-m", "main moved")
         run.git(self.owner, "push", "origin", "main")
-        lp.state = run.read_state(run_dir)
+        lp.state = record.read_state(run_dir)
 
         def checks(cmds, wt, out, *args, **kwargs):
             out.parent.mkdir(parents=True, exist_ok=True)

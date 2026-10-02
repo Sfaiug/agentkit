@@ -10,6 +10,7 @@ from unittest.mock import patch
 import test_worker_list as fixtures
 from fixtures.hand_in import submitting
 from agentkit import config, gc, run, usage, watch
+from agentkit import record as run_record
 
 
 class RoleGroups(unittest.TestCase):
@@ -34,7 +35,7 @@ class RoleGroups(unittest.TestCase):
         with patch.object(run, "refresh_seat_tally"), \
                 patch.object(run, "history_start"), patch.object(run, "claim_slot"):
             run.capture_launch(directory, cfg=self.cfg)
-        return directory, run.read_state(directory)
+        return directory, run_record.read_state(directory)
 
     def test_defaults_and_session_round_trip_without_adding_an_omitted_field(self):
         config.save(self.cfg)
@@ -176,7 +177,7 @@ class RoleGroups(unittest.TestCase):
                 redirect_stdout(io.StringIO()):
             self.assertEqual(self.pick("gamma", "delta"), ("gamma", "delta"))
             self.assertIsNone(run.pair_refusal(self.cfg, self.providers(), None, "gamma", "delta"))
-            run.save_state(lp.run_dir, lp.state)
+            run_record.save_state(lp.run_dir, lp.state)
             self.assertEqual(run.preset_models(
                 self.cfg, {**opts, "--exec": "gamma", "--review": "delta"},
                 self.logs.append, lp.run_dir), ("gamma", "delta"))
@@ -294,12 +295,12 @@ class RoleGroups(unittest.TestCase):
                          "reviewers": ["gamma", "delta"],
                          "error": "reviewer gamma died on API/transport errors and no eligible "
                                   "reviewer is left to review; waiting for review"}
-                run.save_state(directory, state)
+                run_record.save_state(directory, state)
                 with patch.object(run, "spawn_bg") as spawn:
                     watch.resume_exhausted(self.cfg, self.providers(a=100 if quota else 10, c=0),
                                            log=self.logs.append, now=self.now)
                 spawn.assert_called_once()
-                saved = run.read_state(directory)
+                saved = run_record.read_state(directory)
                 if quota:
                     self.assertEqual((saved["executor"], saved["reviewer"]), ("beta", "delta"))
                 else:
@@ -313,12 +314,12 @@ class RoleGroups(unittest.TestCase):
                  "reviewer": "beta", "worktree": str(self.root), "quota_dry": True,
                  "workers": ["beta", "alpha", "delta"], "reviewers": ["beta"],
                  "error": "every worker has a gate meter at 100% used"}
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         with patch.object(run, "spawn_bg") as spawn:
             watch.resume_exhausted(self.cfg, self.providers(a=30, b=10, c=100),
                                    log=self.logs.append, now=self.now)
         spawn.assert_called_once()
-        saved = run.read_state(directory)
+        saved = run_record.read_state(directory)
         self.assertEqual((saved["executor"], saved["reviewer"]), ("alpha", "beta"))
 
     def test_resume_steps_aside_from_self_review_when_a_better_pair_is_ready(self):
@@ -335,7 +336,7 @@ class RoleGroups(unittest.TestCase):
                 patch.object(run, "collect_usage",
                              return_value=self.providers(a=30, b=10, c=0)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            run.save_state(lp.run_dir, lp.state)
+            run_record.save_state(lp.run_dir, lp.state)
             state = run.loop(self.cfg, lp.run_dir, task, opts, self.logs.append,
                              prior=dict(lp.state))
         self.assertEqual((state["executor"], state["reviewer"]), ("alpha", "beta"))
@@ -354,7 +355,7 @@ class RoleGroups(unittest.TestCase):
                 patch.object(run, "collect_usage",
                              return_value=self.providers(a=30, b=10, c=0)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            run.save_state(lp.run_dir, lp.state)
+            run_record.save_state(lp.run_dir, lp.state)
             state = run.loop(self.cfg, lp.run_dir, task, opts, self.logs.append,
                              prior=dict(lp.state))
         self.assertEqual((state["executor"], state["reviewer"]), ("alpha", "beta"))
@@ -375,7 +376,7 @@ class RoleGroups(unittest.TestCase):
                 patch.object(run, "collect_usage",
                              return_value=self.providers(a=30, b=10, c=0)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            run.save_state(lp.run_dir, lp.state)
+            run_record.save_state(lp.run_dir, lp.state)
             state = run.loop(self.cfg, lp.run_dir, task, opts, self.logs.append,
                              prior=dict(lp.state))
         self.assertEqual((state["executor"], state["reviewer"]), ("beta", "beta"))
@@ -397,7 +398,7 @@ class RoleGroups(unittest.TestCase):
                 patch.object(run, "collect_usage",
                              return_value=self.providers(a=30, b=10, c=0)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            run.save_state(lp.run_dir, lp.state)
+            run_record.save_state(lp.run_dir, lp.state)
             state = run.loop(self.cfg, lp.run_dir, task, opts, self.logs.append,
                              prior=dict(lp.state))
         self.assertEqual((state["executor"], state["reviewer"]), ("beta", "beta"))
@@ -444,10 +445,10 @@ class RoleGroups(unittest.TestCase):
                                  "worktree": str(self.root), "quota_dry": quota,
                                  "error": "reviewer delta died on API/transport errors and no "
                                           "eligible reviewer is left to review; waiting for review"}
-                        run.save_state(directory, state)
+                        run_record.save_state(directory, state)
                         providers = self.providers(a=100 if quota else 10, c=spent)
                         with patch.object(run, "spawn_bg") as spawn, \
-                                patch.object(run, "run_dirs", return_value=[directory]):
+                                patch.object(run_record, "run_dirs", return_value=[directory]):
                             watch.resume_exhausted(self.cfg, providers, workers=["alpha", "beta"],
                                                    log=self.logs.append, now=self.now)
                         args = (self.cfg, providers, None if quota else "alpha", None,

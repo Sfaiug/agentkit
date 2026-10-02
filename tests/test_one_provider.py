@@ -18,6 +18,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from agentkit import config, job as jobs, run, terminal, usage
+from agentkit import record
 
 
 class OneProvider(unittest.TestCase):
@@ -268,7 +269,7 @@ class OneProvider(unittest.TestCase):
         with patch.object(run, "collect_usage", return_value=self.providers):
             self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "gamma")
         self.assertEqual((lp.executor, lp.reviewer), ("gamma", "delta"))
-        saved = run.read_state(lp.run_dir)
+        saved = record.read_state(lp.run_dir)
         self.assertEqual((saved["executor"], saved["reviewer"]), ("gamma", "delta"))
         self.assertIsNone(saved["review_session"])
         self.assertTrue(any("reviewer re-picked" in line for line in self.logs))
@@ -288,7 +289,7 @@ class OneProvider(unittest.TestCase):
         with patch.object(run, "collect_usage", return_value=self.providers):
             self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "gamma")
         self.assertEqual((lp.executor, lp.reviewer), ("gamma", "gamma"))
-        self.assertTrue(run.self_reviewed(run.read_state(lp.run_dir)))
+        self.assertTrue(run.self_reviewed(record.read_state(lp.run_dir)))
 
     def test_handover_keeps_an_unchanged_reviewers_session(self):
         lp = self.loop(reviewer="gamma")
@@ -301,7 +302,7 @@ class OneProvider(unittest.TestCase):
         with patch.object(run, "collect_usage", return_value=self.providers):
             self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "delta")
         self.assertEqual((lp.reviewer, lp.review_sid), ("gamma", "existing-review"))
-        self.assertEqual(run.read_state(lp.run_dir)["review_session"], "existing-review")
+        self.assertEqual(record.read_state(lp.run_dir)["review_session"], "existing-review")
         self.assertFalse(any("reviewer re-picked" in line for line in self.logs))
 
     def test_only_the_default_orchestrator_can_resume_as_an_unselected_worker(self):

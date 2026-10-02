@@ -18,6 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, gc, notify, orch, run, watch
+from agentkit import record as run_record
 
 URL = "http://127.0.0.1:9/hook/fixture-secret?thread_id=42"
 PR = "https://example.invalid/other/repo/pull/7"
@@ -93,7 +94,7 @@ def child():
         elif op in ("orphan", "recovery"):
             directory = config.RUNS / "job"
             directory.mkdir(parents=True, exist_ok=True)
-            state = run.read_state(directory) or {
+            state = run_record.read_state(directory) or {
                 "state": "pass", "title": "Finish task", "launched_session": "seat",
                 "started_at": 9000, "finished_at": 9500, "reported": False}
             if op == "orphan":
@@ -102,7 +103,7 @@ def child():
                 # persisted first, the way `reap` -- the one caller in the loop -- does:
                 # `notify_recovery` writes what its own delivery decided and nothing else
                 state.update(state="interrupted", interrupted_at=9600)
-                run.save_state(directory, state)
+                run_record.save_state(directory, state)
                 run.notify_recovery(directory, state)
         elif op == "stall":
             state = watch.load_state()

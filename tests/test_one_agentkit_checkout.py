@@ -16,6 +16,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
 from agentkit import config, orch, run
+from agentkit import record
 
 
 class OneAgentkitCheckout(Sandbox):
@@ -54,7 +55,7 @@ class OneAgentkitCheckout(Sandbox):
         self.assertEqual(run.task_project(None, str(config.HOME / "tasks/agentkit/01.md")), self.own)
         directory = config.RUNS / "first"
         directory.mkdir()
-        run.save_state(directory, {"run_id": "first", "launched_session": "fix-api",
+        record.save_state(directory, {"run_id": "first", "launched_session": "fix-api",
                                    "state": "queued", "project": str(clone)})
         self.assertEqual(run.join_session_project("fix-api"), str(self.own))
 

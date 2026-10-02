@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
 from agentkit import config, menu, notify, orch, run, terminal, usage, watch, worker
+from agentkit import record
 
 NOW = 1_800_000_000
 DAY = 86400
@@ -103,7 +104,7 @@ class ThreeStates(Sandbox):
                  "launched_session": owner, "reported": False, "repo": self.repo,
                  "executor": "opus", "reviewer": "astra", "rounds": 2, "round_summaries": [],
                  "finished_at": NOW - 1800, "started_at": NOW - 3600, **extra}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         for path in list(directory.rglob("*")) + [directory]:
             try:
                 os.utime(path, (NOW, NOW))
@@ -220,7 +221,7 @@ class ThreeStates(Sandbox):
                  {"state": "pass", "verdict": "PASS", "finished_at": NOW - 3600})):
             with self.subTest(run=name):
                 for old in config.RUNS.iterdir():
-                    run.save_state(old, {**run.read_state(old),
+                    record.save_state(old, {**record.read_state(old),
                                          "recovery_acknowledged_at": NOW})
                 self.receipt(name, **extra)
                 # the seat is still in its chair: the ending was handed back to it
@@ -231,7 +232,7 @@ class ThreeStates(Sandbox):
                 self.assertNotIn("press r", found["reason"])
         # Days later the same: the ending never becomes his.
         for old in config.RUNS.iterdir():
-            run.save_state(old, {**run.read_state(old), "recovery_acknowledged_at": NOW})
+            record.save_state(old, {**record.read_state(old), "recovery_acknowledged_at": NOW})
         self.receipt("20260101-0200-yesterdays-failure", state="fail", verdict="FAIL",
                      finished_at=NOW - 2 * DAY, started_at=NOW - 2 * DAY - 1800)
         found = self.decide(gone=True)
@@ -343,7 +344,7 @@ class ThreeStates(Sandbox):
                              "needs you")):
             with self.subTest(word=word):
                 for old in config.RUNS.iterdir():
-                    run.save_state(old, {**run.read_state(old), "state": "pass",
+                    record.save_state(old, {**record.read_state(old), "state": "pass",
                                          "merged": True, "finished_at": NOW - 60})
                 setup()
                 self.assertEqual(self.decide()["word"], word)

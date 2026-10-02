@@ -13,6 +13,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from agentkit import config, gc, run, worker
+from agentkit import record as run_record
 
 SUITE = "test -f AGENTS.md"
 
@@ -271,7 +272,7 @@ class SuiteInRound(unittest.TestCase):
                      "merge_note": None, "findings": "",
                      "final_check": {"outcome": "passed", "sha": head,
                                      "where": "round", "round": 1}}
-            run.save_state(run_dir, state)
+            run_record.save_state(run_dir, state)
             lp = run.Loop(self.cfg, run_dir, state, {}, lambda m: None, wt,
                           "body", ["true", once], "context", [])
             return wt, run_dir, lp
@@ -288,7 +289,7 @@ class SuiteInRound(unittest.TestCase):
         self.assertIn("final-check.log", names, names)
         self.assertNotIn("once.log", names, names)
         self.assertEqual(counter.read_text(), before + "once\n")
-        self.assertEqual(run.read_state(run_dir)["final_check"]["where"], "landing")
+        self.assertEqual(run_record.read_state(run_dir)["final_check"]["where"], "landing")
         # An overlapping move checks the resolved commit at landing.
         wt2, run_dir2, lp2 = reviewed_run("touching")
         (owner / "work.txt").write_text("target side\n")
@@ -314,8 +315,8 @@ class SuiteInRound(unittest.TestCase):
                         and run.final_check(lp2, "origin/main"), lambda: True))
             names = [Path(call.args[2]).name for call in wrapped.call_args_list]
         self.assertIn("final-check.log", names, names)
-        self.assertEqual(run.read_state(run_dir2)["final_check"]["where"], "landing")
-        run.write_result(run_dir2, run.read_state(run_dir2), ["true", once])
+        self.assertEqual(run_record.read_state(run_dir2)["final_check"]["where"], "landing")
+        run.write_result(run_dir2, run_record.read_state(run_dir2), ["true", once])
         text = (run_dir2 / "result.md").read_text()
         self.assertIn("(once, at landing)", text)
         self.assertIn("final check: passed at landing on ", text)
@@ -377,7 +378,7 @@ class SuiteInRound(unittest.TestCase):
                  "merge_note": None, "findings": "",
                  "final_check": {"outcome": "passed", "sha": head,
                                  "where": "round", "round": 1}}
-        run.save_state(run_dir, state)
+        run_record.save_state(run_dir, state)
         logs = []
         lp = run.Loop(self.cfg, run_dir, state, {}, logs.append, wt,
                       "body", ["true", once], "context", [])
@@ -391,7 +392,7 @@ class SuiteInRound(unittest.TestCase):
         self.assertNotIn("once.log", names, names)
         self.assertNotIn("donewhen.log", names, names)
         self.assertEqual(counter.read_text(), before + "once\n")
-        self.assertEqual(run.read_state(run_dir)["final_check"]["where"], "landing")
+        self.assertEqual(run_record.read_state(run_dir)["final_check"]["where"], "landing")
         self.assertIn("reusing done-when and review evidence", "\n".join(logs))
 
     def test_status_names_the_declared_suite_before_it_runs(self):

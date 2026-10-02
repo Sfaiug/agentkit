@@ -21,6 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, notify, orch, run, watch
+from agentkit import record
 
 
 class DeadLoopCardAndPark(unittest.TestCase):
@@ -41,7 +42,7 @@ class DeadLoopCardAndPark(unittest.TestCase):
         # the process table is this set, and ending a tree signals nothing
         self.alive = set()
         self.stack.enter_context(patch.object(
-            run, "process_active", lambda state: state.get("pid") in self.alive))
+            record, "process_active", lambda state: state.get("pid") in self.alive))
         self.stack.enter_context(patch.object(run, "stop_run_tree", lambda *_a, **_kw: None))
         self.stack.enter_context(patch.object(run, "memory_cap_reason", lambda *_a, **_kw: None))
         self.resumed = []
@@ -61,7 +62,7 @@ class DeadLoopCardAndPark(unittest.TestCase):
         (self.dir / "log.txt").touch()
         work = config.WORK / "fix-api"
         work.mkdir()
-        run.save_state(self.dir, {
+        record.save_state(self.dir, {
             "run_id": self.dir.name, "title": "fix-api", "state": "running", "pid": 1000,
             "started_at": self.now - 100, "launched_session": "seat", "executor": "opus",
             "reviewer": "astra", "rounds": 3, "round_summaries": [], "step": "executor",
@@ -70,23 +71,23 @@ class DeadLoopCardAndPark(unittest.TestCase):
     def adopt(self, run_id, *_a, **_kw):
         """The resumed loop starts and adopts the record, as a real resume does."""
         self.resumed.append(run_id)
-        state = run.read_state(self.dir)
+        state = record.read_state(self.dir)
         state.pop("stall_resume_at", None)
         state["pid"] = 1000 + len(self.resumed)
         self.alive.add(state["pid"])
-        run.save_state(self.dir, state)
+        record.save_state(self.dir, state)
         return True
 
     def look(self):
         """A menu redraw, `ak run status` or a job waiter: a reap and nothing else."""
-        run.reap(self.dir, run.read_state(self.dir))
+        run.reap(self.dir, record.read_state(self.dir))
 
     def tick(self, now):
         watch.resume_dead_loops(dry_run=False, log=lambda _line: None, now=now)
         self.look()
 
     def dies(self):
-        self.alive.discard(run.read_state(self.dir)["pid"])
+        self.alive.discard(record.read_state(self.dir)["pid"])
 
     def test_reaps_before_the_resume_never_card_a_death_the_tick_resumes(self):
         self.look()
@@ -101,7 +102,7 @@ class DeadLoopCardAndPark(unittest.TestCase):
         self.tick(self.now + 60)
         self.look()
         self.assertEqual(self.resumed, [self.dir.name])
-        self.assertEqual(run.read_state(self.dir)["state"], "interrupted")
+        self.assertEqual(record.read_state(self.dir)["state"], "interrupted")
         self.assertEqual(self.cards, [], "a death the tick resumes after its backoff is nobody's news")
         self.tick(self.now + 700)
         self.assertEqual(len(self.resumed), 2)
@@ -118,7 +119,7 @@ class DeadLoopCardAndPark(unittest.TestCase):
         self.look()
         self.tick(self.now + 760)
         self.tick(self.now + 1400)
-        state = run.read_state(self.dir)
+        state = record.read_state(self.dir)
         self.assertEqual(len(self.resumed), 2, "a third death within the hour is not resumed")
         self.assertEqual(state["state"], "interrupted")
         self.assertEqual(len(state["deaths"]), 3)
@@ -136,7 +137,7 @@ class DeadLoopCardAndPark(unittest.TestCase):
         self.dies()
         self.look()
         self.tick(self.now + 60)
-        state = run.read_state(self.dir)
+        state = record.read_state(self.dir)
         self.assertEqual(len(self.resumed), 2, "a third death within the hour is not resumed")
         self.assertTrue(state["deaths"][-1].get("parked"))
         self.assertEqual(len(self.cards), 1, "the park is told once")
@@ -149,7 +150,7 @@ class DeadLoopCardAndPark(unittest.TestCase):
         self.dies()
         self.tick(start + 60)
         self.tick(start + 720)
-        state = run.read_state(self.dir)
+        state = record.read_state(self.dir)
         self.assertEqual(len(state["deaths"]), 2)
         self.assertEqual(len(self.resumed), 2, "a second death is resumed, not parked")
         self.assertEqual(self.cards, [])

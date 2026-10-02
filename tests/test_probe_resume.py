@@ -12,6 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, run, worker
+from agentkit import record
 
 
 @contextmanager
@@ -31,7 +32,7 @@ def sandbox(root):
 
 def make_loop(root):
     directory = root / "run"
-    lp = run.Loop(config.load(), directory, run.read_state(directory), {}, lambda _: None,
+    lp = run.Loop(config.load(), directory, record.read_state(directory), {}, lambda _: None,
                   root / "acme", "# Fix empty input", ["PYTHONPATH=. python3 tests/check.py"],
                   "context", [])
     lp.artifacts.add("local-note")  # Existing gate output must survive without being committed.
@@ -104,7 +105,7 @@ class ProbeResume(unittest.TestCase):
         self.directory = self.root / "run"
         (self.directory / "round-1").mkdir(parents=True)
         (self.directory / "regression.sh").write_text("PYTHONPATH=. python3 tests/check.py\n")
-        run.save_state(self.directory, {
+        record.save_state(self.directory, {
             "run_id": "probe-test", "state": "running", "step": "done-when", "base": "main",
             "base_sha": self.base, "branch": "ak/fix-api", "rounds": 3,
             "review": {"verdict": "PASS", "done_when": True, "head_sha": self.head},
@@ -128,7 +129,7 @@ class ProbeResume(unittest.TestCase):
         self.assertEqual((self.wt / "branch-only.txt").read_text(), "branch\n")
         self.assertEqual((self.wt / "keep.txt").read_text(), "keep\n")
         self.assertEqual((self.wt / "local-note").read_text(), "pre-existing untracked file\n")
-        self.assertNotIn("probe_checkout", run.read_state(self.directory))
+        self.assertNotIn("probe_checkout", record.read_state(self.directory))
 
     def resume_verification(self):
         lp = make_loop(self.root)
@@ -145,19 +146,19 @@ class ProbeResume(unittest.TestCase):
     def test_dead_regression_probe_resumes_verification_on_the_branch(self):
         self.kill_probe("regression")
         self.assertEqual(run.git(self.wt, "rev-parse", "HEAD"), self.base)
-        self.assertFalse(run.read_state(self.directory).get("regression_checked"))
+        self.assertFalse(record.read_state(self.directory).get("regression_checked"))
         self.resume_verification()
 
     def test_checkout_is_recorded_before_detaching(self):
         self.kill_probe("regression", "before")
-        self.assertIn("probe_checkout", run.read_state(self.directory))
+        self.assertIn("probe_checkout", record.read_state(self.directory))
         make_loop(self.root)
         self.assert_restored()
 
     def test_recovery_survives_a_second_hard_exit(self):
         self.kill_probe("target")
         self.kill_probe("target", "restore")
-        self.assertIn("probe_checkout", run.read_state(self.directory))
+        self.assertIn("probe_checkout", record.read_state(self.directory))
         self.resume_verification()
 
     def test_failed_recovery_keeps_the_record_and_refuses_to_continue(self):
@@ -177,7 +178,7 @@ class ProbeResume(unittest.TestCase):
                 with patch.object(run, "git", side_effect=refuse):
                     with self.assertRaises(config.Error):
                         make_loop(self.root)
-                self.assertIn("probe_checkout", run.read_state(self.directory))
+                self.assertIn("probe_checkout", record.read_state(self.directory))
                 self.resume_verification()
 
     def test_finished_probes_remove_the_recovery_record(self):

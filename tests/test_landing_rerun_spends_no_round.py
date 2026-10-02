@@ -17,6 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from agentkit import host, config, gc, run, usage, watch
+from agentkit import record
 from test_merge_step import make_loop, make_repos
 
 
@@ -98,7 +99,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         return 0, answer, session, False
 
     def assert_no_task_round(self):
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         self.assertEqual(state["round_summaries"], self.history)
         self.assertEqual(state["done_when_failure"], {"every": []})
         self.assertEqual(self.lp.rnd, 3)
@@ -126,7 +127,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.assertFalse(run.integrate(self.lp, "origin/main"))
         self.assertEqual(self.events, [("gate", False)] + [("fixer", 3), ("gate", False)] * 3)
         self.assert_no_task_round()
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertNotEqual(state["verdict"], "FAIL")
         self.assertFalse(state["merge_failed"])
@@ -192,7 +193,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
 
                 with patch.object(run, "execute", side_effect=unfinished):
                     self.assertEqual(run.cmd_resume([self.run_dir.name]), 1)
-                state = run.read_state(self.run_dir)
+                state = record.read_state(self.run_dir)
                 self.assertEqual(state["state"], "exhausted" if abort == "exhausted" else "waiting")
                 attempts = 1 if abort == "exhausted" else run.CONFLICT_ROUNDS
                 self.assertEqual(self.events[before:], [("conflict-fixer", spent)] * attempts)
@@ -205,12 +206,12 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                 before = len(self.events)
             if unreachable:
                 config.session_path("acme").write_text("{}")
-                parked = run.read_state(self.run_dir)
+                parked = record.read_state(self.run_dir)
                 parked["launched_session"] = "acme"
                 pending = copy.deepcopy(parked["review_pending"])
                 for fault in ("fetch", "upstream"):
                     with self.subTest(fault=fault):
-                        run.save_state(self.run_dir, copy.deepcopy(parked))
+                        record.save_state(self.run_dir, copy.deepcopy(parked))
                         if fault == "upstream":
                             run.git(self.wt, "update-ref", "-d", "refs/remotes/origin/main")
                         reason = ("git fetch origin failed" if fault == "fetch" else
@@ -221,7 +222,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                                 run.cmd_resume([self.run_dir.name])
                             except config.Error as exc:
                                 self.assertIn(reason, str(exc))
-                        state = run.read_state(self.run_dir)
+                        state = record.read_state(self.run_dir)
                         self.assertEqual(state["state"], "error")
                         self.assertIn(reason, state["error"])
                         self.assertEqual(state["review_pending"], pending)
@@ -232,9 +233,9 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                             watch.resume_errored(log=self.lp.log, now=state["error_retry_at"])
                         launch.assert_called_once_with(
                             self.run_dir, ["resume", self.run_dir.name],
-                            expected=run.read_state(self.run_dir), park_as=True)
+                            expected=record.read_state(self.run_dir), park_as=True)
             self.assertEqual(run.cmd_resume([self.run_dir.name]), 0)
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         fixes = [] if repaired else [("gate", False), ("fixer", spent)]
         self.assertEqual(self.events[before:], fixes +
                          [("gate", True), ("reviewer", f"round-{spent}")])
@@ -272,7 +273,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         with patch.object(run, "call_retrying", side_effect=run.Exhausted("review interrupted")):
             with self.assertRaisesRegex(run.Exhausted, "review interrupted"):
                 run.integrate(self.lp, "origin/main")
-        state = run.read_state(self.run_dir)
+        state = record.read_state(self.run_dir)
         self.assertEqual(state["review_pending"]["round"], 3)
         self.assertIs(state["review_pending"]["record"], False)
         resumed = run.Loop(self.lp.cfg, self.run_dir, state, {}, self.lp.log, self.wt,

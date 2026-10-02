@@ -24,6 +24,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from agentkit import config, menu, run, usage
+from agentkit import record
 
 
 class SelfReviewLast(unittest.TestCase):
@@ -198,7 +199,7 @@ class SelfReviewLast(unittest.TestCase):
         with patch.object(run, "collect_usage", return_value=self.providers):
             self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "beta-one")
         self.assertEqual((lp.executor, lp.reviewer), ("beta-one", "beta-one"))
-        saved = run.read_state(lp.run_dir)
+        saved = record.read_state(lp.run_dir)
         self.assertEqual((saved["executor"], saved["reviewer"]), ("beta-one", "beta-one"))
         self.assertTrue(run.self_reviewed(saved))
 

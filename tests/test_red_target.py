@@ -21,6 +21,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from agentkit import host, config, run
+from agentkit import record
 
 
 def make_repos(root):
@@ -82,7 +83,7 @@ def make_loop(root, wt, cmds, rounds=3, spent=1, cfg=None):
         "merge_method": "squash", "merged": False, "merge_failed": False,
         "merge_note": None, "findings": "", "delivery_sha": head,
     }
-    run.save_state(run_dir, state)
+    record.save_state(run_dir, state)
     lp = run.Loop(cfg, run_dir, state, {}, log, wt, "body", cmds, "context", [])
     return lp, run_dir, lines
 
@@ -144,7 +145,7 @@ class RedTarget(unittest.TestCase):
         self.assertFalse(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, [])
         self.assertEqual(self.reviews, [])
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["verdict"], "PASS")
         self.assertFalse(state["merge_failed"])
@@ -163,7 +164,7 @@ class RedTarget(unittest.TestCase):
                "else echo 'FAIL 4 on the target'; fi; exit 1")
         lp, run_dir, _ = make_loop(self.root, wt, [f"{cmd}  # once"])
         self.assertFalse(run.final_check(lp, "origin/main"))
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertIn("FAIL 49 on the branch", state["final_check"]["line"])
         self.assertEqual(state["merge_note"],
@@ -179,7 +180,7 @@ class RedTarget(unittest.TestCase):
         lp, run_dir, _ = make_loop(self.root, wt, ["true", "test ! -f breakage  # once"])
         self.assertTrue(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, ["final-fixer"])
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["final_check"]["outcome"], "passed")
         self.assertTrue(run.current_review(lp))
         self.assertIn("$ test ! -f breakage (on origin/main",
@@ -204,7 +205,7 @@ class RedTarget(unittest.TestCase):
         self.assertFalse((run_dir / "target-probe.log").exists())
         self.assertFalse(any("probing it once" in line for line in lines))
         self.assertIn(f"names {path}, which origin/main lacks", "\n".join(lines))
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["final_check"]["outcome"], "passed")
         self.assertNotEqual(state["state"], "waiting")
         self.assertEqual(run.git(wt, "rev-parse", "HEAD~1"), head)
@@ -248,7 +249,7 @@ class RedTarget(unittest.TestCase):
         self.assertFalse(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, [])
         self.assertEqual(self.reviews, [])
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["merge_note"], f"origin/main itself fails: `{cmd}`")
         self.assertIn(f"$ {cmd} (on origin/main", (run_dir / "target-probe.log").read_text())
@@ -317,7 +318,7 @@ class RedTarget(unittest.TestCase):
         head = run.git(wt, "rev-parse", "HEAD")
         self.assertFalse(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, [])
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["merge_note"],
                          f"origin/main itself fails: `{cmd}`")
@@ -358,7 +359,7 @@ class RedTarget(unittest.TestCase):
         self.assertFalse(run.integrate(lp, "origin/main"))
         self.assertEqual(self.turns, [])
         self.assertEqual(self.reviews, [])
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertNotEqual(state["verdict"], "FAIL")
         self.assertFalse(state["merge_failed"])
@@ -395,7 +396,7 @@ class RedTarget(unittest.TestCase):
             thread.start()
             try:
                 deadline = time.monotonic() + 20
-                while not (run.read_state(run_dir) or {}).get("gate_turn"):
+                while not (record.read_state(run_dir) or {}).get("gate_turn"):
                     self.assertLess(time.monotonic(), deadline, "the heavy probe never waited")
                     time.sleep(0.02)
                 self.assertTrue(thread.is_alive())

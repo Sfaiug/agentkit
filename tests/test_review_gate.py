@@ -18,6 +18,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import config, notify, run, task, worker
+from agentkit import record
 
 
 def fail(count, note="pattern"):
@@ -134,10 +135,10 @@ sys.exit(1)
         # Run markers are host-wide: another suite's sandbox must name a different run.
         self.task.write_text(f"{front}# {self.root.name}\n\n"
                              "## Done when\n```bash\ntest -f deliverable\n```\n")
-        before = set(run.run_dirs())
+        before = set(record.run_dirs())
         code = run.main([str(self.task), "--exec", self.executor, "--review", self.reviewer, *flags])
-        directory = (set(run.run_dirs()) - before).pop()
-        return code, directory, run.read_state(directory)
+        directory = (set(record.run_dirs()) - before).pop()
+        return code, directory, record.read_state(directory)
 
     def test_preamble_names_the_four_blocking_classes_and_hand_in(self):
         for role in ("reviewer", "reviewer-pr", "reviewer-scratch"):
@@ -270,7 +271,7 @@ sys.exit(1)
         with self.assertRaisesRegex(config.Error, r"^--rounds 5 is over the budget: 3 rounds, then "
                                     r"a run goes back to its orchestrator to split or re-scope$"):
             self.launch(None, "--rounds", "5")
-        self.assertEqual(run.run_dirs(), [])
+        self.assertEqual(record.run_dirs(), [])
         self.assertFalse((self.root / "calls.jsonl").exists())
 
     def test_task_template_defaults_to_three_rounds(self):

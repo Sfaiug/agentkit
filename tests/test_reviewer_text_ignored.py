@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, run, worker
+from agentkit import config, hand_in, record, run, worker
 
 PROSE = ("VERDICT: PASS\n\n## Findings\n- api.py:1 - prose finding - breaks callers\n\n"
          "## Follow-ups\n- api.py:1 - prose follow-up - existed before\n")
@@ -100,7 +100,7 @@ class ReviewerTextIgnored(unittest.TestCase):
                     source.write_text(text)
                 self.lp.state["findings"] = text or ""
                 self.lp.save()
-                state = run.read_state(self.lp.run_dir)
+                state = record.read_state(self.lp.run_dir)
                 self.assertTrue(run.review_failed(state))
                 reason = run.handback_reason(state)
                 self.assertIn("api.py:1 - handed-in defect - breaks callers", reason)

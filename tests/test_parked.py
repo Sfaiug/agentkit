@@ -23,6 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, gc, menu, orch, run, watch
+from agentkit import record
 
 WEEK = 604800
 TRANSPORT_DEATH = ("reviewer spark died on API/transport errors 3 times and no eligible "
@@ -94,13 +95,13 @@ class Parked(unittest.TestCase):
                 "error": "executor astra died on API/transport errors 3 times in round 1",
                 "started_at": self.now - 600, "finished_at": self.now - 60}
         base.update(extra)
-        run.save_state(run_dir, base)
+        record.save_state(run_dir, base)
         return run_dir
 
     def test_parked_error_is_born_scheduled_and_retried_when_due(self):
         run_dir = self.receipt("20260922-1200-err")
         run.mark_state(run_dir, "error", "executor astra died on API/transport errors")
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         # the first rung is the loop's own: a minute out, rung zero, working already
         self.assertEqual(state["error_retries"], 0)
         self.assertAlmostEqual(state["error_retry_at"], state["finished_at"] + 60, delta=5)
@@ -113,7 +114,7 @@ class Parked(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1], ["resume", run_dir.name])
         self.assertIn(f"resumed {run_dir.name}: error retry 1", self.logs)
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         # the rung climbed before the child owned the run: the next retry waits 300 s
         self.assertEqual(state["error_retries"], 1)
         self.assertEqual(state["error_retry_at"], self.now + 61 + 300)
@@ -129,7 +130,7 @@ class Parked(unittest.TestCase):
         self.assertEqual(self.logs, [])
         with patch.object(run, "spawn_bg", return_value=0):
             watch.resume_errored(log=self.log, now=self.now + 300)
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual((state["error_retries"], state["error_retry_at"]),
                          (2, self.now + 300 + 900))
 
@@ -153,7 +154,7 @@ class Parked(unittest.TestCase):
             self.assertEqual(len(launches), 1)
             self.assertTrue(any("WARN could not resume" in line for line in self.logs),
                             self.logs)
-            state = run.read_state(run_dir)
+            state = record.read_state(run_dir)
             self.assertEqual(state["state"], "error")
             self.assertNotIn("recovery_pending", state)
             # the rung this launch consumed stays consumed: the next retry is half
@@ -164,7 +165,7 @@ class Parked(unittest.TestCase):
             self.assertEqual(len(launches), 1)    # throttled inside the rung
             watch.resume_errored(log=self.log, now=self.now + 3600)
             self.assertEqual(len(launches), 2)    # retried once the ladder allows
-            state = run.read_state(run_dir)
+            state = record.read_state(run_dir)
             self.assertEqual((state["state"], state["resume_from"]), ("queued", "error"))
 
     def test_parked_unresumable_error_keeps_no_schedule(self):
@@ -173,7 +174,7 @@ class Parked(unittest.TestCase):
         run_dir = self.receipt("20260922-1203-taskbug")
         (run_dir / "task.md").write_text("# No done when here\n")
         run.mark_state(run_dir, "error", "task.md: no `## Done when` section")
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertNotIn("error_retry_at", state)
         self.assertNotIn("error_retries", state)
         self.assertFalse(run.going(state))
@@ -185,12 +186,12 @@ class Parked(unittest.TestCase):
         # ... and a worktree that went missing after the stamp loses it, once, loudly
         run_dir = self.receipt("20260922-1204-gone", worktree=False,
                                error_retry_at=self.now - 1, error_retries=0)
-        run.save_state(run_dir, {**run.read_state(run_dir),
+        record.save_state(run_dir, {**record.read_state(run_dir),
                                  "worktree": str(self.root / "nowhere")})
         with patch.object(run, "spawn_bg",
                           side_effect=AssertionError("no resume without a worktree")):
             watch.resume_errored(log=self.log, now=self.now)
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["state"], "error")
         self.assertNotIn("error_retry_at", state)
         self.assertNotIn("error_retries", state)
@@ -207,7 +208,7 @@ class Parked(unittest.TestCase):
             watch.resume_exhausted(self.cfg, self.providers(), log=self.log, now=self.now)
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1], ["resume", run_dir.name])
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         # the executor never died, so it stays: the resume re-picks the reviewer
         self.assertEqual(state["executor"], "opus")
         self.assertNotIn("executor_history", state)
@@ -223,7 +224,7 @@ class Parked(unittest.TestCase):
                           side_effect=AssertionError("no reviewer is eligible")):
             watch.resume_exhausted(self.cfg, dry, log=self.log, now=self.now)
         self.assertEqual(self.logs, [])
-        self.assertEqual(run.read_state(run_dir)["state"], "exhausted")
+        self.assertEqual(record.read_state(run_dir)["state"], "exhausted")
 
     def test_parked_transport_resume_uses_the_runs_worker_list(self):
         run_dir = self.receipt("20260923-0400-bound-reviewer", state="exhausted",
@@ -236,12 +237,12 @@ class Parked(unittest.TestCase):
                                    log=self.log, now=self.now)
             spawn.assert_not_called()
             self.assertEqual(self.logs, [])
-            self.assertNotIn("exhausted_resume_at", run.read_state(run_dir))
+            self.assertNotIn("exhausted_resume_at", record.read_state(run_dir))
             watch.resume_exhausted(self.cfg, self.providers(meta_used=10), workers=["astra"],
                                    log=self.log, now=self.now)
         spawn.assert_called_once()
         self.assertEqual(spawn.call_args.args, (run_dir, ["resume", run_dir.name]))
-        self.assertEqual(run.read_state(run_dir)["executor"], "opus")
+        self.assertEqual(record.read_state(run_dir)["executor"], "opus")
         self.assertIn(f"resumed {run_dir.name}: reviewer spark eligible again", self.logs)
 
     def test_parked_waiting_retries_after_main_moves(self):
@@ -258,7 +259,7 @@ class Parked(unittest.TestCase):
                              side_effect=AssertionError("main has not moved")):
             watch.resume_waiting(log=self.log, now=self.now)
         self.assertEqual(self.logs, [])
-        self.assertEqual(run.read_state(run_dir)["state"], "waiting")
+        self.assertEqual(record.read_state(run_dir)["state"], "waiting")
         with patch.object(run, "upstream_sha", return_value=new), \
                 patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None, park_as=False:
                              calls.append((d, a, expected)) or 0):
@@ -268,7 +269,7 @@ class Parked(unittest.TestCase):
         self.assertIn(f"resumed {run_dir.name}: origin/main moved ({old[:12]}..{new[:12]})",
                       self.logs)
         # the fake resume changes nothing on disk; later phases must not see it again
-        run.save_state(run_dir, {**run.read_state(run_dir), "state": "queued"})
+        record.save_state(run_dir, {**record.read_state(run_dir), "state": "queued"})
         # the park itself: a conflict FAIL with rounds left waits on its upstream
         failed = self.receipt("20260922-1208-conflict", state="fail", verdict="FAIL",
                               error=None, merge_note=CONFLICT_NOTE,
@@ -280,12 +281,12 @@ class Parked(unittest.TestCase):
                 patch.object(run, "spawn_bg",
                              side_effect=AssertionError("parking launches nothing")):
             watch.resume_waiting(log=self.log, now=self.now)
-        state = run.read_state(failed)
+        state = record.read_state(failed)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["waiting_on"], {"ref": "origin/main", "sha": new})
         self.assertIn(f"parked {failed.name} waiting on origin/main at {new[:12]}",
                       self.logs)
-        run.save_state(failed, {**state, "state": "queued"})
+        record.save_state(failed, {**state, "state": "queued"})
         # ... while a conflict FAIL at its budget stays a FAIL for its owner
         spent = self.receipt("20260922-1209-spent", state="fail", verdict="FAIL",
                              error=None, merge_note=BUDGET_NOTE,
@@ -296,7 +297,7 @@ class Parked(unittest.TestCase):
                 patch.object(run, "spawn_bg",
                              side_effect=AssertionError("at budget: never resumed")):
             watch.resume_waiting(log=self.log, now=self.now)
-        self.assertEqual(run.read_state(spent)["state"], "fail")
+        self.assertEqual(record.read_state(spent)["state"], "fail")
 
     def test_parked_merge_wait_resumes_with_task_rounds_spent(self):
         old, new = "0" * 40, "1" * 40
@@ -313,9 +314,9 @@ class Parked(unittest.TestCase):
                                        round_summaries=[{"round": n, "verdict": "PASS",
                                                          "done_when": True, **identity}
                                                         for n in (1, 2, 3)])
-                lp = SimpleNamespace(state=run.read_state(run_dir), run_dir=run_dir,
+                lp = SimpleNamespace(state=record.read_state(run_dir), run_dir=run_dir,
                                      log=run.note_in(run_dir / "log.txt"),
-                                     write=lambda: run.save_state(run_dir, lp.state))
+                                     write=lambda: record.save_state(run_dir, lp.state))
                 run.park_waiting(lp, reason, "origin/main", old)
                 # the retry is scheduled, and status says when
                 with redirect_stdout(io.StringIO()) as out:
@@ -332,13 +333,13 @@ class Parked(unittest.TestCase):
                     spawn.assert_called_once()
                     self.assertEqual(spawn.call_args.args,
                                      (run_dir, ["resume", run_dir.name]))
-                waiting = run.read_state(run_dir)
+                waiting = record.read_state(run_dir)
                 self.assertEqual(waiting["state"], "waiting")
                 self.assertNotIn("--rounds", run.continue_line(waiting, run_dir))
                 with patch.object(run, "commit_identity", return_value=identity), \
                         patch.object(run, "drive", return_value=0):
                     self.assertEqual(run.cmd_resume([run_dir.name]), 0)
-                after = run.read_state(run_dir)
+                after = record.read_state(run_dir)
                 self.assertEqual(after["state"], "queued")
                 self.assertEqual(after["resume_from"], "waiting")
                 self.assertEqual(after["rounds"], 3)
@@ -358,7 +359,7 @@ class Parked(unittest.TestCase):
         with redirect_stdout(io.StringIO()) as out:
             self.assertEqual(run.cmd_status([run_dir.name]), 0)
         self.assertIn(f"{want} · {admission}", out.getvalue())
-        self.assertFalse(run.read_state(run_dir).get("recovery_acknowledged_at"))
+        self.assertFalse(record.read_state(run_dir).get("recovery_acknowledged_at"))
         with patch.object(run, "spawn_bg", return_value=0) as spawn:
             watch.resume_errored(log=self.log, now=at)
         spawn.assert_called_once()
@@ -389,7 +390,7 @@ class Parked(unittest.TestCase):
                                error="task.md: no `## Done when` section")
         (run_dir / "task.md").unlink()
         run.mark_state(run_dir, "error", "task.md: no `## Done when` section")
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertNotIn("error_retry_at", state)
         want = f"run {run_dir.name} parked: task.md: no `## Done when` section"
         with redirect_stdout(io.StringIO()) as out:
@@ -400,9 +401,9 @@ class Parked(unittest.TestCase):
         # ... and so does the seat that launched it: the word is needs you, the
         # reason names the run, because nobody else will take it up
         config.save_session(self.cfg, "seat", "astra", ["astra", "spark"])
-        run.save_state(run_dir, {**state, "launched_session": "seat"})
+        record.save_state(run_dir, {**state, "launched_session": "seat"})
         found = watch.session_state("seat", session={"name": "seat"}, cfg=self.cfg,
-                                    records=[(run_dir, run.read_state(run_dir))],
+                                    records=[(run_dir, record.read_state(run_dir))],
                                     live={})
         self.assertEqual(found["word"], "needs you")
         self.assertEqual(found["reason"], want)
@@ -410,7 +411,7 @@ class Parked(unittest.TestCase):
     def test_parked_settled_errors_do_not_override_the_seat(self):
         directory = self.receipt("20260923-0300-old-error", worktree=False,
                                   launched_session="seat")
-        original = run.read_state(directory)
+        original = record.read_state(directory)
         # Each guard stands alone: an acknowledged or handed-back error need not
         # age out before a current turn or a later done can speak for its seat.
         for reason, extra in (
@@ -476,10 +477,10 @@ class Parked(unittest.TestCase):
         due = self.receipt("20260922-1300-due", error_retry_at=self.now - 1,
                            error_retries=1)
         fresh = self.receipt("20260922-1301-fresh")
-        run.save_state(fresh, {**run.read_state(fresh), "error_retry_at": None})
+        record.save_state(fresh, {**record.read_state(fresh), "error_retry_at": None})
         gone = self.receipt("20260922-1302-gone", worktree=False,
                             error_retry_at=self.now - 1, error_retries=0)
-        run.save_state(gone, {**run.read_state(gone),
+        record.save_state(gone, {**record.read_state(gone),
                               "worktree": str(self.root / "nowhere")})
         waiter = self.receipt("20260922-1303-waiter", state="waiting", verdict="FAIL",
                               error=CONFLICT_NOTE, merge_note=CONFLICT_NOTE,
@@ -533,13 +534,13 @@ class Parked(unittest.TestCase):
                           side_effect=AssertionError("stuck is not dead")):
             watch.resume_exhausted(self.cfg, self.providers(), log=self.log, now=self.now)
         self.assertEqual(self.logs, [])
-        self.assertEqual(run.read_state(run_dir)["state"], "exhausted")
-        self.assertEqual(run.parked_line(run.read_state(run_dir), run_dir.name), "")
+        self.assertEqual(record.read_state(run_dir)["state"], "exhausted")
+        self.assertEqual(run.parked_line(record.read_state(run_dir), run_dir.name), "")
 
     def test_parked_scheduled_error_is_never_announced(self):
         owned = self.receipt("20260922-1307-quiet", error_retry_at=self.now + 300,
                              error_retries=1, launched_session="seat")
-        state = run.read_state(owned)
+        state = record.read_state(owned)
         self.assertFalse(run.owes_ending(state))
         with patch.object(run, "hand_back",
                           side_effect=AssertionError("nothing to hand back")):
@@ -547,9 +548,9 @@ class Parked(unittest.TestCase):
         # ... while an error with no scheduled retry still owes its telling
         bare = self.receipt("20260922-1308-told", worktree=False,
                             launched_session="seat")
-        run.save_state(bare, {**run.read_state(bare),
+        record.save_state(bare, {**record.read_state(bare),
                               "worktree": str(self.root / "nowhere")})
-        self.assertTrue(run.owes_ending(run.read_state(bare)))
+        self.assertTrue(run.owes_ending(record.read_state(bare)))
 
     def test_parked_old_conflict_fail_is_never_parked(self):
         old = self.receipt("20260922-1309-old", state="fail", verdict="FAIL",
@@ -562,7 +563,7 @@ class Parked(unittest.TestCase):
                 patch.object(run, "spawn_bg",
                              side_effect=AssertionError("never parked, never resumed")):
             watch.resume_waiting(log=self.log, now=self.now)
-        self.assertEqual(run.read_state(old)["state"], "fail")
+        self.assertEqual(record.read_state(old)["state"], "fail")
 
     def test_parked_looked_at_conflict_fail_is_not_parked(self):
         self.assert_conflict_left_alone(recovery_acknowledged_at=self.now - 10)
@@ -614,11 +615,11 @@ class Parked(unittest.TestCase):
                 with self.subTest(extra=extra, stamped=stamped):
                     directory = self.receipt(f"20260923-1201-error-{n}-{stamped}", **extra)
                     if stamped:
-                        run.save_state(directory, {**run.read_state(directory),
+                        record.save_state(directory, {**record.read_state(directory),
                                                    "error_retry_at": self.now - 1,
                                                    "error_retries": 2})
                     before = (directory / "run.json").read_bytes()
-                    original = run.read_state(directory)
+                    original = record.read_state(directory)
                     self.assertFalse(run.going(original))
                     self.assertEqual(menu.run_state_word(original), "needs you")
                     self.assertIn(f"run {directory.name} parked:",
@@ -632,7 +633,7 @@ class Parked(unittest.TestCase):
                         watch.resume_errored(log=self.log, now=self.now)
                     for key in ("error_retry_at", "error_retries"):
                         original.pop(key, None)
-                    self.assertEqual(run.read_state(directory), original)
+                    self.assertEqual(record.read_state(directory), original)
                     self.assertEqual(len(self.logs), 2 if stamped else 0)
                     if stamped:
                         self.assertIn("parked for a person", self.logs[-1])
@@ -651,7 +652,7 @@ class Parked(unittest.TestCase):
                 directory = self.receipt(f"20260923-1210-born-{n}",
                                          error_retry_at=self.now - 1, error_retries=2, **extra)
                 run.mark_state(directory, "error", "transport failed")
-                state = run.read_state(directory)
+                state = record.read_state(directory)
                 self.assertNotIn("error_retry_at", state)
                 self.assertNotIn("error_retries", state)
                 self.assertFalse(run.going(state))
@@ -663,7 +664,7 @@ class Parked(unittest.TestCase):
         directory = self.receipt("20260923-1211-ack", error_retry_at=self.now - 1,
                                  error_retries=2)
         run.acknowledge(directory)
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertTrue(state["recovery_acknowledged_at"])
         self.assertNotIn("error_retry_at", state)
         self.assertNotIn("error_retries", state)
@@ -697,7 +698,7 @@ class Parked(unittest.TestCase):
                     watch.resume_waiting(log=self.log, now=self.now)
                 self.assertEqual((directory / "run.json").read_bytes(), before)
                 self.assertEqual(self.logs, [])
-                state = run.read_state(directory)
+                state = record.read_state(directory)
                 self.assertFalse(run.going(state))
                 self.assertEqual(menu.run_state_word(state), "done")
                 self.assertFalse(menu.v5o_needs_look(state, now=self.now))
@@ -708,13 +709,13 @@ class Parked(unittest.TestCase):
         directory = self.receipt("20260923-1215-history", state="waiting",
                                  error=CONFLICT_NOTE, merge_note=CONFLICT_NOTE,
                                  waiting_on={"ref": "origin/main", "sha": "0" * 40})
-        original = run.read_state(directory)
+        original = record.read_state(directory)
         for extra in ({"finished_at": self.now - 25 * 3600},
                       {"handed_back": self.now - 30}, {"recovery_notified": "discord"},
                       {"recovery_acknowledged_at": self.now - 30},
                       {"launched_session": None}, {"launched_session": "gone"}):
             state = {**original, **extra}
-            run.save_state(directory, state)
+            record.save_state(directory, state)
             records = [(directory, state)]
             for index in (None, run.supersession_index(records)):
                 for word, live, notice in (
@@ -762,7 +763,7 @@ class Parked(unittest.TestCase):
         (ak / "runs").symlink_to(config.RUNS, target_is_directory=True)
         (ak / "state").symlink_to(config.STATE, target_is_directory=True)
         directory = self.receipt("20260923-1216-hook", error_retry_at=self.now + 60)
-        original = run.read_state(directory)
+        original = record.read_state(directory)
         payload = json.dumps({"last_assistant_message": "I will carry on later."})
         for word in ("error", "waiting"):
             for extra in ({}, {"finished_at": self.now - 25 * 3600},
@@ -771,7 +772,7 @@ class Parked(unittest.TestCase):
                           {"launched_session": None}, {"launched_session": "gone"}):
                 with self.subTest(word=word, extra=extra):
                     state = {**original, "state": word, **extra}
-                    run.save_state(directory, state)
+                    record.save_state(directory, state)
                     # Even a run launched during this turn cannot justify a stop
                     # once its retry was rejected.
                     (config.STATE / "stop-seat.json").write_text(json.dumps(
@@ -791,7 +792,7 @@ class Parked(unittest.TestCase):
                                  waiting_on={"ref": "origin/main", "sha": "0" * 40})
 
         def fetch(*_args):
-            run.save_state(directory, {**run.read_state(directory),
+            record.save_state(directory, {**record.read_state(directory),
                                        "handed_back": self.now})
             return "1" * 40
 
@@ -799,7 +800,7 @@ class Parked(unittest.TestCase):
                 patch.object(run, "spawn_bg",
                              side_effect=AssertionError("handed back during fetch")):
             watch.resume_waiting(log=self.log, now=self.now)
-        self.assertNotIn("waiting_resume_at", run.read_state(directory))
+        self.assertNotIn("waiting_resume_at", record.read_state(directory))
         self.assertEqual(self.logs, [])
 
     def test_parked_stale_schedules_do_not_keep_seats_working_or_history_listed(self):
@@ -808,7 +809,7 @@ class Parked(unittest.TestCase):
                 directory = self.receipt(f"20260923-1214-stale-{word}", state=word,
                                          finished_at=self.now - 86401,
                                          error_retry_at=self.now - 1, error_retries=2)
-                state = run.read_state(directory)
+                state = record.read_state(directory)
                 found = watch.session_state(
                     "seat", self.now, session={"name": "seat"}, cfg=self.cfg,
                     records=[(directory, state)], live={}, auth_out={}, gh_out={},
@@ -818,7 +819,7 @@ class Parked(unittest.TestCase):
                                  if word == "error" else f"run {directory.name} waits to "
                                  f"merge: {run.handback_reason(state)}")
                 self.assertEqual(menu.v5o_needs_look(state, now=self.now), word == "error")
-                run.save_state(directory, {**state, "finished_at": self.now - gc.GC_AGE - 1})
+                record.save_state(directory, {**state, "finished_at": self.now - gc.GC_AGE - 1})
                 with redirect_stdout(io.StringIO()) as out:
                     self.assertEqual(run.cmd_status([]), 0)
                 self.assertNotIn(directory.name, out.getvalue())
@@ -827,8 +828,8 @@ class Parked(unittest.TestCase):
                 self.assertIn(f"run {directory.name} parked:", out.getvalue())
                 self.assertNotIn("retry due", out.getvalue())
                 if word == "error":
-                    self.assertNotIn("error_retry_at", run.read_state(directory))
-                    self.assertNotIn("error_retries", run.read_state(directory))
+                    self.assertNotIn("error_retry_at", record.read_state(directory))
+                    self.assertNotIn("error_retries", record.read_state(directory))
 
     def test_parked_recent_conflict_from_renamed_session_still_parks(self):
         directory = self.receipt("20260923-1202-renamed", state="fail", verdict="FAIL",
@@ -839,7 +840,7 @@ class Parked(unittest.TestCase):
         config.rename_session("seat", "renamed")
         with patch.object(run, "upstream_sha", return_value="1" * 40):
             watch.resume_waiting(log=self.log, now=self.now)
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual(state["state"], "waiting")
         self.assertNotIn("handback_pending", state)
         self.assertIn("session renamed exists", run.parked_line(state, now=self.now))
@@ -870,7 +871,7 @@ class Parked(unittest.TestCase):
                                          waiting_on={"ref": "origin/main", "sha": "0" * 40})
 
                 def resume(d, args, expected=None, park_as=False):
-                    self.assertEqual(run.read_state(d), expected)
+                    self.assertEqual(record.read_state(d), expected)
                     return run.cmd_resume(args[1:])
 
                 with patch.object(run, "spawn_bg", side_effect=resume), \
@@ -886,7 +887,7 @@ class Parked(unittest.TestCase):
                         watch.resume_errored(log=self.log, now=self.now)
                     else:
                         watch.resume_waiting(log=self.log, now=self.now)
-                after = run.read_state(directory)
+                after = record.read_state(directory)
                 self.assertEqual(after["state"], "running")
                 self.assertEqual((after["executor"], after["reviewer"]), ("astra", "spark"))
                 self.assertEqual(run.run_workers(self.cfg, after), ["astra", "spark"])
@@ -907,7 +908,7 @@ class Parked(unittest.TestCase):
         with patch.object(run, "commit_identity", return_value={}), \
                 patch.object(run, "drive", return_value=0):
             self.assertEqual(run.cmd_resume([waiter.name]), 0)
-        after = run.read_state(waiter)
+        after = record.read_state(waiter)
         self.assertFalse(after["merge_failed"])
         self.assertIsNone(after["merge_note"])
         self.assertNotIn("review_pending", after)
@@ -929,7 +930,7 @@ class Parked(unittest.TestCase):
             self.assertEqual(run.cmd_stop([run_dir.name]), 0)
             self.assertEqual(run.cmd_stop([waiter.name]), 0)
         for d in (run_dir, waiter):
-            after = run.read_state(d)
+            after = record.read_state(d)
             self.assertEqual(after["state"], "stopped")
             for key in ("error_retry_at", "error_retries", "waiting_on",
                         "waiting_resume_at", "resume_after"):

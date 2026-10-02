@@ -20,6 +20,7 @@ from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
 from agentkit import config, menu, notify, orch, run, terminal, watch, worker
+from agentkit import record
 
 NOW = 1_800_000_000
 SEAT = "fix-api"
@@ -99,7 +100,7 @@ class UnsentDraft(Sandbox):
         """A run of this seat's own, going, as `ak run` leaves its record."""
         directory = config.RUNS / name
         directory.mkdir(parents=True, exist_ok=True)
-        run.save_state(directory, {
+        record.save_state(directory, {
             "run_id": name, "title": f"Task {name}", "state": "running",
             "launched_session": SEAT, "reported": False, "repo": self.repo,
             "executor": "opus", "reviewer": "astra", "rounds": 2, "round_summaries": [],

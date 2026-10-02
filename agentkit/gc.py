@@ -16,7 +16,7 @@ import subprocess
 import sys
 import time
 
-from . import config, job as jobs, orch, proc_snapshot, retention, run
+from . import config, host, job as jobs, orch, proc_snapshot, record, retention, run
 from .harness import load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
@@ -117,7 +117,7 @@ def compact_stamp_stale(path, now):
     tools/idle-compact.py removes its own on the way out; one killed outright cannot.
     """
     pid, ext = compact_pid(path), path.name.rpartition(".")[2]
-    return (ext == "json" and pid.isdigit() and not run.alive(int(pid)) and retention.safe(path)
+    return (ext == "json" and pid.isdigit() and not host.alive(int(pid)) and retention.safe(path)
             and path.is_file()
             and retention.expired(path.lstat().st_mtime, now, retention.EPHEMERAL_AGE))
 
@@ -371,7 +371,7 @@ def stale_worktree(wt, now, paths, left):
         return None
     directory = config.RUNS / wt.name
     if not retention.present(directory / "run.json"):
-        if (not retention.present(directory / "run.tmp") and not retention.busy(directory, paths)
+        if (not record.writing(directory) and not retention.busy(directory, paths)
                 and retention.expired(wt.lstat().st_mtime, now, retention.EPHEMERAL_AGE)):
             return {"action": "remove", "kind": "orphan-worktree", "path": str(wt),
                     "why": "no run record"}
@@ -383,7 +383,7 @@ def stale_worktree(wt, now, paths, left):
             and (state.get("merge_note") or state.get("no_merge"))
             and not state.get("scratch") and run.provably_final(state)
             and retention.expired(finished, now, GC_AGE)
-            and not retention.present(directory / "run.tmp")):
+            and not record.writing(directory)):
         return {"action": "remove", "kind": "unmerged-worktree", "path": str(wt),
                 "why": f"passed, never merged, ended {int((now - finished) // 86400)} days ago"}
     return None
@@ -516,7 +516,7 @@ def gc_candidates(now=None):
                 and not state.get("notification_pending") and not state.get("pending_inbox")
                 and not state.get("handback_pending")
                 and not retention.writer_active(state) and not retention.busy(directory, paths)
-                and not retention.present(directory / "run.tmp")
+                and not record.writing(directory)
                 and retention.safe(directory)):
             yield {"action": "remove", "kind": "throwaway-run", "path": str(directory),
                    "run": str(directory), "throwaway": True,
@@ -529,7 +529,7 @@ def gc_candidates(now=None):
         if (state and state.get("run_id") == directory.name and run.provably_final(state)
                 and run_aged_out(directory, state, now)
                 and not retention.writer_active(state) and not retention.busy(directory, paths)
-                and not retention.present(directory / "run.tmp") and retention.safe(directory)):
+                and not record.writing(directory) and retention.safe(directory)):
             try:
                 owner = run.launched_session(state)
             except config.Error:
@@ -551,7 +551,7 @@ def gc_candidates(now=None):
                 and state.get("state") in ("fail", "error", "blocked", "stopped")
                 and run.provably_final(state)
                 and not retention.writer_active(state) and not retention.busy(directory, paths)
-                and not retention.present(directory / "run.tmp")
+                and not record.writing(directory)
                 and (retention.expired(finished, now, GC_AGE)
                      or (run.already_handed_back(state)
                          and not run.resume_holds_tree(state, directory)))
@@ -566,7 +566,7 @@ def gc_candidates(now=None):
                 or state.get("notification_pending") or state.get("pending_inbox")
                 or state.get("handback_pending")
                 or retention.writer_active(state) or retention.busy(directory, paths)
-                or retention.present(directory / "run.tmp") or not collectible_worktree(directory, state)):
+                or record.writing(directory) or not collectible_worktree(directory, state)):
             continue
         wt = Path(state["worktree"])
         if retention.busy(wt, paths):
@@ -693,13 +693,13 @@ def gc(report, automatic=False):
                         # A resume commits under the run's recovery lock: it lands before
                         # the second look, and the tree stays, or finds the tree gone.
                         directory = config.RUNS / path.name
-                        recovery = directory / "recovery.lock"
+                        recovery = directory / record.RECOVERY_LOCK
                         if retention.present(directory) and (
                                 not retention.safe(directory) or recovery.is_symlink()
                                 or (recovery.exists() and not retention.safe(recovery))):
                             continue
                         paths = retention.process_paths()   # before our own lock is open
-                        with (run.recovery_lock(directory) if retention.present(directory)
+                        with (record.recovery_lock(directory) if retention.present(directory)
                               else nullcontext()):
                             if not stale_worktree(path, time.time(), paths, leftovers()):
                                 continue
@@ -733,12 +733,12 @@ def gc(report, automatic=False):
                         continue
                     elif item.get("throwaway") or item.get("whole"):
                         directory = Path(item["run"])
-                        recovery = directory / "recovery.lock"
+                        recovery = directory / record.RECOVERY_LOCK
                         if (not retention.safe(directory) or recovery.is_symlink()
                                 or (recovery.exists() and not retention.safe(recovery))):
                             continue
                         paths = retention.process_paths()
-                        with run.recovery_lock(directory):
+                        with record.recovery_lock(directory):
                             state = retention.read_json(directory / "run.json")
                             # A provably final run does not wait for a second look at
                             # its fingerprint. A run that has since resumed still does.
@@ -778,7 +778,7 @@ def gc(report, automatic=False):
                         if not retention.safe(directory):
                             continue
                         paths = retention.process_paths()
-                        with run.recovery_lock(directory):
+                        with record.recovery_lock(directory):
                             job = jobs.read_job_safely(directory)
                             tasks = (job or {}).get("tasks")
                             if (jobs.job_fingerprint(directory) != item["state_identity"]
@@ -792,10 +792,10 @@ def gc(report, automatic=False):
                     else:
                         directory = Path(item["run"])
                         paths = retention.process_paths()
-                        recovery = directory / "recovery.lock"
+                        recovery = directory / record.RECOVERY_LOCK
                         if recovery.is_symlink() or (recovery.exists() and not retention.safe(recovery)):
                             continue
-                        with run.recovery_lock(directory):
+                        with record.recovery_lock(directory):
                             state = retention.read_json(directory / "run.json")
                             # Final and the loop gone: do not wait for the fingerprint
                             # taken while planning. Anything that has started again stays.
@@ -864,7 +864,7 @@ def sweep_plan(now=None):
         state = retention.read_json(directory / "run.json")
         if (not state or state.get("run_id") != directory.name or state.get("scratch")
                 or state.get("state") != "pass" or not state.get("merged")
-                or not run.provably_final(state) or retention.present(directory / "run.tmp")):
+                or not run.provably_final(state) or record.writing(directory)):
             continue
         repo, worktree = state.get("repo"), state.get("worktree")
         if (not isinstance(repo, str) or not repo or not isinstance(worktree, str)

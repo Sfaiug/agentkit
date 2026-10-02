@@ -30,6 +30,7 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from test_v4n import Sandbox
 from agentkit import config, menu, orch, run, terminal, watch
+from agentkit import record as run_record
 from agentkit.harness import codex as codex_plugin
 
 CONVERSATION = "d6fae368-678c-444e-8032-9c5c5338c84e"
@@ -103,11 +104,11 @@ class Switch(Sandbox):
         config.plan_path("fix-api").write_text("- [ ] Finish the endpoint\n")
         going = config.RUNS / "going"
         going.mkdir()
-        run.save_state(going, {"run_id": "going", "state": "running",
+        run_record.save_state(going, {"run_id": "going", "state": "running",
                                "launched_session": "fix-api"})
         ended = config.RUNS / "ended"
         ended.mkdir()
-        run.save_state(ended, {"run_id": "ended", "state": "pass", "verdict": "PASS",
+        run_record.save_state(ended, {"run_id": "ended", "state": "pass", "verdict": "PASS",
                                "launched_session": "fix-api", "reported": False,
                                "finished_at": 9990})
 
@@ -127,8 +128,8 @@ class Switch(Sandbox):
     def test_switch_moves_the_seat_at_once_and_keeps_runs_plan_and_record(self):
         before = config.load_session(self.cfg, "fix-api")
         plan = config.plan_path("fix-api").read_bytes()
-        going = run.read_state(config.RUNS / "going")
-        ended = run.read_state(config.RUNS / "ended")
+        going = run_record.read_state(config.RUNS / "going")
+        ended = run_record.read_state(config.RUNS / "ended")
         state = watch.load_state()
         state["stalls"]["fix-api"] = {"status": "waiting"}
         watch.save_state(state)
@@ -143,8 +144,8 @@ class Switch(Sandbox):
         for key in ("workers", "reviewers", "cwd", "created"):
             self.assertEqual(after[key], before[key])
         self.assertEqual(config.plan_path("fix-api").read_bytes(), plan)
-        self.assertEqual(run.read_state(config.RUNS / "going"), going)
-        self.assertEqual(run.read_state(config.RUNS / "ended"), ended)
+        self.assertEqual(run_record.read_state(config.RUNS / "going"), going)
+        self.assertEqual(run_record.read_state(config.RUNS / "ended"), ended)
         self.assertNotIn("fix-api", watch.load_state()["stalls"])
         respawns = [args for args in self.calls if args[0] == "respawn-pane"]
         self.assertEqual(len(respawns), 1)
@@ -253,19 +254,19 @@ class Switch(Sandbox):
         self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}),
                          "")
         run_dir = config.RUNS / "going"
-        state = run.read_state(run_dir)
-        run.save_state(run_dir, {**state, "state": "pass", "verdict": "PASS",
+        state = run_record.read_state(run_dir)
+        run_record.save_state(run_dir, {**state, "state": "pass", "verdict": "PASS",
                                  "finished_at": 10000})
         told = []
         with patch.object(watch, "type_at_prompt",
                           side_effect=lambda seat, line, *a, **k: told.append(
                               (seat["name"], line)) or True):
-            run.announce(run.read_state(run_dir), run_dir, lambda _: None, cfg=self.cfg)
+            run.announce(run_record.read_state(run_dir), run_dir, lambda _: None, cfg=self.cfg)
         self.assertEqual(len(told), 1)
         self.assertEqual(told[0][0], "fix-api")
         self.assertIn("going", told[0][1])
         self.assertEqual(config.load_session(self.cfg, "fix-api")["orchestrator"], "astra")
-        self.assertTrue(run.read_state(run_dir)["handed_back"])
+        self.assertTrue(run_record.read_state(run_dir)["handed_back"])
 
     def test_a_codex_seat_moved_on_drops_its_launch_receipt(self):
         path = self.fixture / "rollout.jsonl"

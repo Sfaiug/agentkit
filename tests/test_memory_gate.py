@@ -10,6 +10,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, run  # noqa: E402
+from agentkit import record
 
 
 def gb(n):
@@ -118,7 +119,7 @@ class MemoryGate(unittest.TestCase):
                                      "AK_MAX_LOAD": "8"}), \
                 patch.object(run, "slot_counts", return_value=(0, 0)), \
                 patch.object(run, "frozen_runs", return_value=0), \
-                patch.object(run, "process_owner", return_value={"pid": 1}), \
+                patch.object(record, "process_owner", return_value={"pid": 1}), \
                 patch.object(host, "host_readings", return_value=readings):
             self.assertFalse(run.claim_slot(state, 1))
         self.assertEqual(state["slot_wait_kind"], "unit memory")

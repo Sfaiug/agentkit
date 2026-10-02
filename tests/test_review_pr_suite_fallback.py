@@ -17,6 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from agentkit import config, gc, run, worker
+from agentkit import record as run_record
 
 SUITE = "test -f AGENTS.md"
 
@@ -106,7 +107,7 @@ class ReviewPrSuiteFallback(unittest.TestCase):
         self.assertTrue(self.reviews)
         self.assertIn("nothing was run", self.reviews[-1])
         # nothing ran, so nothing passed: the record and the report say so, and the PASS stands
-        state = run.read_state(config.RUNS / "pr-review")
+        state = run_record.read_state(config.RUNS / "pr-review")
         self.assertIsNone(state["round_summaries"][-1]["done_when"])
         self.assertIsNone(state["review"]["done_when"])
         self.assertTrue(run.review_pass(state, self.cfg))

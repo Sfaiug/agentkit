@@ -17,6 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, job as jobs, notify, orch, run
+from agentkit import record
 
 URL = "https://github.com/acme/widget/pull"
 
@@ -157,8 +158,8 @@ class AfterFromPass(unittest.TestCase):
         self.merges.append(branch)
 
     def run_of(self, title):
-        for directory in run.run_dirs():
-            state = run.read_state(directory) or {}
+        for directory in record.run_dirs():
+            state = record.read_state(directory) or {}
             if state.get("title") == title:
                 return directory, state
         return None, {}
@@ -293,7 +294,7 @@ class AfterFromPass(unittest.TestCase):
                 # the tick's retry after the next merge to main lands it
                 directory, alpha = self.run_of("Alpha widget")
                 self.squash(alpha["branch"])
-                run.save_state(directory, {**alpha, "state": "pass", "merged": True, "pid": None})
+                record.save_state(directory, {**alpha, "state": "pass", "merged": True, "pid": None})
             finally:
                 thread.join(timeout=120)
         self.assertFalse(thread.is_alive())

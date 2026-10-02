@@ -20,6 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, run, worker
+from agentkit import record
 
 
 def commit(cwd, name, message):
@@ -64,7 +65,7 @@ def make_run(root, remote, name, cmds):
 
     state = {
         "run_id": run_dir.name, "title": name, "state": "running", "verdict": "PASS",
-        **run.process_owner(), "started_at": time.time(),
+        **record.process_owner(), "started_at": time.time(),
         "review": {"executor": "opus", "executor_provider": executor_provider,
                    "reviewer": "astra", "reviewer_provider": reviewer_provider,
                    "returncode": 0, "verdict": "PASS", "done_when": True,
@@ -77,7 +78,7 @@ def make_run(root, remote, name, cmds):
         "merge_method": "squash", "merged": False, "merge_failed": False,
         "merge_note": None, "findings": "",
     }
-    run.save_state(run_dir, state)
+    record.save_state(run_dir, state)
     return run.Loop(cfg, run_dir, state, {}, log, wt, "body", cmds, "context", [])
 
 
@@ -149,7 +150,7 @@ class LandTipAtTurn(unittest.TestCase):
             # the light check runs free while the heavy turn is held
             self.until(lambda: "every " in self.counter.read_text(),
                        "the light check to run without a turn")
-            self.until(lambda: (run.read_state(lp.run_dir) or {}).get("gate_turn"),
+            self.until(lambda: (record.read_state(lp.run_dir) or {}).get("gate_turn"),
                        "the heavy suite to mark its wait")
             # A disjoint target move still changes the commit the suite must check.
             commit(owner, "tip.txt", "tip-two")
@@ -207,10 +208,10 @@ class LandTipAtTurn(unittest.TestCase):
         # the saved review covers the branch head, so the lap reaches the rebase itself
         head = run.git(lp.wt, "rev-parse", "HEAD")
         tree = run.git(lp.wt, "rev-parse", "HEAD^{tree}")
-        state = run.read_state(lp.run_dir)
+        state = record.read_state(lp.run_dir)
         state["review"].update(head_sha=head, tree_sha=tree)
         state["round_summaries"][-1].update(head_sha=head, tree_sha=tree)
-        run.save_state(lp.run_dir, state)
+        record.save_state(lp.run_dir, state)
         lp.state = state
         repo = run.main_checkout(lp.state["repo"])
         seen = {}
@@ -238,7 +239,7 @@ class LandTipAtTurn(unittest.TestCase):
         self.assertEqual(seen.get("conflicted"), ["shared.txt"])
         self.assertIsNone(seen.get("held"))
         self.assertTrue(seen.get("free"))
-        state = run.read_state(lp.run_dir)
+        state = record.read_state(lp.run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertIn("did not finish", state["merge_note"])
 

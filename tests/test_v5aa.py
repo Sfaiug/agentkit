@@ -19,6 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting, scripted
 from agentkit import host, config, run
+from agentkit import record
 
 
 def make_repos(root):
@@ -76,7 +77,7 @@ def make_loop(root, wt, rounds=3):
         "merge_method": "squash", "merged": False, "merge_failed": False,
         "merge_note": None,
     }
-    run.save_state(run_dir, state)
+    record.save_state(run_dir, state)
     lp = run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context", [])
     lp.round_dir.mkdir(parents=True, exist_ok=True)
     return lp, run_dir, lines
@@ -190,7 +191,7 @@ class V5aa(unittest.TestCase):
         self.assertTrue(run.integrated(wt, tip1))
         # every lap saved the pinned commit it rebased onto, never the moving name
         self.assertEqual(saved, [tip0, tip1])
-        self.assertEqual(run.read_state(run_dir)["base_sha"], tip1)
+        self.assertEqual(record.read_state(run_dir)["base_sha"], tip1)
 
     def test_v5aa_conflict_fixer_finished_means_second_rebase_not_abort_words(self):
         _, owner, wt = make_repos(self.root)
@@ -238,7 +239,7 @@ class V5aa(unittest.TestCase):
         self.assertIn(f"rebasing ak/test onto origin/main ({tip2[:12]})", text)
         self.assertTrue(run.integrated(wt, tip2))
         self.assertEqual(saved, [tip1, tip2])
-        self.assertEqual(run.read_state(run_dir)["base_sha"], tip2)
+        self.assertEqual(record.read_state(run_dir)["base_sha"], tip2)
 
     def test_v5aa_unfinished_fixer_aborts_and_records_none(self):
         _, owner, wt = make_repos(self.root)
@@ -262,7 +263,7 @@ class V5aa(unittest.TestCase):
         self.assertIn("did not finish", text)
         # three conflict rounds work the stopped rebase; none of them is a task round
         self.assertEqual(calls, ["rebase-fixer"] * 3)
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         # a conflict is the world moving, never a verdict on the work: the run parks
         # `waiting` with the reason rather than ending FAIL, and records no round for it
         self.assertEqual(state["state"], "waiting")
@@ -299,7 +300,7 @@ class V5aa(unittest.TestCase):
         with patch.object(run, "git_out", side_effect=hooked), \
                 patch.object(run, "set_base", side_effect=record_set_base):
             self.assertFalse(run.integrate(lp, "origin/main"))
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         text = self.log_text(run_dir)
         self.assertIn("moved three times", text)
         self.assertIn("moved three times", state["merge_note"])
@@ -310,9 +311,9 @@ class V5aa(unittest.TestCase):
         self.assertEqual(text.count("rebasing ak/test onto origin/main"), 3)
         self.assertEqual(saved, tips[:3])
         state["state"] = "fail"
-        run.save_state(run_dir, state)
-        self.assertTrue(run.failed_in_integration(run.read_state(run_dir), run_dir))
-        self.assertEqual(run.continue_line(run.read_state(run_dir), run_dir),
+        record.save_state(run_dir, state)
+        self.assertTrue(run.failed_in_integration(record.read_state(run_dir), run_dir))
+        self.assertEqual(run.continue_line(record.read_state(run_dir), run_dir),
                          "continue: ak run resume v5aa-test")
 
     def test_v5aa_integration_fail_below_budget_resumes_at_integration(self):
@@ -374,11 +375,11 @@ class V5aa(unittest.TestCase):
                 "merge_note": "the fixer did not finish the rebase of origin/main; "
                               "it was aborted",
             }
-            run.save_state(run_dir, state)
+            record.save_state(run_dir, state)
             (run_dir / "log.txt").write_text(
                 "[00:00:00] ERROR not merged: the fixer did not finish the rebase "
                 "of origin/main; it was aborted\n")
-            self.assertTrue(run.failed_in_integration(run.read_state(run_dir), run_dir))
+            self.assertTrue(run.failed_in_integration(record.read_state(run_dir), run_dir))
             out = io.StringIO()
             with redirect_stdout(out):
                 self.assertEqual(run.cmd_status([run_dir.name]), 0)
@@ -412,7 +413,7 @@ class V5aa(unittest.TestCase):
                     mock_patch.object(run, "execute", side_effect=no_execute):
                 self.assertEqual(run.cmd_resume([run_dir.name]), 0)
             self.assertEqual(calls, [])
-            after = run.read_state(run_dir)
+            after = record.read_state(run_dir)
             self.assertEqual((after["state"], after["verdict"]), ("pass", "PASS"))
             self.assertTrue(after["merged"])
             # v5ac: the race HEAD is verified in round 3; the lap onto the moved tip
@@ -481,7 +482,7 @@ class V5aa(unittest.TestCase):
                 "merge_note": "origin/main moved three times during integration; "
                               "resume to try again",
             }
-            run.save_state(run_dir, state)
+            record.save_state(run_dir, state)
             (run_dir / "log.txt").write_text(
                 "[00:00:00] WARN not merged: origin/main moved three times during "
                 "integration; resume to try again\n")
@@ -517,7 +518,7 @@ class V5aa(unittest.TestCase):
                     mock_patch.object(run, "execute", side_effect=no_execute):
                 self.assertEqual(run.cmd_resume([run_dir.name, "--rounds", "3"]), 0)
             self.assertEqual(calls, [])
-            after = run.read_state(run_dir)
+            after = record.read_state(run_dir)
             self.assertEqual((after["state"], after["verdict"], after["rounds"]),
                              ("pass", "PASS", 3))
             self.assertTrue(after["merged"])
@@ -559,15 +560,15 @@ class V5aa(unittest.TestCase):
                 "merge_note": "done-when or review after the rebase of origin/main "
                               "did not pass",
             }
-            run.save_state(run_dir, state)
+            record.save_state(run_dir, state)
             (run_dir / "log.txt").write_text(
                 "[00:00:00] WARN not merged: done-when or review after the rebase "
                 "of origin/main did not pass\n")
             # the reviewer judged the tree: a fixer round on its findings, not an
             # integration resume with no executor turn (v5aj)
-            self.assertFalse(run.failed_in_integration(run.read_state(run_dir), run_dir))
-            self.assertTrue(run.judged_in_integration(run.read_state(run_dir), run_dir))
-            self.assertEqual(run.continue_line(run.read_state(run_dir), run_dir),
+            self.assertFalse(run.failed_in_integration(record.read_state(run_dir), run_dir))
+            self.assertTrue(run.judged_in_integration(record.read_state(run_dir), run_dir))
+            self.assertEqual(run.continue_line(record.read_state(run_dir), run_dir),
                              f"continue: ak run resume {run_dir.name}")
 
     def test_v5aa_base_sha_is_the_pinned_commit_not_the_moving_name(self):
@@ -598,7 +599,7 @@ class V5aa(unittest.TestCase):
         with patch.object(run, "git_out", side_effect=hooked), \
                 patch.object(run, "set_base", side_effect=record_set_base):
             self.assertTrue(run.integrate(lp, "origin/main"))
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         tip1 = run.git(wt, "rev-parse", "origin/main^{commit}")
         self.assertNotEqual(tip0, tip1)
         self.assertEqual(saved, [tip0, tip1])

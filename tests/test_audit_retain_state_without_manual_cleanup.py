@@ -25,6 +25,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, gc, menu, notify, orch, retention, run, update, watch
+from agentkit import record as run_record
 
 DAY = 86400
 
@@ -145,7 +146,7 @@ if not review:
                   "started_at": self.now - age - 300, "finished_at": self.now - age,
                   "pid": 99999999, "reported": True, "launched_session": None,
                   "executor": self.executor, "reviewer": self.reviewer, **extra}
-        run.save_state(directory, record)
+        run_record.save_state(directory, record)
         (directory / "result.md").write_text("result and delivery location\n")
         (directory / "task.md").write_text("task\n")
         (directory / "log.txt").write_text("diagnostics\n" * 1000)
@@ -219,16 +220,16 @@ if not review:
         interrupted, _ = self.receipt("03-interrupted", state="interrupted", merged=False,
                                       finished_at=None, interrupted_at=self.now - 20 * DAY)
         active, _ = self.receipt("04-active", state="running", merged=False,
-                                 finished_at=None, **run.process_owner())
+                                 finished_at=None, **run_record.process_owner())
         recent, recent_wt = self.receipt("05-recent", age=60)
         unmerged, _ = self.receipt("06-unmerged", merged=False)
         scratch, scratch_wt = self.receipt("07-scratch", scratch=True, repo=None, merged=False)
         work = config.WORK / scratch.name
         work.mkdir()
         (work / "deliverable").write_text("cannot reconstruct this")
-        record = run.read_state(scratch)
+        record = run_record.read_state(scratch)
         record["worktree"] = str(work)
-        run.save_state(scratch, record)
+        run_record.save_state(scratch, record)
         old_smoke = self.ephemeral("smoke-old")
         old_view = self.ephemeral("view-old.txt", "viewer")
         old_update = self.ephemeral("update-old.log", "update")
@@ -236,7 +237,7 @@ if not review:
         # A dead interrupted writer is tmp like any other: a day, not a month.
         interrupted_tmp = self.ephemeral("smoke-interrupted", finished=False)
         abandoned = self.ephemeral("smoke-abandoned", age=31 * DAY, finished=False)
-        live = self.ephemeral("view-live.txt", "viewer", **run.process_owner())
+        live = self.ephemeral("view-live.txt", "viewer", **run_record.process_owner())
         foreign = config.TMP / "smoke-foreign"
         foreign.mkdir()
         (foreign / "keep").write_text("a name is not ownership")
@@ -288,7 +289,7 @@ if not review:
         history = json.loads(self.capture(run.cmd_status, ["--history", "--json"]))
         self.assertIn(failed.name, {s["run_id"] for s in history})
         old = next(s for s in history if s["run_id"] == merged.name)
-        self.assertEqual({k: old[k] for k in run.read_state(merged)}, run.read_state(merged))
+        self.assertEqual({k: old[k] for k in run_record.read_state(merged)}, run_record.read_state(merged))
         self.assertEqual(old["paths"]["result"], str(merged / "result.md"))
         self.assertFalse(old["paths"]["workspace_present"])
         self.assertIn(str(merged / "result.md"), self.capture(run.cmd_status, [merged.name]))
@@ -312,9 +313,9 @@ if not review:
         self.git(extra_wt, "add", ".")
         self.git(extra_wt, "commit", "-qm", "unique work")
         foreign, _ = self.receipt("foreign-path")
-        state = run.read_state(foreign)
+        state = run_record.read_state(foreign)
         state["worktree"] = str(self.repo)
-        run.save_state(foreign, state)
+        run_record.save_state(foreign, state)
         # Merged checkouts go without waiting out the week, and tmp older than a day goes,
         # pressure or not. A failed checkout of twenty days goes; unique and unmerged work stays.
         expected = {str(old_wt), str(old / "log.txt"), str(recent_wt), str(recent / "log.txt"),
@@ -423,8 +424,8 @@ if not review:
         task = self.root / "task.md"
         task.write_text("---\nrepo: none\nrounds: 1\n---\n# Fixture\n\n## Done when\n```bash\ntest -f deliverable.txt\n```\n")
         self.capture(run.main, [str(task), "--exec", self.executor, "--review", self.reviewer])
-        directory = run.run_dirs()[0]
-        state = run.read_state(directory)
+        directory = run_record.run_dirs()[0]
+        state = run_record.read_state(directory)
         self.assertEqual(state["state"], "pass")
         work = Path(state["worktree"])
         # `ak run status` names the result; the menu no longer follows runs.
@@ -440,10 +441,10 @@ if not review:
             gc.gc(lambda _: None)
         self.assertTrue((directory / "result.md").exists())
         self.assertTrue((work / "deliverable.txt").exists())
-        state = run.read_state(directory)
+        state = run_record.read_state(directory)
         state.update(started_at=self.now - 31 * DAY, finished_at=self.now - 31 * DAY,
                      pid=99999999, process_identity=None)
-        run.save_state(directory, state)
+        run_record.save_state(directory, state)
         gc.gc(lambda _: None)
         self.assertFalse(directory.exists())
         self.assertFalse(work.exists())
@@ -734,7 +735,7 @@ if not review:
                  "review": {"review_pr": 1}, "no-merge": {"no_merge": True},
                  "review-posted": {"review_posted": True},
                  "recovery": {"state": "interrupted", "recovery_notified": True},
-                 "active": {"state": "running", "finished_at": None, **run.process_owner()},
+                 "active": {"state": "running", "finished_at": None, **run_record.process_owner()},
                  "pending-delivery": {}, "recent-failure": {"state": "fail", "age": 60}}
         for name, extra in cases.items():
             self.seat(name)
@@ -985,8 +986,8 @@ sys.exit(int(os.environ["FIXTURE_UPDATE_RC"]))
             orch.maintenance(messages.append)
         # v5m: maintenance reports no endings, so neither receipt is marked told; the
         # malformed one still cannot stop it, and the broken sweep is still warned about
-        self.assertFalse(run.read_state(good)["reported"])
-        self.assertFalse(run.read_state(bad)["reported"])
+        self.assertFalse(run_record.read_state(good)["reported"])
+        self.assertFalse(run_record.read_state(bad)["reported"])
         self.assertTrue(any("WARN" in line for line in messages))
 
     def test_seat_kill_rechecks_tmux_conditions_and_changed_panes(self):

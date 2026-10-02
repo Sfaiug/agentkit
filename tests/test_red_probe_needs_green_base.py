@@ -12,6 +12,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_red_target as red
 from agentkit import run
+from agentkit import record
 
 
 class GreenBase(unittest.TestCase):
@@ -67,7 +68,7 @@ class GreenBase(unittest.TestCase):
 
         self.assertTrue(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, ["final-fixer"])
-        self.assertNotEqual(run.read_state(run_dir)["state"], "waiting")
+        self.assertNotEqual(record.read_state(run_dir)["state"], "waiting")
         self.repair.assert_not_called()
         self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))
         probes = (run_dir / "target-probe.log").read_text()
@@ -107,7 +108,7 @@ class GreenBase(unittest.TestCase):
                 self.assertEqual(self.turns, [f"{how}-fixer", "final-fixer"])
                 self.repair.assert_not_called()
                 self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))
-                self.assertNotEqual(run.read_state(lp.run_dir)["state"], "waiting")
+                self.assertNotEqual(record.read_state(lp.run_dir)["state"], "waiting")
                 self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
 
     def test_a_second_final_check_lap_keeps_the_same_old_base(self):
@@ -134,7 +135,7 @@ class GreenBase(unittest.TestCase):
             f"fails on {base[:12]} too: needs this branch"), 2)
         probes = (lp.run_dir / "target-probe.log").read_text()
         self.assertEqual(probes.count(f"$ {cmd} (on old base {base})"), 2)
-        self.assertNotEqual(run.read_state(lp.run_dir)["state"], "waiting")
+        self.assertNotEqual(record.read_state(lp.run_dir)["state"], "waiting")
         self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
 
     def test_a_failed_rebase_gate_keeps_the_old_base_after_its_fixer_review(self):
@@ -162,7 +163,7 @@ class GreenBase(unittest.TestCase):
         self.repair.assert_not_called()
         self.assertEqual("\n".join(lines).count(
             f"fails on {base[:12]} too: needs this branch"), 2)
-        self.assertNotEqual(run.read_state(lp.run_dir)["state"], "waiting")
+        self.assertNotEqual(record.read_state(lp.run_dir)["state"], "waiting")
         self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
 
     def test_a_resumed_landing_review_keeps_the_old_base_for_the_final_check(self):
@@ -170,14 +171,14 @@ class GreenBase(unittest.TestCase):
         wt, run_dir = lp.wt, lp.run_dir
         tip = self.move_target(owner, wt)
         self.integrate(lp, tip)
-        lp = run.Loop(lp.cfg, run_dir, run.read_state(run_dir), {}, lp.log, wt,
+        lp = run.Loop(lp.cfg, run_dir, record.read_state(run_dir), {}, lp.log, wt,
                       "body", lp.cmds, "context", [])
         self.assertEqual(run.resume_review(lp), "PASS")
         self.assertTrue(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, ["final-fixer"])
         self.repair.assert_not_called()
         self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))
-        self.assertNotEqual(run.read_state(run_dir)["state"], "waiting")
+        self.assertNotEqual(record.read_state(run_dir)["state"], "waiting")
         self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
 
     def test_a_changed_checkout_keeps_the_checked_head_without_a_round_row(self):
@@ -194,7 +195,7 @@ class GreenBase(unittest.TestCase):
         self.assertEqual(self.turns, ["final-fixer"])
         self.repair.assert_not_called()
         self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))
-        self.assertNotEqual(run.read_state(lp.run_dir)["state"], "waiting")
+        self.assertNotEqual(record.read_state(lp.run_dir)["state"], "waiting")
         self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
 
     def test_a_check_green_on_the_old_base_and_red_on_the_tip_still_parks(self):
@@ -212,7 +213,7 @@ class GreenBase(unittest.TestCase):
 
         self.assertFalse(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, [])
-        state = run.read_state(run_dir)
+        state = record.read_state(run_dir)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["merge_note"], f"origin/main itself fails: `{cmd}`")
         self.assertEqual(state["waiting_on"]["sha"], tip)
@@ -296,7 +297,7 @@ class GreenBase(unittest.TestCase):
                 self.assertEqual(self.turns, [f"{how}-fixer", "executor"])
                 self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))
                 self.repair.assert_not_called()
-                self.assertNotEqual(run.read_state(lp.run_dir)["state"], "waiting")
+                self.assertNotEqual(record.read_state(lp.run_dir)["state"], "waiting")
                 self.assert_on_branch_head_and_clean(wt, run.git(wt, "rev-parse", "HEAD"))
 
     def test_an_older_receipt_uses_its_last_passing_round(self):

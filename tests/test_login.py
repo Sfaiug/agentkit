@@ -28,6 +28,7 @@ SLEEP = time.sleep                  # the real one, kept where a fixture needs t
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
 from agentkit import host, config, gc, job as jobs, menu, notify, orch, run, terminal, usage, watch, worker
+from agentkit import record
 
 # A fake harness, in the two shapes a turn can take: one that authenticates and answers, and
 # one whose token is gone -- no events, empty stderr, over in a moment, which is exactly what
@@ -234,8 +235,8 @@ class Login(unittest.TestCase):
 
     def adopted(self, run_dir, argv, expected=None, park_as=False):
         """What `spawn_bg` leaves on disk: the receipt queued for the child it started."""
-        state = run.read_state(run_dir)
-        run.save_state(run_dir, {**state, "state": "queued", "slot_waiting": True,
+        state = record.read_state(run_dir)
+        record.save_state(run_dir, {**state, "state": "queued", "slot_waiting": True,
                                  "resume_from": state["state"]})
         return 0
 
@@ -272,8 +273,8 @@ class Login(unittest.TestCase):
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             code = run.main([str(self.task()), "--exec", "opus", "--review", "astra",
                              "--no-merge"])
-        directory = max(run.run_dirs(), key=lambda d: d.name)
-        return code, directory, run.read_state(directory)
+        directory = max(record.run_dirs(), key=lambda d: d.name)
+        return code, directory, record.read_state(directory)
 
     # --- 1: a turn that cannot authenticate ends at once ---------------------
 
@@ -407,7 +408,7 @@ class Login(unittest.TestCase):
         self.assertEqual(task["state"], "queued")           # waiting beside the run
         self.assertTrue(task.get("budget_wait"))
         self.assertGreater(task["retry_after"], time.time())
-        self.assertEqual(run.read_state(directory)["state"], "waiting_login")
+        self.assertEqual(record.read_state(directory)["state"], "waiting_login")
         self.assertTrue(any("waiting for budget" in line for line in logs), logs)
 
     def test_every_job_attempt_waits_on_a_parked_login_instead_of_failing_the_task(self):
@@ -446,7 +447,7 @@ class Login(unittest.TestCase):
         delivered = {**state, "state": "pass", "verdict": "PASS", "no_merge": False,
                      "merged": False, "merge_failed": True, "pr": None,
                      "merge_note": "delivery did not finish"}
-        run.save_state(directory, delivered)
+        record.save_state(directory, delivered)
         job_dir = config.HOME / "jobs" / "job-3"
         job_dir.mkdir(parents=True)
         task = {"name": "one", "state": "running", "run_id": directory.name}
@@ -455,7 +456,7 @@ class Login(unittest.TestCase):
 
         def park(argv):
             """what `ak run merge` leaves behind when a fixer turn cannot authenticate"""
-            run.save_state(directory, {**delivered, "state": "waiting_login",
+            record.save_state(directory, {**delivered, "state": "waiting_login",
                                        "waiting_for": "claude",
                                        "error": "claude login expired: the token expired"})
             return 1
@@ -469,14 +470,14 @@ class Login(unittest.TestCase):
         self.assertGreater(task["retry_after"], time.time())
         self.assertNotIn("verdict_line", {k: v for k, v in task.items() if "fail" in str(v)})
         self.assertIn("on delivery", " ".join(logs))
-        self.assertEqual(run.read_state(directory)["state"], "waiting_login")
+        self.assertEqual(record.read_state(directory)["state"], "waiting_login")
 
     def test_a_login_expiring_during_delivery_parks_the_run_it_was_merging(self):
         # A conflict fixer's turn inside `ak run merge` can hit an expired login like any
         # other turn: the receipt must not be left saying `running` with a live pid on it.
         self.log_out()
         _, directory, state = self.launch()
-        run.save_state(directory, {
+        record.save_state(directory, {
             **state, "state": "pass", "verdict": "PASS", "pr": None, "merged": False,
             "merge_failed": True, "merge_note": "delivery did not finish",
             "review": {"executor": "opus", "executor_provider": "anthropic",
@@ -489,7 +490,7 @@ class Login(unittest.TestCase):
         with patch.object(run, "merge", side_effect=expired), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             code = run.cmd_merge([directory.name])
-        after = run.read_state(directory)
+        after = record.read_state(directory)
         self.assertEqual((after["state"], after["waiting_for"]), ("waiting_login", "claude"))
         self.assertIn("claude login expired", after["error"])
         self.assertEqual(code, 1)
@@ -502,7 +503,7 @@ class Login(unittest.TestCase):
         logs = []
         # still logged out: the tick leaves it exactly where it is, and says nothing
         watch.resume_waiting_login(log=logs.append)
-        self.assertEqual(run.read_state(directory)["state"], "waiting_login")
+        self.assertEqual(record.read_state(directory)["state"], "waiting_login")
         self.assertEqual(logs, [])
         self.log_out(False)
         launched = []
@@ -517,7 +518,7 @@ class Login(unittest.TestCase):
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             code = run.cmd_resume([directory.name])
         self.assertEqual(code, 0)
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertEqual((state["state"], state["verdict"]), ("pass", "PASS"))
         self.assertEqual((state["worktree"], state["branch"]), (worktree, branch))
         # nothing of the wait outlives it
@@ -538,13 +539,13 @@ class Login(unittest.TestCase):
         # A worktree that is gone, with the login back: this run waits for no login any more,
         # and saying it does would send him to `/login` for something he already has.  It is
         # an interruption, which names its own reason and offers its own number.
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         state.pop("login_resume_at")
         state.pop("login_back_at", None)
         state["worktree"] = str(self.root / "nowhere")
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         watch.resume_waiting_login(log=logs.append)
-        after = run.read_state(directory)
+        after = record.read_state(directory)
         self.assertEqual(after["state"], "interrupted")
         self.assertIn("worktree", after["interruption_reason"])
         self.assertIn("login is back", after["interruption_reason"])
@@ -565,7 +566,7 @@ class Login(unittest.TestCase):
         # is the one nobody is ever told about.
         self.log_out()
         _, directory, state = self.launch()
-        run.save_state(directory, {**state, "launched_session": "atoll"})
+        record.save_state(directory, {**state, "launched_session": "atoll"})
         config.save_session(self.cfg, "atoll", "opus", ["astra"], {"cwd": str(self.work)})
         seat = {"name": "atoll", "exited": False, "legacy": False}
 
@@ -595,8 +596,8 @@ class Login(unittest.TestCase):
             self.log_out(False)
             back = tick(logs)                                      # back, but the launch failed
             self.assertEqual(back["word"], "working")
-            self.assertTrue(run.read_state(directory)["login_back_at"])
-            self.assertEqual(run.waiting_word(run.read_state(directory)), "waiting to resume")
+            self.assertTrue(record.read_state(directory)["login_back_at"])
+            self.assertEqual(run.waiting_word(record.read_state(directory)), "waiting to resume")
             # the seats are read before the runs are, so the card comes off on the next pass
             self.assertEqual(tick(logs)["word"], "working")
             self.assertIsNone(notify.last("atoll"))
@@ -606,8 +607,8 @@ class Login(unittest.TestCase):
             # the pass that finds it out takes the mark off, so the run's own row is right
             # at once; the seats were read before the runs were, so the word and the card
             # follow on the next pass -- the three minutes everything here moves in
-            self.assertNotIn("login_back_at", run.read_state(directory))
-            self.assertEqual(run.waiting_word(run.read_state(directory)),
+            self.assertNotIn("login_back_at", record.read_state(directory))
+            self.assertEqual(run.waiting_word(record.read_state(directory)),
                              "waiting for claude login")
             out = tick(logs)
         self.assertEqual(out["word"], "needs you")
@@ -621,21 +622,21 @@ class Login(unittest.TestCase):
         # and the run must not spend it telling the owner to log in to what he has.
         self.log_out()
         _, directory, state = self.launch()
-        run.save_state(directory, {**state, "launched_session": "atoll"})
+        record.save_state(directory, {**state, "launched_session": "atoll"})
         config.save_session(self.cfg, "atoll", "opus", ["astra"], {"cwd": str(self.work)})
         seat = {"name": "atoll", "exited": False, "legacy": False}
         self.log_out(False)
         logs = []
         with patch.object(run, "spawn_bg", side_effect=config.Error("cannot fork")):
             watch.resume_waiting_login(log=logs.append)
-        paced = run.read_state(directory)["login_resume_at"]
+        paced = record.read_state(directory)["login_resume_at"]
         self.assertTrue(paced)
         # out again, well inside RESUME_EVERY: the episode is over, and everything it left
         # behind goes with it -- the mark that said `back`, and the stamp that paced a launch
         # timed against it
         self.log_out()
         watch.resume_waiting_login(log=logs.append)
-        after = run.read_state(directory)
+        after = record.read_state(directory)
         self.assertNotIn("login_back_at", after)
         self.assertNotIn("login_resume_at", after)
         self.assertEqual(run.waiting_word(after), "waiting for claude login")
@@ -654,7 +655,7 @@ class Login(unittest.TestCase):
         # for the whole ten minutes rather than `login expired` for any of them.
         self.log_out()
         _, directory, state = self.launch()
-        run.save_state(directory, {**state, "launched_session": "atoll"})
+        record.save_state(directory, {**state, "launched_session": "atoll"})
         config.save_session(self.cfg, "atoll", "opus", ["astra"], {"cwd": str(self.work)})
         seat = {"name": "atoll", "exited": False, "legacy": False}
         self.log_out(False)
@@ -662,13 +663,13 @@ class Login(unittest.TestCase):
         with patch.object(run, "spawn_bg", side_effect=config.Error("cannot fork")):
             watch.resume_waiting_login(log=logs.append)
         # strip only the mark, the way an outage between the two passes would
-        held = run.read_state(directory)
+        held = record.read_state(directory)
         held.pop("login_back_at")
-        run.save_state(directory, held)
+        record.save_state(directory, held)
         # this pass is inside the window and starts nothing -- and still records the truth
         with patch.object(run, "spawn_bg", side_effect=AssertionError("relaunched")):
             watch.resume_waiting_login(log=logs.append)
-        throttled = run.read_state(directory)
+        throttled = record.read_state(directory)
         self.assertEqual(throttled["state"], "waiting_login")
         self.assertTrue(throttled["login_back_at"])
         self.assertEqual(run.waiting_word(throttled), "waiting to resume")
@@ -731,16 +732,16 @@ class Login(unittest.TestCase):
         # in to something he already has.
         self.log_out()
         _, directory, state = self.launch()
-        run.save_state(directory, {**state, "launched_session": "atoll"})
+        record.save_state(directory, {**state, "launched_session": "atoll"})
         config.save_session(self.cfg, "atoll", "opus", ["astra"], {"cwd": str(self.work)})
         seat = {"name": "atoll", "exited": False, "legacy": False}
-        self.assertEqual(run.waiting_word(run.read_state(directory)),
+        self.assertEqual(run.waiting_word(record.read_state(directory)),
                          "waiting for claude login")
         self.log_out(False)
         logs = []
         with patch.object(run, "spawn_bg", side_effect=config.Error("cannot fork")):
             watch.resume_waiting_login(log=logs.append)
-        after = run.read_state(directory)
+        after = record.read_state(directory)
         self.assertEqual(after["state"], "waiting_login")        # still parked, still retried
         self.assertTrue(after["login_back_at"])
         self.assertEqual(run.waiting_word(after), "waiting to resume")
@@ -760,7 +761,7 @@ class Login(unittest.TestCase):
         self.log_out()
         _, directory, state = self.launch()
         seat = {"name": "atoll", "exited": False, "legacy": False}
-        run.save_state(directory, {**state, "launched_session": "atoll"})
+        record.save_state(directory, {**state, "launched_session": "atoll"})
         config.save_session(self.cfg, "atoll", "opus", ["astra"], {"cwd": str(self.work)})
         with patch.object(orch, "sessions", return_value=[seat]), \
                 patch.object(orch, "listing", return_value=[seat]), \
@@ -815,7 +816,7 @@ class Login(unittest.TestCase):
         self.log_out()
         _, directory, state = self.launch()
         state = {**state, "launched_session": "atoll", "waiting_for": "muse"}
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         seat = {"name": "atoll", "exited": False, "legacy": False}
         config.save_session(self.cfg, "atoll", "opus", ["astra"], {"cwd": str(self.work)})
         with patch.object(orch, "sessions", return_value=[seat]), \
@@ -1011,7 +1012,7 @@ class Login(unittest.TestCase):
         # the tick ask about the seat's login in the first place.
         self.log_out()
         _, directory, state = self.launch()
-        run.save_state(directory, {**state, "launched_session": "atoll"})
+        record.save_state(directory, {**state, "launched_session": "atoll"})
         config.save_session(self.cfg, "atoll", "opus", ["astra"], {"cwd": str(self.work)})
         seat = {"name": "atoll", "exited": False, "legacy": False}
         pane = watch.auth_expiry("claude")[2][0]
@@ -1050,7 +1051,7 @@ class Login(unittest.TestCase):
         with patch.object(run, "spawn_bg", side_effect=AssertionError("resumed")):
             watch.resume_waiting_login(log=logs.append)
         self.assertEqual(logs, [])
-        self.assertEqual(run.read_state(directory)["state"], "waiting_login")
+        self.assertEqual(record.read_state(directory)["state"], "waiting_login")
 
     # --- 3b: the installer mints the token once ------------------------------
 
@@ -1107,24 +1108,24 @@ class Login(unittest.TestCase):
         self.log_out(False)
         with patch.object(run, "spawn_bg", side_effect=config.Error("cannot fork")):
             watch.resume_waiting_login(log=lambda _: None)
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         self.assertTrue(state["login_back_at"])
         self.assertTrue(state["login_resume_at"])
         # ... and being marked anything but parked takes both off with the harness
         run.mark_state(directory, "exhausted", "out of window")
-        after = run.read_state(directory)
+        after = record.read_state(directory)
         self.assertNotIn("waiting_for", after)
         self.assertNotIn("login_back_at", after)
         self.assertNotIn("login_resume_at", after)
         # ... and so does the worktree going missing while the login is back
         run.mark_state(directory, "waiting_login", "claude login expired")
-        state = run.read_state(directory)
+        state = record.read_state(directory)
         state.update(waiting_for="claude", login_back_at=time.time(),
                      login_resume_at=time.time() - watch.RESUME_EVERY - 1,
                      worktree=str(self.root / "nowhere"))
-        run.save_state(directory, state)
+        record.save_state(directory, state)
         watch.resume_waiting_login(log=lambda _: None)
-        after = run.read_state(directory)
+        after = record.read_state(directory)
         self.assertEqual(after["state"], "interrupted")
         self.assertNotIn("waiting_for", after)
         self.assertNotIn("login_back_at", after)

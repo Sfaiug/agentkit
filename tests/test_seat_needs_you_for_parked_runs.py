@@ -17,6 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, notify, orch, run, watch
+from agentkit import record
 
 NOW = 1_800_000_000
 DAY = 86400
@@ -43,7 +44,7 @@ class SeatNeedsYouForParkedRuns(unittest.TestCase):
     def receipt(self, name, **extra):
         directory = config.RUNS / name
         directory.mkdir(parents=True, exist_ok=True)
-        run.save_state(directory, {"run_id": name, "title": f"Task {name}",
+        record.save_state(directory, {"run_id": name, "title": f"Task {name}",
                                    "launched_session": "acme", "started_at": NOW - 2 * DAY,
                                    **extra})
         return directory
@@ -67,7 +68,7 @@ class SeatNeedsYouForParkedRuns(unittest.TestCase):
                 self.assertEqual(found["word"], "needs you")
                 self.assertEqual(found["reason"], f"run fix-api waits to merge: {WAIT}")
         # ... unless he already has it: an acknowledged wait is his decision made
-        run.save_state(late, {**run.read_state(late), "recovery_acknowledged_at": NOW - 30})
+        record.save_state(late, {**record.read_state(late), "recovery_acknowledged_at": NOW - 30})
         self.assertEqual(self.decide()["word"], "done")
 
     def test_a_done_seat_with_an_undecided_run_needs_you(self):
@@ -83,12 +84,12 @@ class SeatNeedsYouForParkedRuns(unittest.TestCase):
         # a long id and a long step: the recorded error is cut short, the command never is
         name = "20261001-0100-fix-api-a-long-integration-command-in-the"
         stalled = self.receipt(name, state="running", finished_at=None)
-        run.park_stalled(stalled, run.read_state(stalled), {"step": "done-when " + "x" * 240})
+        run.park_stalled(stalled, record.read_state(stalled), {"step": "done-when " + "x" * 240})
         found = self.decide()
         self.assertEqual(found["word"], "needs you")
         self.assertEqual(found["reason"], f"run {name} stalled: resume it with `ak run resume {name}`")
         # what `going` means to the tick and every other caller is unchanged
-        self.assertTrue(run.going(run.read_state(stalled), now=NOW))
+        self.assertTrue(run.going(record.read_state(stalled), now=NOW))
 
 
 if __name__ == "__main__":

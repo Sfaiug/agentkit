@@ -19,6 +19,7 @@ import unittest
 from test_v4n import REPO, Sandbox
 from test_v5y import offline
 from agentkit import config, menu, orch, run, terminal, watch
+from agentkit import record
 
 NOW = 1_800_000_000      # what every draw and tally reads as the time
 DAY = 86400
@@ -58,7 +59,7 @@ class Tallies(Sandbox):
         # herdr: one run going, one merged this week
         self.ended("herdr-going", owner="herdr", repo=str(config.CODE / "agentkit"), title="Ship the tally",
                    state="running", finished_at=None, started_at=NOW - 900, rounds=3,
-                   round_summaries=[{}], **run.process_owner())
+                   round_summaries=[{}], **record.process_owner())
         self.merged("herdr-merged", "herdr", NOW - 2 * DAY)
         # atoll-fix: three merges this week, one older than the week, one ending already acknowledged
         for n, ago in enumerate((3600, 2 * DAY, 6 * DAY)):
@@ -289,15 +290,15 @@ class Tallies(Sandbox):
                 self.ended(f"bulk-{n:03d}", owner=owner, state="pass", finished_at=NOW - 9 * DAY)
         self.ended("smoke-bulk", owner="herdr", merged=True, finished_at=NOW - 60,
                    repo=str(config.TMP / "smoke-20260923-110800" / "repo"))
-        records = len(run.run_dirs())     # each record is read once, including the suite's
+        records = len(record.run_dirs())     # each record is read once, including the suite's
         # one draw settles each seat's word; the draws that follow write nothing at all
         self.draw(100, 30)
         before = {path: path.read_bytes() for directory in (config.RUNS, config.STATE)
                   for path in directory.rglob("*") if path.is_file()}
         # every draw, of any size, goes back to git for nothing and starts no process
-        with patch.object(run, "read_state", wraps=run.read_state) as read, \
+        with patch.object(record, "read_state", wraps=record.read_state) as read, \
                 patch.object(run, "reap", side_effect=AssertionError("draw reconciled a run")), \
-                patch.object(run, "save_state", side_effect=AssertionError("draw wrote a record")), \
+                patch.object(record, "save_state", side_effect=AssertionError("draw wrote a record")), \
                 patch.object(subprocess, "run", side_effect=self.no_git), \
                 patch.object(subprocess, "Popen", side_effect=AssertionError("draw started a process")):
             started = time.perf_counter()
