@@ -891,19 +891,24 @@ EOF
   echo "slice: $LIMITS caps agentkit at $slice_tasks tasks, $mem_max of memory and $cpu_quota CPU"
   fi
   # Sessions keep the larger share of a busy host.  These are separate child slices so a
-  # leaking detached run cannot consume the session slice's weight.
+  # leaking detached run cannot consume the session slice's weight.  Memory says the same: up
+  # to half the slice's 60% is protected for the seats, so under pressure inside the slice the
+  # runs give memory back first.  A share, like the ceiling, so it follows this machine.  Our
+  # own file is rewritten when it differs; one whose first line is not ours is left alone.
   for child in agentkit-seats.slice agentkit-runs.slice; do
-    weight=100
-    [ "$child" = agentkit-runs.slice ] && weight=40
+    weight=100 protect=$'\nMemoryLow=30%'
+    [ "$child" = agentkit-runs.slice ] && weight=40 protect=""
     dropin="$HOME/.config/systemd/user/$child.d/weights.conf"
-    if [ ! -e "$dropin" ]; then
-      mkdir -p -- "${dropin%/*}"
-      cat >"$dropin" <<EOF
-# Written by agentkit's install.sh: interactive sessions have priority over detached runs.
+    want="# Written by agentkit's install.sh: interactive sessions have priority over detached runs.
 [Slice]
 CPUWeight=$weight
-IOWeight=$weight
-EOF
+IOWeight=$weight$protect"
+    first=""
+    if [ -e "$dropin" ]; then first=$(head -n 1 -- "$dropin" 2>/dev/null || true); fi
+    case "$first" in ""|"# Written by agentkit's install.sh"*) ;; *) continue ;; esac
+    if [ "$(cat -- "$dropin" 2>/dev/null)" != "$want" ]; then
+      mkdir -p -- "${dropin%/*}"
+      printf '%s\n' "$want" >"$dropin"
       WEIGHTS_CHANGED=1
     fi
   done
