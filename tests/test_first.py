@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, worker  # noqa: E402
+from agentkit import gate, config, run, worker  # noqa: E402
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"
@@ -38,7 +38,7 @@ class Gate(threading.Thread):
 
     def run(self):
         try:
-            self.result = run.run_done_when(*self.args, **self.kw)
+            self.result = gate.run_done_when(*self.args, **self.kw)
         except BaseException as exc:  # noqa: BLE001 -- the test reads it
             self.error = exc
 
@@ -151,21 +151,21 @@ class First(unittest.TestCase):
 
     def test_first_takes_next_gate_turn_ahead_of_waiters(self):
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
-        self.stack.enter_context(patch.object(run, "GATE_POLL", 0.05))
+        self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))
         (config.HOME / config.CONFIG_NAME).write_text("max_gates = 1\n")
         self.marks = self.root / "marks"
         self.marks.touch()
         waiter = Gate(self, "waiter", ACME, [self.mark("waiter", 0.5)])
         first = Gate(self, "first-run", ACME, [self.mark("first", 0.2)], first=True)
-        holder = run.gate_lock(ACME, 0).open("a")
+        holder = gate.gate_lock(ACME, 0).open("a")
         self.addCleanup(holder.close)
         fcntl.flock(holder, fcntl.LOCK_EX)
         waiter.start()
-        self.until(lambda: run.gate_turn_note(run_record.read_state(waiter.run_dir) or {}),
+        self.until(lambda: gate.gate_turn_note(run_record.read_state(waiter.run_dir) or {}),
                    "the waiter to mark its wait")
         first.start()
-        self.until(lambda: run.gate_turn_note(run_record.read_state(first.run_dir) or {}),
+        self.until(lambda: gate.gate_turn_note(run_record.read_state(first.run_dir) or {}),
                    "the first run to mark its wait")
         fcntl.flock(holder, fcntl.LOCK_UN)
         waiter.join(20)

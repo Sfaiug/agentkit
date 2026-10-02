@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, run, worker
+from agentkit import gate, host, config, run, worker
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"
@@ -50,7 +50,7 @@ class Gate(threading.Thread):
 
     def run(self):
         try:
-            self.result = run.run_done_when(*self.args, **self.kw)
+            self.result = gate.run_done_when(*self.args, **self.kw)
         except BaseException as exc:      # noqa: BLE001 -- the test reads it
             self.error = exc
 
@@ -76,7 +76,7 @@ class HeavySuiteTurns(unittest.TestCase):
         os.environ.pop("AK_MAX_RUNS", None)
         os.environ.pop("AK_HOST_READINGS", None)
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
-        self.stack.enter_context(patch.object(run, "GATE_POLL", 0.05))
+        self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))
         config.RUNS.mkdir(parents=True)
         config.HOME.mkdir()
@@ -106,7 +106,7 @@ class HeavySuiteTurns(unittest.TestCase):
 
     def test_a_light_check_runs_while_all_turns_are_taken(self):
         self.gates(1)
-        with run.gate_lock(ACME, 0).open("a") as holder:
+        with gate.gate_lock(ACME, 0).open("a") as holder:
             fcntl.flock(holder, fcntl.LOCK_EX)
             light = Gate(self, "light", ACME, [self.mark("light")], heavy=False)
             light.start()
@@ -114,12 +114,12 @@ class HeavySuiteTurns(unittest.TestCase):
             self.assertIsNone(light.error, light.error)
             self.assertTrue(light.result[0], light.result[1])
             self.assertFalse(light.waited(), light.logs)
-            self.assertEqual(run.gate_turn_note(run_record.read_state(light.run_dir)), "")
+            self.assertEqual(gate.gate_turn_note(run_record.read_state(light.run_dir)), "")
         self.assertEqual(self.marks.read_text(), "light\n")
 
     def test_more_headroom_allows_more_suites(self):
-        small = run.derived_heavy_limit(dict(SMALL))
-        large = run.derived_heavy_limit(dict(LARGE))
+        small = gate.derived_heavy_limit(dict(SMALL))
+        large = gate.derived_heavy_limit(dict(LARGE))
         self.assertEqual(large, 2 * small)
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(SMALL)}):
             self.assertIn(f"heavy suites: {small} at once (derived)",
@@ -132,13 +132,13 @@ class HeavySuiteTurns(unittest.TestCase):
             with self.subTest(resource=resource), ExitStack() as holders:
                 holders.enter_context(patch.dict(os.environ, {
                     "AK_HOST_READINGS": json.dumps(readings)}))
-                holders.enter_context(patch.object(run.time, "sleep", side_effect=
+                holders.enter_context(patch.object(gate.time, "sleep", side_effect=
                     AssertionError("headroom for three more suites must admit a fifth")))
                 for index in range(4):
-                    holder = holders.enter_context(run.gate_lock(ACME, index).open("a"))
+                    holder = holders.enter_context(gate.gate_lock(ACME, index).open("a"))
                     fcntl.flock(holder, fcntl.LOCK_EX)
                 directory = self.record(resource, WIDGET)
-                hold = run._acquire_gate_turn(directory, directory / "donewhen.log", None)
+                hold = gate._acquire_gate_turn(directory, directory / "donewhen.log", None)
                 self.assertIsNotNone(hold)
                 hold.release()
 
@@ -154,9 +154,9 @@ class HeavySuiteTurns(unittest.TestCase):
                 patch.dict(os.environ, {"HOME": str(caller), "REPO": str(REPO),
                                         "SMOKE_CALLER_HOME": str(caller)}), ExitStack() as holders:
             for index in (0, 1, 5, 9):
-                holder = holders.enter_context(run.gate_lock(ACME, index).open("a"))
+                holder = holders.enter_context(gate.gate_lock(ACME, index).open("a"))
                 fcntl.flock(holder, fcntl.LOCK_EX)
-            run.gate_lock(ACME, 10).touch()
+            gate.gate_lock(ACME, 10).touch()
             for name, readings, pinned, expected in (
                     ("cpu", {**SMALL, "slice_cpu_used": 5.8}, "", 7),
                     ("memory", {**SMALL, "slice_memory_used_mb": 2870}, "", 7),
@@ -177,7 +177,7 @@ class HeavySuiteTurns(unittest.TestCase):
                                      (f"heavy suites: {status}", str(expected)))
             holders.close()
             (home / config.CONFIG_NAME).write_text("")
-            self.assertEqual(run.derived_heavy_limit(SMALL), 10)
+            self.assertEqual(gate.derived_heavy_limit(SMALL), 10)
 
     def test_either_resource_below_one_suite_waits_with_one_running(self):
         for resource, readings in (
@@ -185,13 +185,13 @@ class HeavySuiteTurns(unittest.TestCase):
                 ("memory", {**SMALL, "slice_memory_used_mb": 4100 - 409})):
             with self.subTest(resource=resource), \
                     patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(readings)}), \
-                    run.gate_lock(ACME, 0).open("a") as holder, \
-                    patch.object(run.time, "sleep", side_effect=InterruptedError):
+                    gate.gate_lock(ACME, 0).open("a") as holder, \
+                    patch.object(gate.time, "sleep", side_effect=InterruptedError):
                 fcntl.flock(holder, fcntl.LOCK_EX)
                 directory = self.record(resource, WIDGET)
                 log_path = directory / "donewhen.log"
                 with self.assertRaises(InterruptedError):
-                    run._acquire_gate_turn(directory, log_path, None)
+                    gate._acquire_gate_turn(directory, log_path, None)
                 self.assertEqual(log_path.read_text(),
                                  "waiting for a heavy suite turn · 1 running · 0 more fit\n")
 
@@ -205,14 +205,14 @@ class HeavySuiteTurns(unittest.TestCase):
                 raise InterruptedError
         with ExitStack() as holders:
             for index in range(4):
-                holder = holders.enter_context(run.gate_lock(ACME, index).open("a"))
+                holder = holders.enter_context(gate.gate_lock(ACME, index).open("a"))
                 fcntl.flock(holder, fcntl.LOCK_EX)
             with patch.object(host, "host_readings", side_effect=[
                     {**SMALL, "slice_cpu_used": used} for used in (5.8, 6.6, 8)]) as readings, \
-                    patch.object(run, "_gate_waiter_before", return_value=True), \
-                    patch.object(run.time, "sleep", side_effect=poll):
+                    patch.object(gate, "_gate_waiter_before", return_value=True), \
+                    patch.object(gate.time, "sleep", side_effect=poll):
                 with self.assertRaises(InterruptedError):
-                    run._acquire_gate_turn(directory, log_path, None)
+                    gate._acquire_gate_turn(directory, log_path, None)
             self.assertEqual(readings.call_count, 3)
         self.assertEqual(seen, [f"waiting for a heavy suite turn · 4 running · {more} more fit\n"
                                 for more in (3, 2, 0)])
@@ -223,31 +223,31 @@ class HeavySuiteTurns(unittest.TestCase):
             for running in (0, 1):
                 with self.subTest(config=name, running=running), ExitStack() as holders:
                     for index in range(6):
-                        run.gate_lock(ACME, index).touch()
+                        gate.gate_lock(ACME, index).touch()
                     if running:
-                        holder = holders.enter_context(run.gate_lock(ACME, 0).open("a"))
+                        holder = holders.enter_context(gate.gate_lock(ACME, 0).open("a"))
                         fcntl.flock(holder, fcntl.LOCK_EX)
                     directory = self.record(f"{name}-{running}", WIDGET)
                     log_path = directory / "donewhen.log"
                     def sample(**_kw):
-                        self.assertEqual(run._heavy_running(), running)
-                        self.assertEqual(run.derived_heavy_limit(SATURATED), 1)
+                        self.assertEqual(gate._heavy_running(), running)
+                        self.assertEqual(gate.derived_heavy_limit(SATURATED), 1)
                         return SATURATED
                     with patch.object(host, "host_readings", side_effect=sample) as readings, \
-                            patch.object(run.time, "sleep", side_effect=InterruptedError):
+                            patch.object(gate.time, "sleep", side_effect=InterruptedError):
                         if running:
                             with self.assertRaises(InterruptedError):
-                                run._acquire_gate_turn(directory, log_path, None)
+                                gate._acquire_gate_turn(directory, log_path, None)
                             self.assertEqual(log_path.read_text(),
                                 "waiting for a heavy suite turn · 1 running · 0 more fit\n")
                         else:
-                            hold = run._acquire_gate_turn(directory, log_path, None)
+                            hold = gate._acquire_gate_turn(directory, log_path, None)
                             self.assertIsNotNone(hold)
                             hold.release()
                         self.assertEqual(readings.call_count, 1)
 
     def test_a_saturated_slice_waits_yet_one_turn_is_always_free(self):
-        self.assertEqual(run.derived_heavy_limit(dict(SATURATED)), 1)
+        self.assertEqual(gate.derived_heavy_limit(dict(SATURATED)), 1)
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(SATURATED)}):
             first = Gate(self, "one", ACME, [self.mark("start", 1), self.mark("end")])
             second = Gate(self, "two", WIDGET, [self.mark("queued")])
@@ -259,7 +259,7 @@ class HeavySuiteTurns(unittest.TestCase):
             self.until(lambda: gate_log.is_file() and gate_log.read_text() ==
                        "waiting for a heavy suite turn · 1 running · 0 more fit\n",
                        "the second suite to wait")
-            self.assertEqual(run.gate_turn_note(run_record.read_state(second.run_dir)),
+            self.assertEqual(gate.gate_turn_note(run_record.read_state(second.run_dir)),
                              "waiting for a heavy suite turn")
             first.join(20)
             second.join(20)
@@ -271,13 +271,13 @@ class HeavySuiteTurns(unittest.TestCase):
 
     def test_a_waiter_picks_up_a_changed_limit_on_its_next_poll(self):
         self.gates(1)
-        with run.gate_lock(ACME, 0).open("a") as holder, \
+        with gate.gate_lock(ACME, 0).open("a") as holder, \
                 patch.object(host, "host_readings", side_effect=
                     AssertionError("a pinned limit needs no host reading")):
             fcntl.flock(holder, fcntl.LOCK_EX)
             waiter = Gate(self, "waiter", ACME, [self.mark("waiter")])
             waiter.start()
-            self.until(lambda: run.gate_turn_note(run_record.read_state(waiter.run_dir) or {}),
+            self.until(lambda: gate.gate_turn_note(run_record.read_state(waiter.run_dir) or {}),
                        "the waiter to mark its wait")
             self.gates(2)
             waiter.join(20)
@@ -288,16 +288,16 @@ class HeavySuiteTurns(unittest.TestCase):
 
     def test_a_shrinking_limit_counts_holders_beyond_its_prefix(self):
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(SATURATED)}):
-            self.assertEqual(run.derived_heavy_limit(), 1)
+            self.assertEqual(gate.derived_heavy_limit(), 1)
             # two suites ran at limit 2; one finished, freeing slot 0, while the
             # other still holds slot 1 -- a saturated limit of 1 admits none more
-            with run.gate_lock(ACME, 0).open("a"):
+            with gate.gate_lock(ACME, 0).open("a"):
                 pass
-            with run.gate_lock(ACME, 1).open("a") as holder:
+            with gate.gate_lock(ACME, 1).open("a") as holder:
                 fcntl.flock(holder, fcntl.LOCK_EX)
                 third = Gate(self, "three", ACME, [self.mark("third")])
                 third.start()
-                self.until(lambda: run.gate_turn_note(
+                self.until(lambda: gate.gate_turn_note(
                     run_record.read_state(third.run_dir) or {}),
                     "the third suite to wait on the saturated turn")
                 self.assertNotIn("third", self.marks.read_text())

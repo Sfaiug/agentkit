@@ -33,7 +33,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, orch, run, watch, worker
+from agentkit import gate, config, orch, run, watch, worker
 
 
 def fresh_id():
@@ -252,7 +252,7 @@ class RunTree(unittest.TestCase):
         # The sleeper is named after the case, so the scan for that name proves
         # nothing leaked unmarked either.
         self.enter_run_context()
-        ok, text = run.run_done_when(
+        ok, text = gate.run_done_when(
             [f"setsid bash -c 'echo started >kid.ready; exec -a {self.run_id} sleep 100' "
              "</dev/null >/dev/null 2>&1 &",
              "for i in $(seq 1 100); do test -f kid.ready && break; sleep 0.1; done; "
@@ -288,7 +288,7 @@ class RunTree(unittest.TestCase):
             return 0, "", False
 
         with patch.object(worker, "limited", side_effect=gate):
-            ok, _ = run.run_done_when(["true"], self.root, self.root / "dw.log", set())
+            ok, _ = gate.run_done_when(["true"], self.root, self.root / "dw.log", set())
         self.assertTrue(ok)
         self.assertEqual(seen.get("gate"), self.marker)
 

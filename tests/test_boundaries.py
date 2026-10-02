@@ -35,6 +35,12 @@ RULES = [
                 r"\b(cpu|memory|pids)\.(pressure|stat|max|high|current|events)\b|CGROUP_ROOT",
      "home": ("agentkit/host.py",),
      "max": 0},
+    # The heavy-suite turn owns its lock files, landing wait marker and child flag.
+    {"name": "heavy suite turn",
+     "flags": (),
+     "pattern": r"\.heavy-|landing_since|AK_HEAVY_TURN",
+     "home": ("agentkit/gate.py",),
+     "max": 0},
     # A harness is its adapter pair and its plugin, and a model is bound to its harness and
     # provider by one config.default.toml entry: every other copy of a name is harness
     # knowledge that adding, renaming or dropping a harness has to find and change.

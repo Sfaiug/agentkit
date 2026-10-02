@@ -14,7 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import records, submitting
-from agentkit import config, hand_in, run, worker
+from agentkit import gate, config, hand_in, run, worker
 from agentkit import record as run_record
 
 DEFECT = "a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError"
@@ -62,7 +62,7 @@ class FollowupRule(unittest.TestCase):
 
     def gate(self):
         command = "if test -f seen; then echo passed; else touch seen; echo broken; exit 1; fi"
-        ok, output = run.run_done_when([command], self.workspace,
+        ok, output = gate.run_done_when([command], self.workspace,
                                       self.lp.run_dir / "donewhen.log", set(),
                                       limit=30, run_dir=self.lp.run_dir)
         self.assertTrue(ok, output)
@@ -172,7 +172,7 @@ class FollowupRule(unittest.TestCase):
         self.lp.once = ["fixture check"]
         with patch.object(run, "git", return_value="abc123"), \
                 patch.object(run, "git_out", return_value=(0, "")), \
-                patch.object(run, "run_done_when", return_value=(True, output)):
+                patch.object(gate, "run_done_when", return_value=(True, output)):
             self.assertTrue(run.final_check(self.lp, "origin/main"))
         self.assert_followups([DEFECT, flake])
         self.assertIn(flake.replace("\n", "\n  "), run.pr_body(self.lp.state))
