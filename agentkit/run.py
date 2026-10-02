@@ -699,7 +699,8 @@ def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, revi
     listed = config.workers(cfg) if listed is None else listed
     review_list = listed if review_list is None else review_list
     skipped = {name: usage.unready(cfg, name, providers) for name in [*listed, *review_list]}
-    ready = [name for name in listed if not skipped[name]]
+    # a bound empty executor list: the orchestrator builds, so only a reviewer must run
+    ready = [name for name in listed if not skipped[name]] if listed or not bound_exec else [None]
     reviews = [name for name in review_list if not skipped[name]]
     if want_exec:
         ready = [name for name in ready if name == want_exec] if bound_exec else [want_exec]
@@ -3777,7 +3778,8 @@ def start_followups(state, run_dir, log, cfg=None, repair=None):
         if watch.seat_closed(session):
             return None
         cfg = report_config(cfg)
-        if config.session_records().get(config.resolve_session(session), {}).get("solo"):
+        record = config.session_records().get(config.resolve_session(session), {})
+        if record.get("solo") or record.get("workers") == []:
             return None
         repo = main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
@@ -13008,6 +13010,9 @@ def main(argv):
         if selection and selection.get("solo"):
             command = shlex.join(["ak", "orch", "solo", selection["name"], "off"])
             raise config.Error(f"solo is on for {selection['name']!r}; turn it off with `{command}`.")
+        if selection and selection.get("workers") == []:
+            raise config.Error(f"{selection['name']} has no executor: build it in the session, "
+                               "or add an executor on its models screen.")
     config.ensure_dirs()
     if not opts["--review-pr"] and len(positional) == 1 and parallel is not None:
         raise config.Error("usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] "

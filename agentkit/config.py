@@ -464,8 +464,9 @@ def _fall_back(defaults, left):
     """[defaults] kept to the models `left`, in memory: one it empties takes the first."""
     if defaults.get("orchestrator") not in left:
         defaults["orchestrator"] = left[0]
-    defaults["workers"] = [model for model in defaults.get("workers") or []
-                           if model in left] or [left[0]]
+    named = defaults.get("workers") or []
+    defaults["workers"] = [model for model in named if model in left] or (
+        [] if not named and "reviewers" in defaults else [left[0]])
     if "reviewers" in defaults:
         defaults["reviewers"] = [model for model in defaults["reviewers"]
                                 if model in left] or [left[0]]
@@ -836,7 +837,9 @@ def _validate_session(cfg, name, data):
         if role == "reviewers" and role not in data:
             continue
         listed = data.get(role)
-        if (not isinstance(listed, list) or not listed
+        # no executor is a choice once reviewers are named: the orchestrator builds everything
+        empty_ok = role == "workers" and "reviewers" in data
+        if (not isinstance(listed, list) or not (listed or empty_ok)
                 or any(not isinstance(worker, str) for worker in listed)):
             raise Error(f"{session_path(name)}: {role} must be a non-empty list of model names")
         for worker in listed:
