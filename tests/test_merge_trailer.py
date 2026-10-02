@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from agentkit import config, gc, run
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -298,8 +299,8 @@ class MergeTrailer(unittest.TestCase):
                 mocks.enter_context(patch.object(run, name, return_value=value))
             mocks.enter_context(patch.object(gc, "disk_pressure", return_value=False))
             mocks.enter_context(patch.object(run, "gh_json", side_effect=gh_json))
-            mocks.enter_context(patch.object(run, "call_retrying", return_value=(
-                0, "VERDICT: PASS\n## Findings\n- none", "fixture-session", False)))
+            mocks.enter_context(patch.object(run, "call_retrying", side_effect=submitting((
+                0, "VERDICT: PASS\n## Findings\n- none", "fixture-session", False))))
             # One round: a failed own-PR review now waits for the seat to push fixes.
             state = run.review_pr_round(self.cfg, self.directory, URL,
                                         {"--review": "astra"}, lambda line: None)

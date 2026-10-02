@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from agentkit import config, gc, run, worker
 
 SUITE = "test -f AGENTS.md"
@@ -45,7 +46,7 @@ class SuiteInRound(unittest.TestCase):
             self.stack.enter_context(patch.object(module, name, return_value=value))
         self.stack.enter_context(patch.object(run.usage, "pick_order",
                                              return_value=["opus", "astra"]))
-        self.stack.enter_context(patch.object(worker, "call", side_effect=self.worker))
+        self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.worker)))
         self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub")))
         self.stack.enter_context(patch.object(
             run, "merge", side_effect=lambda lp: run.final_check(lp, "origin/main")))
@@ -101,11 +102,13 @@ class SuiteInRound(unittest.TestCase):
             if role.startswith("reviewer"):
                 reviews.append(role)
                 if len(reviews) == 1:
-                    text = "VERDICT: FAIL\n## Findings\n- AGENTS.md:4 - fixture finding"
+                    text = "VERDICT: FAIL\n## Findings\n- deliverable:1 - fixture finding"
                     (out_dir / "final.md").write_text(text)
+            else:
+                (workspace / "deliverable").write_text("fixture work\n")
             return code, text, sid, dead
 
-        with patch.object(worker, "call", side_effect=worker_call):
+        with patch.object(worker, "call", side_effect=submitting(worker_call)):
             directory, state = self.launch("two-rounds", ["true", suite], rounds=2)
         self.assertEqual(state["state"], "pass", self.logs)
         self.assertEqual([entry["verdict"] for entry in state["round_summaries"]],
@@ -303,8 +306,8 @@ class SuiteInRound(unittest.TestCase):
                                           "rebase", "--continue"),
                                   "## Summary\nResolved.")[3]):
                 with patch.object(run, "call_retrying",
-                                  return_value=(0, "VERDICT: PASS\n## Findings\n- none",
-                                                None, False)):
+                                  side_effect=submitting((0, "VERDICT: PASS\n## Findings\n- none",
+                                                None, False))):
                     self.assertTrue(run.land(
                         lp2, "origin/main",
                         lambda: run.integrate(lp2, "origin/main")

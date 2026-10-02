@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from agentkit import config, run, usage  # noqa: E402
 
 
@@ -120,7 +121,7 @@ class TransientHandover(unittest.TestCase):
             (0, "VERDICT: PASS\n\n## Findings\n- none\n", "sess-s"),
         ])
         sleeps = []
-        with patch.object(run.worker, "call", side_effect=fake), \
+        with patch.object(run.worker, "call", side_effect=submitting(fake)), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append), \
                 patch.object(run, "collect_usage", return_value=self.providers):
             verdict = run.review(lp, "Work done.", True, "$ true\n[exit 0]")
@@ -195,7 +196,7 @@ class TransientHandover(unittest.TestCase):
             (0, "VERDICT: PASS\n\n## Findings\n- none\n", "sess-r"),
         ])
         sleeps = []
-        with patch.object(run.worker, "call", side_effect=fake), \
+        with patch.object(run.worker, "call", side_effect=submitting(fake)), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append), \
                 patch.object(run, "collect_usage", return_value=self.providers):
             verdict = run.review(lp, "Work done.", True, "$ true\n[exit 0]")
@@ -216,7 +217,7 @@ class TransientHandover(unittest.TestCase):
             (0, "VERDICT: PASS\n\n## Findings\n- none\n", "sess-c"),
         ])
         sleeps = []
-        with patch.object(run.worker, "call", side_effect=fake), \
+        with patch.object(run.worker, "call", side_effect=submitting(fake)), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append), \
                 patch.object(run, "collect_usage", return_value=self.providers):
             verdict = run.review(lp, "Work done.", True, "$ true\n[exit 0]")

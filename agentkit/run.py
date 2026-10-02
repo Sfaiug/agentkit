@@ -68,8 +68,8 @@ ECHO = 40                       # a prompt is recognised quoted back by this man
                                 # which no refusal begins with
 REFUSAL_CAP = 1000              # a refusal replaces the answer instead of following it, so it is
                                 # short; past this many characters what is there is an answer
-# Legacy text answers carry a heading or verdict; reviewers answer through hand-in records.
-ANSWERED = re.compile(r"^\s{0,3}#{1,6}\s|^[\s>#*_`]*VERDICT:", re.M | re.I)
+# Legacy executor answers carry a heading; reviewers answer through hand-in records.
+ANSWERED = re.compile(r"^\s{0,3}#{1,6}\s", re.M)
 # A record in a harness's event log is that harness reporting a failure when one of its own kind
 # fields says so -- Codex ends a refused turn with `turn.failed`, Claude with a `result` whose
 # subtype names an error -- or when it carries an error of its own.  Whatever a command or a tool
@@ -122,11 +122,8 @@ CLASSIC_CHECKS_QUERY = (
 NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
                 "eight", "nine", "ten")   # the hand-back spells the spent budget out
 FRONT = re.compile(r"^---\n(.*?)\n---", re.S)
-FINDINGS = re.compile(r"^(#+)[ \t]*Findings\b[^\n]*$", re.M | re.I)
-FINDING_ITEM = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+\S", re.M)
 FOLLOWUPS = re.compile(r"^(#+)[ \t]*Follow-ups\b[^\n]*$", re.M | re.I)
 NOTES = re.compile(r"^(#+)[ \t]*Notes\b[^\n]*$", re.M | re.I)
-FOLLOWUP_ITEM = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(\S.*)$", re.M)
 # The two headings a worker's turn ends with: `## Summary` is the work, `## Blocked` is the
 # task itself refusing to be done.  Only a heading on its own line counts, so a preamble
 # quoting either word mid-sentence never ends a run.
@@ -1150,8 +1147,8 @@ def answered(text):
     """Did the worker answer here, or did the harness put a refusal where the answer belongs?
 
     A refusal takes the answer's place rather than following it: it is the whole of what the
-    harness managed to say, and it is short. Legacy text answers carry a heading, a verdict
-    line or length of their own; closing hand-in records establish an answer separately.
+    harness managed to say, and it is short. Legacy text answers carry a heading or length
+    of their own; closing hand-in records establish an answer separately.
     """
     return len(text) > REFUSAL_CAP or bool(ANSWERED.search(text))
 
@@ -3615,11 +3612,6 @@ def restore_review_checkout(lp, stage):
         raise config.Error(f"cannot inspect the review checkout after {stage}: {why}")
 
 
-def review_verdicts(text):
-    """Return verdict words in line order, allowing markdown around a verdict line."""
-    return re.findall(r"^[\s>#*_`]*VERDICT:\s*(PASS|FAIL)(?=[\W_]|$)", text, re.M | re.I)
-
-
 def read_answer(path):
     """One worker answer from disk, or None when it is not there to be read."""
     try:
@@ -3680,14 +3672,15 @@ def record_findings(lp, out, text, submitted=None):
     """
     source = written_answer(out, text)
     if submitted is None:
-        submitted = hand_in.read(source.parent / hand_in.FILE)
-    if submitted is not None:
-        text = submitted.text
-        source = source.parent / hand_in.REPORT
-        source.write_text(text)
+        submitted = hand_in.read(source.parent / hand_in.FILE) or hand_in.Review([])
+    text = submitted.text
+    source = source.parent / hand_in.REPORT
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(text)
     lp.findings = text
     lp.state["findings"] = text.strip()[-8000:]
     lp.state["findings_file"] = str(source)
+    lp.state["review_records"] = submitted.records
 
 
 def saved_findings(run_dir, state):
@@ -3713,39 +3706,12 @@ def saved_findings(run_dir, state):
     return state.get("findings") or ""
 
 
-def finding_count(text):
-    """How much the reviewer found: the list items under its `## Findings` heading.
-
-    The section ends at the next heading of the same level or higher, never at a deeper one:
-    a reviewer asked to group its findings by pattern writes `### <pattern>` subheadings
-    inside the list, and those sites are findings like any other.  Counted the same way for
-    every round, because what it is for is comparing one round's count with the round before.
-    No heading, or no list under it, is none.
-    """
-    return len(FINDING_ITEM.findall(findings_section(text)))
-
-
-def findings_section(text):
-    """What the reviewer wrote under its `## Findings` heading, or "" without one.
-
-    Bounded the way `finding_count` counts it, so the follow-ups listed after it are never
-    read as blocking.
-    """
-    text = text or ""
-    heading = FINDINGS.search(text)
-    if not heading:
-        return ""
-    section = text[heading.end():]
-    end = re.search(rf"^#{{1,{len(heading.group(1))}}}[ \t]", section, re.M)
-    return section[:end.start()] if end else section
-
-
 def without_followups(text):
     """The reviewer's answer as its fixer gets it, without follow-ups or unproven notes.
 
     Follow-ups predate the task and start runs of their own once this one merges; handed to
-    a fixer told to address every finding below, they become out-of-scope work.  Bounded
-    as `followups_in` reads the section.
+    a fixer told to address every finding below, they become out-of-scope work. Each section
+    ends at the next heading of the same level or higher.
     """
     for pattern in (FOLLOWUPS, NOTES):
         heading = pattern.search(text or "")
@@ -3754,33 +3720,6 @@ def without_followups(text):
             end = re.search(rf"^#{{1,{len(heading.group(1))}}}[ \t]", section, re.M)
             text = text[:heading.start()] + (section[end.start():] if end else "")
     return text
-
-
-def followups_in(text):
-    """The reviewer's `## Follow-ups` items, in order, markers stripped.
-
-    Read like `finding_count` reads `## Findings`: the section ends at the next heading of
-    the same level or higher, never at a deeper one. Evidence indented past its item's
-    marker stays with it, however wide the marker. An item saying there are none is no
-    follow-up: it would start a fix run for nothing.
-    """
-    heading = FOLLOWUPS.search(text or "")
-    if not heading:
-        return []
-    section = text[heading.end():]
-    end = re.search(rf"^#{{1,{len(heading.group(1))}}}[ \t]", section, re.M)
-    items, marker, indent = [], None, None
-    for line in (section[:end.start()] if end else section).splitlines():
-        depth = len(line) - len(line.lstrip())
-        if marker is not None and (not line.strip() or depth > marker):
-            items[-1] += "\n" + line[min(depth, indent):]
-            continue
-        item = FOLLOWUP_ITEM.match(line)
-        marker, indent = (depth, item.start(1)) if item else (None, None)
-        if item:
-            items.append(item.group(1))
-    return [item for item in map(str.strip, items)
-            if not re.fullmatch(r"(?:none|n/a)\.?", item, re.I)]
 
 
 def record_flakes(state, text):
@@ -4397,7 +4336,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             name = fall_back(why, out)
             continue
         submitted = review_records(out, text)
-        if submitted.verdict if submitted is not None else review_verdicts(text):
+        if submitted is not None and submitted.done:
             break
         # A missing verdict is a reviewer that has not answered, never an answer: ask the
         # same session once more, same round, no backoff, not a transport attempt.  When
@@ -4444,7 +4383,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             lp.log(f"WARN reviewer {killed_word(code2) or f'exited {code2}'}; "
                    f"see {out2 / 'stderr.log'}")
         submitted2 = review_records(out2, text2)
-        answered2 = submitted2.verdict if submitted2 is not None else review_verdicts(text2)
+        answered2 = submitted2 is not None and submitted2.done
         if not killed2 and (unfinished2 or turn_unfinished(out2)) and answered2:
             lp.log(f"WARN reviewer {lp.reviewer} ended its turn with a command still in the "
                    "background again; carrying on with what it reported")
@@ -4459,9 +4398,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     checkout_changed = not lp.scratch and (
         identity != validation or commit_identity(lp.wt) != identity
         or (not lp.state.get("review_pr") and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))
-    if submitted is not None:
-        submitted = weigh_review(lp, submitted, identity.get("head_sha"))
-    verdict = submitted.verdict if submitted is not None else review_verdicts(text)[-1].upper()
+    submitted = weigh_review(lp, submitted, identity.get("head_sha"))
+    verdict = submitted.verdict
     overridden = None       # why the loop failed what the reviewer passed, for the hand-back
     if code != 0 and verdict == "PASS":
         verdict = "FAIL"
@@ -4478,9 +4416,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         overridden = "the checkout changed after verification"
         lp.log(f"WARN {overridden}; overriding to FAIL")
     record_findings(lp, out, text, submitted=submitted)
-    lp.state["notes"] = submitted.notes if submitted is not None else []
-    lp.state["followups"] = (submitted.followups if submitted is not None else followups_in(text)
-                             ) if verdict == "PASS" else []
+    lp.state["notes"] = submitted.notes
+    lp.state["followups"] = submitted.followups if verdict == "PASS" else []
     if verdict == "PASS":
         record_flakes(lp.state, dw_log)
         # A landing re-review with a pending suite keeps the task's probe base.
@@ -4490,7 +4427,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     if record:
         lp.state["round_summaries"].append(
             {"round": lp.rnd, "verdict": verdict, "done_when": ok,
-             "finding_count": len(submitted.findings) if submitted is not None else finding_count(text),
+             "finding_count": len(submitted.findings),
              "summary": summary.strip()[-4000:], **validation, **passed})
     lp.log(f"round {lp.rnd} verdict: {verdict}")
     lp.state["verdict"] = verdict
@@ -7947,15 +7884,13 @@ def handback_reason(state, cfg=None):
     # a FAIL hands back what the next step turns on: the rounds it spent and why they did
     # not pass -- the findings themselves, never their count, or the check still failing
     spent = len(state.get("round_summaries") or [])
-    if review_failed(state):
-        # the whole review, not run.json's tail of it: the first findings are its top
-        text = saved_findings(None, state)
-        blocking = (findings_section(text).strip()
-                    or re.sub(r"^[^\n]*VERDICT:[^\n]*$", "", text, flags=re.M | re.I).strip())
-        return (f"after {spent} rounds, open findings: "
-                + (" ".join(blocking.split())[:600] or "none listed")).rstrip(".")
-    # else a PASS the loop overrode says why it did, and a check still failing names its line
     review = state.get("review") if isinstance(state.get("review"), dict) else {}
+    if review_failed(state):
+        blocking = "\n".join("- " + hand_in.item_text(row)
+                             for row in hand_in.Review(state["review_records"]).findings)
+        return (f"after {spent} rounds, open findings: "
+                + " ".join(blocking.split())[:600]).rstrip(".")
+    # else a PASS the loop overrode says why it did, and a check still failing names its line
     why = "; ".join(filter(None, (review.get("overridden"), failed_check(state))))
     if why:
         return f"after {spent} rounds, {why}".rstrip(".")
@@ -7964,15 +7899,8 @@ def handback_reason(state, cfg=None):
 
 
 def review_failed(state):
-    """Whether the last review on the record failed the work: its own `VERDICT: FAIL`.
-
-    What tells a FAIL its reviewers gave from one a check left behind.  A final check that
-    failed on a missing login, after reviews that all passed, says nothing about the work:
-    neither its findings nor splitting the task would help.  Read off the whole review: a
-    long one's verdict can be further from its end than run.json keeps.
-    """
-    verdicts = review_verdicts(saved_findings(None, state))
-    return bool(verdicts) and verdicts[-1].upper() == "FAIL"
+    """Blocking records distinguish a reviewer FAIL from a PASS the loop overrode."""
+    return hand_in.Review(state.get("review_records") or []).verdict == "FAIL"
 
 
 def failed_check(state):

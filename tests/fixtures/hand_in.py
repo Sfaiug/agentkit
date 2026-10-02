@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import subprocess
@@ -9,17 +10,65 @@ import sys
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
-from agentkit import hand_in, run
+from agentkit import hand_in
+
+
+FINDINGS = re.compile(r"^(#+)[ \t]*Findings\b[^\n]*$", re.M | re.I)
+FINDING_ITEM = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+\S", re.M)
+FOLLOWUPS = re.compile(r"^(#+)[ \t]*Follow-ups\b[^\n]*$", re.M | re.I)
+FOLLOWUP_ITEM = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(\S.*)$", re.M)
+
+
+def review_verdicts(text):
+    """Return verdict words in line order, allowing markdown around a verdict line."""
+    return re.findall(r"^[\s>#*_`]*VERDICT:\s*(PASS|FAIL)(?=[\W_]|$)", text, re.M | re.I)
+
+
+def finding_count(text):
+    """Count scripted findings, including sites grouped under deeper headings."""
+    return len(FINDING_ITEM.findall(findings_section(text)))
+
+
+def findings_section(text):
+    """Scripted findings stop at the next peer or higher heading."""
+    text = text or ""
+    heading = FINDINGS.search(text)
+    if not heading:
+        return ""
+    section = text[heading.end():]
+    end = re.search(rf"^#{{1,{len(heading.group(1))}}}[ \t]", section, re.M)
+    return section[:end.start()] if end else section
+
+
+def followups_in(text):
+    """Keep each scripted follow-up's indented evidence and omit empty lists."""
+    heading = FOLLOWUPS.search(text or "")
+    if not heading:
+        return []
+    section = text[heading.end():]
+    end = re.search(rf"^#{{1,{len(heading.group(1))}}}[ \t]", section, re.M)
+    items, marker, indent = [], None, None
+    for line in (section[:end.start()] if end else section).splitlines():
+        depth = len(line) - len(line.lstrip())
+        if marker is not None and (not line.strip() or depth > marker):
+            items[-1] += "\n" + line[min(depth, indent):]
+            continue
+        item = FOLLOWUP_ITEM.match(line)
+        marker, indent = (depth, item.start(1)) if item else (None, None)
+        if item:
+            items.append(item.group(1))
+    return [item for item in map(str.strip, items)
+            if not re.fullmatch(r"(?:none|n/a)\.?", item, re.I)]
 
 
 def records(text):
-    verdicts = run.review_verdicts(text)
+    verdicts = review_verdicts(text)
     if not verdicts:
         return []
     rows = []
-    for kind, items in (("finding", [item.group(1) for line in run.findings_section(text).splitlines()
-                                    if (item := run.FOLLOWUP_ITEM.match(line))]),
-                        ("follow-up", run.followups_in(text))):
+    for kind, items in (("finding", [item.group(1) for line in findings_section(text).splitlines()
+                                    if (item := FOLLOWUP_ITEM.match(line))]),
+                        ("follow-up", followups_in(text))):
         for item in items:
             if item.lower() in ("none", "none."):
                 continue
@@ -41,6 +90,21 @@ def records(text):
 
 def reported(text):
     return hand_in.Review(records(text)).text
+
+
+def submitting(fake):
+    """Mocked worker calls must hand in their scripted review just like fake adapters."""
+    def call(*args, **kwargs):
+        answer = fake(*args, **kwargs) if callable(fake) else fake
+        role = kwargs.get("role", args[5] if len(args) > 5 else "executor")
+        if role.startswith("reviewer") and (rows := records(answer[1])):
+            out = Path(args[4])
+            out.mkdir(parents=True, exist_ok=True)
+            file = hand_in.start(out, args[3], role=role)
+            with Path(file).open("a") as fh:
+                fh.write("".join(json.dumps(row) + "\n" for row in rows))
+        return answer
+    return call
 
 
 def write(out):

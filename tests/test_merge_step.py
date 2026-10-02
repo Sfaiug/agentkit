@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from agentkit import host, config, gc, run, usage
 
 URL = "https://github.com/fixture/repo/pull/7"
@@ -138,7 +139,7 @@ class MergeStep(unittest.TestCase):
             return True, "$ true\n[exit 0]\n"
 
         self.stack.enter_context(patch.object(run, "run_done_when", side_effect=checks))
-        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=self.review_call))
+        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.review_call)))
         # every failing gate here is the branch's own: the target is green, so the
         # red-target probe never parks (tests/test_red_target.py covers a red tip)
         self.stack.enter_context(patch.object(run, "target_fails", return_value=False))
@@ -275,7 +276,7 @@ class MergeStep(unittest.TestCase):
 
         with patch.object(run, "run_done_when", side_effect=checks), \
                 patch.object(run, "execute", side_effect=fixer), \
-                patch.object(run, "call_retrying", side_effect=fake_review):
+                patch.object(run, "call_retrying", side_effect=submitting(fake_review)):
             self.assertTrue(run.final_check(lp, "origin/main"))
         self.assertEqual([(name, rnd) for name, rnd, _ in turns],
                          [("final-fixer", 1), ("executor", 2)])
@@ -307,14 +308,14 @@ class MergeStep(unittest.TestCase):
             return "## Summary\nNothing to change."
 
         def fake_review(cfg, name, body, workspace, out, role, session, log, limit=None, **kwargs):
-            answer = "VERDICT: FAIL\n\n## Findings\n- base.txt:1 - the gate is skipped\n"
+            answer = "VERDICT: FAIL\n\n## Findings\n- work.txt:1 - the gate is skipped\n"
             out.mkdir(parents=True)
             (out / "final.md").write_text(answer)
             return 0, answer, session, False
 
         with patch.object(run, "run_done_when", side_effect=checks), \
                 patch.object(run, "execute", side_effect=fixer), \
-                patch.object(run, "call_retrying", side_effect=fake_review):
+                patch.object(run, "call_retrying", side_effect=submitting(fake_review)):
             self.assertFalse(run.final_check(lp, "origin/main"))
         self.assertEqual(turns, [("final-fixer", 3)])
         state = run.read_state(run_dir)
@@ -328,7 +329,7 @@ class MergeStep(unittest.TestCase):
         state["state"] = "fail"         # what the run makes of a FAIL the merge step left
         run.save_state(run_dir, state)
         self.assertEqual(run.handback_reason(state), "after 3 rounds, open findings: "
-                         "- base.txt:1 - the gate is skipped")
+                         "- work.txt:1 - the gate is skipped - fixture defect Quote: fixture evidence")
         self.assertFalse(run.integration_note(state, run_dir))
         self.assertTrue(run.failed_at_budget(state))
 
@@ -353,7 +354,7 @@ class MergeStep(unittest.TestCase):
 
         with patch.object(run, "run_done_when", side_effect=checks), \
                 patch.object(run, "execute", return_value="## Summary\nTried."), \
-                patch.object(run, "call_retrying", side_effect=fake_review):
+                patch.object(run, "call_retrying", side_effect=submitting(fake_review)):
             self.assertFalse(run.final_check(lp, "origin/main"))
         state = run.read_state(run_dir)
         self.assertEqual(state["review"]["overridden"], "the reviewer said PASS but exited 1")
@@ -431,7 +432,7 @@ class MergeStep(unittest.TestCase):
                     return 0, answer, session, False
 
                 with patch.object(run, "execute", side_effect=fixer), \
-                        patch.object(run, "call_retrying", side_effect=fake_review):
+                        patch.object(run, "call_retrying", side_effect=submitting(fake_review)):
                     self.assertFalse(run.integrate(lp, "origin/main"))
                 state = run.read_state(run_dir)
                 self.assertNotEqual(state["state"], "waiting")
@@ -442,7 +443,7 @@ class MergeStep(unittest.TestCase):
                 self.assertEqual(len(state["round_summaries"]), 2)
                 state["state"] = "fail"
                 self.assertEqual(run.handback_reason(state), "after 2 rounds, open findings: "
-                                 "- shared:1 - drops the target side")
+                                 "- shared:1 - drops the target side - fixture defect Quote: fixture evidence")
 
     def test_origin_moving_three_times_parks_waiting(self):
         _, owner, wt = make_repos(self.root)
@@ -498,7 +499,7 @@ class MergeStep(unittest.TestCase):
             return 0, answer, session, False
 
         with patch.object(run, "execute", side_effect=fixer), \
-                patch.object(run, "call_retrying", side_effect=fake_review):
+                patch.object(run, "call_retrying", side_effect=submitting(fake_review)):
             self.assertTrue(run.integrate(lp, "origin/main"))
         findings = [text for name, text in turns if name == "executor"]
         self.assertEqual(len(findings), 1)
@@ -527,7 +528,7 @@ class MergeStep(unittest.TestCase):
                                  "usage limit reached", True)
             return 0, resolve(wt), session, False
 
-        with patch.object(run, "call_retrying", side_effect=call), \
+        with patch.object(run, "call_retrying", side_effect=submitting(call)), \
                 patch.object(usage, "collect", return_value={}), \
                 patch.object(usage, "pick_order", return_value=["opus", "astra", "spark"]):
             self.assertTrue(run.integrate(lp, "origin/main"))
@@ -657,7 +658,7 @@ class MergeStep(unittest.TestCase):
             return "## Summary\nFixed the findings."
 
         with patch.object(run, "execute", side_effect=fixer), \
-                patch.object(run, "call_retrying", side_effect=review_call), \
+                patch.object(run, "call_retrying", side_effect=submitting(review_call)), \
                 patch.object(run, "run_done_when", side_effect=checks):
             self.assertTrue(run.integrate(lp, "origin/main"))
         self.assertEqual([(rnd, role) for rnd, role, _ in turns], [(3, "fixer")])

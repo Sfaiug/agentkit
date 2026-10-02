@@ -26,7 +26,7 @@ from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import scripted
+from fixtures.hand_in import submitting, scripted
 from agentkit import host, config, notify, orch, run, usage, watch
 
 WEEK = 604800
@@ -274,7 +274,7 @@ class Quota(unittest.TestCase):
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
         # This assertion needs the slot poll even when the caller sets AK_MAX_RUNS=0.
         with patch.dict(os.environ, {"AK_MAX_RUNS": "1"}), \
-                patch.object(run.worker, "call", side_effect=turn), \
+                patch.object(run.worker, "call", side_effect=submitting(turn)), \
                 patch.object(usage, "collect", return_value=providers), \
                 patch.object(run, "time", Clock(sleeps.append)), \
                 patch.object(notify, "shaped",

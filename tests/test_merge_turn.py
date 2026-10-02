@@ -21,6 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from agentkit import host, config, run, watch
 
 URL = "https://github.com/fixture/repo/pull/7"
@@ -170,7 +171,7 @@ class MergeTurn(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "merge_turn", turn))
         self.stack.enter_context(patch.object(run, "run_done_when", side_effect=self.recheck))
         self.stack.enter_context(patch.object(run, "execute", side_effect=self.fix))
-        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=self.reviewer))
+        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(run, "rights", return_value=(None, None)))
         self.stack.enter_context(patch.object(run, "open_pr", return_value=URL))
         self.stack.enter_context(patch.object(run, "wait_checks", side_effect=self.required))

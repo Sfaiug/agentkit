@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from agentkit import config, run, worker
 
 
@@ -85,7 +86,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assert_restored(head)
         lp.state["step"] = "reviewer"
         self.assertIsNone(run.settled_gate(lp))
-        with patch.object(run, "call_retrying", return_value=(0, "VERDICT: PASS", None, False)):
+        with patch.object(run, "call_retrying", side_effect=submitting((0, "VERDICT: PASS", None, False))):
             self.assertEqual(run.review(lp, "Fixture summary", ok, text), "FAIL")
 
     def test_real_regression_is_red_then_green_and_probed_once_across_resume(self):

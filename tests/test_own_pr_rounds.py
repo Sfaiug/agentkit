@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from agentkit import host, config, gc, menu, orch, run, watch, worker
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -76,7 +77,7 @@ class OwnPrRounds(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "gh_json", side_effect=lambda *a, **k: (dict(self.pr), "")))
         self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(run, "merge_turn", side_effect=lambda *a, **k: nullcontext()))
-        self.stack.enter_context(patch.object(worker, "call", side_effect=self.reviewer))
+        self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.reviewer)))
         clock = self.stack.enter_context(patch.object(run, "time", wraps=time))
         clock.sleep.side_effect = self.push
         self.stack.enter_context(patch.object(run, "launcher_world", side_effect=lambda *a, **k: nullcontext(True)))
@@ -365,7 +366,7 @@ class OwnPrRounds(unittest.TestCase):
                 self.pr["headRefOid"] = self.heads[2]
             return answer
 
-        with patch.object(worker, "call", side_effect=moved):
+        with patch.object(worker, "call", side_effect=submitting(moved)):
             state = self.review(["FAIL", "FAIL", "PASS"])
         self.assert_moved_round_merges(state)
         self.assertIn("defect 2", self.prompts[2])
@@ -378,7 +379,7 @@ class OwnPrRounds(unittest.TestCase):
                 self.pr["headRefOid"] = self.heads[2]
             return answer
 
-        with patch.object(worker, "call", side_effect=moved):
+        with patch.object(worker, "call", side_effect=submitting(moved)):
             state = self.review(["FAIL", "PASS", "PASS"])
         self.assert_moved_round_merges(state)
         self.assertEqual(len(self.notices), 1)
@@ -430,7 +431,7 @@ class OwnPrRounds(unittest.TestCase):
                 self.pr["headRefOid"] = self.heads[3]
             return answer
 
-        with patch.object(worker, "call", side_effect=moved):
+        with patch.object(worker, "call", side_effect=submitting(moved)):
             state = self.review(["FAIL", "FAIL", "PASS"])
         self.assertEqual(state["state"], "fail")
         self.assertIsNotNone(state["finished_at"])

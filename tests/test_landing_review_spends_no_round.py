@@ -11,6 +11,7 @@ import unittest
 
 from test_v4n import Sandbox
 from test_merge_step import make_loop, make_repos
+from fixtures.hand_in import submitting
 from agentkit import run
 
 
@@ -36,7 +37,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.verdicts = iter(["PASS"])
         self.stack.enter_context(patch.object(run, "run_done_when",
                                               return_value=(True, "$ true\n[exit 0]\n")))
-        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=self.reviewer))
+        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(run, "execute", side_effect=self.fixer))
         self.stack.enter_context(patch.object(run, "pickup_new_code"))
         self.stack.enter_context(patch.object(run, "merge_turn",
@@ -46,7 +47,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.assertEqual(role, "reviewer")
         self.events.append(("reviewer", out.parent.name))
         verdict = next(self.verdicts)
-        finding = "- base.txt:1 - the merged tree breaks\n" if verdict == "FAIL" else "- none\n"
+        finding = "- work.txt:1 - the merged tree breaks\n" if verdict == "FAIL" else "- none\n"
         answer = f"VERDICT: {verdict}\n\n## Findings\n{finding}"
         out.mkdir(parents=True)
         (out / "final.md").write_text(answer)
@@ -54,7 +55,7 @@ class LandingReviewSpendsNoRound(Sandbox):
 
     def fixer(self, lp, role, text, name, **_kw):
         self.assertEqual(role, "fixer")
-        self.assertIn("base.txt:1 - the merged tree breaks", text)
+        self.assertIn("work.txt:1 - the merged tree breaks", text)
         self.events.append(("fixer", lp.rnd))
         lp.round_dir.mkdir(parents=True, exist_ok=True)
         return "## Summary\nFixed the findings."
@@ -128,7 +129,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.assert_no_round(self.lp)
         state = run.read_state(self.run_dir)
         self.assertEqual(state["review"]["verdict"], "FAIL")
-        self.assertIn("base.txt:1 - the merged tree breaks", state["findings"])
+        self.assertIn("work.txt:1 - the merged tree breaks", state["findings"])
         self.assertFalse(state["merged"])
 
     def test_interrupted_landing_review_resumes_at_the_budget_and_lands(self):
@@ -173,7 +174,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.assert_no_round(resumed)
         state = run.read_state(self.run_dir)
         self.assertEqual(state["review"]["verdict"], "FAIL")
-        self.assertIn("base.txt:1 - the merged tree breaks", state["findings"])
+        self.assertIn("work.txt:1 - the merged tree breaks", state["findings"])
         self.assertFalse(state["merged"])
 
     def test_changed_checkout_resume_does_not_integrate_a_no_merge_run(self):

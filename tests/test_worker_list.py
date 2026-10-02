@@ -23,6 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import host, config, notify, run, usage, watch
+from fixtures.hand_in import submitting
 
 
 class WorkerList(unittest.TestCase):
@@ -311,7 +312,7 @@ class WorkerList(unittest.TestCase):
             return 0, text, f"s-{name}", False
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
-        with patch.object(run.worker, "call", side_effect=fake), \
+        with patch.object(run.worker, "call", side_effect=submitting(fake)), \
                 self.refused(usage.Readings(self.providers(b=5))), \
                 patch.object(notify, "shaped", return_value=0), \
                 redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):

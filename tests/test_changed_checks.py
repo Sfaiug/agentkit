@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from agentkit import run, worker
 
 
@@ -53,7 +54,7 @@ class ChangedChecks(unittest.TestCase):
         lp.validation = {} if scratch else run.commit_identity(self.repo)
         with patch.object(run, "review_providers", return_value=("provider-a", "provider-b")), \
                 patch.object(run, "call_retrying",
-                             return_value=(0, "VERDICT: PASS\n## Findings\n- none", None, False)) as call:
+                             side_effect=submitting((0, "VERDICT: PASS\n## Findings\n- none", None, False))) as call:
             self.assertEqual(run.review(lp, "Fixture summary", True,
                                         "$ true\n[exit 0]", preface), "PASS")
         call.assert_called_once()

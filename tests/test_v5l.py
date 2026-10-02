@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import reported, scripted
+from fixtures.hand_in import finding_count, reported, scripted
 from agentkit import host, config, notify, run, worker
 
 
@@ -569,7 +569,7 @@ sys.exit(1)
                  ("", 0)]
         for text, want in cases:
             with self.subTest(text=text[:40]):
-                self.assertEqual(run.finding_count(text), want)
+                self.assertEqual(finding_count(text), want)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 """A reviewer's `## Follow-ups` list: "none" is no follow-up, and evidence stays with its item.
 
-Pure text: calls `followups_in` directly.
+Pure text: checks the fake adapter's Markdown parser directly.
 """
 
 from pathlib import Path
@@ -9,7 +9,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit.run import followups_in
+from fixtures.hand_in import followups_in
 
 
 class FollowupsParse(unittest.TestCase):

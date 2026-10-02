@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import scripted
+from fixtures.hand_in import submitting, scripted
 from agentkit import host, config, run
 
 
@@ -134,7 +134,7 @@ class V5aa(unittest.TestCase):
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         config.ensure_dirs()
         # Keep review bookkeeping real across laps; only the model call is fake.
-        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=self.reviewer))
+        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(run.worker, "marked_pids", return_value=[]))
 
     def reviewer(self, cfg, name, body, workspace, out, role, session, log, limit=None, **_kw):
