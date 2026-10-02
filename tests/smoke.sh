@@ -1927,7 +1927,7 @@ skip_spent() {   # skip_spent <check labels> <required models...>
   for model in "$@"; do
     spent=$(spent_until "$model")
     if [ -n "$spent" ]; then
-      skip_checks "$checks" "required model $model has a spent ${spent%% *} window until ${spent#* }"
+      skip_spent_checks "$checks" "required model $model has a spent ${spent%% *} window until ${spent#* }"
       return 0
     fi
     skip_unavailable "$checks" "$model" && return 0
@@ -1973,7 +1973,7 @@ snapshot.write_text(json.dumps({"providers": providers}))
 print(text.strip() or word)
 PY
   ) || return 1
-  skip_checks "$checks" "required model $model was refused: $why"
+  skip_spent_checks "$checks" "required model $model was refused: $why"
 }
 printf 'Create a file hello.txt containing exactly: hello\nThen run %s hand-in done.\nThen reply with only the word DONE.\n' "$REPO/bin/ak" \
   >"$WORK/p-make.txt"
@@ -1988,7 +1988,7 @@ for pair in "${HARNESSES[@]}"; do
   CHECKS=3a/3b; [ $# = 0 ] || CHECKS=3c
   SPENT=$(spent_until "$M")
   if [ -n "$SPENT" ]; then
-    skip_checks "$CHECKS" "$M ($H): the ${SPENT%% *} subscription window is spent until"\
+    skip_spent_checks "$CHECKS" "$M ($H): the ${SPENT%% *} subscription window is spent until"\
          "${SPENT#* }, so every call would be a 429"
     continue
   fi
@@ -2012,7 +2012,7 @@ os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
     CALLRC=$?
     if skip_refused 3c "$M" "$CALLRC" "$WORK/o-$M"; then continue; fi
     if [ "$CALLRC" = 0 ] && grep -qiwF "$WORD" "$WORK/o-$M/final.md" 2>/dev/null; then
-      ok "3c $M ($H): $1 at $2 replied $WORD"
+      ok_call "3c $M ($H): $1 at $2 replied $WORD"
     else
       no "3c $M ($H): $1 at $2 did not reply $WORD: final.md = $(head -c 120 "$WORK/o-$M/final.md" 2>/dev/null)"
       diagnose "$CALLRC" "$WORK/$M.log" "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M"
@@ -2032,7 +2032,7 @@ os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
      PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import hand_in
 review = hand_in.read(sys.argv[1])
 assert review is not None and review.done' "$WORK/o-$M/hand-in.jsonl"; then
-    ok "3a $M ($H): wrote hello.txt, final.md non-empty, handed in a checked record"
+    ok_call "3a $M ($H): wrote hello.txt, final.md non-empty, handed in a checked record"
   else
     no "3a $M ($H): hello.txt=$([ -f "$R/hello.txt" ] && echo yes || echo no)"
     diagnose "$CALLRC" "$WORK/$M.log" ak worker "$M" "$WORK/p-make.txt" --workspace "$R" --out "$WORK/o-$M"
@@ -2045,7 +2045,7 @@ assert review is not None and review.done' "$WORK/o-$M/hand-in.jsonl"; then
     RESUMERC=$?
     if skip_refused 3b "$M" "$RESUMERC" "$WORK/o-$M-2"; then continue; fi
     if [ "$RESUMERC" = 0 ] && grep -qi 'hello\.txt' "$WORK/o-$M-2/final.md" 2>/dev/null; then
-      ok "3b $M ($H): resumed session $SID recalled hello.txt"
+      ok_call "3b $M ($H): resumed session $SID recalled hello.txt"
     else
       no "3b $M ($H) resume: final.md = $(head -c 120 "$WORK/o-$M-2/final.md" 2>/dev/null)"
       diagnose "$RESUMERC" "$WORK/$M-2.log" ak worker "$M" "$WORK/p-ask.txt" --workspace "$R" --out "$WORK/o-$M-2" --session "$SID"
