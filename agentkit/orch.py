@@ -742,7 +742,9 @@ def stop_scope(scope, log=lambda _: None, wait=True):
                 # This process is in what it stops and on its way out: the stop is for what it
                 # leaves behind, and the exit status a foreground caller reads stays its own.
                 signal.signal(signal.SIGTERM, signal.SIG_IGN)
-            subprocess.Popen([*command, *units], stdin=subprocess.DEVNULL,
+            # queued, not waited for: a systemctl inside the scope, ignoring SIGTERM as this
+            # process now does, would otherwise wait on a stop that waits on it
+            subprocess.Popen([*command, *units, "--no-block"], stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              start_new_session=True, env=bus_env())
             return True

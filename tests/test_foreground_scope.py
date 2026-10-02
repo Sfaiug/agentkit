@@ -198,7 +198,7 @@ class ForegroundScope(Sandbox):
             env={**os.environ, "PATH": f"{stopper}:{os.environ['PATH']}"})
         self.assertEqual(child.returncode, 3, child.stderr)
         self.assertEqual(sent.read_text(),
-                         "--user stop agentkit-run-acme.scope agentkit-run-acme.service")
+                         "--user stop agentkit-run-acme.scope agentkit-run-acme.service --no-block")
 
 
 if __name__ == "__main__":
