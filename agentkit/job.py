@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import config, host, notify, orch, retention, run, task as taskfile, watch
+from . import box, config, host, notify, orch, retention, run, task as taskfile, watch
 from . import record
 
 JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at most this often
@@ -1421,6 +1421,7 @@ def cmd_job_resume(argv):
         job = read_job(job_dir)
     if not job or not isinstance(job.get("tasks"), list):
         raise config.Error(f"no resumable job: {argv[0]} (looked in {config.JOBS})")
+    box.check()
     try:
         launcher_alive = not job.get("finished_at") and bool(record.process_active(job))
     except (TypeError, ValueError, AttributeError, OSError):

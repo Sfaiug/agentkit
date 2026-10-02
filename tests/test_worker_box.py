@@ -277,6 +277,24 @@ class WorkerBox(unittest.TestCase):
                 self.assertRaisesRegex(config.Error, "sudo apt-get install -y bubblewrap"):
             run.main([str(self.root / "task.md")])
 
+    def test_job_resume_refuses_before_starting_without_bubblewrap(self):
+        receipt = self.root / "jobs" / "job-acme"
+        receipt.mkdir(parents=True)
+        run.jobs.save_job(receipt, {
+            "job_id": "job-acme", "tasks": [{"name": "fix-api", "state": "queued"}]})
+        with patch.dict(os.environ, {config.RUN_DIR_ENV: "", config.JOB_DIR_ENV: ""}), \
+                patch.object(config, "JOBS", receipt.parent), \
+                patch.object(config, "load", return_value={}), \
+                patch.object(box.shutil, "which", return_value=None), \
+                patch.object(run.jobs, "run_job_loop", return_value=0) as loop, \
+                patch.object(run.jobs, "spawn_job_bg", return_value=0) as spawn:
+            for tail in ([], ["--bg"]):
+                with self.subTest(tail=tail), \
+                        self.assertRaisesRegex(config.Error, "sudo apt-get install -y bubblewrap"):
+                    run.cmd_resume([receipt.name, *tail])
+            loop.assert_not_called()
+            spawn.assert_not_called()
+
     def test_namespace_refusal_names_the_fix(self):
         fake_bin = self.root / "bin"
         fake_bin.mkdir()
