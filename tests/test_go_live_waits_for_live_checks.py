@@ -44,8 +44,7 @@ wait
 """
 CHILD = """#!/bin/sh
 sh -c 'until [ -e "$HOME/release" ]; do sleep 0.05; done' >/dev/null 2>&1 &
-echo "live: check 4 red"
-exit 1
+echo "live: check 3 green"
 """
 
 
@@ -113,11 +112,13 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         return [(commit, check) for _, commit, check in update.live_checks()]
 
     def deliver(self, run_dir, run_state, key, line, log, typed=None, receipt=None, **_kw):
-        """The seat a failure goes to: it takes the line while `self.seat` is up."""
+        """The seat a failure goes to: it takes the line while `self.seat` is up, and has it
+        typed but not entered while it is False; there is none while it is None."""
         self.handed.append((key, line, typed))
         if self.seat:
             return True
-        receipt({"line": line, "seat": 1})
+        if self.seat is False:
+            receipt({"line": line, "seat": 1})
         return False
 
     def tick(self, now=None):
@@ -265,12 +266,43 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         (self.root / "release").touch()
         cap = self.cap(check)
         os.utime(self.finish(new) / "exit", (cap, cap))           # it said so only at its cap
-        said = self.tick(now=cap + 1)
+        said = self.tick(now=cap + 1)                             # red from when it is seen
         self.assertEqual(said[-2:], ["  [stopped before it finished]", f"handed agentkit's "
                                      f"failed tests/live.sh at {new[:12]} back to fix"])
         self.assertEqual((self.head(), update.live_target()), (self.first, ""))
-        self.assertEqual(self.tick(now=cap + watch.RETRY_BACKOFF[0] - 1), [])
-        self.assertEqual(len(self.tick(now=cap + watch.RETRY_BACKOFF[0])), 1)
+        self.assertEqual(self.tick(now=cap + 1 + watch.RETRY_BACKOFF[0] - 1), [])
+        self.assertEqual(len(self.tick(now=cap + 1 + watch.RETRY_BACKOFF[0])), 1)
+
+    def test_a_check_whose_runner_died_is_red_and_tried_again_on_the_backoff(self):
+        new = self.merge("second", live=HOLD)
+        self.tick()
+        check = self.held()
+        worker.kill_marked(str(check), grace=2)                   # as a reboot would
+        seen = self.cap(check) - update.SMOKE_CAP + 60
+        said = self.tick(now=seen)
+        self.assertEqual(said[1:3], ["  live: waiting", "  [stopped before it finished]"])
+        self.assertEqual(self.tick(now=seen + watch.RETRY_BACKOFF[0] - 1), [])
+        self.assertEqual(self.tick(now=seen + watch.RETRY_BACKOFF[0]), [
+            f"checking agentkit at {new[:12]} with tests/live.sh before it goes live"])
+
+    def test_the_newest_red_is_handed_back_while_no_seat_took_an_older_one(self):
+        (self.root / "red").touch()
+        new = self.merge("second")
+        self.tick()
+        self.finish(new)
+        self.seat = None                                          # no seat at all
+        self.assertEqual(self.tick()[0], f"WARN agentkit stays as it is: tests/live.sh "
+                                         f"failed at {new[:12]}:")
+        third = self.merge("third")
+        self.tick(now=time.time() + 60)                           # a tick later, as ticks are
+        self.finish(third)
+        self.seat = True
+        said = self.tick()
+        self.assertEqual((said[0], said[-1]), (
+            f"WARN agentkit stays as it is: tests/live.sh failed at {third[:12]}:",
+            f"handed agentkit's failed tests/live.sh at {third[:12]} back to fix"))
+        self.assertIn(third[:12], self.handed[-1][1])
+        self.assertEqual(self.tick(), [])                         # once
 
     def test_a_child_it_left_holds_it_to_its_cap_and_its_red_outlives_a_newer_main(self):
         new = self.merge("second", live=CHILD)
@@ -281,12 +313,12 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
             time.sleep(0.05)
         self.assertTrue(worker.marked_pids(str(check)))           # its script left a child
         third = self.merge("third", live=LIVE)
-        self.assertEqual(self.tick(), [])                         # running still: waited for
+        self.assertEqual(self.tick(), [])                         # running still: not green yet
         said = self.tick(now=self.cap(check))
         self.assertEqual(worker.marked_pids(str(check)), [])
-        self.assertEqual(said, [
+        self.assertEqual(said, [                                  # the cap made it red
             f"WARN agentkit stays as it is: tests/live.sh failed at {new[:12]}:",
-            "  live: check 4 red", "  [exit 1]",
+            "  live: check 3 green", "  [exit 0]", "  [stopped before it finished]",
             f"handed agentkit's failed tests/live.sh at {new[:12]} back to fix",
             f"checking agentkit at {third[:12]} with tests/live.sh before it goes live"])
 

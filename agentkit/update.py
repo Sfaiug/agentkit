@@ -856,9 +856,8 @@ def go_live(log, now=None):
 def live_checks():
     """Every check of tests/live.sh, oldest first: (started, commit, directory).
 
-    The tick makes the directory, named for both, and the check's own `LIVE_RUN` writes
-    `output` and `exit` in it.  A check runs while processes carry its marker, whatever its
-    script said -- where there is no /proc to read them, until it has an exit code or its cap.
+    The tick makes the directory, named for both, and `stopped` and `handed` in it; the
+    check's own `LIVE_RUN` writes `output` and `exit`.
     """
     found = []
     for check in (config.STATE / LIVE).glob("*-*"):
@@ -869,14 +868,37 @@ def live_checks():
 
 
 def _exit(check, started):
-    """A check's exit code, or None while it has none from within its cap: one written after
-    `SMOKE_CAP`, as the cap ended it, is no verdict, so every reader counts that check red."""
+    """A check's exit code, or None while it has none: one written after `SMOKE_CAP` is none,
+    and so is any once the tick wrote `stopped`, so every reader counts that check red."""
     try:
-        if (check / "exit").stat().st_mtime < started + SMOKE_CAP:
+        if (not (check / "stopped").exists()
+                and (check / "exit").stat().st_mtime < started + SMOKE_CAP):
             return int((check / "exit").read_text())
     except (OSError, ValueError):
         pass
     return None
+
+
+def _alive(check, started, now):
+    """Whether anything of that check still runs: whatever carries its marker, whatever its
+    script said -- where there is no /proc to read that, until it has an exit code or its cap."""
+    if host.PROC.is_dir():
+        return bool(worker.marked_pids(str(check)))
+    return _exit(check, started) is None and now < started + SMOKE_CAP
+
+
+def _put(path, text):
+    """`text` into `path` whole: a reader sees the old file or the new one, never half."""
+    path.with_suffix(".tmp").write_text(text)
+    os.replace(path.with_suffix(".tmp"), path)
+
+
+def _handed(check):
+    """That check's hand-back record, or None while it has none."""
+    try:
+        return json.loads((check / "handed").read_text())
+    except (OSError, ValueError):
+        return None
 
 
 def live_target():
@@ -887,7 +909,8 @@ def live_target():
     so what moves is exactly what passed, however far origin/main has gone on since.
     """
     tip = _git("rev-parse", "--verify", "--quiet", "origin/main")[1]
-    passed = {commit for started, commit, check in live_checks() if _exit(check, started) == 0}
+    passed = {commit for started, commit, check in live_checks()
+              if _exit(check, started) == 0 and not _alive(check, started, time.time())}
     if (not tip or tip in passed or _git("cat-file", "-e", f"{tip}:tests/live.sh")[0]
             or not _git("merge-base", "--is-ancestor", tip, "HEAD")[0]):
         return tip
@@ -899,11 +922,13 @@ def live_tick(log, now, fetched):
     """The tick's half of tests/live.sh: it starts the checks and ends them at their cap.
 
     One past `SMOKE_CAP`, or of a commit the checkout already has, is ended by its marker,
-    and its directory goes, worktree and all, only once nothing carries that marker.  While
-    origin/main has a `tests/live.sh` and no check of it passed, one is started, detached, as
-    soon as none runs; a red one is started again on `watch.RETRY_BACKOFF` from its end, or
-    from its cap where it gave no verdict.  As `watch.after_merge_checks` does, the newest red
-    check no later check passed is handed back (`live_hand_back`), wherever main went since.
+    and its directory goes, worktree and all, only once nothing carries that marker.  One the
+    cap ends, or that ended with no exit code in time, is `stopped`: red from then on, whatever
+    it says later.  While origin/main has a `tests/live.sh` and no check of it passed, one is
+    started, detached, as soon as none runs; a red one is started again on
+    `watch.RETRY_BACKOFF` from its end.  As `watch.after_merge_checks` does, the newest red
+    check no later check passed is handed back (`live_hand_back`), wherever main went since,
+    unless an older one's notice was typed or told already.
     Offline, no check starts: what was fetched last may be what origin has since moved on from.
     """
     from . import watch     # here, not at the top: watch imports this module
@@ -912,10 +937,12 @@ def live_tick(log, now, fetched):
     for started, commit, check in live_checks():
         if commit not in had:
             had[commit] = not _git("merge-base", "--is-ancestor", commit, "HEAD")[0]
-        capped, code = now >= started + SMOKE_CAP, _exit(check, started)
-        alive = (bool(worker.marked_pids(str(check))) if host.PROC.is_dir()
-                 else code is None and not capped)
-        if (alive or code is None) and (capped or had[commit]):
+        capped, alive = now >= started + SMOKE_CAP, _alive(check, started, now)
+        stop = (not had[commit] and not (check / "stopped").exists()
+                and (capped if alive else _exit(check, started) is None))
+        if stop:
+            _put(check / "stopped", f"{now}\n")
+        if (alive or stop) and (capped or had[commit]):
             alive = not worker.kill_marked(str(check))
         if alive:
             running = True
@@ -926,11 +953,12 @@ def live_tick(log, now, fetched):
             done.append((started, commit, check, _exit(check, started)))   # read once it ended
     if pruned:
         _git("worktree", "prune")
-    episode = None      # a pass ends what was red before it; one handed back stands until then
+    episode = None      # a pass ends what was red before it; one typed or told stands until then
     for _, commit, check, code in done:
+        record = _handed(episode[1]) if episode else None
         if code == 0:
             episode = None
-        elif episode is None or not (episode[1] / "handed").exists():
+        elif not (record and (record["typed"] or record["told"])):
             episode = (commit, check, code)
     if episode:
         live_hand_back(*episode, log)
@@ -941,7 +969,8 @@ def live_tick(log, now, fetched):
         return
     if mine:
         started, check, code = mine[-1]
-        ended = started + SMOKE_CAP if code is None else (check / "exit").stat().st_mtime
+        ended = (float((check / "stopped").read_text()) if code is None
+                 else (check / "exit").stat().st_mtime)
         if now < ended + watch.RETRY_BACKOFF[min(len(mine), len(watch.RETRY_BACKOFF)) - 1]:
             return
     log(f"checking agentkit at {tip[:12]} with tests/live.sh before it goes live")
@@ -962,16 +991,13 @@ def live_hand_back(commit, check, code, log):
     and `told` once it has.
     """
     from . import run, watch    # here, not at the top: both import this module
-    handed = check / "handed"
 
     def keep(**change):
         record.update(change)
-        handed.with_suffix(".tmp").write_text(json.dumps(record))
-        os.replace(handed.with_suffix(".tmp"), handed)
+        _put(check / "handed", json.dumps(record))
 
-    if handed.exists():
-        record = json.loads(handed.read_text())
-    else:
+    record = _handed(check)
+    if record is None:
         output = check / "output"
         try:    # one that never finished has only what it was writing
             said = (output if output.exists() else check / "output.tmp").read_text(
