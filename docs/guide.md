@@ -234,7 +234,7 @@ session after a minute; a second failure in a row hands the role to the next mod
 is retried after 5, 15, 30 and 60 minutes, then hourly; the tick's silence clock starts where each wait ends. An empty
 answer whose stderr (the adapter's own included) says the harness never ran (not installed, an unknown flag or model, a
 refused login, even quoted as `API Error`) and names no 5xx, overload or capacity error goes to another provider at
-once, or ends the run, a PR review included, `blocked` on that line. A refusal that names the account re-picks each role by budget from its own group, same worktree and round.
+once, or ends the run, a PR review included, `blocked` on that line. A refusal that names the account re-picks the pair from its saved groups, same worktree and round; at executor handover, reviewers from providers that refused nothing go first, with refused reviewers as fallback. Later picks use normal order.
 
 `ak run resume <id> [--rounds N] [--bg]` resumes the worktree, the worker sessions and the options a run left; it
 refuses `blocked` and `stopped`, and needs the worktree, which lives seven days. `ak run merge <id>` retries the
