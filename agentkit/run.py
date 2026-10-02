@@ -3120,13 +3120,14 @@ def host_ended_prompt(state):
 
 
 def latest_worker_turn(round_dir):
-    """The latest worker attempt supersedes earlier attempts, even when it closed."""
+    """The latest executor/fixer attempt supersedes earlier attempts, even when it closed."""
     rd = Path(round_dir)
     if not rd.is_dir():
         return None
     turns = [latest_turn(rd, role_base(path.name)) for path in rd.iterdir()
              if path.is_dir() and "-retry" not in path.name
-             and not path.name.startswith("reviewer")]
+             and not path.name.startswith("reviewer")
+             and re.match(r"(?:executor|(?:.+-)?fixer)(?:-|$)", path.name)]
     return max(turns, key=lambda path: (path.stat().st_mtime_ns, path.name), default=None)
 
 
