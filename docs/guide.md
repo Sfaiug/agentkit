@@ -124,7 +124,7 @@ gets only its Enter. A seat that has died is reopened by the run and told `conti
 Workers and checks run with `$AGENTKIT_UNATTENDED`, so a run one of them starts belongs to nobody.
 
 Several task files run as one job: `ak run a.md b.md [--parallel N] [--bg]`, one card at the end, receipt in
-`~/.agentkit/jobs/<id>/job.json`. An `after:` task starts once its dependencies merged, or at once when the one left has
+`~/.agentkit/jobs/<id>/job.json`, keeping `owner_words` from the seat's Claude, Codex or Grok record since its previous job (the whole conversation for its first), capped at 64 KiB of UTF-8 JSON keeping the newest words; ak notices are excluded and relayed owner replies count. A later task will check delivery against them. An `after:` task starts once its dependencies merged, or at once when the one left has
 passed review in its repository: cut from that reviewed tip, which it records, it waits as `waiting for <dep> to merge`, never read as silent, then lands, rebasing only
 its own commits (`git rebase --onto <target> <tip>`), so a squash merge cannot conflict. A dependency parked `waiting`
 keeps it waiting; one ending unmerged skips it (`skipped: <dep> did not merge`), its branch kept. `repo: none` delivers

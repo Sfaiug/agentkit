@@ -152,7 +152,7 @@ class HandBack(Sandbox):
                              "conversation": "thread-seat", "id_source": orch.LAUNCHER})
 
     def send(self, session, text, log, harness=None, guard=nullcontext,
-             veto=lambda _name: False, typed=lambda: None, pending=False):
+             veto=lambda _name: False, typed=lambda: None, pending=False, **_kw):
         """The confirmed send, minus tmux: the real lock is taken and the real veto read."""
         with guard() as held:
             if self.leaves:

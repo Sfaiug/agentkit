@@ -40,7 +40,8 @@
   `cmd_gc` for bin/ak, run, menu, watch and retention.
 - `task.py`: front matter, done-when groups, size counts and round refusals; for
   run and job.
-- `job.py`: task files as one job: receipt, scheduler, task ladders (waits, merge, rerun),
+- `job.py`: task files as one job: receipt (`job.json` with capped `owner_words` since
+  the seat's previous launch), scheduler, task ladders (waits, merge, rerun),
   hand-back and relaunch. Calls `run.*`; for run (main, status, stop, resume), gc, watch, menu.
 - `watch.py`: tick, watch.json, seat errors (harness record or manifest screen words;
   `stalls`, `auth_expiry`), state (`session_state`, `waiting_on`), typing, reviving,
@@ -103,6 +104,7 @@
   screen rules, stall/quota/auth/resume words, compact, effort, catalog.
 - `agentkit/harness/`: `load(name)` combines manifest and optional plugin `<h>.py`, with
   defaults for conversation, resume, launch, titles, usage, tokens and `tmp_rule`;
+  `user_messages` reads timestamped owner input, excluding harness notices and ak typing receipts;
   `failure` reads a failed turn or seat in whole `[stall]` words. Used by orch, usage,
   update, run, gc, menu, watch. Leak: orch imports `harness.claude`.
 

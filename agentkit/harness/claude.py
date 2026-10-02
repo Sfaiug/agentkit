@@ -36,6 +36,27 @@ def transcript(record, cwd, conversation):
     return str(path) if path.exists() else None
 
 
+def user_messages(record, cwd, conversation):
+    from . import entries, user_message
+    for entry in entries(transcript(record, cwd, conversation)):
+        if entry.get("type") != "user" or any(entry.get(key) for key in (
+                "isMeta", "isCompactSummary", "isSidechain", "isVisibleInTranscriptOnly")):
+            continue
+        message = entry.get("message")
+        if not isinstance(message, dict) or message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, list):
+            if any(isinstance(part, dict) and part.get("type") == "tool_result"
+                   for part in content):
+                continue
+            content = "\n".join(part["text"] for part in content if isinstance(part, dict)
+                                and part.get("type") == "text" and isinstance(part.get("text"), str))
+        kept = user_message(entry.get("timestamp"), content)
+        if kept:
+            yield kept
+
+
 def error(record, cwd, conversation):
     """The API error Claude Code recorded as that conversation's last message, or None.
 

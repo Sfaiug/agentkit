@@ -26,6 +26,46 @@ def transcript(record, cwd, conversation):
     return str(path) if path.exists() else None
 
 
+def user_messages(record, cwd, conversation):
+    """The durable UI record keeps prompts and times through model-context compaction."""
+    from . import entries, user_message
+    where = cwd or record.get("cwd")
+    if not conversation or not where:
+        return
+    current, key = None, None
+    for entry in entries(session_dir(where, conversation) / "updates.jsonl"):
+        params = entry.get("params")
+        params = params if isinstance(params, dict) else {}
+        update = params.get("update")
+        update = update if isinstance(update, dict) else {}
+        meta = update.get("_meta")
+        meta = meta if isinstance(meta, dict) else {}
+        content = update.get("content")
+        content = content if isinstance(content, dict) else {}
+        human = (entry.get("method") == "session/update"
+                 and params.get("sessionId") == conversation
+                 and update.get("sessionUpdate") == "user_message_chunk"
+                 and not meta.get("hostTurn"))
+        chunk_key = (meta.get("promptIndex"), meta.get("interjection", False))
+        if current and (not human or chunk_key != key or meta.get("interjection")):
+            yield current
+            current = None
+        if not human or content.get("type") != "text":
+            continue
+        content_meta = content.get("_meta")
+        content_meta = content_meta if isinstance(content_meta, dict) else {}
+        if content_meta.get("bashCommand") is not None:
+            continue
+        text = content_meta.get("displayText", content.get("text"))
+        kept = user_message(entry.get("timestamp"), text)
+        if kept:
+            if current:
+                current["text"] += kept["text"]
+            else:
+                current, key = kept, chunk_key
+    if current:
+        yield current
+
 def opened(cwd, conversation):
     """Has Grok written that conversation down yet, where it keeps them?
 

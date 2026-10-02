@@ -4,6 +4,8 @@ You talk. It ships.
 
 One command installs it. One word opens it. You tell one orchestrator what you want, and agentkit works until the change is merged or it truly needs you. Then it tells you, once. Each orchestrator's rulebook opens with `What ak is for` from the agentkit checkout's `AGENTS.md`, where present.
 
+A job keeps your own words from its seat's conversation since the previous job, up to 64 KiB of the newest words. Claude, Codex and Grok supply that record; ak's typed notices are excluded and relayed owner replies count. These words are saved for a later delivery check.
+
 A seat's own `ak run --review-pr` sends FAIL findings back to the seat and waits for its push, for up to three review rounds; PASS merges with green checks. No size limit refuses a PR or a task; size is recorded. `ak run status --history` compares the last two weeks of products and ak: runs ended, first-round merges, endings without a merge, median hours to merge and tokens per merged run, plus ak's share of tokens and its code lines and README words now and seven days ago. The scoreboard never picks a model or changes a limit.
 
 ## Install

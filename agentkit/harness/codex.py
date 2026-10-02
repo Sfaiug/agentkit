@@ -98,6 +98,19 @@ def transcript(record, cwd, conversation):
     return path if isinstance(path, str) and path else None
 
 
+def user_messages(record, cwd, conversation):
+    from . import entries, user_message
+    for entry in entries(transcript(record, cwd, conversation)):
+        payload = entry.get("payload")
+        # Response items also contain rules and environment text with the user role.
+        # The submission event alone keeps the original prompt without counting it twice.
+        if (entry.get("type") == "event_msg" and isinstance(payload, dict)
+                and payload.get("type") == "user_message" and not payload.get("is_meta")):
+            kept = user_message(entry.get("timestamp"), payload.get("message"))
+            if kept:
+                yield kept
+
+
 def error(record, cwd, conversation):
     """The error Codex recorded as the end of that thread's last turn, or None.
 
