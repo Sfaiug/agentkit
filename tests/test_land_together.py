@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, land, run
+from agentkit import config, gate, gc, land, run
 from agentkit import record
 
 SUITE = "test -f work.txt && test ! -f broken.txt"
@@ -150,7 +150,15 @@ class LandTogether(unittest.TestCase):
         self.wait(lp, "member", member, 1)
         self.wait(lp, "clash", clash, 2)
         turn = self.wait(lp, "later", later, 3)
-        self.assertTrue(self.held(lp))
+        tested = []
+
+        def checks(cmds, cwd, *args, **kw):
+            if SUITE in cmds:
+                tested.append(self.tree("HEAD", cwd=cwd))
+            return self.check(cmds, cwd, *args, **kw)
+
+        with patch.object(gate, "run_done_when", side_effect=checks):
+            self.assertTrue(self.held(lp))
         suites = [cwd for cmds, cwd in self.checks if SUITE in cmds]
         self.assertEqual(len(suites), 1)                       # one suite run, not on its own
         self.assertNotEqual(suites[0], self.repo)
@@ -163,6 +171,7 @@ class LandTogether(unittest.TestCase):
         self.assertIsNone(land.passed(turn, self.tree(later)))   # nothing past the conflict
         mine = land.passed(turn, self.tree("HEAD"))
         self.assertEqual(mine["leader"], "leader")
+        self.assertEqual(tested, [mine["tested"]])
         self.assertNotEqual(mine["tested"], self.tree("HEAD"))
         self.assertEqual(lp.state["final_check"]["together"], "leader")
         self.assertNotIn("suite", lp.state["final_check"])      # its own tree was not tested
@@ -179,6 +188,58 @@ class LandTogether(unittest.TestCase):
                       "not running it again", self.lines)
         self.assertEqual(follower.state["final_check"]["suite"], SUITE)
         self.assertEqual(follower.state["final_check"]["tree_sha"], mine["tested"])
+
+    def test_a_red_conflict_does_not_fail_the_passing_stack(self):
+        lp = self.leader()
+        self.wait(lp, "member", self.branch("ak/member", {"member.txt": "m\n"}), 1)
+        turn = self.wait(lp, "clash", self.branch("ak/clash", {
+            "work.txt": "clash\n", "broken.txt": "x\n"}), 2)
+        self.assertTrue(self.held(lp))
+        self.assertEqual(len([cmds for cmds, _ in self.checks if SUITE in cmds]), 1)
+        self.assertEqual(len(land._trees(turn)[1]), 2)
+        self.assertFalse(any("breaks the suite" in line for line in self.lines))
+
+    def test_an_abandoned_stack_is_collected_with_its_git_registration(self):
+        lp = self.leader()
+        self.wait(lp, "member", self.branch("ak/member", {"member.txt": "m\n"}), 1)
+        temporary, git_out = tempfile.TemporaryDirectory, run.git_out
+        abandoned = []
+
+        def uncleaned(*args, **kw):
+            tmp = temporary(*args, **kw)
+            tmp._finalizer.detach()
+            tmp.cleanup = lambda: None
+            return tmp
+
+        def leave_checkout(cwd, *args, **kw):
+            if args[:2] == ("worktree", "remove"):
+                return 1, "interrupted before cleanup"
+            return git_out(cwd, *args, **kw)
+
+        def interrupted(cmds, cwd, *args, **kw):
+            stack = Path(cwd)
+            (stack / "build").mkdir()
+            (stack / "build/output").write_text("unfinished output\n")
+            abandoned.append(stack)
+            raise RuntimeError("simulated hard kill")
+
+        # Skip both normal cleanup paths, as a hard kill does, without killing a real process.
+        with patch.object(land.tempfile, "TemporaryDirectory", side_effect=uncleaned), \
+                patch.object(run, "git_out", side_effect=leave_checkout), \
+                patch.object(gate, "run_done_when", side_effect=interrupted):
+            with self.assertRaisesRegex(RuntimeError, "simulated hard kill"):
+                self.held(lp)
+        stack, = abandoned
+        self.assertTrue(stack.is_dir())
+        self.assertIn(str(stack), self.git("worktree", "list", "--porcelain"))
+        later = time.time() + 30 * 86400
+        self.assertEqual(gc.stale_worktrees(later, {str(stack)}), [])
+        planned = gc.stale_worktrees(later, set())
+        self.assertEqual([item["path"] for item in planned], [str(stack)])
+        self.assertEqual(planned[0]["kind"], "orphan-worktree")
+        gc.clear_tree(stack, self.lines.append)
+        self.assertFalse(stack.exists())
+        self.assertNotIn(str(stack), self.git("worktree", "list", "--porcelain"))
 
     def test_a_breaking_follower_leaves_the_leader_tested_alone_in_the_split(self):
         lp = self.leader()

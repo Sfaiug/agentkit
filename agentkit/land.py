@@ -17,7 +17,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import config, record
+from . import config, record, retention
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 
@@ -97,9 +97,11 @@ def together(wt, head, upstream, turn, leader, suite_run, log):
         return None, [], ""
     trees, members = [run.git(wt, "rev-parse", f"{head}^{{tree}}")], []
     commits, green = [head], 0
-    config.TMP.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=config.TMP, prefix="land-") as tmp:
-        stack = Path(tmp) / "stack"
+    config.WT.mkdir(parents=True, exist_ok=True)
+    # The open directory protects a live stack; a dead one's path belongs to the orphan sweep.
+    with (tempfile.TemporaryDirectory(dir=config.WT, prefix="land-") as tmp,
+          retention.reading(Path(tmp), directory=True)):
+        stack = Path(tmp)
         run.git(wt, "worktree", "add", "--detach", str(stack), head)
         try:
             top = head
@@ -115,6 +117,8 @@ def together(wt, head, upstream, turn, leader, suite_run, log):
                 code, _ = run.git_out(stack, "rebase", "--onto", top, base or upstream, commit)
                 if code != 0:
                     run.git_out(stack, "rebase", "--abort")
+                    # Abort returns to the conflicting commit, not the saved batch top.
+                    run.git(stack, "reset", "--hard", top)
                     log(f"--- merge: {state.get('run_id')} does not stack on the batch; "
                         "it lands on its own turn")
                     break
