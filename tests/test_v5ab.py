@@ -177,7 +177,9 @@ sys.exit(1)
         self.assertEqual(code, 0, self.log(directory))
         prompt = self.calls("reviewer")[0]["prompt"]
         self.assertIn("except done-when commands", prompt)
-        self.assertIn("the repository's `tests:` suite, and checks marked deferred", prompt)
+        self.assertNotIn("the repository's `tests:` suite", prompt)
+        self.assertNotIn("marked deferred", prompt)
+        self.assertNotIn("at landing", prompt)
         self.assertNotIn("(running tests/commands is fine)", prompt)
         match = re.search(r"^## Done-when output \(run by the loop; (\d+) of (\d+) "
                           r"commands exited 0\)$", prompt, re.M)
@@ -291,8 +293,11 @@ sys.exit(1)
                 text = worker.PREAMBLES[role].format(workspace=self.root)
                 self.assertIn("Read-only: do not edit files under review", text)
                 self.assertIn("Run whatever is needed to prove or dismiss a finding, except "
-                              "done-when commands, the repository's `tests:` suite, and checks "
-                              "marked deferred", text)
+                              "done-when commands", text)
+                if role == "reviewer":
+                    self.assertIn("the repository's `tests:` suite, and checks marked deferred", text)
+                else:
+                    self.assertNotIn("marked deferred", text)
                 self.assertIn("probes must leave nothing behind outside a temporary directory", text)
                 self.assertNotIn("single targeted command", text)
                 self.assertNotIn("never a whole test suite", text)

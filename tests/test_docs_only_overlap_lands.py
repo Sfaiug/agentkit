@@ -116,9 +116,9 @@ class DocsOnlyOverlapLands(unittest.TestCase):
             run, "call_retrying", side_effect=AssertionError("unexpected reviewer turn")))
         self.delivered = []
 
-    def cmds(self, check="true"):
-        return [f"echo every $(git rev-parse HEAD) >> {self.counter}; {check}",
-                f"echo once $(git rev-parse HEAD) >> {self.counter}  # once"]
+    def cmds(self, check="true", once=True):
+        return [f"echo every $(git rev-parse HEAD) >> {self.counter}; {check}"] + (
+            [f"echo once $(git rev-parse HEAD) >> {self.counter}  # once"] if once else [])
 
     def land(self, lp, owner, moves, later=None):
         """Land `lp`; while its first lap verifies, the owner pushes `moves` to main."""
@@ -146,7 +146,7 @@ class DocsOnlyOverlapLands(unittest.TestCase):
 
     def test_docs_only_overlap_lands_after_the_done_when_without_a_reserved_lap(self):
         remote, owner = make_origin(self.root)
-        lp = make_run(self.root, remote, "acme", self.cmds(),
+        lp = make_run(self.root, remote, "acme", self.cmds(once=False),
                       {GUIDE: "acme\n2\n3\n4\n5\n", NOTES: "acme\n2\n3\n4\n5\n",
                        "acme.py": "acme\n"})
         (lp.wt / "extra.py").write_text("unreviewed\n")
@@ -159,13 +159,12 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         tip = run.git(owner, "rev-parse", "main^{commit}")
         self.assertEqual(run.git_out(lp.wt, "merge-base", "--is-ancestor", tip, "HEAD")[0], 0)
         self.assertEqual((lp.wt / GUIDE).read_text(), "acme\n2\n3\n4\nfive\n")
-        # the done-when ran again on the landed commit; the once-command did not
-        self.assertEqual([row[0] for row in self.rows()], ["every", "once", "every"])
+        self.assertEqual([row[0] for row in self.rows()], ["every"])
         self.assertEqual(self.rows()[-1][1], head)
         state = run.read_state(lp.run_dir)
         self.assertEqual(state["base_sha"], tip)
         self.assertEqual(state["review"]["head_sha"], head)
-        self.assertEqual(state["final_check"]["sha"], head)     # carried, as a disjoint move's
+        self.assertNotIn("final_check", state)
         self.assertEqual(state["verdict"], "PASS")
         self.assertNotIn("review_pending", state)
         log = (lp.run_dir / "log.txt").read_text()
@@ -173,10 +172,21 @@ class DocsOnlyOverlapLands(unittest.TestCase):
                       "(docs/guide.md, docs/über.md); landing after the done-when", log)
         self.assertNotIn("verifying again holding the merge turn", log)
 
+    def test_docs_only_overlap_with_a_suite_checks_the_new_commit(self):
+        remote, owner = make_origin(self.root)
+        lp = make_run(self.root, remote, "charlie", self.cmds(),
+                      {GUIDE: "charlie\n2\n3\n4\n5\n"})
+        self.assertTrue(self.land(lp, owner, {GUIDE: "1\n2\n3\n4\nfive\n"}))
+        head = run.git(lp.wt, "rev-parse", "HEAD")
+        self.assertEqual(self.pickups, [{"land_lap": 1}, {"land_lap": 2}])
+        self.assertEqual([row[0] for row in self.rows()], ["every", "once", "every", "once"])
+        self.assertEqual(self.rows()[-1][1], head)
+        self.assertEqual(lp.state["final_check"]["sha"], head)
+
     def test_docs_only_overlap_whose_done_when_fails_does_not_land(self):
         remote, owner = make_origin(self.root)
         lp = make_run(self.root, remote, "bravo",
-                      self.cmds(f"! grep -q broken {GUIDE}"),
+                      self.cmds(f"! grep -q broken {GUIDE}", once=False),
                       {GUIDE: "bravo\n2\n3\n4\n5\n", "bravo.py": "bravo\n"})
         (lp.wt / "extra.py").write_text("unreviewed\n")
         head = run.git(lp.wt, "rev-parse", "HEAD")
@@ -194,7 +204,7 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         # the reserved lap starts from the verified commit, its review intact
         self.assertEqual(seen, {"head": head, "base": verified, "review": head})
         self.assert_untracked(lp, "extra.py")
-        self.assertEqual([row[0] for row in self.rows()].count("once"), 1)
+        self.assertEqual([row[0] for row in self.rows()].count("once"), 0)
         log = (lp.run_dir / "log.txt").read_text()
         self.assertIn("done-when after the rebase: FAILED", log)
         self.assertIn("verifying again holding the merge turn", log)
@@ -220,7 +230,7 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         # the reserved lap runs the heavy suite again
         self.assertEqual([row[0] for row in self.rows()], ["every", "once", "every", "once"])
         log = (lp.run_dir / "log.txt").read_text()
-        self.assertIn("touching this branch's files; verifying again holding the merge turn", log)
+        self.assertIn("verifying again holding the merge turn", log)
         self.assertNotIn("only in docs", log)
 
 

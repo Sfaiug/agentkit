@@ -117,8 +117,8 @@ def done_when_groups(body, path):
 
     `done_when` itself is unchanged -- the flat list, markers intact, for callers that
     want every command plus the once ones.  The every-commands run per round; the
-    once-commands run alongside the review on the commit under review, and again at
-    landing only when the target moved in the branch's files.
+    once-commands run once at landing on the commit to be merged, or per round
+    for scratch and `--no-merge` runs.
     """
     return group_commands(done_when(body, path))
 

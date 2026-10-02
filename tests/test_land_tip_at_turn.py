@@ -122,7 +122,7 @@ class LandTipAtTurn(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline, f"timed out waiting for {what}")
             time.sleep(0.02)
 
-    def test_light_every_runs_while_heavy_once_waits_then_disjoint_lands(self):
+    def test_target_moving_while_suite_waits_checks_the_delivered_commit(self):
         remote, owner = make_origin(self.root)
         lp = make_run(self.root, remote, "acme",
                       [f"echo \"every $(git rev-parse HEAD) $(cat tip.txt)\" >> {self.counter}",
@@ -151,8 +151,7 @@ class LandTipAtTurn(unittest.TestCase):
                        "the light check to run without a turn")
             self.until(lambda: (run.read_state(lp.run_dir) or {}).get("gate_turn"),
                        "the heavy suite to mark its wait")
-            # the target moves while the heavy suite waits; it touches none of
-            # the branch's files, so the landing carries on over it
+            # A disjoint target move still changes the commit the suite must check.
             commit(owner, "tip.txt", "tip-two")
             run.git(owner, "push", "origin", "main")
             tip_two = run.git(owner, "rev-parse", "main^{commit}")
@@ -165,8 +164,11 @@ class LandTipAtTurn(unittest.TestCase):
         rc, _ = run.git_out(lp.wt, "merge-base", "--is-ancestor", tip_two, "HEAD")
         self.assertEqual(rc, 0)
         rows = [line.split() for line in self.counter.read_text().splitlines()]
-        self.assertEqual([row[0] for row in rows], ["every", "once"])
+        self.assertEqual([row[0] for row in rows], ["every", "once", "once"])
         self.assertEqual(rows[0][2], "tip-one")   # light ran before the move, on tip one
+        self.assertEqual(rows[-1][1], head)
+        self.assertEqual(lp.state["final_check"]["sha"], head)
+        self.assertEqual(self.pickups, [{"land_lap": 1}, {"land_lap": 2}])
 
     def test_a_passing_lap_runs_each_command_once(self):
         remote, owner = make_origin(self.root)

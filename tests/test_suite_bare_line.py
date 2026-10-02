@@ -29,6 +29,12 @@ class SuiteBareLine(unittest.TestCase):
         self.assertEqual(every, ["true"])
         self.assertEqual(once, [SUITE])
 
+    def test_without_landing_keeps_all_explicit_task_checks(self):
+        wt = self.checkouts(SUITE)
+        cmds = ["true", SUITE, BARE, f"{SUITE}  # once", f"{BARE}  # once"]
+        self.assertEqual(run.with_suite(cmds, wt, landing=False),
+                         ["true", SUITE, BARE, SUITE, BARE])
+
     def test_suite_followed_by_another_check_runs_every_round(self):
         wt = self.checkouts(SUITE)
         line = f"{SUITE} && another-check"

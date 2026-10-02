@@ -166,7 +166,7 @@ class GateLanders(unittest.TestCase):
         state["base_sha"] = "base0001"
         run.save_state(run_dir, state)
         lp = SimpleNamespace(state=run.read_state(run_dir), run_dir=run_dir,
-                             wt=self.root / "wt", base_sha="base0001",
+                             wt=self.root / "wt", base_sha="base0001", once=[],
                              log=lambda msg: None, no_pickup=True,
                              write=lambda: run.save_state(run_dir, lp.state))
         firsts = []
@@ -228,7 +228,7 @@ class GateLanders(unittest.TestCase):
         run.save_state(run_dir, state)
         logs = []
         lp = SimpleNamespace(state=run.read_state(run_dir), run_dir=run_dir,
-                             wt=self.root / "wt", base_sha="base0001",
+                             wt=self.root / "wt", base_sha="base0001", once=[],
                              log=logs.append, no_pickup=True,
                              write=lambda: run.save_state(run_dir, lp.state))
         repo = run.main_checkout(ACME)
@@ -263,7 +263,7 @@ class GateLanders(unittest.TestCase):
         run.save_state(rerun, state)
         (rerun / "landing_since").write_text("1000.0")
         kept = SimpleNamespace(state=run.read_state(rerun), run_dir=rerun,
-                               wt=self.root / "wt", base_sha="base0001",
+                               wt=self.root / "wt", base_sha="base0001", once=[],
                                log=lambda msg: None, no_pickup=True,
                                write=lambda: run.save_state(rerun, kept.state))
 

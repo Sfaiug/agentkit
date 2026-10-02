@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 from test_v4n import REPO
 import sys
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, job as jobs, orch, run, task, watch
+from agentkit import host, config, job as jobs, orch, run, watch
 
 
 class RunScope(unittest.TestCase):
@@ -229,16 +229,14 @@ class RunScope(unittest.TestCase):
 
     def test_preflight_prints_scope_reason_once(self):
         directory = self.run_dir("20260922-0900-preflight")
-        (directory / "task.md").write_text("---\n---\n# Scratch\n")
+        (directory / "task.md").write_text("# Scratch\n\n## Done when\n```bash\ntrue\n```\n")
         run.save_state(directory, {**(run.read_state(directory) or {}),
                                    "silence_minutes": 20, "ceiling_hours": 6,
                                    "scope": "none", "scope_reason": "no user systemd manager"})
         opts = {"--review-pr": None, "--no-merge": True, "--anyway": False}
         lines = []
         with patch.object(run, "task_repo", return_value=None), \
-                patch.object(task, "done_when_groups", return_value=([], [])), \
-                patch.object(run, "ignore_time_keys"), \
-                patch.object(task, "parse_task", return_value=({}, "", "Scratch")):
+                patch.object(run, "ignore_time_keys"):
             run.preflight(directory, opts, lines.append)
         self.assertEqual([line for line in lines if line.startswith("scope:")],
                          ["scope: none (no user systemd manager)"])
