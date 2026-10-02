@@ -2186,10 +2186,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     for provider in dict.fromkeys(models[name]["provider"] for name in names):
         lines.append(model_heading(provider))
         for name in (name for name in names if models[name]["provider"] == provider):
-            texts = ((marks[0] if selected["orchestrator"] == name else marks[1],
-                      marks[2] if name in selected["workers"] else marks[3],
-                      marks[2] if name in selected.get("reviewers", selected["workers"])
-                      else marks[3]) if selected else ()) + (efforts[name],)
+            texts, builds = orch.role_texts(selected, name, marks) if selected else ((), False)
+            texts += (efforts[name],)
             note = orch.spent_note(cfg, name, providers) if providers else ""
             shown = model_label(name, label)
             kind = "reverse" if at == ("model", name) and column < 0 else "dim" if note else None
@@ -2201,7 +2199,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                                                             harness), "dim")
             for number, text, width in zip(range(4 - len(texts), 4), texts, widths):
                 kind = ("reverse" if at == ("model", name) and number == column else
-                        "dim" if note or text in (marks[1], marks[3]) else None)
+                        "dim" if note or text in (marks[1], marks[3]) or builds and number == 1
+                        else None)
                 line += "  " + (terminal.toggle(text, width, kind) if number < 3 else
                                 (terminal.styled(text, kind) if kind else text)
                                 + " " * (width - terminal.cells(text)))

@@ -3059,11 +3059,22 @@ def role_refusal(cfg, selected, providers):
     return ""
 
 
+def role_texts(selected, name, marks):
+    """The orch, exec and review marks of one model's row.  With no executor marked the
+    orchestrator builds everything, so its own exec mark is drawn filled, and dim."""
+    builds = not selected["workers"] and name == selected["orchestrator"]
+    return ((marks[0] if name == selected["orchestrator"] else marks[1],
+             marks[2] if name in selected["workers"] or builds else marks[3],
+             marks[2] if name in selected.get("reviewers", selected["workers"]) else marks[3]),
+            builds)
+
+
 def role_mark(cfg, selected, name, column, providers):
     """A proposed mark, without mutating the saved groups when it cannot form a pair.
 
     Copy legacy reviewers before changing workers, so the two columns are independent from
-    the first flip. Empty groups are possible only before choosing from an all-spent screen.
+    the first flip. Executors may be left empty: the orchestrator then builds everything.
+    Reviewers keep one; empty is possible only before choosing from an all-spent screen.
     """
     changed = {**selected, "reviewers": list(selected.get("reviewers", selected["workers"]))}
     if column == 0:
@@ -3073,11 +3084,11 @@ def role_mark(cfg, selected, name, column, providers):
     else:
         role = "workers" if column == 1 else "reviewers"
         group = changed[role]
-        if name in group and len(group) == 1:
+        if name in group and len(group) == 1 and role == "reviewers":
             return selected, f"{ROLE_HEADS[column]} needs one model"
         changed[role] = ([peer for peer in group if peer != name] if name in group
                          else [*group, name])
-    if changed["workers"] and changed["reviewers"]:
+    if changed["reviewers"]:
         note = role_refusal(cfg, changed, providers)
         if note:
             return selected, note
@@ -3250,14 +3261,13 @@ def picker_lines(cfg, notes, selected, at, column, room, moves=None):
         if at_row == 0 or entry["provider"] != cfg["models"][names[at_row - 1]]["provider"]:
             lines.append(menu.model_heading(entry["provider"]))
         line = "  " + terminal.pad(menu.model_label(name, wide), wide)
-        texts = (marks[name != selected["orchestrator"]],
-                 marks[2 + (name not in selected["workers"])],
-                 marks[2 + (name not in selected["reviewers"])])
+        texts, builds = role_texts(selected, name, marks)
         own = []
         for number, (text, head) in enumerate(zip(texts, ROLE_HEADS)):
             first = terminal.cells(line) + 3
             kind = ("reverse" if at_row == at and column == number else
-                    "dim" if note or text in (marks[1], marks[3]) else None)
+                    "dim" if note or text in (marks[1], marks[3]) or builds and number == 1
+                    else None)
             line += "  " + terminal.toggle(text, len(head), kind)
             if moves is not None:
                 moves.append((len(lines), ("mark", name, number), text,
@@ -3306,9 +3316,10 @@ def pick(cfg, providers, default):
                               if name in fresh]}
     for role, other in (("workers", "reviewers"), ("reviewers", "workers")):
         if not selected[role]:
-            if not fresh:
+            # executors left empty on purpose stay empty: the orchestrator builds everything
+            if not fresh or role == "workers" and not cfg["defaults"]["workers"]:
                 continue
-            peers = selected[other] or fresh
+            peers = selected[other] or ([model] if role == "reviewers" and model else fresh)
             permitting = [name for name in fresh if not role_refusal(
                 cfg, {**selected, role: [name], other: peers}, providers)]
             pool = permitting or fresh
@@ -3392,8 +3403,8 @@ def _picking(cfg, providers, notes, selected):
             if note:
                 clock.touch(("mark", names[at], column))  # refused: the mark shakes
         elif key.name == "enter":
-            missing = next((number for number, role in enumerate(
-                ("orchestrator", "workers", "reviewers")) if not selected[role]), None)
+            missing = next((number for number, role in ((0, "orchestrator"), (2, "reviewers"))
+                            if not selected[role]), None)
             if missing is not None:
                 column = missing
             else:

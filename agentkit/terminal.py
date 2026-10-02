@@ -496,7 +496,7 @@ TIPS = {
     "model": "{name}: {model} through {harness}, at {effort} effort",
     "model id": "model id: what {harness} is asked to run, one its catalog lists",
     "orch": "orch: the model the session's orchestrator runs on, one only",
-    "exec": "exec: a model the session's runs may execute with; one at least",
+    "exec": "exec: a model that builds pieces beside the orchestrator; none, and it builds all",
     "review": "review: a model that may review the session's runs; one at least",
     "effort": "effort: how hard {name} thinks, one of the efforts its harness takes for it",
     "account": "{name}: your subscription; its seats, runs and usage row use its login",

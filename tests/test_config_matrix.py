@@ -262,18 +262,15 @@ class Matrix(unittest.TestCase):
         self.assertEqual(screen.record()["orchestrator"], "astra")
         screen.leave()
 
-    def test_the_last_worker_stays(self):
+    def test_the_last_worker_may_go_and_the_orchestrator_builds(self):
         screen = Screen(self, workers=["opus"])
         screen.frame()
-        before = screen.session.read_bytes()
-        lines = screen.press(DOWN + RIGHT + ENTER,
-                             lambda lines: "exec needs one model" in lines[-3])
-        self.assertIn("■", row(lines, "opus")[1])
-        self.assertEqual(screen.session.read_bytes(), before)
+        lines = screen.press(DOWN + RIGHT + ENTER, lambda lines: screen.record()["workers"] == [])
+        self.assertIn("■", row(lines, "opus")[1])     # the orchestrator's own mark: it builds
+        self.assertEqual(screen.record()["reviewers"], ["opus"])
         lines = screen.press(UP + ENTER, lambda lines: "■" in row(lines, "fable")[1])
-        self.assertEqual(screen.record()["workers"], ["opus", "fable"])
-        screen.press(DOWN + ENTER, lambda lines: "□" in row(lines, "opus")[1])   # now it can go
         self.assertEqual(screen.record()["workers"], ["fable"])
+        lines = screen.press(DOWN, lambda lines: "□" in row(lines, "opus")[1])
         screen.leave()
 
     def test_arrows_move_through_every_column_the_effort_s_too(self):
@@ -396,13 +393,13 @@ class Matrix(unittest.TestCase):
             self.assertLessEqual(terminal.cells(line), 40, line)
         self.assertEqual(lines[2].split(), ["orch", "exec", "review", "effort"])
         # what a key could not do has lines of its own, however little room the rows leave
-        lines = screen.press(DOWN + RIGHT + ENTER,
-                             lambda lines: "exec needs" in "\n".join(lines))
+        lines = screen.press(DOWN + RIGHT + RIGHT + ENTER,
+                             lambda lines: "review needs" in "\n".join(lines))
         self.assertLessEqual(len(lines), 23)
         self.assertIn("opus", highlighted(lines))
         lines = screen.press(DOWN * 10, lambda lines: highlighted(lines).startswith("› Version"))
         self.assertLessEqual(len(lines), 23)
-        self.assertNotIn("exec needs", "\n".join(lines))   # until the next key
+        self.assertNotIn("review needs", "\n".join(lines))   # until the next key
         # Wait for selection: the row is already visible on the first Up redraw.
         lines = screen.press(UP * 3, lambda lines: highlighted(lines) == "› + add a model")
         self.assertEqual(highlighted(lines), "› + add a model")

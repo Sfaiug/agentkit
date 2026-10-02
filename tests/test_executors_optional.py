@@ -1,0 +1,131 @@
+"""A session's executors are optional: with none, its orchestrator builds everything.
+
+The record and the defaults may name no executor once they name reviewers; a task launch is
+refused before any run exists; the session's own PR is still reviewed, and starts no follow-up
+workers; the last executor may be let go on the screens while the last reviewer may not; and
+the orchestrator's own exec mark is drawn filled and dim while nobody else is marked.
+
+Offline: throwaway HOME, fake launch/drive/tmux, and invented GitHub responses.
+"""
+
+from contextlib import closing, redirect_stderr, redirect_stdout
+import io
+import os
+from pathlib import Path
+import sys
+import unittest
+from unittest.mock import patch
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from test_v4n import Sandbox
+from agentkit import config, menu, orch, run, terminal, usage
+from agentkit import record
+
+
+class Keys:
+    def take(self):
+        return True
+
+    def close(self):
+        pass
+
+
+class ExecutorsOptional(Sandbox):
+    def setUp(self):
+        super().setUp()
+        self.stack.enter_context(patch.dict(os.environ, {
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            config.RUN_DIR_ENV: "", config.SESSION_ENV: "fix-api",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
+        self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
+        self.stack.enter_context(patch.object(run, "refresh_seat_tally"))
+        self.stack.enter_context(patch.object(record, "process_owner", return_value={}))
+        self.stack.enter_context(patch.object(run, "history_start"))
+        self.stack.enter_context(patch.object(usage, "unready", return_value=""))
+        config.save_session(self.cfg, "fix-api", "opus", [],
+                            {"reviewers": ["astra"], "cwd": str(self.root), "created": 100})
+        self.task = self.root / "task.md"
+        self.task.write_text("---\nrepo: none\n---\n# Fix the endpoint\n\n"
+                             "## Done when\n```bash\ntrue\n```\n")
+
+    def selected(self):
+        found = config.load_session(self.cfg, "fix-api")
+        return {"orchestrator": found["orchestrator"], "workers": list(found["workers"]),
+                "reviewers": list(found["reviewers"])}
+
+    def test_record_without_executor_loads_and_one_without_reviewers_still_needs_one(self):
+        self.assertEqual(config.load_session(self.cfg, "fix-api")["workers"], [])
+        with self.assertRaisesRegex(config.Error, "workers must be a non-empty list"):
+            config.save_session(self.cfg, "legacy", "opus", [])
+
+    def test_task_launch_is_refused_before_any_run_or_job_exists(self):
+        with patch.object(run, "prepare") as prepare, \
+                patch.object(run, "spawn_bg", return_value=0) as spawn, \
+                patch.object(run.jobs, "job_create", return_value=(self.root, {})) as job, \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            for args in ([str(self.task)], [str(self.task), "--bg", "--anyway"],
+                         [str(self.task), str(self.task), "--parallel", "2"]):
+                with self.subTest(args=args):
+                    with self.assertRaises(config.Error) as refused:
+                        run.main(args)
+                    sentence = str(refused.exception)
+                    self.assertEqual(len(sentence.splitlines()), 1)
+                    self.assertIn("fix-api has no executor", sentence)
+                    self.assertEqual(list(config.RUNS.iterdir()), [])
+            prepare.assert_not_called()
+            spawn.assert_not_called()
+            job.assert_not_called()
+
+    def test_own_pr_is_still_reviewed_and_starts_no_followup_workers(self):
+        self.assertIsNone(run.pair_refusal(self.cfg, {}, [], reviewers=["astra"]))
+        with patch.object(usage, "unready", return_value="not logged in"):
+            self.assertIn("reviewers astra", run.pair_refusal(self.cfg, {}, [],
+                                                              reviewers=["astra"]))
+        directory = config.RUNS / "review"
+        directory.mkdir()
+        state = {"run_id": "review", "launched_session": "fix-api", "repo": str(self.root),
+                 "base": "main", "merged": True, "review_pr": "https://github.com/acme/api/pull/7",
+                 "own_pr": True, "followups": ["Fix the other endpoint"]}
+        record.save_state(directory, state)
+        with patch.object(run, "main_checkout") as checkout, patch.object(run, "spawn_bg") as spawn:
+            self.assertIsNone(run.start_followups(state, directory, lambda _: None, self.cfg))
+        checkout.assert_not_called()
+        spawn.assert_not_called()
+
+    def test_last_executor_may_go_and_the_last_reviewer_may_not(self):
+        config.save_session(self.cfg, "fix-api", "opus", ["fable"], {"reviewers": ["astra"]})
+        selected = self.selected()
+        self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "fable", 1, {}), "")
+        self.assertEqual(config.load_session(self.cfg, "fix-api")["workers"], [])
+        self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 2, {}),
+                         "review needs one model")
+        self.assertEqual(config.load_session(self.cfg, "fix-api")["reviewers"], ["astra"])
+
+    def test_orchestrator_exec_mark_is_filled_and_dim_while_nobody_else_is_marked(self):
+        marks = "●○■□"
+        self.assertEqual(orch.role_texts(self.selected(), "opus", marks), (("●", "■", "□"), True))
+        self.assertEqual(orch.role_texts(self.selected(), "astra", marks), (("○", "□", "■"), False))
+        with_one = {**self.selected(), "workers": ["fable"]}
+        self.assertEqual(orch.role_texts(with_one, "opus", marks), (("●", "□", "□"), False))
+        with patch.object(terminal, "layout_width", return_value=100):
+            lines, _ = menu.config_body(self.cfg, "fixture", selected=self.selected())
+        rows = {terminal.plain(line).lstrip("› ").split()[0]:
+                "".join(char for char in terminal.plain(line) if char in marks)
+                for line in lines if any(char in marks for char in terminal.plain(line))}
+        self.assertEqual((rows["opus"], rows["astra"]), ("●■□", "○□■"))
+
+    def test_defaults_without_executor_stay_without_on_the_new_session_screen(self):
+        self.cfg["defaults"] = {"orchestrator": "opus", "workers": [], "reviewers": ["astra"]}
+        config._fall_back(self.cfg["defaults"], list(self.cfg["models"]))
+        self.assertEqual(self.cfg["defaults"]["workers"], [])
+        with patch.object(terminal, "Keyboard", Keys), \
+                patch.object(orch, "_picking", side_effect=lambda cfg, p, n, chosen: chosen), \
+                patch.object(orch, "spent_note", return_value=""):
+            chosen = orch.pick(self.cfg, {}, "opus")
+        self.assertEqual((chosen["orchestrator"], chosen["workers"], chosen["reviewers"]),
+                         ("opus", [], ["astra"]))
+
+
+if __name__ == "__main__":
+    unittest.main()

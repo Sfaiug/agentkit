@@ -78,14 +78,14 @@ class SessionModels(Sandbox):
         self.assertEqual(record["workers"], ["astra"])
         self.assertEqual(record["reviewers"], ["opus", "astra"])
 
-    def test_each_group_keeps_one_model_and_no_pair_is_refused_without_a_save(self):
+    def test_reviewers_keep_one_model_executors_may_go_and_no_pair_is_refused_without_a_save(self):
         config.save_session(self.cfg, "solo", "opus", ["opus"], {"reviewers": ["astra"]})
         selected = self.selected("solo")
-        self.assertEqual(menu.session_mark(self.cfg, "solo", selected, "opus", 1, {}),
-                         "exec needs one model")
+        with patch.object(usage, "unready", return_value=""):
+            self.assertEqual(menu.session_mark(self.cfg, "solo", selected, "opus", 1, {}), "")
         self.assertEqual(menu.session_mark(self.cfg, "solo", selected, "astra", 2, {}),
                          "review needs one model")
-        self.assertEqual(config.load_session(self.cfg, "solo")["workers"], ["opus"])
+        self.assertEqual(config.load_session(self.cfg, "solo")["workers"], [])
         config.save_session(self.cfg, "tight", "opus", ["opus"],
                             {"reviewers": ["opus", "astra"]})
         selected = self.selected("tight")
