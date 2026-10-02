@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from agentkit import config, run  # noqa: E402
 from agentkit import record
 
@@ -68,7 +69,7 @@ class HandoverToNobody(unittest.TestCase):
             (out / "session_id").write_text("sess-a")
             return code, text, "sess-a", False
 
-        with patch.object(run.worker, "call", side_effect=call), \
+        with patch.object(run.worker, "call", side_effect=submitting(call)), \
                 patch.object(run.time, "sleep"), \
                 patch.object(run, "collect_usage", return_value=providers):
             run.execute(lp, "executor", "Do the thing.", "executor")

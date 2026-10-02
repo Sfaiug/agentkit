@@ -45,6 +45,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.calls = []
         self.closing = None
         self.background = False
+        self.channel = False
 
     def turn(self, _cfg, _model, body, cwd, out, role, sid=None, env=None, **_kw):
         self.calls.append((body, sid))
@@ -53,10 +54,11 @@ class ExecutorTextIgnored(unittest.TestCase):
         (out / "prompt.md").write_text(worker.PREAMBLES[role].format(workspace=cwd) + "\n\n" + body)
         (out / "final.md").write_text(self.text)
         (out / "session_id").write_text("fixture-session")
-        if len(self.calls) == 2 and self.closing:
+        if self.channel or len(self.calls) == 2 and self.closing:
             file = hand_in.start(out, cwd, (env or {}).get(hand_in.CONTINUE), role=role)
-            with patch.dict(os.environ, {hand_in.ENV: file}):
-                hand_in.main(self.closing)
+            if len(self.calls) == 2 and self.closing:
+                with patch.dict(os.environ, {hand_in.ENV: file}):
+                    hand_in.main(self.closing)
         return 0, self.text, "fixture-session", False, self.background and len(self.calls) == 1
 
     def checked(self):
@@ -96,6 +98,11 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.lp.context = "Document this prompt: " + run.NO_CLOSING_ASK
         self.checked()
 
+    def test_empty_record_channel_still_needs_the_extra_ask(self):
+        self.text = "## Blocked"
+        self.channel = True
+        self.checked()
+
     def test_completed_prose_after_host_interruption_still_needs_the_extra_ask(self):
         self.text = "## Blocked"
         self.lp.rnd = 1
@@ -104,6 +111,27 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.lp.rnd = 0
         self.checked()
         self.assertIn(run.NO_CLOSING_ASK, self.calls[1][0])
+
+    def test_host_interruption_during_the_extra_ask_resumes_it_without_another_ask(self):
+        self.text = "## Blocked"
+        self.lp.rnd = 1
+        first = self.lp.dir("executor")
+        first.mkdir(parents=True)
+        (first / "final.md").write_text(self.text)
+        asked = self.lp.dir("executor-retry-hand-in")
+        asked.mkdir()
+        (asked / "session_id").write_text("fixture-session")
+        self.lp.rnd = 0
+        with patch.object(worker, "turn", side_effect=self.turn), \
+                patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]")) as checks, \
+                patch.object(run, "review", return_value="PASS") as review:
+            run.rounds(self.lp)
+        checks.assert_called_once_with(self.lp)
+        review.assert_called_once()
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.calls[0][1], "fixture-session")
+        self.assertIn(run.NO_CLOSING_ASK, self.calls[0][0])
+        self.assertEqual(run.continuation(self.lp), "done-when")
 
     def test_background_recovery_includes_the_closing_ask_without_a_third_turn(self):
         self.text = "## Blocked"
