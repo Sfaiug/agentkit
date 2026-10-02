@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job as jobs, menu, notify, orch, watch
+from agentkit import config, host, job as jobs, menu, notify, orch, watch
 
 HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
@@ -469,6 +469,19 @@ class StopNudge(unittest.TestCase):
                 self.tick()
                 self.tick()
                 self.typed.assert_not_called()
+
+    def test_a_live_job_with_tasks_to_start_holds_the_nudge_back(self):
+        directory = config.JOBS / "one"
+        directory.mkdir(parents=True)
+        jobs.save_job(directory, {
+            "seat": SEAT, "pid": 42, "process_identity": {"boot": "test-boot", "ticks": 7},
+            "tasks": [{"state": "queued", "run_id": None},
+                      {"state": "waiting", "run_id": None}]})
+        with patch.object(host, "alive", lambda pid: pid == 42), \
+                patch.object(host, "process_identity", lambda pid: {"boot": "test-boot", "ticks": 7}):
+            self.assertTrue(jobs.reap_job(directory, jobs.read_job(directory)))
+            self.stopped(RECOMMENDATION)
+        self.typed.assert_not_called()
 
     def test_a_question_over_two_lines_is_one_and_a_decision_under_one_is_not(self):
         """pane_tail keeps no blank line, so the rule reads the pane and not its tail."""
