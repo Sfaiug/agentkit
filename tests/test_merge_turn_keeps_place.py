@@ -121,9 +121,6 @@ class KeepsPlace(unittest.TestCase):
                 def verify():
                     if ranks:
                         self.assertEqual(early.state.get("merge_rank"), ranks[0])
-                    else:
-                        # The first lap takes its rank at delivery, after this verify.
-                        pass
                     return True
 
                 tips = iter(("moved", "base"))
@@ -212,11 +209,34 @@ class KeepsPlace(unittest.TestCase):
         lp = self.loop("early")
         lp.state["landing"] = True
         old = {"of": run.turn_path(lp, "origin/main").name,
-               "boot": "old-boot", "rank": "0" * 21}
+               "boot": "old-boot", "rank": "0" * 21, "joined": 1}
         lp.state["merge_rank"] = old
         with run.merge_turn(lp, "origin/main"):
             self.assertNotEqual(lp.state.get("merge_rank"), old)
             self.assertEqual(lp.state["merge_rank"]["boot"], "this-boot")
+
+    def test_a_dead_stopped_or_old_boot_landing_does_not_hold_the_line(self):
+        early, late = self.loop("early"), self.loop("late")
+        early.state["landing"] = True
+        with run.merge_turn(early, "origin/main"):
+            pass
+        for change in ({"state": "stopped"}, {"process_identity": {"boot": "old", "ticks": 1}},
+                       {"merge_rank": {**early.state["merge_rank"], "boot": "old-boot"}}):
+            with self.subTest(change=change):
+                record.save_state(early.run_dir, {**early.state, **change})
+                self.assertIsNone(run.merge_turn_ahead(run.turn_path(late, "origin/main"), "1" * 21))
+
+    def test_a_finished_or_parked_landing_clears_its_rank(self):
+        for result in (True, False):
+            with self.subTest(result=result):
+                lp = self.loop(f"landing-{result}")
+                lp.once = ("true",)
+                def verify():
+                    self.assertIn("merge_rank", record.read_state(lp.run_dir))
+                    return result
+                self.assertEqual(run.land(lp, "origin/main", verify, lambda: True), result)
+                self.assertNotIn("landing", record.read_state(lp.run_dir))
+                self.assertNotIn("merge_rank", record.read_state(lp.run_dir))
 
     def test_equal_ranks_go_in_join_order_even_when_pids_sort_backwards(self):
         path = run.turn_path(self.loop("early"), "origin/main")
