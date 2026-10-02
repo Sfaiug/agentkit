@@ -2,10 +2,10 @@
 
 Not three minutes later at the next tick: every step a run enters (a new round enters its
 executor step again) and every ending rewrites the bar of the seat that launched it, through
-`watch.announce_state`, without looking at the seat's screen.  A process of its own does the
-writing, so a writer that is busy holds up neither the run nor its exit, and the bar still lands
-after the command that started it is gone.  A run without a seat, a legacy seat and a seat tmux
-has lost get nothing written.  Offline: a temporary HOME, a fake tmux on PATH, no user manager.
+`watch.announce_state`, without looking at the seat's screen.  A job on the seats' tmux server
+does the writing, so a writer that is busy holds up neither the run nor its exit, and the bar
+still lands after the command that started it is gone.  A run without a seat, a legacy seat and
+a seat tmux has lost get nothing written.  Offline: a temporary HOME and a fake tmux on PATH.
 """
 
 import os
@@ -20,12 +20,11 @@ import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
-# The redraw reads ~/.agentkit from HOME and finds tmux on PATH in a process of its own, so
-# both are set before agentkit is imported: the test, the run and the redraw see one world.
+# The redraw reads ~/.agentkit from HOME and finds tmux on PATH in a job of its own, so both
+# are set before agentkit is imported: the test, the run and the redraw see one world.
 SANDBOX = tempfile.TemporaryDirectory(prefix=".ak-test-bar-follows-runs-", dir=REPO)
 HOME = Path(SANDBOX.name)
 os.environ.update(HOME=str(HOME), PATH=f"{HOME / 'bin'}{os.pathsep}{os.environ['PATH']}",
-                  XDG_RUNTIME_DIR=str(HOME),    # no user manager here: no real unit is ever made
                   AGENTKIT_TMUX_SOCKET="agentkit-test", AK_RUN_DEPTH="0", AK_MAX_RUNS="0")
 for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_SESSION", "TMUX"):
     os.environ.pop(key, None)
@@ -33,7 +32,9 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, orch, record, run, watch
 
 # Answers list-sessions and list-panes as tmux 3.5a does, from the seats each server holds
-# (`own`, `legacy`), and writes down every command it is given.
+# (`own`, `legacy`), and writes down every command it is given.  `run-shell -b -t =seat:` is
+# refused for a seat the server does not hold, and otherwise runs in the background, the job
+# counted in `jobs` and, once done, in `jobs-done`.
 TMUX = """#!/bin/bash
 socket=
 [[ $1 = -L ]] && { socket=$2; shift 2; }
@@ -42,6 +43,10 @@ seats="$HOME/legacy"; [[ $socket = agentkit-test ]] && seats="$HOME/own"
 case $1 in
   list-sessions) while read -r name; do printf '%s\\t%s\\t1\\t0\\t1\\n' "$name" "$HOME"; done <"$seats" ;;
   list-panes) while read -r name; do printf '%s\\t0\\n' "$name"; done <"$seats" ;;
+  run-shell) target=${4#=}; target=${target%:}
+             grep -qxF -- "$target" "$seats" || { echo "can't find session: $target"; exit 1; }
+             echo >>"$HOME/jobs"
+             ( sh -c "${5//##/#}"; echo >>"$HOME/jobs-done" ) </dev/null >/dev/null 2>&1 & ;;
 esac
 exit 0
 """
@@ -69,7 +74,8 @@ class BarFollowsRuns(unittest.TestCase):
         (HOME / "bin" / "tmux").chmod(0o755)
         self.seats(own=("acme", "fix-api"))
         self.calls = HOME / "tmux-calls"
-        self.calls.write_text("")
+        for name in ("tmux-calls", "jobs", "jobs-done"):
+            (HOME / name).write_text("")
         config.save_session(config.load(), "acme", "fable", ["opus"],
                             {"repo": str(HOME), "cwd": str(HOME)})
         self.run_dir = config.RUNS / "20261002-1400-fix-api"
@@ -81,25 +87,17 @@ class BarFollowsRuns(unittest.TestCase):
         self.loop = types.SimpleNamespace(
             state=self.state, log=lambda *_a, **_kw: None,
             save=lambda: record.save_state(self.run_dir, self.state))
-        # every redraw started here, so a test reads the bar only once they have all finished
-        self.redraws, popen = [], subprocess.Popen
-
-        def spawn(argv, *args, **kw):
-            proc = popen(argv, *args, **kw)
-            if "run.publish_seat" in " ".join(map(str, argv)):
-                self.redraws.append(proc)
-            return proc
-        self.popen = patch.object(subprocess, "Popen", side_effect=spawn)
-        self.popen.start()
-        self.addCleanup(self.popen.stop)
 
     def seats(self, own=(), legacy=()):
         (HOME / "own").write_text("".join(f"{name}\n" for name in own))
         (HOME / "legacy").write_text("".join(f"{name}\n" for name in legacy))
 
     def settle(self):
-        for proc in self.redraws:
-            proc.wait(30)
+        """Wait for every redraw job tmux was given, so the bar is read once they have finished."""
+        deadline = time.monotonic() + 30
+        while ((HOME / "jobs").read_text() != (HOME / "jobs-done").read_text()
+               and time.monotonic() < deadline):
+            time.sleep(0.05)
 
     def bars(self, name="acme"):
         """The status-left writes that seat's bar got on agentkit's own server."""
@@ -127,7 +125,6 @@ class BarFollowsRuns(unittest.TestCase):
 
     def test_nothing_is_written_without_a_live_seat_of_ours(self):
         cases = {"no seat": (None, ("acme",), ()),
-                 "a seat ak never launched": ("fix-api", ("fix-api",), ()),
                  "legacy seat": ("acme", (), ("acme",)),
                  "seat tmux lost": ("acme", (), ())}
         for case, (launched, own, legacy) in cases.items():
@@ -137,6 +134,7 @@ class BarFollowsRuns(unittest.TestCase):
                 self.seats(own, legacy)
                 self.step("reviewer")
                 self.assertNotIn("set-option", self.calls.read_text())
+                self.assertEqual((HOME / "jobs").read_text(), "")
                 self.assertEqual(record.read_state(self.run_dir)["step"], "reviewer")
 
     def test_a_busy_writer_holds_up_neither_the_run_nor_its_exit(self):
@@ -151,19 +149,8 @@ class BarFollowsRuns(unittest.TestCase):
             time.sleep(0.1)
         self.assertEqual(len(self.bars()), 2)
 
-    def test_the_redraw_leaves_the_run_and_never_raises_into_it(self):
-        # the user manager starts it, outside the run's scope, and the run's marker sweep
-        # cannot find it: neither the run's ending nor a stop takes it down
-        with patch.dict(os.environ, {"AGENTKIT_RUN": str(self.run_dir)}), \
-                patch.object(orch, "user_manager", return_value=True), \
-                patch.object(subprocess, "Popen") as popen:
-            self.step("reviewer")
-        argv, env = popen.call_args.args[0], popen.call_args.kwargs["env"]
-        self.assertEqual(argv[:2], ["systemd-run", "--user"])
-        self.assertNotIn("--scope", argv)
-        self.assertNotIn("AGENTKIT_RUN", env)
-        self.assertFalse([part for part in argv if "AGENTKIT_RUN=" in part])
-        with patch.object(subprocess, "Popen", side_effect=OSError("no fork to be had")):
+    def test_a_tmux_that_fails_never_reaches_the_run(self):
+        with patch.object(orch, "tmux_out", side_effect=OSError("no tmux")):
             self.step("done-when")
         self.assertEqual(record.read_state(self.run_dir)["step"], "done-when")
 

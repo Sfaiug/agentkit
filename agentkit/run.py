@@ -7017,29 +7017,27 @@ def redress_seat(session):
 
     A run's step, round and ending are what the bar names, so each one is published the moment
     it happens, through the one writer the tick uses and from the facts already on record: no
-    look at the seat's screen.  The writer waits on the seat's lock and on tmux, so a process of
-    its own does the writing (`publish_seat`) and the run waits on neither.  That process is
-    the user manager's where there is one, so outside the run's scope, and carries no run
-    marker: it outlives the command that started it, the run's ending and the stop that ends
-    the run's tree.  A seat with no record in this home is none ak launched, and gets nothing;
-    nothing here ever raises into the run.
+    look at the seat's screen.  The writer waits on the seat's lock and on tmux, so the run
+    hands it to a `run-shell -b` job on the seats' own server (`publish_seat`) and waits on
+    neither.  The job is the server's, not the run's: the run's exit, the stop of its scope and
+    its marker sweep leave it be.  A seat tmux has lost, and a legacy one on the user's own
+    server, is no target there, so nothing runs for it; nothing here ever raises into the run.
     """
+    if not session:
+        return
+    publish = shlex.join([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+                          "from agentkit import run; run.publish_seat(sys.argv[2])",
+                          str(config.REPO), session])
     try:
-        if not session or not config.session_path(session).is_file():
-            return
-        env = {key: value for key, value in os.environ.items() if key != worker.RUN_MARKER}
-        argv, env = orch.detached_in_slice(
-            [sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
-             "from agentkit import run; run.publish_seat(sys.argv[2])", str(config.REPO), session],
-            f"agentkit-bar-{os.getpid()}-{time.time_ns()}", env)
-        subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True)
+        # silent and always 0: tmux shows a job's output, or its failure, in the seat's pane
+        orch.tmux_out("run-shell", "-b", "-t", f"={session}:",
+                      orch.tmux_text(f"{publish} >/dev/null 2>&1; true"), socket=orch.socket_name())
     except Exception:  # noqa: BLE001 - the bar is dressing; the run beneath it is what matters
         pass
 
 
 def publish_seat(session):
-    """`redress_seat`'s process: that seat's bar, if tmux still holds it on agentkit's own server."""
+    """`redress_seat`'s job: that seat's bar, if tmux still holds it on agentkit's own server."""
     seat = orch.find(session)
     if seat is not None and orch.on_own_server(seat):
         watch.announce_state(seat)
