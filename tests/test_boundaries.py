@@ -6,9 +6,11 @@ A rule's `names` are ak's own that the pattern also finds: a line counts only if
 still finds something once they are taken out of it.
 A count above `max` fails with every path:line; a count below it passes and says which `max`
 to lower.  Any task may lower a `max` in the area it touches, and no task raises one.
+Existing maxima cannot exceed origin/main's; an unreadable target skips that comparison.
 Offline: `git grep` over the tracked files of this checkout.
 """
 
+import ast
 import re
 import subprocess
 import unittest
@@ -127,6 +129,27 @@ def outside(rule):
 
 
 class Boundaries(unittest.TestCase):
+    def test_no_max_rises_above_origin_main(self):
+        proc = subprocess.run(["git", "-C", str(REPO), "show",
+                               "origin/main:tests/test_boundaries.py"],
+                              capture_output=True, text=True)
+        if proc.returncode:
+            print("origin/main:tests/test_boundaries.py is not readable; skipping max comparison")
+            self.skipTest("origin/main is not readable")
+        # Literal parsing keeps target code from running during the comparison.
+        rules = next(node.value for node in ast.parse(proc.stdout).body
+                     if isinstance(node, ast.Assign)
+                     and any(isinstance(target, ast.Name) and target.id == "RULES"
+                             for target in node.targets))
+        maxima = {rule["name"]: rule["max"] for rule in ast.literal_eval(rules)}
+        for rule in RULES:
+            if rule["name"] in maxima:
+                with self.subTest(rule["name"]):
+                    self.assertLessEqual(
+                        rule["max"], maxima[rule["name"]],
+                        f"{rule['name']}: max {rule['max']} exceeds origin/main max "
+                        f"{maxima[rule['name']]}; a max only goes down")
+
     def test_no_count_rises_above_its_max(self):
         for rule in RULES:
             with self.subTest(rule["name"]):
