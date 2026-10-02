@@ -125,9 +125,11 @@ printf '%s' "$v" >"$HOME/codex.version"
         real_step = update.step
         def step(cmd, fh, env=None, timeout=update.STEP_CAP):
             if cmd[0] == "bash":
-                assert cmd == ["bash", str(REPO / "tests/smoke.sh")]
+                # tests/live.sh, which this checkout has, runs once tests/smoke.sh passed
+                gate = {str(REPO / "tests/smoke.sh"): "smoke", str(REPO / "tests/live.sh"): "live"}
+                assert len(cmd) == 2 and cmd[1] in gate, cmd
                 assert env["AGENTKIT_ACCEPTANCE_REQUIRED"] == "1"
-                gates.append("smoke")
+                gates.append(gate[cmd[1]])
                 return os.environ.get("SMOKE_EXIT", "0") == "0"
             return real_step(cmd, fh, env, timeout)
         def fresh_gate(fh, log):
@@ -161,7 +163,7 @@ printf '%s' "$v" >"$HOME/codex.version"
         assert (root / "claude.version").read_text() == "1.0.0"
         assert (root / "codex.version").read_text() == "1.0.0"
         expected = {"upgrade": [], "same-build": [], "broken-build": [],
-                    "smoke": ["smoke"], "fresh": ["smoke", "fresh"]}
+                    "smoke": ["smoke"], "fresh": ["smoke", "live", "fresh"]}
         assert gates == expected[failure]
         records = [json.loads(line) for line in (root / "launches.jsonl").read_text().splitlines()]
         assert all(r["pin"] == "1" and r["install"] == "0" for r in records if r["argv"] == ["--version"])
@@ -186,7 +188,7 @@ printf '%s' "$v" >"$HOME/codex.version"
         root, install, gates = self.layout
         rc, output = invoke()
         assert rc == 0, output
-        assert gates == ["smoke", "fresh"]
+        assert gates == ["smoke", "live", "fresh"]
         assert OLD in output and NEW in output
         assert "muse: upgraded" in output
         assert (install / ".muse-version").read_text().strip() == NEW
@@ -318,7 +320,7 @@ printf '%s' "$v" >"$HOME/codex.version"
         self.enterContext(patch.object(update.shutil, "rmtree", cannot_remove_snapshot))
         rc, output = invoke()
         assert rc == 0, output
-        assert gates == ["smoke", "fresh"]
+        assert gates == ["smoke", "live", "fresh"]
         assert "snapshot cleanup failed" in output
         assert NEW in update.version(muse())
         snapshots = list(config.TMP.glob("muse-snapshot-*"))
@@ -344,7 +346,7 @@ printf '%s' "$v" >"$HOME/codex.version"
             assert rc == 0, output
             assert "removed stale Muse installer lock" in output
             assert not lock.exists()
-            assert gates == ["smoke", "fresh"]
+            assert gates == ["smoke", "live", "fresh"]
         else:
             assert rc == 1
             assert lock.is_dir()

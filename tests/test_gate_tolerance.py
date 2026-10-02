@@ -34,7 +34,7 @@ CHECK_1 = SMOKE[SMOKE.index("# --- 1: usage"):SMOKE.index("# --- 2:")]
 # The helpers live in check 1's section, so check 6 runs with them prepended: without that
 # the slice calls `host_held`, `reprobe` and `skip_unavailable` as missing commands.
 CHECK_1_PREAMBLE = CHECK_1[:CHECK_1.index('U="$WORK/usage.json"')]
-CHECK_6 = CHECK_1_PREAMBLE + SMOKE[SMOKE.index("# --- 6: orch"):SMOKE.index("# --- 6c:")]
+CHECK_6 = CHECK_1_PREAMBLE + SMOKE[SMOKE.index("# --- 6: orch"):SMOKE.index("\nfi\n\n# --- 6c:")]
 # The suite's own sandbox setup for the shared cadence: smoke_share_probes is defined just
 # above smoke_home, so the slice between the two is the whole function.
 SHARE = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("smoke_home() {")]

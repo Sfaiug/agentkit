@@ -81,26 +81,27 @@ class Everyone(unittest.TestCase):
         self.assertNotIn("nothing was upgraded or verified", text)
         self.assertNotIn("the gate was not run", text)
         self.assertEqual(calls[0], PLAN[0]["upgrade"])
-        self.assertEqual(calls[1][:2], ["bash", str(config.REPO / "tests/smoke.sh")])
-        self.assertEqual(len(calls), 2)
+        # this checkout has a tests/live.sh, which runs once tests/smoke.sh passed
+        self.assertEqual(calls[1:], [["bash", str(config.REPO / "tests/smoke.sh")],
+                                     ["bash", str(config.REPO / "tests/live.sh")]])
         selfmove.assert_called_once_with()
 
     def test_fresh_gate_skips_on_its_own_exit_after_smoke_passed(self):
         # The real host path: smoke wrote its acceptance line to the shared log first,
         # then the fresh gate left before its first check. Only its own appended lines
         # may classify it -- the smoke line must not read as a failed fresh run.
-        smoke = config.REPO / "tests/smoke.sh"
+        gates = [["bash", str(config.REPO / "tests" / name)] for name in ("smoke.sh", "live.sh")]
 
         def run(cmd, fh, env=None, timeout=None):
             fh.write(f"\n$ {' '.join(cmd)}\n")
-            if cmd == ["bash", str(smoke)]:
+            if cmd in gates:
                 fh.write("1 passed, 0 failed, 0 skipped\n"
                          "acceptance: all checks exercised and passed\n[exit 0]\n")
             else:
                 fh.write("e2e-fresh.sh: fixture cannot make a throwaway account here\n"
                          "[exit 2]\n")
             fh.flush()
-            return cmd == ["bash", str(smoke)] or cmd == PLAN[0]["upgrade"]
+            return cmd in gates or cmd == PLAN[0]["upgrade"]
 
         out = io.StringIO()
         with patch.object(update, "harnesses", return_value=PLAN), \
@@ -202,6 +203,7 @@ class Everyone(unittest.TestCase):
         both = [echo, {**PLAN[0], "name": "gone", "version": ["ak-fixture-gone", "--version"],
                        "upgrade": ["ak-fixture-gone", "upgrade"]}]
         smoke = ["bash", str(config.REPO / "tests/smoke.sh")]
+        live = ["bash", str(config.REPO / "tests/live.sh")]
         back = ["echo", "install", "1.0.0"]
         for argv, working, failing in ((["--dry-run"], [], ""), ([], [], ""), ([], [], "smoke"),
                                        ([], [], "fresh"), ([], ["atoll", "vega"], "")):
@@ -239,12 +241,13 @@ class Everyone(unittest.TestCase):
                     self.assertEqual(calls, [])
                     selfmove.assert_called_once_with()
                 elif failing:
-                    self.assertEqual(calls, [echo["upgrade"], smoke, back])
+                    self.assertEqual(calls, [echo["upgrade"], smoke]
+                                     + [live] * (failing == "fresh") + [back])
                     self.assertIn("FAILED after echo 1.0.0->2.0.0", text)
                     self.assertIn("update: echo: reverted, back on 1.0.0", text)
                     selfmove.assert_not_called()
                 else:
-                    self.assertEqual(calls, [echo["upgrade"], smoke])
+                    self.assertEqual(calls, [echo["upgrade"], smoke, live])
                     self.assertIn("update: echo: upgraded, 1.0.0->2.0.0", text)
                     selfmove.assert_called_once_with()
 
