@@ -87,7 +87,7 @@ worker's own test runs share the parent's slot, and a third level is refused. Pa
 slice ceiling, 4 GB where there is no ceiling, unless `run_memory_max_mb` sets it, a run loses only the process that grew:
 its command exits 137, the log says `memory cap N GB hit`, and the run goes on as after any failed command or killed worker.
 Under a systemd older than 253 the whole run ends `fail` with `killed: memory cap` instead.
-`ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the CPU gate but still waiting for the memory floor, and takes the next heavy suite turn and merge turn first, marked `first` in `ak run status`.
+`ak run --first` admits a run that repairs the loop itself ahead of every queued run without it, skipping the count cap and the CPU gate but still waiting for the memory floor, and takes its repository's merge turn first, marked `first` in `ak run status`. A heavy suite turn goes to a landing run before a round check, and within each to whoever waited longest, `--first` or not.
 A job started with `--bg` or relaunched by the tick gives each task, its resume and delivery retry included, its own run scope and cap; one run from a terminal runs its tasks in its own process.
 
 The worktree is `~/.agentkit/wt/<id>` on branch `ak/<slug>`, the first name free locally and on `origin`. The executor
