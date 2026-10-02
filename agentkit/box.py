@@ -4,10 +4,12 @@ import json
 import os
 from pathlib import Path
 import pwd
+import select
 import shlex
 import shutil
 import subprocess
 import sys
+from contextlib import contextmanager
 
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
 PROCESSES = "box-processes.json"
@@ -52,8 +54,9 @@ def _credentials(env, cwd):
     return directories, files
 
 
+@contextmanager
 def command(argv, env, out_dir=None, *, cwd=None):
-    """Return (boxed command, clean environment), preserving paths, writes and networking."""
+    """Yield (command, environment, spawn options); wait for teardown on every exit."""
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
            "--new-session", "--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"]
@@ -64,13 +67,43 @@ def command(argv, env, out_dir=None, *, cwd=None):
         for path in sorted(targets):
             cmd.extend([option, str(path)] if option == "--tmpfs" else
                        [option, "/dev/null", str(path)])
-    if out_dir is not None:
+    if out_dir is None:
+        yield [*cmd, "--", *argv], clean, {}
+        return
+    else:
         report = Path(out_dir).resolve() / PROCESSES
         report.unlink(missing_ok=True)
         # PID 1 records children before exiting; its exit makes the kernel kill
         # every descendant, even one with a new session or an empty environment.
         argv = [sys.executable, str(Path(__file__).resolve()), str(report), *argv]
-    return [*cmd, "--", *argv], clean
+    read, write = os.pipe()
+    try:
+        yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {"pass_fds": (write,)}
+    finally:
+        os.close(write)
+        with os.fdopen(read) as info:
+            _wait(info.read())
+
+
+def _wait(info):
+    # A killed bwrap can exit before its PID 1 finishes killing descendants.
+    # Its private info pipe names that process; a pidfd waits for the kernel's
+    # teardown, not an environment sweep or a delay guessed to be long enough.
+    try:
+        info = json.loads(info)
+        pid = info["child-pid"]
+        fd = os.pidfd_open(pid)
+    except (ValueError, KeyError, ProcessLookupError):
+        return
+    try:
+        if Path(f"/proc/{pid}/ns/pid").stat().st_ino == info["pid-namespace"]:
+            poll = select.poll()
+            poll.register(fd, select.POLLIN)
+            poll.poll()
+    except FileNotFoundError:
+        pass
+    finally:
+        os.close(fd)
 
 
 def check():
@@ -80,9 +113,9 @@ def check():
     if not shutil.which("bwrap"):
         raise config.Error(f"worker box needs bubblewrap; run `{remedy}`")
     try:
-        inner, env = command(["true"], os.environ)
-        outer, env = command(inner, env)
-        result = subprocess.run(outer, env=env, capture_output=True, text=True, timeout=10)
+        with command(["true"], os.environ) as (inner, env, _):
+            with command(inner, env) as (outer, env, _):
+                result = subprocess.run(outer, env=env, capture_output=True, text=True, timeout=10)
         if result.returncode == 0:
             return
         why = result.stderr.strip() or f"exit {result.returncode}"

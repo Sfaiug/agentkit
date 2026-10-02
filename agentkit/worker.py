@@ -613,7 +613,6 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     cmd = [str(adapter), "run", entry["model"], entry["effort"], str(workspace), str(prompt), str(out_dir)]
     if session:
         cmd.append(session)
-    cmd, turn_env = box.command(cmd, turn_env, out_dir, cwd=workspace)
     began = time.monotonic()
     # the same scan the turn is judged by afterwards, handed to the watchdog so a harness
     # that says it is logged out and then hangs -- or keeps emitting events, which resets
@@ -624,10 +623,11 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     # the loop's stderr and never reached the turn's diagnostics.  It is kept apart while the
     # harness writes that file, and added to the end of it once the turn is over.
     own = out_dir / "adapter-stderr.log"
-    with own.open("wb") as err:
+    with box.command(cmd, turn_env, out_dir, cwd=workspace) as (cmd, turn_env, spawn), \
+            own.open("wb") as err:
         code, _, killed = limited(cmd, None, silence=limit, activity=out_dir / "events.jsonl",
                                   abort=lambda: watching(out_dir),
-                                  env=turn_env, stderr=err)
+                                  env=turn_env, stderr=err, **spawn)
     try:
         said = own.read_bytes()
         own.unlink()
