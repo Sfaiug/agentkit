@@ -155,7 +155,7 @@ class SeatStates(unittest.TestCase):
                 patch.object(notify, "progress", return_value=None):
             watch.health(self.cfg, {"stalls": {}}, False, lambda _: None)
         self.assertEqual(menu.status(self.seat), first)
-        self.assertEqual(self.options[orch.STATE_OPTION], "needs you")
+        self.assertEqual(self.options["set-titles-string"], "seat · needs you")
 
     def test_e2_a_live_state_is_never_a_reason_to_type_into_a_seat(self):
         """Classifying is looking. Only a harness's own stall signature moves the babysitter."""
