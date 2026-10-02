@@ -18,12 +18,12 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import command_help, config
+from . import command_help, config, terminal
 
-CHECK_LIMIT = 600    # seconds a check may take on the default branch before it counts as failing
+CHECK_LIMIT = 600    # an unfinished check proves nothing
 EYE = "your eye"
 LINE = re.compile(r"^- \[(?P<mark>[ x])\] (?P<what>.+?) · (?:check: `(?P<check>[^`]+)`|"
-                  + EYE + r") · (?P<project>[^·]+?) · written (?P<when>\d{4}-\d\d-\d\d \d\d:\d\d)"
+                  + EYE + r") · (?P<project>.+?) · written (?P<when>\d{4}-\d\d-\d\d \d\d:\d\d)"
                   r"(?: · done (?P<done>.+))?$")
 
 
@@ -60,33 +60,52 @@ def project(name):
 
 
 def fails_on_main(repo, cmd):
-    """(failed, its last output line) for `cmd` on a clean checkout of the default branch."""
-    from . import run   # here, not at the top: run is the loop, this a seat's small verb
-    try:
-        run.git_out(repo, "fetch", "-q", "origin", timeout=60)
-    except run.Stopped:
-        pass                     # an old origin ref still names a default branch to check on
-    base = run.default_base(repo, lambda _line: None)
-    env = {key: value for key, value in os.environ.items()
-           if not key.startswith(("AGENTKIT_", "AK_"))}
+    """Whether `cmd` fails on a clean checkout of the project's current default branch."""
+    # Inherited routing and startup files can redirect a check or restore seat variables.
+    dropped = {"BASH_ENV", "ENV", "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+               "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE"}
+    env = {key: value for key, value in config.child_env().items()
+           if key not in dropped and not key.startswith(("AGENTKIT_", "AK_"))}
+    env["GIT_TERMINAL_PROMPT"] = "0"
+
+    def git(*args):
+        try:
+            result = subprocess.run(["git", "-C", str(repo), "-c", "core.hooksPath=/dev/null", *args],
+                                    env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                                    text=True, errors="replace", timeout=60)
+        except subprocess.TimeoutExpired:
+            raise config.Error(f"cannot check {repo.name}'s default branch: git did not finish") from None
+        if result.returncode:
+            raise config.Error(f"cannot check {repo.name}'s default branch: {result.stderr.strip()}")
+        return result.stdout.strip()
+
+    git("fetch", "-q", "origin")
+    git("remote", "set-head", "origin", "--auto")
+    base = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
     config.TMP.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=config.TMP, prefix="plan-") as tmp:
         tree = Path(tmp) / "main"
-        run.git(repo, "worktree", "add", "--detach", str(tree), base)
+        git("worktree", "add", "--detach", str(tree), base)
         try:
             proc = subprocess.Popen(["bash", "-c", cmd], cwd=tree, env=env, text=True,
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.STDOUT,
                                     start_new_session=True)
             try:
-                out, _ = proc.communicate(timeout=CHECK_LIMIT)
+                proc.wait(timeout=CHECK_LIMIT)
             except subprocess.TimeoutExpired:
-                os.killpg(proc.pid, signal.SIGKILL)
-                proc.communicate()
-                return True, f"stopped after {CHECK_LIMIT} s"
+                raise config.Error(f"this check did not finish within {CHECK_LIMIT} s; "
+                                   "an unfinished check proves nothing") from None
+            finally:
+                # No child may outlive the checkout, including after an interruption.
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait()
         finally:
-            run.git_out(repo, "worktree", "remove", "--force", str(tree))
-    last = next((line for line in reversed(out.splitlines()) if line.strip()), "")
-    return proc.returncode != 0, last
+            git("worktree", "remove", "--force", str(tree))
+    return proc.returncode != 0
 
 
 def add(name, what, check=None):
@@ -95,11 +114,10 @@ def add(name, what, check=None):
         raise config.Error("an outcome is plain words without `·`")
     repo = project(name)
     if check is not None:
-        check = " ".join(check.split("\n")).strip()
-        if not check or "`" in check:
-            raise config.Error("a check is one shell command without backticks")
-        failed, last = fails_on_main(repo, check)
-        if not failed:
+        check = check.strip()
+        if len(check.splitlines()) != 1 or "`" in check:
+            raise config.Error("a check is one shell command without backticks or line breaks")
+        if not fails_on_main(repo, check):
             raise config.Error(f"this check already passes on {repo.name}'s default branch, so "
                                "it proves nothing; write one that fails until the work is done")
     stamp = time.strftime("%Y-%m-%d %H:%M")
@@ -116,13 +134,12 @@ def tick(name, number):
         raise config.Error(f"no plan line {number}; `ak plan` lists them")
     at = open_lines[number - 1]
     found = LINE.match(text[at].strip())
-    if found and found["check"]:
-        raise config.Error("a line with a check is ticked by ak once its check passes on the "
-                           "default branch")
+    if not found or found["check"]:
+        raise config.Error("only a --eye line can be ticked on the owner's word")
     if not text[at].lstrip().startswith("- [ ]"):
         raise config.Error(f"plan line {number} is already done")
     line = text[at].replace("- [ ]", "- [x]", 1)
-    text[at] = line + (f" · done your yes {time.strftime('%Y-%m-%d %H:%M')}" if found else "")
+    text[at] = line + f" · done your yes {time.strftime('%Y-%m-%d %H:%M')}"
     write(name, text)
     return text[at]
 
@@ -132,9 +149,14 @@ def main(argv):
         return 0
     name = seat()
     if not argv:
-        for number, line in enumerate((line for line in lines(name)
-                                       if line.lstrip().startswith("- [")), 1):
-            print(f"{number:>2}  {line.strip()}")
+        listed = [line.strip() for line in lines(name) if line.lstrip().startswith("- [")]
+        number_width = max(2, len(str(len(listed))))
+        room = max(1, terminal.width() - number_width - 2)
+        for number, line in enumerate(listed, 1):
+            wrapped = terminal.wrap(line, room)
+            print(terminal.table_row([str(number), wrapped[0]], [number_width, room], right=(0,)))
+            for continuation in wrapped[1:]:
+                print(" " * (number_width + 2) + continuation)
         return 0
     if argv[0] == "add" and len(argv) == 4 and argv[2] == "--check":
         print(add(name, argv[1], argv[3]))

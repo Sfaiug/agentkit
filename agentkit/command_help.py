@@ -177,11 +177,12 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
 
 # `ak --help` is one screen: the menu, then the commands an orchestrator uses, one line
 # each, and under one dim `internal:` line the ones the toolkit runs for itself.
-ORCHESTRATOR = ("run", "notify", "wait", "usage", "browser", "fetch")
+ORCHESTRATOR = ("run", "plan", "notify", "wait", "usage", "browser", "fetch")
 INTERNAL = ("orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor")
 
 PURPOSES = {
     "run": "execute a task file to a merged PR",
+    "plan": "show or write this session's checked plan",
     "orch": "open a seat",
     "worker": "run one headless model turn from a task or prompt file",
     "hand-in": "hand in review evidence or close a worker turn",
