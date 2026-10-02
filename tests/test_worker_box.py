@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, worker
+from agentkit import box, config, run, worker
 
 
 ADAPTER = r'''import json, os, subprocess, sys, time
@@ -31,16 +31,43 @@ def read(path):
 seen = {"hosts": read(Path.home() / ".config/gh/hosts.yml"),
         "token": os.environ.get("GH_TOKEN"),
         "store": read(Path.home() / ".git-credentials")}
-subprocess.Popen([sys.executable, str(root / "detached.py"), str(out)],
-                 env={}, start_new_session=True, stdin=subprocess.DEVNULL,
-                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-deadline = time.monotonic() + 5
-while not (out / "ready").exists():
-    if time.monotonic() > deadline:
-        raise RuntimeError("fixture child never started")
-    time.sleep(.01)
+if os.environ.get("BOX_PATHS"):
+    seen["paths"] = [read(Path(path)) for path in json.loads(os.environ["BOX_PATHS"])]
+    seen["tokens"] = [os.environ.get(key) for key in (
+        "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")]
+    seen["pid1_token"] = b"GH_TOKEN=" in Path("/proc/1/environ").read_bytes()
+if os.environ.get("BOX_INSPECT"):
+    (Path.home() / ".codex").mkdir(exist_ok=True)
+    (Path.home() / ".codex/fixture").write_text("harness write")
+    seen["home"] = str(Path.home())
+    seen["cwd"] = os.getcwd()
+    seen["uid"] = os.getuid()
+    seen["provider"] = os.environ["FIXTURE_PROVIDER_TOKEN"]
+if os.environ.get("BOX_NEST") == "1":
+    os.environ["BOX_NEST"] = "0"
+    sys.path.insert(0, os.environ["BOX_REPO"])
+    from agentkit import config, worker
+    config.adapter = lambda _harness: Path(sys.argv[0])
+    cfg = json.loads((root / "cfg.json").read_text())
+    logs = []
+    code, text, _, killed, left = worker.turn(
+        cfg, "w", "nested task", root, root / "nested", limit=10, log=logs.append)
+    seen["nested"] = {"code": code, "seen": json.loads(text), "killed": killed,
+                      "left": left, "logs": logs}
+if os.environ.get("BOX_LEAK", "1") == "1":
+    subprocess.Popen([sys.executable, str(root / "detached.py"), str(out)],
+                     env={}, start_new_session=True, stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deadline = time.monotonic() + 5
+    while not (out / "ready").exists():
+        if time.monotonic() > deadline:
+            raise RuntimeError("fixture child never started")
+        time.sleep(.01)
 (out / "final.md").write_text(json.dumps(seen))
 (out / "events.jsonl").write_text("{}\n")
+if os.environ.get("BOX_HANG"):
+    time.sleep(300)
+sys.exit(int(os.environ.get("BOX_EXIT", "0")))
 '''
 
 DETACHED = r'''import fcntl, os, sys, time
@@ -67,7 +94,8 @@ class WorkerBox(unittest.TestCase):
             "HOME": str(self.root), "BOX_FIXTURE": str(self.root), "GH_TOKEN": "fixture-token",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "GH_CONFIG_DIR",
-                    "XDG_CONFIG_HOME"):
+                    "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "BOX_LEAK", "BOX_NEST", "BOX_HANG",
+                    "BOX_EXIT", "BOX_INSPECT", "BOX_PATHS"):
             os.environ.pop(key, None)
         self.stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
         # The only real child is our fixture. No marker sweep may inspect the hosting run.
@@ -83,11 +111,12 @@ class WorkerBox(unittest.TestCase):
         self.stack.enter_context(patch.object(config, "adapter", return_value=adapter))
         self.cfg = {"models": {"w": {"harness": "fixture", "model": "fixture", "effort": "low",
                                     "provider": "fixture"}}, "providers": {"fixture": {}}}
+        (self.root / "cfg.json").write_text(json.dumps(self.cfg))
         self.logs = []
         self.addCleanup(self.stop_child)
 
-    def alive(self):
-        with (self.out / "alive.lock").open("a") as lock:
+    def alive(self, out=None):
+        with ((out or self.out) / "alive.lock").open("a") as lock:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
@@ -95,16 +124,20 @@ class WorkerBox(unittest.TestCase):
         return False
 
     def stop_child(self):
-        if self.out.exists():
-            (self.out / "stop").touch()
+        for lock in self.root.rglob("alive.lock"):
+            out = lock.parent
+            (out / "stop").touch()
             deadline = time.monotonic() + 5
-            while self.alive() and time.monotonic() < deadline:
+            while self.alive(out) and time.monotonic() < deadline:
                 time.sleep(.01)
-            self.assertFalse(self.alive(), "fixture child did not stop")
+            self.assertFalse(self.alive(out), "fixture child did not stop")
+
+    def turn(self, limit=10):
+        return worker.turn(self.cfg, "w", "fixture task", self.root, self.out,
+                           limit=limit, log=self.logs.append)
 
     def test_credentials_and_unmarked_detached_child(self):
-        code, text, _, killed, left = worker.turn(
-            self.cfg, "w", "fixture task", self.root, self.out, limit=10, log=self.logs.append)
+        code, text, _, killed, left = self.turn()
         self.assertEqual((code, killed), (0, False))
         self.assertEqual({**json.loads(text), "alive": self.alive(), "left": left,
                           "reported": any("detached.py" in line for line in self.logs)},
@@ -112,6 +145,92 @@ class WorkerBox(unittest.TestCase):
                           "left": True, "reported": True})
         self.assertEqual((self.root / ".config/gh/hosts.yml").read_text(), "fixture-login")
         self.assertEqual((self.root / ".git-credentials").read_text(), "fixture-store")
+
+    def test_paths_symlinks_and_all_token_variables(self):
+        login, store = self.root / "login", self.root / "store"
+        login.write_text("fixture-login")
+        store.write_text("fixture-store")
+        hosts = self.root / ".config/gh/hosts.yml"
+        hosts.unlink()
+        hosts.symlink_to(login)
+        default = self.root / ".git-credentials"
+        default.unlink()
+        default.symlink_to(store)
+        xdg, gh = self.root / "xdg", self.root / "gh"
+        for path in (xdg / "gh/hosts.yml", xdg / "git/credentials", gh / "hosts.yml",
+                     self.root / "named-store"):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("fixture-secret")
+        (self.root / ".gitconfig").write_text(
+            '[credential]\n\thelper = store --file "~/named-store"\n')
+        paths = [login, store, xdg / "gh/hosts.yml", xdg / "git/credentials", gh / "hosts.yml",
+                 self.root / "named-store", Path("/proc/1/root") / str(hosts).lstrip("/")]
+        with patch.dict(os.environ, {
+                "XDG_CONFIG_HOME": str(xdg), "GH_CONFIG_DIR": str(gh),
+                "BOX_PATHS": json.dumps([str(path) for path in paths]),
+                "GITHUB_TOKEN": "fixture-github", "GH_ENTERPRISE_TOKEN": "fixture-enterprise",
+                "GITHUB_ENTERPRISE_TOKEN": "fixture-github-enterprise"}):
+            code, text, _, killed, _ = self.turn()
+        self.assertEqual((code, killed), (0, False))
+        seen = json.loads(text)
+        self.assertEqual(seen["paths"], [""] * len(paths))
+        self.assertEqual(seen["tokens"], [None] * 4)
+        self.assertFalse(seen["pid1_token"])
+        self.assertEqual(login.read_text(), "fixture-login")
+        self.assertEqual(store.read_text(), "fixture-store")
+
+    def test_files_writes_identity_environment_and_exit_status_stay_the_same(self):
+        with patch.dict(os.environ, {"BOX_LEAK": "0", "BOX_INSPECT": "1", "BOX_EXIT": "7",
+                                     "FIXTURE_PROVIDER_TOKEN": "fixture-provider"}):
+            code, text, _, killed, left = self.turn()
+        self.assertEqual((code, killed, left), (7, False, False))
+        seen = json.loads(text)
+        self.assertEqual((seen["home"], seen["cwd"], seen["uid"], seen["provider"]),
+                         (str(self.root), os.getcwd(), os.getuid(), "fixture-provider"))
+        self.assertEqual((self.root / ".codex/fixture").read_text(), "harness write")
+
+    def test_turns_can_run_inside_a_turn(self):
+        with patch.dict(os.environ, {"BOX_NEST": "1", "BOX_REPO": str(REPO)}):
+            code, text, _, killed, left = self.turn()
+        nested = json.loads(text)["nested"]
+        self.assertEqual((code, killed, left), (0, False, True))
+        self.assertEqual((nested["code"], nested["killed"], nested["left"]), (0, False, True))
+        self.assertEqual(nested["seen"], {"hosts": "", "token": None, "store": ""})
+        self.assertTrue(any("detached.py" in line for line in nested["logs"]))
+        self.assertFalse(self.alive(self.root / "nested"))
+        self.assertFalse(self.alive())
+
+    def test_silence_kills_unmarked_detached_children_too(self):
+        with patch.dict(os.environ, {"BOX_HANG": "1"}):
+            code, _, _, killed, _ = self.turn(limit=.5)
+        self.assertEqual((code, killed), (worker.TIMEOUT, True))
+        self.assertTrue((self.out / "ready").exists())
+        self.assertFalse(self.alive())
+
+    def test_launch_refuses_before_allocating_without_bubblewrap(self):
+        with patch.object(box.shutil, "which", return_value=None), \
+                patch.object(config, "ensure_dirs", side_effect=AssertionError("allocated run")), \
+                self.assertRaisesRegex(config.Error, "sudo apt-get install -y bubblewrap"):
+            run.main([str(self.root / "task.md")])
+
+    def test_namespace_refusal_names_the_fix(self):
+        fake_bin = self.root / "bin"
+        fake_bin.mkdir()
+        bwrap = fake_bin / "bwrap"
+        bwrap.write_text("#!/bin/sh\necho 'fixture: namespaces denied' >&2\nexit 1\n")
+        bwrap.chmod(0o755)
+        original = Path.read_text
+
+        def read(path, **kwargs):
+            if str(path) == "/proc/sys/kernel/unprivileged_userns_clone":
+                return "0"
+            return original(path, **kwargs)
+
+        with patch.dict(os.environ, {"PATH": f"{fake_bin}:{os.environ['PATH']}"}), \
+                patch.object(Path, "read_text", read), \
+                patch.object(config, "ensure_dirs", side_effect=AssertionError("allocated run")), \
+                self.assertRaisesRegex(config.Error, "sudo sysctl -w kernel.unprivileged_userns_clone=1"):
+            run.main([str(self.root / "task.md")])
 
 
 if __name__ == "__main__":
