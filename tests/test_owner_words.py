@@ -253,6 +253,22 @@ class OwnerWords(unittest.TestCase):
         self.assertNotIn("owner_words_cursor", self.record())
         self.assertEqual(self.launch()[1]["owner_words"], [{"at": 20, "text": "Build the API."}])
 
+    def test_receipt_recovers_a_cursor_not_yet_saved_on_the_seat(self):
+        self.append(prompt(20, "First words."))
+        self.launch()
+        config.update_session("lagoon", owner_words_cursor=None)
+        self.append(prompt(100, "New words in the same second."))
+        self.assertEqual(self.launch()[1]["owner_words"], [
+            {"at": 100, "text": "New words in the same second."}])
+
+    def test_pre_upgrade_job_is_the_previous_launch_even_after_a_rename(self):
+        directory = config.JOBS / "previous-job"
+        directory.mkdir(parents=True)
+        job.save_job(directory, {"seat": "lagoon", "started_at": 25})
+        config.rename_session("lagoon", "quay")
+        self.append(prompt(20, "Previous request."), prompt(30, "New request."))
+        self.assertEqual(self.launch()[1]["owner_words"], [{"at": 30, "text": "New request."}])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

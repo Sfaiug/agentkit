@@ -190,6 +190,14 @@ def owner_words(seat):
     conversation = plugin.conversation(record, cwd)
     messages = plugin.user_messages(record, cwd, conversation, seat=seat)
     previous = record.get("owner_words_cursor") or {}
+    # Receipts cover pre-upgrade jobs and a restart between the job and seat writes;
+    # the seat keeps the cursor after retention removes those receipts.
+    for prior in read_jobs():
+        if (isinstance(prior, dict) and isinstance(prior.get("seat"), str)
+                and config.resolve_session(prior["seat"]) == seat
+                and isinstance(prior.get("started_at"), (int, float))
+                and prior["started_at"] > previous.get("at", 0)):
+            previous = prior.get("owner_words_cursor") or {"at": prior["started_at"]}
     if (previous.get("harness"), previous.get("conversation")) == (plugin.name, conversation):
         fresh = messages[previous.get("count", 0):]
     else:
@@ -277,7 +285,7 @@ def job_create(cfg, task_paths, opts, parallel):
         job_dir.mkdir(parents=True)
         (job_dir / "log.txt").touch()
         job = {"job_id": job_dir.name, "seat": seat, "started_at": cursor["at"], "finished_at": None,
-               "owner_words": words,
+               "owner_words": words, "owner_words_cursor": cursor,
                "parallel": parallel, "executor_history": [], **record.process_owner(), "cwd": os.getcwd(),
                "opts": {key: opts.get(key) for key in ("--rounds", "--exec", "--review",
                                                        "--no-merge", "--no-worktree", "--anyway",
