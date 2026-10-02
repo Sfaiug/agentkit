@@ -3171,7 +3171,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                         "--bg": True, **({"--first": True} if request else {})}
                 if split:
                     gate.write_suite_cost(Path(split["cost"]), {"split_run": directory.name})
-                prepare(directory, opts, logger(directory, True), cfg)
+                prepare(directory, opts, logger(directory), cfg)
                 spawn_bg(directory, [str(directory / "task.md")])
             except run_record.StopRequested as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
@@ -6551,7 +6551,7 @@ def record_decision(run_dir, state, reason, merged=False):
     run_record.save_state(run_dir, state)
     if merged:
         history_finish(state)
-        start_followups(state, run_dir, logger(run_dir, True))
+        start_followups(state, run_dir, logger(run_dir))
     result = run_dir / "result.md"
     try:
         if state.get("worktree") and Path(state["worktree"]).is_dir():
@@ -7838,7 +7838,7 @@ def notify_recovery(run_dir, state):
     owner = launched_session(state)
     if not owner:
         return                      # a by-hand run has no originating orchestrator
-    log = logger(run_dir, True)
+    log = logger(run_dir)
     # What the run says is worth reading when it is handed back, so it is written first: an
     # interruption has no result of its own, and a resumed one would otherwise point at the
     # attempt before it.
@@ -10418,12 +10418,11 @@ def foreground_cli(run_dir):
             and not log_is_stdout(run_dir))
 
 
-def logger(run_dir, to_file):
-    to_file = to_file and not log_is_stdout(run_dir)
+def logger(run_dir):
     def log(message):
         line = f"[{datetime.now():%H:%M:%S}] {message}"
         print(line, flush=True)
-        if to_file:   # the --bg child's stdout already is log.txt; writing again would double it
+        if not log_is_stdout(run_dir):
             with (run_dir / "log.txt").open("a") as fh:
                 fh.write(line + "\n")
     return log
@@ -10800,7 +10799,7 @@ def cmd_merge(argv):
     if not review_pass(state, cfg):
         raise config.Error(f"{argv[0]}: merge requires a successful reviewer allowed by the model policy; "
                            f"run ak run resume {argv[0]} to obtain review")
-    log = logger(run_dir, True)
+    log = logger(run_dir)
     if state.get("merged"):
         log(delivery(state, cfg))
         return 0
@@ -10947,7 +10946,7 @@ def cmd_resume(argv):
                     # result.md nothing wrote -- or the attempt before this one's -- is no
                     # hand-back: the reason goes in the file before anything reads it
                     state = mark_state(directory, "error", str(exc))
-                    record_result(directory, state, logger(directory, True))
+                    record_result(directory, state, logger(directory))
                 stop_run_tree(state)
         raise
 
@@ -11017,7 +11016,7 @@ def resume_run(argv):
                 raise config.Error("the run changed while choosing recovery; select it again")
             run_record.save_state(run_dir, state)
         cfg = config.load()
-        log = logger(run_dir, os.environ.get(config.RUN_DIR_ENV) != str(run_dir))
+        log = logger(run_dir)
         log(f"picked up agentkit {old}..{new}; continuing on it")
         if state.get("review_pr"):
             return drive(cfg, run_dir, opts, log,
@@ -11213,7 +11212,7 @@ def resume_run(argv):
         state.pop("resume_after", None)
         state.pop("pickup", None)
         run_record.save_state(run_dir, state)
-    log = logger(run_dir, not child)
+    log = logger(run_dir)
     log(f"resume {run_dir.name}: {run_dir / 'task.md'}")
     if not child:
         # the loop goes on from this copy and saves it: it carries the new scope, not the last
@@ -12168,7 +12167,7 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
         run_dir.mkdir(parents=True)
         (run_dir / "log.txt").touch()
         try:
-            prepare(run_dir, opts, logger(run_dir, True), cfg)
+            prepare(run_dir, opts, logger(run_dir), cfg)
         except run_record.StopRequested:
             # A stop landed during preflight: the receipt already says so, and the
             # stopper printed the line -- this end names it and stands down alike.
@@ -12180,7 +12179,7 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
                 reviewer = preset_review_model(cfg, opts, run_workers(cfg, receipt),
                                                reviewers=receipt.get("reviewers"))
             except config.Error as exc:
-                refused(run_dir, exc, logger(run_dir, True), cfg)
+                refused(run_dir, exc, logger(run_dir), cfg)
                 raise
             title = (run_record.read_state(run_dir) or {}).get("title")
             if reviewer:
@@ -12205,7 +12204,7 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
         spawn_bg(run_dir, argv)
         return follow_run(run_dir, cfg, offset)
     opts = dict(opts, **flags)
-    log = logger(run_dir, not resumed)
+    log = logger(run_dir)
     log(f"run {run_dir.name}: review of {url}")
     if not resumed:
         place_here(run_dir, log)
@@ -12313,10 +12312,9 @@ def main(argv):
         job_dir, job = jobs.job_create(cfg, positional, opts, parallel)
         if opts["--bg"]:
             return jobs.spawn_job_bg(job_dir)
-        to_file = os.environ.get(config.JOB_DIR_ENV) != str(job_dir)
-        log = jobs.job_logger(job_dir, to_file)
+        log = jobs.job_logger(job_dir)
         log(f"job {job_dir.name}: {len(positional)} tasks")
-        return jobs.run_job_loop(cfg, job_dir, job, to_file=to_file)
+        return jobs.run_job_loop(cfg, job_dir, job)
 
     resumed = os.environ.get(config.RUN_DIR_ENV)
     if resumed and not queued(Path(resumed)):
@@ -12379,7 +12377,7 @@ def main(argv):
         (run_dir / "task.md").write_text(task_path.read_text())
         (run_dir / "log.txt").touch()
         try:
-            prepare(run_dir, opts, logger(run_dir, True), cfg, task_file=task_path)
+            prepare(run_dir, opts, logger(run_dir), cfg, task_file=task_path)
         except run_record.StopRequested:
             # A stop landed during preflight: the receipt already says so, and the
             # stopper printed the line -- this end names it and stands down alike.
@@ -12387,7 +12385,7 @@ def main(argv):
             return 1
         if opts["--bg"]:
             try:
-                executor, reviewer = preset_models(cfg, opts, logger(run_dir, True), run_dir)
+                executor, reviewer = preset_models(cfg, opts, logger(run_dir), run_dir)
             except run_record.StopRequested:
                 print(stop_line(run_dir.name, None, False))
                 return 1
@@ -12402,7 +12400,7 @@ def main(argv):
         offset = (run_dir / "log.txt").stat().st_size
         spawn_bg(run_dir, argv)
         return follow_run(run_dir, cfg, offset)
-    log = logger(run_dir, not resumed)
+    log = logger(run_dir)
     log(f"run {run_dir.name}: {task_path}")
     if not resumed:
         place_here(run_dir, log)

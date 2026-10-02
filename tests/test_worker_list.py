@@ -171,7 +171,7 @@ class WorkerList(unittest.TestCase):
             "---\nrepo: none\nrounds: 1\n---\n# Fixture\n\n## Done when\n```bash\ntrue\n```\n")
         opts = {"--review-pr": None, "--no-merge": True, "--no-worktree": True}
         with redirect_stdout(io.StringIO()):
-            run.preflight(lp.run_dir, opts, run.logger(lp.run_dir, True))
+            run.preflight(lp.run_dir, opts, run.logger(lp.run_dir))
         self.assertIn("workers: alpha, gamma", (lp.run_dir / "log.txt").read_text())
         self.assertIn("  workers: alpha, gamma", run.status_details(lp.run_dir, lp.state))
 
@@ -252,7 +252,7 @@ class WorkerList(unittest.TestCase):
                 patch.object(notify, "shaped", return_value=0), \
                 redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
             with self.assertRaises(config.Error) as refused:
-                run.drive(self.cfg, run_dir, opts, run.logger(run_dir, True))
+                run.drive(self.cfg, run_dir, opts, run.logger(run_dir))
         self.assertEqual(str(refused.exception), refusal)
         saved = record.read_state(run_dir)
         self.assertEqual((saved["state"], saved["error"]), ("error", refusal))
@@ -317,7 +317,7 @@ class WorkerList(unittest.TestCase):
                 self.refused(usage.Readings(self.providers(b=5))), \
                 patch.object(notify, "shaped", return_value=0), \
                 redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
-            run.drive(self.cfg, run_dir, opts, run.logger(run_dir, True), prior=state)
+            run.drive(self.cfg, run_dir, opts, run.logger(run_dir), prior=state)
         saved = record.read_state(run_dir)
         self.assertEqual((saved["executor"], saved["reviewer"]), ("beta", "alpha"))
         self.assertEqual(calls[0], "beta")
@@ -417,7 +417,7 @@ class WorkerList(unittest.TestCase):
                 patch.object(notify, "shaped",
                              side_effect=lambda *a, **k: sent.append((a, k)) or 0), \
                 redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
-            self.assertEqual(run.drive(self.cfg, run_dir, opts, run.logger(run_dir, False),
+            self.assertEqual(run.drive(self.cfg, run_dir, opts, run.logger(run_dir),
                                        prior=state), 1)
         saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "exhausted")

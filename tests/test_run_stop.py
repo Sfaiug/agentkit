@@ -238,7 +238,7 @@ class RunStop(Sandbox):
         jobs.save_job(job_dir, job)
         out = io.StringIO()
         with redirect_stdout(out):
-            rc = jobs.run_job_loop(cfg, job_dir, job, to_file=False)
+            rc = jobs.run_job_loop(cfg, job_dir, job)
         self.assertEqual(rc, 1)
         kept = jobs.read_job(job_dir)
         waiting = next(task for task in kept["tasks"] if task["name"] == "b.md")
@@ -265,7 +265,7 @@ class RunStop(Sandbox):
         with patch.object(jobs, "job_hand_back", return_value="sent") as handed, \
                 patch.object(run, "collect_usage", side_effect=AssertionError("budget checked")), \
                 redirect_stdout(io.StringIO()):
-            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+            rc = jobs.run_job_loop(self.cfg, job_dir, job)
         self.assertEqual(rc, 1)
         line = handed.call_args.args[1]
         self.assertIn("1 task(s) need you", line)
@@ -301,7 +301,7 @@ class RunStop(Sandbox):
                 with patch.object(jobs, "job_adopt_worker", side_effect=adopt) as adopted, \
                         patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
                         redirect_stdout(io.StringIO()):
-                    rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+                    rc = jobs.run_job_loop(self.cfg, job_dir, job)
                 self.assertEqual(rc, 0)
                 self.assertEqual(adopted.call_args.args[4], kept)
                 self.assertEqual(jobs.read_job(job_dir)["tasks"][1]["state"], "merged")
@@ -333,7 +333,7 @@ class RunStop(Sandbox):
                         patch.object(run, "cmd_resume", side_effect=AssertionError("a resume")), \
                         patch.object(run, "cmd_merge", side_effect=AssertionError("a merge")), \
                         redirect_stdout(io.StringIO()):
-                    rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+                    rc = jobs.run_job_loop(self.cfg, job_dir, job)
                 self.assertEqual(rc, 1)
                 self.assertEqual(record.read_state(kept)["state"], "blocked")
                 task = jobs.read_job(job_dir)["tasks"][1]
@@ -357,7 +357,7 @@ class RunStop(Sandbox):
                         patch.object(run, "cmd_resume", side_effect=AssertionError("a resume")), \
                         patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
                         redirect_stdout(io.StringIO()):
-                    rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+                    rc = jobs.run_job_loop(self.cfg, job_dir, job)
                 self.assertEqual(rc, 1)
                 task = jobs.read_job(job_dir)["tasks"][1]
                 self.assertEqual((task["state"], task["run_id"]), ("blocked", kept.name))
@@ -405,7 +405,7 @@ class RunStop(Sandbox):
                 patch.object(run, "pick_models", return_value=("opus", "astra")), \
                 patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
                 redirect_stdout(io.StringIO()):
-            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+            rc = jobs.run_job_loop(self.cfg, job_dir, job)
         self.assertEqual(rc, 1)
         task = jobs.read_job(job_dir)["tasks"][1]
         self.assertEqual(task["state"], "blocked")
@@ -449,7 +449,7 @@ class RunStop(Sandbox):
             "name": "b.md", "title": "B", "after": ["a.md"], "state": "queued",
             "run_id": kept.name, "from_pass": legacy})
         with redirect_stdout(io.StringIO()):
-            jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+            jobs.run_job_loop(self.cfg, job_dir, job)
         task = jobs.read_job(job_dir)["tasks"][1]
         self.assertEqual(task["state"], "stopped")
         self.assertNotIn("findings", task)
@@ -461,7 +461,7 @@ class RunStop(Sandbox):
         with patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
                 patch.object(run, "collect_usage", side_effect=AssertionError("budget checked")), \
                 redirect_stdout(io.StringIO()):
-            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+            rc = jobs.run_job_loop(self.cfg, job_dir, job)
         self.assertEqual(rc, 1)
         task = jobs.read_job(job_dir)["tasks"][1]
         self.assertEqual(task["state"], "blocked")
@@ -717,7 +717,7 @@ class RunStop(Sandbox):
         with patch.object(jobs, "job_start_task",
                           side_effect=record.StopRequested("20260101 stopped")), \
                 redirect_stdout(out):
-            rc = jobs.run_job_loop(self.cfg, job_dir, job, to_file=False)
+            rc = jobs.run_job_loop(self.cfg, job_dir, job)
         self.assertEqual(rc, 1)
         kept = jobs.read_job(job_dir)
         self.assertEqual(kept["tasks"][0]["state"], "stopped")

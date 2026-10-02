@@ -220,7 +220,7 @@ class RoleGroups(unittest.TestCase):
                 "## Done when\n```bash\ntrue\n```\n")
             opts = {"--review-pr": None, "--no-merge": True, "--no-worktree": True}
             with redirect_stdout(io.StringIO()):
-                run.preflight(directory, opts, run.logger(directory, True))
+                run.preflight(directory, opts, run.logger(directory))
             with patch.object(run, "alive_line", return_value=""):
                 details = "\n".join(run.status_details(directory, state))
             for output in ((directory / "log.txt").read_text(), details):
