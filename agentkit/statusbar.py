@@ -27,13 +27,17 @@ INK = "11111b"                     # the chip's dark text, Mocha's crust
 DIM = terminal.STATE_STYLES["dim"][2]
 # Each line as tmux draws it from those options, cut with one `…` where it would run off the
 # client drawing it -- line two's a space short of the key, so the key stays whole on every
-# client, a phone's included.  tmux cuts by cells and steps over the styles.
+# client, a phone's included.  tmux cuts by cells and steps over the styles.  The space after
+# the reason is what keeps a `#` it ends on from taking the key's alignment for a literal.
 FORMATS = ("#[align=left]#{E;=/#{e|-:#{client_width},1}/…:" + TOP + "}",
-           "#[align=left]#{E;=/#{e|-:#{client_width},#{e|+:#{w:" + KEY + "},2}}/…:" + WHY + "}"
+           "#[align=left]#{E;=/#{e|-:#{client_width},#{e|+:#{w:" + KEY + "},2}}/…:" + WHY + "} "
            "#[align=right]#{E:" + KEY + "}")
-# What every write sets beside the text, so a seat dressed before this layout came has it too.
-LAYOUT = (("status-style", "default"), ("status-format[0]", FORMATS[0]),
-          ("status-format[1]", FORMATS[1]))
+# What every write sets beside the text, so a seat dressed before this layout came has it too:
+# its two lines among them.  tmux resizes a pane only when the height changes, so a seat's
+# pane changes size once -- when it is dressed, or a seat dressed with one line at its first
+# write since -- and never later.
+LAYOUT = (("set-titles", "on"), ("status", "2"), ("status-style", "default"),
+          ("status-format[0]", FORMATS[0]), ("status-format[1]", FORMATS[1]))
 
 
 def text(words):
@@ -83,10 +87,9 @@ def lines(name, model, colour, word=None, last=""):
 
 
 def dress(name, model):
-    """A new seat's bar, before its first word: two lines from now on, so the harness pane
-    never changes size later, and the window title on.  Never raises."""
+    """A new seat's bar, before its first word: who is in it.  Never raises."""
     try:
-        _write(name, model, height=True)
+        _write(name, model)
     except Exception:  # noqa: BLE001 - dressing a bar never breaks the seat beneath it
         pass
 
@@ -116,14 +119,13 @@ def redress(session, answer, cfg=None):
         pass
 
 
-def _write(name, model, word=None, last="", cfg=None, height=False):
+def _write(name, model, word=None, last="", cfg=None):
     """Set the bar on that seat's own session, never the server's: a seat gone mid-draw, or a
     draw under test, fails its `set-option` quietly."""
     cfg = config.load() if cfg is None else cfg
     top, why, key, title = lines(name, model, company(cfg, model), word, last)
-    options = (("set-titles", "on"), ("status", "2")) if height else ()
     # the title last, so whoever sees it has the whole bar to read
-    for option, value in (*options, *LAYOUT, (TOP, top), (WHY, why), (KEY, key),
+    for option, value in (*LAYOUT, (TOP, top), (WHY, why), (KEY, key),
                           ("set-titles-string", title)):
         # set-option takes the session name plain: it is the one target that rejects `=name`
         orch.tmux_out("set-option", "-t", name, option, value, socket=orch.socket_name())

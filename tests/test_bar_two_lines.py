@@ -3,7 +3,8 @@
 Line one: the state as a chip in dark bold text on that state's colour, the seat's name in
 bold, `<model> orchestrates` in the model's company colour, and a working seat's tasks bar
 without an estimate.  Line two: why it needs you or is done, the key at its right end.  The
-height is set once, when the seat is dressed; the bar is statusbar.py's alone, and no
+height is two on every write, so a seat dressed with one line gets its second at its next
+redraw and no pane resizes after; the bar is statusbar.py's alone, and no
 `@ak_runs` tally is left.  Offline: a temporary HOME, `orch.tmux_out` patched; no tmux runs.
 """
 
@@ -135,10 +136,10 @@ class TwoLines(Sandbox):
         self.assertEqual(statusbar.company(self.cfg, "no-such-model"),
                          "#" + terminal.STATE_STYLES["working"][2])
 
-    def test_f_a_redraw_never_changes_the_height_and_a_legacy_seat_is_never_written(self):
+    def test_f_a_seat_dressed_with_one_line_gets_two_and_a_legacy_seat_is_never_written(self):
         watch.announce_state(self.seat, cfg=self.cfg)
-        self.assertTrue(self.calls)
-        self.assertNotIn("status", self.options)
+        self.assertEqual(self.options["status"], "2")     # the height dress sets, never another
+        self.assertEqual(self.options["status-format[1]"], statusbar.FORMATS[1])
         self.calls.clear()
         watch.announce_state(dict(self.seat, legacy=True), cfg=self.cfg)
         self.assertEqual([args for args, _ in self.calls if args[0] == "set-option"], [])
@@ -147,6 +148,9 @@ class TwoLines(Sandbox):
         top, bottom = statusbar.FORMATS
         self.assertIn("client_width", top)
         self.assertIn(f"#{{w:{statusbar.KEY}}}", bottom)   # the reason stops short of the key
+        # a space between the reason and the key's alignment: a reason's last `#`, single once
+        # expanded, would otherwise turn `#[align=right]` into text
+        self.assertIn(f"{statusbar.WHY}}} #[align=right]#{{E:{statusbar.KEY}}}", bottom)
         self.assertTrue(bottom.endswith(f"#[align=right]#{{E:{statusbar.KEY}}}"))
 
     def test_h_the_bar_has_one_home_and_no_run_tally(self):
