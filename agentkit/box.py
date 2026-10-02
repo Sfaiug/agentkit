@@ -1,4 +1,9 @@
-"""The worker's filesystem and process walls, built in one place."""
+"""The worker's filesystem and process walls, built in one place.
+
+Offline CLI fixtures may patch command to yield (argv, env, {}) and check to a
+no-op, keeping their process audit active outside this boundary. The real walls
+are exercised by tests/test_worker_box.py.
+"""
 
 import json
 import os

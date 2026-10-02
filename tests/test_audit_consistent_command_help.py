@@ -1,6 +1,6 @@
 """Finding 16: public help and parser contracts, with only repo-local offline fixtures."""
 
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 import importlib
 import io
 import json
@@ -124,14 +124,26 @@ def probe():
         stack.enter_context(patch.object(urllib.request, "urlopen", side_effect=blocked("HTTP")))
         if mode == "worker":
             from agentkit import worker
+            # Replace only the box boundary: its probe and wrapper belong to the turn.
+            def unboxed(argv, env, *_args, **_kw):
+                return nullcontext((argv, env, {}))
+            stack.enter_context(patch.object(worker.box, "command", side_effect=unboxed))
             # Fake adapters leave no children; keep the process guard on for worker turns too.
             stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
+            if request.get("extra_command"):
+                limited = worker.limited
+
+                def extra_work(*args, **kwargs):
+                    subprocess.run(request["extra_command"], check=True)
+                    return limited(*args, **kwargs)
+                stack.enter_context(patch.object(worker, "limited", side_effect=extra_work))
+        if mode == "error":
+            from agentkit import box
+            # Parser errors must not depend on the host's namespace support.
+            stack.enter_context(patch.object(box, "check", return_value=None))
         if mode in ("help", "module"):
             for name in ("ensure_dirs", "load", "current_session", "resolve_session", "server_alias"):
                 stack.enter_context(patch.object(config, name, side_effect=blocked(f"config.{name}")))
-        if mode == "worker":
-            from agentkit import worker
-            stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         if mode == "notify":
             def parsed(name):
                 def record(*args, **kwargs):
@@ -190,7 +202,7 @@ with pathlib.Path(os.environ["HELP_FIXTURE"], "command-spy").open("a") as fh:
     fh.write(repr(sys.argv) + "\\n")
 sys.exit(91)
 '''
-        for name in ("tmux", "gh", "git", "ssh", "scp", "curl", "wget", "systemctl", "sudo",
+        for name in ("tmux", "gh", "git", "bwrap", "ssh", "scp", "curl", "wget", "systemctl", "sudo",
                      "ps", "pgrep", "npx", "npm", "claude", "codex", "muse", "launchctl"):
             path = binaries / name
             path.write_text(spy)
@@ -328,6 +340,18 @@ sys.exit(int(os.environ.get("HELP_WORKER_EXIT", "0")))
             error = self.cli(args, mode="error")
             self.assertEqual(error.returncode, 2)
             self.assertEqual(re.search(r"\[--role ([^\]]+)\]", error.stderr)[1].split("|"), roles)
+
+    def test_worker_audit_still_blocks_commands_outside_the_box(self):
+        task = self.root / "task.md"
+        task.write_text("Offline task body")
+        model = next(iter(self.cfg["models"]))
+        for command in (["git", "config", "--get-regexp", r"^credential(\..*)?\.helper$"],
+                        ["git", "status"], ["bwrap", "--", "true"]):
+            with self.subTest(command=command):
+                result = self.cli(["worker", model, str(task), "--workspace", str(self.root)],
+                                  mode="worker", extra_command=command)
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn("operational work: subprocess.Popen", result.stderr)
 
     def test_non_help_errors_keep_their_exit_codes(self):
         cases = [
