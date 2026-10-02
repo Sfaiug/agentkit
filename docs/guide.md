@@ -226,7 +226,7 @@ once. A job whose launcher dies is relaunched by the next tick in its launch dir
 order, while that directory is there, its seat's session exists and you did not close it, its launcher was alive (its heartbeat) under 24 hours ago, no unfinished task whose run stopped short of its ending was handed back, carded or
 acknowledged, none was stopped, and this is not a third death within an hour; otherwise `ak run status` names `ak run
 resume <job>` under it. A run with no output for 20 minutes has its step stopped and the loop carries on; a second
-silence resumes the loop with each role re-picked from its own group and execution on another provider; a third parks
+silence resumes the loop with each role re-picked from its own group and execution on another provider, trying reviewers from providers that refused nothing first and refused reviewers only as fallback; later picks use normal order. A third parks
 it `stalled` for `ak run resume <id>`. Quota `exhausted`, including a delivery retry, resumes when its window refills, a reviewer-transport one as
 below; other `exhausted` runs wait for `ak run resume <id>`; an expired login parks `waiting_login` until the harness's
 `auth` verb answers `yes`. A failed worker turn is read in its harness's own `[stall]` words and those no harness owns, whole (a `429` inside a longer number is none) and only where the harness spoke, never in the model's answer. A transient fault (`API Error`, `Overloaded`, a 5xx, an empty answer) retries the same
@@ -234,7 +234,7 @@ session after a minute; a second failure in a row hands the role to the next mod
 is retried after 5, 15, 30 and 60 minutes, then hourly; the tick's silence clock starts where each wait ends. An empty
 answer whose stderr (the adapter's own included) says the harness never ran (not installed, an unknown flag or model, a
 refused login, even quoted as `API Error`) and names no 5xx, overload or capacity error goes to another provider at
-once, or ends the run, a PR review included, `blocked` on that line. A refusal that names the account re-picks the pair from its saved groups, same worktree and round; at executor handover, reviewers from providers that refused nothing go first, with refused reviewers as fallback. Later picks use normal order.
+once, or ends the run, a PR review included, `blocked` on that line. A refusal that names the account re-picks the pair from its saved groups, same worktree and round.
 
 `ak run resume <id> [--rounds N] [--bg]` resumes the worktree, the worker sessions and the options a run left; it
 refuses `blocked` and `stopped`, and needs the worktree, which lives seven days. `ak run merge <id>` retries the
