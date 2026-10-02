@@ -147,6 +147,47 @@ class PlanLines(Sandbox):
         self.assertFalse(config.plan_path("fix-api").exists())
         self.assertEqual(len(self.git("worktree", "list", "--porcelain").split("worktree ")) - 1, 1)
 
+    def test_sigterm_cleans_the_checkout_and_check_before_ending_the_command(self):
+        previous = signal.getsignal(signal.SIGTERM)
+        real_popen, real_run = subprocess.Popen, subprocess.run
+        for stage in ("checkout", "check"):
+            with self.subTest(stage=stage), patch.object(plan.subprocess, "Popen") as popen, \
+                    patch.object(plan.subprocess, "run") as run, \
+                    patch.object(plan.os, "killpg") as kill:
+                proc = popen.return_value
+                proc.pid = 123456789
+                popen.side_effect = lambda args, **kw: (proc if args[0] == "bash"
+                                                       else real_popen(args, **kw))
+
+                def terminate():
+                    signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+
+                def git(args, **kw):
+                    result = real_run(args, **kw)
+                    if stage == "checkout" and "add" in args:
+                        terminate()
+                    if "remove" in args:
+                        self.assertEqual(signal.getsignal(signal.SIGTERM), signal.SIG_IGN)
+                    return result
+
+                def wait(timeout=None, **_kw):
+                    if timeout is not None:
+                        terminate()
+                    return 0
+
+                run.side_effect, proc.wait.side_effect = git, wait
+                with self.assertRaises(SystemExit) as ended:
+                    self.ak("add", "an interrupted check proves nothing", "--check", "false")
+                self.assertEqual(ended.exception.code, 128 + signal.SIGTERM)
+                if stage == "check":
+                    kill.assert_called_once_with(proc.pid, signal.SIGKILL)
+                    self.assertEqual(proc.wait.call_count, 2)
+                self.assertFalse(config.plan_path("fix-api").exists())
+                self.assertEqual(list(config.TMP.glob("plan-*")), [])
+                self.assertEqual(len(self.git("worktree", "list", "--porcelain")
+                                     .split("worktree ")) - 1, 1)
+                self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
+
     def test_an_eye_line_is_ticked_on_the_owners_word_and_a_check_line_never_by_hand(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
         eye = self.ak("add", "the hero looks calm", "--eye").strip()

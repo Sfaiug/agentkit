@@ -83,28 +83,39 @@ def fails_on_main(repo, cmd):
     git("remote", "set-head", "origin", "--auto")
     base = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
     config.TMP.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=config.TMP, prefix="plan-") as tmp:
-        tree = Path(tmp) / "main"
-        git("worktree", "add", "--detach", str(tree), base)
-        try:
-            proc = subprocess.Popen(["bash", "-c", cmd], cwd=tree, env=env, text=True,
-                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.STDOUT,
-                                    start_new_session=True)
+
+    def stop(signum, _frame):
+        # Tool timeouts send SIGTERM; repeated requests must let cleanup finish.
+        signal.signal(signum, signal.SIG_IGN)
+        raise SystemExit(128 + signum)
+
+    previous = signal.signal(signal.SIGTERM, stop)
+    try:
+        with tempfile.TemporaryDirectory(dir=config.TMP, prefix="plan-") as tmp:
+            tree = Path(tmp) / "main"
             try:
-                proc.wait(timeout=CHECK_LIMIT)
-            except subprocess.TimeoutExpired:
-                raise config.Error(f"this check did not finish within {CHECK_LIMIT} s; "
-                                   "an unfinished check proves nothing") from None
-            finally:
-                # No child may outlive the checkout, including after an interruption.
+                git("worktree", "add", "--detach", str(tree), base)
+                proc = subprocess.Popen(["bash", "-c", cmd], cwd=tree, env=env, text=True,
+                                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.STDOUT,
+                                        start_new_session=True)
                 try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                proc.wait()
-        finally:
-            git("worktree", "remove", "--force", str(tree))
+                    proc.wait(timeout=CHECK_LIMIT)
+                except subprocess.TimeoutExpired:
+                    raise config.Error(f"this check did not finish within {CHECK_LIMIT} s; "
+                                       "an unfinished check proves nothing") from None
+                finally:
+                    # No child may outlive the checkout, including after an interruption.
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    proc.wait()
+            finally:
+                if tree.exists():
+                    git("worktree", "remove", "--force", str(tree))
+    finally:
+        signal.signal(signal.SIGTERM, previous)
     return proc.returncode != 0
 
 
