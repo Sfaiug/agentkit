@@ -383,9 +383,9 @@ as written, never rewritten, and a median keeps a few that counted waits from pu
 stopped runs and suite runs, by name or run record. History is best effort. The last twenty runs estimate a task's
 active time. The own-PR size ceiling is 300 with fewer than 50 sized merged runs; after that, it is the
 smallest size above which fewer than half passed in their first round, across this host's history. Without such a
-drop there is no ceiling. `ak run status --history` shows the ceiling and whether it comes from history or the
-starting value, and one line per repository (`last 20 tasks: median N rounds ·
-over 400 words: median M rounds …`) for the orchestrator to size tasks by. Neither it nor `ak usage` prints per-model
+drop there is no ceiling. `ak run status --history` compares the last 7 days with the 7 before for products and ak:
+runs ended, shares merged in round 1 and ended without merging, median wall hours to merge and reported tokens per merge, ak's share of all recorded tokens (failed work included), and its committed code lines and README words now and 7 days ago.
+It never picks a model or changes a limit; it also shows the PR ceiling's source and median rounds by task size per repo. Neither it nor `ak usage` prints per-model
 success rates: a run's verdict describes the task, not the quality of its models. A run's own directory is
 `~/.agentkit/runs/<YYYYMMDD-HHMM>-<slug>/`: `task.md`, `run.json`, `log.txt` (the whole loop, with a `WARN` line per
 retry), `result.md` (linking a scratch run's files) and `round-<r>/<role>/{prompt.md,final.md,stderr.log,events.jsonl}`.

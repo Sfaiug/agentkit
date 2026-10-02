@@ -9639,6 +9639,54 @@ def size_summary_line(repo):
             f"over 3 points: {med(points)}")
 
 
+def scoreboard_lines():
+    """Print the history's two weeks beside each other without losing words on a phone."""
+    from . import terminal
+    board = history.scoreboard()
+
+    def week(stats, own):
+        if stats is None:
+            return "no runs ended"
+        text = (f"{stats['runs']} runs ended; {stats['first_round']:.0%} merged in round 1; "
+                f"{stats['unmerged']:.0%} ended without merging; ")
+        if not stats["merged"]:
+            text += "no merged runs"
+        elif stats["hours"] is None:
+            text += "merge hours unknown; "
+        else:
+            text += f"median {stats['hours']:g} hours to merge; "
+        if stats["merged"] and stats["tokens"] is None:
+            text += "median tokens per merged run unknown"
+        elif stats["merged"]:
+            text += f"median {stats['tokens']:g} tokens per merged run"
+        if own:
+            share = stats["token_share"]
+            text += f"; {share:.0%} of all recorded tokens" if share is not None else "; no tokens recorded"
+        return text
+
+    def size(stats):
+        if stats is None:
+            return "size unavailable"
+        code = stats["code_lines"]
+        words = stats["readme_words"]
+        return (f"{code} code lines" if code is not None else "code lines unknown") + ", " + (
+            f"{words} README words" if words is not None else "README words unknown")
+
+    rows = [("", "last 7 days", "7 days before"),
+            ("products", *(week(stats, False) for stats in board["products"])),
+            ("ak", *(week(stats, True) for stats in board["ak"])),
+            ("ak size", *(size(stats) for stats in board["size"]))]
+    room = max(1, (terminal.content_width() - 12) // 2)
+    lines = terminal.wrap("Scoreboard (reported tokens; size now and 7 days ago)", terminal.content_width())
+    for label, current, previous in rows:
+        left, right = terminal.wrap(current, room), terminal.wrap(previous, room)
+        for i in range(max(len(left), len(right))):
+            lines.append(terminal.table_row(
+                [label if i == 0 else "", left[i] if i < len(left) else "",
+                 right[i] if i < len(right) else ""], [8, room, room]))
+    return lines
+
+
 def cmd_status(argv):
     show_history, machine = "--history" in argv, "--json" in argv
     plain, why = "--plain" in argv, "--why" in argv
@@ -9893,6 +9941,7 @@ def cmd_status(argv):
         print(f"{hidden} older run(s) hidden; ak run status --history [--json] shows full history")
     if show_history and not wanted and not machine:
         from . import terminal
+        print("\n".join(scoreboard_lines()))
         ceiling, source = history.pr_ceiling()
         value = f"{ceiling} changed lines" if ceiling is not None else "none"
         print("\n".join(terminal.wrap(f"PR size ceiling: {value} ({source})", terminal.content_width())))

@@ -29,6 +29,7 @@ Every change to ak is judged by what it does for what you build with it, and by 
 
 - Adding a model or harness is an adapter, its toml and a `models.toml` entry, never a name hard-coded in code; `n` keeps the orchestrator question so the owner can switch freely. [18 Sep]
 - ak picks models only on live facts (quota, host, errors); past-run numbers may be shown but never pick, and ak never labels a model good or bad at a role: the owner marks who executes and who reviews. [28 Sep, 29 Sep]
+- ak is measured by what it delivers in every project: `ak run status --history` shows quality, speed, cost and size week by week, work on ak itself counts as cost, and these numbers never pick a model. [2 Oct]
 - No fixed capacity numbers: every limit (runs at once, gate turns, memory) is derived from the machine ak runs on, for any user; correctness locks (one merge per repository) are not capacity and stay. [23 Sep, 28 Sep]
 - Everything is umbrella: it works for any ak user, machine, provider and project type, never only for this owner's setup. [23 Sep]
 - Nothing may ever get stuck: every state recovers by itself, a dead seat or run resumes where it stopped, and the owner hears only when recovery failed. [16 Sep, 19 Sep]
