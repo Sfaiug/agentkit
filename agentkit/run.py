@@ -1907,16 +1907,19 @@ def raise_cpu_weight(lp):
     repository's serial path; at the scope's own weight it would share the CPU evenly with
     work that will wait hours to merge.  The raise outweighs the other scopes in the runs
     slice together by the slice's cores and one, so that all of them share less than one
-    core while the check is busy, and stops at the kernel's top weight.  It is among the
-    runs slice's own children, so the seats beside that slice keep their weight over every
-    run.  (unit, weight before) to put back, or None where nothing was raised: no scope, no
-    cgroup, no other run, or a manager that refused.
+    core while the check is busy, and stops at the kernel's top weight.  Another
+    repository's holder counts at a run's own weight, so two landings at once share alike
+    rather than the later one outweighing the earlier.  It is among the runs slice's own
+    children, so the seats beside that slice keep their weight over every run.  (unit,
+    weight before) to put back, or None where nothing was raised: no scope, no cgroup, no
+    other run, or a manager that refused.
     """
     scope_dir = run_scope_dir(lp.state.get("scope"))
     weights = host.cpu_weights(scope_dir) if scope_dir is not None else None
     if not weights or not weights[1]:
         return None
-    own, others = weights[0], sum(weights[1])
+    own = weights[0]
+    others = sum(min(weight, own) for weight in weights[1])
     cores = host._slice_cpu_quota(orch.slice_cgroup()) or host.cpu_count()
     raised = min(host.CPU_WEIGHT_MAX, int(others * (cores + 1)))
     if raised <= own or not orch.set_cpu_weight(scope_dir.name, raised):

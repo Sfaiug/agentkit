@@ -103,6 +103,15 @@ class LandingPriority(unittest.TestCase):
             self.assertEqual(self.weight(holder), 40)
         self.assertEqual(len(self.said()), 2)
 
+    def test_two_repositories_landing_at_once_share_alike(self):
+        acme, atlas = (self.runs / f"agentkit-run-{name}.scope" for name in ("acme", "atlas"))
+        for scope in (acme, atlas, self.runs / "agentkit-run-fix-api.scope"):
+            self.weigh(scope, 40)
+        with run.merge_turn(self.loop(), "origin/main"):
+            run.raise_cpu_weight(self.loop("agentkit-run-atlas"))
+            # each counts the other at a run's own weight: 80 times the 8 cores and one
+            self.assertEqual((self.weight(acme), self.weight(atlas)), (720, 720))
+
     def test_the_raise_stops_at_the_kernels_top_weight(self):
         holder = self.runs / "agentkit-run-acme.scope"
         self.weigh(holder, 40)
