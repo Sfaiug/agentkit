@@ -32,6 +32,8 @@ MATRIX = [
     ("hand-in follow-up", "usage: ak hand-in follow-up PATH:LINE", ["api.py:1"],
      {"--run", "--quote", "--before"}),
     ("hand-in done", "usage: ak hand-in done", ["extra"], set()),
+    ("hand-in blocked", 'usage: ak hand-in blocked "WHY"', [], set()),
+    ("hand-in not-needed", 'usage: ak hand-in not-needed "WHY"', [], set()),
     ("run", "usage: ak run TASK", ["missing.md", "--exec"],
      {"--rounds", "--exec", "--review", "--anyway", "--first", "--no-worktree", "--no-merge",
       "--bg", "--parallel", "--review-pr", "--history", "--why", "--plain", "--json",

@@ -1,4 +1,4 @@
-"""One checked review channel for every harness: append records, derive the verdict."""
+"""One checked worker channel for every harness: append evidence and close turns."""
 
 from dataclasses import dataclass
 import fcntl
@@ -15,6 +15,7 @@ REPORT = "review.md"
 ENV = "AK_HAND_IN"
 CONTINUE = "AK_HAND_IN_CONTINUE"
 OUTPUT_CAP = 8 * 1024
+CLOSING = ("done", "blocked", "not-needed")
 
 
 def output_excerpt(output, start=0):
@@ -55,6 +56,10 @@ class Review:
     records: list
 
     @property
+    def closing(self):
+        return self.records[-1] if self.records and self.records[-1]["kind"] in CLOSING else None
+
+    @property
     def done(self):
         return bool(self.records) and self.records[-1]["kind"] == "done"
 
@@ -86,7 +91,7 @@ class Review:
 
 
 def read(path):
-    """None means a stub never reached worker.call; an empty review still needs done."""
+    """None means a stub never reached worker.call; an empty turn still needs a closing."""
     path = Path(path)
     if not path.exists():
         return None
@@ -95,30 +100,44 @@ def read(path):
         if not rows or rows[0].get("kind") != "turn":
             return Review([])
         records = rows[1:]
-        if any(row.get("kind") not in ("finding", "follow-up", "done") for row in records):
+        allowed = (("finding", "follow-up", "done") if rows[0].get("role", "reviewer").startswith("reviewer")
+                   else CLOSING)
+        if any(row.get("kind") not in allowed for row in records):
             return Review([])
         for row in records:
-            if row["kind"] != "done":
+            if row["kind"] in ("blocked", "not-needed"):
+                if not isinstance(row.get("why"), str) or not row["why"].strip():
+                    return Review([])
+            elif row["kind"] != "done":
                 item_text(row)
-        if any(row["kind"] == "done" for row in records[:-1]):
+        if any(row["kind"] in CLOSING for row in records[:-1]):
             return Review([])
         return Review(records)
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
         return Review([])
 
 
-def start(out_dir, workspace, previous=None):
+def start(out_dir, workspace, previous=None, role="reviewer"):
     """A resumed session keeps its records, but completion belongs to this call alone."""
     path = Path(out_dir).resolve() / FILE
     review = read(previous) if previous else None
-    rows = [{"kind": "turn", "workspace": str(Path(workspace).resolve())}]
+    rows = [{"kind": "turn", "workspace": str(Path(workspace).resolve()), "role": role}]
     if review:
-        rows += [row for row in review.records if row["kind"] != "done"]
+        rows += [row for row in review.records if row["kind"] not in CLOSING]
     path.write_text("".join(json.dumps(row) + "\n" for row in rows))
     return str(path)
 
 
-def checked(argv, workspace):
+def checked(argv, workspace, role="reviewer"):
+    reviewing = role.startswith("reviewer")
+    if argv and argv[0] in ("blocked", "not-needed"):
+        if reviewing:
+            raise config.Error("blocked and not-needed are only for executor or fixer turns")
+        if len(argv) != 2 or not argv[1].strip():
+            raise config.Error('use blocked or not-needed with one nonempty "why"')
+        return {"kind": argv[0], "why": argv[1].strip()}
+    if argv and argv[0] in ("finding", "follow-up") and not reviewing:
+        raise config.Error("finding and follow-up are only for review turns")
     if argv == ["done"]:
         return {"kind": "done"}
     if not argv or argv[0] not in ("finding", "follow-up") or len(argv) < 4:
@@ -178,16 +197,16 @@ def main(argv):
         return 0
     path = os.environ.get(ENV)
     if not path or not Path(path).is_file():
-        raise config.Error("hand-in needs an active review turn; use it from the worker's shell")
+        raise config.Error("hand-in needs an active worker turn; use it from the worker's shell")
     try:
         with Path(path).open("r+", encoding="utf-8") as fh:
             fcntl.flock(fh, fcntl.LOCK_EX)
             rows = [json.loads(line) for line in fh]
             if not rows or rows[0].get("kind") != "turn":
-                raise config.Error("the review turn's record file is invalid; ask the loop to retry")
-            if any(row.get("kind") == "done" for row in rows):
-                raise config.Error("this review is already done; hand in records before done")
-            row = checked(argv, rows[0]["workspace"])
+                raise config.Error("the worker turn's record file is invalid; ask the loop to retry")
+            if any(row.get("kind") in CLOSING for row in rows):
+                raise config.Error("this turn is already closed; hand in records before done, blocked or not-needed")
+            row = checked(argv, rows[0]["workspace"], rows[0].get("role", "reviewer"))
             fh.write(json.dumps(row) + "\n")
     except (OSError, ValueError, KeyError, AttributeError) as exc:
         raise config.Error("cannot hand in this record: " + " ".join(str(exc).split())) from None

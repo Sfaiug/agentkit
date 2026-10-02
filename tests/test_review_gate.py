@@ -163,7 +163,7 @@ sys.exit(1)
         for role in ("executor", "fixer"):
             with self.subTest(role=role):
                 text = worker.PREAMBLES[role].format(workspace=self.root)
-                self.assertIn("`## Blocked` is only for a task that cannot be completed as written; "
+                self.assertIn("`blocked` is only for a task that cannot be completed as written; "
                               "never for a transient provider failure, a capacity refusal, or a check "
                               "the loop runs later such as the `# once` suite.", text)
 
