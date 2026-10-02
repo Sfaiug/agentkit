@@ -12,7 +12,7 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 - State is files under `~/.agentkit`; the `ak watch` cron tick keeps seats and runs going.
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
-  words still leak into some twenty files.
+  words leak into some twenty files.
 - `run.py` (13.1k lines) holds most of the run side.
 
 ## Entry points
@@ -30,22 +30,22 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
   identity. Offers `read_state`, `save_state`, `record`, `stop_check`, `process_active`,
   `writing`. For run, job, menu, orch, watch, gc, retention, history and worker.
 - `gc.py`: plans and schedules removal of seats, stamps, temps, worktrees, runs and jobs.
-  Asks each harness's `tmp_rule` for temp ownership and live sessions; retention deletes.
-  Used by bin/ak, run, menu, watch and retention; offers `cmd_gc`.
+  Each harness's `tmp_rule` owns its temps and live sessions; retention deletes.
+  `cmd_gc` for bin/ak, run, menu, watch and retention.
 - `task.py`: the task file's front matter, done-when groups, size and round refusals; for
   run and job.
 - `job.py`: several task files as one job. Hides the receipt (`job.json`), the scheduler,
   each task's ladder (waits, one merge, one rerun), hand-back and relaunch; calls the loop
-  as `run.*`. Used by run (main, status, stop, resume), gc, watch and menu.
+  as `run.*`; for run (main, status, stop, resume), gc, watch and menu.
 - `watch.py`: tick. Hides watch.json, seat errors (harness record, else manifest
   screen rules and words; `stalls`, `auth_expiry`), state (`session_state`, `waiting_on`),
   typing and reviving seats, resuming runs, PR scans, `doctor`. For run, job, orch, menu, notify,
-  update, usage, worker and both hooks. Leaks: run.json writes (stall ladder,
-  freeze marks, resume passes; through `record.record`), run states (`GOING`).
+  update, usage, worker and both hooks. Leaks: run.json writes (stall ladder, freeze marks,
+  resume passes) and run states (`GOING`).
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
-  `listing`, `ensure`, `resume`, `rename`. Used by menu, watch, run, job, notify, usage,
-  update. Leaks: rename rewrites watch.json and run.json; binds Claude panes by name.
+  `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.
+  Leaks: rename rewrites watch.json and run.json; binds Claude panes by name.
 - `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`. Also owns run listing
   (`run_records`, `tally`) and the seat status bar (`redress`) that watch, run, orch and
   notify import. Leaks: provider colour and name tables; reads `usage.json` itself.
@@ -55,6 +55,8 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 - `worker.py`: headless turns, preambles, review gate, adapters, silence, auth and process
   cleanup. Offers `turn`, `call`, `kill_marked`, `auth_ok`.
   Used by run, watch, usage, menu, harness. Leak: Claude shell timeout.
+- `plan.py`: `ak plan`: a seat's plan, each line an outcome with a check failing on main when
+  written, or the owner's eye.
 - `hand_in.py`: checks and renders `ak hand-in` findings, disputes and closings, with bounded
   evidence. Worker names the channel; run replays proofs, weighs findings and records
   dropped disputes.
@@ -69,11 +71,11 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
   Offers `shaped`, `record`, `transition`. Used by run, job, orch, watch, menu. Leak: calls
   up into menu, run, watch and orch.
 - `update.py`: manifest `[update]` upgrades, rollback and agentkit's update (`go_live`).
-  Used by menu, orch, run, watch. Leak: `MuseSnapshot` knows Muse's layout.
+  For menu, orch, run, watch. Leak: `MuseSnapshot` knows Muse's layout.
 - `history.py`: SQLite `history.db` of runs and steps; active duration estimates. For
   run, menu, harness. Leak: parses harness event logs.
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
-  cleanup, compression. Used by gc, run, orch, update, notify. Leaks: Claude and Codex
+  cleanup, compression. For gc, run, orch, update, notify. Leaks: Claude and Codex
   config formats.
 - `terminal.py`: width, wrapping, colour, keys, `choose`/`ask`/`frame`, state styles, for
   every listing screen (docs/cli-design.md). Used by menu, usage, orch, watch, run, motion.
@@ -86,7 +88,7 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 - `host.py`: memory, load, CPUs, process/cgroup counters, `alive`, `process_identity`;
   reads only, no agentkit imports. For config, orch, run, job, watch, gc and record.
 - `proc_snapshot.py`: read-only /proc inventory; no agentkit imports, so it runs under sudo.
-  Used by gc.
+  For gc.
 - `__init__.py`: empty.
 
 ## Harnesses
@@ -105,8 +107,8 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 
 - `hooks/seat-state.sh`: every harness's lifecycle hook; writes a seat's `hook-`/`stop-`
   facts. `hooks/orchestrator-stop.sh`: the end-of-turn rule, via run and watch.
-  `hooks/opencode-seat/`: OpenCode's plugin, feeding seat-state.sh. Leak: both shell hooks
-  rebuild config.py's seat file names and rename chain.
+  `hooks/opencode-seat/`: OpenCode's plugin, feeding seat-state.sh. Leak: both rebuild
+  config.py's seat file names and rename chain.
 - `tools/`, called by adapters: `rulebook.py`, `idle-compact.py`, `codex-seat.py`,
   `trust.py`, `catalog.py`, `desktop-mcp.py`.
 - `tests/`: one file per behaviour, run straight; `smoke.sh` is the gate, with real calls;
@@ -130,7 +132,7 @@ Run side, out of `run.py`:
 
 Session side:
 - session store: immutable ids, rename as a field.
-- a folder per harness: adapter, manifest, plugin, hooks parsed in Python.
+- a folder per harness: adapter, manifest, plugin, hooks in Python.
 - `pane`: tmux capture, typing and sockets.
-- `status`: hook facts, screen and notices to the three states.
+- `status`: hook facts, screen, notices to the three states.
 - `care`: tick passes (resume, revive, nudge, recover).
