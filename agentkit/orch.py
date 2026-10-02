@@ -2763,7 +2763,65 @@ def cmd_project(argv):
         if config.update_session(name, repo=str(repo), filed=True) is None:
             raise config.Error(f"no orchestrator session {name!r}")
     print(f"filed {name} under {repo.name}")
+    flight = in_flight(name, repo)
+    print(f"in flight on {repo.name}, plan around it:" if flight
+          else f"nothing else in flight on {repo.name}")
+    room = terminal.layout_width() - 4
+    for seat, lines, files in flight:
+        for part in terminal.wrap(seat, room + 2):
+            print(f"  {part}")
+        for line in lines:
+            for part in terminal.wrap(f"plan: {line}", room):
+                print(f"    {part}")
+        if files:
+            for part in terminal.wrap(f"changing: {', '.join(sorted(files))}", room):
+                print(f"    {part}")
     return 0
+
+
+PLAN_OPEN = re.compile(r"^\s*- \[ \] (.+)$")
+
+
+def in_flight(name, repo):
+    """What the other seats filed under the same checkout have in flight, so two sessions
+    never build the same thing unaware: [(seat, open plan lines, changed files)] by name.
+
+    A seat's open lines are its plan's unticked ones; its files are what its going runs
+    change against their base, committed or not, or a queued run's task `files:`.  A seat
+    with neither is left out.
+    """
+    from . import menu, run, watch   # here, not at the top: menu imports this module
+    target = checkout_of(repo)
+    seats = {seat: ([], set()) for seat, record in sorted(config.session_records().items())
+             if seat != name and target and checkout_of(record.get("repo")) == target}
+    for seat, (lines, _) in seats.items():
+        plan = watch.plan_text(seat)
+        lines.extend(m.group(1).strip() for m in map(PLAN_OPEN.match, plan.splitlines()) if m)
+    for directory in run_record.run_dirs():
+        state = run_record.read_state(directory) or {}
+        seat = run.launched_session(state)
+        if seat in seats and not menu.smoke_run(state) and run.going(state):
+            seats[seat][1].update(changed_files(state, directory))
+    return [(seat, lines, files) for seat, (lines, files) in seats.items() if lines or files]
+
+
+def changed_files(state, directory):
+    """Tracked paths a run's worktree changes against its base, committed or not; before it
+    has a worktree, the pathspecs its saved task's `files:` allows."""
+    tree, base = state.get("worktree"), state.get("base_sha")
+    if tree and base and os.path.isdir(tree):
+        try:
+            done = subprocess.run(["git", "-C", tree, "diff", "--name-only", "-z",
+                                   "--no-renames", base, "--"], capture_output=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return []
+        return [path for path in os.fsdecode(done.stdout).split("\0") if path] \
+            if done.returncode == 0 else []
+    from . import task
+    try:
+        return task.task_files(directory / "task.md")
+    except (OSError, ValueError, config.Error):
+        return []
 
 
 def set_solo(name, enabled=None):
