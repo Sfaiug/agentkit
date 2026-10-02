@@ -6665,7 +6665,8 @@ def suite_shared(lp, upstream, sha, suite, together=True):
 
     Holding the merge turn, a run with no such batch first checks the passed runs waiting
     behind it together with itself, in one run of `suite` (landing.together): a pass records
-    every stacked tree, its own first; a failure records nothing and it checks itself alone.
+    every stacked tree, its own first; a failure is split until the passing prefix is
+    recorded, and a run outside it checks itself alone.
     """
     turn, tree = turn_path(lp, upstream), git(lp.wt, "rev-parse", f"{sha}^{{tree}}")
     shared = landing.passed(turn, tree)
@@ -6686,9 +6687,11 @@ def suite_shared(lp, upstream, sha, suite, together=True):
                                    suite_run, lp.log)
     if not members:
         return None
+    shared = landing.passed(turn, tree)
     lp.log("final check: the suite on the runs landing together: "
-           + ("all passed" if ok else "FAILED; checking this run alone"))
-    return landing.passed(turn, tree) if ok else None
+           + ("all passed" if ok else "FAILED; this run passed in the split" if shared
+              else "FAILED; checking this run alone"))
+    return shared
 
 
 def final_check_line(state, cmds):

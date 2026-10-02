@@ -5,9 +5,9 @@ order, and runs the repository's declared suite once on the top.  When it passes
 stacked tree is recorded beside the turn's lock: a waiting run whose commit, rebased onto the
 target once the runs ahead of it merged, has one of those trees lands on its own turn without
 running the suite again, because the same tree is the same code.  A conflict ends the stack
-before that run, and a failed suite records nothing, so each run then lands alone as before.
-Only the top tree was tested, so only a run landing exactly that tree carries the suite's
-evidence.  Offers `passed`, `waiting` and `together`; `run.final_check` is the one caller.
+before that run.  A failed suite is split in halves over the stack's prefixes to find the first
+run that breaks it: the passing prefix is recorded as above, and that run and the ones after
+it land on their own turns.  Only a tested tree carries the suite's evidence.  Offers `passed`, `waiting` and `together`; `run.final_check` is the one caller.
 """
 
 import json
@@ -79,10 +79,12 @@ def together(wt, head, upstream, turn, leader, suite_run, log):
 
     `suite_run(cwd)` runs the declared suite there and returns (ok, text).  Returns
     (ok, the run ids stacked, text); with nobody to stack, (None, [], "") and nothing runs.
-    A passing suite records every stacked tree with `note`.
+    A passing suite records every stacked tree with `note`; a failing one is halved over the
+    prefixes until the first failing one is found, and the passing prefix before it recorded.
     """
     from . import run   # here, not at the top: run imports this module
     trees, members = [run.git(wt, "rev-parse", f"{head}^{{tree}}")], []
+    commits, green = [head], 0
     config.TMP.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=config.TMP, prefix="land-") as tmp:
         stack = Path(tmp) / "stack"
@@ -103,6 +105,7 @@ def together(wt, head, upstream, turn, leader, suite_run, log):
                         "it lands on its own turn")
                     break
                 top = run.git(stack, "rev-parse", "HEAD")
+                commits.append(top)
                 trees.append(run.git(stack, "rev-parse", "HEAD^{tree}"))
                 members.append(state.get("run_id"))
             if not members:
@@ -110,8 +113,25 @@ def together(wt, head, upstream, turn, leader, suite_run, log):
             log(f"--- merge: landing together: {len(members) + 1} runs on {upstream}: "
                 f"{', '.join([leader, *members])}")
             ok, text = suite_run(stack)
+            green = len(trees) if ok else split(stack, commits, suite_run, [leader, *members],
+                                                log)
         finally:
             run.git_out(wt, "worktree", "remove", "--force", str(stack))
-    if ok:
-        note(turn, trees, leader)
+    if green:
+        note(turn, trees[:green], leader)
     return ok, members, text
+
+
+def split(stack, commits, suite_run, ids, log):
+    """How many of the stacked commits pass, the last one known failing: halve the prefixes."""
+    from . import run
+    passing, failing = 0, len(commits)        # the first `passing` pass; prefix `failing` fails
+    while failing - passing > 1:
+        middle = (passing + failing) // 2
+        run.git(stack, "checkout", "-q", "--detach", commits[middle - 1])
+        ok, _ = suite_run(stack)
+        passing, failing = (middle, failing) if ok else (passing, middle)
+    log(f"--- merge: {ids[failing - 1]} breaks the suite of the batch; "
+        + (f"the {passing} run(s) before it pass and land" if passing
+           else "it is the first, so each run checks itself alone"))
+    return passing
