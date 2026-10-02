@@ -131,29 +131,6 @@ class NoteScreen(unittest.TestCase):
                 screen.leave()
                 self.assertEqual(termios.tcgetattr(screen.slave), screen.before)
 
-    def test_dry_run_solo_note_and_both_back_keys_restore_the_highlighted_menu(self):
-        for width, key in ((100, ESC), (40, ENTER)):
-            with self.subTest(width=width, key=key):
-                screen = Screen(self, dry_run=True, cols=width)
-                screen.frame()
-                screen.send(DOWN)
-                before = screen.frame(lambda lines: "ship-docs" in screen.highlighted(lines))
-                mark = len(screen.text())
-                screen.send(b"s")
-                self.note(screen, "would toggle solo for ship-docs", mark, width)
-                self.back(screen, key, before)
-                screen.leave()
-                self.assertEqual(termios.tcgetattr(screen.slave), screen.before)
-
-    def test_solo_on_a_missing_record_is_a_note_and_enter_keeps_the_menu_open(self):
-        screen = Screen(self)
-        before = screen.frame()
-        mark = len(screen.text())
-        screen.send(b"s")
-        self.note(screen, "no orchestrator session 'fix-api'", mark)
-        self.back(screen, ENTER, before)
-        screen.leave()
-
     def test_new_session_error_rewraps_on_resize_and_clicking_back_restores_the_menu(self):
         screen = Screen(self, cols=80)
         screen.frame()

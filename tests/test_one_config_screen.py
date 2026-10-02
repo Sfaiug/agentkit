@@ -306,7 +306,7 @@ class OneConfigScreen(unittest.TestCase):
         menu = Menu(self)
         lines = menu.screen()
         self.assertEqual(lines[-1].split("   ")[2:],
-                         ["n new", "x stop", "c config", "s solo", "esc leave"])
+                         ["n new", "x stop", "c config", "esc leave"])
         before = menu.record()
         mark = len(menu.text())
         os.write(menu.master, b"m")

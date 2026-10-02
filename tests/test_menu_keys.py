@@ -199,42 +199,6 @@ class Menu:
 
 
 class MenuKeys(unittest.TestCase):
-    def test_s_toggles_solo_on_the_highlighted_row_and_the_key_line_can_toggle_it_back(self):
-        for width in (100, 40):
-            with self.subTest(width=width):
-                menu = Menu(self, ["seat-a", "seat-b"], cols=width, saved=True)
-                menu.frame()
-                menu.send(DOWN)
-                menu.frame(lambda lines: "seat-b" in menu.highlighted(lines))
-                mark = len(menu.text())
-                menu.send(b"s")
-                lines = menu.frame(lambda lines: any(line.strip() == "solo" or
-                                   "working  solo" in line for line in lines), after=mark)
-                state = menu.seats.parent / ".agentkit/state"
-                self.assertTrue(json.loads((state / "session-seat-b.json").read_text())["solo"])
-                self.assertNotIn("solo", json.loads((state / "session-seat-a.json").read_text()))
-                row, keys = next((n, line) for n, line in enumerate(lines, 1) if "s solo" in line)
-                mark = len(menu.text())
-                menu.click(keys.index("s solo") + 1, row)
-                menu.frame(lambda lines: not any(line.strip() == "solo" or
-                           "working  solo" in line for line in lines), after=mark,
-                           tip=terminal.TIPS["s solo"].partition(":")[0])
-                self.assertFalse(json.loads((state / "session-seat-b.json").read_text())["solo"])
-                menu.leave()
-
-    def test_s_in_the_popup_toggles_its_own_seat(self):
-        menu = Menu(self, ["seat-a", "seat-b"], saved=True, own="seat-b")
-        lines = menu.frame()
-        self.assertIn("seat-a", menu.highlighted(lines))
-        mark = len(menu.text())
-        menu.send(b"s")
-        menu.frame(lambda lines: any("seat-b" in line and "solo" in line for line in lines),
-                   after=mark)
-        state = menu.seats.parent / ".agentkit/state"
-        self.assertTrue(json.loads((state / "session-seat-b.json").read_text())["solo"])
-        self.assertNotIn("solo", json.loads((state / "session-seat-a.json").read_text()))
-        menu.leave()
-
     def test_one_n_typed_through_a_redraw_opens_the_new_session_screen(self):
         """The owner's report: `n` typed while the screen redraws, then `not a key: 'nn'`."""
         menu = Menu(self, ["seat-a"], tick=0.2, slow=0.3)

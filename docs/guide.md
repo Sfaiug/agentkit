@@ -23,7 +23,7 @@ counting a run from its launch, still queued for a slot or not, for the checkout
 one it merely inherits, and a worktree, sandbox or scratch workspace for nothing; a tie keeps its project. A seat with no
 project is filed at the next menu draw or `ak watch` tick once one of its runs counts. `c` on its row opens the config with that session's orchestrator, executors and reviewers as its marks (on a heading only efforts): the arrow keys move, Enter, space or a click on the orchestrator moves the seat to that model at once under the same name, its runs, plan and record staying with a handover as the new one's first prompt, and on a role flips a mark and saves it to the session's record at once for the runs it launches next, Esc goes back; reviewers keep one model and executors may go to none, a choice leaving no allowed pair is refused in one line, and so is a model whose harness is not installed or not logged in, or whose meter is spent.
 
-`ak orch solo <session> on|off` saves solo across restarts and model changes: on refuses task launches before a run is created, still allows its own `ak run --review-pr`, and shows `solo` on its menu row; `s` on that row toggles it.
+
 
 The orchestrator is launched with `orchestrator.md` as its rulebook, plus `~/.agentkit/rules.md` where you wrote one on
 this host, handed over by its adapter for that launch only (Antigravity's as the body of an `--agent` definition in
