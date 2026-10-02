@@ -277,7 +277,8 @@ class Quota(unittest.TestCase):
         with patch.dict(os.environ, {"AK_MAX_RUNS": "1"}), \
                 patch.object(run.worker, "call", side_effect=submitting(turn)), \
                 patch.object(usage, "collect", return_value=providers), \
-                patch.object(gate, "time", Clock(sleeps.append)), \
+                patch.object(run, "time", Clock(sleeps.append)), \
+                patch.object(gate, "time", run.time), \
                 patch.object(notify, "shaped",
                              side_effect=lambda *a, **k: sent.append((a, k)) or 0), \
                 patch.object(notify, "post", return_value=None), \
