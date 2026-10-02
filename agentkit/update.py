@@ -61,9 +61,9 @@ LIVE = "live-checks"          # under config.STATE: one directory per check, `<c
 # then KILL after the grace -- or as soon as the tick's TERM tells it to, and then writes a red
 # exit code: so a check ends on a host with no /proc for `worker.kill_marked` to read.  Until
 # then it leaves the group's leader unreaped, so the group's id names no other process, and it
-# writes nothing while anything else in the group runs, as `ps` lists it: a script's child is
-# the check's too.  This script is the only writer of both files; the tick only creates the
-# directory and reads it.
+# writes nothing while anything in the group runs, as `ps` lists it: a script's child is the
+# check's too, and a `ps` that fails or stalls says something runs, so the cap still ends it.
+# This script is the only writer of both files; the tick only creates the directory and reads it.
 LIVE_RUN = r'''import os, signal, subprocess, sys, time
 check, repo, commit, cap, grace = sys.argv[1:]
 with open("output.tmp", "w") as out:
@@ -72,19 +72,18 @@ with open("output.tmp", "w") as out:
                              stdout=out, stderr=out, process_group=0)
 
 
-def running():
-    if not os.waitid(os.P_PID, group.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT):
-        return True
+def running(by):
     try:
         rows = subprocess.run(["ps", "-A", "-o", "pgid=", "-o", "stat="], capture_output=True,
-                              text=True).stdout.splitlines()
-    except OSError:
-        rows = []
-    return any(row.split()[0] == str(group.pid) and row.split()[1][0] != "Z" for row in rows)
+                              text=True, check=True, timeout=max(0.1, by - time.time()))
+        return any(row.split()[0] == str(group.pid) and row.split()[1][0] != "Z"
+                   for row in rows.stdout.splitlines())
+    except (OSError, subprocess.SubprocessError, IndexError):
+        return True
 
 
 def ended(by):
-    while running():
+    while running(by):
         if time.time() >= by:
             return False
         time.sleep(max(0, min(1, by - time.time())))
