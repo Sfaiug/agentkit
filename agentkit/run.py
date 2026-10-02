@@ -3652,6 +3652,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             lp.state["resume_notice"] = note
         why = "died on API/transport errors"
         model = lp.reviewer     # a fallback below moves on from it before its tokens are read
+        reviewed = config.model(lp.cfg, model)
+        review_harness, review_model = reviewed["harness"], reviewed["model"]
 
         def handover(detail, out=out):
             try:
@@ -3810,6 +3812,10 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                           **({"overridden": overridden} if overridden else {})}
     lp.state.pop("review_pending", None)
     lp.save()
+    history.record_review(lp.state.get("run_id"), str(out),
+                          harness=review_harness, model=review_model,
+                          blocking=len(submitted.findings), followup=len(submitted.followups),
+                          note=len(submitted.notes), log=lp.log)
     return verdict
 
 

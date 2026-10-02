@@ -123,6 +123,7 @@ class ModelScreen(unittest.TestCase):
         lines = open_model(screen, DOWN, "opus")
         self.assertEqual(highlighted(lines).split(),
                          ["›", "model", "id", "‹", "claude-opus-5-5", "›"])
+        self.assertIn("  Not used as a reviewer yet", lines)
         self.assertEqual(lines[-1], KEYS["step"])
         lines = screen.press(LEFT,
                              lambda lines: value(lines, "model id") == "‹ claude-opus-5 ›")
@@ -265,6 +266,7 @@ class ModelScreen(unittest.TestCase):
         self.assertEqual(lines[2:5], ["› model id  ‹ claude-haiku-4-5 ›",
                                       "  effort    ‹ xhigh ›",
                                       "  Remove"])
+        self.assertIn("  Not used as a reviewer yet", lines)
         self.assertNotIn("Reviews its own company's work", "\n".join(lines))
         # a click on the id's left arrow steps it back: the Sonnet 5 takes Claude's own
         # efforts, xhigh among them; the Sonnet 4.6 does not
