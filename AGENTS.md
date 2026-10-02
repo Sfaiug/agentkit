@@ -4,6 +4,19 @@ tests: bash tests/smoke.sh; smoke=$?; python3 tests/every_file.py && exit $smoke
 ---
 # agentkit, for an agent working on it
 
+## What ak is for
+
+You state an intent and get the finished result, live. It always takes one path: intent → alignment → build → review → live. ak delegates, asks the user only what only they can answer, and keeps running review rounds until the work passes.
+
+Every change to ak is judged by these four rules:
+
+1. **Less.** Use the fewest features, steps, options and concepts that reach the goal. The best part is no part, and the best process is no process. ak decides everything it can and never offers a choice it could make itself. It explains itself in plain words, so nobody needs a manual. If an addition is not a clear yes, it is a no.
+2. **Quality, then speed, then cost.** The ideal is the best result, instantly, for nothing. When two of these pull apart, the one earlier in this list wins.
+3. **Models are plugins.** ak stays the same while models and harnesses come and go. It runs whichever is best at the time and depends on none. Swapping one changes quality, speed and cost, never whether the intent gets delivered.
+4. **ak enforces; words only explain.** Nothing depends on a model remembering an instruction or judging well on its own. A rule that can be a check, gate or hook is one, and it holds whatever model runs. A rule that lives only in text is unfinished.
+
+## Working here
+
 - Python 3.11 standard library and bash. No dependency is added, ever.
 - One test file per behaviour: `python3 tests/test_<name>.py`, run straight, no runner.
 - The acceptance gate is the `tests:` line: `bash tests/smoke.sh`, then `tests/every_file.py`, which runs every `tests/test_*.py` smoke.sh does not, each once, in parallel and without the caller's `AGENTKIT_*`/`AK_*` variables; either failing fails the gate. A round runs the task's done-when commands and review; the loop runs the full suite once at landing on the commit to be merged.
@@ -14,11 +27,10 @@ tests: bash tests/smoke.sh; smoke=$?; python3 tests/every_file.py && exit $smoke
 
 ## Owner rules
 
-- Models and harnesses are plugins, picked for what is best at the time: adding one is an adapter, its toml and a `models.toml` entry, never a name hard-coded in code; `n` keeps the orchestrator question so the owner can switch freely. [18 Sep]
+- Adding a model or harness is an adapter, its toml and a `models.toml` entry, never a name hard-coded in code; `n` keeps the orchestrator question so the owner can switch freely. [18 Sep]
 - ak picks models only on live facts (quota, host, errors); past-run numbers may be shown but never pick, and ak never labels a model good or bad at a role: the owner marks who executes and who reviews. [28 Sep, 29 Sep]
 - No fixed capacity numbers: every limit (runs at once, gate turns, memory) is derived from the machine ak runs on, for any user; correctness locks (one merge per repository) are not capacity and stay. [23 Sep, 28 Sep]
 - Everything is umbrella: it works for any ak user, machine, provider and project type, never only for this owner's setup. [23 Sep]
-- The rules explain, ak enforces: the process every model follows is checked by the loop (commands, not words). [29 Sep]
 - Nothing may ever get stuck: every state recovers by itself, a dead seat or run resumes where it stopped, and the owner hears only when recovery failed. [16 Sep, 19 Sep]
 - The owner sees only what needs them (a seat's question, their own unsent draft, a final failure nobody handles) or a finished job. Of every line on a screen ask "what would the owner do with it?"; if nothing, it goes. The system cleans up after itself. [15 Sep, 18 Sep]
 - Every screen follows `docs/cli-design.md`: plain words that explain themselves, every glyph followed by its word, nothing cut mid-sentence, the same back, forward and exit keys everywhere. [15 Sep, 16 Sep]
