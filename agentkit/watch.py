@@ -2999,17 +2999,14 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         return True
     readings = (prov.get("accounts") or {}) if accounts else {current: prov}
 
-    def dry(account):
+    def spent(account):
+        # Out of window and of credits: credits left still answer turns.
         return usage.model_exhausted(cfg, model, {provider: readings.get(account, {})})[0]
 
     def window(account):
-        return not dry(account) and not usage.on_credits(cfg, model,
-                                                         {provider: readings[account]})
-
-    def spent(account):
-        # An account on credits is spent while another has a window left: credits cost money.
-        return dry(account) or (account in readings and not window(account)
-                                and any(map(window, readings)))
+        # Credits cost money, so a seat leaves them for a window that takes it.
+        return not spent(account) and not usage.on_credits(
+            cfg, model, {provider: readings.get(account, {})})
 
     lines = content_lines(harness, pane_tail(pane))
     line = recorded_error(harness, name)
@@ -3044,14 +3041,18 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     elif not refusal and observed and not observed.get("handled") and not dry_run:
         seat_write(name, usage_refusal=None)
     if not waiting and not refusal and not spent(current):
-        if (accounts and current != home and home in readings and not spent(home)
-                and live.get("state") == "at_prompt"
+        # An idle seat comes home once home has a window, and leaves credits for any window.
+        moves = [a for a in orch.account_order(cfg, model, readings, home) if a != current
+                 and window(a) and (a == home or not window(current))]
+        if (moves and live.get("state") == "at_prompt"
                 and not _turn_in_flight(harness, live)[0]
                 and orch.resumable(record)):
             if dry_run:
-                log(f"would move {name} back to {home}")
+                log(f"would move {name} to {moves[0]}")
                 return True
-            if orch.harness_plugin(harness).seat_auth(home)[0] is not True:
+            target = next((a for a in moves
+                           if orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
+            if target is None:
                 return False
             with state_lock():
                 current_seat = orch.find(name)
@@ -3061,7 +3062,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                         or pane_text(current_seat) != pane):
                     return True
                 try:
-                    orch.resume(cfg, name, log=log, hand_over=False, account=home)
+                    orch.resume(cfg, name, log=log, hand_over=False, account=target)
                 except (config.Error, OSError) as exc:
                     log(f"WARN {name}: {provider} account reopen failed: {exc}")
                     return True
@@ -3085,17 +3086,13 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     eligible = {a: readings[a] for a in (accounts or [current]) if a in readings
                 and not spent(a) and (owned or a == current)
                 and (a != current or waiting or not refusal or refilled)}
-    # Keep the existing login when it has refilled. Probe only possible moves, in order,
-    # before the owner-action check: a slow adapter must not undo a stop or typing.
-    order = ([current] if current in eligible else []) + [
-        a for a in orch.account_order(cfg, model, eligible, home) if a != current]
+    # Keep the existing login when it has refilled, or on its credits when no window takes
+    # the seat. Probe only possible moves, in order, before the owner-action check: a slow
+    # adapter must not undo a stop or typing.
+    order = sorted(orch.account_order(cfg, model, eligible, home),
+                   key=lambda a: (not window(a), a != current))
     target = next((a for a in order if a == current
                    or orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
-    if target is None and not refusal and not dry(current):
-        # Nothing with a window takes this seat, and its own credits still answer turns.
-        if not waiting:
-            return False
-        target = current
     with state_lock():
         # Slow meters must not undo a stop, rename, manual open or another launch.
         current_seat = orch.find(name)

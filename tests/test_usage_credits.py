@@ -235,6 +235,25 @@ class Seat(unittest.TestCase):
         self.assertEqual(self.seat.commands, [])
         self.assertIsNone(seats.watch.seat_read(seats.NAME).get("usage_wait"))
 
+    def test_a_refusal_on_credits_is_handled_as_on_a_window(self):
+        """A bare 429 is retried in place and a handled refusal left alone; neither parks."""
+        def worker_only(*_a, account=None, **_k):
+            return account != "second", "no seat login"
+        # the refusal is on the pane, as for a harness keeping no record
+        self.seat.stack.enter_context(patch.object(seats.watch, "recorded_error",
+                                                   return_value=None))
+        self.seat.pane = "API Error: 429 rate limit"
+        for _ in range(2):
+            self.assertEqual(self.account_after_tick(100, 20, ["default"], worker_only), "default")
+            self.seat.now += seats.watch.STALL_WAIT
+        self.assertEqual(self.seat.typed, ["continue"])
+        self.seat.pane = "Usage limit reached"
+        seats.watch.seat_write(seats.NAME, usage_refusal={"line": self.seat.pane,
+                                                          "at": self.seat.now, "handled": True})
+        self.assertEqual(self.account_after_tick(100, 20, ["default"], worker_only), "default")
+        self.assertEqual(self.seat.commands, [])
+        self.assertIsNone(seats.watch.seat_read(seats.NAME).get("usage_wait"))
+
     def test_a_seat_waiting_for_usage_continues_on_credits(self):
         seats.watch.seat_write(seats.NAME, usage_wait={"reason": "anthropic out of usage",
                                                        "until": self.seat.now + 3600,
