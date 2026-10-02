@@ -17,6 +17,7 @@ The real ~/agentkit, its origin, its seats and its harnesses are never read or w
 
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from pathlib import Path
+import fcntl
 import io
 import os
 import signal
@@ -33,6 +34,7 @@ from agentkit import config, update, watch, worker
 
 INSTALL = '#!/bin/sh\necho installed >>"$HOME/installs"\n'
 LIVE = f"""#!/bin/sh
+python3 -c 'import fcntl, sys; fcntl.flock(open(sys.argv[1]), fcntl.LOCK_SH)' "$HOME/tick"
 echo "$(git rev-parse HEAD) ${{AGENTKIT_ACCEPTANCE_REQUIRED:-}} ${{{worker.RUN_MARKER}:-}} $(pwd)" \\
   >>"$HOME/lives"
 echo "live: check 3 green"
@@ -131,9 +133,12 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         return False
 
     def tick(self, now=None):
-        """One tick's go_live: what it logged."""
+        """One tick's go_live: what it logged.  A LIVE check it starts waits for it to end, as
+        a real tests/live.sh, minutes long, outlasts it."""
         said = []
-        with patch.object(watch, "after_merge_deliver", side_effect=self.deliver):
+        with open(self.root / "tick", "w") as lock, \
+                patch.object(watch, "after_merge_deliver", side_effect=self.deliver):
+            fcntl.flock(lock, fcntl.LOCK_EX)
             update.go_live(said.append, now=now)
         return said
 
