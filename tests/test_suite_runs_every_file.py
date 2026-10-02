@@ -41,6 +41,12 @@ if [ "${AGENTKIT_SMOKE_OFFLINE:-0}" = 1 ]; then
   exit 0
 fi
 python3 "$REPO/tests/test_plain.py"
+if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
+if [ -n "${ACME_HOST:-}" ]; then
+  python3 "$REPO/tests/test_live.py"
+fi
+fi
+python3 "$REPO/tests/test_after.py"
 '''
 
 
@@ -56,11 +62,11 @@ class SuiteRunsEveryFile(unittest.TestCase):
         self.log = root / "ran.log"
         return root
 
-    def suite(self, root, offline="0"):
+    def suite(self, root, offline="0", live="0"):
         env = dict(os.environ, HOME=str(root), ACME_LOG=str(self.log), ACME_KEPT="1", AGENTKIT_RUN="acme-run",
                    AK_RUN_DEPTH="2", AK_PARENT_RUN="acme-parent", AK_RUN_LOG="/nonexistent",
                    AK_HOST_READINGS='{"cpus": 2, "load": 0, "free_mb": 4096}',
-                   AGENTKIT_SMOKE_OFFLINE=offline)
+                   AGENTKIT_SMOKE_OFFLINE=offline, AGENTKIT_SMOKE_LIVE=live)
         return subprocess.run([sys.executable, str(RUNNER), str(root)], env=env,
                               stdin=subprocess.DEVNULL, capture_output=True, text=True,
                               timeout=120)
@@ -124,14 +130,18 @@ unittest.main()
             self.assertIn(f"AssertionError: {name}", out)
 
     def test_every_file_smoke_does_not_run_runs_once(self):
-        # smoke.sh's offline mode runs its offline block and exits there; the plain mode skips it
+        # smoke.sh's offline mode runs its offline block and exits there; the plain mode skips it,
+        # and only the live mode runs the live block, whatever it holds
         names = ("test_smoke", "test_lifecycle", "test_comment", "test_offline", "test_acme",
-                 "test_argument", "test_plain")
-        for offline, ran in (("0", ["test_acme", "test_argument", "test_comment", "test_offline"]),
-                             ("1", ["test_acme", "test_argument", "test_comment", "test_plain"])):
-            with self.subTest(offline=offline):
+                 "test_argument", "test_plain", "test_live", "test_after")
+        for offline, live, ran in (
+                ("0", "0", ["test_acme", "test_argument", "test_comment", "test_live", "test_offline"]),
+                ("1", "0", ["test_acme", "test_after", "test_argument", "test_comment", "test_live",
+                            "test_plain"]),
+                ("0", "1", ["test_acme", "test_argument", "test_comment", "test_offline"])):
+            with self.subTest(offline=offline, live=live):
                 root = self.checkout(dict.fromkeys(names, PASSES), smoke=SMOKE)
-                proc = self.suite(root, offline)
+                proc = self.suite(root, offline, live)
                 self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
                 self.assertEqual(self.ran(), ran)
 
