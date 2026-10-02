@@ -7017,24 +7017,32 @@ def redress_seat(session):
 
     A run's step, round and ending are what the bar names, so each one is published the moment
     it happens, through the one writer the tick uses and from the facts already on record: no
-    look at the seat's screen.  A run with no seat, a legacy seat and one tmux has lost get
-    nothing written, and nothing here ever raises into the run.  The writer waits on the seat's
-    lock and on tmux, so it runs on a daemon thread of its own: the run never waits on it, not
-    even to exit.
+    look at the seat's screen.  The writer waits on the seat's lock and on tmux, so a process of
+    its own does the writing (`publish_seat`) and the run waits on neither.  That process is
+    the user manager's where there is one, so outside the run's scope, and carries no run
+    marker: it outlives the command that started it, the run's ending and the stop that ends
+    the run's tree.  A seat with no record in this home is none ak launched, and gets nothing;
+    nothing here ever raises into the run.
     """
-    def publish():
-        try:
-            seat = orch.find(session)
-            if seat is not None and orch.on_own_server(seat):
-                watch.announce_state(seat)
-        except Exception:  # noqa: BLE001 - the bar is dressing; the run beneath it is what matters
-            pass
+    try:
+        if not session or not config.session_path(session).is_file():
+            return
+        env = {key: value for key, value in os.environ.items() if key != worker.RUN_MARKER}
+        argv, env = orch.detached_in_slice(
+            [sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+             "from agentkit import run; run.publish_seat(sys.argv[2])", str(config.REPO), session],
+            f"agentkit-bar-{os.getpid()}-{time.time_ns()}", env)
+        subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except Exception:  # noqa: BLE001 - the bar is dressing; the run beneath it is what matters
+        pass
 
-    if session:
-        try:
-            threading.Thread(target=publish, daemon=True).start()
-        except RuntimeError:    # no thread to be had: the next tick or draw writes the bar
-            pass
+
+def publish_seat(session):
+    """`redress_seat`'s process: that seat's bar, if tmux still holds it on agentkit's own server."""
+    seat = orch.find(session)
+    if seat is not None and orch.on_own_server(seat):
+        watch.announce_state(seat)
 
 
 def seat_tallies(records, now=None):
