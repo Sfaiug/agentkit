@@ -179,6 +179,41 @@ class KeepsPlace(unittest.TestCase):
             self.finish()
         self.assertEqual(order, ["early", "late"])
 
+    def test_a_reserved_lap_publishes_its_place_before_freeing_the_turn(self):
+        early, late = self.loop("early"), self.loop("late")
+        early.state["landing"] = True
+        clearing, resume, taken = threading.Event(), threading.Event(), threading.Event()
+        write = early.write
+
+        def slow_write():
+            saved = record.read_state(early.run_dir) or {}
+            if saved.get("merge_hold") and not early.state.get("merge_hold"):
+                clearing.set()
+                self.assertTrue(resume.wait(10), "the holding mark was never saved")
+            write()
+        early.write = slow_write
+
+        def first():
+            with run.merge_turn(early, "origin/main", reserve=True):
+                pass
+            early.state.pop("landing")
+            early.state.pop("merge_rank")
+            early.write()
+
+        def later():
+            with run.merge_turn(late, "origin/main"):
+                taken.set()
+
+        self.start(first)
+        try:
+            self.assertTrue(clearing.wait(10), "the reserved lap never released")
+            self.start(later)
+            self.assertFalse(taken.wait(0.1), "a later run passed before the place was published")
+        finally:
+            resume.set()
+        self.finish()
+        self.assertTrue(taken.is_set())
+
     def test_pickup_keeps_a_live_place_until_the_resumed_landing_takes_it(self):
         early, late = self.loop("early"), self.loop("late")
         early.state["landing"] = True

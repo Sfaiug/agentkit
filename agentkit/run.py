@@ -1868,6 +1868,16 @@ class _MergeHold:
         if self._released:
             return
         self._released = True
+        # Publish the saved place before another waiter can take the freed flock.
+        if self.reserved:
+            try:
+                self.lp.state.pop("merge_hold", None)
+                self.lp.write()
+            except (OSError, run_record.StopRequested):
+                try:
+                    self.lp.state.pop("merge_hold", None)
+                except Exception:
+                    pass
         try:
             try:
                 if self.reservation is not None:
@@ -1887,15 +1897,6 @@ class _MergeHold:
             held = getattr(_PICKUP_HELD, "count", 0)
             if held:
                 _PICKUP_HELD.count = held - 1
-            if self.reserved:
-                try:
-                    self.lp.state.pop("merge_hold", None)
-                    self.lp.write()
-                except (OSError, run_record.StopRequested):
-                    try:
-                        self.lp.state.pop("merge_hold", None)
-                    except Exception:
-                        pass
             if getattr(_MERGE_HELD, "hold", None) is self:
                 _MERGE_HELD.hold = None
 
