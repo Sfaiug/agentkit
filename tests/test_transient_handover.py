@@ -61,7 +61,7 @@ class TransientHandover(unittest.TestCase):
             (out / "session_id").write_text(session)
             return code, text, session, False
 
-        return calls, call
+        return calls, submitting(call)
 
     def loop(self, executor="alpha", reviewer="bravo", spares=()):
         run_dir = self.root / "run"

@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.hand_in import scripted
+from fixtures.hand_in import scripted, smoke
 from agentkit import config, notify, orch, run, watch
 from agentkit import record
 
@@ -297,6 +297,7 @@ class ResumeMidturn(unittest.TestCase):
         (directory / "round-1" / "donewhen.log").write_text("$ true\n[exit 0]\n")
         (directory / "round-1" / "executor").mkdir()
         (directory / "round-1" / "executor" / "final.md").write_text("## Summary\ndone\n")
+        smoke(directory / "round-1" / "executor", self.root)
         lp = self.loop(directory.name)
         lp.rnd = 0
         run.rounds(lp)
@@ -336,6 +337,7 @@ class ResumeMidturn(unittest.TestCase):
         (directory / "round-1" / "donewhen.log").write_text("$ true\n[exit 0]\n")
         (directory / "round-1" / "executor").mkdir()
         (directory / "round-1" / "executor" / "final.md").write_text("## Summary\ndone\n")
+        smoke(directory / "round-1" / "executor", self.root)
         lp = self.loop(directory.name)
         lp.rnd = 0
         run.rounds(lp)
@@ -356,6 +358,7 @@ class ResumeMidturn(unittest.TestCase):
         rd = directory / "round-1"
         (rd / "executor").mkdir(parents=True)
         (rd / "executor" / "final.md").write_text("## Summary\ndone\n")
+        smoke(rd / "executor", self.root)
         (rd / "donewhen.log").write_text("$ true\n[exit 0]\n")
         (rd / "reviewer").mkdir()
         # the first reviewer died without a verdict, so the round fell back to `astra`
@@ -391,6 +394,7 @@ class ResumeMidturn(unittest.TestCase):
         answer = directory / "round-1" / "executor"
         answer.mkdir(parents=True)
         (answer / "final.md").write_text("## Summary\ndone\n")
+        smoke(answer, self.root)
         self.assertEqual(run.continuation(self.loop(directory.name)), "done-when")
         self.assertIsNone(run.settled_gate(self.loop(directory.name)),
                           "a gate with no settled record runs again")

@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.hand_in import submitting
 from agentkit import config, run  # noqa: E402
 
 ADAPTER = str(REPO / "adapters/opencode.sh")
@@ -144,7 +145,7 @@ class LargePrompt(unittest.TestCase):
             (out / "session_id").write_text(session)
             return code, text, session, False
 
-        return calls, call
+        return calls, submitting(call)
 
     def test_exit_126_with_an_empty_stream_hands_over_instead_of_waiting(self):
         from types import SimpleNamespace

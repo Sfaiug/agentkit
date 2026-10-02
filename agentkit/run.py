@@ -68,7 +68,7 @@ ECHO = 40                       # a prompt is recognised quoted back by this man
                                 # which no refusal begins with
 REFUSAL_CAP = 1000              # a refusal replaces the answer instead of following it, so it is
                                 # short; past this many characters what is there is an answer
-# Legacy executor answers carry a heading; reviewers answer through hand-in records.
+# A heading distinguishes an answer from the harness's short refusal.
 ANSWERED = re.compile(r"^\s{0,3}#{1,6}\s", re.M)
 # A record in a harness's event log is that harness reporting a failure when one of its own kind
 # fields says so -- Codex ends a refused turn with `turn.failed`, Claude with a `result` whose
@@ -122,11 +122,6 @@ NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
 FRONT = re.compile(r"^---\n(.*?)\n---", re.S)
 FOLLOWUPS = re.compile(r"^(#+)[ \t]*Follow-ups\b[^\n]*$", re.M | re.I)
 NOTES = re.compile(r"^(#+)[ \t]*Notes\b[^\n]*$", re.M | re.I)
-# The two headings a worker's turn ends with: `## Summary` is the work, `## Blocked` is the
-# task itself refusing to be done.  Only a heading on its own line counts, so a preamble
-# quoting either word mid-sentence never ends a run.
-BLOCKED_HEADING = re.compile(r"^##[ \t]*Blocked\b[^\n]*$", re.M | re.I)
-SUMMARY_HEADING = re.compile(r"^##[ \t]*Summary\b[^\n]*$", re.M | re.I)
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
                 "the task or its checks are wrong")
 # What the loop itself adds to a done-when log, in its own words, after the commands have had
@@ -1074,6 +1069,10 @@ NO_VERDICT_ASK = ("Your previous turn ended without ak hand-in done. Review the 
                   "hand in any remaining findings or follow-ups with ak hand-in, then run "
                   "ak hand-in done. Earlier records have been carried into this turn. "
                   "Do not start commands you will not wait for in this turn.")
+NO_CLOSING_ASK = ('Your previous turn ended without a closing hand-in. Close it now with '
+                  'ak hand-in done, ak hand-in blocked "<why>" or ak hand-in not-needed "<why>" '
+                  'as instructed. Earlier records have been carried into this turn. '
+                  'Do not start commands you will not wait for in this turn.')
 
 
 def turn_unfinished(out_dir):
@@ -1500,15 +1499,14 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 continue
         else:
             session, calls = sid or session, calls + 1
-        if not killed and (unfinished or turn_unfinished(target)):
+        if (not killed and (unfinished or turn_unfinished(target))
+                and "-retry-hand-in" not in out_dir.name):
             log(f"{role} {name} ended its turn with a command still in the background; asking "
                 "it to finish in the foreground")
             finish = target.with_name(f"{target.name}-retry-foreground")
-            # One extra call per turn covers both reasons it can be needed: a reviewer
-            # that left work in the background is asked for its verdict in the same
-            # call, so review() never spends a second extra call on the same turn.
-            finish_body = (f"{FINISH_IN_FOREGROUND} {NO_VERDICT_ASK}"
-                           if role.startswith("reviewer") else FINISH_IN_FOREGROUND)
+            # Foreground recovery also asks for the closing, so neither role spends another ask.
+            finish_body = (f"{FINISH_IN_FOREGROUND} "
+                           f"{NO_VERDICT_ASK if role.startswith('reviewer') else NO_CLOSING_ASK}")
             code, text, sid, killed, unfinished = turn(finish_body, finish, session)
             session = sid or session
             if swapped(code, killed, session):
@@ -1517,6 +1515,9 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 log(f"WARN {role} {name} ended its turn with a command still in the background "
                     "again; carrying on with what it reported")
             target = finish
+        elif not killed and (unfinished or turn_unfinished(target)):
+            log(f"WARN {role} {name} ended its turn with a command still in the background "
+                "again; carrying on with what it reported")
         # A harness that never ran the turn says so on stderr, and that outranks the refusal
         # words below: a 404 for a model it does not have reads `API Error` like a 500, and
         # Codex's missing model suggests `try a different model` like its capacity refusal.
@@ -3066,22 +3067,24 @@ def latest_turn(round_dir, name):
         return None
     out = dirs[-1]
     return max([out, *out.parent.glob(f"{out.name}-retry*")],
-               key=lambda path: path.stat().st_mtime_ns)
+               key=lambda path: (path.stat().st_mtime_ns, path.name))
 
 
 def open_turn(round_dir, name):
     """`(resume|fresh, session)` when this role's latest attempt never finished.
 
-    `final.md` is written when the harness exits, so its absence is a turn the host
-    cut off. A session id recorded there — or recoverable from the event stream — is
-    resumed; a directory with neither is a fresh turn, because there is nothing to
-    continue. A finished attempt is `(None, None)`.
+    A missing `final.md` is a turn the host cut off. An executor answer without a
+    closing still needs its one extra ask. A recorded session is resumed; without one
+    a fresh turn is needed. A finished attempt is `(None, None)`.
     """
     latest = latest_turn(round_dir, name)
     if latest is None:
         return None, None
     if (latest / "final.md").exists():
-        return None, None
+        submitted = hand_in.read(latest / hand_in.FILE)
+        if (name.startswith("reviewer") or submitted is not None and submitted.closing
+                or "-retry-hand-in" in latest.name or "-retry-foreground" in latest.name):
+            return None, None
     sid = session_of(latest)
     if sid:
         return "resume", sid
@@ -3116,31 +3119,26 @@ def host_ended_prompt(state):
             "do not start over.")
 
 
+def latest_worker_turn(round_dir):
+    """The latest executor/fixer attempt supersedes earlier attempts, even when it closed."""
+    rd = Path(round_dir)
+    if not rd.is_dir():
+        return None
+    turns = [latest_turn(rd, role_base(path.name)) for path in rd.iterdir()
+             if path.is_dir() and "-retry" not in path.name
+             and not path.name.startswith("reviewer")
+             and re.match(r"(?:executor|(?:.+-)?fixer)(?:-|$)", path.name)]
+    return max(turns, key=lambda path: (path.stat().st_mtime_ns, path.name), default=None)
+
+
 def open_worker(lp):
     """`(name, kind, session)` of the open executor/fixer attempt, or three Nones."""
-    rd = lp.round_dir
-    if not rd.is_dir():
+    latest = latest_worker_turn(lp.round_dir)
+    if latest is None:
         return None, None, None
-    best = None
-    for path in rd.iterdir():
-        if not path.is_dir() or "-retry" in path.name:
-            continue
-        base = role_base(path.name)
-        if base.startswith("reviewer"):
-            continue
-        kind, sid = open_turn(rd, base)
-        if not kind:
-            continue
-        latest = latest_turn(rd, base)
-        try:
-            mtime = latest.stat().st_mtime
-        except OSError:
-            mtime = 0
-        if best is None or mtime >= best[0]:
-            best = (mtime, base, kind, sid)
-    if best is None:
-        return None, None, None
-    return best[1], best[2], best[3]
+    name = role_base(latest.name.split("-retry", 1)[0])
+    kind, sid = open_turn(lp.round_dir, name)
+    return (name, kind, sid) if kind else (None, None, None)
 
 
 def open_review(round_dir):
@@ -3174,22 +3172,9 @@ def open_review(round_dir):
 
 def saved_worker_answer(round_dir):
     """The executor or fixer answer file already written for this round."""
-    for name in ("fixer", "executor"):
-        text = finished_answer(round_dir, name)
-        if text is not None:
-            return latest_turn(round_dir, name) / "final.md"
-    if not Path(round_dir).is_dir():
-        return None
-    for path in sorted(Path(round_dir).iterdir(), key=lambda item: item.name):
-        if not path.is_dir() or "-retry" in path.name:
-            continue
-        base = role_base(path.name)
-        if base.startswith("reviewer"):
-            continue
-        text = finished_answer(round_dir, base)
-        if text:
-            return latest_turn(round_dir, base) / "final.md"
-    return None
+    latest = latest_worker_turn(round_dir)
+    answer = latest / "final.md" if latest is not None else None
+    return answer if answer is not None and answer.is_file() else None
 
 
 def settled_gate(lp):
@@ -3243,55 +3228,9 @@ def continuation(lp):
         return "reviewer"
     if open_worker(lp)[0]:
         return "worker"
-    if (lp.state.get("step") == "done-when" or finished_answer(rd, "executor") is not None
-            or finished_answer(rd, "fixer") is not None):
+    if lp.state.get("step") == "done-when" or saved_worker_answer(rd) is not None:
         return "done-when"
     return None
-
-
-def blocked_section(text):
-    """The `## Blocked` section a worker ended its turn with instead of `## Summary`, or None.
-
-    The one thing a worker may say that ends the run before anything is judged: the task
-    cannot be done as written -- a check that tests the wrong thing, access it does not have,
-    two constraints that contradict each other.  It is a `## Blocked` heading on its own line
-    with no `## Summary` heading anywhere in the turn, because a turn that summarised its work
-    did the work; a preamble or a finding that names either word mid-sentence is neither.  The
-    answer is the heading and everything under it up to the next `##` heading, which is what
-    result.md carries.
-    """
-    heading = BLOCKED_HEADING.search(text or "")
-    if not heading or SUMMARY_HEADING.search(text):
-        return None
-    rest = text[heading.end():]
-    # the next heading of the same level or higher ends it, never a deeper one: a worker
-    # explaining itself under `### Missing access` is still explaining the block
-    end = re.search(r"^#{1,2}(?!#)[ \t]*\S", rest, re.M)
-    return (heading.group(0) + (rest[:end.start()] if end else rest)).strip()
-
-
-def blocked_reason(section):
-    """The one line a `## Blocked` section comes down to, for the notice and the row.
-
-    The first prose line under the heading: a worker asked to say exactly why puts the why
-    first, and everything after it is detail result.md already keeps whole.
-    """
-    body = [" ".join(line.split()) for line in (section or "").splitlines()[1:]]
-    first = next((line for line in body if line and not line.startswith("#")), "")
-    first = first.lstrip("-*+ \t") or "the task cannot be completed as written"
-    return first if len(first) <= 200 else first[:199] + "\u2026"
-
-
-def followup_not_needed(lp, summary, why=None):
-    if lp.state.get("followup") and not lp.state.get("round_summaries"):
-        if why is not None:
-            raise NotNeeded(why)
-        # Any line that starts with the verdict, wherever the summary puts it: workers
-        # preamble before the heading and verify before they conclude, and decorate.
-        answer = re.search(r"^[ \t>]*?(?:[-*+][ \t]+|\d+[.)][ \t]+)?[*_`]*not needed"
-                           r"[*_`]*:[*_`]*[ \t]*(\S.*)", summary or "", re.M | re.I)
-        if answer:
-            raise NotNeeded(answer.group(1).strip())
 
 
 def record_disputes(lp, out):
@@ -3307,22 +3246,23 @@ def record_disputes(lp, out):
                 lp.save()
 
 
-def worker_result(lp, summary, out, code=0):
-    """Read the same closing after a call or a host interruption; text is the fallback."""
+def worker_result(lp, summary, out):
+    """Read the same closing after a call or a host interruption."""
     record_disputes(lp, out)
-    submitted = review_records(out, summary)
+    answer = written_answer(out, summary).parent
+    submitted = hand_in.read(answer / hand_in.FILE)
     closing = submitted.closing if submitted is not None else None
     if closing:
         if closing["kind"] == "blocked":
             raise Blocked(closing["why"], f"## Blocked\n\n{closing['why']}")
-        if closing["kind"] == "not-needed":
-            followup_not_needed(lp, None, why=closing["why"])
-        return summary
-    section = blocked_section(summary)
-    if section:
-        raise Blocked(blocked_reason(section), section)
-    if code == 0:
-        followup_not_needed(lp, summary)
+        if (closing["kind"] == "not-needed" and lp.state.get("followup")
+                and not lp.state.get("round_summaries")):
+            raise NotNeeded(closing["why"])
+    # A closing reply may be only an acknowledgement; retain the work prose on restart too.
+    name = re.split(r"-retry-(?:hand-in|foreground)", answer.name, maxsplit=1)[0]
+    work = read_answer(answer.with_name(name) / "final.md")
+    if work and work != summary:
+        summary = f"{work}\n\n{summary}"
     return summary
 
 
@@ -3381,6 +3321,12 @@ def execute(lp, role, text, name):
         lp.exec_sid = None
         note = {"at": time.time(), "role": role, "restarted": True}
         lp.state["resume_notice"] = note
+    # The ask's directory survives a host interruption, so resuming it cannot buy a third ask.
+    closing_asked = previous is not None and ((previous / "final.md").exists()
+                       or "-retry-hand-in" in previous.name or "-retry-foreground" in previous.name)
+    if closing_asked:
+        body = NO_CLOSING_ASK
+        out = free_dir(lp, f"{previous.name}-retry-hand-in")
     if role == "fixer" and "## Reviewer findings to fix\n" in text and lp.state.get("findings_file"):
         findings = Path(lp.state["findings_file"]).with_name(hand_in.FINDINGS_FILE)
         if findings.is_file():
@@ -3409,6 +3355,7 @@ def execute(lp, role, text, name):
             if hand_executor(lp, "cannot run", broken.detail, dry) is None:
                 raise
             body = text
+            closing_asked = False
             out = free_dir(lp, f"{name}-{lp.executor}")
             continue
         except RanDry as refused:
@@ -3424,12 +3371,14 @@ def execute(lp, role, text, name):
                                   else "resume when a meter refills. ") +
                                f"See {out}*/stderr.log")
             body = f"{HANDOVER.format(before=before)}\n\n{text}"
+            closing_asked = False
             out = free_dir(lp, f"{name}-{lp.executor}")
             continue
         except TransientHandover as handed:
             # hand_executor already moved the role inside the callback; the new model
             # joins a round another started, in a fresh out dir on a fresh session.
             body = f"{HANDOVER.format(before=handed.before)}\n\n{text}"
+            closing_asked = False
             out = free_dir(lp, f"{name}-{lp.executor}")
             continue
         finally:
@@ -3440,7 +3389,16 @@ def execute(lp, role, text, name):
             lp.log(f"WARN {role} {killed_word(code) or f'exited {code}'}; "
                    f"see {out / 'stderr.log'}")
         lp.save()
-        return worker_result(lp, summary, out, code)
+        submitted = review_records(out, summary)
+        if (not (submitted is not None and submitted.closing) and not closing_asked
+                and not list(out.parent.glob(f"{out.name}-retry*foreground*"))):
+            lp.log(f"{role} {lp.executor} gave no closing; asking once more")
+            resume["previous"] = written_answer(out, summary).parent
+            body = NO_CLOSING_ASK
+            closing_asked = True
+            out = free_dir(lp, f"{resume['previous'].name}-retry-hand-in")
+            continue
+        return worker_result(lp, summary, out)
 
 
 def commit_identity(wt):
@@ -3653,7 +3611,7 @@ def written_answer(out, text):
     """
     out = Path(out)
     directories = sorted([out, *out.parent.glob(f"{out.name}-retry*")],
-                         key=lambda path: path.stat().st_mtime_ns if path.exists() else 0,
+                         key=lambda path: (path.stat().st_mtime_ns if path.exists() else 0, path.name),
                          reverse=True)
     for directory in directories:
         if read_answer(directory / "final.md") == text:

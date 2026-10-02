@@ -212,7 +212,7 @@ class Quota(unittest.TestCase):
             return 0, "## Summary\nDone.", "s-opus", False
         # The handover must leave a reviewer with budget too.
         providers = self.providers(openai_used=100, anthropic_used=40, meta_used=50)
-        with patch.object(run.worker, "call", side_effect=turn), \
+        with patch.object(run.worker, "call", side_effect=submitting(turn)), \
                 patch.object(usage, "collect", return_value=providers), \
                 patch.object(run, "time", Clock(
                     MagicMock(side_effect=AssertionError("quota waits on nothing")))), \

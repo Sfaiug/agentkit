@@ -361,38 +361,6 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn("finished DONE: not needed:", self.endings[-1])
         self.assertEqual(self.gh_calls, [])
 
-    def test_not_needed_matcher_accepts_usual_summary_forms(self):
-        class Stub:
-            pass
-        lp = Stub()
-        lp.state = {"followup": {"place": "broken.py:1"}}
-        positives = [
-            ("not needed: target already fixes empty input",
-             "target already fixes empty input"),
-            ("I fetched origin/main and ran first([]); it returns None there.\n\n"
-             "## Summary\n\nnot needed: target already fixes empty input",
-             "target already fixes empty input"),
-            ("## Summary\n\n- not needed: another open run fixes this site",
-             "another open run fixes this site"),
-            ("## Summary\n\n**not needed:** target already fixes empty input",
-             "target already fixes empty input"),
-            ("### Summary\nnot needed: gone",
-             "gone"),
-            ("## Summary\nFetched origin/main; first([]) returns None there.\n"
-             "not needed: target already fixes empty input",
-             "target already fixes empty input"),
-        ]
-        for text, why in positives:
-            with self.subTest(text=text), self.assertRaises(run.NotNeeded) as raised:
-                run.followup_not_needed(lp, text)
-            self.assertEqual(str(raised.exception), why)
-        for text in ("## Summary\nRegression test failed with IndexError before; passed after.",
-                     "## Blocked\nShould empty input return None or raise ValueError?",
-                     "## Summary\nThe extra logging is not needed: removed it.",
-                     "## Summary\nnot needed:"):
-            with self.subTest(text=text):
-                run.followup_not_needed(lp, text)
-
     def test_not_needed_under_gone_seat_neither_revives_nor_cards(self):
         directory = config.RUNS / "quiet"
         directory.mkdir()
