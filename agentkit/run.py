@@ -1869,24 +1869,7 @@ class _MergeHold:
             return
         self._released = True
         try:
-            try:
-                if self.reservation is not None:
-                    path = Path(self.reservation.name)
-                    self.reservation.close()
-                    path.unlink(missing_ok=True)
-            finally:
-                if self.lock is not None:
-                    try:
-                        self.lock.close()
-                    except (OSError, ValueError):
-                        pass
-        finally:
-            self.lock = None
-            if self.weighed is not None:
-                orch.set_cpu_weight(*self.weighed)
-            held = getattr(_PICKUP_HELD, "count", 0)
-            if held:
-                _PICKUP_HELD.count = held - 1
+            # Publish the saved place before another waiter can take the freed flock.
             if self.reserved:
                 try:
                     self.lp.state.pop("merge_hold", None)
@@ -1896,8 +1879,28 @@ class _MergeHold:
                         self.lp.state.pop("merge_hold", None)
                     except Exception:
                         pass
-            if getattr(_MERGE_HELD, "hold", None) is self:
-                _MERGE_HELD.hold = None
+        finally:
+            try:
+                try:
+                    if self.reservation is not None:
+                        path = Path(self.reservation.name)
+                        self.reservation.close()
+                        path.unlink(missing_ok=True)
+                finally:
+                    if self.lock is not None:
+                        try:
+                            self.lock.close()
+                        except (OSError, ValueError):
+                            pass
+            finally:
+                self.lock = None
+                if self.weighed is not None:
+                    orch.set_cpu_weight(*self.weighed)
+                held = getattr(_PICKUP_HELD, "count", 0)
+                if held:
+                    _PICKUP_HELD.count = held - 1
+                if getattr(_MERGE_HELD, "hold", None) is self:
+                    _MERGE_HELD.hold = None
 
 
 def raise_cpu_weight(lp):
@@ -5453,13 +5456,13 @@ def land(lp, upstream, verify, deliver, execv=None):
     commit the branch was verified on lands. An external move during the suite
     needs verification of the new commit. Without once-commands,
     a disjoint move lands on the task checks; a docs overlap runs the done-when again
-    (`disjoint_move`).  Any other move gives the turn
-    to the next run while this one verifies again holding it, from before its
+    (`disjoint_move`).  Any other move verifies again holding the turn, from before its
     rebase through its merge. Without a suite it lends the delivery turn to branches
     changing other files, so the lap lands when its check passes; a third such lap parks
     the run `waiting`, as a target moving under three integrations does.  A
     reserved turn is let go before any fixer or reviewer starts, and when the run
-    stops, and the next lap takes it again.  A branch cut from a dependency's passed
+    stops; every retake keeps this landing's first merge rank, even through a pickup.
+    A branch cut from a dependency's passed
     branch first waits for that dependency to merge (`wait_for_dependency`).  A
     pickup mid-landing resumes its lap count, so the three laps bound the run across
     the move.  While the run is inside this landing its heavy waits rank ahead of
@@ -5469,6 +5472,8 @@ def land(lp, upstream, verify, deliver, execv=None):
     if not wait_for_dependency(lp):
         return False
     first_lap = lp.state.pop("land_lap", 1)
+    if not lp.state.get("landing"):
+        lp.state.pop("merge_rank", None)
     lp.state["landing"] = True
     if first_lap == 1:
         # A fresh landing counts from its own first wait: a marker a crash left
@@ -5509,6 +5514,7 @@ def land(lp, upstream, verify, deliver, execv=None):
                             upstream, verified)
     finally:
         lp.state.pop("landing", None)
+        lp.state.pop("merge_rank", None)
         gate.clear_landing_wait(lp.run_dir)
         try:
             lp.write()
@@ -5621,7 +5627,9 @@ def merge_turn(lp, upstream, reserve=False):
     so disjoint branches still land during a reserved lap's re-check, and its waiter
     keeps its rank for when the reservation ends; parking swaps the place for a new one,
     waking whoever waited on the old.  The kernel lets a dead waiter's place go.  A
-    reserved lap taking its lent turn back queues for nobody.
+    reserved lap taking its lent turn back queues for nobody. A landing saves its
+    rank with this boot in the run record and keeps it until it ends. Between laps,
+    including an exec's gap, that live record keeps later waiters behind it.
     """
     current = getattr(_MERGE_HELD, "hold", None)
     if current is not None and not current.lent:
@@ -5630,8 +5638,22 @@ def merge_turn(lp, upstream, reserve=False):
     config.RUNS.mkdir(parents=True, exist_ok=True)
     what = f"{Path(lp.state.get('repo') or lp.wt).name} {upstream.removeprefix('origin/')}"
     path = turn_path(lp, upstream)
+    joined = time.monotonic_ns()
+    rank = f"{0 if lp.state.get('first') else 1}{joined:020d}"
+    if lp.state.get("landing"):
+        boot = (host.process_identity(os.getpid()) or {}).get("boot")
+        saved = lp.state.get("merge_rank")
+        if (boot and isinstance(saved, dict) and saved.get("boot") == boot
+                and saved.get("of") == path.name
+                and isinstance(saved.get("rank"), str)
+                and re.fullmatch(r"[01][0-9]{20}", saved["rank"])
+                and isinstance(saved.get("joined"), int)):
+            rank, joined = saved["rank"], saved["joined"]
+        else:
+            lp.state["merge_rank"] = {"of": path.name, "boot": boot,
+                                      "rank": rank, "joined": joined}
+            lp.write()
     lock = current.lock if current is not None else path.open("a")
-    rank = f"{0 if lp.state.get('first') else 1}{time.monotonic_ns():020d}"
     place = files = None
     waited = False
     retaking = False
@@ -5644,7 +5666,7 @@ def merge_turn(lp, upstream, reserve=False):
     def queue(renew=False):
         nonlocal place
         if current is None and (place is None or renew):
-            old, place = place, merge_turn_queue(path, rank, files)
+            old, place = place, merge_turn_queue(path, rank, files, joined=joined)
             leave(old)
 
     def waiting(at=None):
@@ -5692,13 +5714,17 @@ def merge_turn(lp, upstream, reserve=False):
                 if blocker is not None:
                     queue(renew=True)
                 elif current is None:
-                    blocker = merge_turn_ahead(path, rank)
+                    blocker = merge_turn_ahead(path, rank, joined=joined)
                     if blocker is not None:
                         queue()
                 if blocker is None:
                     break
                 fcntl.flock(lock, fcntl.LOCK_UN)
                 waiting()
+                if blocker.name == "run.json":
+                    # A record survives exec; its writer holds no flock across the move.
+                    time.sleep(0.05)
+                    continue
                 try:
                     with blocker.open() as other:
                         fcntl.flock(other, fcntl.LOCK_EX)
@@ -5790,14 +5816,15 @@ def merge_turn_blocker(path, files, own=None):
     return None
 
 
-def merge_turn_queue(path, rank, files):
+def merge_turn_queue(path, rank, files, joined=None):
     """(name, file): a place in the queue for `path`'s turn, flocked before it is named.
 
     A probe reads an unlocked place as its dead waiter's and removes it, so the place
     is locked and its files written under another name first.  Its name sorts in rank
     order, and is new on every queueing, so no probe of an old place removes a new one.
     """
-    name = path.with_name(f"{path.stem}.{rank}-{os.getpid()}-{threading.get_ident()}"
+    joined = time.monotonic_ns() if joined is None else joined
+    name = path.with_name(f"{path.stem}.{rank}-{joined:020d}-{os.getpid()}-{threading.get_ident()}"
                           f"-{time.monotonic_ns()}.wait")
     fresh = name.with_suffix(".new")
     place = fresh.open("w")
@@ -5808,12 +5835,13 @@ def merge_turn_queue(path, rank, files):
     return name, place
 
 
-def merge_turn_ahead(path, rank):
+def merge_turn_ahead(path, rank, joined=None):
     """A live waiter's place ranked before `rank` that no reservation blocks; else None.
 
     Probed only while holding delivery's flock, as reservations are.
     """
-    mine = f"{path.stem}.{rank}-"
+    joined = time.monotonic_ns() if joined is None else joined
+    mine = f"{path.stem}.{rank}-{joined:020d}-"
     for place in sorted(path.parent.glob(f"{path.stem}.*.wait")):
         if place.name >= mine:
             break
@@ -5832,6 +5860,19 @@ def merge_turn_ahead(path, rank):
                 place.unlink(missing_ok=True)      # a dead waiter's place is no place
         except FileNotFoundError:
             pass
+    boot = (host.process_identity(os.getpid()) or {}).get("boot")
+    for directory in run_record.run_dirs() if boot else ():
+        state = run_record.read_state(directory) or {}
+        saved = state.get("merge_rank")
+        if (state.get("state") != "running" or not state.get("landing")
+                or state.get("merge_turn") or state.get("merge_hold")
+                or not isinstance(saved, dict) or saved.get("boot") != boot
+                or saved.get("of") != path.name or not isinstance(saved.get("rank"), str)
+                or not isinstance(saved.get("joined"), int)):
+            continue
+        if (f"{path.stem}.{saved['rank']}-{saved['joined']:020d}-" < mine
+                and run_record.process_active(state)):
+            return directory / "run.json"
     return None
 
 

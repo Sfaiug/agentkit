@@ -56,14 +56,14 @@ def note(turn, trees, leader, alone=()):
 def waiting(turn):
     """(run dir, record) of each live run waiting for `turn`, in queue order.
 
-    A place is `<turn stem>.<rank>-<pid>-<thread>-<ns>.wait` (run.merge_turn_queue), so its
+    A place is `<turn stem>.<rank>-<joined>-<pid>-<thread>-<ns>.wait` (run.merge_turn_queue), so its
     name sorts in queue order and names the waiting process; the run is the one whose record
     marks that process as waiting for a merge turn.
     """
     pids = []
     for place in sorted(turn.parent.glob(f"{turn.stem}.*.wait")):
         try:
-            pid = int(place.name[len(turn.stem) + 1:].split("-")[1])
+            pid = int(place.name[len(turn.stem) + 1:].split("-")[-3])
             with place.open() as probe:
                 try:
                     fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)

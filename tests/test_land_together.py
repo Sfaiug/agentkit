@@ -125,7 +125,7 @@ class LandTogether(unittest.TestCase):
             "review": {"verdict": "PASS", "passed_head_sha": head}})
         turn = run.turn_path(lp, "origin/main")
         place = self.stack.enter_context(
-            (turn.parent / f"{turn.stem}.1{rank:020d}-{pid}-1-1.wait").open("w"))
+            (turn.parent / f"{turn.stem}.1{rank:020d}-{rank:020d}-{pid}-1-1.wait").open("w"))
         fcntl.flock(place, fcntl.LOCK_EX)
         place.write("null")
         place.flush()
