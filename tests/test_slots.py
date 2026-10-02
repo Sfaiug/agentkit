@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, run  # noqa: E402
+from agentkit import gate, host, config, run  # noqa: E402
 from agentkit import record
 
 

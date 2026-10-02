@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import Sandbox
-from agentkit import host, config, orch, run, watch, worker
+from agentkit import gate, host, config, orch, run, watch, worker
 from agentkit import record
 
 

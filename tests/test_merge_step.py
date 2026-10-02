@@ -18,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import host, config, gc, run, usage
+from agentkit import gate, host, config, gc, run, usage
 from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/7"

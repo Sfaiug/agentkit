@@ -12,7 +12,7 @@ import unittest
 from test_v4n import Sandbox
 from test_merge_step import make_loop, make_repos
 from fixtures.hand_in import submitting
-from agentkit import run
+from agentkit import gate, run
 from agentkit import record
 
 

@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, host, config, run, worker
+from agentkit import gate, config, run, worker
 from agentkit import host, record as run_record
 
 ACME = "/home/fixture/code/acme"        # main checkouts as the records name them; never opened

@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, gc, run
+from agentkit import gate, config, gc, run
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"

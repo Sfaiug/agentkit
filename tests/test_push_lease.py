@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import gate, config, run
 from agentkit import record
 from test_merge_step import make_loop, make_repos
 
