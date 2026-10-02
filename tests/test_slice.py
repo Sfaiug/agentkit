@@ -195,11 +195,12 @@ class Seats(Slice):
     def test_c_a_server_already_up_keeps_the_slice_it_was_started_in(self):
         # only the command that starts a server can place it, and asking for a scope around a
         # client would leave a unit nobody wants; the seat's harness gets a scope of its own
-        # inside the pane (test_seats_in_slice.py)
+        # inside the pane (test_seats_in_slice.py), and asking `systemd-run` its version is no unit
         self.stack.enter_context(patch.dict(os.environ, {"AK_SLICE_SERVER_UP": "1"}))
         orch.start("joining", self.root, ["sleep", "60"], "astra")
         self.assertEqual(self.started()[:3], ["tmux", "-L", "agentkit-test"])
-        self.assertEqual(self.commands("systemd-run"), [])
+        self.assertEqual([argv for argv in self.commands("systemd-run") if argv[1:] != ["--version"]],
+                         [])
 
     def test_d_a_tick_from_cron_has_the_manager_start_the_server_itself(self):
         # the kernel refuses the manager the move out of the system's own cgroup, so a seat

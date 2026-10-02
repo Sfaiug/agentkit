@@ -128,6 +128,7 @@ _MANAGER = {}              # whether this host has a user systemd manager, asked
 _OOM_POLICY = {}           # whether its scopes take OOMPolicy=continue, asked once too,
 _OOM_POLICY_LOCK = threading.Lock()   # ... however many of a job's threads launch at once
 _SLICE = {}                # ... and what its slice says about itself, for the same reason
+_LITERAL = {}              # ... and how a seat's scope is told to run its command as written
 _PROCESSES = {}            # the last reading of the process table, when, and whether it is held
 
 
@@ -379,6 +380,27 @@ def scope_oom_policy():
                 version = int(found.group(1)) if found else 0
             _OOM_POLICY["answer"] = version >= 253
         return _OOM_POLICY["answer"]
+
+
+def scope_literal():
+    """`--expand-environment=no` where this `systemd-run` knows it, else nothing.
+
+    From systemd 258 a scope expands `${NAME}` and `$$` in the command it runs, the way a
+    service does, and a harness's arguments are its own to the letter -- a path, a receipt, a
+    JSON value.  The switch came in 254 and is harmless before 258; an older `systemd-run`
+    refuses it, and the scope with it.  The version is `systemd-run`'s own, since it is what
+    expands.  Asked once per process.
+    """
+    if "argv" not in _LITERAL:
+        try:
+            said = subprocess.run(["systemd-run", "--version"], capture_output=True, text=True,
+                                  stdin=subprocess.DEVNULL, timeout=SLICE_WAIT).stdout
+        except (OSError, subprocess.SubprocessError):
+            said = ""
+        found = re.match(r"\s*systemd (\d+)", said)
+        _LITERAL["argv"] = (["--expand-environment=no"]
+                            if found and int(found.group(1)) >= 254 else [])
+    return _LITERAL["argv"]
 
 
 def can_scope():
@@ -1647,7 +1669,7 @@ def seat_command(name, cmd, socket=None):
     unit = f"agentkit-seat-{name}-{uuid.uuid4().hex[:8]}"
     return shlex.join(["env", f"XDG_RUNTIME_DIR={bus_env()['XDG_RUNTIME_DIR']}",
                        "systemd-run", "--user", f"--slice={seat_slice_name(socket)}", "--scope",
-                       "--quiet", f"--unit={unit}", "--", *cmd])
+                       "--quiet", f"--unit={unit}", *scope_literal(), "--", *cmd])
 
 
 def start(name, cwd, cmd, orchestrator):

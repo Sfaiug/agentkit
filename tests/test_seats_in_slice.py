@@ -1,12 +1,14 @@
 """A seat's harness starts inside a scope of its own in the seats slice, whatever server it is on.
 
 Offline: a fake tmux that records what it is asked and answers the way tmux 3.5a does, a user
-manager that is a yes or a no, and a fake `systemd-run` on PATH that records its argv and execs
-what follows its `--`, the way a scope hands over to the work.  No real tmux, unit or seat.
+manager that is a yes or a no, and a fake `systemd-run` on PATH of a version the test names: it
+records its argv and execs what follows its `--`, the way a scope hands over to the work.  No
+real tmux, unit or seat.
 """
 
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -16,18 +18,29 @@ from unittest.mock import patch
 from test_v4n import Sandbox
 from agentkit import config, orch
 
-# The manager's scope, as far as the pane can tell: the work runs in the same process, with
-# the same argv, once the unit is made.
+# The manager's scope, as far as the pane can tell: the work runs in the same process once the
+# unit is made.  Like the real one, 258 and later expand `${NAME}` in it unless told not to,
+# and one older than 254 knows no such switch and refuses the scope over it.
 SYSTEMD_RUN = '''#!{python}
-import json, os, sys
+import json, os, re, sys
+said = os.environ["AK_SEATS_SYSTEMD"]
+if sys.argv[1:] == ["--version"]:
+    print(said)
+    sys.exit(0)
 with open(os.environ["AK_SEATS_LOG"], "a") as fh:
     fh.write(json.dumps(sys.argv[1:]) + "\\n")
-rest = sys.argv[sys.argv.index("--") + 1:]
+version, split = int(said.split()[1]), sys.argv.index("--")
+options, rest = sys.argv[1:split], sys.argv[split + 1:]
+if version < 254 and any(option.startswith("--expand-environment") for option in options):
+    sys.exit("systemd-run: unrecognized option '--expand-environment=no'")
+if version >= 258 and "--expand-environment=no" not in options:
+    rest = [re.sub(r"\\$\\{{(\\w+)\\}}", lambda m: os.environ.get(m.group(1), ""), word)
+            for word in rest]
 os.execvp(rest[0], rest)
 '''
-# A harness that says what it was handed, quote for quote.
+# A harness that says what it was handed, quote for quote and dollar for dollar.
 HARNESS = [sys.executable, "-c", "import json, sys; print(json.dumps(sys.argv[1:]))",
-           "--resume", "it's $HOME"]
+           "--resume", "it's ${HOME}"]
 
 
 class SeatsInSlice(Sandbox):
@@ -47,7 +60,10 @@ class SeatsInSlice(Sandbox):
         self.log = self.root / "systemd-run.jsonl"
         self.stack.enter_context(patch.dict(os.environ, {
             "PATH": f"{self.bin}:{os.environ['PATH']}", "AK_SEATS_LOG": str(self.log),
-            "XDG_RUNTIME_DIR": "/run/user/4242"}))
+            "XDG_RUNTIME_DIR": "/run/user/4242", "AK_SEATS_SYSTEMD": "systemd 258 (258.1-1)"}))
+        # what `systemd-run` says of itself is asked once per process; each test names its own
+        orch._LITERAL.clear()
+        self.addCleanup(orch._LITERAL.clear)
         config.save_session(self.cfg, "acme", "opus", ["opus"])
 
     def tmux(self, *args, socket=None, client=False, unit=None):
@@ -75,14 +91,20 @@ class SeatsInSlice(Sandbox):
         unit = next(word for word in words if word.startswith("--unit="))
         return unit.removeprefix("--unit=")
 
+    def ran(self, line):
+        """What the harness was handed when the pane's shell ran that line through the scope."""
+        out = subprocess.run(["sh", "-c", line], capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return json.loads(out.stdout)
+
     def test_a_a_seat_on_a_server_already_up_runs_its_harness_in_its_own_scope(self):
         orch.start("acme", self.root, HARNESS, "opus")
         (line, server_unit), = self.launched("new-session")
         self.assertIsNone(server_unit)          # the server is not this command's to place
         self.assertTrue(self.scope(line).startswith("agentkit-seat-acme-"))
-        # the shell the pane runs hands the harness exactly what it was given, through the scope
-        out = subprocess.run(["sh", "-c", line], capture_output=True, text=True, timeout=60)
-        self.assertEqual((out.returncode, json.loads(out.stdout)), (0, HARNESS[3:]), out.stderr)
+        # a scope that expands is told not to, and the harness gets exactly what it was given
+        self.assertIn("--expand-environment=no", shlex.split(line))
+        self.assertEqual(self.ran(line), HARNESS[3:])
         self.assertEqual(len(self.log.read_text().splitlines()), 1)
 
     def test_b_each_resume_starts_a_scope_whose_name_none_before_it_had(self):
@@ -113,6 +135,14 @@ class SeatsInSlice(Sandbox):
         orch.launch("acme", "opus", self.root, HARNESS, None, session={"name": "acme"})
         lines = [line for line, _ in self.launched("new-session") + self.launched("respawn-pane")]
         self.assertEqual(lines, [shlex.join(HARNESS)] * 2)
+
+    def test_e_a_systemd_run_too_old_for_the_switch_is_not_handed_it(self):
+        os.environ["AK_SEATS_SYSTEMD"] = "systemd 252 (252.39-1~deb12u1)"
+        orch.start("acme", self.root, HARNESS, "opus")
+        (line, _), = self.launched("new-session")
+        self.scope(line)
+        self.assertFalse(any(re.match("--expand", word) for word in shlex.split(line)))
+        self.assertEqual(self.ran(line), HARNESS[3:])
 
 
 if __name__ == "__main__":
