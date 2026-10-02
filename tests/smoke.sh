@@ -1218,13 +1218,11 @@ IDEMPY
   return "$rc"
 }
 
-# The v4x lifecycle fixtures live here to keep changes within this task's file scope.
-# All inherited cases still run. These three replacements keep the original payload,
-# delivery and rename assertions, adding an open-without-progress check before recovery.
+# Notification lifecycle fixtures add an open-without-progress check before recovery.
+# test_v4l already covers that lifecycle and runs its own cases.
 lifecycle_check() {
   PYTHONPATH="$REPO:$REPO/tests" python3 - "$1" <<'PY'
 from contextlib import redirect_stdout, redirect_stderr
-import copy
 import io
 import os
 import sys
@@ -1325,54 +1323,11 @@ class Notifications(test_notify.Notifications):
         self.assertIsNone(notify.last("seat"))
 
 
-class Babysitter(test_v4l.Babysitter):
-    def test_pruning_an_alias_preserves_the_live_seats_notice_and_latch(self):
-        cfg = config.load()
-        config.save_session(cfg, "old", "opus", ["astra"])
-        notice = '{"kind": "needs", "text": "waiting for you"}\n'
-        config.notify_path("old").write_text(notice)
-        config.rename_session("old", "seat")
-        self.data["stalls"] = {"old": {"since": 1, "told": 10},
-                               "seat": {"since": 2, "told": 20}}
-        self.data["seen_at"]["seat"] = 5
-        watch.save_state(self.data)
-        stale = copy.deepcopy(self.data)
-        self.tick(dry=True)
-        self.assertIn("old", watch.load_state()["stalls"])
-        self.data = watch.load_state()
-        self.tick()
-        watch.save_state(self.data)
-        watch.save_state(stale)
-        saved = watch.load_state()
-        self.assertNotIn("old", saved["stalls"])
-        self.assertEqual(saved["stalls"]["seat"], {"since": 2, "told": 20})
-        self.assertEqual(saved["seen_at"]["seat"], 5)
-        self.assertEqual(config.notify_path("seat").read_text(), notice)
-        self.assertEqual(config.resolve_session("old"), "seat")
-        self.typed.assert_not_called()
-        self.notified.assert_not_called()
-        # Opening through an alias preserves the question until real pane progress.
-        orch.seen_by_user("old")
-        self.assertIn("seat", watch.load_state()["stalls"])
-        self.assertEqual(watch.notify.last("seat")["kind"], "needs")
-        self.assertFalse(watch.notify.last("seat").get("seen"))
-        self.data = watch.load_state()
-        self.tail = "Reading the next file after the answer"
-        self.tick(1)
-        watch.save_state(stale)
-        self.assertNotIn("seat", watch.load_state()["stalls"])
-        self.assertIsNone(watch.notify.last("seat"))
-        self.assertTrue(watch.notify.resolved(watch.notify.last("seat", include_seen=True)))
-        self.assertFalse(config.notify_path("old").exists())
-        self.typed.assert_not_called()
-
-
 if sys.argv[1] == "notify":
     module = test_notify
     module.Notifications = Notifications
 elif sys.argv[1] == "v4l":
     module = test_v4l
-    module.Babysitter = Babysitter
 else:
     raise SystemExit("lifecycle_check needs notify or v4l")
 result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromModule(module))

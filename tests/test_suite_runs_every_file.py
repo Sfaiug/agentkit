@@ -1,6 +1,6 @@
 """The `tests:` suite runs every test file smoke.sh does not: each once, clean, a failure named.
 
-Offline: `tests/every_file.py` on a throwaway checkout of fake test files and a fake smoke.sh.
+Offline: isolated suites and smoke lifecycle tests.
 """
 
 import os
@@ -131,6 +131,35 @@ unittest.main()
                 proc = self.suite(root, offline)
                 self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
                 self.assertEqual(self.ran(), ran)
+
+    def test_lifecycle_runs_the_original_alias_regression(self):
+        smoke = (REPO / "tests" / "smoke.sh").read_text()
+        start = smoke.index("lifecycle_check() {")
+        body = smoke[smoke.index("from contextlib", start):smoke.index("\nPY\n", start)]
+        name = "test_pruning_an_alias_preserves_the_live_seats_notice_and_latch"
+        # A red assertion in the file must reach the runner that marks it as run.
+        probe = '''import sys, unittest
+import test_v4l
+name = sys.argv[1]
+original = getattr(test_v4l.Babysitter, name)
+def broken(self):
+    original(self)
+    self.fail("original alias regression ran")
+setattr(test_v4l.Babysitter, name, broken)
+unittest.defaultTestLoader.loadTestsFromModule = lambda module: (
+    unittest.defaultTestLoader.loadTestsFromName("Babysitter." + name, module))
+sys.argv = ["-", "v4l"]
+''' + body
+        root = self.checkout({})
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
+        env.update(HOME=str(root), PYTHONPATH=f"{REPO}:{REPO / 'tests'}",
+                   AK_RUN_DEPTH="0", AK_MAX_RUNS="0")
+        proc = subprocess.run([sys.executable, "-c", probe, name], cwd=REPO, env=env,
+                              stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                              timeout=60)
+        out = proc.stdout + proc.stderr
+        self.assertIn("AssertionError: original alias regression ran", out)
+        self.assertEqual(proc.returncode, 1, out)
 
 
 if __name__ == "__main__":
