@@ -70,7 +70,7 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 - `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
   Offers `shaped`, `record`, `transition`. Used by run, job, orch, watch, menu. Leak: calls
   up into menu, run, watch and orch.
-- `update.py`: manifest `[update]` upgrades, rollback and agentkit's update (`go_live`).
+- `update.py`: `[update]` upgrades, rollback; `go_live` once `tests/live.sh` passed.
   Used by menu, orch, run, watch. Leak: `MuseSnapshot` knows Muse's layout.
 - `history.py`: SQLite `history.db` of runs and steps; active duration estimates. For
   run, gate, menu, harness. Leak: parses harness event logs.
