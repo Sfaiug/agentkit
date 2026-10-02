@@ -123,7 +123,7 @@ class HeavySuiteTurns(unittest.TestCase):
         self.assertEqual(large, 2 * small)
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(SMALL)}):
             self.assertIn(f"heavy suites: {small} at once (derived)",
-                          run.host_status_line())
+                          gate.host_status_line())
 
     def test_an_opted_in_suite_holds_one_turn_per_piece(self):
         directory = self.record("pieces", ACME)
@@ -181,7 +181,7 @@ class HeavySuiteTurns(unittest.TestCase):
                     (home / config.CONFIG_NAME).write_text(pinned)
                     status = (f"{expected} at once ({'pinned' if name == 'pinned' else 'derived'})"
                               if expected else "no cap (pinned)")
-                    status_line = run.host_status_line().splitlines()[-1]
+                    status_line = gate.host_status_line().splitlines()[-1]
                     proc = subprocess.run(["bash", "-c", pool_bound + "\nsmoke_pool_bound"],
                                           capture_output=True, text=True, timeout=30)
                     self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -321,7 +321,7 @@ class HeavySuiteTurns(unittest.TestCase):
     def test_a_pinned_max_gates_holds(self):
         self.gates(2)
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(SATURATED)}):
-            self.assertIn("heavy suites: 2 at once (pinned)", run.host_status_line())
+            self.assertIn("heavy suites: 2 at once (pinned)", gate.host_status_line())
             first = Gate(self, "one", ACME, [self.mark("one", 1)])
             second = Gate(self, "two", WIDGET, [self.mark("two")])
             first.start()

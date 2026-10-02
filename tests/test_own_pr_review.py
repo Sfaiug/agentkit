@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, history, run, watch
+from agentkit import gate, config, gc, history, run, watch
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -202,7 +202,7 @@ class OwnPrReview(unittest.TestCase):
         self.assertEqual(history.get("unmerged")["changed_lines"], 6)
 
     def test_history_status_names_no_size_ceiling(self):
-        with redirect_stdout(io.StringIO()) as out, patch.object(run, "host_status_line"):
+        with redirect_stdout(io.StringIO()) as out, patch.object(gate, "host_status_line"):
             run.cmd_status(["--history"])
         self.assertNotIn("ceiling", out.getvalue())
 

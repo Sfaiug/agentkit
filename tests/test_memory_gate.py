@@ -68,7 +68,7 @@ class MemoryGate(unittest.TestCase):
         self.assertAlmostEqual(used, 4 * 1024, delta=0.01)
         readings = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                     "unit_limits": limits}
-        reason, _ = run._wait_reason(readings, 3072, 8)
+        reason, _ = gate._wait_reason(readings, 3072, 8)
         self.assertIsNone(reason)
 
     def test_file_cache_is_not_counted(self):
@@ -82,7 +82,7 @@ class MemoryGate(unittest.TestCase):
         self.assertAlmostEqual(used, 4.5 * 1024, delta=0.01)
         readings = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                     "unit_limits": limits}
-        reason, _ = run._wait_reason(readings, 3072, 8)
+        reason, _ = gate._wait_reason(readings, 3072, 8)
         self.assertIsNone(reason)
 
     def test_inactive_file_counts_where_file_absent(self):
@@ -101,7 +101,7 @@ class MemoryGate(unittest.TestCase):
         limits = host._unit_memory_limits(cgroup_file, root)
         readings = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                     "unit_limits": limits}
-        reason, kind = run._wait_reason(readings, 3072, 8)
+        reason, kind = gate._wait_reason(readings, 3072, 8)
         self.assertEqual(reason, "waiting for the unit's memory · "
                                  "8.5 of 10 G in use (9.5 with cache)")
         self.assertEqual(kind, "unit memory")
@@ -117,11 +117,11 @@ class MemoryGate(unittest.TestCase):
         state = {"run_id": "r", "run_depth": 0}
         with patch.dict(os.environ, {"AK_MAX_RUNS": "1", "AK_MIN_FREE_MB": "3072",
                                      "AK_MAX_LOAD": "8"}), \
-                patch.object(run, "slot_counts", return_value=(0, 0)), \
-                patch.object(run, "frozen_runs", return_value=0), \
+                patch.object(gate, "slot_counts", return_value=(0, 0)), \
+                patch.object(gate, "frozen_runs", return_value=0), \
                 patch.object(record, "process_owner", return_value={"pid": 1}), \
                 patch.object(host, "host_readings", return_value=readings):
-            self.assertFalse(run.claim_slot(state, 1))
+            self.assertFalse(gate.claim_slot(state, 1))
         self.assertEqual(state["slot_wait_kind"], "unit memory")
         self.assertIn("in use", state["slot_wait_reason"])
         self.assertIn("with cache", state["slot_wait_reason"])
@@ -133,7 +133,7 @@ class MemoryGate(unittest.TestCase):
         self.assertEqual(host._unit_memory_limits(cgroup_file, root), [])
         readings = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                     "unit_limits": []}
-        reason, _ = run._wait_reason(readings, 3072, 8)
+        reason, _ = gate._wait_reason(readings, 3072, 8)
         self.assertIsNone(reason)
 
     def test_memory_stat_without_cache_counters_fails_open(self):
@@ -152,17 +152,17 @@ class MemoryGate(unittest.TestCase):
         self.assertEqual(len(limits), 1)
         readings = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                     "unit_limits": limits}
-        reason, kind = run._wait_reason(readings, 3072, 8)
+        reason, kind = gate._wait_reason(readings, 3072, 8)
         self.assertEqual(kind, "unit memory")
         self.assertEqual(reason, "waiting for the unit's memory · "
                                  "1 of 0 G in use (1 with cache)")
         keyed = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                  "unit_memory_current_mb": 100, "unit_memory_high_mb": 0}
-        reason, kind = run._wait_reason(keyed, 3072, 8)
+        reason, kind = gate._wait_reason(keyed, 3072, 8)
         self.assertEqual(kind, "unit memory")
         legacy = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                   "unit_limits": [(100, 0)]}
-        reason, kind = run._wait_reason(legacy, 3072, 8)
+        reason, kind = gate._wait_reason(legacy, 3072, 8)
         self.assertEqual(kind, "unit memory")
 
     def test_host_line_names_gating_cgroup(self):
@@ -171,7 +171,7 @@ class MemoryGate(unittest.TestCase):
         with patch.dict(os.environ, {"AK_MIN_FREE_MB": "3072", "AK_MAX_LOAD": "8"}), \
                 patch.object(gate, "_heavy_running", return_value=0), \
                 patch.object(host, "host_readings", return_value=readings):
-            line = run.host_status_line()
+            line = gate.host_status_line()
         self.assertIn("agentkit.slice", line)
         self.assertIn("4 of 10 G in use", line)
 

@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import landing
-from agentkit import host, config, run, usage
+from agentkit import gate, host, config, run, usage
 from agentkit import record
 
 
@@ -196,7 +196,7 @@ sys.exit(row["code"])
         self.assertEqual((directory / "round-1/reviewer/stderr.log").read_text(), "diagnostic for astra")
         # subprocess polls a child's exit through the same patched sleep; only the run's waits count
         self.assertEqual([c for c in self.sleep.call_args_list if c.args[0] > 0.05],
-                         [call(run.SLOT_POLL)])
+                         [call(gate.SLOT_POLL)])
 
     def test_bounded_transient_retry_can_succeed_without_losing_diagnostics(self):
         # the outage is what the harness said: a verdict beside it would make it the answer's

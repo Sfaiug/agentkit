@@ -50,6 +50,12 @@ RULES = [
      "pattern": r"\.heavy-|landing_since|AK_HEAVY_TURN",
      "home": ("agentkit/gate.py",),
      "max": 0},
+    # Run admission owns its lock, steady-poll counter and CPU/polling knobs.
+    {"name": "run admission",
+     "flags": (),
+     "pattern": r"\.slots\.lock|slot_healthy_polls|CPU_PRESSURE_LIMIT|AK_SLOT_POLL",
+     "home": ("agentkit/gate.py",),
+     "max": 0},
     # A harness is its adapter pair and its plugin, and a model is bound to its harness and
     # provider by one config.default.toml entry: every other copy of a name is harness
     # knowledge that adding, renaming or dropping a harness has to find and change.
@@ -71,13 +77,13 @@ RULES = [
      "names": r"quota[_-]?dry|run-quota|(cpu|unit)[ _]?quota|usage[ -]limit (reset|credit)",
      "home": ("adapters/", "agentkit/harness/"),
      "max": 61},
-    # run.json has one writer, so its keys and their transitions can be read in one file.
+    # The run loop and admission write run.json through its one writer.
     # Called through the module (`record.save_state`); watch.py's own `save_state` writes the
     # watcher's state, not a run record.
     {"name": "run-record writes",
      "flags": (),
      "pattern": r"\.save_state\(",
-     "home": ("agentkit/run.py",),
+     "home": ("agentkit/run.py", "agentkit/gate.py"),
      "max": 0},
     # A run's writer owns the temporary files and recovery lock it leaves on disk.
     {"name": "run record write",

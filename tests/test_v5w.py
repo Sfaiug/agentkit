@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, call, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import host, config, notify, run, worker
+from agentkit import gate, host, config, notify, run, worker
 from agentkit import record
 
 # The words the task pins, quoted here so the tests fail if the loop rewords them.
@@ -133,7 +133,7 @@ sys.exit(1)
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
-        self.stack.enter_context(patch.object(run, "SLOT_POLL", .01))
+        self.stack.enter_context(patch.object(gate, "SLOT_POLL", .01))
         config.ensure_dirs()
         self.cfg = config.load()
         for harness in {entry["harness"] for entry in self.cfg["models"].values()}:
@@ -276,7 +276,7 @@ sys.exit(1)
         with self.loop_sleeps() as sleep:
             code, directory, state = self.launch(rounds=1)
         self.assertEqual(code, 0, self.log(directory))
-        self.assertEqual(sleep.call_args_list, [call(run.SLOT_POLL)])
+        self.assertEqual(sleep.call_args_list, [call(gate.SLOT_POLL)])
         calls = self.calls("executor")
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0]["session"], [])
@@ -365,7 +365,7 @@ sys.exit(1)
         with self.loop_sleeps() as sleep:
             code, directory, state = self.launch(rounds=1)
         self.assertEqual(code, 0, self.log(directory))
-        self.assertEqual(sleep.call_args_list, [call(run.SLOT_POLL)])
+        self.assertEqual(sleep.call_args_list, [call(gate.SLOT_POLL)])
         calls = self.calls("executor")
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[1]["session"], ["sess-1"])

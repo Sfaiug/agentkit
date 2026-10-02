@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, host, land, record, run
+from agentkit import config, gate, host, land, record, run
 
 READINGS = {"free_mb": 4096, "mem_total_mb": 16384, "cpus": 8, "load": 41,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000,
@@ -56,9 +56,9 @@ class WokenMemberAdmission(unittest.TestCase):
         return directory
 
     def claim(self, directory, limit=1, readings=READINGS):
-        with run.slot_lock():
+        with gate.slot_lock():
             state = record.read_state(directory)
-            admitted = run.claim_slot(state, limit, readings)
+            admitted = gate.claim_slot(state, limit, readings)
             record.save_state(directory, state)
         return admitted
 
@@ -78,7 +78,7 @@ class WokenMemberAdmission(unittest.TestCase):
                 # A broken priority must fail instead of polling forever.
                 with redirect_stdout(StringIO()), patch.object(
                         run.time, "sleep", side_effect=[None, AssertionError("not admitted")]):
-                    state = run.wait_for_slot(directory)
+                    state = gate.wait_for_slot(directory)
                 self.assertEqual(state["state"], "running")
                 self.assertGreater(state["queued_at"], 20)
                 self.assertEqual(state["waiting_on"], waiting)
@@ -90,9 +90,9 @@ class WokenMemberAdmission(unittest.TestCase):
         self.receipt("holder", 1, word="running")
         fix = self.receipt("fix", 10, "fix")
         green = self.receipt("green", 20, "land")
-        self.assertLess(run.slot_order(record.read_state(green)),
-                        run.slot_order(record.read_state(fix)))
-        self.assertEqual(run.slot_note(record.read_state(fix)), "waiting for a slot · 1 ahead")
+        self.assertLess(gate.slot_order(record.read_state(green)),
+                        gate.slot_order(record.read_state(fix)))
+        self.assertEqual(gate.slot_note(record.read_state(fix)), "waiting for a slot · 1 ahead")
         self.assertFalse(self.claim(fix))
         self.assertEqual(record.read_state(fix)["slot_wait_kind"], "count")
         self.assertFalse(self.claim(green))
@@ -106,8 +106,8 @@ class WokenMemberAdmission(unittest.TestCase):
         with record.record(failed) as state:
             state["waiting_on"]["fix"] = {"line": "required checks failed: suite", "log": "pr.log"}
         green = self.receipt("green", 20, "land")
-        self.assertLess(run.slot_order(record.read_state(green)),
-                        run.slot_order(record.read_state(failed)))
+        self.assertLess(gate.slot_order(record.read_state(green)),
+                        gate.slot_order(record.read_state(failed)))
         self.assertFalse(self.claim(green))
         self.assertTrue(self.claim(green))
 
@@ -129,10 +129,10 @@ class WokenMemberAdmission(unittest.TestCase):
             with self.subTest(verdict=verdict):
                 directory = self.receipt(verdict, 20, verdict)
                 state = record.read_state(directory)
-                self.assertLess(run.slot_order(state), run.slot_order(record.read_state(ordinary)))
+                self.assertLess(gate.slot_order(state), gate.slot_order(record.read_state(ordinary)))
                 state["waiting_on"].pop(verdict)
                 record.save_state(directory, state)
-                self.assertGreater(run.slot_order(state), run.slot_order(record.read_state(ordinary)))
+                self.assertGreater(gate.slot_order(state), gate.slot_order(record.read_state(ordinary)))
                 self.assertFalse(self.claim(directory))
                 self.assertEqual(record.read_state(directory)["slot_wait_kind"], "count")
 

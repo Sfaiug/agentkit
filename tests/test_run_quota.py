@@ -27,7 +27,7 @@ from unittest.mock import MagicMock, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting, scripted, stateful
-from agentkit import host, config, notify, orch, run, usage, watch
+from agentkit import gate, host, config, notify, orch, run, usage, watch
 from agentkit import record
 
 WEEK = 604800
@@ -88,7 +88,7 @@ class Quota(unittest.TestCase):
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
-        self.stack.enter_context(patch.object(run, "SLOT_POLL", .01))
+        self.stack.enter_context(patch.object(gate, "SLOT_POLL", .01))
         config.ensure_dirs()
         self.cfg = scope_defaults(config.load())
         self.now = time.time()
@@ -288,7 +288,7 @@ class Quota(unittest.TestCase):
         self.assertEqual(saved["state"], "pass")
         self.assertNotIn("quota_dry", saved)
         self.assertEqual(sent, [])
-        self.assertEqual(sleeps, [run.SLOT_POLL])
+        self.assertEqual(sleeps, [gate.SLOT_POLL])
 
     def test_quota_merge_retry_on_a_marked_pass_stops_clean(self):
         # the reviewer's repro: a PASS carrying a leftover mark whose gh call stops
