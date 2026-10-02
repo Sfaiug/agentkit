@@ -158,7 +158,7 @@ back` while it asks. The runs are counted off the draw, so the card is up at
 once: `Its runs stop` until the number lands. The key line says `x close` while
 a done seat is highlighted (in the popup, while its own seat is done) and
 `x stop` otherwise, and a done
-seat's tmux bar reads `Ctrl-b m  x close` on its right half.
+seat's tmux bar reads `Ctrl-b m  x close` at the right end of its second line.
 
 A stdin that is no terminal -- a pipe, a file, the smoke suite -- keeps the
 line menu: a key and Enter, and the key line
@@ -457,8 +457,8 @@ Example: `  Claude    ██████░░░░░░  52% left · resets F
 Screens ask for a colour by its role, never by RGB: the accent (section titles,
 project headings, the highlight's `›`), `working`, `needs you` (`attention`,
 `amber`), `done` (`good`), `FAIL` (red) and `dim` (`waiting`). The one RGB a
-screen names is a company's own, on the `c` screen's Providers row. There is one
-palette per background, and `terminal.styled` draws from it:
+screen names is a company's own, on the `c` screen's Providers row and a seat's
+bar. There is one palette per background, and `terminal.styled` draws from it:
 
 - dark, `terminal.STATE_STYLES` (Catppuccin Mocha): accent and `working`
   `#89b4fa`, `needs you` `#f9e2af` bold, `done` `#a6e3a1`, `FAIL` `#f38ba8`,
@@ -479,6 +479,13 @@ no answer in time the dark one. The answer is read by `sense` and never as a
 key: keys typed while it waits are kept for `terminal.read_key`, and an answer
 that comes later is swallowed there whole. Every other command draws the dark
 palette, in true colour by `COLORTERM` alone.
+
+A seat's tmux bar (`statusbar.py`) is two lines on the terminal's own
+background, never tmux's green. Its state chip is dark bold text on that
+state's dark colour, which reads on either background; the rest is the
+terminal's own text or `dim`, and the orchestrator its company's colour. tmux
+cannot say which background a client has, so a light grey company (ChatGPT's
+white) is the terminal's own foreground: its mirror tone on a light terminal.
 
 Helpers: `terminal.sense`, `terminal.styled`, `terminal.colour_depth`.
 
