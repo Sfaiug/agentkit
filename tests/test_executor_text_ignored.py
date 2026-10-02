@@ -195,6 +195,8 @@ class ExecutorTextIgnored(unittest.TestCase):
     def test_review_checkout_left_after_interruption_cannot_hide_the_work_summary(self):
         for name in ("executor", "fixer", "final-fixer", "executor-fable-attempt2"):
             with self.subTest(worker=name):
+                # Each worker case represents a separate interrupted run.
+                self.lp.run_dir = self.root / name
                 work = f"## Summary\nChanged api.py in the {name} turn."
                 self.lp.rnd = 1
                 answered = self.lp.dir(name)
@@ -204,6 +206,8 @@ class ExecutorTextIgnored(unittest.TestCase):
                 file = hand_in.start(answered, self.lp.wt, role=role)
                 with patch.dict(os.environ, {hand_in.ENV: file}):
                     self.assertEqual(hand_in.main(["done"]), 0)
+                # Equal mtimes expose answers leaking between independent cases.
+                os.utime(answered, ns=(1_000_000_000, 1_000_000_000))
                 (self.lp.round_dir / "donewhen.log").write_text("$ true\n[exit 0]\n")
                 # The host stopped before reviewer_checkout could remove its copy.
                 stale = self.lp.dir("review-checkout")
