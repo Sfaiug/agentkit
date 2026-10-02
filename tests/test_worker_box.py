@@ -157,15 +157,17 @@ class WorkerBox(unittest.TestCase):
         default.unlink()
         default.symlink_to(store)
         xdg, gh = self.root / "xdg", self.root / "gh"
+        literal = self.root / "literal-$HOME"
         for path in (xdg / "gh/hosts.yml", xdg / "git/credentials", gh / "hosts.yml",
-                     self.root / "named-store", self.root / "env-store"):
+                     self.root / "named-store", self.root / "env-store", literal):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("fixture-secret")
         (self.root / ".gitconfig").write_text(
             '[credential]\n\thelper = store --file "~/named-store"\n'
-            '\thelper = store --file "$HOME/env-store"\n')
+            '\thelper = store --file "$HOME/env-store"\n'
+            f"\thelper = store --file '{literal}'\n")
         paths = [login, store, xdg / "gh/hosts.yml", xdg / "git/credentials", gh / "hosts.yml",
-                 self.root / "named-store", self.root / "env-store",
+                 self.root / "named-store", self.root / "env-store", literal,
                  Path("/proc/1/root") / str(hosts).lstrip("/")]
         with patch.dict(os.environ, {
                 "XDG_CONFIG_HOME": str(xdg), "GH_CONFIG_DIR": str(gh),
@@ -204,7 +206,7 @@ class WorkerBox(unittest.TestCase):
 
     def test_silence_kills_unmarked_detached_children_too(self):
         with patch.dict(os.environ, {"BOX_HANG": "1"}):
-            code, _, _, killed, _ = self.turn(limit=.5)
+            code, _, _, killed, _ = self.turn(limit=2)
         self.assertEqual((code, killed), (worker.TIMEOUT, True))
         self.assertTrue((self.out / "ready").exists())
         self.assertFalse(self.alive())

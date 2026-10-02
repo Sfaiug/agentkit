@@ -39,7 +39,8 @@ def _credentials(env, cwd):
                             cwd=cwd, env=env, capture_output=True, text=True, timeout=10)
     for line in result.stdout.splitlines():
         try:
-            words = shlex.split(line.split(None, 1)[1])
+            helper = line.split(None, 1)[1]
+            words = shlex.split(helper)
         except (IndexError, ValueError):
             continue
         if not words or Path(words[0]).name not in (
@@ -50,9 +51,11 @@ def _credentials(env, cwd):
             value = word[len(flag) + 1:] if word.startswith(flag + "=") else (
                 words[i + 1] if word == flag and i + 1 < len(words) else None)
             if value:
-                value = Template(value).safe_substitute(env)
+                literal = f"'{value}'" in helper or f"'{flag}={value}'" in helper
+                if not literal:
+                    value = Template(value).safe_substitute(env)
                 path = Path(value.replace("~/", str(env.get("HOME") or Path.home()) + "/", 1)
-                            if value.startswith("~/") else value)
+                            if value.startswith("~/") and not literal else value)
                 files.add(path if path.is_absolute() else Path(cwd or os.getcwd()) / path)
     return directories, files
 
