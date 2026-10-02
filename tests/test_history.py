@@ -51,6 +51,22 @@ class HistoryTests(unittest.TestCase):
             history.start_run("r1", log=lambda _: None)
             history.update_run("r1", verdict="FAIL", log=lambda _: None)
 
+    def test_ended_runs_read_real_rows_in_an_inclusive_range_without_writing(self):
+        self.assertEqual(history.ended_runs(10, 20), [])
+        self.assertFalse(history.path().exists())
+        for name, finish, state in (("before", 9, "pass"), ("first", 10, "pass"),
+                                    ("last", 20, "fail"), ("after", 21, "pass"),
+                                    ("stopped", 15, "stopped")):
+            history.start_run(name, repo="acme", started_at=1)
+            history.finish_run(name, finished_at=finish, final_state=state)
+        history.start_run("running", repo="acme", started_at=10)
+        before = history.path().read_bytes()
+        with patch.object(config, "RUNS", self.home / "runs"):
+            rows = history.ended_runs(10, 20)
+        self.assertCountEqual([row["run_id"] for row in rows], ["first", "last"])
+        self.assertEqual(next(row for row in rows if row["run_id"] == "last"), history.get("last"))
+        self.assertEqual(history.path().read_bytes(), before)
+
     def test_time_estimate_needs_five_runs(self):
         now = time.time()
         for n, seconds in enumerate((10, 20, 30, 40)):
@@ -93,6 +109,7 @@ class HistoryTests(unittest.TestCase):
         self.assertIsNone(history.estimate_seconds("agentkit-smoke"))
         self.assertIsNone(history.size_summary("agentkit-smoke"))
         self.assertEqual(history.finished_repos(), [])
+        self.assertEqual(history.ended_runs(now - 1, now), [])
 
     def test_estimate_and_speed_are_active_time_of_runs_not_stopped(self):
         now = time.time()

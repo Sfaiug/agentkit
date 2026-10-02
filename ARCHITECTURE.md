@@ -75,8 +75,11 @@
   up into menu, run, watch and orch.
 - `update.py`: `[update]` upgrades, rollback; `go_live` once `tests/live.sh` passed.
   Used by menu, orch, run, watch. Leak: `MuseSnapshot` knows Muse's layout.
-- `history.py`: SQLite `history.db` of runs and steps; active duration estimates. For
-  run, gate, menu, harness. Leak: parses harness event logs.
+- `history.py`: SQLite `history.db` of runs and steps; active duration estimates.
+  `ended_runs` supplies real ended rows to scoreboard. For run, gate, menu, harness,
+  scoreboard. Leak: parses harness event logs.
+- `scoreboard.py`: the scoreboard's two weeks of delivered work, ak's cost and committed
+  size, and all its words and wrapping. API: `compute`, `render`; for run's history status.
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
   cleanup, compression. Used by gc, run, orch, update, notify. Leaks: Claude and Codex
   config formats.

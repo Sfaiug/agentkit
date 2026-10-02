@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, run, terminal
+from agentkit import config, history, run, scoreboard, terminal
 
 NOW = 1_800_000_000
 WEEK = 7 * 86400
@@ -40,7 +40,7 @@ class Scoreboard(unittest.TestCase):
         self.stack.enter_context(patch.object(config, "REPO", self.repo))
         self.stack.enter_context(patch.object(run, "host_status_line", return_value="host fixture"))
         self.stack.enter_context(patch.object(config, "load", return_value={"models": {}, "providers": {}}))
-        self.stack.enter_context(patch.object(history.time, "time", return_value=NOW))
+        self.stack.enter_context(patch.object(scoreboard.time, "time", return_value=NOW))
         self.git("init", "-q", "-b", "main")
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
@@ -87,7 +87,7 @@ class Scoreboard(unittest.TestCase):
         self.ended("before", ago=WEEK + 1, hours=8, tokens=(300, 100))
         self.ended("before-blocked", ago=WEEK + 2, state="blocked", merged=False)
         self.ended("own-before", repo="toolkit", ago=WEEK + 1, tokens=(800, 200))
-        board = history.scoreboard(NOW)
+        board = scoreboard.compute(NOW)
         self.assertEqual(board["products"][0], {
             "runs": 7, "merged": 2, "first_round": 1 / 7, "unmerged": 4 / 7,
             "hours": 2, "tokens": 150})
@@ -107,7 +107,7 @@ class Scoreboard(unittest.TestCase):
         self.ended("future", ago=-1)
         self.ended("still-running", state="running")
         self.ended("waiting-login", state="waiting_login")
-        board = history.scoreboard(NOW)
+        board = scoreboard.compute(NOW)
         self.assertEqual([stats["runs"] for stats in board["products"]], [2, 1])
         self.assertEqual(board["ak"], [None, None])
 
@@ -121,30 +121,30 @@ class Scoreboard(unittest.TestCase):
         with closing(sqlite3.connect(history.path())) as db, db:
             db.execute("UPDATE runs SET repo='agentkit-e2e' WHERE run_id='old-e2e'")
         self.saved("old-tmp", repo="/home/acme/.agentkit/tmp/suite/repo-retry")
-        board = history.scoreboard(NOW)
+        board = scoreboard.compute(NOW)
         self.assertEqual(board["products"][0]["runs"], 1)
         self.assertEqual(board["products"][0]["tokens"], 100)
         self.assertEqual(board["ak"], [None, None])
         self.ended("own", repo="toolkit")
-        self.assertEqual(history.scoreboard(NOW)["ak"][0]["token_share"], .5)
+        self.assertEqual(scoreboard.compute(NOW)["ak"][0]["token_share"], .5)
 
     def test_merge_evidence_survives_cleanup_and_pass_alone_is_not_a_merge(self):
         self.ended("durable", rounds=2)
         self.ended("legacy", merged=False)
         self.saved("legacy", merged=True)
         self.ended("pass-only", merged=False)
-        stats = history.scoreboard(NOW)["products"][0]
+        stats = scoreboard.compute(NOW)["products"][0]
         self.assertEqual((stats["runs"], stats["merged"], stats["first_round"]), (3, 2, 1 / 3))
 
     def test_missing_token_measurements_stay_unknown_and_medians_ignore_outliers(self):
         self.ended("unknown", tokens=(100, None))
-        self.assertIsNone(history.scoreboard(NOW)["products"][0]["tokens"])
+        self.assertIsNone(scoreboard.compute(NOW)["products"][0]["tokens"])
         text = " ".join(self.status("--history").split())
         self.assertIn("median tokens per merged run unknown", text)
         for name, hours, tokens in (("one", 1, (0, 0)), ("two", 2, (120, 80)),
                                     ("outlier", 1000, (80000, 20000))):
             self.ended(name, hours=hours, tokens=tokens)
-        stats = history.scoreboard(NOW)["products"][0]
+        stats = scoreboard.compute(NOW)["products"][0]
         self.assertEqual((stats["hours"], stats["tokens"]), (1.5, 200))
         self.ended("large-cost", repo="toolkit", tokens=(1200000, 300001))
         self.assertIn("1,500,001 tokens", " ".join(self.status("--history").split()))
@@ -157,7 +157,7 @@ class Scoreboard(unittest.TestCase):
         self.ended("own", repo="toolkit")
         self.ended("product-named-agentkit", repo="agentkit", tokens=(180, 20))
         with patch.object(config, "REPO", installed):
-            board = history.scoreboard(NOW)
+            board = scoreboard.compute(NOW)
         self.assertEqual(board["ak"][0]["runs"], 1)
         self.assertEqual(board["products"][0]["runs"], 1)
         self.assertEqual(board["ak"][0]["token_share"], 1 / 3)
@@ -180,17 +180,17 @@ class Scoreboard(unittest.TestCase):
         self.commit(3 * 86400)
         (self.repo / "agentkit/untracked.py").write_text("ignored\n" * 100)
         (self.repo / "agentkit/core.py").write_text("uncommitted\n" * 100)
-        self.assertEqual(history.scoreboard(NOW)["size"], [
+        self.assertEqual(scoreboard.compute(NOW)["size"], [
             {"code_lines": 11, "readme_words": 5}, {"code_lines": 8, "readme_words": 2}])
 
     def test_new_install_and_missing_git_or_database_use_words_for_missing_data(self):
         (self.repo / "README.md").write_text("new install\n")
         self.commit(1)
-        board = history.scoreboard(NOW)
+        board = scoreboard.compute(NOW)
         self.assertEqual(board["size"], [{"code_lines": 0, "readme_words": 2}, None])
         self.assertFalse(history.path().exists())
-        with patch.object(history.subprocess, "run", side_effect=OSError("git unavailable")):
-            board = history.scoreboard(NOW)
+        with patch.object(scoreboard.subprocess, "run", side_effect=OSError("git unavailable")):
+            board = scoreboard.compute(NOW)
         self.assertEqual(board, {"products": [None, None], "ak": [None, None], "size": [None, None]})
         text = self.status("--history")
         self.assertIn("no runs ended", text)
@@ -207,22 +207,49 @@ class Scoreboard(unittest.TestCase):
                        (NOW - 3601, NOW - 1))
         self.saved("old", merged=True)
         before = history.path().read_bytes()
-        stats = history.scoreboard(NOW)["products"][0]
+        stats = scoreboard.compute(NOW)["products"][0]
         self.assertEqual((stats["runs"], stats["hours"], stats["tokens"]), (1, 1, 100))
         self.assertEqual(history.path().read_bytes(), before)
+
+    def test_render_keeps_the_existing_text(self):
+        board = {
+            "products": [{"runs": 3, "merged": 2, "first_round": 1 / 3, "unmerged": 1 / 3,
+                          "hours": 1.5, "tokens": 1500}, None],
+            "ak": [{"runs": 1, "merged": 0, "first_round": 0, "unmerged": 1,
+                    "hours": None, "tokens": None, "token_share": .6},
+                   {"runs": 1, "merged": 1, "first_round": 1, "unmerged": 0,
+                    "hours": None, "tokens": None, "token_share": None}],
+            "size": [{"code_lines": 17, "readme_words": 5}, None],
+        }
+        expected = [
+            "Scoreboard (reported tokens; size now and 7 days ago)",
+            "          last 7 days                                   7 days before",
+            "products  3 runs ended; 33% merged in round 1; 33%      no runs ended",
+            "          ended without merging; median 1.5 hours to",
+            "          merge; median 1,500 tokens per merged run",
+            "ak        1 runs ended; 0% merged in round 1; 100%      1 runs ended; 100% merged in round 1; 0%",
+            "          ended without merging; no merged runs; 60%    ended without merging; merge hours unknown;",
+            "          of all recorded tokens                        median tokens per merged run unknown; no",
+            "                                                        tokens recorded",
+            "ak size   17 code lines, 5 README words                 size unavailable",
+        ]
+        with patch.object(scoreboard, "compute", return_value=board), \
+                patch.object(terminal, "content_width", return_value=100):
+            self.assertEqual(scoreboard.render(), expected)
+            self.assertIn("\n".join(expected) + "\n", self.status("--history"))
 
     def test_status_prints_the_board_only_for_human_history_and_wraps_both_weeks(self):
         self.ended("product")
         self.ended("own", repo="toolkit", state="fail", merged=False)
         for width in (100, 40):
             with patch.object(terminal, "content_width", return_value=width):
-                lines = run.scoreboard_lines()
+                lines = scoreboard.render()
             self.assertTrue(all(terminal.cells(line) <= width for line in lines), lines)
             self.assertTrue(all(line == line.rstrip() for line in lines))
             self.assertNotIn("…", "\n".join(lines))
             for word in ("products", "ak", "no merged runs", "no runs ended"):
                 self.assertIn(word, " ".join(" ".join(lines).split()))
-        with patch.object(history, "scoreboard", wraps=history.scoreboard) as board:
+        with patch.object(scoreboard, "compute", wraps=scoreboard.compute) as board:
             self.assertNotIn("Scoreboard", self.status())
             self.assertEqual(json.loads(self.status("--history", "--json")), [])
             board.assert_not_called()
