@@ -8,7 +8,7 @@ the orchestrator's own exec mark is drawn filled and dim while nobody else is ma
 Offline: throwaway HOME, fake launch/drive/tmux, and invented GitHub responses.
 """
 
-from contextlib import closing, redirect_stderr, redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import os
 from pathlib import Path
@@ -58,6 +58,8 @@ class ExecutorsOptional(Sandbox):
         self.assertEqual(config.load_session(self.cfg, "fix-api")["workers"], [])
         with self.assertRaisesRegex(config.Error, "workers must be a non-empty list"):
             config.save_session(self.cfg, "legacy", "opus", [])
+        with self.assertRaisesRegex(config.Error, "reviewers must be a non-empty list"):
+            config.save_session(self.cfg, "empty", "opus", [], {"reviewers": []})
 
     def test_task_launch_is_refused_before_any_run_or_job_exists(self):
         with patch.object(run, "prepare") as prepare, \
@@ -65,6 +67,7 @@ class ExecutorsOptional(Sandbox):
                 patch.object(run.jobs, "job_create", return_value=(self.root, {})) as job, \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             for args in ([str(self.task)], [str(self.task), "--bg", "--anyway"],
+                         [str(self.task), "--exec", "opus"],
                          [str(self.task), str(self.task), "--parallel", "2"]):
                 with self.subTest(args=args):
                     with self.assertRaises(config.Error) as refused:
@@ -77,7 +80,28 @@ class ExecutorsOptional(Sandbox):
             spawn.assert_not_called()
             job.assert_not_called()
 
-    def test_own_pr_is_still_reviewed_and_starts_no_followup_workers(self):
+    def test_own_pr_review_still_launches_without_executors(self):
+        url = "https://github.com/acme/api/pull/7"
+        info = {"title": "Fix the endpoint", "author": "acme-owner",
+                "baseRefName": "main", "headRefOid": "f" * 40}
+
+        def drive(cfg, directory, opts, log, job=None, **_kw):
+            receipt = record.read_state(directory)
+            self.assertTrue(receipt["own_pr"])
+            self.assertEqual(receipt["own_orchestrator"], "opus")
+            self.assertEqual((receipt["workers"], receipt["reviewers"]), ([], ["astra"]))
+            return job()
+
+        with patch.object(run, "pr_view", return_value=info), \
+                patch.object(run, "viewer_login", return_value="acme-owner"), \
+                patch.object(run, "drive", side_effect=drive), \
+                patch.object(run, "review_pr", return_value=0) as review, \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(run.main(["--review-pr", url]), 0)
+        review.assert_called_once()
+        self.assertEqual(review.call_args.args[2], url)
+
+    def test_own_pr_starts_no_followup_workers(self):
         self.assertIsNone(run.pair_refusal(self.cfg, {}, [], reviewers=["astra"]))
         with patch.object(usage, "unready", return_value="not logged in"):
             self.assertIn("reviewers astra", run.pair_refusal(self.cfg, {}, [],
@@ -104,27 +128,29 @@ class ExecutorsOptional(Sandbox):
 
     def test_orchestrator_exec_mark_is_filled_and_dim_while_nobody_else_is_marked(self):
         marks = "●○■□"
-        self.assertEqual(orch.role_texts(self.selected(), "opus", marks), (("●", "■", "□"), True))
-        self.assertEqual(orch.role_texts(self.selected(), "astra", marks), (("○", "□", "■"), False))
-        with_one = {**self.selected(), "workers": ["fable"]}
-        self.assertEqual(orch.role_texts(with_one, "opus", marks), (("●", "□", "□"), False))
-        with patch.object(terminal, "layout_width", return_value=100):
+        with patch.object(terminal, "layout_width", return_value=100), \
+                patch.object(terminal, "colour_depth", return_value=8), \
+                patch.object(terminal, "utf8", return_value=True):
             lines, _ = menu.config_body(self.cfg, "fixture", selected=self.selected())
-        rows = {terminal.plain(line).lstrip("› ").split()[0]:
-                "".join(char for char in terminal.plain(line) if char in marks)
-                for line in lines if any(char in marks for char in terminal.plain(line))}
-        self.assertEqual((rows["opus"], rows["astra"]), ("●■□", "○□■"))
+            picker, _, _ = orch.picker_lines(self.cfg, dict.fromkeys(config.offered(self.cfg), ""),
+                                             self.selected(), None, 0, 100)
+            for screen in (lines, picker):
+                rows = {terminal.plain(line).lstrip("› ").split()[0]: line
+                        for line in screen if any(char in marks for char in terminal.plain(line))}
+                self.assertIn(terminal.styled(" ■ ", "dim"), rows["opus"])
+                self.assertEqual(tuple("".join(char for char in terminal.plain(rows[name])
+                                               if char in marks) for name in ("opus", "astra")),
+                                 ("●■□", "○□■"))
 
     def test_defaults_without_executor_stay_without_on_the_new_session_screen(self):
         self.cfg["defaults"] = {"orchestrator": "opus", "workers": [], "reviewers": ["astra"]}
         config._fall_back(self.cfg["defaults"], list(self.cfg["models"]))
         self.assertEqual(self.cfg["defaults"]["workers"], [])
         with patch.object(terminal, "Keyboard", Keys), \
-                patch.object(orch, "_picking", side_effect=lambda cfg, p, n, chosen: chosen), \
-                patch.object(orch, "spent_note", return_value=""):
+                patch.object(terminal, "read_key", side_effect=[terminal.Key("enter")]), \
+                patch.object(orch, "spent_note", return_value=""), redirect_stdout(io.StringIO()):
             chosen = orch.pick(self.cfg, {}, "opus")
-        self.assertEqual((chosen["orchestrator"], chosen["workers"], chosen["reviewers"]),
-                         ("opus", [], ["astra"]))
+        self.assertEqual(chosen, ("opus", [], ["astra"]))
 
 
 if __name__ == "__main__":

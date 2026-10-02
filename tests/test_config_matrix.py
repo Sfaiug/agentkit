@@ -1,5 +1,5 @@
 """`c` is a matrix of models moved through with the keys: a session's mark flipped is saved to
-its record at once, there is always one orchestrator and one worker, an effort steps only within
+its record at once, there is always one orchestrator and one reviewer, an effort steps only within
 its model's own list, a click flips a mark, and the rows under the models run their steps.
 Without a session the matrix is the efforts alone.
 

@@ -1,5 +1,5 @@
-"""A session's models live on `c`: a role flip saves to the session's record at once, each
-group keeps one model, and a choice leaving no allowed pair is refused in one line.
+"""A session's models live on `c`: a role flip saves to the session's record at once,
+reviewers keep one model, and a choice leaving no allowed pair is refused in one line.
 
 Offline: `menu.session_mark` flips against session records in a throwaway HOME, proving the
 run boundary -- a run launched next reads the new groups, one already going keeps the groups

@@ -461,7 +461,7 @@ def shipped():
 
 
 def _fall_back(defaults, left):
-    """[defaults] kept to the models `left`, in memory: one it empties takes the first."""
+    """Keep defaults to models `left`; explicit empty executors stay empty."""
     if defaults.get("orchestrator") not in left:
         defaults["orchestrator"] = left[0]
     named = defaults.get("workers") or []

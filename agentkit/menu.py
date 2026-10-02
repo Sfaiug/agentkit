@@ -3176,8 +3176,8 @@ def session_mark(cfg, name, selected, model, column, providers):
     `column` is 0 for the orchestrator and 1 for executes and 2 for reviews, as
     `orch.role_mark` numbers them. The orchestrator moves the seat to that model at once,
     under the same name, and a harness that is not installed or not logged in, or a meter
-    that is spent, is refused in one line with the seat as it was. Each role group keeps
-    one model, and a flip leaving no allowed executor/reviewer pair is refused. A run
+    that is spent, is refused in one line with the seat as it was. Reviewers keep one
+    model, executors may be empty, and a flip leaving no allowed pair is refused. A run
     launched afterwards reads the record as left here; one already going keeps the groups
     its receipt saved. A refusal or a save that fails leaves the record, and `selected`,
     alone. What to say under the rows, or "".

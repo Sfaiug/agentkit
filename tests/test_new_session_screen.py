@@ -259,7 +259,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.saw("<created new astra opus,astra opus,astra>")
         screen.leave()
 
-    def test_a_worker_toggled_off_and_the_last_one_kept(self):
+    def test_all_workers_may_be_toggled_off(self):
         screen = Screen(self)
         screen.menu()
         screen.send(b"n")
@@ -269,10 +269,10 @@ class NewSessionScreen(unittest.TestCase):
         screen.send(RIGHT + SPACE)             # Opus's executor mark
         screen.picker(lambda lines: marks(highlighted(lines)) == "●□■")
         mark = len(screen.text())
-        screen.send(DOWN + SPACE)              # Astra, the last executor, stays chosen
-        lines = screen.picker(lambda lines: "exec needs one model" in "\n".join(lines),
+        screen.send(DOWN + SPACE)              # Astra, the last executor, may go too
+        lines = screen.picker(lambda lines: marks(highlighted(lines)) == "○□■",
                               after=mark)
-        self.assertEqual(marks(highlighted(lines)), "○■■")
+        self.assertEqual(marks(next(line for line in lines if "opus" in line)), "●■■")
         # A click chooses Spark's executor mark even with the cursor in the orch column.
         screen.send(LEFT)
         row = next(number for number, line in enumerate(lines, 1) if "spark" in line)
@@ -281,7 +281,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.picker(lambda lines: "spark" in highlighted(lines)
                       and marks(highlighted(lines))[1] == "■")
         screen.send(ENTER)
-        screen.saw("<created new opus astra,spark opus,astra>")
+        screen.saw("<created new opus spark opus,astra>")
         screen.leave()
 
     def test_a_spent_model_reads_dim_and_is_not_preselected(self):

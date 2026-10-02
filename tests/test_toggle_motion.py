@@ -222,19 +222,19 @@ class ConfigScreen(Screens):
         self.assertEqual(screen.record()["workers"], ["opus", "astra"])
         screen.leave()
 
-    def test_the_last_executor_refused_shakes_and_nothing_is_saved(self):
+    def test_the_last_reviewer_refused_shakes_and_nothing_is_saved(self):
         screen = Screen(self, workers=["opus"])
         number, line = row(screen.frame(), "opus")
         before = screen.record()
-        cells = moved(screen, click(mark_column(line, 1), number))
-        self.assertIn("  exec needs one model", screen.frame())
+        cells = moved(screen, click(mark_column(line, 2), number))
+        self.assertIn("  review needs one model", screen.frame())
         landed(self, glyphs(cells, number), ["■"] * 4)
-        landed(self, shifts(cells, number, mark_column(line, 1)), [-1, 1, -1, 0])
+        landed(self, shifts(cells, number, mark_column(line, 2)), [-1, 1, -1, 0])
         lit_through(self, cells, number)
         self.assertEqual(screen.record(), before)
         screen.leave()
 
-    def test_the_last_executor_refusal_can_skip_frames(self):
+    def test_the_last_reviewer_refusal_can_skip_frames(self):
         # A scheduler pause can outlast the shake without changing the refusal or its landing.
         child = CHILD.replace("with closing(", """
 import time
@@ -250,7 +250,7 @@ with closing(""", 1)
         create = Screen
         with patch(__name__ + ".Screen", side_effect=lambda *args, **kwargs:
                    create(*args, child=child, **kwargs)):
-            self.test_the_last_executor_refused_shakes_and_nothing_is_saved()
+            self.test_the_last_reviewer_refused_shakes_and_nothing_is_saved()
 
     def test_a_model_just_added_glows_and_a_key_ends_it_at_once(self):
         screen = Screen(self, env={"COLORTERM": "truecolor"})     # a glow fades in fine steps
@@ -316,18 +316,18 @@ class NewSessionScreen(Screens):
         screen.saw("<created new opus astra,opus opus,astra>")
         screen.leave()
 
-    def test_the_last_executor_refused_shakes_and_stays_chosen(self):
+    def test_the_last_reviewer_refused_shakes_and_stays_chosen(self):
         screen, lines = self.picker()
-        screen.send(new_session.SPACE)                  # Opus off: Astra is the last one
-        lines = screen.picker(lambda lines: new_session.marks(highlighted(lines)) == "●□■")
+        screen.send(RIGHT + new_session.SPACE)          # Opus's review off: Astra is the last one
+        lines = screen.picker(lambda lines: new_session.marks(highlighted(lines)) == "●■□")
         number, line = numbered(lines, "astra")
-        cells = moved(screen, click(mark_column(line, 1), number))
-        self.assertIn("exec needs one model", "\n".join(screen.picker()))
-        landed(self, shifts(cells, number, mark_column(line, 1)), [-1, 1, -1, 0])
+        cells = moved(screen, click(mark_column(line, 2), number))
+        self.assertIn("review needs one model", "\n".join(screen.picker()))
+        landed(self, shifts(cells, number, mark_column(line, 2)), [-1, 1, -1, 0])
         lit_through(self, cells, number)
         self.assertEqual(new_session.marks(highlighted(screen.picker())), "○■■")
         screen.send(ENTER)
-        screen.saw("<created new opus astra opus,astra>")
+        screen.saw("<created new opus opus,astra astra>")
         screen.leave()
 
 
