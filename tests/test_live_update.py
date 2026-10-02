@@ -202,7 +202,7 @@ class LiveUpdate(unittest.TestCase):
         (self.clone / "own").write_text("a commit of its own\n")
         git(self.clone, "add", "own")
         git(self.clone, "commit", "-q", "-m", "own")
-        self.assert_left_and_said_once("pull --ff-only exited")
+        self.assert_left_and_said_once("merge --ff-only")
 
     def test_a_failed_install_is_said_once(self):
         new = self.merge("second", install="#!/bin/sh\necho broken\nexit 3\n")

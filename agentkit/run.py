@@ -5783,21 +5783,27 @@ def merge_turn_ahead(path, rank):
     return None
 
 
-def merge_turn_lock(url, upstream):
-    """The lock file of one repository's merge turn at `upstream`, however a clone spells it.
+def remote_key(url):
+    """`host/owner/repo` for a clone URL, however it spells the repository.
 
     `git@github.com:acme/widget.git`, `ssh://git@github.com:22/acme/widget` and
-    `https://github.com/Acme/widget` are one repository and so one turn: the host and the
-    path are what is kept, without a user, a port, a trailing `.git`, or the case GitHub
-    ignores.  A local path is itself.  The name is a digest of all of it and the branch, so
-    no two repositories share a turn by spelling alike.
+    `https://github.com/Acme/widget` are one repository: the host and the path are what is
+    kept, without a user, a port, a trailing `.git`, or the case GitHub ignores.  A local
+    path is itself.
     """
     scp = re.fullmatch(r"(?:[^@/]+@)?([^:/]+):(?!//)(.+)", url)
     parts = urlsplit(url)
     host, path = (scp[1], scp[2]) if scp else (parts.hostname, parts.path)
-    if host:
-        url = f"{host}/{path.strip('/').removesuffix('.git')}".lower()
-    digest = hashlib.sha256(f"{url}\n{upstream}".encode()).hexdigest()
+    return f"{host}/{path.strip('/').removesuffix('.git')}".lower() if host else url
+
+
+def merge_turn_lock(url, upstream):
+    """The lock file of one repository's merge turn at `upstream`, however a clone spells it.
+
+    One repository is one turn (`remote_key`).  The name is a digest of it and the branch,
+    so no two repositories share a turn by spelling alike.
+    """
+    digest = hashlib.sha256(f"{remote_key(url)}\n{upstream}".encode()).hexdigest()
     return config.RUNS / f".merge-{digest}.lock"
 
 
