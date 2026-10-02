@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
-from agentkit import config, orch
+from agentkit import config, orch, terminal
 from agentkit import record as run_record
 
 
@@ -75,10 +75,9 @@ class ProjectView(Sandbox):
         self.plan("idle", "- [x] all done\n")
         tree, base = self.worktree()
         self.add_run("r1", "builder", state="running", worktree=str(tree), base_sha=base)
-        self.add_run("r2", "builder", state="pass", worktree=str(tree), base_sha=base,
-                     finished_at=1)
         task = self.root / "t.md"
         task.write_text("---\nfiles: docs/guide.md, menu.py\n---\n# t\n")
+        self.add_run("r2", "builder", state="pass", task_file=str(task), finished_at=1)
         self.add_run("r3", "design", state="queued", task_file=str(task))
         out = self.file()
         self.assertEqual(out.splitlines(), [
@@ -91,6 +90,59 @@ class ProjectView(Sandbox):
             "    plan: nested step",
             "    changing: docs/guide.md, menu.py",
         ])
+
+    def test_renamed_seat_uses_its_latest_plan_and_owns_its_old_runs(self):
+        config.rename_session("design", "design-api")
+        config.rename_session("design-api", "design-ui")
+        for seat, text, at in (("design-ui", "- [ ] stale line\n", 100),
+                               ("design", "- [x] done\n- [ ] current line\n", 200)):
+            self.plan(seat, text)
+            os.utime(config.plan_path(seat), (at, at))
+        task = self.root / "t.md"
+        task.write_text("---\nfiles: docs/guide.md\n---\n# t\n")
+        self.add_run("r1", "design", state="queued", task_file=str(task))
+        self.assertEqual(orch.in_flight("fix-api", self.acme),
+                         [("design-ui", ["current line"], {"docs/guide.md"})])
+        self.plan("design-ui", "- [ ] new line\n")
+        self.assertEqual(orch.in_flight("fix-api", self.acme)[0][1], ["new line"])
+
+    def test_tracks_both_rename_paths_and_preserves_unusual_names(self):
+        tree, base = self.worktree()
+        git(tree, "mv", "kept.py", "moved.py")
+        git(tree, "commit", "-qm", "rename")
+        names = ["résumé.py", 'a"b.py', "line\nbreak.py"]
+        for name in names:
+            (tree / name).write_text("new\n")
+        git(tree, "add", *names)
+        self.assertEqual(set(orch.changed_files({"worktree": str(tree), "base_sha": base})),
+                         {"added.py", "app.py", "kept.py", "moved.py", *names})
+
+    def test_view_leaves_seat_records_plans_and_runs_unchanged(self):
+        self.plan("design", "- [ ] current line\n")
+        tree, base = self.worktree()
+        self.add_run("r1", "builder", state="running", worktree=str(tree), base_sha=base)
+
+        def snapshot():
+            return {path: (path.read_bytes(), path.stat().st_mtime_ns)
+                    for root in (config.STATE, config.RUNS) for path in root.rglob("*")
+                    if path.is_file()}
+
+        before = snapshot()
+        self.assertEqual(len(orch.in_flight("fix-api", self.acme)), 2)
+        self.assertEqual(snapshot(), before)
+
+    def test_long_plan_and_file_lines_wrap_through_terminal(self):
+        line = "update the project view so every other session can see the open plan"
+        self.plan("design", f"- [ ] {line}\n")
+        task = self.root / "t.md"
+        task.write_text("---\nfiles: docs/guide.md, agentkit/menu.py, README.md\n---\n# t\n")
+        self.add_run("r1", "design", state="queued", task_file=str(task))
+        with patch.object(terminal, "layout_width", return_value=40):
+            lines = self.file().splitlines()
+        content = [text for text in lines if text.startswith("    ")]
+        self.assertTrue(all(terminal.cells(text) <= 40 for text in content))
+        self.assertEqual(" ".join(text.strip() for text in content),
+                         f"plan: {line} changing: README.md, agentkit/menu.py, docs/guide.md")
 
     def test_nothing_in_flight_says_so(self):
         self.plan("idle", "- [x] all done\n")

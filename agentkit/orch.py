@@ -2766,12 +2766,16 @@ def cmd_project(argv):
     flight = in_flight(name, repo)
     print(f"in flight on {repo.name}, plan around it:" if flight
           else f"nothing else in flight on {repo.name}")
+    room = terminal.layout_width() - 4
     for seat, lines, files in flight:
-        print(f"  {seat}")
+        for part in terminal.wrap(seat, room + 2):
+            print(f"  {part}")
         for line in lines:
-            print(f"    plan: {line}")
+            for part in terminal.wrap(f"plan: {line}", room):
+                print(f"    {part}")
         if files:
-            print(f"    changing: {', '.join(sorted(files))}")
+            for part in terminal.wrap(f"changing: {', '.join(sorted(files))}", room):
+                print(f"    {part}")
     return 0
 
 
@@ -2786,15 +2790,12 @@ def in_flight(name, repo):
     change against their base, committed or not, or a queued run's task `files:`.  A seat
     with neither is left out.
     """
-    from . import menu, run   # here, not at the top: menu imports this module
+    from . import menu, run, watch   # here, not at the top: menu imports this module
     target = checkout_of(repo)
     seats = {seat: ([], set()) for seat, record in sorted(config.session_records().items())
              if seat != name and target and checkout_of(record.get("repo")) == target}
     for seat, (lines, _) in seats.items():
-        try:
-            plan = config.plan_path(seat).read_text(errors="replace")
-        except (OSError, config.Error):
-            plan = ""
+        plan = watch.plan_text(seat)
         lines.extend(m.group(1).strip() for m in map(PLAN_OPEN.match, plan.splitlines()) if m)
     for directory in run_record.run_dirs():
         state = run_record.read_state(directory) or {}
@@ -2810,11 +2811,12 @@ def changed_files(state):
     tree, base = state.get("worktree"), state.get("base_sha")
     if tree and base and os.path.isdir(tree):
         try:
-            done = subprocess.run(["git", "-C", tree, "diff", "--name-only", base],
-                                  capture_output=True, text=True, timeout=10)
+            done = subprocess.run(["git", "-C", tree, "diff", "--name-only", "-z",
+                                   "--no-renames", base, "--"], capture_output=True, timeout=10)
         except (OSError, subprocess.SubprocessError):
             return []
-        return done.stdout.splitlines() if done.returncode == 0 else []
+        return [path for path in os.fsdecode(done.stdout).split("\0") if path] \
+            if done.returncode == 0 else []
     from . import task
     try:
         return task.task_files(Path(state["task_file"])) if state.get("task_file") else []
