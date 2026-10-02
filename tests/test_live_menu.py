@@ -104,22 +104,31 @@ class LiveMenu(Sandbox):
         self.assertRegex(screens[0], r"Claude\s+[█░]+\s+52% left")
 
     def test_the_probe_landing_draws_again_with_the_meters_it_wrote(self):
-        done = threading.Event()
+        release, done = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
 
         def collect(cfg, **kwargs):
+            release.wait()
             self.cache(self.providers(anthropic={"meters": [self.meter("weekly_all", 70),
                                                             self.meter("weekly_scoped", 70)]}))
             done.set()
             return {}
 
+        def watch(live, last, **_kw):
+            # Seat reads have their own wake; leave their workers unstarted to pin the probe's.
+            live.last = last
+            live.read()
+
         def woken(wake):
-            # A seat read can wake the same pipe before the usage probe lands.
+            self.assertEqual(select.select([wake], [], [], 0)[0], [])
+            release.set()
             self.assertTrue(done.wait(5))
             # The probe writes to this pipe when it lands, which is what ends the wait.
             self.assertEqual(select.select([wake], [], [], 5)[0], [wake])
             return None
 
-        screens = self.run_menu([woken, lambda wake: ""], collect)
+        with patch.object(menu.Live, "watch", watch):
+            screens = self.run_menu([woken, lambda wake: ""], collect)
         self.assertRegex(screens[0], r"Claude\s+[█░]+\s+52% left")
         self.assertRegex(screens[1], r"Claude\s+[█░]+\s+30% left")
 
