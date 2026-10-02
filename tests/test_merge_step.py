@@ -308,7 +308,7 @@ class MergeStep(unittest.TestCase):
             return "## Summary\nNothing to change."
 
         def fake_review(cfg, name, body, workspace, out, role, session, log, limit=None, **kwargs):
-            answer = "VERDICT: FAIL\n\n## Findings\n- base.txt:1 - the gate is skipped\n"
+            answer = "VERDICT: FAIL\n\n## Findings\n- work.txt:1 - the gate is skipped\n"
             out.mkdir(parents=True)
             (out / "final.md").write_text(answer)
             return 0, answer, session, False
@@ -329,7 +329,7 @@ class MergeStep(unittest.TestCase):
         state["state"] = "fail"         # what the run makes of a FAIL the merge step left
         run.save_state(run_dir, state)
         self.assertEqual(run.handback_reason(state), "after 3 rounds, open findings: "
-                         "- base.txt:1 - the gate is skipped")
+                         "- work.txt:1 - the gate is skipped - fixture defect Quote: fixture evidence")
         self.assertFalse(run.integration_note(state, run_dir))
         self.assertTrue(run.failed_at_budget(state))
 
@@ -443,7 +443,7 @@ class MergeStep(unittest.TestCase):
                 self.assertEqual(len(state["round_summaries"]), 2)
                 state["state"] = "fail"
                 self.assertEqual(run.handback_reason(state), "after 2 rounds, open findings: "
-                                 "- shared:1 - drops the target side")
+                                 "- shared:1 - drops the target side - fixture defect Quote: fixture evidence")
 
     def test_origin_moving_three_times_parks_waiting(self):
         _, owner, wt = make_repos(self.root)

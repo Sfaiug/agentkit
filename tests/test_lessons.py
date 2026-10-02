@@ -73,8 +73,10 @@ class Lessons(unittest.TestCase):
         if role.startswith("reviewer"):
             verdict = "FAIL" if self.review_failures else "PASS"
             self.review_failures = max(0, self.review_failures - 1)
-            text = f"VERDICT: {verdict}\n## Findings\n- Fixture review."
+            finding = "deliverable:1 - fixture defect - breaks callers" if verdict == "FAIL" else "none"
+            text = f"VERDICT: {verdict}\n## Findings\n- {finding}"
         else:
+            (workspace / "deliverable").write_text("fixture work\n")
             text = "## Summary\nFixture execution."
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "final.md").write_text(text)
