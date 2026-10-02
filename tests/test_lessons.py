@@ -264,6 +264,19 @@ class Lessons(unittest.TestCase):
         run.project_lessons(self.repo, {}, logs.append)
         self.assertEqual(logs, [WARNING])  # another run gets its own warning
 
+    def test_handback_skips_lessons_trimmed_or_removed_since_read(self):
+        self.write_lessons("x" * 4097)
+        state = self.launch()
+        self.assertTrue(state["lessons_truncated"])
+        for text in ("Trimmed facts.\n", "x" * 4096, None):
+            with self.subTest(size=len(text) if text is not None else None):
+                if text is None:
+                    self.path.unlink()
+                else:
+                    self.write_lessons(text)
+                line = run.handback_line(state, config.RUNS / state["run_id"])
+                self.assertNotIn(PAST_CAP, line)
+
     def test_scratch_run_reads_no_lessons(self):
         self.write_lessons("Repository-only facts")
         for name in ("none", "scratch-run"):
