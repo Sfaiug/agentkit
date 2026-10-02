@@ -290,8 +290,9 @@ class SelfReviewLast(unittest.TestCase):
 
     def test_the_model_screen_has_no_review_rule_row(self):
         self.assertEqual(menu.MODEL_ROWS, ("model id", "effort", "Remove"))
-        lines, _ = menu.model_body(self.cfg, "acme-one")
-        self.assertEqual(len(lines), 3)
+        lines, places = menu.model_body(self.cfg, "acme-one")
+        self.assertEqual(len(places), 3)
+        self.assertIn("  Not used as a reviewer yet", lines)
         self.assertNotIn("Reviews its own company's work", "\n".join(lines))
 
     def test_the_launch_line_says_self_reviewed(self):
