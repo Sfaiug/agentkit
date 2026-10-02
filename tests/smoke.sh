@@ -2072,7 +2072,7 @@ PAIR=$(python3 "$REPO/tests/check4_pair.py" "$WORK/usage-real.json" \
   "$SMOKE_CALLER_HOME/.agentkit/state/usage.json")
 PAIRRC=$? EXEC=${PAIR% *} REVIEW=${PAIR#* }
 if [ "$PAIRRC" = 3 ]; then
-  skip_checks 4/4b/4c/4d "no model with an open window is on this host: $PAIR"
+  skip_checks 4/4b/4c/4d "every model with an open window is not on this host: $PAIR"
 elif [ "$PAIRRC" != 0 ]; then
   no "4 ak run: picking its executor and reviewer exited $PAIRRC"
   skip_checks 4b/4c/4d "prerequisite run did not happen: no executor and reviewer were picked"

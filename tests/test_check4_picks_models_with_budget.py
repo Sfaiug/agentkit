@@ -106,6 +106,8 @@ class Check4PicksModelsWithBudget(unittest.TestCase):
         source = CHECK4 + (REPO / "tests/check4_pair.py").read_text()
         self.assertEqual([n for n in names if re.search(rf"\b{re.escape(n)}\b", source)], [])
         self.assertLess(CHECK4.index("check4_pair.py"), CHECK4.index("smoke_lock_hold"))
+        # acceptance.sh counts a skip as the host's absence by these words alone
+        self.assertRegex(CHECK4, r'"\$PAIRRC" = 3 \]; then\n  skip_checks 4/4b/4c/4d "[^"]*not on this host')
 
 
 if __name__ == "__main__":
