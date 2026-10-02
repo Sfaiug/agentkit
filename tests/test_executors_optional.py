@@ -62,23 +62,38 @@ class ExecutorsOptional(Sandbox):
             config.save_session(self.cfg, "empty", "opus", [], {"reviewers": []})
 
     def test_task_launch_is_refused_before_any_run_or_job_exists(self):
+        config.remember_defaults(config.load_session(self.cfg, "fix-api"))
         with patch.object(run, "prepare") as prepare, \
                 patch.object(run, "spawn_bg", return_value=0) as spawn, \
                 patch.object(run.jobs, "job_create", return_value=(self.root, {})) as job, \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            for args in ([str(self.task)], [str(self.task), "--bg", "--anyway"],
-                         [str(self.task), "--exec", "opus"],
-                         [str(self.task), str(self.task), "--parallel", "2"]):
-                with self.subTest(args=args):
-                    with self.assertRaises(config.Error) as refused:
-                        run.main(args)
-                    sentence = str(refused.exception)
-                    self.assertEqual(len(sentence.splitlines()), 1)
-                    self.assertIn("fix-api has no executor", sentence)
-                    self.assertEqual(list(config.RUNS.iterdir()), [])
+            for session, reason in (("fix-api", "fix-api has no executor"),
+                                    ("", "defaults have no executor")):
+                with patch.dict(os.environ, {config.SESSION_ENV: session}):
+                    for args in ([str(self.task)], [str(self.task), "--bg", "--anyway"],
+                                 [str(self.task), "--exec", "opus"],
+                                 [str(self.task), str(self.task), "--parallel", "2"],
+                                 [str(self.task), str(self.task), "--bg"]):
+                        with self.subTest(session=session, args=args):
+                            with self.assertRaises(config.Error) as refused:
+                                run.main(args)
+                            sentence = str(refused.exception)
+                            self.assertEqual(len(sentence.splitlines()), 1)
+                            self.assertIn(reason, sentence)
+                            self.assertEqual(list(config.RUNS.iterdir()), [])
             prepare.assert_not_called()
             spawn.assert_not_called()
             job.assert_not_called()
+
+    def test_empty_defaults_are_refused_instead_of_waiting_for_budget(self):
+        config.remember_defaults(config.load_session(self.cfg, "fix-api"))
+        with patch.dict(os.environ, {config.SESSION_ENV: ""}):
+            cfg = config.load()
+            self.assertEqual(cfg["defaults"]["workers"], [])
+            with self.assertRaises(run.QuotaDry):
+                run.pick_models(cfg, {}, None, None, lambda _: None, quiet=True)
+            self.assertTrue(run.pair_refusal(cfg, {}, None))
+            self.assertTrue(run.pair_refusal(cfg, {}, []))
 
     def test_own_pr_review_still_launches_without_executors(self):
         url = "https://github.com/acme/api/pull/7"
@@ -102,10 +117,10 @@ class ExecutorsOptional(Sandbox):
         self.assertEqual(review.call_args.args[2], url)
 
     def test_own_pr_starts_no_followup_workers(self):
-        self.assertIsNone(run.pair_refusal(self.cfg, {}, [], reviewers=["astra"]))
+        self.assertEqual(orch.role_refusal(self.cfg, self.selected(), {}), "")
         with patch.object(usage, "unready", return_value="not logged in"):
-            self.assertIn("reviewers astra", run.pair_refusal(self.cfg, {}, [],
-                                                              reviewers=["astra"]))
+            self.assertEqual(orch.role_refusal(self.cfg, self.selected(), {}),
+                             "no allowed executor/reviewer pair")
         directory = config.RUNS / "review"
         directory.mkdir()
         state = {"run_id": "review", "launched_session": "fix-api", "repo": str(self.root),

@@ -677,8 +677,7 @@ def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, revi
     listed = config.workers(cfg) if listed is None else listed
     review_list = listed if review_list is None else review_list
     skipped = {name: usage.unready(cfg, name, providers) for name in [*listed, *review_list]}
-    # a bound empty executor list: the orchestrator builds, so only a reviewer must run
-    ready = [name for name in listed if not skipped[name]] if listed or not bound_exec else [None]
+    ready = [name for name in listed if not skipped[name]]
     reviews = [name for name in review_list if not skipped[name]]
     if want_exec:
         ready = [name for name in ready if name == want_exec] if bound_exec else [want_exec]
@@ -12093,6 +12092,8 @@ def main(argv):
         if selection and selection.get("workers") == []:
             raise config.Error(f"{selection['name']} has no executor: build it in the session, "
                                "or add an executor on its models screen.")
+        if not selection and not cfg["defaults"]["workers"]:
+            raise config.Error("defaults have no executor: start a session with an executor.")
     config.ensure_dirs()
     if not opts["--review-pr"] and len(positional) == 1 and parallel is not None:
         raise config.Error("usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] "

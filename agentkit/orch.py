@@ -3053,8 +3053,9 @@ ROLE_HEADS = ("orch", "exec", "review")
 def role_refusal(cfg, selected, providers):
     """Use the launch's pairing rules, with a sentence that fits under the marks on a phone."""
     from . import run
-    if run.pair_refusal(cfg, providers, selected["workers"],
-                        reviewers=selected.get("reviewers", selected["workers"])):
+    reviewers = selected.get("reviewers", selected["workers"])
+    # Without executors the screen only needs runnable reviewers.
+    if run.pair_refusal(cfg, providers, selected["workers"] or reviewers, reviewers=reviewers):
         return "no allowed executor/reviewer pair"
     return ""
 
