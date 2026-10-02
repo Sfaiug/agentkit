@@ -377,13 +377,13 @@ The tick closes a tab idle for an hour or past twelve open, and one a run or sea
 Every run is recorded in `~/.agentkit/history.db`: repository, models and the launching seat's orchestrator, rounds,
 verdict, timestamps, active seconds per step (checkpointed every 30 s; parks, slot, login, retry and merge-turn waits
 are no step's), tokens where the harness reports them (else unknown), peak process-tree memory, session, and the task's
-words, goal points, checks and files changed. Merged runs also keep additions plus deletions, excluding files marked
+words, goal points, checks and files changed. Merged and reviewed runs also keep additions plus deletions, excluding files marked
 `linguist-generated` in `.gitattributes`. Smoke and e2e runs are never recorded; an older agentkit's rows are read
 as written, never rewritten, and a median keeps a few that counted waits from pulling an estimate far. Statistics skip
 stopped runs and suite runs, by name or run record. History is best effort. The last twenty runs estimate a task's
-active time. The own-PR size ceiling is 300 with fewer than 50 sized merged runs; after that, it is the
-smallest size above which fewer than half passed in their first round, across this host's history. Without such a
-drop there is no ceiling. `ak run status --history` shows the ceiling and whether it comes from history or the
+active time. The own-PR size ceiling is 300 with fewer than 50 sized runs; then it is the smallest size whose band (it
+to twice it) holds 20 of the newest 300 reviewed runs, merged or failed, under half passing their first review; each
+band is judged alone, so larger work never drags a smaller size down. Without such a band there is no ceiling. `ak run status --history` shows the ceiling and whether it comes from history or the
 starting value, and one line per repository (`last 20 tasks: median N rounds ·
 over 400 words: median M rounds …`) for the orchestrator to size tasks by. Neither it nor `ak usage` prints per-model
 success rates: a run's verdict describes the task, not the quality of its models. A run's own directory is

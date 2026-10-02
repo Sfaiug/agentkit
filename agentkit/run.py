@@ -7000,12 +7000,12 @@ def history_finish(state, log=None):
     history.close_step(state.get("run_id"), now, log=log)
     files = changed_files(state)
     size = None
-    if state.get("merged") and state.get("base_sha"):
+    review = state.get("review") or {}
+    if (state.get("merged") or review.get("head_sha")) and state.get("base_sha"):
         try:
             wt = state.get("worktree")
             present = wt and Path(wt).is_dir()
             repo = wt if present else state.get("repo")
-            review = state.get("review") or {}
             head = state.get("delivery_sha") or review.get("head_sha") or ("HEAD" if present else None)
             if repo and head:
                 size = diff_lines(repo, state["base_sha"], head)

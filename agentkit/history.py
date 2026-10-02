@@ -402,11 +402,18 @@ def finished_repos():
         return []
 
 
-def pr_ceiling():
-    """Smallest size whose larger merged runs passed first round less than half the time.
+CEILING_WINDOW = 300   # newest sized runs the ceiling reads, so it follows the loop as it changes
+CEILING_BAND = 20      # runs a size band needs before it can set the ceiling
 
-    Only merged runs receive changed_lines; unknown sizes and suite work teach nothing.
-    With fifty sized merges, no such drop means history imposes no ceiling.
+
+def pr_ceiling():
+    """Smallest size whose band of reviewed work passed its first review less than half the time.
+
+    Every reviewed run counts, a failed one too: a ceiling learned from merges alone never
+    sees the big work that failed.  A band runs from a size to twice it and is judged on its
+    own, so work far larger cannot drag a smaller size down.  Only the newest CEILING_WINDOW
+    sized runs are read.  Below fifty of them the starting value holds; with no band under
+    half there is no ceiling.
     """
     _ensure_migrated()
     try:
@@ -414,21 +421,19 @@ def pr_ceiling():
             connection = _connect(readonly=True)
             try:
                 rows = connection.execute(
-                    "SELECT changed_lines, COUNT(*), SUM(rounds_used=1) FROM runs "
+                    "SELECT changed_lines, rounds_used = 1 AND verdict = 'PASS' FROM runs "
                     "WHERE changed_lines >= 0 AND finished_at IS NOT NULL AND rounds_used > 0 "
-                    f"AND {REAL_WORK} GROUP BY changed_lines ORDER BY changed_lines").fetchall()
+                    f"AND final_state IN ('pass', 'fail') AND {REAL_WORK} "
+                    "ORDER BY finished_at DESC LIMIT ?", (CEILING_WINDOW,)).fetchall()
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
         rows = []
-    count, passed = sum(row[1] for row in rows), sum(row[2] for row in rows)
-    if count < 50:
+    if len(rows) < 50:
         return 300, "starting value"
-    if rows[0][0] != 0:
-        rows.insert(0, (0, 0, 0))
-    for size, total, first in rows:
-        count, passed = count - total, passed - first
-        if count and passed * 2 < count:
+    for size in sorted({size for size, _ in rows}):
+        band = [first for other, first in rows if size <= other < max(2 * size, size + 1)]
+        if len(band) >= CEILING_BAND and sum(band) * 2 < len(band):
             return size, "history"
     return None, "history"
 

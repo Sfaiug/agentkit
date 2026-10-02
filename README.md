@@ -4,7 +4,7 @@ You talk. It ships.
 
 One command installs it. One word opens it. You tell one orchestrator what you want, and agentkit works until the change is merged or it truly needs you. Then it tells you, once.
 
-A seat's own `ak run --review-pr` sends FAIL findings back to the seat and waits for its push, for up to three review rounds; PASS merges with green checks. It must fit the changed-line ceiling learned from merged runs and shown by `ak run status --history`; larger PRs must be split before review.
+A seat's own `ak run --review-pr` sends FAIL findings back to the seat and waits for its push, for up to three review rounds; PASS merges with green checks. It must fit the changed-line ceiling learned from every reviewed run, merged or failed, and shown by `ak run status --history`; larger PRs must be split before review.
 
 ## Install
 

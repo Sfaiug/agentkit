@@ -111,7 +111,7 @@ class PrCeiling(unittest.TestCase):
                 state = reviewed(directory)
         return state, reviewer, usage, inbox
 
-    def fabricated(self, small=100, large=200, count=50):
+    def fabricated(self, small=100, large=300, count=50):
         for n in range(count):
             history.start_run(str(n), repo="other-project", started_at=1)
             history.finish_run(str(n), final_state="pass", verdict="PASS", finished_at=2,
@@ -197,26 +197,44 @@ class PrCeiling(unittest.TestCase):
         self.assertEqual(history.pr_ceiling(), (300, "starting value"))
         history.start_run("49", repo="acme")
         history.finish_run("49", final_state="pass", verdict="PASS", finished_at=2,
-                           changed_lines=200, rounds_used=2)
-        self.assertEqual(history.pr_ceiling(), (100, "history"))
-        self.change(150)
-        with self.assertRaisesRegex(config.Error, r"150.*100.*split"):
+                           changed_lines=300, rounds_used=2)
+        self.assertEqual(history.pr_ceiling(), (300, "history"))
+        self.change(350)
+        with self.assertRaisesRegex(config.Error, r"350.*300.*split"):
             self.review()
         with closing(sqlite3.connect(history.path())) as db, db:
             db.execute("UPDATE runs SET changed_lines=changed_lines+400")
-        self.assertEqual(history.pr_ceiling(), (500, "history"))
+        self.assertEqual(history.pr_ceiling(), (700, "history"))
         self.assertEqual(self.review()[0]["state"], "pass")
 
-    def test_half_passing_is_not_a_drop_and_the_smallest_ceiling_can_be_zero(self):
+    def test_half_passing_is_not_a_drop_and_the_smallest_failing_band_sets_the_ceiling(self):
         self.fabricated()
         with closing(sqlite3.connect(history.path())) as db, db:
             db.execute("UPDATE runs SET rounds_used=1 WHERE CAST(run_id AS INTEGER) BETWEEN 30 AND 39")
         self.assertEqual(history.pr_ceiling(), (None, "history"))
         with closing(sqlite3.connect(history.path())) as db, db:
             db.execute("UPDATE runs SET rounds_used=2")
-        self.assertEqual(history.pr_ceiling(), (0, "history"))
+        self.assertEqual(history.pr_ceiling(), (100, "history"))
 
-    def test_merged_size_counts_additions_and_deletions_and_survives_collection(self):
+    def test_failed_runs_count_and_each_band_is_judged_alone(self):
+        for n in range(50):
+            failed = n >= 30
+            history.start_run(str(n), repo="other-project", started_at=1)
+            history.finish_run(str(n), final_state="fail" if failed else "pass",
+                               verdict="FAIL" if failed else "PASS", finished_at=2,
+                               changed_lines=400 if failed else 60, rounds_used=3 if failed else 1)
+        self.assertEqual(history.pr_ceiling(), (400, "history"))
+        for n in range(50, 69):
+            history.start_run(str(n), repo="other-project", started_at=1)
+            history.finish_run(str(n), final_state="fail", verdict="FAIL", finished_at=3,
+                               changed_lines=120, rounds_used=3)
+        self.assertEqual(history.pr_ceiling(), (400, "history"))   # 19 runs are no band yet
+        history.start_run("69", repo="other-project", started_at=1)
+        history.finish_run("69", final_state="fail", verdict="FAIL", finished_at=3,
+                           changed_lines=120, rounds_used=3)
+        self.assertEqual(history.pr_ceiling(), (120, "history"))
+
+    def test_reviewed_size_counts_additions_and_deletions_and_survives_collection(self):
         self.change(5)
         (self.repo / "old.txt").unlink()
         (self.repo / "output.generated").write_text("generated\n" * 1000)
@@ -231,6 +249,10 @@ class PrCeiling(unittest.TestCase):
         state = {**state, "run_id": "unmerged", "merged": False}
         run.history_finish(state)
         self.assertIsNone(history.get("unmerged")["changed_lines"])
+        history.start_run("failed", repo=str(self.repo), started_at=1)
+        run.history_finish({**state, "run_id": "failed", "state": "fail", "verdict": "FAIL",
+                            "delivery_sha": None, "review": {"head_sha": head}})
+        self.assertEqual(history.get("failed")["changed_lines"], 6)
         directory = config.RUNS / "unmerged"
         directory.mkdir()
         record.save_state(directory, state)
@@ -246,7 +268,7 @@ class PrCeiling(unittest.TestCase):
         self.fabricated()
         with redirect_stdout(io.StringIO()) as out, patch.object(run, "host_status_line"):
             run.cmd_status(["--history"])
-        self.assertIn("PR size ceiling: 100 changed lines (history)", out.getvalue())
+        self.assertIn("PR size ceiling: 300 changed lines (history)", out.getvalue())
 
 
 if __name__ == "__main__":
