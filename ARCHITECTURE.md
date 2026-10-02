@@ -44,8 +44,9 @@
   the seat's previous launch), scheduler, task ladders (waits, merge, rerun),
   hand-back and relaunch. Calls `run.*`; for run (main, status, stop, resume), gc, watch, menu.
 - `watch.py`: tick, watch.json, seat errors (harness record or manifest screen words;
-  `stalls`, `auth_expiry`), state (`session_state`, `waiting_on`), typing, reviving,
-  run resumes, PR scans, `doctor`. For run, job, orch, menu, notify, update, usage,
+  `stalls`, `auth_expiry`), state (`session_state`, `waiting_on`), typing and its source
+  receipts (tmux and idle compaction), reviving, run resumes, PR scans, `doctor`.
+  For run, job, orch, menu, notify, update, usage,
   worker and hooks. Leaks: run.json writes (stall ladder, freeze marks, resume passes)
   and run states (`GOING`).
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,

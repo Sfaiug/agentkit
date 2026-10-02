@@ -2280,11 +2280,12 @@ def _send_enter(session, log):
     return True
 
 
-def _send_line(session, text, log, typed=lambda: None, *, source="ak"):
+def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None):
     """Type one literal line; the caller waits KEY_GAP before sending its Enter.
 
     `typed` is told the moment the text is in, before the Enter that can still fail.
     `source="owner"` marks an owner's reply relayed unchanged, including from Discord.
+    A pty sender supplies `send(text)`; both transports share the same typing receipt.
     """
     name = session["name"]
     record = config.session_records().get(name, {})
@@ -2299,8 +2300,8 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak"):
         # A restart between text and Enter must still know whose line is in the composer.
         fh.write(json.dumps(sent, ensure_ascii=False) + "\n")
         fh.flush()
-        rc, out = orch.tmux_out("send-keys", "-t", f"={name}:", "-l", text,
-                                socket=orch.seat_socket(session))
+        rc, out = (send(text) if send else orch.tmux_out(
+            "send-keys", "-t", f"={name}:", "-l", text, socket=orch.seat_socket(session)))
         if rc != 0:
             fh.truncate(before)
             log(f"WARN could not type into the {name} seat: {out[-200:]}")

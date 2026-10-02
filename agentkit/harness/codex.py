@@ -103,12 +103,21 @@ def user_messages(record, cwd, conversation):
     for entry in entries(transcript(record, cwd, conversation)):
         payload = entry.get("payload")
         # Response items also contain rules and environment text with the user role.
-        # The submission event alone keeps the original prompt without counting it twice.
-        if (entry.get("type") == "event_msg" and isinstance(payload, dict)
-                and payload.get("type") == "user_message" and not payload.get("is_meta")):
-            kept = user_message(entry.get("timestamp"), payload.get("message"))
-            if kept:
-                yield kept
+        # The completed UserMessage item keeps the original prompt exactly once.
+        if (entry.get("type") != "event_msg" or not isinstance(payload, dict)
+                or payload.get("type") != "item_completed"):
+            continue
+        item = payload.get("item")
+        if not isinstance(item, dict) or item.get("type") != "UserMessage":
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            continue
+        text = "\n".join(part["text"] for part in content if isinstance(part, dict)
+                         and part.get("type") == "text" and isinstance(part.get("text"), str))
+        kept = user_message(entry.get("timestamp"), text)
+        if kept:
+            yield kept
 
 
 def error(record, cwd, conversation):

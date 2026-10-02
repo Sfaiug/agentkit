@@ -61,7 +61,7 @@ import tty
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from agentkit import config
+from agentkit import config, notify, watch
 
 DEFAULT_HARNESS = "claude"
 QUIET_BEFORE_INJECT = 5.0   # output has to have stopped this long before anything is typed
@@ -381,6 +381,25 @@ def record_compaction(harness, context_tokens, when):
         tmp.unlink(missing_ok=True)
 
 
+def type_compaction(master_fd, built, log):
+    """Keep pty-injected commands under the same lock and receipt as tmux typing."""
+    def send(_text):
+        # A draft set aside first comes back once the command is sent.
+        stash = [built["stash"]] if built["stash"] else []
+        for index, keys in enumerate(stash + built["command"]):
+            if index:
+                time.sleep(KEY_GAP)
+            write_all(master_fd, keys)
+        return 0, ""
+
+    seat = config.current_session()
+    if not seat:
+        return send("") == (0, "")
+    line = b"".join(built["command"]).decode("utf-8").rstrip("\r\n")
+    with notify.session_lock(seat) as name:
+        return watch._send_line({"name": name}, line, log, send=send)
+
+
 def exit_code(wait_status):
     code = os.waitstatus_to_exitcode(wait_status)
     return 128 - code if code < 0 else code
@@ -566,12 +585,9 @@ def run(options, command):
                                 # a size nobody could read is not a size: the seat carries on
                                 context_tokens = None
                         if context_tokens is not None and context_tokens >= options.min_context:
-                            # a draft set aside first comes back once the command is sent
-                            stash = [built["stash"]] if built["stash"] else []
-                            for index, keys in enumerate(stash + built["command"]):
-                                if index:
-                                    time.sleep(KEY_GAP)
-                                write_all(master_fd, keys)
+                            if not type_compaction(master_fd, built, lambda message: append_log(
+                                    log_path, wrapper_pid, message)):
+                                continue
                             last_injected_ts = ts
                             append_log(log_path, wrapper_pid,
                                        f"compacted {options.harness} "
