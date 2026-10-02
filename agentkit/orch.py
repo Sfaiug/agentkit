@@ -391,13 +391,16 @@ def seat_scope_run():
     `systemd-run` refuses it, and the scope with it.  So the binary asked its version is the
     one the pane runs: a tmux server keeps the PATH it was started with, and a bare name
     there may find another.  Its full path, too: the pane starts in the seat's own directory,
-    where a path found through a relative PATH entry names another file or none.  Joined to
-    this directory as found, never tidied: a `..` after a symlink leaves the place the link
-    points to, not the link's own directory.  Asked once per process.
+    where a path found through a relative PATH entry names another file or none.  Such a one
+    is joined to this directory as found, never tidied: a `..` after a symlink leaves the
+    place the link points to, not the link's own directory.  An absolute one needs no
+    directory, which a long-lived caller's may no longer have.  Asked once per process.
     """
     if "argv" not in _LITERAL:
         found_at = shutil.which("systemd-run")
-        found_at = os.path.join(os.getcwd(), found_at) if found_at else "systemd-run"
+        if found_at and not os.path.isabs(found_at):
+            found_at = os.path.join(os.getcwd(), found_at)
+        found_at = found_at or "systemd-run"
         try:
             said = subprocess.run([found_at, "--version"], capture_output=True, text=True,
                                   stdin=subprocess.DEVNULL, timeout=SLICE_WAIT).stdout

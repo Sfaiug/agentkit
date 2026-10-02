@@ -173,6 +173,16 @@ class SeatsInSlice(Sandbox):
         self.assertEqual(self.ran(line), HARNESS[3:])
         self.assertEqual(len(self.log.read_text().splitlines()), 1)
 
+    def test_h_a_caller_whose_directory_is_gone_runs_the_absolute_one_it_found(self):
+        gone = self.root / "gone"
+        gone.mkdir()
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(gone)
+        gone.rmdir()
+        orch.start("acme", self.root, HARNESS, "opus")
+        (line, _), = self.launched("new-session")
+        self.scope(line)
+
 
 if __name__ == "__main__":
     unittest.main()
