@@ -77,7 +77,6 @@ for args, expected in row.get("commands", []) + [(["done"], 0)]:
                             env={{**os.environ, "PROOF_ORIGIN": "fixer"}},
                             capture_output=True, text=True)
     results.append({{"args": args, "code": result.returncode, "error": result.stderr}})
-    assert result.returncode == expected, result.stderr
 out = pathlib.Path(sys.argv[6])
 with pathlib.Path({str(self.calls)!r}).open("a") as fh:
     fh.write(json.dumps({{"prompt": pathlib.Path(sys.argv[5]).read_text(), "results": results,
@@ -97,14 +96,15 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
                            "# Enable the feature and keep the answer correct", ["true"], "context", [])
 
     def rounds(self, evidence, review_commands=()):
-        self.plan.write_text(json.dumps([
+        plans = [
             {"edits": {"api.py": "enabled = True\nanswer = 0\n"}},
             {"commands": [(FINDING, 0), (OTHER, 0)]},
             {"edits": {"api.py": "enabled = True\nanswer = 1\n"}, "commands": [
                 (["dispute", "api.py:2", WHY, "--run", "false"], 2),
                 (["dispute", "api.py:1", WHY, *evidence], 0),
                 (["dispute", "api.py:3", WHY, "--run", "touch unhanded-proof"], 2)]},
-            {"commands": [(args, 0) for args in review_commands]}]))
+            {"commands": [(args, 0) for args in review_commands]}]
+        self.plan.write_text(json.dumps(plans))
         self.lp.rnd = 0
         # An upheld finding needs no further executor turn in this fixture.
         self.lp.state["rounds"] = 2
@@ -112,6 +112,9 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         self.assertEqual(run.git(self.wt, "status", "--porcelain"), "")
         calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
         self.assertEqual(len(calls), 4, self.logs)
+        for index, call in enumerate(calls):
+            expected = [code for _, code in plans[index].get("commands", [])] + [0]
+            self.assertEqual([row["code"] for row in call["results"]], expected, call["results"])
         self.assertIn("exit 0", calls[2]["results"][0]["error"])
         refused = calls[2]["results"][2]
         self.assertIn("api.py:1", refused["error"])
