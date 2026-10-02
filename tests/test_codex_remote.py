@@ -25,7 +25,8 @@ class Remote(unittest.TestCase):
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
-        self.root = Path(self.stack.enter_context(tempfile.TemporaryDirectory(prefix='.remote-')))
+        self.root = Path(self.stack.enter_context(tempfile.TemporaryDirectory(
+            prefix='.ak-test-codex-remote-', dir=REPO)))
         (self.root / 'sitecustomize.py').write_text(
             (REPO / 'tests/fixtures/codex-remote-http-fake.py').read_text())
         self.stack.enter_context(patch.dict(os.environ, {'PYTHONPATH': str(self.root)}))
@@ -138,8 +139,7 @@ if 'kill-session' in sys.argv:
                          tui['argv'][tui['argv'].index('--remote') + 1])
         for event in ('SessionStart', *codex.SEAT_EVENTS):
             self.assertTrue(any(a.startswith('hooks.' + event + '=') for a in args))
-        self.assertTrue(any(a.startswith('developer_instructions=# You are the orchestrator')
-                            for a in args))
+        self.assertIn('developer_instructions=' + config.rulebook_path('acme-seat').read_text(), args)
         self.assertEqual(server['env']['ACME_SEAT_MARKER'], 'carried-to-server')
         self.assertEqual(server['env']['AGENTKIT_SESSION'], 'acme-seat')
         self.assertEqual(server['env'][codex.CAPTURE_ENV], str(receipt))

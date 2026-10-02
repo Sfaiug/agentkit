@@ -25,10 +25,10 @@ project is filed at the next menu draw or `ak watch` tick once one of its runs c
 
 `ak orch solo <session> on|off` saves solo across restarts and model changes: on refuses task launches before a run is created, still allows its own `ak run --review-pr`, and shows `solo` on its menu row; `s` on that row toggles it.
 
-The orchestrator is launched with `orchestrator.md` as its rulebook, plus `~/.agentkit/rules.md` where you wrote one on
-this host, handed over by its adapter for that launch only (Antigravity's as the body of an `--agent` definition in
-`~/.agentkit/state/antigravity`) and never written into your own `~/.claude`, `~/.codex` or `~/.gemini`. A project's own
-`AGENTS.md` or `CLAUDE.md` holds its conventions and is never the place for agentkit's rules.
+At launch, the rulebook reads `What ak is for` from the agentkit checkout's `AGENTS.md`, where present, then `orchestrator.md`
+and this host's `~/.agentkit/rules.md` where you wrote one. Running seats keep their launch's rulebook. Its adapter hands it over
+for that launch only (Antigravity's as an `--agent` definition in `~/.agentkit/state/antigravity`), never writing into your
+own `~/.claude`, `~/.codex` or `~/.gemini`. A project's own `AGENTS.md` or `CLAUDE.md` holds its conventions.
 
 At every turn's end `hooks/orchestrator-stop.sh` sends the turn back with *Continue: decide the next step and do it*
 unless the last paragraph asks something or `ak notify needs` was recorded; an answer to a prompt that asked something, a run of this seat's going, `ak notify done`,
