@@ -10,6 +10,7 @@ NOTIFY_USAGE = (f"usage: {NOTIFY_NEEDS}\n       {NOTIFY_DONE}\n"
                 "       ak notify --check")
 HAND_IN_FINDING = 'ak hand-in finding PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES)'
 HAND_IN_FOLLOWUP = 'ak hand-in follow-up PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES) --before PROOF'
+HAND_IN_DISPUTE = 'ak hand-in dispute PATH:LINE "WHY IT IS WRONG" (--run COMMAND | --quote LINES)'
 
 # Each entry is (usage, description, example). Model selections remain in config.toml;
 # MODEL in usage/examples stands for one of that file's keys.
@@ -18,7 +19,7 @@ COMMANDS = {
               "ak usage --json"),
     "worker": (WORKER_USAGE, "Run one headless model turn from a task or prompt file.",
                "ak worker MODEL task.md --role reviewer"),
-    "hand-in": (f"usage: {HAND_IN_FINDING}\n       {HAND_IN_FOLLOWUP}\n       ak hand-in done\n"
+    "hand-in": (f"usage: {HAND_IN_FINDING}\n       {HAND_IN_FOLLOWUP}\n       {HAND_IN_DISPUTE}\n       ak hand-in done\n"
                 '       ak hand-in blocked "WHY"\n       ak hand-in not-needed "WHY"',
                 "Hand in review evidence or close a worker turn.\n"
                 "The loop names AK_HAND_IN; outside a turn this command is refused.\n"
@@ -26,6 +27,9 @@ COMMANDS = {
                 "--run executes in the checkout and records bounded output excerpts and the exit status.\n"
                 "A finding's command must fail while the defect exists; ak re-runs it on commit and base.\n"
                 "--before proves a follow-up existed before the task.\n"
+                "Only a fixer may dispute a blocking finding handed to its turn; its command must exit 0.\n"
+                "ak gives the next reviewer the dispute and its own proof output beside the finding.\n"
+                "Hand the finding in again to uphold it; otherwise it is dropped into result.md's Disputes.\n"
                 "done closes any turn; in a review, any blocking finding means FAIL, otherwise PASS.\n"
                 "Executors and fixers use blocked when the task cannot be done as written, or\n"
                 "not-needed when a fix run's first turn finds the defect gone or already being fixed.\n"
@@ -38,6 +42,9 @@ COMMANDS = {
     "hand-in follow-up": (f"usage: {HAND_IN_FOLLOWUP}",
                           "Hand in a proven defect that existed before the task; it cannot fail this review.",
                           'ak hand-in follow-up api.py:12 "Wrong result" "Breaks callers" --quote "return None" --before "base abc123 has the same defect"'),
+    "hand-in dispute": (f"usage: {HAND_IN_DISPUTE}",
+                        "Dispute a blocking finding handed to this fixer, with a passing command or quoted evidence.",
+                        'ak hand-in dispute api.py:12 "The result is correct" --run "python3 check_result.py"'),
     "hand-in done": ("usage: ak hand-in done", "Close this worker turn; a review derives its verdict.",
                      "ak hand-in done"),
     "hand-in blocked": ('usage: ak hand-in blocked "WHY"',

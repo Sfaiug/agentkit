@@ -61,7 +61,7 @@ TRY_AGAIN_NAMED = re.compile(r"try again (?:at|on)\s+([A-Za-z]{3,9})\.?\s+(\d{1,
 MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 # The files in a worker's out dir that are the harness talking.  prompt.md is what it was told,
 # and session_id is bookkeeping; neither is ever evidence of anything the harness said.
-NOT_HARNESS = ("prompt.md", "session_id", hand_in.FILE, hand_in.REPORT)
+NOT_HARNESS = ("prompt.md", "session_id", hand_in.FILE, hand_in.REPORT, hand_in.FINDINGS_FILE)
 ANSWER = "final.md"             # and this one arrives as `text`, already read by worker.call
 ECHO = 40                       # a prompt is recognised quoted back by this many of its own
                                 # first characters -- the role preamble, which is one line and
@@ -1367,7 +1367,7 @@ def note_turn_meters(cfg, name, out_dir, account):
 
 
 def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit=None,
-                  fresh_body=None, resume_note=None, handover=None, previous=None):
+                  fresh_body=None, resume_note=None, handover=None, previous=None, findings=None):
     """worker.call, retried while the harness keeps dying on the provider instead of the task.
 
     Returns (code, text, session, dead): `dead` stays False -- a transient answer is resumed
@@ -1426,6 +1426,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     # Every role (and retry) lives under <run>/round-N/<role> and inherits this audit log.
     env = {**run_child_env(), "AK_RUN_ROLE": "worker",
            "AK_RUN_LOG": str(out_dir.parent.parent / "log.txt")}
+    if findings:
+        env[hand_in.FINDINGS_ENV] = str(findings)
     attempt, calls, refills, last_kill, account, span = 1, 0, 0, None, None, None
     handover_tried = False
     last_dir, last_sid = Path(previous) if previous is not None else None, session
@@ -3315,6 +3317,12 @@ def followup_not_needed(lp, summary, why=None):
 def worker_result(lp, summary, out, code=0):
     """Read the same closing after a call or a host interruption; text is the fallback."""
     submitted = review_records(out, summary)
+    if submitted is not None and submitted.disputes:
+        path = str(written_answer(out, summary).parent / hand_in.FILE)
+        files = lp.state.setdefault("dispute_files", [])
+        if path not in files:
+            files.append(path)
+        lp.save()
     closing = submitted.closing if submitted is not None else None
     if closing:
         if closing["kind"] == "blocked":
@@ -3382,6 +3390,10 @@ def execute(lp, role, text, name):
         lp.exec_sid = None
         note = {"at": time.time(), "role": role, "restarted": True}
         lp.state["resume_notice"] = note
+    if role == "fixer" and "## Reviewer findings to fix\n" in text and lp.state.get("findings_file"):
+        findings = Path(lp.state["findings_file"]).with_name(hand_in.FINDINGS_FILE)
+        if findings.is_file():
+            resume["findings"] = findings
     while True:
         # read once the attempt ends, however it ends -- a refused, parked or killed turn spent
         # tokens too -- off its own model and directory, which a handover below moves on from
@@ -3677,6 +3689,7 @@ def record_findings(lp, out, text, submitted=None):
     source = source.parent / hand_in.REPORT
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text(text)
+    source.with_name(hand_in.FINDINGS_FILE).write_text(json.dumps(submitted.findings))
     lp.findings = text
     lp.state["findings"] = text.strip()[-8000:]
     lp.state["findings_file"] = str(source)
@@ -4149,6 +4162,25 @@ def weigh_review(lp, submitted, head=None):
     return hand_in.Review(records)
 
 
+def review_disputes(lp, head):
+    """Keep the finding snapshot the fixer received; replay its dispute on the reviewed work."""
+    rows = []
+    for file in lp.state.get("dispute_files", []):
+        submitted = hand_in.read(file)
+        for row in submitted.disputes if submitted is not None else ():
+            if row not in rows:
+                rows.append(row)
+    disputes = []
+    for index, row in enumerate(rows, 1):
+        evidence = row["evidence"]
+        if "run" in evidence:
+            command = evidence["run"]
+            evidence = {"run": command, "commit": head or "workspace", **proof_on(
+                lp, command, lp.round_dir / f"dispute-{index}.log", head)}
+        disputes.append({**row, "evidence": evidence})
+    return hand_in.Review(disputes)
+
+
 def review(lp, summary, ok, dw_log, preface="", record=True):
     """Commit what the executor left, hand the work to the reviewer, record the round's verdict.
 
@@ -4199,6 +4231,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             checks = ("## Checks the executor changed\n```\n"
                       + "\n".join(stat.splitlines()[:-1]) + "\n```\n\n")
     identity = {} if lp.scratch else commit_identity(lp.wt)
+    disputes = review_disputes(lp, identity.get("head_sha"))
     validation = getattr(lp, "validation", identity if lp.state.get("review_pr") else {})
     # A hand-built stand-in for the loop (as in test_v4c) carries no commands; the real
     # Loop always does, and only then are markers attributed to their commands.
@@ -4220,7 +4253,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                  "that fails runs once more at once, and it passes if that re-run does.")
     lp.log(f"--- round {lp.rnd}: reviewer {lp.reviewer}")
     rbody = (f"{lp.body}\n\n{work}\n\n"
-             f"## Executor summary\n{summary}\n\n{heading}\n"
+             + (disputes.text + "\n" if disputes.disputes else "")
+             + f"## Executor summary\n{summary}\n\n{heading}\n"
              + (f"{deferred}\n" if deferred else "")
              + (f"{flaky}\n" if flaky else "")
              + f"```\n{dw_log}\n```")
@@ -4399,6 +4433,14 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         identity != validation or commit_identity(lp.wt) != identity
         or (not lp.state.get("review_pr") and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))
     submitted = weigh_review(lp, submitted, identity.get("head_sha"))
+    upheld = {(row["path"], row["line"]) for row in submitted.findings}
+    for row in disputes.disputes:
+        if (row["path"], row["line"]) not in upheld:
+            dropped = lp.state.setdefault("disputes", [])
+            text_dispute = "Dropped: " + hand_in.item_text(row)
+            if text_dispute not in dropped:
+                dropped.append(text_dispute)
+    lp.state.pop("dispute_files", None)
     verdict = submitted.verdict
     overridden = None       # why the loop failed what the reviewer passed, for the hand-back
     if code != 0 and verdict == "PASS":
@@ -7494,6 +7536,8 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
         parts += ["## Reviewer findings", "", without_followups(state["findings"]), ""]
     if state.get("notes"):
         parts += ["## Notes", "", *("- " + item.replace("\n", "\n  ") for item in state["notes"]), ""]
+    if state.get("disputes"):
+        parts += ["## Disputes", "", *("- " + item.replace("\n", "\n  ") for item in state["disputes"]), ""]
     onward = continue_line(state, run_dir)
     if onward:
         parts += [onward, ""]

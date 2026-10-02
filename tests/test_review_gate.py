@@ -56,12 +56,8 @@ with (root / "calls.jsonl").open("a") as fh:
     fh.write(json.dumps({"role": role, "prompt": prompt, "session": sys.argv[7:]}) + "\\n")
 deliverable = pathlib.Path(sys.argv[4], "deliverable")
 if role == "executor":
-    disputed = root / "fixer-summary.md"
-    if prompt.startswith("You are the executor, continuing") and disputed.exists():
-        (out / "final.md").write_text(disputed.read_text())
-    else:
-        deliverable.write_text("fixture work\\n")
-        (out / "final.md").write_text("## Summary\\nFixture work.")
+    deliverable.write_text("fixture work\\n")
+    (out / "final.md").write_text("## Summary\\nFixture work.")
 else:
     plan = json.loads((root / "reviews.json").read_text())
     answer = plan.pop(0) if len(plan) > 1 else plan[0]
@@ -175,46 +171,28 @@ sys.exit(1)
                          ["a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError",
                           "b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"])
 
-    def test_every_reviewer_requires_evidence_and_rules_on_disputes_first(self):
+    def test_every_reviewer_requires_evidence_and_upholds_disputes_by_handing_in_findings(self):
         for role in ("reviewer", "reviewer-pr", "reviewer-scratch"):
             with self.subTest(role=role):
                 text = worker.PREAMBLES[role].format(workspace=self.root)
                 self.assertIn("A blocking finding must include evidence: a command that fails, "
                   "a reproduction, or quoted lines that show the defect.", text)
-                self.assertIn("In a re-review, first rule on each disputed finding: upheld or "
-                              "dropped, and why; then say which earlier findings are fixed and "
-                              "which are not, then anything new.", text)
+                self.assertIn("ak supplies each dispute beside its finding with ak's proof output", text)
+                self.assertIn("Uphold a disputed finding by handing it in again with "
+                              "`ak hand-in finding`; it is weighed as any finding.", text)
+                self.assertIn("Drop it by not handing it in again.", text)
 
     def test_every_fixer_may_dispute_with_evidence_and_must_fix_the_rest(self):
         for role, work in (("fixer", "the diff"), ("fixer-scratch", "the workspace")):
             with self.subTest(role=role):
                 text = worker.PREAMBLES[role].format(workspace=self.root)
-                self.assertIn("You may dispute a finding instead of changing code: list the "
-                              "finding and evidence that it is wrong under `## Disputed` "
-                              "in your summary.", text)
+                self.assertIn('ak hand-in dispute path:line "why it is wrong" --run COMMAND', text)
+                self.assertIn("A dispute's command must exit 0; a quote must exist in the named file.", text)
+                self.assertIn("Name only a blocking finding handed to this turn.", text)
                 self.assertIn("For every undisputed finding, fix every instance of that pattern "
                               f"in {work}", text)
                 self.assertNotIn("Fix every finding below", text)
                 self.assertIn("re-run the per-round done-when commands", text)
-
-    def test_dispute_without_changes_reaches_re_review_in_the_executor_summary(self):
-        finding = "- deliverable:1 - empty file - no output delivered"
-        summary = ("## Summary\nNo changes needed; `test -s deliverable` exits 0.\n\n"
-                   "## Disputed\n" + finding + "\n"
-                   "Evidence: `test -s deliverable` exits 0; it contains `fixture work`.\n")
-        (self.root / "fixer-summary.md").write_text(summary)
-        self.reviews("VERDICT: FAIL\n\n## Findings\n" + finding,
-                     "Dropped: deliverable is nonempty, as the fixer's command shows.\n" + PASS)
-        code, directory, state = self.launch(rounds=2)
-        self.assertEqual(code, 0, (directory / "log.txt").read_text())
-        calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
-        fixer = [call["prompt"] for call in calls if call["role"] == "executor"][1]
-        reviews = [call["prompt"] for call in calls if call["role"] == "reviewer"]
-        self.assertIn(finding, fixer)
-        self.assertEqual(len(reviews), 2)
-        self.assertNotIn("## Executor summary\n" + summary, reviews[0])
-        self.assertIn("## Executor summary\n" + summary, reviews[1])
-        self.assertEqual([entry["verdict"] for entry in state["round_summaries"]], ["FAIL", "PASS"])
 
     def test_pass_follow_ups_land_in_pr_body_without_a_followups_file(self):
         repo = self.root / "repo"
