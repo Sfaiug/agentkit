@@ -8178,7 +8178,7 @@ def run_placement(run_dir, previous):
 
 
 def place_here(run_dir, log):
-    """Put a foreground run's own process where `--bg` puts its child, and log where.
+    """Put a foreground run's own process where `--bg` puts its child; the record, or None.
 
     Nothing new is started: the user manager moves this very process into the run's scope,
     so the terminal keeps its output and its Ctrl-C, and the pid on the receipt stays the
@@ -8187,10 +8187,10 @@ def place_here(run_dir, log):
     `main` (a test) is its caller's, never the run's to put under a cap.
     """
     if Path(sys.argv[0]).resolve() != (config.REPO / "bin" / "ak").resolve():
-        return
+        return None
     with run_record.record(run_dir) as state:
         if state.stopped:
-            return
+            return None
         placement, cap = {}, None
         try:
             unit, cap, properties = run_placement(run_dir, state)
@@ -8201,6 +8201,7 @@ def place_here(run_dir, log):
         state.update(scope=placement["scope"], scope_reason=placement.get("scope_reason"))
         remember_memory_cap(state, placement, cap)
     log(f"scope: {scope_line(state)}")
+    return dict(state)
 
 
 def remember_memory_cap(state, placement, cap):
@@ -11366,7 +11367,8 @@ def resume_run(argv):
     log = logger(run_dir, not child)
     log(f"resume {run_dir.name}: {run_dir / 'task.md'}")
     if not child:
-        place_here(run_dir, log)
+        # the loop goes on from this copy and saves it: it carries the new scope, not the last
+        state = place_here(run_dir, log) or state
     if unstarted and not state.get("launch_opts"):
         log("old launch receipt has no saved options; recovery keeps work local (--no-merge)")
     if state.get("review_pr"):

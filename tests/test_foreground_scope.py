@@ -162,6 +162,37 @@ class ForegroundScope(Sandbox):
                 self.assertEqual([call[0] for call in self.called()],
                                  ["busctl"] if refuse else [])
 
+    def test_a_foreground_resume_goes_on_in_a_scope_of_its_own(self):
+        # an earlier attempt's scope may linger under the plain name, so the resume takes the
+        # next one, and the loop goes on from a copy that names it rather than the last one
+        directory = config.RUNS / "20261002-0900-fix-the-api"
+        worktree = self.root / "wt-fix-the-api"
+        worktree.mkdir()
+        directory.mkdir(parents=True)
+        (directory / "task.md").write_text(self.task.read_text())
+        (directory / "log.txt").touch()
+        record.save_state(directory, {
+            "run_id": directory.name, "state": "interrupted", "recovery_pending": True,
+            "scratch": True, "worktree": str(worktree), "rounds": 3,
+            "scope": f"agentkit-run-{directory.name}", "memory_cap_mb": 512})
+        seen = {}
+
+        def loop(_cfg, run_dir, _opts, _log, prior=None, **_kw):
+            seen.update(pid=os.getpid(), prior=dict(prior))
+            return 0
+
+        with patch.object(orch, "user_manager", return_value=True), \
+                patch.object(orch, "next_scope_unit", side_effect=lambda unit: f"{unit}-2"), \
+                patch.object(run, "drive", side_effect=loop), redirect_stdout(io.StringIO()):
+            self.assertEqual(run.main(["resume", directory.name]), 0)
+        unit = f"agentkit-run-{directory.name}-2"
+        self.assertEqual(seen["pid"], os.getpid())
+        self.assertEqual((seen["prior"]["scope"], seen["prior"]["memory_cap_mb"]), (unit, 512))
+        self.assertEqual(record.read_state(directory)["scope"], unit)
+        self.assertEqual([call[8] for call in self.called()], [f"{unit}.scope"])
+        self.assertEqual(self.scope_lines((directory / "log.txt").read_text()),
+                         [f"scope: {unit}"])
+
     def test_a_process_that_only_imported_ak_is_never_moved(self):
         with patch.object(sys, "argv", [__file__]):
             seen = self.launch()
