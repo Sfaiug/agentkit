@@ -3515,6 +3515,8 @@ def quoted_sites(lp, submitted, head):
             checkout = Path(stack.enter_context(tempfile.TemporaryDirectory(dir=lp.run_dir)))
             git(lp.wt, "clone", "--quiet", "--shared", "--no-checkout", str(lp.wt), str(checkout))
             git(checkout, "checkout", "--quiet", "--detach", head)
+            # Clone metadata is not part of the reviewed commit.
+            shutil.rmtree(checkout / ".git")
         sites = {}
         for index, row in quotes.items():
             try:
