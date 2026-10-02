@@ -25,6 +25,20 @@ def prompt(at, text, **fields):
             "message": {"role": "user", "content": text}, **fields}
 
 
+def queued_prompt(at, text, *, origin="human", mode="prompt"):
+    return {"type": "attachment", "timestamp": stamp(at), "attachment": {
+        "type": "queued_command", "prompt": text, "commandMode": mode,
+        "origin": {"kind": origin}, "humanTurn": origin == "human"}}
+
+
+def codex_prompt(at, text):
+    return {"timestamp": stamp(at), "type": "event_msg", "payload": {
+        "type": "item_completed", "thread_id": "thread", "turn_id": f"turn-{at}",
+        "started_at_ms": at * 1000, "completed_at_ms": at * 1000,
+        "item": {"type": "UserMessage", "id": f"user-{at}", "content": [
+            {"type": "text", "text": text, "text_elements": []}]}}}
+
+
 def update(at, text, *, sid="thread", kind="user_message_chunk", index=0, **meta):
     return {"timestamp": at, "method": "session/update", "params": {
         "sessionId": sid, "update": {"sessionUpdate": kind,
@@ -101,11 +115,48 @@ class OwnerWords(unittest.TestCase):
         self.assertEqual(self.messages(), [{"at": 20, "text": "Earlier\nwords"},
                                           {"at": 30, "text": text}])
 
+    def test_claude_unmarked_command_frames_notifications_and_interrupts_are_not_prompts(self):
+        command = ("<command-name>/compact</command-name>\n"
+                   "<command-message>compact</command-message>\n<command-args></command-args>")
+        notices = (command,
+            "<local-command-stdout>Compacted (ctrl+o to see full summary)</local-command-stdout>",
+            "<local-command-stderr>Command failed</local-command-stderr>",
+            "<local-command-caveat>Local command output follows</local-command-caveat>",
+            "<task-notification><task-id>b1</task-id><status>completed</status></task-notification>",
+            "[Request interrupted by user]", "[Request interrupted by user for tool use]")
+        self.append(prompt(20, "Build the API."))
+        for at, text in enumerate(notices, 30):
+            for content in (text, [{"type": "text", "text": text}]):
+                self.append(prompt(at, content))
+        self.append(prompt(40, "background work finished", origin={"kind": "task-notification"}),
+                    prompt(41, "agent's words", origin={"kind": "agent"}),
+                    prompt(42, "Please explain [Request interrupted by user]."),
+                    prompt(43, "Show <local-command-stdout> in the help."))
+        expected = [{"at": 20, "text": "Build the API."},
+            {"at": 42, "text": "Please explain [Request interrupted by user]."},
+            {"at": 43, "text": "Show <local-command-stdout> in the help."}]
+        self.assertEqual(self.messages(), expected)
+        self.assertEqual(self.launch()[1]["owner_words"], expected)
+
+    def test_claude_queued_owner_prompts_and_ak_receipts_survive_mid_turn(self):
+        self.append(prompt(20, "Build the API."), queued_prompt(30, "Keep the old route names."))
+        self.assertEqual(self.launch()[1]["owner_words"], [
+            {"at": 20, "text": "Build the API."}, {"at": 30, "text": "Keep the old route names."}])
+        self.assertTrue(self.type("continue"))
+        self.append(queued_prompt(100, "continue"),
+                    queued_prompt(101, "Use the old schema."), prompt(102, "continue"),
+                    queued_prompt(103, "tool finished", origin="task-notification"),
+                    queued_prompt(104, "agent message", origin="agent"),
+                    queued_prompt(105, "/compact", mode="command"))
+        self.assertEqual(self.launch()[1]["owner_words"], [
+            {"at": 101, "text": "Use the old schema."}, {"at": 102, "text": "continue"}])
+
     def test_codex_uses_submission_events_once_without_user_role_injections(self):
         path = self.root / ".codex" / "rollout.jsonl"
         path.parent.mkdir()
         path.write_text(json.dumps({"type": "session_meta", "payload": {
-            "id": "thread", "cwd": str(self.root / "acme")}}) + "\n")
+            "id": "thread", "cwd": str(self.root / "acme"),
+            "cli_version": "0.153.4", "originator": "codex-tui"}}) + "\n")
         token = "a" * 32
         config.update_session("lagoon", orchestrator="astra", codex_launch=token,
                               id_source=codex.SOURCE)
@@ -115,16 +166,23 @@ class OwnerWords(unittest.TestCase):
                 "cwd": str(self.root / "acme"), "transcript_path": str(path)}}))
         self.append({"type": "response_item", "timestamp": stamp(20), "payload": {
             "type": "message", "role": "user", "content": [{"type": "input_text", "text": "rules"}]}},
-            {"type": "event_msg", "timestamp": stamp(30), "payload": {
-                "type": "user_message", "message": "Use the API.\nExact words.", "images": []}},
+            codex_prompt(30, "Use the API.\nExact words."),
             {"type": "response_item", "timestamp": stamp(30), "payload": {
                 "type": "message", "role": "user", "content": [
                     {"type": "input_text", "text": "Use the API.\nExact words."}]}},
             {"type": "event_msg", "timestamp": stamp(40), "payload": {
-                "type": "user_message", "message": "notice", "is_meta": True}},
+                "type": "item_started", "item": {"type": "UserMessage", "id": "user-30",
+                    "content": [{"type": "text", "text": "Use the API.\nExact words."}]} }},
+            {"type": "event_msg", "timestamp": stamp(45), "payload": {
+                "type": "item_completed", "item": {"type": "AgentMessage", "text": "answer"}}},
             {"type": "response_item", "timestamp": stamp(50), "payload": {
                 "type": "function_call_output", "output": "tool output"}}, path=path)
         self.assertEqual(self.messages(), [{"at": 30, "text": "Use the API.\nExact words."}])
+        self.type("continue")
+        self.append(codex_prompt(100, "continue"), codex_prompt(101, "continue"), path=path)
+        expected = [{"at": 30, "text": "Use the API.\nExact words."}, {"at": 101, "text": "continue"}]
+        self.assertEqual(self.messages(), expected)
+        self.assertEqual(self.launch()[1]["owner_words"], expected)
 
     def test_grok_durable_chunks_keep_prompts_and_owner_interjections(self):
         config.update_session("lagoon", orchestrator="grok")
