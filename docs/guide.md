@@ -79,7 +79,7 @@ that, the run's hand-back names the file and asks the orchestrator to tighten it
 
 One behaviour per task. A launch is refused when the goal has more than three numbered points, the body more than 500
 words outside the checks block, the checks more than six commands or `rounds` more than three, whatever `--anyway` says;
-and when a run under way in the same repository names the same test (a general check -- one three other jobs there ran without naming it in their titles -- counts only when both titles name it) or shares four title words, which `--anyway` starts
+and when a run under way in the same repository names the same test file (glob patterns do not count; a general check -- one three other jobs there ran without naming it in their titles -- counts only when both titles name it) or shares four title words, which `--anyway` starts
 regardless. Runs have no count cap and wait FIFO while free memory is under the larger of 3 GB and 20% of RAM, ak's own
 slice CPU pressure is above 40%, or the nearest limited cgroup is past 75% of its `memory.high` outside reclaimable
 file cache; a pinned `max_load` restores the host-load check instead, each run the host has frozen counting 1 while held; a
