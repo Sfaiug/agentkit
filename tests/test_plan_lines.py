@@ -18,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_v4n import Sandbox
-from agentkit import config, plan
+from agentkit import config, notify, plan
 
 
 class PlanLines(Sandbox):
@@ -92,6 +92,38 @@ class PlanLines(Sandbox):
             plan.main(["tick", "2"])
         with self.assertRaisesRegex(config.Error, "no plan line 3"):
             plan.main(["tick", "3"])
+
+    def land_the_work(self):
+        self.git("checkout", "-q", "main")
+        self.git("merge", "-q", "--ff-only", "work")
+        self.git("checkout", "-q", "work")
+
+    def test_a_check_line_ticks_itself_once_its_check_passes_on_the_default_branch(self):
+        self.ak("add", "the feature exists", "--check", "test -f feature.txt")
+        self.assertIn("1  - [ ] the feature exists", self.ak())     # main lacks it still
+        self.land_the_work()
+        head = self.git("log", "-1", "--format=%h %s", "--abbrev=12", "main")
+        self.assertRegex(self.ak().strip(), r"^1  - \[x\] the feature exists · check: "
+                         r"`test -f feature.txt` · acme · written .+ · done " + re.escape(head) + "$")
+
+    def test_done_waits_for_every_line_and_a_hand_tick_proves_nothing(self):
+        self.ak("add", "the feature exists", "--check", "test -f feature.txt")
+        self.ak("add", "the hero looks calm", "--eye")
+        path = config.plan_path("fix-api")
+        path.write_text(path.read_text().replace("- [ ] the feature", "- [x] the feature"))
+        with patch.object(notify, "shaped", return_value=0) as sent:
+            with self.assertRaisesRegex(config.Error, r"2 plan line\(s\) still open, first: "
+                                                      r"- \[x\] the feature exists"):
+                notify.main(["done", "Shipped"])
+            self.land_the_work()
+            with self.assertRaisesRegex(config.Error, "1 plan line\\(s\\) still open, first: "
+                                                      "- \\[ \\] the hero looks calm"):
+                notify.main(["done", "Shipped"])
+            self.ak("tick", "2")
+            self.assertEqual(notify.main(["done", "Shipped"]), 0)
+            self.assertEqual(notify.main(["done", "Shipped", "--dry-run"]), 0)
+        self.assertEqual(sent.call_count, 2)
+        self.assertEqual([plan.is_open(line) for line in self.plan_lines()], [False, False])
 
     def test_outside_a_seat_or_without_a_project_it_is_refused(self):
         with patch.dict(os.environ, {config.SESSION_ENV: ""}), \

@@ -16,6 +16,7 @@ import signal
 import subprocess
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from . import command_help, config
@@ -59,34 +60,73 @@ def project(name):
     return Path(repo)
 
 
-def fails_on_main(repo, cmd):
-    """(failed, its last output line) for `cmd` on a clean checkout of the default branch."""
+@contextmanager
+def default_branch(repo):
+    """(checkout, its commit as `<sha12> <subject>`): a clean checkout of the default branch,
+    fetched first, removed after."""
     from . import run   # here, not at the top: run is the loop, this a seat's small verb
     try:
         run.git_out(repo, "fetch", "-q", "origin", timeout=60)
     except run.Stopped:
         pass                     # an old origin ref still names a default branch to check on
     base = run.default_base(repo, lambda _line: None)
-    env = {key: value for key, value in os.environ.items()
-           if not key.startswith(("AGENTKIT_", "AK_"))}
     config.TMP.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=config.TMP, prefix="plan-") as tmp:
         tree = Path(tmp) / "main"
         run.git(repo, "worktree", "add", "--detach", str(tree), base)
         try:
-            proc = subprocess.Popen(["bash", "-c", cmd], cwd=tree, env=env, text=True,
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    start_new_session=True)
-            try:
-                out, _ = proc.communicate(timeout=CHECK_LIMIT)
-            except subprocess.TimeoutExpired:
-                os.killpg(proc.pid, signal.SIGKILL)
-                proc.communicate()
-                return True, f"stopped after {CHECK_LIMIT} s"
+            yield tree, run.git(tree, "log", "-1", "--format=%h %s", "--abbrev=12")
         finally:
             run.git_out(repo, "worktree", "remove", "--force", str(tree))
+
+
+def fails(tree, cmd):
+    """(failed, its last output line) for `cmd` run in `tree` without the seat's variables."""
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(("AGENTKIT_", "AK_"))}
+    proc = subprocess.Popen(["bash", "-c", cmd], cwd=tree, env=env, text=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            start_new_session=True)
+    try:
+        out, _ = proc.communicate(timeout=CHECK_LIMIT)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.communicate()
+        return True, f"stopped after {CHECK_LIMIT} s"
     last = next((line for line in reversed(out.splitlines()) if line.strip()), "")
     return proc.returncode != 0, last
+
+
+def is_open(line):
+    """Not done: unticked, or a check line ticked by hand rather than by its check."""
+    line = line.strip()
+    found = LINE.match(line)
+    return line.startswith("- [ ]") or bool(
+        found and found["check"] and found["mark"] == "x" and not found["done"])
+
+
+def verify(name):
+    """Tick every open check line whose check passes on the default branch now, naming that
+    commit; return the plan's open lines left."""
+    text = lines(name)
+    checks = [(at, LINE.match(line.strip())) for at, line in enumerate(text) if is_open(line)]
+    checks = [(at, found) for at, found in checks if found and found["check"]]
+    if checks:
+        with default_branch(project(name)) as (tree, commit):
+            for at, found in checks:
+                if not fails(tree, found["check"])[0]:
+                    text[at] = ("- [x] " + text[at].strip()[6:] + f" · done {commit}")
+        write(name, text)
+    return [line.strip() for line in text if is_open(line)]
+
+
+def require_done(name):
+    """Refuse a done while the plan still has open lines, after checking its checks once more."""
+    left = verify(name)
+    if left:
+        raise config.Error(f"{len(left)} plan line(s) still open, first: {left[0]}; "
+                           "a check line is done when its check passes on the default branch, "
+                           "an eye line on the user's word (`ak plan tick N`)")
 
 
 def add(name, what, check=None):
@@ -98,7 +138,8 @@ def add(name, what, check=None):
         check = " ".join(check.split("\n")).strip()
         if not check or "`" in check:
             raise config.Error("a check is one shell command without backticks")
-        failed, last = fails_on_main(repo, check)
+        with default_branch(repo) as (tree, _):
+            failed = fails(tree, check)[0]
         if not failed:
             raise config.Error(f"this check already passes on {repo.name}'s default branch, so "
                                "it proves nothing; write one that fails until the work is done")
@@ -132,6 +173,7 @@ def main(argv):
         return 0
     name = seat()
     if not argv:
+        verify(name)
         for number, line in enumerate((line for line in lines(name)
                                        if line.lstrip().startswith("- [")), 1):
             print(f"{number:>2}  {line.strip()}")

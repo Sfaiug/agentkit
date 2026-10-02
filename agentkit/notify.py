@@ -1285,6 +1285,11 @@ def main(argv):
             i += 1
     if len(rest) != 1 or rest[0].startswith("-") or not rest[0].strip():
         raise config.Error(USAGE)
+    if kind == "done" and not dry_run:
+        from . import plan
+        name = config.resolve_session(session) if session else config.current_session()
+        if name:
+            plan.require_done(name)     # a done waits for every plan line to be proven
     if kind:
         return shaped(kind, rest[0].strip(), pr, session=session, dry_run=dry_run)
     raise config.Error(USAGE)
