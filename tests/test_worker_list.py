@@ -100,7 +100,7 @@ class WorkerList(unittest.TestCase):
             calls.append(name)
             Path(out_dir).mkdir(parents=True, exist_ok=True)
             return answers.get(name, (0, "## Summary\nDone.", f"s-{name}", False))
-        return calls, fake
+        return calls, submitting(fake)
 
     @contextmanager
     def refused(self, providers):

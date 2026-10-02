@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 import test_worker_list as fixtures
-from fixtures.hand_in import submitting
+from fixtures.hand_in import smoke, submitting
 from agentkit import config, gc, run, usage, watch
 from agentkit import record as run_record
 
@@ -388,6 +388,7 @@ class RoleGroups(unittest.TestCase):
         answered = lp.run_dir / "round-1" / "executor"
         answered.mkdir(parents=True, exist_ok=True)
         (answered / "final.md").write_text("## Summary\nwork")
+        smoke(answered, lp.wt)
         task = lp.run_dir / "task.md"
         task.write_text("---\nrepo: none\nrounds: 1\n---\n# Resume\n\n"
                         "## Done when\n```bash\ntrue\n```\n")

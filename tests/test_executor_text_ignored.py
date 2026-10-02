@@ -91,6 +91,11 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.assertEqual(self.calls[1][1], "fixture-session")
         self.assertEqual(run.continuation(self.lp), "done-when")
 
+    def test_task_quoting_the_closing_ask_still_needs_hand_in(self):
+        self.text = "## Blocked"
+        self.lp.context = "Document this prompt: " + run.NO_CLOSING_ASK
+        self.checked()
+
     def test_completed_prose_after_host_interruption_still_needs_the_extra_ask(self):
         self.text = "## Blocked"
         self.lp.rnd = 1

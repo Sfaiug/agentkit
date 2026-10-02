@@ -3081,7 +3081,7 @@ def open_turn(round_dir, name):
     if (latest / "final.md").exists():
         submitted = hand_in.read(latest / hand_in.FILE)
         if (name.startswith("reviewer") or submitted is not None and submitted.closing
-                or NO_CLOSING_ASK in (read_answer(latest / "prompt.md") or "")):
+                or "-retry-hand-in" in latest.name or "-retry-foreground" in latest.name):
             return None, None
     sid = session_of(latest)
     if sid:
@@ -3332,9 +3332,12 @@ def execute(lp, role, text, name):
         lp.exec_sid = None
         note = {"at": time.time(), "role": role, "restarted": True}
         lp.state["resume_notice"] = note
-    if previous is not None and ((previous / "final.md").exists()
-            or NO_CLOSING_ASK in (read_answer(previous / "prompt.md") or "")):
+    # The ask's directory survives a host interruption, so resuming it cannot buy a third ask.
+    closing_asked = previous is not None and ((previous / "final.md").exists()
+                       or "-retry-hand-in" in previous.name or "-retry-foreground" in previous.name)
+    if closing_asked:
         body = NO_CLOSING_ASK
+        out = free_dir(lp, f"{name}-retry-hand-in")
     if role == "fixer" and "## Reviewer findings to fix\n" in text and lp.state.get("findings_file"):
         findings = Path(lp.state["findings_file"]).with_name(hand_in.FINDINGS_FILE)
         if findings.is_file():
@@ -3363,6 +3366,7 @@ def execute(lp, role, text, name):
             if hand_executor(lp, "cannot run", broken.detail, dry) is None:
                 raise
             body = text
+            closing_asked = False
             out = free_dir(lp, f"{name}-{lp.executor}")
             continue
         except RanDry as refused:
@@ -3378,12 +3382,14 @@ def execute(lp, role, text, name):
                                   else "resume when a meter refills. ") +
                                f"See {out}*/stderr.log")
             body = f"{HANDOVER.format(before=before)}\n\n{text}"
+            closing_asked = False
             out = free_dir(lp, f"{name}-{lp.executor}")
             continue
         except TransientHandover as handed:
             # hand_executor already moved the role inside the callback; the new model
             # joins a round another started, in a fresh out dir on a fresh session.
             body = f"{HANDOVER.format(before=handed.before)}\n\n{text}"
+            closing_asked = False
             out = free_dir(lp, f"{name}-{lp.executor}")
             continue
         finally:
@@ -3395,11 +3401,12 @@ def execute(lp, role, text, name):
                    f"see {out / 'stderr.log'}")
         lp.save()
         submitted = review_records(out, summary)
-        if (not (submitted is not None and submitted.closing) and NO_CLOSING_ASK not in body
+        if (not (submitted is not None and submitted.closing) and not closing_asked
                 and not list(out.parent.glob(f"{out.name}-retry*foreground*"))):
             lp.log(f"{role} {lp.executor} gave no closing; asking once more")
             resume["previous"] = written_answer(out, summary).parent
             body = NO_CLOSING_ASK
+            closing_asked = True
             out = free_dir(lp, f"{name}-retry-hand-in")
             continue
         return worker_result(lp, summary, out)
