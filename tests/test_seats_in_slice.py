@@ -97,11 +97,11 @@ class SeatsInSlice(Sandbox):
         unit = next(word for word in words if word.startswith("--unit="))
         return unit.removeprefix("--unit=")
 
-    def ran(self, line):
+    def ran(self, line, cwd=None):
         """What the harness was handed when the pane's shell ran that line through the scope."""
         pane = {**os.environ, "PATH": f"{self.stray}:{os.environ['PATH']}"}
         out = subprocess.run(["sh", "-c", line], capture_output=True, text=True, timeout=60,
-                             env=pane)
+                             env=pane, cwd=cwd)
         self.assertEqual(out.returncode, 0, out.stderr)
         return json.loads(out.stdout)
 
@@ -151,6 +151,17 @@ class SeatsInSlice(Sandbox):
         self.scope(line)
         self.assertFalse(any(re.match("--expand", word) for word in shlex.split(line)))
         self.assertEqual(self.ran(line), HARNESS[3:])
+
+    def test_f_a_systemd_run_found_through_a_relative_path_entry_runs_from_the_seat_too(self):
+        seat = self.root / "acme"
+        seat.mkdir()
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.root)
+        with patch.dict(os.environ, {"PATH": f"bin:{os.environ['PATH']}"}):
+            orch.start("acme", seat, HARNESS, "opus")
+        (line, _), = self.launched("new-session")
+        self.scope(line)
+        self.assertEqual(self.ran(line, cwd=seat), HARNESS[3:])
 
 
 if __name__ == "__main__":
