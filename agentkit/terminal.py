@@ -112,13 +112,18 @@ def xterm_colour(rgb):
                for a, b in zip(wanted, item[1])))[0]
 
 
+def light_grey(rgb):
+    """Is this a light grey, the one kind of colour a light background cannot draw as it is?"""
+    r, g, b = (int(rgb[i:i + 2], 16) for i in (0, 2, 4))
+    top = max(r, g, b)
+    return top > 127 and (top - min(r, g, b)) / top < GREY
+
+
 def on_background(rgb):
     """A caller's own colour as it reads here: on a light background a light grey is drawn
     as its mirror tone, so a white company reads black; a hue or a dark grey reads on both."""
-    r, g, b = (int(rgb[i:i + 2], 16) for i in (0, 2, 4))
-    top = max(r, g, b)
-    if _LIGHT and top > 127 and (top - min(r, g, b)) / top < GREY:
-        return "".join(f"{255 - c:02x}" for c in (r, g, b))
+    if _LIGHT and light_grey(rgb):
+        return "".join(f"{255 - int(rgb[i:i + 2], 16):02x}" for i in (0, 2, 4))
     return rgb
 
 

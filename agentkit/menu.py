@@ -618,32 +618,6 @@ def tally(counts):
     return f"{running} running · " + (f"{look} needs you" if look else f"{merged} merged")
 
 
-def bar_tally(counts, queued=(), estimate=None):
-    """What a seat's status bar carries for its runs, in `tally`'s words.
-
-    `tally` counts going runs as `<n> running` and endings that still want him as
-    `needs you`; merges and empty seats it shows another way, so the bar
-    shows them no way at all: a seat with nothing going and nothing to look at
-    draws no tally, and a seat that launched nothing is not in the counts at
-    all.  `counts` is the seat's entry from run.seat_tallies, or None; either
-    way, nothing to show reads back as None, which is what unsets the option.
-    """
-    if counts is None:
-        return None
-    running, look, _merged = counts
-    running -= len(queued)
-    bits = []
-    if running:
-        bits.append(f"{running} running")
-    if look:
-        bits.append(f"{look} needs you")
-    if queued:
-        bits.append(f"{len(queued)} waiting")
-    if estimate:
-        bits.append(estimate)
-    return " · ".join(bits) or None
-
-
 def rollup(words):
     """The one word a group of seats and runs reads: the one that wants him first."""
     return min(words, key=STATE_ORDER.index) if words else "done"
@@ -671,13 +645,6 @@ def projects(cfg, found):
         item = row(cfg, number, session)
         counts = tallies.get(session["name"])
         item.append(tally(counts))
-        if orch.on_own_server(session):
-            # the seat's own bar carries the same words its row does, on every draw;
-            # a legacy seat lives on the user's own server, where nothing is written
-            queued = [state for _, state in records if state.get("state") == "queued"
-                      and run.launched_session(state) == session["name"]]
-            orch.set_runs(session["name"], bar_tally(
-                counts, queued, seat_estimate(session["name"], session=session)))
         project = group(session.get("repo"))
         project["rows"].append(item)
         project["words"].append(item[3])
@@ -773,7 +740,7 @@ _ESTIMATES_LOCK = threading.Lock()
 
 
 def seat_estimate(seat_name, session=None, job=None):
-    """Return the remaining-plan estimate used by both the row and the tmux bar.
+    """Return the remaining-plan estimate a seat's row carries; its status bar carries none.
 
     In the unit it reads in at a glance: minutes under an hour, hours under two days, else
     days -- `~45m left`, `~5h left`, `~36d left`.  A repo's history is asked once every
@@ -1051,43 +1018,6 @@ def _last_text(info, narrow=False):
     text = last_column(info.get("word"), info.get("sentence"), done, total,
                        info.get("estimate"), narrow)
     return " · ".join(part for part in ("solo" if info.get("solo") else "", text) if part)
-
-
-def redress(session, answer, cfg=None, records=None):
-    """Write that seat's status bar and window title from the row's own values; never raises.
-
-    The one writer: the watch tick, every menu draw and a seat's own hook come through here --
-    all call `watch.announce_state`, which calls this -- so the bar says what the row says, in the
-    same words, from the same function: the state function's word and reason, the session's
-    workers, and `last_column` over `seat_progress`'s fraction and its estimate. A change of
-    word or progress lands on the next tick or draw, whichever comes first. A legacy seat
-    lives on the user's own server, where nothing is written; a seat tmux has lost, and a
-    draw under test, fail their `set-option` quietly. `records` is kept for callers that
-    still hand it down; the bar counts no runs.
-    """
-    try:
-        if not orch.on_own_server(session):
-            return
-        name = session["name"]
-        if cfg is None:
-            cfg = config.load()
-        try:
-            selection = config.load_session(cfg, name, required=False)
-        except config.Error:
-            selection = None
-        done, total = seat_progress(name)
-        estimate = seat_estimate(name, session=session, job=(done, total, ""))
-        last = last_column(answer.get("word"), answer.get("reason"), done, total, estimate)
-        left, right, title = orch.bar(name, selection["orchestrator"] if selection else "-",
-                                      answer.get("word"), last,
-                                      selection["workers"] if selection else ())
-        socket = orch.socket_name()
-        # the line's layout rides every write, so a seat dressed before it came has it too
-        for option, value in (("status-left", left), ("status-right", right),
-                              ("set-titles-string", title), ("status-format[0]", orch.BAR_FORMAT)):
-            orch.tmux_out("set-option", "-t", name, option, value, socket=socket)
-    except Exception:  # noqa: BLE001 - dressing a bar never breaks the draw or the tick beneath it
-        pass
 
 
 def v5o_column_widths(infos, term_width):
