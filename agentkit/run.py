@@ -8195,14 +8195,19 @@ def place_here(run_dir, log):
         if state.stopped or any(host.cgroup_contains(f"/{unit}")
                                 for unit in _scope_units(state.get("scope"))):
             return None
-        placement, cap = {}, None
+        placement, cap, placed = {}, None, False
         try:
             unit, cap, properties = run_placement(run_dir, state)
-            orch.scope_self(unit, orch.run_slice_name(), properties, placement)
+            placed = orch.scope_self(unit, orch.run_slice_name(), properties, placement)
         except OSError as exc:
             placement = {"scope": "none", "scope_reason": str(exc)}
         state.update(scope=placement["scope"], scope_reason=placement.get("scope_reason"))
         remember_memory_cap(state, placement, cap)
+    if placed:
+        try:
+            os.nice(10)   # the work `--bg` puts in a scope runs under `nice -n 10`
+        except OSError:
+            pass          # a priority it may not lower is no reason to leave the scope unsaid
     log(f"scope: {scope_line(state)}")
     return dict(state)
 

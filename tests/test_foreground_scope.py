@@ -36,6 +36,9 @@ unit = sys.argv[sys.argv.index("fail") - 1]
 with open(os.environ["FAKE_CGROUP"], "w") as cgroup:
     cgroup.write(f"0::{os.environ['FAKE_USER']}/agentkit.slice/agentkit-test.slice/"
                  f"agentkit-test-runs.slice/{unit}\\n")
+if os.environ.get("FAKE_LOST"):
+    sys.stderr.write("Failed to receive reply: Connection reset by peer\\n")
+    sys.exit(1)
 """
 RECORDER = """#!/usr/bin/env python3
 import json, os, sys
@@ -68,6 +71,14 @@ class ForegroundScope(Sandbox):
         self.stack.enter_context(patch.object(run, "refresh_seat_tally"))
         # `ak run` itself, not this test: only that process is a run's to move
         self.stack.enter_context(patch.object(sys, "argv", [str(REPO / "bin" / "ak"), "run"]))
+        self.niced, self.renice = [], None
+
+        def nice(step):
+            self.niced.append(step)
+            if self.renice:
+                raise self.renice
+
+        self.stack.enter_context(patch.object(run.os, "nice", side_effect=nice))
         (config.HOME / "config.toml").write_text("run_memory_max_mb = 512\n")
         self.task = self.root / "fix-api.md"
         self.task.write_text("---\nrepo: none\n---\n# Fix the API\n\n"
@@ -106,6 +117,7 @@ class ForegroundScope(Sandbox):
         self.assertEqual(seen["state"]["pid"], os.getpid())
         self.assertEqual(seen["state"]["scope"], unit)
         self.assertEqual(seen["state"]["memory_cap_mb"], 512)
+        self.assertEqual(self.niced, [10])
         self.assertTrue(host.cgroup_contains(f"/agentkit-test-runs.slice/{unit}.scope"))
         mib = str(512 * 1024 * 1024)
         self.assertEqual(self.called(), [[
@@ -148,15 +160,32 @@ class ForegroundScope(Sandbox):
             with self.subTest(name), patch.dict(os.environ, {"FAKE_REFUSE": refuse or ""}):
                 self.own.write_text(cgroup or SEAT)
                 self.calls.unlink(missing_ok=True)
+                self.niced.clear()
                 seen = self.launch(manager)
                 self.assertEqual(seen["pid"], os.getpid())
                 self.assertEqual((seen["state"]["scope"], seen["state"]["scope_reason"]),
                                  ("none", reason))
                 self.assertNotIn("memory_cap_mb", seen["state"])
+                self.assertEqual(self.niced, [])
                 self.assertEqual(self.scope_lines(seen["log"]),
                                  ["scope: pending", f"scope: none ({reason})"])
                 self.assertEqual([call[0] for call in self.called()],
                                  ["busctl"] if refuse else [])
+
+    def test_a_move_that_happened_stays_recorded_whatever_failed_after_it(self):
+        # the manager took the request and lost the reply; then the renice is refused
+        for name, lost, renice in (("a lost reply", "1", None),
+                                   ("a refused renice", "", PermissionError("denied"))):
+            with self.subTest(name), patch.dict(os.environ, {"FAKE_LOST": lost}):
+                self.own.write_text(SEAT)
+                self.niced.clear()
+                self.renice = renice
+                seen = self.launch()
+                unit = f"agentkit-run-{seen['run_dir'].name}"
+                self.assertEqual((seen["state"]["scope"], seen["state"]["memory_cap_mb"]),
+                                 (unit, 512))
+                self.assertEqual(self.niced, [10])
+                self.assertEqual(self.scope_lines(seen["log"])[-1], f"scope: {unit}")
 
     def resume(self, thread=False):
         """`ak run resume` of a run an earlier attempt placed; what the loop went on from."""
@@ -215,6 +244,7 @@ class ForegroundScope(Sandbox):
         directory, seen = self.resume()
         self.assertEqual(seen["prior"]["scope"], f"agentkit-run-{directory.name}")
         self.assertEqual(self.called(), [])
+        self.assertEqual(self.niced, [])
         self.assertEqual(self.scope_lines(seen["log"]), [])
 
     def test_stopping_its_own_scope_on_the_way_out_keeps_the_exit_status(self):
