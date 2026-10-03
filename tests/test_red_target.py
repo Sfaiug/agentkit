@@ -98,6 +98,7 @@ class RedTarget(unittest.TestCase):
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
+            "HOME": str(self.root),
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
             "PYTHONDONTWRITEBYTECODE": "1", "AGENTKIT_SESSION": "",
             "AGENTKIT_RUN_DIR": "", "AK_RUN_ROLE": "", "AK_RUN_DEPTH": "0",
@@ -155,6 +156,29 @@ class RedTarget(unittest.TestCase):
         self.assertEqual(state["final_check"]["outcome"], "failed")
         self.assertIn("$ false (on origin/main", (run_dir / "target-probe.log").read_text())
         self.assert_on_branch_head_and_clean(wt, head)
+
+    def test_line_red_stays_with_its_member_even_when_the_target_fails(self):
+        _, _, wt = make_repos(self.root)
+        (wt / "breakage").write_text("branch only\n")
+        run.git(wt, "add", ".")
+        run.git(wt, "commit", "-m", "branch breakage")
+        lp, run_dir, _ = make_loop(self.root, wt, ["true", "false  # once"], spent=3)
+        history = list(lp.state["round_summaries"])
+        failure = run_dir / "lander.log"
+        failure.write_text("$ false\n[exit 1]\nFAIL the landing check\n")
+        lp.state["waiting_on"] = {"line": run.turn_path(lp, "origin/main").name,
+            "joined": 1, "fix": {"line": "FAIL the landing check", "log": str(failure)}}
+        lp.save()
+        self.assertFalse(run.land(lp, "origin/main", lambda: self.fail("local suite"),
+                                  lambda: self.fail("red delivery")))
+        self.assertEqual(self.turns, ["final-fixer"])
+        self.assertEqual(self.reviews, ["reviewer"])
+        state = record.read_state(run_dir)
+        self.assertEqual(state["state"], "waiting")
+        self.assertEqual(state["round_summaries"], history)
+        self.assertGreater(state["waiting_on"]["joined"], 1)
+        self.assertNotIn("repair", state["waiting_on"])
+        self.assertFalse((run_dir / "target-probe.log").exists())
 
     def test_a_target_failing_elsewhere_is_named_by_its_own_failure(self):
         # one suite, two failures: the branch fails it at one check and the target at

@@ -3929,6 +3929,8 @@ def rounds(lp, execv=None):
     invalidate_saved_pass(lp.state, lp.cfg, lp.log)
     lp.rounds = lp.state["rounds"]
     lp.save()
+    if (lp.state.get("waiting_on") or {}).get("line"):
+        return     # the lander's verdict resumes delivery, never a task round
     pending = lp.state.get("review_pending")
     if (pending and "record" not in pending and pending.get("round") == lp.rnd + 1
             and pending.get("reason", "").startswith("Re-review after the ")):
@@ -4045,6 +4047,11 @@ def park_waiting(lp, reason, ref, sha=None):
     (`repair_open`).
     """
     note(lp, reason, failed=False)
+    waiting_on = dict(lp.state.get("waiting_on") or {})
+    if waiting_on.get("line"):
+        lp.state.update(state="waiting", error=reason)
+        lp.write()
+        return False
     waiting_on = {"ref": ref}
     if sha:
         waiting_on["sha"] = sha
@@ -4219,6 +4226,8 @@ def fix_after_failed_review(lp, upstream, how):
     none at all; a done-when that failed it comes with its output, so a PASS the gate
     overrode is fixed on what the gate said.
     """
+    if (lp.state.get("waiting_on") or {}).get("line"):
+        return False
     what = f"the {how} of {upstream}"
     while lp.rnd < lp.rounds:
         fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
@@ -4237,6 +4246,24 @@ def fix_after_failed_review(lp, upstream, how):
         if review(lp, summary, ok, dw_log, f"Re-review after fixes for {what}.") == "PASS":
             return True
     return False
+
+
+def landing_fixer(lp, text, name):
+    """Give any landing fixer the line's red output and remember its completed turn."""
+    wait = lp.state.get("waiting_on") or {}
+    failure = wait.get("fix") if wait.get("line") else None
+    if failure and name != "final-fixer":
+        # An unrelated conflict or light check must not hide the lander's failure.
+        output = Path(failure["log"]).read_text(errors="replace")
+        text += (f"\n\n## The final check failed. Fix the root cause as well.\n```\n"
+                 f"{output[-OUT_CAP:]}\n```")
+    summary = execute(lp, "fixer", text, name)
+    if failure:
+        # Save the actual fixer with its summary before a check or review can stop.
+        lp.state["waiting_on"]["fixed"] = True
+        lp.state["review_pending"]["summary"] = summary
+        lp.save()
+    return summary
 
 
 def resolve_conflicts(lp, upstream, out, how, tip=None):
@@ -4274,7 +4301,7 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
         lp.log(f"--- merge: conflict round {attempt}/{CONFLICT_ROUNDS}: "
                f"fixer {lp.executor} ({how} conflict)")
         try:
-            summary = execute(lp, "fixer", text, f"{how}-fixer")
+            summary = landing_fixer(lp, text, f"{how}-fixer")
         except (Dead, Blocked, Exhausted, Killed, worker.LoginExpired) as exc:
             pending = lp.state.get("review_pending")
             if isinstance(exc, (Exhausted, Killed, worker.LoginExpired)) and pending:
@@ -4557,7 +4584,7 @@ def integrate(lp, upstream):
                                 fix = (f"{lp.context}\n\n## The done-when commands failed. "
                                        f"Fix the root cause.\n```\n{dw_log[-OUT_CAP:]}\n```")
                                 with released_gate_turn():
-                                    summary = execute(lp, "fixer", fix, "rerun-fixer")
+                                    summary = landing_fixer(lp, fix, "rerun-fixer")
                                     lp.state["review_pending"]["summary"] = summary
                                     lp.save()
                                     lp.round_dir.mkdir(parents=True, exist_ok=True)
@@ -4596,7 +4623,8 @@ def integrate(lp, upstream):
             return note(lp, f"{upstream} does not exist on origin; nothing to merge into",
                         failed=True)
         if integrated(lp.wt, new_tip):
-            if git_out(lp.wt, "diff", "--quiet", new_tip, "HEAD")[0] == 0:
+            if (not (lp.state.get("waiting_on") or {}).get("line")
+                    and git_out(lp.wt, "diff", "--quiet", new_tip, "HEAD")[0] == 0):
                 # the target already carries every line of the branch, however it got there:
                 # nothing is left to push, and the job counts the run as passed
                 lp.state["on_target"] = True
@@ -4817,6 +4845,7 @@ def checks(lp, url):
                     states[name] = []  # a same-named check from another app cannot satisfy it
         except (KeyError, TypeError, ValueError) as exc:
             return False, f"cannot read required check runs: {exc}"
+        latest_status = {}
         if any(None in apps for apps in required.values()):
             data, why = gh_json(lp.run_dir, *api, "--paginate",
                                 f"repos/{owner}/{repo}/commits/{head}/statuses?per_page=100",
@@ -4839,7 +4868,14 @@ def checks(lp, url):
         failed = sorted(name for name, buckets in states.items()
                         if any(bucket in ("fail", "cancel") for bucket in buckets))
         if failed:
-            return False, f"required checks failed: {', '.join(failed)}"
+            why = f"required checks failed: {', '.join(failed)}"
+            if (lp.state.get("waiting_on") or {}).get("line"):
+                # Keep the check's output and details URL for the landing fixer.
+                why += "\n\n" + json.dumps({
+                    "check_runs": [check for check in latest.values() if check["name"] in failed],
+                    "statuses": [status for name, status in latest_status.items() if name in failed]},
+                    indent=2)
+            return False, why
         missing = sorted(name for name, buckets in states.items() if not buckets)
         pending = sorted(name for name, buckets in states.items()
                          if any(bucket not in ("pass", "skipping") for bucket in buckets))
@@ -4861,6 +4897,13 @@ def wait_checks(lp, url):
     green, why = checks(lp, url)
     if green:
         return True
+    wait = lp.state.get("waiting_on") or {}
+    if wait.get("line") and why.startswith("required checks failed:"):
+        path = lp.run_dir / "pr-checks.log"
+        path.write_text(f"{why}\nPR: {url}\n")
+        lp.state["waiting_on"] = {**wait, "fix": {"line": why.splitlines()[0], "log": str(path)}}
+        lp.write()
+        return False
     return note(lp, f"{why}; the PR is open at {url}", failed=True)
 
 
@@ -5000,6 +5043,10 @@ def do_merge(lp, url, upstream):
             if lp.state["review"].get("head_sha") != lp.state["delivery_sha"]:
                 return note(lp, "the delivery SHA is not the tested and reviewed commit", failed=True)
             if ready:
+                if (lp.state.get("waiting_on") or {}).get("line"):
+                    fetch(lp.wt, "origin", "--prune", check=True)
+                    if not integrated(lp.wt, upstream):
+                        return rejoin_line(lp, upstream, "the PR's target moved")
                 body = [] if method == "rebase" else merge_body(lp, lp.state["delivery_sha"], url)
                 rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method], "--delete-branch",
                              "--match-head-commit", lp.state["delivery_sha"], *body)
@@ -5049,7 +5096,10 @@ def do_merge(lp, url, upstream):
             # A moving target can change both the patch and its checks. Reuse the same
             # integration path as a BEHIND retry before authorizing the new head.
             head = lp.state["delivery_sha"]
-            if not integrate(lp, upstream):
+            if (lp.state.get("waiting_on") or {}).get("line"):
+                if not integrated(lp.wt, upstream):
+                    return rejoin_line(lp, upstream, "the PR's target moved")
+            elif not integrate(lp, upstream):
                 return False
             if git(lp.wt, "rev-parse", "HEAD") != head:
                 if not final_check(lp, upstream) or not push(lp) or not wait_checks(lp, url):
@@ -5098,6 +5148,8 @@ def do_merge(lp, url, upstream):
         if attempt == 2 or why not in ("BEHIND", "DIRTY"):
             break
         lp.log(f"WARN the PR is {why}; taking {upstream} in once more and retrying the merge")
+        if (lp.state.get("waiting_on") or {}).get("line"):
+            return rejoin_line(lp, upstream, f"the PR is {why}")
         # the retry pushes a new head, so its checks are a new run: wait them out again rather
         # than merging on the strength of the ones that passed for the commit just replaced --
         # and its `# once` commands too, which have only ever run on that commit
@@ -5247,6 +5299,8 @@ def target_fails(lp, upstream, dw_log):
     clean.  A probe of a `# once` command takes a heavy-suite turn; any other probe runs
     light, as the check it repeats did.
     """
+    if (lp.state.get("waiting_on") or {}).get("line"):
+        return ""     # a line member fixes its own red, without assigning it to another run
     failed = failing_checks(dw_log)
     if not failed:
         return ""
@@ -5342,6 +5396,27 @@ def target_fails(lp, upstream, dw_log):
     except Exception as exc:  # noqa: BLE001 - the park matters, not its repair
         lp.log(f"WARN no repair of {upstream} could start: {exc}")
     return first_failure(f"$ {cmd}\n[exit {code}]\n{output}")
+
+
+def fix_final_check(lp, upstream, text):
+    """Repair failing landing output and re-review, without recording a task round."""
+    fix = (f"{lp.context}\n\n## The final check failed. Fix the root cause.\n```\n"
+           f"{text[-OUT_CAP:]}\n```")
+    lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
+                                  "reason": "Re-review after the final check.",
+                                  "passed_head_sha": passed_review_head(lp.state),
+                                  "record": False}
+    lp.save()
+    with released_gate_turn():
+        summary = landing_fixer(lp, fix, "final-fixer")
+        lp.state["review_pending"]["summary"] = summary
+        lp.save()
+        ok, dw_log = verify_work(lp)
+        lp.log(f"done-when after the final check: {'all passed' if ok else 'FAILED'}")
+        if (review(lp, summary, ok, dw_log, "Re-review after the final check.", record=False)
+                != "PASS" and not fix_after_failed_review(lp, upstream, "final check")):
+            return note(lp, "done-when or review after the final check did not pass")
+    return True
 
 
 def final_check(lp, upstream):
@@ -5477,35 +5552,94 @@ def final_check(lp, upstream):
         fixed += 1
         lp.log(f"--- merge: final check round {fixed}/{CONFLICT_ROUNDS}: "
                f"fixer {lp.executor} (final check)")
-        fix = (f"{lp.context}\n\n## The final check failed. Fix the root cause.\n```\n"
-               f"{text[-OUT_CAP:]}\n```")
-        # as after a conflict, and before the turn: whatever cuts this round off -- the
-        # fixer's turn, the check or the review after it -- resumes as this round's review,
-        # never as a task round, and never as a run with its budget spent and nothing pending
-        lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
-                                      "reason": "Re-review after the final check.",
-                                      "passed_head_sha": passed_review_head(lp.state),
-                                      "record": False}
-        lp.save()
-        with released_gate_turn():
-            summary = execute(lp, "fixer", fix, "final-fixer")
-            lp.state["review_pending"]["summary"] = summary
-            lp.save()
-            ok, dw_log = verify_work(lp)
-            lp.log(f"done-when after the final check: {'all passed' if ok else 'FAILED'}")
-            # This gate is not the one a fixer was asked to fix, and it has nothing to compare
-            # against: the last per-round gate passed, which is how the run reached the merge at
-            # all.  Recording it would only overwrite the rounds' own history with a merge
-            # pipeline's answer.  What this fixer was asked about is judged where it belongs, by
-            # the once-gate at the top of the next pass -- and the reviewer reads the rest.
-            if (review(lp, summary, ok, dw_log, "Re-review after the final check.",
-                       record=False) != "PASS"
-                    and not fix_after_failed_review(lp, upstream, "final check")):
-                # the budget is spent on reviews that failed the work: a review FAIL like the
-                # rounds' own, with its findings -- a wait would only end in the same one
-                return note(lp, "done-when or review after the final check did not pass")
-            if not integrate(lp, upstream):
-                return False
+        if not fix_final_check(lp, upstream, text) or not integrate(lp, upstream):
+            return False
+
+
+def rejoin_line(lp, upstream, reason, *, back=False):
+    """A changed target keeps the place; repaired work queues behind the other members."""
+    wait = lp.state["waiting_on"]
+    lp.state.update(state="waiting", error=reason, merge_failed=False, merge_note=reason,
+                    waiting_on={"line": turn_path(lp, upstream).name,
+                                "joined": time.time() if back else wait["joined"]})
+    lp.state.pop("recovery_pending", None)
+    lp.write()
+    return False
+
+
+def land_from_line(lp, upstream, deliver):
+    """Consume the lander's verdict in this run; only delivery holds the plain merge flock."""
+    wait = lp.state["waiting_on"]
+    if "land" in wait and "fix" not in wait:
+        with turn_path(lp, upstream).open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            fetch(lp.wt, "origin", "--prune", check=True)
+            tip = git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
+            how = "rebase" if on_pass(lp) else how_to_integrate(lp)
+            args = (("merge", "--no-edit", tip) if how == "merge" else
+                    ("rebase", "--onto", tip, lp.base_sha) if on_pass(lp) else
+                    ("rebase", tip))
+            saved = dict(lp.state["review"])
+            try:
+                code, _ = git_out(lp.wt, *args)
+            except Stopped:
+                abort_stopped_integration(lp, how)
+                raise
+            if code:
+                abort_integration(lp, how)
+                return rejoin_line(lp, upstream, f"{upstream} changed since the lander checked")
+            set_base(lp, tip)
+            identity = commit_identity(lp.wt)
+            lp.state["review"] = {**saved, **identity,
+                                  "passed_head_sha": passed_review_head(lp.state),
+                                  "rebased_from": saved["head_sha"]}
+            lp.write()
+            if identity["tree_sha"] != wait["land"]:
+                return rejoin_line(lp, upstream, f"{upstream} changed since the lander checked")
+            if git_out(lp.wt, "diff", "--quiet", tip, "HEAD")[0] == 0:
+                lp.state.update(on_target=True)
+                lp.state.pop("waiting_on", None)
+                lp.state.pop("landing_reds", None)
+                return note(lp, f"its work is already on {upstream.removeprefix('origin/')}")
+            lp.state["final_check"] = {"outcome": "passed", "where": "landing",
+                                       "sha": identity["head_sha"],
+                                       "tree_sha": identity["tree_sha"],
+                                       "suite": declared_suite(lp.wt, lp.target)}
+            lp.write()
+            result = deliver()
+            if "fix" not in lp.state.get("waiting_on", {}):
+                if result:
+                    lp.state.pop("waiting_on", None)
+                    lp.state.pop("landing_reds", None)
+                    lp.write()
+                return result
+        wait = lp.state["waiting_on"]
+    if "fix" not in wait:
+        return rejoin_line(lp, upstream, "waiting for the lander")
+    failure = wait["fix"]
+    if not wait.get("fixing"):
+        lp.state["landing_reds"] = lp.state.get("landing_reds", 0) + 1
+        lp.state["waiting_on"] = {**wait, "fixing": True}
+        lp.write()
+    if lp.state["landing_reds"] > CONFLICT_ROUNDS:
+        lp.state.pop("waiting_on", None)
+        return note(lp, f"landing failed four times: {failure['line']}; see {failure['log']}",
+                    failed=True)
+    if not integrate(lp, upstream):
+        if lp.state.get("merge_failed"):
+            raise config.Error(lp.state["merge_note"])
+        lp.state["state"] = "running"
+        if not lp.state.get("review_pending") or resume_review(lp) != "PASS":
+            lp.state.pop("waiting_on", None)
+            lp.write()
+            return False
+    if not lp.state["waiting_on"].get("fixed"):
+        text = Path(failure["log"]).read_text(errors="replace")
+        if not fix_final_check(lp, upstream, text):
+            lp.state.pop("waiting_on", None)
+            lp.write()
+            return False
+    return rejoin_line(lp, upstream, "landing fixes passed review", back=True)
 
 
 def land(lp, upstream, verify, deliver, execv=None):
@@ -5537,6 +5671,8 @@ def land(lp, upstream, verify, deliver, execv=None):
     """
     if not wait_for_dependency(lp):
         return False
+    if (lp.state.get("waiting_on") or {}).get("line"):
+        return land_from_line(lp, upstream, deliver)
     first_lap = lp.state.pop("land_lap", 1)
     if not lp.state.get("landing"):
         lp.state.pop("merge_rank", None)
@@ -6020,7 +6156,8 @@ def merge(lp):
     which is only where the run's branch was cut from.  They are the same branch unless the
     task said otherwise.
     """
-    require_review_pass(lp)
+    if not (lp.state.get("waiting_on") or {}).get("line"):
+        require_review_pass(lp)
     lp.state.update(merged=False, merge_failed=False, merge_note=None, on_target=False)
     lp.step("merge")
     branch = lp.state["branch"]
@@ -6395,7 +6532,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     lp.every, lp.once = every, once
     try:
         rounds(lp)
-        if review_pass(state, cfg) and not state.get("no_merge"):
+        if (not state.get("no_merge")
+                and (review_pass(state, cfg) or (state.get("waiting_on") or {}).get("line"))):
             try:
                 merge(lp)
             except config.Error as exc:
@@ -11657,7 +11795,8 @@ def resume_run(argv):
         for key in ("waiting_for", "login_resume_at", "login_back_at"):
             state.pop(key, None)
         # the wait this resume answers is over too: main moved, or a hand hurried it
-        state.pop("waiting_on", None)
+        if not (state.get("waiting_on") or {}).get("line"):
+            state.pop("waiting_on", None)
         state.pop("waiting_resume_at", None)
         state.setdefault("run_depth", run_depth())
         if not queued_resume:
