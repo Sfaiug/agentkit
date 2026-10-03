@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.landing import landing
 from agentkit import host, config, run
 from agentkit import record
 
@@ -54,7 +55,7 @@ exec {git} "$@"
 class FetchRefRace(unittest.TestCase):
     def setUp(self):
         real_git = shutil.which("git")
-        tmp = tempfile.TemporaryDirectory(prefix="fetch-ref-race-")
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-fetch-ref-race-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         stack = ExitStack()
@@ -141,7 +142,7 @@ class FetchRefRace(unittest.TestCase):
         """Land the run while its first `fails` fetches answer `answer` after `delay` seconds."""
         self.fetches.unlink(missing_ok=True)
         os.environ.update(FRR_FAILS=str(fails), FRR_ANSWER=answer, FRR_DELAY=str(delay))
-        return run.merge(self.lp)
+        return landing(self.lp)
 
     def attempts(self):
         return len(self.fetches.read_text().splitlines())
