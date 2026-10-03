@@ -500,7 +500,7 @@ class Limits(unittest.TestCase):
         def recorded(cmd, limit, **kw):
             # The harness's event stream identifies a turn regardless of its wrapper.
             name = ("turn" if Path(kw.get("activity") or "").name == "events.jsonl"
-                    else Path(cmd[0]).name)
+                    else "command")
             limits.append((name, limit, kw.get("silence")))
             return real(cmd, limit, **kw)
 
@@ -514,7 +514,7 @@ class Limits(unittest.TestCase):
             self.assertEqual((directory / "log.txt").read_text().count(
                 f"ignoring {key}: the loop watches for silence"), 1)
         turns = [(limit, silence) for name, limit, silence in limits if name == "turn"]
-        commands = [(limit, silence) for name, limit, silence in limits if name == "bash"]
+        commands = [(limit, silence) for name, limit, silence in limits if name == "command"]
         self.assertTrue(turns and commands)
         self.assertEqual(set(turns), {(None, 60 * run_record.SILENCE_MINUTES)})
         self.assertTrue(all(0 < limit <= 3600 * run_record.CEILING_HOURS and

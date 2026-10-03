@@ -667,8 +667,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if measured:
                 measured.sample()
             return aborting() if aborting else False
-        result = worker.limited(["bash", "-c", command], limit, cwd=str(cwd),
-                                activity=activity, output=output, env=env, abort=abort, **kwargs)
+        result = worker.boxed(["bash", "-c", command], limit, cwd=str(cwd),
+                              activity=activity, output=output, env=env, abort=abort, **kwargs)
         if measured and not result[2] and result[0] != SUITE_BUSY:
             measured.save(path, 1)
         return result
@@ -738,7 +738,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     return worker.TIMEOUT, piece, True
                 stream = Output()
                 try:
-                    code, _, killed = worker.limited(
+                    code, _, killed = worker.boxed(
                         ["bash", "-c", command], left,
                         cwd=str(cwd), activity=Path(piece.name),
                         output=stream, env={**env, "AK_SHARD": shard}, abort=abort,

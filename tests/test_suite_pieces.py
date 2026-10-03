@@ -315,7 +315,7 @@ class SuitePieces(unittest.TestCase):
         _, _, wt = make_repos(folder)
         command = "true # AK_SHARD"
         lp, directory, _ = make_loop(folder, wt, [f"{command}  # once"])
-        calls, original = Counter(), worker.limited
+        calls, original = Counter(), worker.boxed
         def limited(cmd, limit, **kw):
             if cmd[0] != "bash":
                 return original(cmd, limit, **kw)
@@ -323,7 +323,7 @@ class SuitePieces(unittest.TestCase):
             calls[shard] += 1
             kw["output"].write(b"FAIL: on target\n" if shard == "2/2" else b"passed\n")
             return int(shard == "2/2"), "", False
-        with patch.object(worker, "limited", side_effect=limited):
+        with patch.object(worker, "boxed", side_effect=limited):
             note = run.target_fails(lp, "origin/main", f"$ {command}\n[exit 1]\nFAIL")
         self.assertIn("FAIL: on target", note)
         self.assertEqual(calls, {"1/2": 1, "2/2": 2})

@@ -44,12 +44,12 @@ class RepoSuite(unittest.TestCase):
         self.pieces = []
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "cpus": 4, "load": 0, "free_mb": 820}))
-        limited = worker.limited
+        limited = worker.boxed
         def command(cmd, limit, **kw):
             if cmd == ["bash", "-c", SUITE]:
                 self.pieces.append(kw["env"].get("AK_SHARD"))
             return limited(cmd, limit, **kw)
-        self.stack.enter_context(patch.object(worker, "limited", side_effect=command))
+        self.stack.enter_context(patch.object(worker, "boxed", side_effect=command))
         for module, name, value in ((gc, "disk_pressure", False), (run, "launch_session", None),
                                     (run, "collect_usage", {}), (run, "pick_models", ("opus", "astra"))):
             self.stack.enter_context(patch.object(module, name, return_value=value))

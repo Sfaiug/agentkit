@@ -69,8 +69,8 @@ def _credentials(env, cwd):
 
 
 @contextmanager
-def command(argv, env, out_dir=None, *, cwd=None):
-    """Yield (command, environment, spawn options); wait for teardown on every exit."""
+def command(argv, env, out_dir=None, *, cwd=None, drain=False):
+    """Yield spawn arguments; wait for teardown, and with drain for the command's output EOF."""
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
            "--new-session", "--bind", "/", "/", "--dev-bind", "/dev", "/dev", "--proc", "/proc"]
@@ -88,7 +88,8 @@ def command(argv, env, out_dir=None, *, cwd=None):
     report.unlink(missing_ok=True)
     # PID 1 records children before exiting; its exit makes the kernel kill
     # every descendant, even one with a new session or an empty environment.
-    argv = [sys.executable, str(Path(__file__).resolve()), str(report), *argv]
+    argv = [sys.executable, str(Path(__file__).resolve()), str(report),
+            *(["--drain"] if drain else []), *argv]
     read, write = os.pipe()
     target = None
     lock = threading.Lock()
@@ -221,8 +222,9 @@ def leftovers(out_dir):
     return _report(out_dir).get("processes", [])
 
 
-def _supervise(report, argv):
-    proc = subprocess.Popen(argv, start_new_session=True)
+def _supervise(report, argv, drain=False):
+    proc = subprocess.Popen(argv, start_new_session=True, **(
+        {"stdout": subprocess.PIPE, "stderr": subprocess.STDOUT} if drain else {}))
 
     def term(signum, _frame):
         # Outer bwrap cannot forward TERM; leave it alive while the harness saves
@@ -233,6 +235,17 @@ def _supervise(report, argv):
             pass
 
     signal.signal(signal.SIGTERM, term)
+    reader = None
+    if drain:
+        # Checks have always waited for children holding their output pipe. Keep
+        # PID 1 alive until EOF so those children still face the silence watchdog.
+        def forward():
+            with proc.stdout:
+                for chunk in iter(lambda: proc.stdout.read1(64 * 1024), b""):
+                    sys.stdout.buffer.write(chunk)
+                    sys.stdout.buffer.flush()
+        reader = threading.Thread(target=forward)
+        reader.start()
     # PID 1 also inherits orphans. Reap them while waiting for the adapter, so a
     # long turn cannot accumulate zombies from double-forked commands.
     while True:
@@ -240,6 +253,8 @@ def _supervise(report, argv):
         if pid == proc.pid:
             code = proc.returncode = os.waitstatus_to_exitcode(status)
             break
+    if reader is not None:
+        reader.join()
     left = []
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit() or int(entry.name) == os.getpid():
@@ -259,4 +274,5 @@ def _supervise(report, argv):
 
 
 if __name__ == "__main__":
-    sys.exit(_supervise(sys.argv[1], sys.argv[2:]))
+    drain = sys.argv[2] == "--drain"
+    sys.exit(_supervise(sys.argv[1], sys.argv[3:] if drain else sys.argv[2:], drain))

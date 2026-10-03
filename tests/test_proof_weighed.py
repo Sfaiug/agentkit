@@ -169,7 +169,7 @@ out = pathlib.Path(sys.argv[6])
 
     def test_old_failures_join_the_reviewers_verified_followups_and_quotes_are_notes(self):
         own = "echo 'reviewer follow-up proof'; exit 9"
-        with patch.object(worker, "limited", wraps=worker.limited) as limited:
+        with patch.object(worker, "boxed", wraps=worker.boxed) as limited:
             verdict = self.review(
                 finding("api.py:2", "old failure in a changed file", self.fails),
                 finding("legacy.py:1", "old failure in an untouched file", self.fails),
@@ -253,7 +253,7 @@ out = pathlib.Path(sys.argv[6])
         self.assertGreaterEqual(self.lp.findings.count("\n  keep\n"), 2)
 
     def test_interrupted_probes_restore_the_branch_before_propagating(self):
-        original = worker.limited
+        original = worker.boxed
 
         def interrupt(cmd, *args, **kwargs):
             if cmd == ["bash", "-c", self.fails]:
@@ -262,7 +262,7 @@ out = pathlib.Path(sys.argv[6])
                 raise run.Stopped("fixture stop")
             return original(cmd, *args, **kwargs)
 
-        with patch.object(worker, "limited", side_effect=interrupt):
+        with patch.object(worker, "boxed", side_effect=interrupt):
             with self.assertRaisesRegex(run.Stopped, "fixture stop"):
                 self.review(finding("api.py:1", "interrupted proof", self.fails))
         self.assert_restored()
