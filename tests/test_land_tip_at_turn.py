@@ -232,14 +232,15 @@ class LandTipAtTurn(unittest.TestCase):
                 seen["free"] = False
             return "## Summary\nDid nothing."
 
-        with patch.object(run, "execute", side_effect=fixer):
+        with patch.object(run, "execute", side_effect=fixer), \
+                patch.object(run, "resume_review", return_value="FAIL"):
             landed = landing(lp, lambda: True)
         self.assertFalse(landed)
         self.assertEqual(seen.get("conflicted"), ["shared.txt"])
         self.assertIsNone(seen.get("held"))
         self.assertTrue(seen.get("free"))
         state = record.read_state(lp.run_dir)
-        self.assertEqual(state["state"], "waiting")
+        self.assertNotIn("waiting_on", state)
         self.assertIn("did not finish", state["merge_note"])
 
 

@@ -14,6 +14,7 @@ from unittest.mock import call, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
+from fixtures.landing import landing
 from agentkit import host, config, run, usage
 from agentkit import record
 
@@ -325,7 +326,7 @@ sys.exit(row["code"])
         with self.assertRaisesRegex(config.Error, "successful reviewer"):
             run.cmd_merge([directory.name])
         with self.assertRaisesRegex(run.Exhausted, "successful reviewer"):
-            run.merge(lp)
+            landing(lp)
         with self.assertRaisesRegex(run.Exhausted, "successful reviewer"):
             run.do_merge(lp, state["pr"], "origin/main")
 

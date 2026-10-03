@@ -119,7 +119,7 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         self.delivered = []
 
     def cmds(self, check="true", once=True):
-        return [f"echo every $(git rev-parse HEAD) >> {self.counter}; {check}"] + (
+        return [f"echo every $(git rev-parse HEAD) >> {self.counter}; {check}  # once"] + (
             [f"echo once $(git rev-parse HEAD) >> {self.counter}  # once"] if once else [])
 
     def land(self, lp, owner, moves, consume=None):
