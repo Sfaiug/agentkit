@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # agentkit acceptance gate. Exits 0 only if every check passes.
 # The checks drive the loop offline through fake adapters and reach nothing outside the host;
-# check 9a waits out the real transient backoff (60s + 300s), which is why it starts at the
-# top and is collected at the bottom.  The live mode, AGENTKIT_SMOKE_LIVE=1 (tests/live.sh),
+# check 9's fake runs advance a test clock through the unchanged transient backoff.
+# The live mode, AGENTKIT_SMOKE_LIVE=1 (tests/live.sh),
 # adds real (tiny) model calls on every harness this host has installed with its login --
 # minus any spent model, which check 3 skips by name; one harness with its login is all that
 # mode needs -- plus one full `ak run`, which merges its own PR into a private repository
@@ -1647,8 +1647,8 @@ with open(sys.argv[2], "w") as fh:
     fh.write(re.sub(r"(?m)^workers = .*$", "workers = " + json.dumps(names), text, count=1))
 PY
 }
-# The first sleeps out the real 60s + 300s transient backoff, so they both start now,
-# alongside the real model calls, and check 9 collects them. Fake HOME + fake adapters: no
+# Only these two runs advance a test clock, so retry checks never hold up the suite.
+# They start now and check 9 collects them. Fake HOME + fake adapters: no
 # network, no real runs dir -- and --no-merge, because these throwaway repos have no origin
 # and check 4 owns the merge.
 retrylaunch() {   # retrylaunch <tag> <executor behaviour> <reviewer behaviour> [workers json]
@@ -1670,8 +1670,30 @@ PY
     # Distinct titles: the run id is the minute plus the slug, and these two start
     # together.  One shared id would make either run's sweep signal the other's turn.
     sed -e "s|__REPO__|$R|" -e "s|__TITLE__|Smoke retry $1|" "$WORK/retry-task.md" >"$WORK/task-$1.md"
-    HOME="$H" AGENTKIT_ADAPTER_DIR="$D" ak run "$WORK/task-$1.md" --rounds 1 --exec opus \
-      --review astra --no-merge
+    HOME="$H" AGENTKIT_ADAPTER_DIR="$D" PYTHONPATH="$REPO" python3 - "$REPO/bin/ak" \
+      run "$WORK/task-$1.md" --rounds 1 --exec opus --review astra --no-merge <<'PY_RETRY_CLOCK'
+import runpy, sys, time
+from types import SimpleNamespace
+from unittest.mock import patch
+from agentkit import run
+
+now = time.time()
+def sleep(seconds):
+    global now
+    now += seconds
+    print(f"test clock advanced {seconds}s", flush=True)
+
+clock = SimpleNamespace(time=lambda: now, sleep=sleep)
+wait = run.transient_wait
+def wait_on_clock(out_dir, delay):
+    # Exercise the real wait and its record; every other clock stays real.
+    with patch.object(run, "time", clock):
+        wait(out_dir, delay)
+
+with patch.object(run, "transient_wait", wait_on_clock):
+    sys.argv = sys.argv[1:]
+    runpy.run_path(sys.argv[0], run_name="__main__")
+PY_RETRY_CLOCK
     echo "rc=$?" ) >"$WORK/$1.log" 2>&1 &
 }
 # the executor's round has no spare pair to hand to, so it retries its own session twice
@@ -3034,9 +3056,12 @@ else
 fi
 
 # --- 9: transient worker failures are retried, not scored (offline) --------
-wait   # the two runs launched at the top; the first spent 60s + 300s of real transient backoff
+wait   # the two runs launched at the top, with their own clock for transient waits
 if grep -q '^rc=0$' "$WORK/retry-exec.log" && grep -q 'retrying in 60s' "$WORK/retry-exec.log" &&
-   grep -q 'retrying in 300s' "$WORK/retry-exec.log" && grep -q ' PASS, .* -> ' "$WORK/retry-exec.log"; then
+   grep -q 'retrying in 300s' "$WORK/retry-exec.log" &&
+   grep -q '^test clock advanced 60s$' "$WORK/retry-exec.log" &&
+   grep -q '^test clock advanced 300s$' "$WORK/retry-exec.log" &&
+   grep -q ' PASS, .* -> ' "$WORK/retry-exec.log"; then
   ok "9a ak run retried an executor that died on an API error twice, then passed"
 else
   no "9a ak run executor retry"; grep -E 'WARN|ERROR|rc=' "$WORK/retry-exec.log" | head -6 | sed 's/^/      /'

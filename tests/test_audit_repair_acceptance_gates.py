@@ -377,7 +377,7 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
                 self.assertIn('1 passed, 0 failed, 0 skipped', result.stdout)
 
     def test_smoke_recovery_and_retention_fixtures(self):
-        task = between(SMOKE, 'cat >"$WORK/retry-task.md"', '# The first sleeps')
+        task = between(SMOKE, 'cat >"$WORK/retry-task.md"', '\nretrylaunch() {')
         block = between(SMOKE, '# --- 13:', '# --- 14:')
         result = self.shell(self.newrepo + self.fakeadapter + task + block + '\nfinish')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
