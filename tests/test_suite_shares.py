@@ -114,6 +114,9 @@ mark() { printf 'ran: %s\n' "$1"; }
             homes.append(home)
             self.assertEqual(temp, home + "/tmp")
             self.assertEqual(cache, home + "/pycache")
+            socket = (Path(home) / ".agentkit/tmp/smoke-20000101-000000/tmux" /
+                      f"tmux-{os.getuid()}/agentkit-test")
+            self.assertLessEqual(len(os.fsencode(socket.resolve())), 103)
             self.assertFalse(Path(home).exists(), "piece left its sandbox behind")
             seen.extend(line.removeprefix("ran: ") for line in out.splitlines()
                         if line.startswith("ran: "))
@@ -173,6 +176,8 @@ sys.exit(every_file.main(every_file.Path(sys.argv[2])))
         for row in found:
             self.assertEqual(row["home"], row["temp"])
             self.assertEqual(row["cache"], row["home"] + "/pycache")
+            socket = Path(row["temp"]) / "acme-fixture-12345678" / f"tmux-{os.getuid()}/agentkit-test"
+            self.assertLessEqual(len(os.fsencode(socket.resolve())), 103)
             self.assertFalse(Path(row["home"]).exists())
         self.assertFalse((self.root / "tests/__pycache__").exists())
         for value in ("", "1/1"):

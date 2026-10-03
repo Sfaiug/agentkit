@@ -25,8 +25,9 @@ if [ $# = 0 ] && [ -n "${AK_SHARD:-}" ]; then
 fi
 # --- shared setup ----------------------------------------------------------
 if [ "${AK_SHARD:-1/1}" != 1/1 ]; then
-  # No credentials, probe files, retention siblings or Python caches shared by pieces.
-  SMOKE_SHARD_HOME=$(mktemp -d "$REPO/.ak-test-share.XXXXXX") || exit 1
+  # Short paths fit tmux sockets even when the checkout's path does not. No credentials,
+  # probe files, retention siblings or Python caches are shared by pieces.
+  SMOKE_SHARD_HOME=$(mktemp -d "/tmp/ak-test-share.XXXXXX") || exit 1
   export HOME="$SMOKE_SHARD_HOME" TMPDIR="$SMOKE_SHARD_HOME/tmp" \
     PYTHONPYCACHEPREFIX="$SMOKE_SHARD_HOME/pycache"
   mkdir -p -- "$TMPDIR"

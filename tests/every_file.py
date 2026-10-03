@@ -143,7 +143,8 @@ def run_file(root, path, env):
     began = time.monotonic()
     # Files can run beside smoke.sh in the same checkout. Their HOME, temp files and
     # explicit py_compile output must not reach another piece's sandbox or bytecode.
-    with tempfile.TemporaryDirectory(prefix=".ak-test-file-", dir=root) as sandbox:
+    # tmux canonicalizes TMUX_TMPDIR; a long worktree path cannot hold its socket.
+    with tempfile.TemporaryDirectory(prefix="ak-test-file-", dir="/tmp") as sandbox:
         child_env = dict(env, HOME=sandbox, TMPDIR=sandbox,
                          PYTHONPYCACHEPREFIX=str(Path(sandbox) / "pycache"))
         proc = subprocess.run([sys.executable, str(path.relative_to(root))], cwd=root,
