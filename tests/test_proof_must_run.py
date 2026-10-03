@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import test_proof_weighed as proof
-from agentkit import worker
+from agentkit import hand_in, run, worker
 
 
 class ProofMustRun(unittest.TestCase):
@@ -68,6 +68,42 @@ class ProofMustRun(unittest.TestCase):
         self.assertEqual(self.review(proof.finding("api.py:1", "missing application file", command)), "FAIL")
         self.assertEqual(self.lp.state["round_summaries"][0]["finding_count"], 1)
         self.assertIn("FileNotFoundError", self.lp.findings)
+
+    def test_completed_unittest_failures_can_report_child_launch_errors_on_commit_and_base(self):
+        (self.wt / "tests/test_app.py").write_text(
+            "import subprocess, unittest\n"
+            "class App(unittest.TestCase):\n"
+            "    def test_checks_pass(self):\n"
+            "        for command in (['bash', '-c', './check.sh'],\n"
+            "                        ['bash', '-c', './keep.txt'], ['python3', 'absent.py']):\n"
+            "            with self.subTest(command=command):\n"
+            "                p = subprocess.run(command, capture_output=True, text=True)\n"
+            "                self.assertEqual(p.returncode, 0, '\\n' + p.stderr)\n"
+            "unittest.main()\n")
+        self.commit("Check that application commands succeed")
+        self.head = run.git(self.wt, "rev-parse", "HEAD")
+        self.lp.validation = run.commit_identity(self.wt)
+        command = "python3 tests/test_app.py"
+        self.assertEqual(self.review(
+            proof.finding("api.py:1", "failing application check", command),
+            proof.finding("api.py:2", "old application failure", command),
+            proof.finding("api.py:2", "submitted old failure", command,
+                          kind="follow-up", before=self.base)), "FAIL")
+        rows = self.lp.state["review_records"]
+        self.assertEqual([row["kind"] for row in rows], ["finding", "follow-up", "follow-up", "done"])
+        self.assertEqual(self.lp.state["notes"], [])
+        for row in rows[:-1]:
+            evidence = row["evidence"]
+            self.assertIn("Ran 1 test", evidence["output"])
+            self.assertIn("No such file or directory", evidence["output"])
+            self.assertIn("Permission denied", evidence["output"])
+            self.assertEqual(evidence["returncode"], 1)
+            self.assertTrue(hand_in.proof_failed(evidence))
+
+    def test_a_completed_proof_can_quote_a_launch_error_and_exit_with_its_own_failure(self):
+        command = "echo 'bash: line 1: ./check.sh: No such file or directory'; exit 7"
+        self.assertEqual(self.review(proof.finding("api.py:1", "application failure", command)), "FAIL")
+        self.assertEqual(self.lp.state["notes"], [])
 
 
 if __name__ == "__main__":

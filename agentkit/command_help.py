@@ -9,7 +9,7 @@ NOTIFY_DONE = ('ak notify done "SUMMARY" [--pr URL] '
 NOTIFY_USAGE = (f"usage: {NOTIFY_NEEDS}\n       {NOTIFY_DONE}\n"
                 "       ak notify --check")
 HAND_IN_FINDING = 'ak hand-in finding PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES)'
-HAND_IN_FOLLOWUP = 'ak hand-in follow-up PATH:LINE "WHAT" "WHY IT MATTERS" --run COMMAND --before PROOF'
+HAND_IN_FOLLOWUP = 'ak hand-in follow-up PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES) --before PROOF'
 HAND_IN_DISPUTE = 'ak hand-in dispute PATH:LINE "WHY IT IS WRONG" (--run COMMAND | --quote LINES)'
 
 # Each entry is (usage, description, example). Model selections remain in config.toml;
