@@ -40,7 +40,7 @@ def proof_text(proof):
 def proof_failed(proof):
     # Launch errors are not failures of the behaviour the reviewer meant to exercise.
     missing_script = re.search(
-        r"(?m)^[^\n:]+: (?:can't open file|(?:\d+: )?cannot open)[^\n]*"
+        r"(?m)^(?:bash: [^\n]*|[^\n:]+: (?:can't open file|(?:\d+: )?cannot open)[^\n]*)"
         r"(?:No such file or directory|Permission denied)", proof.get("output", ""))
     return (proof["returncode"] > 0 and proof["returncode"] not in (126, 127)
             and not proof.get("killed") and not missing_script)

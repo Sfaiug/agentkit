@@ -2,8 +2,10 @@
 
 import shlex
 import unittest
+from unittest.mock import patch
 
 import test_proof_weighed as proof
+from agentkit import worker
 
 
 class ProofMustRun(unittest.TestCase):
@@ -28,6 +30,24 @@ class ProofMustRun(unittest.TestCase):
             "api.py:1", "missing script", "python3 absent.py")), "PASS")
         self.assertEqual(self.lp.state["followups"], [])
         self.assertIn("can't open file", self.lp.state["notes"][0])
+
+    def test_a_missing_sourced_script_is_a_note_even_when_bash_exits_one(self):
+        self.assertEqual(self.review(proof.finding("api.py:1", "missing source", "source absent.sh")), "PASS")
+        self.assertEqual(self.lp.state["followups"], [])
+        self.assertIn("[exit 1]", self.lp.state["notes"][0])
+
+    def test_a_missing_or_unexecutable_shell_is_a_note_and_restores_the_checkout(self):
+        limited = worker.limited
+        for error in (FileNotFoundError("missing shell"), PermissionError("unexecutable shell")):
+            with self.subTest(error=error):
+                def cannot_start(command, *args, **kwargs):
+                    if command == ["bash", "-c", self.fails]:
+                        raise error
+                    return limited(command, *args, **kwargs)
+                with patch.object(worker, "limited", side_effect=cannot_start):
+                    self.assertEqual(self.review(proof.finding("api.py:1", "no shell", self.fails)), "PASS")
+                self.assertEqual(self.lp.state["followups"], [])
+                self.assertIn(str(error), self.lp.state["notes"][0])
 
     def test_a_script_only_in_the_reviewers_copy_cannot_start_a_fixer(self):
         calls = self.rounds([{
