@@ -1,5 +1,5 @@
-"""The start update runs behind the real menu: steps fill its rule while keys still answer,
-and an exec takes the new code and the highlight only on the main screen. A name field
+"""The start update runs behind the real menu: steps fill its rule while keys answer within
+one second, and an exec takes the new code and the highlight only on the main screen. A name field
 keeps its draft until Esc. Leaving the menu leaves the detached update to finish.
 
 Offline: each HOME and git clone lives in an in-checkout sandbox, with a bare origin ahead,
@@ -25,6 +25,8 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 GIT = shutil.which("git")
+# Allow PTY reader scheduling, but fail before origin's two-second START_WAIT expires.
+FRAME = 1.0
 INSTALL = '''#!/bin/sh
 d="$(dirname "$0")/.."
 echo installed >>"$d/installs"
@@ -46,7 +48,8 @@ CHILD = r'''
 import os, sys
 from pathlib import Path
 sys.path.insert(0, str(Path.home() / "agentkit"))
-from agentkit import BUILD, config, macbridge, menu, orch, terminal, watch
+# Load the listing's run helpers before the clock starts, as the other loop fixtures do.
+from agentkit import BUILD, config, macbridge, menu, orch, run, terminal, watch
 
 cfg = {"defaults": {"orchestrator": "acme", "workers": ["acme"]},
        "models": {"acme": {"harness": "claude", "model": "acme-model",
@@ -89,6 +92,7 @@ def update_first(*args, **kwargs):
 
 menu.draw, menu.update_first = draw, update_first
 print(f"<start {BUILD}>", flush=True)
+print("<begin>", flush=True)
 code = menu.main(sys.argv[1:])
 print("<exit>", flush=True)
 sys.exit(code)
@@ -111,7 +115,7 @@ def running(pid):
 
 class Screen:
     def __init__(self, case, *flags):
-        self.case, self.output = case, b""
+        self.case, self.output, self.arrived = case, b"", []
         self.lock = threading.Lock()
         self.master, self.slave = os.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 90, 0, 0))
@@ -132,6 +136,7 @@ class Screen:
                 return
             with self.lock:
                 self.output += chunk
+                self.arrived.append((time.monotonic(), len(self.output)))
 
     def text(self):
         with self.lock:
@@ -141,17 +146,19 @@ class Screen:
         until = time.monotonic() + timeout
         while time.monotonic() < until:
             with self.lock:
-                if re.search(pattern.encode(), self.output[after:]):
-                    return
+                found = re.search(pattern.encode(), self.output[after:])
+                if found:
+                    end = after + found.end()
+                    return next(at for at, size in self.arrived if size >= end)
             time.sleep(0.002)
         self.case.fail(f"never saw {pattern!r}:\n{self.text()[-4000:]}")
 
     def key(self, key, pattern):
         with self.lock:
             after = len(self.output)
+        pressed = time.monotonic()
         os.write(self.master, key)
-        # PTY reads include the reader's scheduling; the in-process menu tests check speed.
-        self.when(pattern, after)
+        self.case.assertLess(self.when(pattern, after) - pressed, FRAME, self.text()[-4000:])
 
     def leave(self):
         self.key(b"\x1b", "<exit>")
@@ -247,7 +254,8 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
 
     def opened(self, *flags):
         screen = Screen(self, *flags)
-        screen.when("<draw old fix-api>")
+        began = screen.when("<begin>")
+        self.assertLess(screen.when("<draw old fix-api>") - began, FRAME, screen.text())
         return screen
 
     def test_steps_fill_while_keys_answer_then_exec_keeps_the_highlight(self):
@@ -389,7 +397,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         self.env["START_CLIENT"] = "1"
         (self.root / "ssh.hold").touch()
         screen = Screen(self)
-        screen.when("<connected>")
+        self.assertLess(screen.when("<connected>") - screen.when("<begin>"), FRAME)
         self.wait_for(lambda: (self.root / "ls-remote.started").exists())
         self.release("ssh")
         self.assertEqual(screen.proc.wait(10), 0, screen.text())
