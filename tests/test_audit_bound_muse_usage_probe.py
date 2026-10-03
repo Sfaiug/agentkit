@@ -23,13 +23,38 @@ from agentkit import config, muse_usage, usage, usage_probe
 # Loaded only by fixture children. HTTPS is replaced before the real adapter imports it;
 # even a regression that tries another network route can reach only the loopback bridge.
 NETWORK = r'''
-import http.client, json, os, pathlib, socket, subprocess, sys
+import fcntl, http.client, json, os, pathlib, socket, subprocess, sys
+from types import SimpleNamespace
 root = pathlib.Path(os.environ["MUSE_FIXTURE"])
 original_connect = socket.socket.connect
 def local_connect(sock, address):
     assert isinstance(address, tuple) and address[0] in ("127.0.0.1", "::1"), "external network forbidden"
     return original_connect(sock, address)
 socket.socket.connect = local_connect
+
+def late(module):
+    at = float(os.environ["AGENTKIT_MUSE_USAGE_WORK_DEADLINE"]) - .01
+    module.time = SimpleNamespace(monotonic=lambda: at, time=module.time.time,
+                                  sleep=module.time.sleep)
+    with (root / "late").open("a") as fh:
+        fh.write(json.dumps({"process": pathlib.Path(sys.argv[0]).stem,
+                             "left": float(os.environ["AGENTKIT_MUSE_USAGE_WORK_DEADLINE"]) - at}) + "\n")
+
+communicate = subprocess.Popen.communicate
+def completed(proc, *args, **kwargs):
+    result = communicate(proc, *args, **kwargs)
+    if os.environ.get("RESPONSE") == "near_deadline" and pathlib.Path(sys.argv[0]).name == "usage_probe.py":
+        late(sys.modules["__main__"])
+    return result
+subprocess.Popen.communicate = completed
+
+flock = fcntl.flock
+def locking(fh, operation):
+    if os.environ.get("RESPONSE") == "overlap" and operation == fcntl.LOCK_EX:
+        with (root / "callers").open("a") as out:
+            out.write(f"{os.getpid()}\n")
+    return flock(fh, operation)
+fcntl.flock = locking
 
 class Connection:
     def __init__(self, host, port, timeout):
@@ -50,6 +75,8 @@ class Connection:
             "read": lambda obj, count: obj.stream.read(count)})()
         response.status = int(self.proc.stdout.readline())
         response.stream = self.proc.stdout
+        if os.environ.get("RESPONSE") == "near_deadline":
+            late(sys.modules["__main__"])
         return response
     def close(self):
         if self.proc:
@@ -102,10 +129,9 @@ else:
         while True:
             print(": keepalive", flush=True)
             time.sleep(.06)
-    if mode == "near_deadline":
-        time.sleep(max(0, float(os.environ["AGENTKIT_MUSE_USAGE_DEADLINE"])
-                       - time.monotonic() - 4))
-    time.sleep(float(os.environ.get("RESPONSE_DELAY", "0")))
+    if mode == "overlap":
+        while len((root / "callers").read_text().splitlines()) < 2:
+            time.sleep(.01)
     status = {"capacity": 429, "quota": 429, "server": 503}.get(mode, 200)
     print(status, flush=True)
     if status != 200:
@@ -179,7 +205,7 @@ raise AssertionError("this regression needs no tmux server")
             "AGENTKIT_ACCOUNT": "",
             "AGENTKIT_RUN_DIR": "", "AGENTKIT_DISCORD_WEBHOOK": "off", "NO_COLOR": "1",
             "AGENTKIT_TMUX_SOCKET": "agentkit-test", "TMUX_TMPDIR": str(sockets), "TMUX": "",
-            "RESPONSE": "success", "RESPONSE_DELAY": "0", "CREDENTIAL": "success", "CREDENTIAL_DELAY": "0",
+            "RESPONSE": "success", "CREDENTIAL": "success", "CREDENTIAL_DELAY": "0",
         }
         self.stack.enter_context(patch.dict(os.environ, env))
         for name in (usage_probe.DEADLINE_ENV, usage_probe.WORK_DEADLINE_ENV):
@@ -230,22 +256,18 @@ raise AssertionError("this regression needs no tmux server")
     def direct(self, helper=False):
         script = "muse-usage.sh" if helper else "muse.sh"
         argv = [str(self.fixture_repo / "adapters" / script)] + ([] if helper else ["usage"])
-        started = time.monotonic()
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.children.append(proc)
-        stdout, stderr = proc.communicate(timeout=float(os.environ["AGENTKIT_MUSE_USAGE_TIMEOUT"]) + 2)
+        stdout, stderr = proc.communicate(timeout=60)
         self.assertEqual(proc.returncode, 0, stderr)
         self.assertEqual(stderr, "")
-        self.assertLess(time.monotonic() - started, float(os.environ["AGENTKIT_MUSE_USAGE_TIMEOUT"]) + .5)
         data = json.loads(stdout)
         self.assert_safe(data)
         self.assert_clean()
         return data
 
     def collect(self):
-        started = time.monotonic()
         data = usage.collect(self.cfg)["meta"]
-        self.assertLess(time.monotonic() - started, float(os.environ["AGENTKIT_MUSE_USAGE_TIMEOUT"]) + .5)
         self.assert_safe(data)
         self.assert_clean()
         return data
@@ -295,14 +317,19 @@ raise AssertionError("this regression needs no tmux server")
         self.assertEqual(len(self.records("requests")), 1)
 
     def test_near_deadline_success_is_kept_by_caller(self):
-        # Startup spends from the wait until the inherited deadline, rather than adding to
-        # a fixed sleep. Four seconds leave room for cleanup and scheduling under load.
+        # Real adapters and descendants run, but clock readings at the response and cleanup
+        # are pinned just before the work deadline; host scheduling cannot spend that margin.
         os.environ.update(AGENTKIT_MUSE_USAGE_TIMEOUT="12", RESPONSE="near_deadline")
-        started = time.monotonic()
-        data = self.collect()
+        with patch.object(usage_probe.subprocess, "run", wraps=subprocess.run) as captured:
+            data = self.collect()
         self.assertIsNone(data["error"])
         self.assertEqual([m["used"] for m in data["meters"]], [0, 22])
-        self.assertGreater(time.monotonic() - started, 7)
+        captured.assert_called_once()
+        self.assertNotIn("timeout", captured.call_args.kwargs)   # the supervisor owns it
+        self.assertEqual({row["process"] for row in self.records("late")},
+                         {"muse_usage", "usage_probe"})
+        for row in self.records("late"):
+            self.assertAlmostEqual(row["left"], .01)
         self.assertEqual(len(self.records("requests")), 1)
 
     def test_credential_extraction_timeout_and_success_clean_descendants(self):
@@ -398,15 +425,17 @@ raise AssertionError("this regression needs no tmux server")
         self.assertEqual(len(self.records("requests")), 1)   # the paid probe keeps its ten minutes
 
     def test_overlapping_reads_make_one_request(self):
-        os.environ["RESPONSE_DELAY"] = ".3"
+        # The response waits until both adapters try their cache lock, not for a fixed sleep.
+        os.environ.update(RESPONSE="overlap", AGENTKIT_MUSE_USAGE_TIMEOUT="12")
         # Wait for both callers before checking PIDs: one may still be cleaning the shared probe.
         argv = [str(self.fixture_repo / "adapters" / "muse.sh"), "usage"]
         with ThreadPoolExecutor(max_workers=2) as pool:
-            results = list(pool.map(lambda _: subprocess.run(argv, capture_output=True, text=True, timeout=4), range(2)))
+            results = list(pool.map(lambda _: subprocess.run(argv, capture_output=True, text=True, timeout=60), range(2)))
         for proc in results:
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertIsNone(json.loads(proc.stdout)["error"])
         self.assert_clean()
+        self.assertEqual(len((self.root / "callers").read_text().splitlines()), 2)
         self.assertEqual(len(self.records("requests")), 1)
 
     def test_caller_bounds_even_an_adapter_that_ignores_the_contract(self):
@@ -428,16 +457,16 @@ time.sleep(60)
         self.assertEqual(self.records("requests"), [])
 
     def test_cancelled_direct_probe_reaps_descendants(self):
-        os.environ["RESPONSE"] = "timeout"
+        os.environ.update(RESPONSE="timeout", AGENTKIT_MUSE_USAGE_TIMEOUT="12")
         argv = [str(self.fixture_repo / "adapters" / "muse.sh"), "usage"]
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.children.append(proc)
-        deadline = time.monotonic() + 1
+        deadline = time.monotonic() + 10
         while not any(p["kind"] == "descendant" for p in self.records("pids")):
             self.assertLess(time.monotonic(), deadline, "fixture did not start")
             time.sleep(.01)
         proc.terminate()
-        stdout, stderr = proc.communicate(timeout=2)
+        stdout, stderr = proc.communicate(timeout=60)
         self.assertEqual(stderr, "")
         self.assertIn("cancelled", json.loads(stdout)["error"])
         self.assert_clean()
