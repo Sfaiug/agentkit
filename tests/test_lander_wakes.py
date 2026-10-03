@@ -142,6 +142,7 @@ class LanderWakes(Sandbox):
         identity = run.commit_identity(self.wt)
         self.lp.state["review"].update(identity)
         self.lp.state["round_summaries"] = self.lp.state["round_summaries"][:spent]
+        (self.directory / f"round-{spent}").mkdir(parents=True, exist_ok=True)
         self.lp.state.update(state="waiting", merge_method=method,
                              waiting_on={"line": self.turn.name, "joined": 10})
         self.lp.save()
