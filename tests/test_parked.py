@@ -707,7 +707,7 @@ class Parked(unittest.TestCase):
 
                 # A line member is unfinished work even when this ending's retry
                 # would belong to a person: only the lander advances its record.
-                state["waiting_on"] = {"line": run.merge_turn_lock(
+                state["waiting_on"] = {"line": run.merge_lock_path(
                     "https://github.com/acme/widget.git", "origin/main").name,
                     "joined": self.now - 30}
                 record.save_state(directory, state)

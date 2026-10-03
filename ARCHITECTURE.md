@@ -13,7 +13,7 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
   words still leak into some twenty files.
-- `run.py` (12.5k lines) holds most of the run side.
+- `run.py` (12.3k lines) holds most of the run side.
 
 ## Entry points
 
@@ -24,12 +24,12 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
 ## agentkit/
 
 - `run.py`: staffing, review, landing, hand-back, provider failures, slots, admission,
-  worktrees and merge turns. API: `main`, `going`, `pick_models`; for watch, job, gc,
+  worktrees and delivery locks. API: `main`, `going`, `pick_models`; for watch, job, gc,
   orch, menu, notify, usage, worker and a hook.
 - `gate.py`: check commands and host-wide heavy-suite turns; `run_done_when`, turn/env
   helpers and wait notes. For run and tests. Leaks: run's `run_child_env`, `memory_cap_note`,
   `dirty_paths`, `OUT_CAP`.
-- `land.py`: shared suite and passed trees. Lander checks scratch worktrees and wakes
+- `land.py`: landing line and tested trees. Lander checks scratch worktrees and wakes
   parked line members to land or fix; run consumes their verdicts and rejoins after fixes
   or a changed target.
 - `record.py`: run.json, stop-safe writes, recovery locks, defaults, folders, writer id.

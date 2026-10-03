@@ -152,7 +152,7 @@ class V5aa(unittest.TestCase):
     def log_text(self, run_dir):
         return (run_dir / "log.txt").read_text()
 
-    def test_v5aa_pinned_tip_retries_when_main_moves_mid_lap(self):
+    def test_v5aa_integration_keeps_its_pinned_tip_when_main_moves(self):
         _, owner, wt = make_repos(self.root)
         tip0 = run.git(wt, "rev-parse", "origin/main^{commit}")
         lp, run_dir, lines = make_loop(self.root, wt)
@@ -184,16 +184,14 @@ class V5aa(unittest.TestCase):
         text = self.log_text(run_dir)
         tip1 = run.git(wt, "rev-parse", "origin/main^{commit}")
         self.assertNotEqual(tip0, tip1)
-        self.assertIn("moved to", text)
         self.assertIn(f"rebasing ak/test onto origin/main ({tip0[:12]})", text)
-        self.assertIn(f"rebasing ak/test onto origin/main ({tip1[:12]})", text)
+        self.assertEqual(text.count("rebasing ak/test onto origin/main"), 1)
         self.assertTrue(run.integrated(wt, tip0))
-        self.assertTrue(run.integrated(wt, tip1))
-        # every lap saved the pinned commit it rebased onto, never the moving name
-        self.assertEqual(saved, [tip0, tip1])
-        self.assertEqual(record.read_state(run_dir)["base_sha"], tip1)
+        self.assertFalse(run.integrated(wt, tip1))
+        self.assertEqual(saved, [tip0])
+        self.assertEqual(record.read_state(run_dir)["base_sha"], tip0)
 
-    def test_v5aa_conflict_fixer_finished_means_second_rebase_not_abort_words(self):
+    def test_v5aa_finished_conflict_fixer_keeps_the_pinned_tip(self):
         _, owner, wt = make_repos(self.root)
         (wt / "shared").write_text("branch intent\n")
         run.git(wt, "add", ".")
@@ -231,15 +229,14 @@ class V5aa(unittest.TestCase):
             self.assertTrue(run.integrate(lp, "origin/main"))
         text = self.log_text(run_dir)
         self.assertNotIn("did not finish", text)
-        self.assertIn("moved to", text)
-        self.assertEqual(text.count("rebasing ak/test onto origin/main"), 2)
+        self.assertEqual(text.count("rebasing ak/test onto origin/main"), 1)
         tip2 = run.git(wt, "rev-parse", "origin/main^{commit}")
         self.assertNotEqual(tip1, tip2)
         self.assertIn(f"rebasing ak/test onto origin/main ({tip1[:12]})", text)
-        self.assertIn(f"rebasing ak/test onto origin/main ({tip2[:12]})", text)
-        self.assertTrue(run.integrated(wt, tip2))
-        self.assertEqual(saved, [tip1, tip2])
-        self.assertEqual(record.read_state(run_dir)["base_sha"], tip2)
+        self.assertTrue(run.integrated(wt, tip1))
+        self.assertFalse(run.integrated(wt, tip2))
+        self.assertEqual(saved, [tip1])
+        self.assertEqual(record.read_state(run_dir)["base_sha"], tip1)
 
     def test_v5aa_unfinished_fixer_aborts_and_records_none(self):
         _, owner, wt = make_repos(self.root)
@@ -273,48 +270,6 @@ class V5aa(unittest.TestCase):
         self.assertEqual([entry["round"] for entry in state["round_summaries"]], [1])
         self.assertFalse(run.in_progress(wt, "rebase"))
 
-    def test_v5aa_four_moves_end_with_three_times_note_and_stay_resumable(self):
-        _, owner, wt = make_repos(self.root)
-        lp, run_dir, _ = make_loop(self.root, wt)
-        move_owner(owner, "pre.txt", "pre\n")
-        t1 = run.git(owner, "rev-parse", "main^{commit}")
-        real_out = run.git_out
-        real_set_base = run.set_base
-        saved, tips, laps = [], [t1], []
-
-        def record_set_base(lp2, rev):
-            out = real_set_base(lp2, rev)
-            saved.append(lp2.state["base_sha"])
-            return out
-
-        def hooked(wt2, *args, **kwargs):
-            code, out = real_out(wt2, *args, **kwargs)
-            if args[:1] == ("rebase",):
-                # every landed lap finds the shared reference advanced again
-                laps.append(True)
-                move_owner(owner, f"hook{len(laps)}.txt", f"{len(laps)}\n")
-                tips.append(run.git(owner, "rev-parse", "main^{commit}"))
-                real_out(wt, "fetch", "origin")
-            return code, out
-
-        with patch.object(run, "git_out", side_effect=hooked), \
-                patch.object(run, "set_base", side_effect=record_set_base):
-            self.assertFalse(run.integrate(lp, "origin/main"))
-        state = record.read_state(run_dir)
-        text = self.log_text(run_dir)
-        self.assertIn("moved three times", text)
-        self.assertIn("moved three times", state["merge_note"])
-        self.assertFalse(state["merge_failed"])
-        self.assertEqual(state["state"], "waiting")    # parked like a conflict, never FAIL
-        # three laps, never a fourth: the limit is checked before another rebase runs,
-        # and every lap saved the pinned commit it rebased onto
-        self.assertEqual(text.count("rebasing ak/test onto origin/main"), 3)
-        self.assertEqual(saved, tips[:3])
-        state["state"] = "fail"
-        record.save_state(run_dir, state)
-        self.assertTrue(run.failed_in_integration(record.read_state(run_dir), run_dir))
-        self.assertEqual(run.continue_line(record.read_state(run_dir), run_dir),
-                         "continue: ak run resume v5aa-test")
 
     def test_v5aa_integration_fail_below_budget_resumes_at_integration(self):
         # the reported race as the old code recorded it: the fixer finished the rebase,
@@ -479,13 +434,13 @@ class V5aa(unittest.TestCase):
                 "base_sha": base_sha, "branch": "ak/test", "worktree": str(wt),
                 "repo": str(wt), "executor": "opus", "reviewer": "astra",
                 "merge_method": "squash", "merged": False, "merge_failed": False,
-                "merge_note": "origin/main moved three times during integration; "
+                "merge_note": "the fixer did not finish the rebase of origin/main; "
                               "resume to try again",
             }
             record.save_state(run_dir, state)
             (run_dir / "log.txt").write_text(
-                "[00:00:00] WARN not merged: origin/main moved three times during "
-                "integration; resume to try again\n")
+                "[00:00:00] WARN not merged: the fixer did not finish the rebase of "
+                "origin/main; resume to try again\n")
             out = io.StringIO()
             with redirect_stdout(out):
                 self.assertEqual(run.cmd_status([run_dir.name]), 0)
@@ -589,8 +544,8 @@ class V5aa(unittest.TestCase):
         def hooked(wt2, *args, **kwargs):
             code, out = real_out(wt2, *args, **kwargs)
             if args[:1] == ("rebase",) and not moved:
-                # the tracking reference moves under the lap; the saved base must
-                # still be the commit the retry rebased onto, never the moving name
+                # the tracking reference moves during integration; the saved base must
+                # still be the commit being rebased onto, never the moving name
                 move_owner(owner, "moved.txt", "origin moved\n")
                 real_out(wt, "fetch", "origin")
                 moved.append(True)
@@ -602,10 +557,10 @@ class V5aa(unittest.TestCase):
         state = record.read_state(run_dir)
         tip1 = run.git(wt, "rev-parse", "origin/main^{commit}")
         self.assertNotEqual(tip0, tip1)
-        self.assertEqual(saved, [tip0, tip1])
-        self.assertEqual(state["base_sha"], tip1)
+        self.assertEqual(saved, [tip0])
+        self.assertEqual(state["base_sha"], tip0)
         self.assertRegex(state["base_sha"], r"^[0-9a-f]{40}$")
-        self.assertTrue(run.integrated(wt, tip1))
+        self.assertTrue(run.integrated(wt, tip0))
 
 
 if __name__ == "__main__":

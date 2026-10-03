@@ -54,7 +54,7 @@ class Lander(unittest.TestCase):
         self.commit("base")
         run.git(self.repo, "push", "origin", "main")
         self.base = run.git(self.repo, "rev-parse", "HEAD")
-        self.turn = run.merge_turn_lock(str(self.remote), "origin/main")
+        self.turn = run.merge_lock_path(str(self.remote), "origin/main")
         self.checks = []
         self.gate_run = gate.run_done_when
         self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=self.check))
@@ -233,7 +233,7 @@ class Lander(unittest.TestCase):
                 self.assertEqual(run.git(self.repo, "rev-parse", "HEAD^{tree}"), tree)
                 lp = type("Member", (), {"state": state, "wt": self.repo, "log": lambda _, text: None})()
                 checks = len(self.checks)
-                self.assertEqual(run.suite_shared(lp, "origin/main", sha, SUITE)["tested"], tree)
+                self.assertEqual(run.suite_shared(lp, "origin/main", sha)["tested"], tree)
                 self.assertEqual(len(self.checks), checks)
                 with record.record(directory) as current:
                     current["state"] = "running"

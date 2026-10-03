@@ -480,35 +480,6 @@ class MergeStep(unittest.TestCase):
                 self.assertTrue(run.handback_reason(state).startswith("after 2 rounds, open findings: "
                                 "- shared:1 - drops the target side - fixture defect"))
 
-    def test_origin_moving_three_times_parks_waiting(self):
-        _, owner, wt = make_repos(self.root)
-        lp, run_dir, _ = make_loop(self.root, wt)
-        real_out, laps = run.git_out, []
-
-        def racing(cwd, *args, **kwargs):
-            answer = real_out(cwd, *args, **kwargs)
-            if args[:1] == ("rebase",):
-                # origin moves again while every lap lands
-                laps.append(run.git(cwd, "rev-parse", "HEAD"))
-                (owner / f"move{len(laps)}.txt").write_text("moved\n")
-                run.git(owner, "add", ".")
-                run.git(owner, "commit", "-m", f"move {len(laps)}")
-                run.git(owner, "push", "origin", "main")
-            return answer
-
-        with patch.object(run, "git_out", side_effect=racing), \
-                patch.object(run, "current_review", return_value=True):
-            self.assertFalse(run.integrate(lp, "origin/main"))
-        self.assertEqual(len(laps), 3)
-        state = record.read_state(run_dir)
-        self.assertEqual(state["state"], "waiting")
-        self.assertNotEqual(state["verdict"], "FAIL")
-        self.assertFalse(state["merge_failed"])
-        self.assertEqual(state["merge_note"], "origin/main moved three times during integration")
-        # parked on the tip the last lap landed, which origin is already past: the tick's
-        # next pass retries it rather than waiting for yet another merge
-        self.assertEqual(state["waiting_on"]["ref"], "origin/main")
-        self.assertEqual(state["waiting_on"]["sha"], run.git(owner, "rev-parse", "HEAD~1"))
 
     def test_a_post_rebase_review_fail_with_rounds_left_runs_a_fixer(self):
         # the re-review after the merge-time rebase FAILs with rounds left: a fixer
@@ -887,7 +858,7 @@ class MergeStep(unittest.TestCase):
             raise AssertionError(args)
 
         with patch.object(run, "gh", side_effect=fake_gh), \
-                patch.object(run, "merge_turn", lambda lp, upstream: nullcontext()), \
+                patch.object(run, "merge_lock", lambda lp, upstream: nullcontext()), \
                 patch.object(run.time, "sleep") as slept:
             self.assertTrue(run.merge_own_pr(lp, URL, lp.state["delivery_sha"]))
         self.assertEqual(len(merges), 2)
@@ -938,7 +909,7 @@ class MergeStep(unittest.TestCase):
                     raise AssertionError(args)
 
                 with patch.object(run, "gh", side_effect=fake_gh), \
-                        patch.object(run, "merge_turn", lambda lp, upstream: nullcontext()), \
+                        patch.object(run, "merge_lock", lambda lp, upstream: nullcontext()), \
                         patch.object(run.time, "sleep"):
                     self.assertFalse(run.merge_own_pr(lp, URL, lp.state["delivery_sha"]))
                 self.assertEqual(len(merges), 1)
