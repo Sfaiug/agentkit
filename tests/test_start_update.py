@@ -353,7 +353,8 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         self.wait_for(lambda: (self.root / "ls-remote.started").exists())
         screen.key(b"\x1b[B", "<draw old tidy-docs>")
         screen.leave()
-        self.wait_for(lambda: not running(self.updaters()[0]), timeout=4)
+        # The request's timeout does not bound when the detached updater gets CPU to exit.
+        self.wait_for(lambda: not running(self.updaters()[0]))
         self.assertNotIn("updating", screen.text())
         self.assertEqual((self.git(self.clone, "rev-parse", "HEAD"), self.installs()), (self.first, 0))
 
