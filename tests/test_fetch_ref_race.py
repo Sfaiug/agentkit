@@ -1,8 +1,7 @@
 """agentkit: a fetch that meets another fetch on the same ref goes again, never ends a passed run.
 
-Offline: a throwaway bare `origin` and a passed run's clone of it in the system temp dir
-(never the checkout, where an interrupted run's fake `git` could be committed), with a
-temporary HOME. A fake `git` first on PATH answers the run's first fetches the way the
+Offline: a throwaway bare `origin` and a passed run's clone in an ignored sandbox,
+with a temporary HOME. A fake `git` first on PATH answers the run's first fetches the way the
 loser of two fetches racing for `refs/remotes/origin/main` hears it, and hands every other
 call to the real git. The landing is the real one; the PR steps after the push are stubs.
 """
@@ -155,26 +154,30 @@ class FetchRefRace(unittest.TestCase):
         self.assertFalse(self.lp.state["merge_failed"])
         self.assertGreater(self.attempts(), 2)
 
-    def test_any_other_fetch_failure_is_reported_as_before(self):
+    def test_other_fetch_failures_leave_the_passed_member_waiting(self):
         for answer in (UNREACHABLE, STALE, CLOBBER):
             with self.subTest(answer=answer):
-                self.assertFalse(self.land(ALWAYS, answer))
+                with self.assertRaises(config.Error) as error:
+                    self.land(ALWAYS, answer)
                 self.assertEqual(self.attempts(), 1)
-                self.assertEqual(self.lp.state["merge_note"],
-                                 " ".join(f"git fetch origin failed: {answer}".split()))
-                self.assertTrue(self.lp.state["merge_failed"])
+                self.assertIn(answer, str(error.exception))
+                self.assertEqual(self.lp.state["state"], "waiting")
+                self.assertEqual(self.lp.state["verdict"], "PASS")
+                self.assertFalse(self.lp.state["merge_failed"])
         self.merges.assert_not_called()
 
     def test_a_ref_lock_outlasting_the_git_limit_is_reported_not_retried_forever(self):
         # The second call gets the remaining 0.5s, then one retry with that same budget.
         started = time.monotonic()
         with patch.object(run, "TOOL_CAP", 2):
-            self.assertFalse(self.land(ALWAYS, LOCKED, delay=1.5))
+            with self.assertRaises(config.Error) as error:
+                self.land(ALWAYS, LOCKED, delay=1.5)
         self.assertLess(time.monotonic() - started, 4)
         self.assertEqual(self.attempts(), 3)
-        self.assertTrue(self.lp.state["merge_note"].startswith(
-            "git fetch origin failed: error: cannot lock ref 'refs/remotes/origin/main'"))
-        self.assertTrue(self.lp.state["merge_failed"])
+        self.assertIn("cannot lock ref 'refs/remotes/origin/main'", str(error.exception))
+        self.assertEqual(self.lp.state["state"], "waiting")
+        self.assertEqual(self.lp.state["verdict"], "PASS")
+        self.assertFalse(self.lp.state["merge_failed"])
         self.merges.assert_not_called()
 
 

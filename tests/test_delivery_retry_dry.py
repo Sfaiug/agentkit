@@ -79,7 +79,7 @@ class DeliveryRetryDry(unittest.TestCase):
             lp = run.Loop(config.load(), run_dir, state, {}, lambda _: None,
                           self.wt, "", ["false"], "", [])
             self.assertEqual(landing(lp, consume=lambda _: run.cmd_resume([run_dir.name])), 1)
-        self.assertEqual(turn.call_count, 1)
+        self.assertEqual(turn.call_count, 1, record.read_state(run_dir))
         saved = record.read_state(run_dir)
         self.assertEqual(saved["state"], "exhausted")
         self.assertEqual(saved["error"], str(exc))

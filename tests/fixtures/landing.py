@@ -7,6 +7,8 @@ from agentkit import land, record, run, watch
 
 def landing(lp, deliver=None, *, checked=lambda: None, consume=None):
     """Join, run one lander pass and consume its verdict; a changed target stays queued."""
+    if not (lp.state.get("waiting_on") or {}).get("line"):
+        run.require_review_pass(lp)
     upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
     (lp.run_dir / "task.md").write_text(
         f"# {lp.state['title']}\n\n## Done when\n```bash\n" + "\n".join(lp.cmds) + "\n```\n")

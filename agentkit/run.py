@@ -5523,8 +5523,6 @@ def final_check(lp, upstream):
 
 def join_line(lp, upstream, deliver):
     """Leave a passed run's place on disk; a fresh process consumes the lander's verdict."""
-    if not wait_for_dependency(lp):
-        return False
     if (lp.state.get("waiting_on") or {}).get("line"):
         return land_from_line(lp, upstream, deliver)
     require_review_pass(lp)

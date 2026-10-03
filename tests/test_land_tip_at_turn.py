@@ -127,7 +127,7 @@ class LandTipAtTurn(unittest.TestCase):
     def test_target_moving_while_suite_waits_rejoins_then_checks_the_delivered_tree(self):
         remote, owner = make_origin(self.root)
         lp = make_run(self.root, remote, "acme",
-                      [f"echo \"every $(git rev-parse HEAD) $(cat tip.txt)\" >> {self.counter}",
+                      [f"echo \"every $(git rev-parse HEAD) $(cat tip.txt)\" >> {self.counter}  # once",
                        f"echo \"once $(git rev-parse HEAD)\" >> {self.counter}  # once"])
         repo = run.main_checkout(lp.state["repo"])
         holder = gate.gate_lock(repo, 0).open("a")
@@ -181,7 +181,7 @@ class LandTipAtTurn(unittest.TestCase):
     def test_a_passing_member_runs_each_command_once(self):
         remote, owner = make_origin(self.root)
         lp = make_run(self.root, remote, "widget",
-                      [f"echo \"every $(git rev-parse HEAD) $(cat tip.txt)\" >> {self.counter}",
+                      [f"echo \"every $(git rev-parse HEAD) $(cat tip.txt)\" >> {self.counter}  # once",
                        f"echo \"once $(git rev-parse HEAD)\" >> {self.counter}  # once"])
         commit(owner, "tip.txt", "tip-two")     # the target moved since the branch was cut
         run.git(owner, "push", "origin", "main")
