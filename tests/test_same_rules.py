@@ -110,7 +110,7 @@ class SameRules(unittest.TestCase):
         self.state = state
         calls = (self.root / "calls.jsonl").read_text().splitlines()
         prompts = [json.loads(line)["prompt"] for line in calls]
-        roles = {"You are the executor. Work": "executor",
+        roles = {"You are the executor.": "executor",
                  "You are the executor, continuing": "fixer", "You are the reviewer": "reviewer"}
         return [(next(r for start, r in roles.items() if p.startswith(start)), p)
                 for p in prompts]

@@ -269,8 +269,9 @@ class Sandbox(unittest.TestCase):
         """A repository git cannot resolve is not a duplicate: the launch proceeds."""
         task = self.root / "noroot.md"
         task.write_text("---\nrounds: 1\n---\n# Task\n\n## Done when\n```bash\ntrue\n```\n")
-        # the hostile Popen mock breaks every git call the preflight check could make
-        with patch.object(run.subprocess, "Popen", **{"return_value.pid": 99999999}), \
+        # Assume a ready box: the hostile Popen mock is for repository resolution and launch.
+        with patch.object(run.box, "check", return_value=None), \
+                patch.object(run.subprocess, "Popen", **{"return_value.pid": 99999999}), \
                 patch.object(orch, "scope_oom_policy", return_value=False), \
                 patch.object(run, "preflight", return_value=None), \
                 redirect_stdout(io.StringIO()):

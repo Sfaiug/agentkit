@@ -968,7 +968,9 @@ sys.exit(1)
                 Path(marker).write_text(str(FakeChild.pid))
             return FakeChild()
 
-        with patch.object(stdlib_subprocess, "Popen", side_effect=fake_popen), \
+        # The fake launcher assumes a ready box; it cannot answer the host's probes.
+        with patch.object(run.box, "check", return_value=None), \
+                patch.object(stdlib_subprocess, "Popen", side_effect=fake_popen), \
                 patch.object(orch, "user_manager", return_value=False), \
                 patch.object(orch, "scope_oom_policy", return_value=False):
             out = io.StringIO()

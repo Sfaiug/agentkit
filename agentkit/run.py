@@ -30,7 +30,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import (command_help, config, gate, gc, hand_in, history, host, job as jobs,
+from . import (box, command_help, config, gate, gc, hand_in, history, host, job as jobs,
                land as landing, notify, orch, record as run_record, retention,
                task as taskfile, update, usage, watch, worker)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
@@ -1365,8 +1365,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     A turn killed for emitting no event for `limit` seconds is one of those retries: nothing
     judged it, so it is retried on the same session rather than scored, with the same waits.
 
-    Each turn's own process marker finds and ends its leftovers, without ending the suite or
-    the loop's helpers. A turn that left processes or reports background work is unfinished:
+    Each turn's box ends its leftovers, without ending the suite or the loop's helpers.
+    A turn that left processes or reports background work is unfinished:
     the same session is called once more, with no backoff, to run it in the
     foreground and report -- the same round, and not one of the transient waits.  That
     turn gets artifacts of its own (`<role>-retry-foreground`, beside the transient retries'
@@ -11461,6 +11461,7 @@ def cmd_merge(argv):
     if (state.get("review_pr") or state.get("scratch")
             or not (state.get("pr") or state.get("merge_failed"))):
         raise config.Error(f"{argv[0]}: no delivery PR to merge")
+    box.check()
     cfg = config.load()
     if not review_pass(state, cfg):
         raise config.Error(f"{argv[0]}: merge requires a successful reviewer allowed by the model policy; "
@@ -11640,6 +11641,7 @@ def resume_run(argv):
     state = run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None
     if state is None:
         raise config.Error(f"no resumable run: {argv[0]} (looked in {config.RUNS})")
+    box.check()
     # spawn_bg has already handed this queued receipt to this particular child. Ordinary
     # invocations must never adopt another process's launch, even with an inherited variable.
     with run_record.recovery_lock(run_dir):
@@ -12909,6 +12911,7 @@ def main(argv):
             raise config.Error(f"--parallel must be a positive integer (got {opts['--parallel']!r})")
         parallel = int(opts["--parallel"])
     opts.update(flags)
+    box.check()
     cfg = config.load()
     if not opts["--review-pr"]:
         selection = config.active_session(cfg)
