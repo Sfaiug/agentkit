@@ -158,7 +158,7 @@ refusals = ["usage limit", "rate limit", "rate_limit_error", "overloaded", "529"
             "500", "502", "503", "504", "Internal server error", "API Error",
             "Can't reach the API server", "at capacity"]
 quotas = ["rate limit", "rate_limit_error", "Usage limit reached", "usage limit", "weekly limit", "429",
-          "insufficient_quota", "insufficient quota", "payment required"]
+          "insufficient_quota", "insufficient quota"]
 # `terminal` is the event log's terminal record kind: the stream ends with a `result` event,
 # which is what adapters/claude.sh reads final.md out of, failure or not.
 terminal = "result"

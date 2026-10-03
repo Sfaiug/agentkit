@@ -1,7 +1,7 @@
 """A worker turn's failure counts only in whole words the harness itself said.
 
-A `402`, `429` or `529` inside a longer number -- a request id, a byte count -- is no refusal, and a
-quota word in the model's own answer parks nothing and waits for nothing.  The words the loop
+A `402`, `429` or `529` inside a longer number -- a request id, a byte count -- is no refusal,
+and a quota word in the model's own answer parks nothing and waits for nothing.  The words the loop
 used to keep itself now live in the harness package and each adapter manifest's `[stall]`, and
 still hand a turn over or wait it out as before.  Fake adapters answer from a plan file, the
 manifests are the repository's own, and HOME is temporary: no model, meter or real process is
@@ -12,6 +12,7 @@ from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import time
@@ -116,6 +117,7 @@ class QuotaWordsBounded(unittest.TestCase):
             name, model = adapter.stem, models[adapter.stem]
             with self.subTest(harness=name):
                 self.marked.clear()
+                self.sleep.reset_mock()
                 provider = config.model(self.cfg, model)["provider"]
                 other = "astra" if provider == "anthropic" else "opus"
                 run_dir = config.RUNS / name
@@ -156,6 +158,25 @@ class QuotaWordsBounded(unittest.TestCase):
             with self.subTest(word=word):
                 self.assertEqual(harness.load("acme").failure(word), (harness.SPENT, word))
 
+    def test_billing_refusal_skips_smoke_check_three_and_parks_its_snapshot(self):
+        out = self.root / "refused"
+        out.mkdir()
+        (out / "final.md").write_text(BILLING)
+        snapshot = self.root / "usage-real.json"
+        snapshot.write_text('{"providers": {}}')
+        # The helper can read a refused call without starting the suite's real models.
+        source = (REPO / "tests/smoke.sh").read_text()
+        helper = "skip_refused() {" + source.split("skip_refused() {", 1)[1].split("\n}\n", 1)[0]
+        script = ('skip_spent_checks() { printf "%s %s\\n" "$@"; }\n'
+                  + helper + '\n}\nskip_refused 3a/3b spark 1 "$WORK/refused"\n')
+        proc = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                              env={**os.environ, "REPO": str(REPO), "WORK": str(self.root)},
+                              timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("3a/3b required model spark was refused: " + BILLING, proc.stdout)
+        self.assertGreater(json.loads(snapshot.read_text())["providers"]["meta"][
+            "exhausted_until"], time.time())
+
     def test_a_429_or_529_inside_a_longer_number_neither_parks_nor_waits(self):
         # Every one of these harnesses lists `429` as a spent window and `529` as a refusal.
         said = "Stopped: request req_84290 wrote 15290 bytes in 1.529s."
@@ -171,8 +192,9 @@ class QuotaWordsBounded(unittest.TestCase):
 
     def test_a_quota_word_in_the_model_s_answer_parks_nothing(self):
         self.account = "second"
-        answer = ("## Summary\nTaught the retry to read `usage limit reached` and "
-                  "`429 Too Many Requests` as a spent window.\n")
+        answer = ("## Summary\nTaught the retry to read `usage limit reached`, "
+                  "`429 Too Many Requests`, `402`, `billing_error` and `payment required` "
+                  "as a spent window.\n")
         code, text, _, _ = self.turn("opus", {"code": 1, "final.md": answer})
         self.assertEqual((code, text), (1, answer))
         self.assertEqual(self.marked, [])

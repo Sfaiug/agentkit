@@ -1280,8 +1280,8 @@ def harness_said(out_dir, text, harness, failures_only=False):
 def ran_dry(code, said, harness, refusal=False):
     """The harness's own word for a spent provider window in this exit, or None.
 
-    Its words and not ours: they come from `[stall] quotas` in adapters/<harness>.toml, the
-    same list the babysitter reads off a seat's screen, each a whole word (`Harness.failure`);
+    They come from the harness package's shared `[stall] quotas` beside the adapter's own,
+    read off a seat's screen the same way, each a whole word (`Harness.failure`);
     a LIMITED one parks a worker's account as a SPENT one does.
     A non-zero exit is as required here as it is for `transient`, because a worker that exited
     0 said what it meant to say.  The scoped terminal refusal path may pass ``refusal`` for an

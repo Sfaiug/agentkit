@@ -38,7 +38,8 @@ USAGE = {"capture": False, "strips_timestamp": False, "reset": False, "none": Fa
 # `[stall]`: the words no one harness owns, read for every harness beside its manifest's own:
 # HTTP's, the shell's, a command line's, a login's and a model name's, which any harness may
 # pass on.  An outage's status code counts only beside HTTP, a status or an API error.
-STALL = {"refusals": ("API Error", "529", "unexpected status"),
+STALL = {"quotas": ("402", "billing_error", "payment required"),
+         "refusals": ("API Error", "529", "unexpected status"),
          "outages": ("overloaded", "at capacity", "Internal server error", "Bad Gateway",
                      "Gateway Timeout", "Service unavailable", "The service is busy",
                      "idle timeout", "Can't reach the API server", "HTTP~5##", "status~5##",
