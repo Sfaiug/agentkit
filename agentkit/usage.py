@@ -1,12 +1,11 @@
 """Subscription meters, budget, and the model pick order.
 
-budget = (fraction left + the resets in hand) / fraction of the window left, taking the minimum
-across the model's non-session gate meters. Above 1 means slack to spend; below 1 means ahead of
-pace. The workers rank highest budget first, unknown last. A provider the harness reports no
-meter for at all (`[usage] none`) is neutral at 1.0, ranked by the same rules and never last;
-only a failed probe is unknown. A reset in hand is one whole weekly
-allowance, exactly as headroom counts it, so the provider holding a spare week is drained first
-and every subscription runs out at the same moment.
+budget = fraction left / fraction of the window left, taking the minimum across the model's
+non-session gate meters. Above 1 means slack to spend; below 1 means ahead of pace. The workers
+rank highest budget first, unknown last. A provider the harness reports no meter for at all
+(`[usage] none`) is neutral at 1.0, ranked by the same rules and never last; only a failed probe
+is unknown. A usage-limit reset in hand adds nothing to budget or headroom: ak never spends one
+by itself, and one nobody spends is not usage ak can run on.
 
 pace = used% - elapsed% of the meter's window.  Positive means burning faster than the window
 refills.  A provider's pace is the max over its meters.  It no longer ranks anything: pace_margin
@@ -65,12 +64,7 @@ SESSION_SECS = 18000      # the 5h rolling window every harness reports as its s
 # A ChatGPT subscription earns "usage limit resets" that put the weekly window back to 0% and
 # start a fresh week; the adapter whose manifest says `[usage] reset` counts what is left with
 # `reset-status` and spends one with `reset`, and which adapter that is is its own toml's to say.
-# Spending is worth it only once the week is nearly gone -- a reset applied at half a window
-# throws the other half away -- and never more than one a day, so nothing that reads the meters
-# in a loop can spend the lot.  Both numbers are the policy itself rather than a per-machine
-# preference, so they are constants here and not config.toml keys.
-RESET_AT_USED = 90        # weekly used% at or above which a reset is worth spending
-RESET_EVERY_SECS = 86400  # and at most one applied reset in that many seconds
+# Only the owner spends one, by hand (`replenish`): nothing here or anywhere in ak does by itself.
 DRY_FOR = 3600            # how long a refusal that named no time, beside meters that name none
                           # either, parks its provider: long enough that nothing hands the same
                           # work straight back to it, short enough to cost at most an hour of a
@@ -106,9 +100,8 @@ def _resets(harness, account=None):
     """Usage-limit resets that account still holds, or None when its adapter cannot say.
 
     Only an adapter whose manifest says `[usage] reset` has any: the others answer 0 without
-    being asked, because a count nobody can spend is not an unknown.  A reset is a whole meter
-    of headroom, so it is read beside the meters and cached with them rather than at the moment
-    something ranks.
+    being asked, because a count nobody can spend is not an unknown.  It is read beside the
+    meters and cached with them, for the owner to spend by hand; it ranks nothing.
     """
     if not harness_plugin(harness).usage["reset"]:
         return 0.0
@@ -421,130 +414,6 @@ def _number(value):
             or not math.isfinite(value) else float(value))
 
 
-def _write_reset_state(path, blob):
-    config.ensure_dirs()
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(blob))
-    tmp.replace(path)
-
-
-def _reset_file(provider, account=None):
-    """Where one subscription's reset receipt is kept: its own, as its credits and week are.
-    The usual login keeps the file a provider listing no accounts keeps, so listing them moves
-    no receipt and buys no second credit inside its day."""
-    return config.STATE / (f"{provider}-reset.json" if account in (None, config.DEFAULT_ACCOUNT)
-                           else f"{provider}.{account}-reset.json")
-
-
-def _reset_applied_at(path, account=None):
-    """When the last reset was spent, or None when none was, or the file cannot be read.
-
-    Only a receipt that names `account` answers; None asks for one that names none, written
-    before receipts named their subscription, so it may have been any of them that spent it.
-    """
-    try:
-        blob = json.loads(path.read_text(encoding="utf-8"))
-        return _number(blob["applied_at"]) if blob.get("account") == account else None
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):   # not an object
-        return None
-
-
-def _maybe_reset(cfg, provider, prov, now):
-    """Spend one usage-limit reset on a nearly spent week, then read the meters back."""
-    return _reset_policy(cfg, provider, prov, now, False)[0]
-
-
-def _reset_policy(cfg, provider, prov, now, depleted):
-    """The reset policy itself, as (the provider record now, was a credit really spent).
-
-    The order is the whole safety of it.  The day is claimed on disk *before* the reset is
-    asked for, so a spend nothing could record is never made and a crash between the two
-    costs a day rather than a credit; the claim is dropped again when nothing was spent, so a
-    refusal cannot block a reset the week actually needs.  The adapter says `reset` only for a
-    credit that really went, and says it even when the re-read afterwards fails -- so the one
-    answer that must never be lost is the one that is always recorded.
-
-    `depleted` is a worker's own refusal, which is proof the window is spent whatever the
-    meters read: it stands in for the 90% threshold and for nothing else.  A provider whose
-    models were all removed spends nothing: a cached reading still names its harness, but no
-    worker is left to use a credit.
-    """
-    try:
-        config.provider_harness(cfg, provider)
-    except config.Error:
-        return prov, False
-    harness = prov.get("harness")
-    if not harness_plugin(harness).usage["reset"]:
-        return prov, False
-    weekly = _worst([m for m in prov.get("meters") or [] if m.get("window_secs") != SESSION_SECS])
-    if not depleted and (weekly is None or weekly["used"] < RESET_AT_USED):
-        return prov, False
-    mine = prov.get("account") or config.DEFAULT_ACCOUNT
-    path = _reset_file(provider, mine)
-    # A receipt that names no subscription may be any one's spend: it holds each to its day.
-    for applied in (_reset_applied_at(path, mine), _reset_applied_at(_reset_file(provider))):
-        if applied is not None and 0 <= now - applied < RESET_EVERY_SECS:
-            return prov, False
-    available = _number(prov.get("resets"))   # counted by the probe that just read the meters
-    if not available or available <= 0:
-        return prov, False
-    record = {"account": mine, "weekly_before": weekly["used"] if weekly else None,
-              "depleted": depleted, "available_before": available}
-    try:
-        _write_reset_state(path, {**record, "applied_at": now, "outcome": "asked"})
-    except OSError:
-        return prov, False   # a spend that cannot be recorded is a spend that is not made
-    result = _adapter_json(harness, "reset", 60, prov.get("account")) or {}
-    spent, spent_at = result.get("code") == "reset", time.time()
-    left = _number(result.get("available"))
-    try:
-        _write_reset_state(path, {**record, "applied_at": now if spent else None,
-                                  "attempted_at": now, "available_after": left,
-                                  "weekly_after": _number(result.get("weekly_used")),
-                                  "outcome": "reset" if spent else
-                                             (result.get("error") or "no reset was applied")})
-    except OSError:
-        pass                 # the claim above still stands, so this costs a day and no credit
-    if not spent:
-        return prov, False
-    # The re-read keeps the host's cadence like any other.  Inside it the reading in hand is of
-    # the window the credit just replaced, so it goes, as a rolled window does (`_reread`),
-    # and a mark it carried is lifted (`_carry_mark`).  The week that replaced it is the one
-    # the spend itself read back, when it could: `reset` asks the meters once the credit has
-    # gone, so that is a fresh reading and no second request, and what a refused probe wrote
-    # down about the old one (`_kept`) goes with it.  Without it the week waits for the next
-    # probe.  Where the provider lists accounts the credit went to one of them, the one a turn
-    # runs on next whose reading the provider's own fields are (`_gate_flags`), and that
-    # account's record is the one refilled.
-    account = prov.get("account")
-    used, until = result.get("weekly_used"), result.get("resets_at")
-    week = ([_normalized({**weekly, "used": used, "resets_at": until}, now)]
-            if weekly and _number(used) is not None and _number(until) is not None else [])
-    kept = {key: value for key, value in prov.items() if key not in ("accounts", "account")
-            and (not week or key not in ("fetched_at", "probe_error", "probe_failed_at",
-                                         "stale_since"))}
-    fresh = _without_past({**kept, "meters": week, "resets": None}
-                          if _cooling(provider, account, _probe_every(cfg, provider))
-                          else _probe_gently(cfg, provider, account),
-                          now, "the adapter")
-    left = max(0.0, available - 1 if left is None else left)
-    # The re-read counts the resets again, and when it cannot -- the credits list is a second
-    # request, free to fail on its own, and inside the cadence there is no re-read -- the count
-    # the spend itself came back with stands.
-    # Losing it here would understate the headroom and outlook shown for the fresh week.
-    if _number(fresh.get("resets")) is None:
-        fresh["resets"] = left
-    fresh["notes"] = [*(prov.get("notes") or []), f"usage-limit reset applied ({left:.0f} left)"]
-    fresh["reset_spent_at"] = spent_at
-    # Every mark made before the credit went was a refusal of the week it replaced, one a
-    # worker made while this read was under way included: writing this record lifts them all.
-    fresh = _patch(provider, fresh, account, spent=spent_at)
-    if account is not None:
-        fresh = {**fresh, "accounts": {**_record(prov.get("accounts")), account: fresh},
-                 "account": account}
-    return fresh, True
-
-
 def _past(meter, now):
     """True once this meter's window has rolled over, so its used% answers for nothing."""
     resets_at = meter.get("resets_at")
@@ -655,7 +524,6 @@ def _gate_flags(providers, now, cfg):
         prov["headroom"] = provider_headroom(prov, cfg, name)
         budget, prov["budget_reason"] = provider_budget(prov, now)
         prov["budget"] = round(budget, 3)
-        prov["budget_from_resets"] = round(budget_from_resets(prov, now), 3)
     return providers
 
 
@@ -663,7 +531,7 @@ _WRITES = itertools.count()   # a temporary name of each writer's own; see `_wri
 MARK = ("exhausted_until", "exhausted_at", "exhausted_ends", "exhausted_by")
 
 
-def _write(change, fetched_at=None, checked=None):
+def _write(change, fetched_at=None):
     """Read the snapshot, `change(providers, now)` it, write it back, and return what `change`
     returned -- all under the one lock every writer of the snapshot takes.
 
@@ -675,8 +543,7 @@ def _write(change, fetched_at=None, checked=None):
     nothing that only reads takes it at all: the file is only ever replaced whole, through a
     temporary name of this writer's own that it takes away again.
 
-    The snapshot's own clocks -- `fetched_at` and the reset policy's `reset_checked_at` -- stay
-    as they are unless given.  A snapshot that was not there is not one anybody assembled, so
+    The snapshot's own clock, `fetched_at`, stays as it is unless given.  A snapshot that was not there is not one anybody assembled, so
     it starts stale, and the next read assembles the rest rather than answering with one
     provider for five minutes.
     """
@@ -690,14 +557,11 @@ def _write(change, fetched_at=None, checked=None):
         except (OSError, ValueError, TypeError, KeyError):
             blob, providers = {}, {}
         out = change(providers, time.time())
-        if checked is None:
-            checked = _number(blob.get("reset_checked_at", blob.get("fetched_at")))
         if fetched_at is None:
             fetched_at = _number(blob.get("fetched_at"))
         tmp = cache.with_suffix(f".tmp-{os.getpid()}-{next(_WRITES)}")
         try:
-            tmp.write_text(json.dumps({"fetched_at": fetched_at or 0.0, "providers": providers,
-                                       "reset_checked_at": checked or 0.0}))
+            tmp.write_text(json.dumps({"fetched_at": fetched_at or 0.0, "providers": providers}))
             tmp.replace(cache)
         finally:
             tmp.unlink(missing_ok=True)
@@ -724,7 +588,7 @@ def _onto(old, new, now, spent=None):
     return _carry_mark(old, new, now)
 
 
-def _store(cfg, providers, now, fetched_at=None, checked=None, counted=None):
+def _store(cfg, providers, now, fetched_at=None, counted=None):
     """Write what `collect` answers, derived from the cache as it stands now, and return it.
 
     Every probe, credit, refusal and turn has written its own change the moment it had it, so
@@ -758,7 +622,7 @@ def _store(cfg, providers, now, fetched_at=None, checked=None, counted=None):
                 record["resets"] = counted[name]
             disk[name] = prov
         return _gate_flags({name: disk[name] for name in providers}, now, cfg)
-    return _write(change, fetched_at, checked)
+    return _write(change, fetched_at)
 
 
 def _patch(provider, prov, account=None, *, mark=None, spent=None):
@@ -857,9 +721,7 @@ def collect(cfg, *, refresh=False):
     read is held to the same rule -- an adapter is free to report a window that has already
     rolled over -- so nothing past its reset survives into the output or into the cache.
 
-    Normal reads check the reset policy at most once per cache window, on a separate clock
-    from snapshot freshness, so watch cannot starve a headless worker of an available reset.
-    Watch's refresh bypasses this snapshot cache but never spends a reset. Muse's adapter
+    No read spends a usage-limit reset; only the owner does (`replenish`).  Muse's adapter
     still owns its longer probe cache: reading it does not force a paid request.
 
     A refresh is not a licence to probe, and neither is deleting state/usage.json:
@@ -876,8 +738,6 @@ def collect(cfg, *, refresh=False):
             blob = {}
     except (OSError, ValueError):
         blob = {}
-    checked = _number(blob.get("reset_checked_at", blob.get("fetched_at")))
-    due = checked is None or not 0 <= now - checked <= CACHE_TTL
     if not refresh:
         try:
             if now - blob.get("fetched_at", 0) <= CACHE_TTL and isinstance(blob["providers"], dict):
@@ -899,27 +759,19 @@ def collect(cfg, *, refresh=False):
                         harness, _ = config.provider_harness(cfg, name)
                     except config.Error:
                         continue      # a provider whose models were all removed: nothing to ask
-                    # the policy below spends from this count
                     counted[name] = providers[name]["resets"] = _resets(
                         harness, providers[name].get("account"))
-                if due:
-                    # a credit writes its own record, which is how a fresh week lifts a mark
-                    providers = {name: _maybe_reset(cfg, name, prov, now)
-                                 for name, prov in providers.items()}
-                if rolled or missing or due:
+                if rolled or missing:
                     # fetched_at stays put: re-reading one provider must not extend the cache
                     # over the others, which were not re-read
-                    providers = _store(cfg, providers, now, checked=now if due else None,
-                                       counted=counted)
+                    providers = _store(cfg, providers, now, counted=counted)
                 return Readings(_gate_flags(providers, now, cfg))
         except (OSError, ValueError, TypeError, KeyError):
             pass
-    providers = {}
-    for name in cfg["providers"]:
-        prov = _without_past(_probe_gently(cfg, name), now, "the adapter")
-        providers[name] = _maybe_reset(cfg, name, prov, now) if not refresh and due else prov
+    providers = {name: _without_past(_probe_gently(cfg, name), now, "the adapter")
+                 for name in cfg["providers"]}
     # What is answered is what was written, a mark another worker made meanwhile included.
-    providers = _store(cfg, providers, now, now, now if not refresh and due else None)
+    providers = _store(cfg, providers, now, now)
     return Readings(_gate_flags(providers, now, cfg))
 
 
@@ -985,19 +837,18 @@ def harness_unready(harness, accounts=(None,)):
     return None
 
 
-def replenish(cfg, provider, depleted=True, account=None):
-    """Read this provider's meters again -- or that account's of it -- and spend a
-    usage-limit reset if it holds one.
+def replenish(cfg, provider, account=None):
+    """Spend one usage-limit reset on this provider -- or that account of it -- and read its
+    meters back.
 
-    The moment of need: a worker has just been refused, and that refusal is proof the window
-    is spent whatever the cached used% said.  So the five-minute due clock and the 90%
-    threshold are both out of the way here -- and nothing else is.  The day is still claimed
-    on disk before the credit is asked for, still at most one reset in RESET_EVERY_SECS, the
-    adapter is still asked at most once in its harness's cadence, and the reading goes into the cache so
-    the next pick ranks on what the provider says now.  A seat stalled on its quota is not
-    that proof (`watch.spend_reset`): `depleted=False` keeps the threshold.
-    A refused `account` is the one whose credit goes: its week is the one that ran out, and
-    for none it is the one a turn runs on next, the usual login once every account is spent.
+    The owner's act, by hand, and only theirs: nothing in ak calls it by itself.
+    A worker or a seat refused for quota waits for its window or moves to another account,
+    exactly as when no reset is held.  The meters are read first, at most once in the harness's
+    cadence like any read, and the count that read brought back is the one spent from.  The
+    adapter says `reset` only for a credit that really went, and says it even when the re-read
+    afterwards fails.  A provider whose models were all removed spends nothing: a cached
+    reading still names its harness, but no worker is left to use a credit.  `account` is the
+    one whose week goes back to 0%; for none it is the one a turn runs on next.
 
     Returns (was a credit really spent, the resets left in hand).
     """
@@ -1005,9 +856,55 @@ def replenish(cfg, provider, depleted=True, account=None):
     prov = _without_past(_probe_gently(cfg, provider, account), now, "the adapter")
     if account is not None:
         prov = {**prov, "account": account}
-    # The probe and a credit each write their own reading as they get it.
-    prov, spent = _reset_policy(cfg, provider, prov, now, depleted)
-    return spent, _number(prov.get("resets")) or 0.0
+    available = _number(prov.get("resets"))
+    try:
+        config.provider_harness(cfg, provider)
+    except config.Error:
+        return False, available or 0.0
+    harness = prov.get("harness")
+    if not harness_plugin(harness).usage["reset"] or not available or available <= 0:
+        return False, available or 0.0
+    result = _adapter_json(harness, "reset", 60, prov.get("account")) or {}
+    if result.get("code") != "reset":
+        return False, available
+    spent_at = time.time()
+    # The re-read keeps the host's cadence like any other.  Inside it the reading in hand is of
+    # the window the credit just replaced, so it goes, as a rolled window does (`_reread`),
+    # and a mark it carried is lifted (`_carry_mark`).  The week that replaced it is the one
+    # the spend itself read back, when it could: `reset` asks the meters once the credit has
+    # gone, so that is a fresh reading and no second request, and what a refused probe wrote
+    # down about the old one (`_kept`) goes with it.  Without it the week waits for the next
+    # probe.  Where the provider lists accounts the credit went to one of them, the one a turn
+    # runs on next whose reading the provider's own fields are (`_gate_flags`), and that
+    # account's record is the one refilled.
+    account = prov.get("account")
+    weekly = _weekly(prov)
+    used, until = result.get("weekly_used"), result.get("resets_at")
+    week = ([_normalized({**weekly, "used": used, "resets_at": until}, now)]
+            if weekly and _number(used) is not None and _number(until) is not None else [])
+    kept = {key: value for key, value in prov.items() if key not in ("accounts", "account")
+            and (not week or key not in ("fetched_at", "probe_error", "probe_failed_at",
+                                         "stale_since"))}
+    fresh = _without_past({**kept, "meters": week, "resets": None}
+                          if _cooling(provider, account, _probe_every(cfg, provider))
+                          else _probe_gently(cfg, provider, account),
+                          now, "the adapter")
+    left = _number(result.get("available"))
+    left = max(0.0, available - 1 if left is None else left)
+    # The re-read counts the resets again, and when it cannot -- the credits list is a second
+    # request, free to fail on its own, and inside the cadence there is no re-read -- the count
+    # the spend itself came back with stands.
+    if _number(fresh.get("resets")) is None:
+        fresh["resets"] = left
+    fresh["notes"] = [*(prov.get("notes") or []), f"usage-limit reset applied ({left:.0f} left)"]
+    fresh["reset_spent_at"] = spent_at
+    # Every mark made before the credit went was a refusal of the week it replaced, one a
+    # worker made while this read was under way included: writing this record lifts them all.
+    fresh = _patch(provider, fresh, account, spent=spent_at)
+    if account is not None:
+        fresh = {**fresh, "accounts": {**_record(prov.get("accounts")), account: fresh},
+                 "account": account}
+    return True, _number(fresh.get("resets")) or 0.0
 
 
 def _next_window(prov, now):
@@ -1210,16 +1107,14 @@ def model_pace(cfg, name, providers):
     return max(paces), detail
 
 
-def _headroom(weekly, resets):
-    """Meters left: what is unspent of this week, plus every reset still in hand.
-
-    A reset puts the weekly window back to 0%, so one in hand is worth a whole meter and a
-    week 60% gone with two of them (2.4) has three times what an untouched week alone has.
-    None means nothing is reported, which is never the same as nothing being left.
+def _headroom(weekly):
+    """Meters left: what is unspent of this week.  A reset in hand adds nothing: one nobody
+    spends is not usage ak can run on.  None means nothing is reported, which is never the
+    same as nothing being left.
     """
     if weekly is None or _number(weekly.get("used")) is None:
         return None
-    return round(max(0.0, (100.0 - weekly["used"]) / 100.0) + (resets or 0.0), 3)
+    return round(max(0.0, (100.0 - weekly["used"]) / 100.0), 3)
 
 
 def _weekly(prov):
@@ -1263,13 +1158,12 @@ def shared_week(cfg, provider, prov, now=None):
 
 
 def provider_headroom(prov, cfg, provider=None):
-    """Worker headroom, from the tightest real weekly meter and the provider's resets.
+    """Worker headroom, from the tightest real weekly meter.
 
     Read from the meters rather than from `prov["headroom"]`, which a cache written by another
-    version of agentkit -- or by hand -- is free not to carry.  A reset count the adapter could
-    not give counts as none: capacity nobody has confirmed is not capacity to display.
+    version of agentkit -- or by hand -- is free not to carry.
     """
-    return _headroom(_weekly(prov), _number(prov.get("resets")) or 0.0)
+    return _headroom(_weekly(prov))
 
 
 def _stale(prov, now):
@@ -1289,12 +1183,7 @@ def _stale(prov, now):
 
 def _budget(prov, weekly, now=None):
     """(budget, unknown reason), using current window time rather than cached elapsed%.
-
-    Every usage-limit reset in hand is one whole weekly allowance on top of what is left of
-    this week -- a count, never a percentage and never scaled by the window -- so a provider
-    holding a spare week is spent before the others.  A count its adapter could not give adds
-    nothing and leaves the budget known: unconfirmed capacity is not an unknown reading.
-    """
+    A usage-limit reset in hand adds nothing: ak never spends one by itself."""
     now = time.time() if now is None else now
     if prov.get("error"):
         return 0.0, str(prov["error"])
@@ -1309,7 +1198,7 @@ def _budget(prov, weekly, now=None):
     remaining = max(0.0, min(1.0, (resets_at - now) / window))
     if remaining == 0:
         return 0.0, "gate window has reset; awaiting fresh meters"
-    return (left + (_number(prov.get("resets")) or 0.0)) / remaining, None
+    return left / remaining, None
 
 
 def credits_left(prov):
@@ -1346,21 +1235,8 @@ def provider_budget(prov, now=None):
                default=_budget(prov, None, now))
 
 
-def budget_from_resets(prov, now=None):
-    """How much of the ranking budget the resets in hand supply, 0.0 when they supply none.
-
-    The subtraction the usage table shows: what this provider ranks on now, less what it would
-    rank on with an empty hand.  A budget nobody could read is zero either way.
-    """
-    now = time.time() if now is None else now
-    budget, reason = provider_budget(prov, now)
-    if reason is not None or not _number(prov.get("resets")):
-        return 0.0
-    return budget - provider_budget({**prov, "resets": 0.0}, now)[0]
-
-
 def model_budget(cfg, name, providers, now=None):
-    """(budget, unknown reason) from this worker's tightest budget, its provider's resets in it."""
+    """(budget, unknown reason) from this worker's tightest budget."""
     meters, _ = _gating_meters(cfg, name, providers)
     prov = providers.get(config.model(cfg, name)["provider"], {})
     return provider_budget({**prov, "meters": meters}, now)
@@ -1445,8 +1321,7 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
                repo=None, skip=(), reviewers=None):
     """The workers, highest budget first, for every role.
 
-    Budget divides the fraction unspent, plus one whole allowance for each usage-limit reset in
-    hand, by the fraction of its window still to go. Unknown readings have budget zero and sort
+    Budget divides the fraction unspent by the fraction of its window still to go. Unknown readings have budget zero and sort
     after every known model, and a model on credits (`on_credits`) after both; equal budgets
     keep list order. The one exclusion is a gate meter at 100% used with no credits left;
     `skip` names models a caller leaves out before any of this reads the list.
@@ -1612,7 +1487,7 @@ def outlook(prov):
     """When this provider runs dry, at the rate it has been spent since its window opened.
 
     The observed drain rate is the only thing there is to go on, and headroom is what it has
-    left to eat, the resets in hand included.  When that outlasts the window there is nothing
+    left to eat.  When that outlasts the window there is nothing
     to warn about -- the meter refills before the rate empties it -- and that is `on track`.  A
     provider that reports no week, or no time to have spent one in, says so rather than being
     guessed at, and a spent one says that outright.
@@ -1622,7 +1497,7 @@ def outlook(prov):
     if prov.get("on_credits"):
         return "on credits"
     week = _weekly(prov)
-    room = _headroom(week, _number(prov.get("resets")) or 0.0)
+    room = _headroom(week)
     if prov.get("error") or room is None:
         return "unknown"
     rate = _rate(week)
@@ -1731,24 +1606,6 @@ def render(cfg, providers, order, *, repo=None):
         if len({value for _, value in budgets}) > 1:
             lines.append("  budget: " + "; ".join(f"{n} {_budget_label(*value)}"
                                                   for n, value in budgets))
-    # a reset in hand is a whole week of the budget that ranks: say what it is worth, and what
-    # the provider would rank on without it -- a credit it really holds is named even when no
-    # budget can be read, because the count is confirmed whatever the meters did
-    for name, prov in providers.items():
-        count = _number(prov.get("resets")) or 0.0
-        if count <= 0:
-            continue
-        one = count == 1
-        budget, reason = provider_budget(prov, now)
-        if reason is None:
-            detail = (f"budget {_num(budget - budget_from_resets(prov, now), 1)} "
-                      f"without {'it' if one else 'them'}")
-        elif refusal_text(prov, reason):
-            detail = "budget unknown"
-        else:
-            detail = "budget unknown: " + reason.removeprefix("unknown: ")
-        lines.append(f"{name}: {count:g} reset{'' if one else 's'} in hand counted as "
-                     f"{'one full week' if one else f'{count:g} full weeks'} ({detail})")
     # the numbers say the provider is unknown; only the adapter can say why -- and a
     # refusal is not a why, so an error that only says the probe was refused says nothing
     lines += [f"note: {name} {prov['error']}" for name, _, prov in _accounts(cfg, providers)
@@ -1761,7 +1618,7 @@ def render(cfg, providers, order, *, repo=None):
         meters = prov.get("meters") or []
         if note and any(not _past(meter, now) for meter in meters):
             lines.append(terminal.styled(f"note: {name} {note}", "dim"))
-    # a reset the policy spent, for as long as the meters it went and re-read stay cached
+    # a reset the owner spent, for as long as the meters it went and re-read stay cached
     lines += [f"{name}: {note}" for name, prov in providers.items()
               for note in prov.get("notes") or []]
     lines += [f"{name}: {credits_note(prov)}" for name, _, prov in _accounts(cfg, providers)

@@ -45,7 +45,6 @@ RULES_CAP = 8 * 1024
 # `running` throughout, so its session reads `working`, and never ends in `error` for one.
 TRANSIENT_BACKOFF = (60, 300, 900, 1800, 3600)
 TRANSIENT_HOURLY = 3600
-MAX_REFILLS = 3               # usage-limit resets one turn may spend before handing over
 KILL_WINDOW = 60              # a second signal kill inside this many seconds parks the run
 SWAP_POLL = 10                # seconds between looks at a harness swap a failed turn waits out
 KILLED = {-15: "SIGTERM", -9: "SIGKILL"}   # worker exits by signal, as `subprocess` reports them
@@ -246,7 +245,7 @@ def collect_usage(cfg):
                 exc.filename2 != str(cache)):
             raise
         # collect uses a shared temporary filename. Another reader can publish it
-        # first; re-read its snapshot through the normal freshness/reset checks.
+        # first; re-read its snapshot through the normal freshness checks.
         # Retry once only: a persistent filesystem failure still propagates.
         read = usage.collect(cfg)
     return usage.readiness(cfg, read)
@@ -939,7 +938,7 @@ class CannotRun(Blocked):
 
 
 class RanDry(Exception):
-    """This worker's provider refused it, with no applicable reset left to spend.
+    """This worker's provider refused it.
 
     Not a death and not a FAIL -- nothing was executed and nothing was judged -- so the work
     goes to another provider rather than being retried where it cannot run.  The refusal and
@@ -1378,10 +1377,9 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     Only an answer that names the account hands the round over.  A provider that lists
     `accounts` runs each call on the one with the most room left, and one that refuses for
     quota is marked spent on its own: the same worker goes again at once on the next account
-    with room, on its own session.  A spent window goes to the reset policy next, at the moment
-    of need: a credit spent buys a fresh week, so the same worker goes again at once, on its
-    own session and with no backoff.  Nothing to spend leaves `RanDry` for the caller, whose
-    job is another provider, not another try here.
+    with room, on its own session.  A spent window otherwise leaves `RanDry` for the caller,
+    whose job is another provider, not another try here: a usage-limit reset held is never
+    spent for it, since only the owner spends one.
     An empty exit whose stderr says the harness never ran the turn leaves `CannotRun` the
     same way, at once: another provider, or a run blocked on that line.  Before either, a
     failed exit, not a kill, that an install or revert of its harness overlapped
@@ -1412,7 +1410,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
            "AK_RUN_LOG": str(out_dir.parent.parent / "log.txt")}
     if findings:
         env[hand_in.FINDINGS_ENV] = str(findings)
-    attempt, calls, refills, last_kill, account, span = 1, 0, 0, None, None, None
+    attempt, calls, last_kill, account, span = 1, 0, None, None, None
     handover_tried = False
     last_dir, last_sid = Path(previous) if previous is not None else None, session
 
@@ -1569,13 +1567,6 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 transient_wait(out_dir, delay)
                 continue
             if account is not None and next_account(try_again_at(said), message):
-                continue
-            spent, left = (usage.replenish(cfg, entry["provider"], account=account)
-                           if refills < MAX_REFILLS else (False, 0.0))
-            if spent:
-                refills += 1
-                log(f"{role} {name} ran dry; reset spent ({left:g} left), retrying"
-                    + (f", resuming session {session}" if session else ""))
                 continue
             requested = try_again_at(said)
             until = usage.mark_exhausted(cfg, entry["provider"], requested) or requested
@@ -6251,7 +6242,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                     note_handover(state, handed, "ran dry" if spent else gone,
                                   started_round(run_dir, state), to=executor, reason="dry")
                     log(f"handing executor to {executor}: {handed} "
-                        + ("ran dry, no reset left" if spent else gone))
+                        + ("ran dry" if spent else gone))
             else:
                 executor, reviewer = pick_models(cfg, providers, executor, reviewer, log,
                                                  resuming=True, repo=repo, workers=workers,
