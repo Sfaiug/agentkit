@@ -461,7 +461,6 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
     meters = {"claude": [meter("weekly_all", 8), meter("weekly_scoped", 9)],
               "codex": [meter("weekly", 45)]}
     calls = []
-    credits, accept_reset = [2], [True]
 
     def adapter(argv, **kwargs):
         harness, verb = Path(argv[-2]).stem, argv[-1]
@@ -481,15 +480,8 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
             return subprocess.CompletedProcess(argv, 0, json.dumps(
                 {"provider": "google", "meters": [meter("gemini-weekly", 8)], "error": None}))
         assert harness in meters and verb in ("usage", "reset-status", "reset"), argv
-        if verb == "reset":
-            assert harness == "codex" and credits[0] > 0, argv
-            if accept_reset[0]:
-                credits[0] -= 1
-                meters[harness][0]["used"] = 5
-            data = {"code": "reset" if accept_reset[0] else "unavailable",
-                    "available": credits[0], "weekly_used": meters[harness][0]["used"]}
-        else:
-            data = {"meters": meters[harness]} if verb == "usage" else {"available": credits[0]}
+        data = ({"meters": meters[harness]} if verb == "usage" else {"available": 2}
+                if verb == "reset-status" else {"code": "reset", "available": 1})
         return subprocess.CompletedProcess(argv, 0, json.dumps(data))
 
     stack.enter_context(patch.object(usage.subprocess, "run", side_effect=adapter))
@@ -610,7 +602,7 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
     tick()
     assert paid.call_count == 1, paid.call_count
     # From here on the probe cadence is out of the way: what the rest of this check is about is
-    # the reset policy's own clock and the row's words, and both want a reading per tick. The
+    # the row's words and that no read spends a reset, and both want a reading per tick. The
     # cadence itself is checked above and in tests/test_usage_probe.py.
     stack.enter_context(patch.object(usage, "PROBE_EVERY", 0))
     stack.enter_context(patch.object(usage, "_probe_every", return_value=0))
@@ -626,71 +618,17 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
     assert "returned no meters" in json.loads(cache.read_text())["providers"]["anthropic"]["probe_error"]
     assert paid.call_count == 1
 
-    # Watch is read-only, but ordinary consumers still exercise the real reset policy from
-    # a continually refreshed cache. Refusals retain the five-minute retry interval too.
+    # Nothing spends a usage-limit reset by itself: not the tick, not a read, not a week nearly
+    # or wholly spent with resets in hand, and the resets held add nothing to its headroom.
     meters["claude"] = [meter("weekly_all", 8), meter("weekly_scoped", 9)]
-    meters["codex"][0]["used"] = 95
-    tick()
-    assert ("codex", "reset") not in calls, calls
-    before = json.loads(cache.read_text())["fetched_at"]
-    providers = usage.collect(cfg)
-    assert calls.count(("codex", "reset")) == 1 and credits[0] == 1, calls
-    assert providers["openai"]["meters"][0]["used"] == 5, providers
-    assert providers["openai"]["headroom"] == 1.95, providers
-    assert json.loads(cache.read_text())["fetched_at"] == before
-    checked = json.loads(cache.read_text())["reset_checked_at"]
-    # Repeated reads at 100% cannot spend a second credit inside the daily cap. Once it
-    # expires, a headless consumer restores eligibility. Watch cannot move the policy clock.
-    for _ in range(10):
-        now[0] += 180
-        meters["codex"][0]["used"] = 100
+    for used in (95, 100):
+        meters["codex"][0]["used"] = used
+        now[0] += usage.CACHE_TTL + 1
         tick()
-        assert json.loads(cache.read_text())["reset_checked_at"] == checked
-        usage.collect(cfg)
-        checked = json.loads(cache.read_text())["reset_checked_at"]
-        assert calls.count(("codex", "reset")) == 1, calls
-    now[0] += usage.RESET_EVERY_SECS
-    tick()
-    providers = usage.collect(cfg)
-    assert calls.count(("codex", "reset")) == 2 and credits[0] == 0, calls
-    assert not providers["openai"]["exhausted"] and providers["openai"]["headroom"] == .95
-
-    (config.STATE / "openai-reset.json").unlink()
-    credits[0], accept_reset[0] = 2, False
-    meters["codex"][0]["used"] = 95
-    now[0] += usage.CACHE_TTL + 1
-    tick()
-    usage.collect(cfg)
-    assert calls.count(("codex", "reset")) == 3, calls
-    now[0] += 180
-    tick()
-    for _ in range(3):
-        usage.collect(cfg)
-    assert calls.count(("codex", "reset")) == 3, calls
-    now[0] += usage.CACHE_TTL - 179
-    tick()
-    usage.collect(cfg)
-    assert calls.count(("codex", "reset")) == 4 and credits[0] == 2, calls
-    # Expiring the snapshot after a warm policy check must not shorten a refusal's cooldown.
-    now[0] += 180
-    tick()
-    now[0] += 121
-    usage.collect(cfg)
-    assert calls.count(("codex", "reset")) == 5, calls
-    now[0] += 180
-    usage.collect(cfg)     # snapshot is 301s old, but the policy check is only 180s old
-    assert calls.count(("codex", "reset")) == 5, calls
-    now[0] += 121
-    usage.collect(cfg)
-    assert calls.count(("codex", "reset")) == 6, calls
-    # A watch tick with no pre-existing snapshot must also leave a normal read eligible.
-    cache.unlink()
-    accept_reset[0] = True
-    tick()
-    assert json.loads(cache.read_text())["reset_checked_at"] == 0
-    assert calls.count(("codex", "reset")) == 6, calls
-    assert usage.collect(cfg)["openai"]["meters"][0]["used"] == 5
-    assert calls.count(("codex", "reset")) == 7 and credits[0] == 1, calls
+        providers = usage.collect(cfg)
+        assert ("codex", "reset") not in calls, calls
+        assert providers["openai"]["resets"] == 2, providers
+        assert providers["openai"]["headroom"] == round((100 - used) / 100, 3), providers
 
     # A bad provider response cannot delay finished-run delivery, inbox questions or GC.
     finished = config.RUNS / "finished"
@@ -715,7 +653,7 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
         assert cache.read_bytes() == before
         for name in ("schedule_gc", "stamp", "sweep"):
             passes[name].assert_called_once()
-print("PASS  41 watch refresh: correct meters, Muse probe interval, no age, independent reset policy, dry-run and failure isolation")
+print("PASS  41 watch refresh: correct meters, Muse probe interval, no age, no reset spent by itself, dry-run and failure isolation")
 PY
 }
 session_state_check() {
@@ -1682,7 +1620,7 @@ retrylaunch retry-review work dead    # reviewer never comes back -> fall back t
 # GitHub, Discord, live meters, the shared browser.  They run only in the live mode, which
 # tests/live.sh starts before a host takes new code and when a harness upgrades; the landing
 # suite reaches nothing beyond loopback.  Offline twins run in both modes: 19 the delivery
-# path, 41 and 8a-8g the meters, 20e and 20f the seats, 31b and 31c the MCP wiring.
+# path, 41 and 8a-8f the meters, 20e and 20f the seats, 31b and 31c the MCP wiring.
 if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 1: usage --------------------------------------------------------------
 model_unavailable() {   # missing binary/login, or nothing; a broken saved login exits 1
@@ -2908,10 +2846,10 @@ balancecheck "8o-j review contracts bind worker roles and resume listed executor
 balancecheck "8o-k worker lists bind every role and listed models rank by budget alone" \
   test_worker_list.py
 
-# 8f: budget ranks workers, the resets in hand in it; headroom counts them too (offline, fakes)
+# 8f: budget ranks workers, and the resets held count in neither it nor headroom (offline, fakes)
 # No cache and no network: four adapters of the suite's own answer `usage`, and the codex one
 # also speaks `reset-status`/`reset` off a counter file, so the resets are read where the real
-# ones are -- beside the meters, on the probe that fetches them.
+# ones are -- beside the meters, on the probe that fetches them -- and none is ever spent.
 HD="$WORK/ad-headroom"; HH="$WORK/home-headroom"
 mkdir -p -- "$HD" "$HH/.agentkit/state"
 wideworkers "$HH"
@@ -2960,84 +2898,25 @@ headroomadapter "$HD" muse none; headroomadapter "$HD" grokbuild meterless
 headroomadapter "$HD" opencode meterless
 HEAD=0
 headroom >"$WORK/headroom-resets.json"
-# At half a week remaining, 20% used has budget 1.6, while 60% used with two resets in hand
-# carries two whole weeks more and ranks 4.8, so openai goes first. The provider that reports
-# nothing still sorts last.
-jq -e '.pick_order == ["astra", "opus", "grok", "spark"] and .providers.openai.headroom == 2.4
-       and (.providers.openai.budget | . > 4.79 and . < 4.81)
-       and (.providers.openai.budget_from_resets | . > 3.99 and . < 4.01)
+# At half a week remaining, 20% used has budget 1.6 and 60% used 0.8, two resets held or not:
+# one nobody spends is not usage, so anthropic goes first, the meterless grok's neutral 1.0
+# next, and the provider that reports nothing still sorts last. Nothing spent either.
+jq -e '.pick_order == ["opus", "grok", "astra", "spark"] and .providers.openai.headroom == 0.4
+       and (.providers.openai.budget | . > 0.79 and . < 0.81)
        and (.providers.anthropic.budget | . > 1.59 and . < 1.61)
-       and .providers.anthropic.budget_from_resets == 0
+       and (.providers.openai | has("budget_from_resets") | not)
        and .providers.anthropic.headroom == 0.8 and .providers.meta.headroom == null
        and .providers.openai.resets == 2' "$WORK/headroom-resets.json" >/dev/null || HEAD=1
-# spending one costs a whole meter of headroom: a reset counts only while it is unspent
-"$HD/codex.sh" reset >"$WORK/headroom-spend.json" 2>&1 || HEAD=1
-jq -e '.code == "reset" and .available == 1' "$WORK/headroom-spend.json" >/dev/null || HEAD=1
-headroom >"$WORK/headroom-spent.json"
-jq -e '.providers.openai.headroom == 1.4 and .providers.openai.resets == 1
-       and (.providers.openai.budget | . > 2.79 and . < 2.81)
-       and .pick_order == ["astra", "opus", "grok", "spark"]' "$WORK/headroom-spent.json" >/dev/null || HEAD=1
+[ "$(cat "$HD/codex.resets")" = 2 ] || HEAD=1
 # and a spent meter is still the one hard exclusion, resets or no resets
 headroomadapter "$HD" claude 100
 headroom >"$WORK/headroom-exhausted.json"
-jq -e '.providers.anthropic.exhausted == true and .pick_order == ["astra", "grok", "spark"]' \
+jq -e '.providers.anthropic.exhausted == true and .pick_order == ["grok", "astra", "spark"]' \
   "$WORK/headroom-exhausted.json" >/dev/null || HEAD=1
-[ "$HEAD" = 0 ] && ok "8f budget: openai at 60% used with 2 resets in hand outranks anthropic at 20% used (4.8 against 1.6); spending one drops openai from 2.4 meters of headroom and 4.8 of budget to 1.4 and 2.8, first either way, unknown stays last, and 100% is excluded" \
-                || { no "8f headroom and resets"; for f in resets spent exhausted; do
+[ "$HEAD" = 0 ] && ok "8f budget: anthropic at 20% used (1.6) outranks openai at 60% used with 2 resets held (0.8, 0.4 meters of headroom), none spent, unknown stays last, and 100% is excluded" \
+                || { no "8f headroom and resets"; for f in resets exhausted; do
                        jq -c '{pick_order, headroom: [.providers | to_entries[] | {(.key): (.value.headroom)}]}' \
                          "$WORK/headroom-$f.json" 2>/dev/null | sed "s/^/      $f /"; done; }
-
-# 8g: a reset the adapter confirmed and then could not count again is still counted (offline)
-# The policy spends one at 95% used; the credits list is a second request and this codex fake
-# fails it from then on, so after the spend the only number left for the reset in hand is the
-# one `reset` itself came back with. Headroom retains that credit, and so does the budget that
-# ranks: openai's fresh week and the credit (3.9) go ahead of anthropic's 98% left (1.96) in
-# equal windows.
-KD="$WORK/ad-reset-kept"; KH="$WORK/home-reset-kept"
-mkdir -p -- "$KD" "$KH/.agentkit/state"
-wideworkers "$KH"
-headroomadapter "$KD" claude 2; headroomadapter "$KD" muse none
-headroomadapter "$KD" grokbuild meterless
-headroomadapter "$KD" opencode meterless
-printf '2\n' >"$KD/codex.resets"; printf '95\n' >"$KD/codex.used"
-cat >"$KD/codex.sh" <<SH
-#!/usr/bin/env bash
-set -uo pipefail
-S="$KD/codex"
-SH
-cat >>"$KD/codex.sh" <<'SH'
-used=$(cat "$S.used"); half=$(( $(date +%s) + 302400 ))
-case "${1:-}" in
-usage)
-  printf '{"meters":[{"name":"weekly","used":%s,"resets_at":%s,"window_secs":604800}]}\n' \
-    "$used" "$half" ;;
-reset-status)
-  # the credits list answers once, and never again once a credit has been spent
-  [ -f "$S.spent" ] && { printf '{"error":"HTTP 502 from the credits list"}\n'; exit 1; }
-  printf '{"available":%s,"applicable":null,"weekly_used":%s,"resets_at":%s,"error":null}\n' \
-    "$(cat "$S.resets")" "$used" "$half" ;;
-reset)
-  : >"$S.spent"; printf '1\n' >"$S.resets"; printf '5\n' >"$S.used"   # the fresh week it opens
-  printf '{"code":"reset","available":1,"weekly_used":5,"resets_at":%s,"error":null}\n' "$half" ;;
-*) echo "fake adapter: no $1" >&2; exit 2 ;;
-esac
-SH
-chmod +x "$KD/codex.sh"
-HOME="$KH" AGENTKIT_ADAPTER_DIR="$KD" ak usage >"$WORK/reset-kept-note.txt" 2>&1
-HOME="$KH" AGENTKIT_ADAPTER_DIR="$KD" ak usage --json >"$WORK/reset-kept.json" 2>&1
-if jq -e '.providers.openai.resets == 1 and .providers.openai.headroom == 1.95
-          and (.providers.openai.budget | . > 3.89 and . < 3.91)
-          and (.providers.openai.budget_from_resets | . > 1.99 and . < 2.01)
-          and .providers.anthropic.headroom == 0.98
-          and .pick_order == ["astra", "opus", "grok", "spark"]' "$WORK/reset-kept.json" >/dev/null &&
-   grep -q '^openai: usage-limit reset applied (1 left)$' "$WORK/reset-kept-note.txt" &&
-   grep -q '^openai: 1 reset in hand counted as one full week (budget 1.9 without it)$' \
-     "$WORK/reset-kept-note.txt"; then
-  ok "8g a reset spent at 95% used is still counted when the credits list fails on the re-read: openai keeps 1.95 meters of headroom and ranks first on the budget the credit raises (3.9), ahead of anthropic at 2% used (1.96)"
-else
-  no "8g the confirmed reset count after a failed re-read"
-  sed 's/^/      /' "$WORK/reset-kept-note.txt" | head -6
-fi
 
 # --- 9: transient worker failures are retried, not scored (offline) --------
 wait   # the two runs launched at the top; the first spent 60s + 300s of real transient backoff
@@ -5014,69 +4893,6 @@ kill "$HOOKPID" 2>/dev/null
                   tail -3 "$WORK/orphan-dead.log" | sed 's/^/      /'
                   cut -c1-200 "$WORK/hook-posts.txt" | sed 's/^/      /'; }
 
-# --- 30: the OpenAI usage-limit reset policy (offline) ------------------------
-# A codex adapter that answers `reset-status` and `reset` from files, so the policy can be
-# driven over the threshold and back with no ChatGPT account behind it.  A reset is the one
-# thing `ak usage` does that spends something, so both halves are checked: that a nearly spent
-# week spends exactly one and never a second within the day, and that a half-spent week
-# spends nothing at all.
-RD="$WORK/ad-reset"
-mkdir -p -- "$RD"
-fakeadapter "$RD" claude pass; fakeadapter "$RD" muse pass   # anthropic and meta, no network
-fakeadapter "$RD" grokbuild meterless
-fakeadapter "$RD" opencode meterless
-cat >"$RD/codex.sh" <<SH
-#!/usr/bin/env bash
-set -uo pipefail
-S="$RD/codex"
-SH
-cat >>"$RD/codex.sh" <<'SH'
-used=$(cat "$S.used" 2>/dev/null || echo 95)
-avail=$(cat "$S.avail" 2>/dev/null || echo 2)
-case "${1:-}" in
-usage)        printf '{"provider":"openai","error":null,"meters":[{"name":"primary_window","used":%s,"resets_at":%s,"window_secs":604800}]}\n' \
-                "$used" "$(( $(date -u +%s) + 300000 ))" ;;
-reset-status) printf '{"available":%s,"applicable":0,"weekly_used":%s,"resets_at":%s,"error":null}\n' \
-                "$avail" "$used" "$(( $(date -u +%s) + 300000 ))" ;;
-reset)        echo spent >>"$S.calls"; echo 5 >"$S.used"; printf '%s\n' "$((avail - 1))" >"$S.avail"
-              printf '{"code":"reset","available":%s,"weekly_used":5,"resets_at":%s,"error":null}\n' \
-                "$((avail - 1))" "$(( $(date -u +%s) + 604800 ))" ;;
-*)            echo "fake codex.sh: no $1" >&2; exit 2 ;;
-esac
-SH
-chmod +x "$RD/codex.sh"
-# 30a: 95% used with two resets in hand -- one is spent, the meters are read again, and the
-# next read, with the 5 min cache out of the way, must not spend the second one.
-RH="$WORK/home-reset"; mkdir -p -- "$RH/.agentkit/state"
-echo 95 >"$RD/codex.used"; echo 2 >"$RD/codex.avail"; rm -f -- "$RD/codex.calls"
-HOME="$RH" AGENTKIT_ADAPTER_DIR="$RD" ak usage >"$WORK/reset-95.txt" 2>&1
-HOME="$RH" AGENTKIT_ADAPTER_DIR="$RD" ak usage --json >"$WORK/reset-95.json" 2>&1
-rm -f -- "$RH/.agentkit/state/usage.json"
-HOME="$RH" AGENTKIT_ADAPTER_DIR="$RD" ak usage >"$WORK/reset-95b.txt" 2>&1
-RS="$RH/.agentkit/state/openai-reset.json"
-if [ "$(wc -l <"$RD/codex.calls" 2>/dev/null || echo 0)" -eq 1 ] &&
-   grep -qx 'openai: usage-limit reset applied (1 left)' "$WORK/reset-95.txt" &&
-   [ "$(jq -r '.providers.openai.meters[0].used' "$WORK/reset-95.json" 2>/dev/null)" = 5 ] &&
-   jq -e '.outcome == "reset" and .weekly_before == 95 and .weekly_after == 5
-          and .available_after == 1 and (.applied_at | type) == "number"' "$RS" >/dev/null 2>&1 &&
-   ! grep -q 'reset applied' "$WORK/reset-95b.txt"; then
-  ok "30a usage-limit reset: at 95% used one reset is spent, the meters are re-read to 5%, and the next read does not spend the second"
-else
-  no "30a usage-limit reset at 95%: $(wc -l <"$RD/codex.calls" 2>/dev/null || echo 0) reset call(s), state $(cat "$RS" 2>/dev/null || echo none)"
-  sed 's/^/      /' "$WORK/reset-95.txt" | head -8
-fi
-# 30b: half a week gone is not a reason to throw the other half away
-RH2="$WORK/home-reset-half"; mkdir -p -- "$RH2/.agentkit/state"
-echo 50 >"$RD/codex.used"; echo 2 >"$RD/codex.avail"; rm -f -- "$RD/codex.calls"
-HOME="$RH2" AGENTKIT_ADAPTER_DIR="$RD" ak usage >"$WORK/reset-50.txt" 2>&1
-if [ ! -e "$RD/codex.calls" ] && [ ! -e "$RH2/.agentkit/state/openai-reset.json" ] &&
-   ! grep -q 'reset applied' "$WORK/reset-50.txt"; then
-  ok "30b usage-limit reset: at 50% used nothing is spent, and no reset state is written at all"
-else
-  no "30b usage-limit reset at 50%: $(wc -l <"$RD/codex.calls" 2>/dev/null || echo 0) reset call(s)"
-  sed 's/^/      /' "$WORK/reset-50.txt" | head -8
-fi
-
 # --- 31: the shared browser and the desktop ---------------------------------
 # 31b and 31c are offline and run on every machine; the rest run in the live mode alone.  31a
 # reads the host's own browser stack.  31d and 31e make real model calls through the
@@ -5327,8 +5143,8 @@ grep -q ' scratch  delivered$' "$WORK/delivered-scratch.log" || DEL=1
 # the window a 429 leaves behind, claude with nothing. What has to hold is the whole policy: a
 # fresh stall is left alone, a three-minute-old one is typed back into motion with the word its
 # harness understands, a second pass inside three minutes types nothing, Muse's window is waited
-# out and OpenAI's is spent out of the reset policy first, an hour of it asks the user once and
-# stops, a seat that is working and a seat that is nobody's are never touched at all.
+# out and OpenAI's resets are never spent, an hour of it asks the user once and stops, a seat
+# that is working and a seat that is nobody's are never touched at all.
 STALLH="$WORK/home-stall"; STALLT="$WORK/stall-tmux"; STALLAD="$WORK/ad-stall"
 STALLBIN="$WORK/bin-stall"; STALLTYPED="$WORK/stall-typed"
 mkdir -p -- "$STALLH/.agentkit/state" "$STALLT" "$STALLAD" "$STALLBIN" "$STALLTYPED"
@@ -5454,8 +5270,8 @@ assert typed_into("stall-muse") == "", "typed into a seat whose provider window 
 assert typed_into("fine-seat") == "", "typed into a seat that is working"
 assert typed_into("by-hand") == "", "typed into a seat nothing here started"
 assert "out of usage until" in watch.seat_read("stall-muse")["usage_wait"]["reason"]
-# the OpenAI quota went to the usage-limit reset policy before that seat was resumed
-assert json.loads((config.STATE / "openai-reset.json").read_text())["outcome"] == "reset"
+# the OpenAI seat was typed at with its resets left in hand: only the owner spends one
+assert not pathlib.Path(os.environ["ADAPTERS"], "codex.calls").exists()
 
 # a second pass straight after types nothing: one resume per seat per three minutes
 watch.health(cfg, state, False, said.append)
@@ -5546,7 +5362,7 @@ grep -q "^would resume $STALLSEAT, stalled on API Error, with 'continue'\$" "$WO
 [ "$(md5sum <"$STALLH/.agentkit/state/watch.json")" = "$STALLWAS" ] || STALL=1
 [ "$(cat "$STALLTYPED/$STALLSEAT.txt" 2>/dev/null || echo none)" = "$STALLTYPEDWAS" ] || STALL=1
 env -u TMUX TMUX_TMPDIR="$STALLT" tmux -L agentkit-test kill-server 2>/dev/null
-[ "$STALL" = 0 ] && ok "34 the session babysitter: a fresh stall is left alone, a three-minute-old one gets 'continue' (Codex goal mode '/goal resume'), one resume per three minutes, Muse's window waited out and OpenAI's reset spent first, an hour of it asks the user once, and a working seat and a seat nothing started are never typed into" \
+[ "$STALL" = 0 ] && ok "34 the session babysitter: a fresh stall is left alone, a three-minute-old one gets 'continue' (Codex goal mode '/goal resume'), one resume per three minutes, Muse's window waited out and OpenAI's resets never spent, an hour of it asks the user once, and a working seat and a seat nothing started are never typed into" \
                 || { no "34 the session babysitter"; sed 's/^/      /' "$WORK/stall.log" "$WORK/stall-dry.log" 2>/dev/null | head -12; }
 # --- 35: the menu is projects, their sessions by state, and six keys (offline) ------
 # One seat working with a plan and a going run, one needing with a question, one done,
