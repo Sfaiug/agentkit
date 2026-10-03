@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """The rulebook one orchestrator session is launched with, written where its harness can read it.
 
-`orchestrator.md` from the checkout, with this host's own `~/.agentkit/rules.md` after it where
-there is one -- the owner's rules for this machine, which agentkit ships and writes nowhere.
+The checkout's `AGENTS.md` section `What ak is for`, where present, then `orchestrator.md`,
+with this host's own `~/.agentkit/rules.md` after it where there is one -- the owner's rules
+for this machine, which agentkit ships and writes nowhere.
 Nothing is installed into the user's harness configuration: these rules reach the session whose
 launch asked for them, at launch, and no other session anybody ever runs.
 
@@ -14,6 +15,7 @@ harness by whatever means that harness has.
 """
 import os
 from pathlib import Path
+import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -21,13 +23,20 @@ from agentkit import config
 
 
 def text():
-    """The rulebook a session receives: the repo's, then this host's own.
+    """The rulebook a session receives: the vision, the repo's rules, then this host's own.
 
     Only a host that has written no rules of its own has none: a rules.md that is there and
     cannot be read is an error, never an empty one, because a session opened without rules the
     owner did write is a session working to rules nobody chose.
     """
     body = (config.REPO / "orchestrator.md").read_text()
+    try:
+        agents = (config.REPO / "AGENTS.md").read_text()
+    except FileNotFoundError:
+        agents = ""
+    vision = re.search(r"(?ms)^## What ak is for(?:\n|\Z).*?(?=^## |\Z)", agents)
+    if vision:
+        body = f"{vision.group().rstrip()}\n\n{body}"
     try:
         local = (config.HOME / "rules.md").read_text()
     except FileNotFoundError:

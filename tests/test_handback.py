@@ -926,6 +926,7 @@ class HandBack(Sandbox):
             state={"round_summaries": [], "rounds": 3, "final_check": None,
                    "done_when_failure": dict(rounds_said)},
             rounds=3, rnd=1, once=["bash tests/smoke.sh"], every=["pytest"],
+            target="main",
             wt=str(self.root), run_dir=directory, artifacts=set(), done_when_limit=1,
             turn_limit=1, context="ctx", executor="opus", log=self.logs.append,
             save=lambda: None, write=lambda: None)
@@ -964,6 +965,7 @@ class HandBack(Sandbox):
                    "done_when_failure": {"once": [["bash tests/smoke.sh",
                                                   "E the suite says no"]]}},
             rounds=3, rnd=1, once=["bash tests/smoke.sh"], every=["true"],
+            target="main",
             wt=str(self.root), run_dir=directory, artifacts=set(), done_when_limit=1,
             turn_limit=1, context="ctx", executor="opus", log=self.logs.append,
             save=lambda: None, write=lambda: None)

@@ -216,7 +216,7 @@ finish
     def test_skipped_harness_browser_and_failed_run_prerequisite(self):
         skipped = between(SMOKE, "skip_spent()", "printf 'Create a file")
         loop = between(SMOKE, 'HARNESSES=("opus claude"', '# --- 4:')
-        browser = between(SMOKE, '# 31d/31e: real calls', '# --- 32:')
+        browser = between(SMOKE, '# 31d/31e: real calls', '\nfi\n\n# --- 32:')
         prerequisite = between(SMOKE, '# --- 4d:', '\nfi\n\n# --- 5:').rsplit('\nfi', 1)[0] + '\nfi\n'
         result = self.shell('spent_until() { echo "provider tomorrow"; }\n' + skipped + loop
                             + 'skip_spent 4/4b/4c/4d opus astra\n'

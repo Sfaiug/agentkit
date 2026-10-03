@@ -1,4 +1,4 @@
-"""A freed heavy turn goes to the longest waiter, `--first` before the rest.  Offline.
+"""A freed heavy turn goes to the longest waiter, `--first` or not.  Offline.
 
 A temporary HOME, fake run records and fake repositories; live waiters are this
 process's own records, the dead one a pid that already exited. Nothing here
@@ -137,9 +137,9 @@ class GateOrder(unittest.TestCase):
         self.assertLess(second, third)
         repo = run.main_checkout(ACME)
         # whatever order they poll in, the last to wait still finds two before it
-        self.assertTrue(gate._gate_waiter_before(repo, "three", False, third))
-        self.assertTrue(gate._gate_waiter_before(repo, "two", False, second))
-        self.assertFalse(gate._gate_waiter_before(repo, "one", False, first))
+        self.assertTrue(gate._gate_waiter_before(repo, "three", third))
+        self.assertTrue(gate._gate_waiter_before(repo, "two", second))
+        self.assertFalse(gate._gate_waiter_before(repo, "one", first))
         fcntl.flock(holder, fcntl.LOCK_UN)
         one.join(20)
         two.join(20)
@@ -150,7 +150,7 @@ class GateOrder(unittest.TestCase):
         self.assertTrue(one.result[0] and two.result[0] and three.result[0])
         self.assertEqual(self.marks.read_text(), "one\ntwo\nthree\n")
 
-    def test_first_goes_before_earlier_plain_waiter_while_dead_marks_hold_nobody(self):
+    def test_earlier_plain_waiter_goes_before_first_while_dead_marks_hold_nobody(self):
         repo = run.main_checkout(ACME)
         # a dead --first waiter's mark still reads waiting, and a kill-or-resume mark
         # left its dict behind; neither holds another back
@@ -161,12 +161,12 @@ class GateOrder(unittest.TestCase):
         self.assertEqual(dead["gate_turn"]["of"], ACME)
         stale = run_record.read_state(config.RUNS / "stale-first")
         self.assertEqual(gate.gate_turn_note(stale), "")
-        self.assertFalse(gate._gate_waiter_before(repo, "ghost", False, 3000))
-        self.assertFalse(gate._gate_waiter_before(repo, "ghost-first", True, 3000))
+        self.assertFalse(gate._gate_waiter_before(repo, "ghost", 3000))
+        # --first starts a run first and merges it first, but a suite turn goes by wait
         self.waiter("plain", ACME, 1000)
         self.waiter("first-run", ACME, 2000, first=True)
-        self.assertFalse(gate._gate_waiter_before(repo, "first-run", True, 2000))
-        self.assertTrue(gate._gate_waiter_before(repo, "plain", False, 1000))
+        self.assertTrue(gate._gate_waiter_before(repo, "first-run", 2000))
+        self.assertFalse(gate._gate_waiter_before(repo, "plain", 1000))
 
     def test_waiter_of_another_checkout_counts_host_wide(self):
         self.waiter("elsewhere-first", ELSEWHERE, 500, first=True)
@@ -174,11 +174,10 @@ class GateOrder(unittest.TestCase):
         self.assertEqual(gate.gate_turn_note(state), "waiting for a heavy suite turn")
         self.assertEqual(state["gate_turn"]["of"], ELSEWHERE)
         repo = run.main_checkout(ACME)
-        self.assertTrue(gate._gate_waiter_before(repo, "ghost", False, 3000))
-        self.assertTrue(gate._gate_waiter_before(repo, "ghost-first", True, 3000))
+        self.assertTrue(gate._gate_waiter_before(repo, "ghost", 3000))
         # a live waiter holds a newcomer back whichever checkout it checks
         self.waiter("plain", ACME, 1000)
-        self.assertTrue(gate._gate_waiter_before(repo, "ghost", False, 3000))
+        self.assertTrue(gate._gate_waiter_before(repo, "ghost", 3000))
 
 
 if __name__ == "__main__":
