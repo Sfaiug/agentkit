@@ -5653,7 +5653,11 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                              "reported": False, "task_words": sized_words,
                              "task_points": sized_points, "task_checks": sized_checks}))
         history_start(run_record.read_state(run_dir) or receipt, log)
-        repo = task_repo(meta, task_path)
+        # Detached starts and unstarted resumes may no longer stand in the launch checkout.
+        if "repo" in receipt:
+            repo = Path(receipt["repo"]) if receipt["repo"] else None
+        else:
+            repo = task_repo(meta, task_path)  # receipts from before preflight saved it
         scratch = repo is None
         raw_rounds = opts["--rounds"] or meta.get("rounds") or 3
         try:
@@ -10673,6 +10677,7 @@ def preflight(run_dir, opts, log):
         # inherits when it names none, or the one a relative `repo:` means.
         checkout = task_project(repo if meta.get("repo") else None, state.get("task_file"))
         run_record.save_state(run_dir, {**(run_record.read_state(run_dir) or {}),
+                             "repo": str(repo) if repo else None, "scratch": repo is None,
                              "no_merge": bool(opts["--no-merge"]) or repo is None,
                              "project": str(checkout) if checkout else None})
         join_session_project(state.get("launched_session"))
@@ -12009,9 +12014,9 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
     def ours(directory, state, run_meta):
         """Whether a run works in the task's repository.
 
-        `repo` only reaches run.json once the run builds its worktree, so a queued
-        receipt -- and a running run still that early -- is matched through the repo
-        its own task names; without one there is nothing to compare.
+        Old receipts have no `repo` until the run builds its worktree, so those
+        are matched through the repo their own task names; without one there is
+        nothing to compare.
         """
         try:
             if state.get("repo"):

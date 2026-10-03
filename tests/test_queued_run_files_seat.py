@@ -76,8 +76,10 @@ class QueuedRunFilesSeat(Sandbox):
 
     def test_a_seat_whose_only_run_is_queued_is_filed_at_launch(self):
         directory = self.launch("q1", self.acme)
-        self.assertNotIn("repo", record.read_state(directory))
-        self.assertEqual(run.run_project(record.read_state(directory)), self.acme)
+        state = record.read_state(directory)
+        self.assertEqual(state["repo"], str(self.acme))
+        self.assertNotIn("worktree", state)
+        self.assertEqual(run.run_project(state), self.acme)
         self.assertEqual(self.repo(), str(self.acme))
 
     def test_a_projectless_seat_whose_queued_runs_name_one_checkout_is_filed_at_the_next_draw(self):
