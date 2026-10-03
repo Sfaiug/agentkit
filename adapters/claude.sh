@@ -216,11 +216,21 @@ usage)
     printf '{"provider":"anthropic","meters":[],"error":"unknown: %s","retry_after":%d}\n' "$m" "$retry"
     exit 0
   fi
+  # Extra usage answers turns once the windows are spent, so what its monthly limit has left
+  # is credits; off or uncapped, there is no balance to count.  Its amounts are minor units of
+  # its `currency`, USD where it names none, as Claude Code reads them: cents, or whole yen,
+  # won and dong.  The one-time credit (`cinder_cove`) adds nothing: the reply says only what
+  # share of it is used, never what it is worth.
   jq -c '{provider:"anthropic", error:null, meters:[ .limits[]
       | select(.resets_at != null and .percent != null)
       | {name:.kind, used:.percent,
          resets_at:(.resets_at|sub("\\.[0-9]+";"")|sub("\\+00:00$";"Z")|fromdateiso8601),
-         window_secs:(if .group=="session" then 18000 else 604800 end)} ]}' <<<"$body" \
+         window_secs:(if .group=="session" then 18000 else 604800 end)} ]}
+    + ([.extra_usage | objects | select(.is_enabled == true)
+        | (.currency // "USD" | ascii_upcase) as $c
+        | {credits:((.monthly_limit - .used_credits)?
+                    / (if $c | IN("JPY", "KRW", "VND") then 1 else 100 end)), currency:$c}]
+       | first // {})' <<<"$body" \
     2>/dev/null || err "unparsable response from api.anthropic.com" ;;
 install)
   if command -v claude >/dev/null; then echo "claude: already installed ($(claude --version 2>/dev/null | head -1))"; exit 0; fi
