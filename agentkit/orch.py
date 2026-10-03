@@ -700,6 +700,59 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
     return spawn(argv, env, lower_nice=nice).pid
 
 
+def scope_self(unit, target_slice, properties=(), placement=None):
+    """Move this very process into a new scope `unit` in `target_slice`; True once it is there.
+
+    The scope `in_slice` makes around a child, made around a process that already runs: the
+    user manager is handed this pid, so nothing is started or exec'd and the process keeps its
+    terminal, its signals and its pid.  `properties` are the `systemd-run -p` ones, which the
+    manager takes typed here: a size in mebibytes as bytes, a number as one, the rest as words.
+    Only this process's own cgroup is believed, once it names the scope.  Where no scope can be
+    made the process stays where it is, and `placement` says why.
+    """
+    def unplaced(reason):
+        if placement is not None:
+            placement.update(scope="none", scope_reason=reason)
+        return False
+
+    if not user_manager():
+        return unplaced("no user systemd manager")
+    if not can_scope():
+        # the kernel lets the manager move only what it was delegated (see `can_scope`)
+        return unplaced("started outside the user manager, which cannot move it")
+    typed = []
+    for assignment in properties:
+        if assignment == "-p":
+            continue
+        name, _, value = assignment.partition("=")
+        if value.endswith("M") and value[:-1].isdigit():
+            typed += [name, "t", str(int(value[:-1]) * 1024 * 1024)]
+        else:
+            typed += [name, "t" if value.isdigit() else "s", value]
+    try:
+        asked = subprocess.run(
+            ["busctl", "--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
+             "org.freedesktop.systemd1.Manager", "StartTransientUnit", "ssa(sv)a(sa(sv))",
+             f"{unit}.scope", "fail", str(2 + len(typed) // 3), "PIDs", "au", "1",
+             str(os.getpid()), "Slice", "s", target_slice, *typed, "0"],
+            capture_output=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+            env=bus_env(), timeout=SLICE_WAIT)
+        failed = (f"busctl failed ({asked.stderr.strip() or f'exit {asked.returncode}'})"
+                  if asked.returncode != 0 else None)
+    except (OSError, subprocess.SubprocessError) as exc:
+        failed = f"busctl failed ({exc})"
+    # The cgroup is the answer whatever the client says: the manager queues the move as a job,
+    # so one it took before the reply was lost or late may still land, and is waited for.
+    deadline = time.monotonic() + SLICE_WAIT
+    while not host.cgroup_contains(f"/{unit}.scope"):
+        if time.monotonic() >= deadline:
+            return unplaced(failed or f"{unit}.scope never took this process")
+        time.sleep(0.02)
+    if placement is not None:
+        placement["scope"] = unit
+    return True
+
+
 def stop_scope(scope, log=lambda _: None, wait=True):
     """Ask systemd to stop a detached run's unit, including escaped grandchildren.
 
@@ -717,7 +770,14 @@ def stop_scope(scope, log=lambda _: None, wait=True):
     command = ["systemctl", "--user", "stop"]
     try:
         if not wait:
-            subprocess.Popen([*command, *units], stdin=subprocess.DEVNULL,
+            if (threading.current_thread() is threading.main_thread()
+                    and any(host.cgroup_contains(f"/{unit}") for unit in units)):
+                # This process is in what it stops and on its way out: the stop is for what it
+                # leaves behind, and the exit status a foreground caller reads stays its own.
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            # queued, not waited for: a systemctl inside the scope, ignoring SIGTERM as this
+            # process now does, would otherwise wait on a stop that waits on it
+            subprocess.Popen([*command, *units, "--no-block"], stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              start_new_session=True, env=bus_env())
             return True
@@ -734,6 +794,21 @@ def stop_scope(scope, log=lambda _: None, wait=True):
     if refused:
         log(f"WARN could not stop {scope}: systemctl exited {refused[0]}")
     return not refused and 0 in codes
+
+
+def set_cpu_weight(unit, weight):
+    """Ask the user manager to weigh `unit` so until it ends; whether it did.
+
+    The manager's own word rather than a write to the unit's cgroup, which it would put
+    back on its next reload.
+    """
+    try:
+        return subprocess.run(["systemctl", "--user", "set-property", "--runtime", unit,
+                               f"CPUWeight={weight}"], stdin=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              env=bus_env(), timeout=SLICE_WAIT).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def slice_cgroup():
@@ -2700,6 +2775,8 @@ def cmd_stop(argv):
     """
     if len(argv) != 1:
         raise config.Error("usage: ak orch stop <name>")
+    name = config.resolve_session(argv[0])
+    config.check_stop_owner(name)
     from . import notify, watch
     # Stopping the session this runs in -- the overlay's `x`, or `ak orch stop` from the seat
     # itself -- hangs this very process up halfway through, and the menu redraws the moment
@@ -2710,7 +2787,6 @@ def cmd_stop(argv):
     old = signal.signal(signal.SIGHUP, signal.SIG_IGN)
     try:
         from . import run as run_mod
-        name = config.resolve_session(argv[0])
         # Unfinished runs stop before the lock: each one costs up to STALL_KILL_WAIT
         # inside kill_tree, and nothing it touches is the seat's state. The peek is
         # best effort -- the lock below decides authoritatively -- so a name nobody
@@ -2814,7 +2890,65 @@ def cmd_project(argv):
         if config.update_session(name, repo=str(repo), filed=True) is None:
             raise config.Error(f"no orchestrator session {name!r}")
     print(f"filed {name} under {repo.name}")
+    flight = in_flight(name, repo)
+    print(f"in flight on {repo.name}, plan around it:" if flight
+          else f"nothing else in flight on {repo.name}")
+    room = terminal.layout_width() - 4
+    for seat, lines, files in flight:
+        for part in terminal.wrap(seat, room + 2):
+            print(f"  {part}")
+        for line in lines:
+            for part in terminal.wrap(f"plan: {line}", room):
+                print(f"    {part}")
+        if files:
+            for part in terminal.wrap(f"changing: {', '.join(sorted(files))}", room):
+                print(f"    {part}")
     return 0
+
+
+PLAN_OPEN = re.compile(r"^\s*- \[ \] (.+)$")
+
+
+def in_flight(name, repo):
+    """What the other seats filed under the same checkout have in flight, so two sessions
+    never build the same thing unaware: [(seat, open plan lines, changed files)] by name.
+
+    A seat's open lines are its plan's unticked ones; its files are what its going runs
+    change against their base, committed or not, or a queued run's task `files:`.  A seat
+    with neither is left out.
+    """
+    from . import menu, run, watch   # here, not at the top: menu imports this module
+    target = checkout_of(repo)
+    seats = {seat: ([], set()) for seat, record in sorted(config.session_records().items())
+             if seat != name and target and checkout_of(record.get("repo")) == target}
+    for seat, (lines, _) in seats.items():
+        plan = watch.plan_text(seat)
+        lines.extend(m.group(1).strip() for m in map(PLAN_OPEN.match, plan.splitlines()) if m)
+    for directory in run_record.run_dirs():
+        state = run_record.read_state(directory) or {}
+        seat = run.launched_session(state)
+        if seat in seats and not menu.smoke_run(state) and run.going(state):
+            seats[seat][1].update(changed_files(state, directory))
+    return [(seat, lines, files) for seat, (lines, files) in seats.items() if lines or files]
+
+
+def changed_files(state, directory):
+    """Tracked paths a run's worktree changes against its base, committed or not; before it
+    has a worktree, the pathspecs its saved task's `files:` allows."""
+    tree, base = state.get("worktree"), state.get("base_sha")
+    if tree and base and os.path.isdir(tree):
+        try:
+            done = subprocess.run(["git", "-C", tree, "diff", "--name-only", "-z",
+                                   "--no-renames", base, "--"], capture_output=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return []
+        return [path for path in os.fsdecode(done.stdout).split("\0") if path] \
+            if done.returncode == 0 else []
+    from . import task
+    try:
+        return task.task_files(directory / "task.md")
+    except (OSError, ValueError, config.Error):
+        return []
 
 
 def set_solo(name, enabled=None):

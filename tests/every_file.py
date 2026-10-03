@@ -6,7 +6,8 @@ unseen.  It is no part of smoke.sh and never touches its lock: it holds no smoke
 waits for none.  Each file runs once, in a process of its own from the checkout's root with
 no stdin, and without the caller's AGENTKIT_*/AK_* variables: a file started from inside a run
 must not pass for part of it (AGENTKIT_RUN, AK_RUN_DEPTH, AK_PARENT_RUN ...).  As many run at
-once as the host's idle cores and free memory fit, read as the loop reads them for heavy suites.
+once as the host's idle cores and free memory fit, read as the loop reads them for heavy suites;
+in a run holding its merge turn, at least the cores its raised CPU weight entitles it to.
 A failing file, or one reporting no executed cases, fails the whole and is named with its
 last lines. Unittest's tally reports the count; other scripts print TESTS_RUN=<count> after
 their checks. Python imports under agentkit/, tools/, bin/ and tests/ must be from the
@@ -74,13 +75,38 @@ def cases_run(output):
         r"^Ran (\d+) tests? in [^\n]+$|^TESTS_RUN=(\d+)$", output, re.MULTILINE))
 
 
-def smoke_runs(smoke, offline):
+LIVE = 'if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then'
+
+
+def live_blocks(smoke):
+    """The line numbers of smoke.sh's live blocks: each from its LIVE guard to the `fi` bash
+    closes it with, the first unindented one after which what lies between parses whole."""
+    lines, inside = smoke.splitlines(), set()
+    for start, line in enumerate(lines):
+        if line != LIVE:
+            continue
+        for end in range(start + 1, len(lines)):
+            if lines[end] == "fi":
+                parsed = subprocess.run(["bash", "-n"], input="\n".join(lines[start + 1:end]),
+                                        capture_output=True, text=True)
+                if parsed.returncode == 0 and not parsed.stderr:
+                    inside.update(range(start, end + 1))
+                    break
+        else:
+            raise ValueError(f"tests/smoke.sh:{start + 1}: a live guard nothing closes")
+    return inside
+
+
+def smoke_runs(smoke, offline, live=False):
     """The test modules `bash tests/smoke.sh` runs in its plain mode or, `offline`, in the one
     AGENTKIT_SMOKE_OFFLINE=1 selects: every one it names outside a comment and outside the
     blocks that mode skips.  Both skip the argument blocks above the offline block; the plain
-    mode skips the offline block, and the offline mode exits at its end."""
-    names, block, below = set(), None, False
-    for line in smoke.splitlines():
+    mode skips the offline block, and the offline mode exits at its end.  The live blocks run
+    only in the `live` mode, AGENTKIT_SMOKE_LIVE=1, which tests/live.sh starts."""
+    names, block, below, skipped = set(), None, False, set() if live else live_blocks(smoke)
+    for number, line in enumerate(smoke.splitlines()):
+        if number in skipped:
+            continue
         opens = block is None and not below and line.startswith("if ") and line.endswith("then")
         if opens and "AGENTKIT_SMOKE_OFFLINE" in line:
             block, below = "offline", True
@@ -112,7 +138,8 @@ def main(root):
     tests = root / "tests"
     # smoke.sh ran in the mode this caller's environment gave it
     skip = smoke_runs((tests / "smoke.sh").read_text(),
-                      os.environ.get("AGENTKIT_SMOKE_OFFLINE", "0") == "1")
+                      os.environ.get("AGENTKIT_SMOKE_OFFLINE", "0") == "1",
+                      os.environ.get("AGENTKIT_SMOKE_LIVE", "0") == "1")
     todo = sorted(path for path in tests.glob("test_*.py") if path.stem not in skip)
     env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
     # The host's idle cores -- the slice's CPU quota where it sets one, less the minute's load
@@ -123,6 +150,16 @@ def main(root):
     readings = host.host_readings(slice_dir=orch.slice_cgroup)
     cores = readings.get("slice_cpu_quota") or readings.get("cpus")
     readings = dict(readings, slice_cpu_quota=None, cpus=cores)
+    # A run holding its merge turn weighs its scope above every other run's: the kernel owes
+    # this suite that share of the cores however busy the others keep them, so it counts no
+    # fewer idle.  Its share, not more: the others' weights, another repository's holder's
+    # among them, still claim the rest.
+    own = host.process_cgroup()
+    weights = host.cpu_weights(host.cgroup_path(own)) if own else None
+    load = host._reading(readings, "load", "load1", "load_1m")
+    if weights and weights[1] and weights[0] > min(weights[1]) and cores and load is not None:
+        entitled = cores * weights[0] / (weights[0] + sum(weights[1]))
+        readings["load"] = min(load, cores - entitled)
     jobs = gate.derived_heavy_limit(readings, running=0, job_cpus=FILE_CPUS,
                                    job_mem_mb=FILE_MEM_MB)
     began, failed = time.monotonic(), 0

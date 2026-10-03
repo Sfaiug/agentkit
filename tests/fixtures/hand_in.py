@@ -77,19 +77,26 @@ def records(text):
             what, _, why = details.partition(" - ")
             row = {"kind": kind, "path": path or "deliverable", "line": int(line) if line.isdigit() else 1,
                    "what": what or item, "why": why or "fixture defect",
-                   "evidence": {"quote": "fixture evidence"}}
+                   "evidence": {"quote": "fixture evidence"} if kind == "follow-up" else {
+                       "run": "echo 'fixture evidence'; exit 1", "returncode": 1,
+                       "output": "fixture evidence\n"}}
             if kind == "follow-up":
                 row["before"] = "base abc123 (fixture)"
             rows.append(row)
     if verdicts[-1].upper() == "FAIL" and not any(row["kind"] == "finding" for row in rows):
         rows.insert(0, {"kind": "finding", "path": "deliverable", "line": 1,
                         "what": "fixture blocking finding", "why": "fixture defect",
-                        "evidence": {"quote": "fixture evidence"}})
+                        "evidence": {"run": "echo 'fixture evidence'; exit 1", "returncode": 1,
+                                     "output": "fixture evidence\n"}})
     return rows + [{"kind": "done"}]
 
 
 def reported(text):
-    return hand_in.Review(records(text)).text
+    rows = records(text)
+    for row in rows:
+        if row["kind"] == "finding":
+            row["evidence"]["commit"] = "workspace"
+    return hand_in.Review(rows).text
 
 
 def executor_records(text):

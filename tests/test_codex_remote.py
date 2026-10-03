@@ -138,8 +138,7 @@ if 'kill-session' in sys.argv:
                          tui['argv'][tui['argv'].index('--remote') + 1])
         for event in ('SessionStart', *codex.SEAT_EVENTS):
             self.assertTrue(any(a.startswith('hooks.' + event + '=') for a in args))
-        self.assertTrue(any(a.startswith('developer_instructions=# You are the orchestrator')
-                            for a in args))
+        self.assertIn('developer_instructions=' + config.rulebook_path('acme-seat').read_text(), args)
         self.assertEqual(server['env']['ACME_SEAT_MARKER'], 'carried-to-server')
         self.assertEqual(server['env']['AGENTKIT_SESSION'], 'acme-seat')
         self.assertEqual(server['env'][codex.CAPTURE_ENV], str(receipt))

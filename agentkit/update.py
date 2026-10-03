@@ -15,7 +15,8 @@ against the gates that are available, and the report says which ran.  Only the h
 this host has are upgraded, and by `ak update` none while a session is working; the tick
 upgrades one that is behind its latest release in the background, sessions or not (see
 `keep_current`), and no two upgrades ever run at once.  Agentkit itself moves after the
-harnesses either way, and the three-minute tick moves it on its own.
+harnesses either way, and the three-minute tick moves it on its own, in both cases only to a
+commit whose `tests/live.sh` passed where it has one (`live_target`).
 """
 
 from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
@@ -36,7 +37,7 @@ import tempfile
 import time
 from datetime import datetime
 
-from . import command_help, config, retention
+from . import command_help, config, host, retention, worker
 from .harness import load as harness_plugin
 
 VERSION = re.compile(r"\d+\.\d+\.\d+[^\s()]*")
@@ -53,6 +54,56 @@ RETRY_AFTER = 24 * 60 * 60  # a gate can fail for what the release did not cause
 VERSION_KEY = "{version}"   # `[update] revert`: where the version to reinstall goes
 SWAPS = "harness-swaps.json"  # the latest installs and reverts, [harness, began, ended]
 SWAPS_KEPT = 16               # far more than can begin between a turn's end and the look at it
+LIVE = "live-checks"          # under config.STATE: one directory per check, `<commit>-<started>`
+# A check of agentkit's tests/live.sh, detached: a throwaway worktree of exactly the commit,
+# the script in it, then the output and the exit code, each written whole.  Both run in the
+# process group of a holder, a `sleep` this runner starts first and reaps last, after every
+# signal to the group, so the group's id names no other process while it signals it.  Once the
+# script exits, KILL to the group ends whatever it left there; at the check's cap, or as soon
+# as the tick's TERM tells it to, TERM, then KILL after the grace, and a red exit code: so a
+# check ends on a host with no /proc for `worker.kill_marked` to read.
+# This script is the only writer of both files; the tick only creates the directory and reads it.
+LIVE_RUN = r'''import os, signal, subprocess, sys, time
+check, repo, commit, cap, grace = sys.argv[1:]
+holder = subprocess.Popen(["sleep", "99999999"], process_group=0)
+with open("output.tmp", "w") as out:
+    script = subprocess.Popen(["sh", "-c", 'git -C "$0" worktree add --quiet --detach "$1" "$2" '
+                               '&& cd "$1" && bash tests/live.sh', repo, f"{check}/tree", commit],
+                              stdout=out, stderr=out, process_group=holder.pid)
+
+
+def end(sig):
+    try:
+        os.killpg(holder.pid, sig)
+    except OSError:     # macOS finds no group where only zombies are left
+        pass
+
+
+try:
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
+    code = script.wait(max(0, float(cap) - time.time()))
+except (KeyboardInterrupt, subprocess.TimeoutExpired):
+    code = None
+signal.signal(signal.SIGTERM, lambda *_: None)
+if code is None:
+    end(signal.SIGTERM)
+    try:
+        script.wait(float(grace))
+    except subprocess.TimeoutExpired:
+        pass
+    code = 124      # as timeout(1) says of what it ended
+end(signal.SIGKILL)
+script.wait()
+holder.wait()
+subprocess.run(["git", "-C", repo, "worktree", "remove", "--force", f"{check}/tree"],
+               capture_output=True)
+with open("output.tmp", "a") as out:
+    out.write(f"[exit {code}]\n")
+os.replace("output.tmp", "output")
+with open("exit.tmp", "w") as out:
+    out.write(f"{code}\n")
+os.replace("exit.tmp", "exit")
+'''
 
 
 def _argv(harness, facts, key):
@@ -706,8 +757,10 @@ def update_agentkit(progress=None, pull=True):
     Everything both commands print is said out loud, because the menu shows the last lines
     of it; stdout is a pipe, so install.sh sees no tty and asks no questions.
     `progress(done, total)` hears of each step as it begins and of the last one's end: `ak`'s
-    start fills the rule under its header from it, and fetches as a step of its own first, so
-    the rule moves through the network wait.  `pull=False` only reinstalls what is checked out.
+    start fills the rule under its header from it, and the fetch is a step of its own, so the
+    rule moves through the network wait.  The fast-forward goes to `live_target`, and with none
+    nothing moves or reinstalls.  `pull=False` only reinstalls what is checked out; a commit
+    fast-forwards to exactly it, already fetched.
     """
     config.ensure_dirs()
     with (config.TMP / "agentkit-update.lock").open("a") as lock:
@@ -720,13 +773,19 @@ def update_agentkit(progress=None, pull=True):
             say(f"update: agentkit: left as it is: {directory} is {why}")
             return 1
         install = [str(directory / "install.sh")]
-        steps = ([["git", "-C", str(directory), "pull", "--ff-only"]] if pull else []) + [install]
-        if progress:
-            steps.insert(0, ["git", "-C", str(directory), "fetch", "--quiet", "origin", "main"])
+        merge = ["git", "-C", str(directory), "merge", "--ff-only"]   # to a commit known later
+        steps = ([["git", "-C", str(directory), "fetch", "--quiet", "origin", "main"], merge]
+                 if pull is True else [merge] if pull else []) + [install]
         pending = config.STATE / "agentkit-install-pending"
         for done, cmd in enumerate(steps):
             if progress:
                 progress(done, len(steps))
+            if cmd is merge:
+                target = pull if isinstance(pull, str) else live_target()
+                if not target:
+                    say("update: agentkit: origin/main moves here once its tests/live.sh passed")
+                    return 0
+                cmd = [*merge, target]
             if cmd is install:
                 # here until install.sh passes: the pull has already moved HEAD, so origin/main
                 # is no longer ahead of it, and only this tells the tick to run it again (go_live)
@@ -801,8 +860,9 @@ def update_once(where, **kw):
     return code, said.getvalue().splitlines()
 
 
-def go_live(log):
-    """The tick's half of `update_self`: agentkit live within one tick of origin/main moving.
+def go_live(log, now=None):
+    """The tick's half of `update_self`: agentkit live within one tick of origin/main moving,
+    or of its `tests/live.sh` passing (`live_tick`).
 
     Only the checkout this tick runs from moves -- the cron line runs ~/agentkit/bin/ak --
     so a tick from a worktree, a test's above all, never touches the live one.  A fetch that
@@ -813,19 +873,201 @@ def go_live(log):
     """
     if agentkit_dir().resolve() != config.REPO:
         return
-    # exit 1 is origin/main ahead of HEAD; anything else, a failed fetch above all, is not
-    moved = (not _git("fetch", "--quiet", "origin", "main", timeout=FETCH_CAP)[0]
-             and _git("merge-base", "--is-ancestor", "origin/main", "HEAD")[0] == 1)
+    fetched = not _git("fetch", "--quiet", "origin", "main", timeout=FETCH_CAP)[0]
+    live_tick(log, time.time() if now is None else now, fetched)
+    target = live_target() if fetched else ""
+    # exit 1 is the target ahead of HEAD; anything else, a failed fetch above all, is not
+    moved = bool(target) and _git("merge-base", "--is-ancestor", target, "HEAD")[0] == 1
     if not (moved or (config.STATE / "agentkit-install-pending").exists()):
         return
-    head = _git("rev-parse", "origin/main" if moved else "HEAD")[1]
-    failed, lines = update_once("watch", pull=moved)
+    head = target if moved else _git("rev-parse", "HEAD")[1]
+    failed, lines = update_once("watch", pull=moved and target)
     if not failed:
         log(f"agentkit is live at {head[:12]}")
     elif lines:
         log(f"WARN agentkit did not go live at {head[:12]}:")
         for line in lines:
             log(f"  {line}")
+
+
+def live_checks():
+    """Every check of tests/live.sh, oldest first: (started, commit, directory).
+
+    The tick makes the directory, named for both, and `stopped` and `handed` in it; the
+    check's own `LIVE_RUN` writes `output` and `exit`.
+    """
+    found = []
+    for check in (config.STATE / LIVE).glob("*-*"):
+        commit, _, started = check.name.partition("-")
+        if started.isdigit():
+            found.append((int(started), commit, check))
+    return sorted(found)
+
+
+def _exit(check, started):
+    """A check's exit code, or None while it has none: one written after `SMOKE_CAP` is none,
+    and so is any once the tick wrote `stopped`, so every reader counts that check red."""
+    try:
+        if (not (check / "stopped").exists()
+                and (check / "exit").stat().st_mtime < started + SMOKE_CAP):
+            return int((check / "exit").read_text())
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _alive(check, started, now):
+    """Whether anything of that check still runs: whatever carries its marker, whatever its
+    script said -- where there is no /proc to read that, until it has an exit code or its cap
+    and the grace its runner gives the group after it have passed.
+
+    Every reader asks this before it reads the check's verdict: the tick writes `stopped`
+    before it signals anything, so a check it capped that is found ended reads `stopped`, never
+    the exit code it wrote before its cap.
+    """
+    if host.PROC.is_dir():
+        return bool(worker.marked_pids(str(check)))
+    return _exit(check, started) is None and now < started + SMOKE_CAP + worker.MARK_KILL_GRACE
+
+
+def _put(path, text):
+    """`text` into `path` whole: a reader sees the old file or the new one, never half."""
+    path.with_suffix(".tmp").write_text(text)
+    os.replace(path.with_suffix(".tmp"), path)
+
+
+def _handed(check):
+    """That check's hand-back record, or None while it has none."""
+    try:
+        return json.loads((check / "handed").read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def live_target():
+    """The commit a fast-forward of ~/agentkit goes to, or "" while there is none.
+
+    origin/main when the checkout has it already, when it has no `tests/live.sh`, or when a
+    check of it passed; else the newest commit between the checkout and it whose check passed,
+    so what moves is exactly what passed, however far origin/main has gone on since.
+    """
+    tip = _git("rev-parse", "--verify", "--quiet", "origin/main")[1]
+    passed = {commit for started, commit, check in live_checks()
+              if not _alive(check, started, time.time()) and _exit(check, started) == 0}
+    if (not tip or tip in passed or _git("cat-file", "-e", f"{tip}:tests/live.sh")[0]
+            or not _git("merge-base", "--is-ancestor", tip, "HEAD")[0]):
+        return tip
+    newer = _git("rev-list", "--topo-order", f"HEAD..{tip}")[1].split() if passed else []
+    return next((commit for commit in newer if commit in passed), "")
+
+
+def live_tick(log, now, fetched):
+    """The tick's half of tests/live.sh: it starts the checks and ends them at their cap.
+
+    One past `SMOKE_CAP` is ended by its runner (`LIVE_RUN`); that, or one of a commit the
+    checkout already has, is ended by its marker too, for whatever left its group -- out of
+    reach on a host with no /proc, as for every ak run there -- and its directory goes,
+    worktree and all, only once nothing of it runs.  One the cap ends, or that ended with no
+    exit code in time, is `stopped` before anything is signalled: red from then on, whatever
+    it says later.  While origin/main has a `tests/live.sh` and no check of it passed, one is
+    started, detached, as soon as none runs; a red one is started again on
+    `watch.RETRY_BACKOFF` from its end.  As `watch.after_merge_checks` does, the newest red
+    check no later check passed is handed back (`live_hand_back`), wherever main went since,
+    unless an older one's notice was typed or told already.
+    Offline, no check starts: what was fetched last may be what origin has since moved on from.
+    """
+    from . import watch     # here, not at the top: watch imports this module
+    tip = _git("rev-parse", "--verify", "--quiet", "origin/main")[1] if fetched else ""
+    had, running, pruned, done = {}, False, False, []
+    for started, commit, check in live_checks():
+        if commit not in had:
+            had[commit] = not _git("merge-base", "--is-ancestor", commit, "HEAD")[0]
+        capped, alive = now >= started + SMOKE_CAP, _alive(check, started, now)
+        stop = (not had[commit] and not (check / "stopped").exists()
+                and (capped if alive else _exit(check, started) is None))
+        if stop:
+            _put(check / "stopped", f"{now}\n")
+        if (alive or stop) and (capped or had[commit]):
+            # its runner, told to, ends its group within one grace and writes its exit in the next
+            worker.kill_marked(str(check), grace=2 * worker.MARK_KILL_GRACE)
+            alive = _alive(check, started, now)
+        if alive:
+            running = True
+        elif had[commit]:
+            shutil.rmtree(check, ignore_errors=True)
+            pruned = True
+        else:
+            done.append((started, commit, check, _exit(check, started)))   # read once it ended
+    if pruned:
+        _git("worktree", "prune")
+    episode = None      # a pass ends what was red before it; one typed or told stands until then
+    for _, commit, check, code in done:
+        record = _handed(episode[1]) if episode else None
+        if code == 0:
+            episode = None
+        elif not (record and (record["typed"] or record["told"])):
+            episode = (commit, check, code)
+    if episode:
+        live_hand_back(*episode, log)
+    mine = [(started, check, code) for started, commit, check, code in done if commit == tip]
+    if (running or not tip or any(code == 0 for _, _, code in mine)
+            or _git("merge-base", "--is-ancestor", tip, "HEAD")[0] != 1
+            or _git("cat-file", "-e", f"{tip}:tests/live.sh")[0]):
+        return
+    if mine:
+        started, check, code = mine[-1]
+        ended = (float((check / "stopped").read_text()) if code is None
+                 else (check / "exit").stat().st_mtime)
+        if now < ended + watch.RETRY_BACKOFF[min(len(mine), len(watch.RETRY_BACKOFF)) - 1]:
+            return
+    log(f"checking agentkit at {tip[:12]} with tests/live.sh before it goes live")
+    check = config.STATE / LIVE / f"{tip}-{int(now)}"
+    check.mkdir(parents=True)
+    subprocess.Popen([sys.executable, "-c", LIVE_RUN, str(check), str(agentkit_dir()), tip,
+                      str(int(now) + SMOKE_CAP), str(worker.MARK_KILL_GRACE)],
+                     cwd=check, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True,
+                     env={**config.child_env(), **PINS, "AGENTKIT_ACCEPTANCE_REQUIRED": "1",
+                          worker.RUN_MARKER: str(check)})
+
+
+def live_hand_back(commit, check, code, log):
+    """Hand that red check of that commit back to fix, once, with its last lines.
+
+    Its record is `handed` in the check's directory, the tick's own file: the line, the
+    composer's mark while its Enter has not landed, so it is entered and never typed twice,
+    and `told` once it has.
+    """
+    from . import run, watch    # here, not at the top: both import this module
+
+    def keep(**change):
+        record.update(change)
+        _put(check / "handed", json.dumps(record))
+
+    record = _handed(check)
+    if record is None:
+        output = check / "output"
+        try:    # one that never finished has only what it was writing
+            said = (output if output.exists() else check / "output.tmp").read_text(
+                errors="replace")
+        except OSError:
+            said = ""
+        lines = [line for line in said.splitlines() if line.strip()][-UPDATE_TAIL:]
+        lines += [] if code is not None else ["[stopped before it finished]"]
+        log(f"WARN agentkit stays as it is: tests/live.sh failed at {commit[:12]}:")
+        for line in lines:
+            log(f"  {line}")
+        record = {}
+        keep(line=f"tests/live.sh failed on agentkit's main at {commit[:12]}, so this host "
+                  f"stays on the agentkit it runs: {' / '.join(lines)}. Fix main.",
+             typed=None, told=False)
+    if record["told"]:
+        return
+    key = run.remote_key(_git("remote", "get-url", "origin")[1])
+    if watch.after_merge_deliver(None, {}, key, record["line"], log, typed=record["typed"],
+                                 receipt=lambda mark: keep(typed=mark)):
+        keep(told=True)
+        log(f"handed agentkit's failed tests/live.sh at {commit[:12]} back to fix")
 
 
 def latest(harness):
@@ -995,6 +1237,8 @@ def main(argv):
         e2e = config.REPO / "tests" / "e2e-fresh.sh"
         print("update: dry run, nothing changed; each gate below says whether it would run")
         print(f"update: gate smoke: run (`bash {smoke}`)")
+        if (config.REPO / "tests" / "live.sh").is_file():
+            print(f"update: gate live: run (`bash {config.REPO / 'tests' / 'live.sh'}`)")
         fresh_why = fresh_unavailable()
         if fresh_why:
             print(f"update: gate fresh: skipped: {fresh_why}")
@@ -1005,7 +1249,7 @@ def main(argv):
             print(f"update: agentkit: skipped: {why}")
         else:
             print(f"update: agentkit {agentkit_version() or '?'}: "
-                  f"would fast-forward (`git pull --ff-only` + `install.sh`)")
+                  f"would fast-forward (`git merge --ff-only` + `install.sh`)")
         return 0
 
     plan = [h for h in plan if h["name"] not in absent]
@@ -1047,7 +1291,7 @@ def upgrade(plan, before):
     The one path `ak update` and the tick's background upgrade both take, so the snapshot,
     the gates and the revert are as strong whichever of them starts it.
     """
-    smoke = config.REPO / "tests" / "smoke.sh"
+    smoke, live = config.REPO / "tests" / "smoke.sh", config.REPO / "tests" / "live.sh"
     output = tempfile.NamedTemporaryFile(mode="w", prefix=f"update-{datetime.now():%Y%m%d-%H%M%S}-",
                                          suffix=".log", dir=config.TMP, delete=False)
     log_path = Path(output.name)
@@ -1127,11 +1371,20 @@ def upgrade(plan, before):
         say(f"update: {', '.join(changed) if changed else 'no harness moved'}; "
             f"running {smoke.name}")
         gate = "smoke"
-        if step(["bash", str(smoke)], fh, {"AGENTKIT_ACCEPTANCE_REQUIRED": "1"}, timeout=SMOKE_CAP):
+        passed = step(["bash", str(smoke)], fh, {"AGENTKIT_ACCEPTANCE_REQUIRED": "1"},
+                      timeout=SMOKE_CAP)
+        if passed and live.is_file():
+            # the checks that need the outside world, which the landing suite leaves out
+            say(f"update: running {live.name}")
+            gate = "live"
+            passed = step(["bash", str(live)], fh, {"AGENTKIT_ACCEPTANCE_REQUIRED": "1"},
+                          timeout=SMOKE_CAP)
+        if passed:
             fresh_ok, fresh_why = fresh_gate(fh, say)
             if fresh_ok or fresh_why.startswith("skipped:"):
-                done = (f"{', '.join(changed)}, smoke passed" if changed
-                        else "every harness was already current, smoke passed")
+                gates = "smoke and live passed" if gate == "live" else "smoke passed"
+                done = (f"{', '.join(changed)}, {gates}" if changed
+                        else f"every harness was already current, {gates}")
                 print(f"update: {done}, fresh-install gate {fresh_why} ({log_path})")
                 landed = kept(before, after)
                 for name, (old, now) in downgraded.items():
