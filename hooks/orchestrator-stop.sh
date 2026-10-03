@@ -210,9 +210,12 @@ def background(payload):
     Claude Code hands its Stop hook `background_tasks`, the agents and commands it still has in
     flight -- the ones whose task notification has not arrived -- and an empty list when there
     are none.  Each of them wakes the seat again when it settles, so a stop on them is a wait.
+    A `monitor` is a watch, not work: the comment watch on an artifact the seat published stays
+    in that list for the rest of the session, and counted, it held the seat working for days.
     """
     tasks = payload.get("background_tasks")
-    return isinstance(tasks, list) and any(isinstance(task, dict) for task in tasks)
+    return isinstance(tasks, list) and any(
+        isinstance(task, dict) and task.get("type") != "monitor" for task in tasks)
 
 
 def told(seat, turn, kind, peer=False):
