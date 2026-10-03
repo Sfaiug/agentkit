@@ -2860,13 +2860,14 @@ def done_holds(name, live, notice, began, said, dry_run):
 
 def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     """The end-of-turn rule where no hook can hold it: a turn ends with a question, a done or a
-    run to wait on, and a seat that stopped on none of the three is told to get on with it.
+    run or live job to wait on, and a seat that stopped on none of the three is told to get on
+    with it.
 
     An unanswered question of this seat's own never reaches here -- health() leaves those
     alone -- so what is left to read is the last paragraph on the screen, the `done` on record
-    and the runs.  The whole pane and not its content lines, because a paragraph is what the
-    blank line above it makes one and pane_tail keeps none: "Which one?" with a decision under
-    it is not a question the user was left with.
+    and the runs and jobs.  The whole pane and not its content lines, because a paragraph is
+    what the blank line above it makes one and pane_tail keeps none: "Which one?" with a
+    decision under it is not a question the user was left with.
 
     A run of its own parked and undecided holds the stop past a run going, an `ak wait` and a
     `done`, as it holds the hook's.  A wait whose session has stopped is tell_waits' to end, with
@@ -2896,7 +2897,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     seat is read once more first, because a composer the user has begun typing into is theirs
     and a line appended to it would send what they are still writing.
     """
-    from . import run as run_mod   # here, not at the top, as health()'s own import is
+    from . import job as jobs, run as run_mod   # here, not at the top, as health()'s own import is
     if not stop_enforced(harness):
         return
     name = session["name"]
@@ -2930,7 +2931,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     # replaced, and not going -- or `stalled`, which nothing resumes
     parked = [run for run, record, going in mine if (not going or record.get("state") == "stalled")
               and run_mod.unfinished(record, records)]
-    if not parked and any(going for *_, going in mine):
+    if not parked and (any(going for *_, going in mine) or jobs.job_waiting(name)):
         return
     nudged = {}
     if parked:

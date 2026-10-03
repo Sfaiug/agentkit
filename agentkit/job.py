@@ -1022,6 +1022,30 @@ def reap_job(job_dir, job):
         return True  # uncertainty is never evidence of an exit
 
 
+def job_waiting(seat):
+    """A live job this seat can wait on, even before any task has a run directory."""
+    try:
+        directories = job_dirs()
+    except OSError:
+        return False
+    for directory in directories:
+        job = read_job(directory)
+        if not job or not isinstance(job.get("tasks"), list):
+            continue
+        owner = job.get("seat")
+        try:
+            if not isinstance(owner, str) or not owner or (
+                    owner != seat and config.resolve_session(owner) != seat):
+                continue
+        except config.Error:
+            continue
+        if reap_job(directory, job) and any(
+                isinstance(task, dict) and task.get("state") not in JOB_TERMINAL
+                for task in job["tasks"]):
+            return True
+    return False
+
+
 def job_admission(job_dir, job, now=None):
     """Why the tick may relaunch this job whose launcher is gone, or nothing: a person's.
 

@@ -21,7 +21,7 @@ import unittest
 from unittest.mock import patch
 
 from test_v4n import REPO, Sandbox
-from agentkit import config, menu, notify, orch, run, watch
+from agentkit import config, host, job as jobs, menu, notify, orch, run, watch
 from agentkit import record
 
 SEAT, OTHER = "acme-api", "fix-api"
@@ -141,6 +141,29 @@ class NudgeTurnRule(Sandbox):
         """(the hook holds this stop, what the tick types at it): the two always agree."""
         self.stopped()
         return self.hook_holds(blocks), self.tick()
+
+    def test_a_live_job_holds_the_stop_on_every_harness_unless_a_run_is_parked(self):
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                directory = config.JOBS / "one"
+                directory.mkdir(parents=True)
+                jobs.save_job(directory, {
+                    "seat": SEAT, "pid": 42,
+                    "process_identity": {"boot": "test-boot", "ticks": 7},
+                    "tasks": [{"state": "queued", "run_id": None},
+                              {"state": "waiting", "run_id": None}]})
+                with patch.object(host, "alive", lambda pid: pid == 42), \
+                        patch.object(host, "process_identity",
+                                     lambda pid: {"boot": "test-boot", "ticks": 7}):
+                    self.stopped()
+                    self.assertEqual(self.tick(), [])
+                    self.assertEqual(self.tick(), [])
+                    self.receipt(PARKED, SEAT, "interrupted", recovery_pending=True,
+                                 interruption_reason="The run stopped before recording completion.")
+                    self.stopped()
+                    self.assertEqual(self.tick(), ["continue"])
 
     def test_a_parked_run_holds_a_stop_past_a_run_going_a_wait_and_a_done(self):
         for harness in HARNESSES:
