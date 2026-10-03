@@ -133,8 +133,8 @@ def check(cfg, root, snapshot, host_home, harness=None):
                 report("SKIP", name, f"the {company} subscription window is spent until {when}")
                 skipped += 1
                 continue
-            workspace, out = root / name, root / f"{name}-make"
-            workspace.mkdir()
+            workspace, out = root / name / "workspace", root / name / "make"
+            workspace.mkdir(parents=True)
             filename = f"hello-{os.urandom(4).hex()}.txt"
             body = (f"Run: printf 'hello\\n' > {filename}\n"
                     f"Run: {shlex.quote(str(REPO / 'bin/ak'))} hand-in done\nReply DONE.\n")
@@ -167,7 +167,7 @@ def check(cfg, root, snapshot, host_home, harness=None):
                 calls += 1
                 # Recall must come from the resumed conversation, not a listing of the workspace.
                 (workspace / filename).unlink()
-                out = root / f"{name}-recall"
+                out = root / name / "recall"
                 code, final, _, _, _ = worker.turn(
                     mine, name, "What file did you just create? Reply with the filename only.\n",
                     workspace, out, role="executor-scratch", session=sid)
@@ -205,7 +205,9 @@ def main():
         if not args.counts:
             # A standalone check owns its refusal snapshot too.
             snapshot = root / "usage.json"
-            snapshot.write_text(json.dumps({"providers": providers(args.snapshot)}))
+            read = {name: usage._without_past(record, time.time(), "the host cache")
+                    for name, record in providers(args.snapshot).items()}
+            snapshot.write_text(json.dumps({"providers": read}))
         counts = check(config.load(), root, snapshot, host_home, args.harness)
     passed, failed, skipped, calls = counts
     if args.counts:

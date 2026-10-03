@@ -1941,6 +1941,7 @@ PYTHON
   skip_spent_checks "$checks" "required model $model was refused: $why"
 }
 # The shared contract check also runs on its own, optionally naming one harness.
+: >"$WORK/harness-counts"
 python3 "$REPO/tests/check_harness_contract.py" --snapshot "$WORK/usage-real.json" \
   --counts "$WORK/harness-counts"
 if read -r CONTRACT_PASS CONTRACT_FAIL CONTRACT_SKIP CONTRACT_CALL <"$WORK/harness-counts"; then

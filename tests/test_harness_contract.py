@@ -1,6 +1,7 @@
 """The same contract reaches every adapter, including one added after discovery."""
 
 import os
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -118,6 +119,16 @@ esac
         result = self.standalone()
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("FAIL  3 echo: resume", result.stdout)
+
+    def test_standalone_drops_a_spent_window_after_its_reset(self):
+        self.adapter("echo")
+        snapshot = self.root / "usage.json"
+        snapshot.write_text(json.dumps({"providers": {"echo": {
+            "exhausted": True, "meters": [{"name": "weekly", "used": 100,
+            "exhausted": True, "resets_at": 1, "window_secs": 604800}]}}}))
+        result = self.standalone("--snapshot", str(snapshot))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS  3 echo:", result.stdout)
 
 
 if __name__ == "__main__":
