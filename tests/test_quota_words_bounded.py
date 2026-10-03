@@ -79,7 +79,7 @@ class QuotaWordsBounded(unittest.TestCase):
         self.adapters.mkdir()
         for manifest in (REPO / "adapters").glob("*.toml"):
             script = self.adapters / f"{manifest.stem}.sh"
-            script.write_text(f"#!{sys.executable}\n{scripted(ADAPTER)}")
+            script.write_text(f"#!{sys.executable}\n{ADAPTER}")
             script.chmod(0o755)
         env = {k: v for k, v in os.environ.items()
                if k not in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR",
@@ -111,6 +111,9 @@ class QuotaWordsBounded(unittest.TestCase):
                                  self.lines.append, limit=120)
 
     def test_billing_refusal_parks_each_harness_s_account_and_hands_over_the_round(self):
+        # Only execute needs closings; the answer checks must work without a hand-in.
+        for adapter in self.adapters.glob("*.sh"):
+            adapter.write_text(f"#!{sys.executable}\n{scripted(ADAPTER)}")
         models = {entry["harness"]: name for name, entry in self.cfg["models"].items()}
         self.account = "second"
         for adapter in sorted(self.adapters.glob("*.sh")):
