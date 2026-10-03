@@ -42,6 +42,7 @@ class SplitSuiteRun(unittest.TestCase):
         self.stack.enter_context(patch.object(watch, "seat_closed", return_value=False))
         self.stack.enter_context(patch.object(host, "_slice_cpu_stat", return_value=None))
         config.save_session(self.cfg, "seat", "opus", ["astra"])
+        config.update_session("seat", reviewers=["astra"])
 
     def prepare(self, directory, opts, log, cfg, **_kw):
         self.prepared.append((directory, opts))
