@@ -5,6 +5,7 @@ Offline: local Git and real suites, with isolated state and fake repair launches
 
 from pathlib import Path
 import sys
+import time
 import unittest
 from unittest.mock import patch
 
@@ -72,7 +73,8 @@ class RedMain(unittest.TestCase):
             state.update(state="waiting", worktree=str(self.repo), branch=branch,
                          base="origin/main", target="main", base_sha=tip,
                          merge_method="squash", review={"verdict": "PASS", **identity},
-                         waiting_on={"line": self.turn.name, "joined": 100})
+                         waiting_on={"line": self.turn.name, "joined": 100},
+                         finished_at=time.time())
         return branch
 
     def test_one_bare_probe_and_one_repair_leave_every_member_unblamed(self):
@@ -172,12 +174,72 @@ class RedMain(unittest.TestCase):
         for ending in ("fail", "blocked", "pass", "error", "stopped"):
             with self.subTest(ending=ending):
                 with record.record(repair) as state:
-                    state.update(state=ending, slot_waiting=False)
+                    state.update(state=ending, slot_waiting=False, finished_at=time.time())
+                    if ending == "error":
+                        run.schedule_error_retry(state)
                 land.check_line(self.turn)
                 self.assertEqual(len(self.prepared), 1)
                 self.assertEqual(len(self.checks), 2)
                 self.assert_parked(before)
                 self.wake.assert_not_called()
+
+    def test_a_not_needed_repair_releases_the_same_target_tree(self):
+        suite = f"{SUITE} && test ! -f ../flake"
+        (self.repo / "AGENTS.md").write_text(f"---\ntests: {suite}\n---\n")
+        self.commit("declare transient suite")
+        run.git(self.repo, "push", "origin", "main")
+        self.base = run.git(self.repo, "rev-parse", "HEAD")
+        first = self.member()
+        later = self.member("later", joined=2)
+        self.advance()
+        tree = run.git(self.repo, "rev-parse", "HEAD^{tree}")
+        before = (later / "run.json").read_bytes()
+        flake = config.WT / "flake"
+        config.WT.mkdir(parents=True, exist_ok=True)
+        flake.write_text("transient\n")
+        land.check_line(self.turn)
+        self.assertEqual(len(self.prepared), 1)
+        self.wake.assert_not_called()
+        flake.unlink()
+        with record.record(self.prepared[0][0]) as state:
+            state.update(state="not_needed", slot_waiting=False)
+        land.check_line(self.turn)
+        self.assertIn("land", self.wait(first))
+        self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
+        self.assertEqual(len(self.prepared), 1)
+        self.assertEqual(len(self.checks), 3)
+        self.assertEqual(run.git(self.repo, "rev-parse", "origin/main^{tree}"), tree)
+        self.assertEqual((later / "run.json").read_bytes(), before)
+        self.assert_cleaned()
+
+    def test_a_reverted_target_tree_gets_a_new_repair_after_the_old_one_merged(self):
+        _, _, before = self.red_line()
+        tree = run.git(self.repo, "rev-parse", "origin/main^{tree}")
+        repair = self.prepared[0][0]
+        branch = self.ready_repair(repair)
+        land.check_line(self.turn)
+        run.git(self.repo, "merge", "--ff-only", branch)
+        run.git(self.repo, "push", "origin", "main")
+        with record.record(repair) as state:
+            state.update(state="pass", merged=True)
+        run.git(self.repo, "revert", "--no-edit", "HEAD")
+        run.git(self.repo, "push", "origin", "main")
+        self.assertEqual(run.git(self.repo, "rev-parse", "HEAD^{tree}"), tree)
+        self.wake.reset_mock()
+        land.check_line(self.turn)
+        self.assertEqual(len(self.prepared), 2)
+        new = self.prepared[1][0]
+        self.assertNotEqual(new, repair)
+        self.assertEqual(record.read_state(new)["repair_tip"],
+                         run.git(self.repo, "rev-parse", "origin/main"))
+        self.assert_parked(before)
+        self.wake.assert_not_called()
+        checks = len(self.checks)
+        land.check_line(self.turn)
+        self.assertEqual(len(self.prepared), 2)
+        self.assertEqual(len(self.checks), checks)
+        self.assert_parked(before)
+        self.assert_cleaned()
 
     def test_a_crash_after_launch_reuses_the_receipt_without_another_probe(self):
         first = self.member()
