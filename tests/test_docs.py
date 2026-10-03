@@ -1,11 +1,12 @@
 """The docs say what the product is, in the fewest words.
 
-README.md is one page a stranger understands, docs/guide.md is under 400 lines and free of
-every word for a state or a remedy that no longer exists, `ak --help` fits one screen, and
-the README lists the menu's keys and says what each state means in the words the key line
-says it in.  Offline: files and rendered text.
+README.md and docs/guide.md stay within origin/main's word limits and are free of every
+word for a state or a remedy that no longer exists, `ak --help` fits one screen, and the
+README lists the menu's keys and says what each state means in the words the key line
+says it in. Offline: files and rendered text.
 """
 
+import ast
 import os
 from pathlib import Path
 import re
@@ -32,18 +33,33 @@ REMOVED = ("resumable", "starts fresh", "draft unsent", "needs a look", "press r
 CLONE = f"git clone https://github.com/{REMOVED[-1]}/agentkit ~/agentkit && ~/agentkit/install.sh\n"
 
 
-def lines(path):
-    return path.read_text().splitlines()
+def word_limits():
+    # Main grants the budget; literal parsing keeps its test code out of this run.
+    proc = subprocess.run(["git", "-C", str(REPO), "show", "origin/main:tests/test_docs.py"],
+                          capture_output=True, text=True)
+    if proc.returncode == 0:
+        for node in ast.parse(proc.stdout).body:
+            if isinstance(node, ast.Assign) and any(
+                    isinstance(target, ast.Name) and target.id == "WORD_LIMITS"
+                    for target in node.targets):
+                return WORD_LIMITS | ast.literal_eval(node.value)
+    return WORD_LIMITS
 
 
 class Docs(unittest.TestCase):
+    def assert_word_limit(self, path):
+        name = path.relative_to(REPO).as_posix()
+        limit = word_limits()[name]
+        self.assertLessEqual(len(path.read_text().split()), limit,
+                             f"{name}: word limit {limit} (origin/main when present)")
+
     def assert_current(self, path, text=None):
         text = path.read_text() if text is None else text
         for word in REMOVED:
             self.assertNotIn(word, text, f"{path.name} still says {word!r}")
 
     def test_readme_is_one_page(self):
-        self.assertLessEqual(len(lines(README)), 120)
+        self.assert_word_limit(README)
         self.assertTrue(README.read_text().startswith("# agentkit\n"))
 
     def test_readme_names_no_removed_state_word(self):
@@ -52,7 +68,7 @@ class Docs(unittest.TestCase):
         self.assert_current(README, text.replace(CLONE, ""))
 
     def test_guide_is_short_and_current(self):
-        self.assertLessEqual(len(lines(GUIDE)), 400)
+        self.assert_word_limit(GUIDE)
         self.assert_current(GUIDE)
         self.assertTrue(GUIDE.read_text().startswith("# How agentkit works\n"))
 

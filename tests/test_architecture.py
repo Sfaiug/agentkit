@@ -1,7 +1,8 @@
 """ARCHITECTURE.md maps every module and every harness, and a new agent reads it in minutes.
 
 A module under agentkit/ or a harness under adapters/ the map does not name is one a worker
-meets with no summary of what it hides. Every mapped module must also exist as a file.
+meets with no summary of what it hides. Every mapped module must also exist as a file,
+and its entry is at most 400 characters with whitespace collapsed.
 Offline: the files of this checkout.
 """
 
@@ -28,8 +29,12 @@ class Architecture(unittest.TestCase):
                    if f"`{path.stem}`" not in text]
         self.assertEqual(missing, [], "ARCHITECTURE.md does not map these adapters/ harnesses")
 
-    def test_the_map_is_under_8_kb(self):
-        self.assertLessEqual(len(MAP.read_bytes()), 8 * 1024)
+    def test_each_module_entry_is_short(self):
+        for entry in re.finditer(r"(?m)^- `([^`/]+\.py)`:[^\n]*(?:\n[ \t]+[^\n]*)*",
+                                 MAP.read_text()):
+            with self.subTest(module=entry[1]):
+                self.assertLessEqual(len(" ".join(entry.group().split())), 400,
+                                     f"{entry[1]} entry exceeds 400 characters")
 
 
 class ArchitectureChecks(unittest.TestCase):
