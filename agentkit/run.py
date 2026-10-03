@@ -11754,7 +11754,9 @@ def resume_run(argv):
             opts["--rounds"] = str(n_rounds)
     if background:
         return spawn_bg(run_dir, ["resume", *requested], expected=expected)
-    if (not child and not state.get("no_merge") and not state.get("review_pr")
+    if (not child and not state.get("no_merge") and not state.get("scratch")
+            and not state.get("review_pr") and not getattr(jobs._JOB_MUTE, "depth", 0)
+            and threading.current_thread() is threading.main_thread()
             and Path(sys.argv[0]).resolve() == (config.REPO / "bin" / "ak").resolve()):
         spawn_bg(run_dir, ["resume", *requested], expected=expected)
         return follow_run(run_dir, cfg)
@@ -12928,6 +12930,7 @@ def main(argv):
             return rc
 
     if (not resumed and not opts["--no-merge"]
+            and threading.current_thread() is threading.main_thread()
             and Path(sys.argv[0]).resolve() == (config.REPO / "bin" / "ak").resolve()):
         spawn_bg(run_dir, argv)
         return follow_run(run_dir, cfg)

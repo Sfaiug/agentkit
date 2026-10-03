@@ -207,7 +207,7 @@ class JoinLine(Sandbox):
             job.job_ladder(self.cfg, config.JOBS / "job", {}, {"name": "fix-api"},
                            self.directory, box["state"], box["rc"], lambda _: None, None)
         follow.assert_called_once_with(self.directory)
-        self.assertEqual(settle.call_args.args[6], finished)
+        self.assertEqual(settle.call_args.args[5], finished)
 
 
 if __name__ == "__main__":

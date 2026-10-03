@@ -84,6 +84,13 @@ class LanderLifecycle(unittest.TestCase):
         self.assertIn("MemoryMax=7201M", properties)
         self.assertIn("MemorySwapMax=7201M", properties)
 
+    def test_a_live_first_member_finishes_cleanup_before_a_pass_starts(self):
+        self.member()
+        self.starts.clear()
+        with patch.object(record, "process_active", return_value=True):
+            self.assertFalse(land.start_line(self.turn))
+        self.assertEqual(self.starts, [])
+
     def test_a_suite_oom_keeps_the_lander_scope_running(self):
         self.member(memory_cap_mb=6000)
         _, properties = run.run_scope_limits(cap_mb=6000)
@@ -221,6 +228,8 @@ class LanderDelivery(unittest.TestCase):
         self.case = wakes.LanderWakes()
         self.addCleanup(self.case.doCleanups)
         self.case.setUp()
+        self.case.stack.enter_context(patch.object(
+            record, "process_active", side_effect=lambda state: bool(state.get("pid"))))
         self.case.stack.enter_context(patch.object(host, "host_readings", return_value={
             "mem_total_mb": 16000}))
         self.case.stack.enter_context(patch.object(orch, "slice_memory_max_mb", return_value=10000))
