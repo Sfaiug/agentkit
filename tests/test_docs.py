@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -21,6 +22,8 @@ from agentkit import command_help, menu, terminal  # noqa: E402
 README = REPO / "README.md"
 GUIDE = REPO / "docs/guide.md"
 DESIGN = REPO / "docs/cli-design.md"
+# Leave room for align-ak's ol1 and lv1 runs; its one-page README rewrite lowers this.
+WORD_LIMITS = {"README.md": 6_200, "docs/guide.md": 15_300}
 # States, remedies and screens that are gone: a doc that names one describes an older product.
 # The last is the personal account name, built without writing it, as test_open_gates builds it.
 REMOVED = ("resumable", "starts fresh", "draft unsent", "needs a look", "press r",
@@ -87,6 +90,58 @@ class Docs(unittest.TestCase):
 
     def test_superseded_evidence_is_gone(self):
         self.assertFalse((REPO / "docs/verification-v4l-2.md").exists())
+
+
+class DocsChecks(unittest.TestCase):
+    def check(self, name, words, source="", limits=None):
+        heading = "# agentkit\n" if name == "README.md" else "# How agentkit works\n"
+        text = heading + "word " * (words - len(heading.split()))
+        method = ("test_readme_is_one_page" if name == "README.md"
+                  else "test_guide_is_short_and_current")
+        proc = subprocess.CompletedProcess([], 0, source, "")
+        result = unittest.TestResult()
+        with patch.dict(globals(), WORD_LIMITS=WORD_LIMITS if limits is None else limits), \
+                patch.object(Path, "read_text", return_value=text), \
+                patch.object(subprocess, "run", return_value=proc) as git:
+            Docs(method).run(result)
+        return result, git
+
+    def test_joining_lines_cannot_evade_word_limits(self):
+        for name, limit in WORD_LIMITS.items():
+            with self.subTest(doc=name):
+                result, _ = self.check(name, limit + 1)
+                self.assertEqual(result.errors, [])
+                self.assertEqual(len(result.failures), 1, "a long doc with few lines passed")
+
+    def test_raising_a_branch_limit_cannot_evade_main(self):
+        for name, limit in WORD_LIMITS.items():
+            with self.subTest(doc=name):
+                source = f"raise AssertionError('target code ran')\nWORD_LIMITS = {WORD_LIMITS!r}\n"
+                result, git = self.check(name, limit + 1, source,
+                                         {**WORD_LIMITS, name: limit + 100})
+                self.assertEqual(result.errors, [])
+                self.assertEqual(len(result.failures), 1, "a raised branch limit passed")
+                git.assert_called_once_with(
+                    ["git", "-C", str(REPO), "show", "origin/main:tests/test_docs.py"],
+                    capture_output=True, text=True)
+
+    def test_raising_only_a_limit_passes(self):
+        for name, limit in WORD_LIMITS.items():
+            with self.subTest(doc=name):
+                result, _ = self.check(name, limit, f"WORD_LIMITS = {WORD_LIMITS!r}\n",
+                                       {**WORD_LIMITS, name: limit + 100})
+                self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+
+    def test_a_limit_missing_on_main_uses_the_branch(self):
+        for name, limit in WORD_LIMITS.items():
+            with self.subTest(doc=name):
+                other = {key: value for key, value in WORD_LIMITS.items() if key != name}
+                source = f"WORD_LIMITS = {other!r}\n"
+                result, _ = self.check(name, limit, source)
+                self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+                result, _ = self.check(name, limit + 1, source)
+                self.assertEqual(result.errors, [])
+                self.assertEqual(len(result.failures), 1, "a new word limit was ignored")
 
 
 if __name__ == "__main__":

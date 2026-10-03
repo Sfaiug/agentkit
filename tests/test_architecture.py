@@ -33,20 +33,46 @@ class Architecture(unittest.TestCase):
 
 
 class ArchitectureChecks(unittest.TestCase):
-    def test_deleted_module_is_rejected(self):
+    def check(self, text, modules=("present.py",)):
         with tempfile.TemporaryDirectory(prefix=".ak-test-architecture-", dir=REPO) as tmp:
             repo = Path(tmp)
             (repo / "agentkit").mkdir()
-            (repo / "agentkit" / "present.py").touch()
+            for name in modules:
+                (repo / "agentkit" / name).touch()
             map_path = repo / "ARCHITECTURE.md"
-            map_path.write_text("## agentkit/\n\n- `present.py`: present.\n"
-                                "- `deleted.py`: stale entry.\n")
+            map_path.write_text(text)
             result = unittest.TestResult()
             with patch.dict(globals(), REPO=repo, MAP=map_path):
                 unittest.defaultTestLoader.loadTestsFromTestCase(Architecture).run(result)
-            self.assertEqual(result.errors, [])
-            self.assertEqual(len(result.failures), 1, "a stale module entry passed")
-            self.assertIn("deleted.py", result.failures[0][1])
+        return result
+
+    def test_deleted_module_is_rejected(self):
+        result = self.check("## agentkit/\n\n- `present.py`: present.\n"
+                            "- `deleted.py`: stale entry.\n")
+        self.assertEqual(result.errors, [])
+        self.assertEqual(len(result.failures), 1, "a stale module entry passed")
+        self.assertIn("deleted.py", result.failures[0][1])
+
+    def test_a_401_character_entry_is_rejected(self):
+        prefix = "- `present.py`: "
+        for separator in (" ", "\n\t  "):
+            with self.subTest(separator=separator):
+                result = self.check(prefix + "x" * (401 - len(prefix) - 2) + separator + "y\n")
+                self.assertEqual(result.errors, [])
+                self.assertEqual(len(result.failures), 1, "a 401-character entry passed")
+                self.assertIn("present.py", result.failures[0][1])
+
+    def test_400_characters_with_collapsed_whitespace_pass(self):
+        prefix = "- `present.py`: "
+        result = self.check(prefix + "é" * (400 - len(prefix) - 2) + "\n\t  y\n")
+        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+
+    def test_many_short_entries_can_exceed_8_kb(self):
+        modules = tuple(f"module_{number}.py" for number in range(30))
+        text = "\n".join(f"- `{name}`: " + "x" * 280 for name in modules)
+        self.assertGreater(len(text.encode()), 8 * 1024)
+        result = self.check(text, modules)
+        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
 
 
 if __name__ == "__main__":
