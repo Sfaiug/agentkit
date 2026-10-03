@@ -85,7 +85,7 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
   watch. Leak: registers its MCP per harness by name.
 - `macbridge.py`: `ak fetch` of Mac files: request, inbox, heartbeat, launchd agent. For
   bin/ak, menu, install.sh.
-- `host.py`: memory, load, CPUs, process/cgroup counters, `alive`, `process_identity`;
+- `host.py`: memory, load, CPUs, pressure, process/cgroup counters, `alive`, `process_identity`;
   reads only, no agentkit imports. For config, orch, run, gate, job, watch, gc and record.
 - `proc_snapshot.py`: read-only /proc inventory; no agentkit imports, so it runs under sudo.
   Used by gc.
@@ -111,9 +111,8 @@ Each module's knowledge, API, callers and leaks; `tests/test_boundaries.py` coun
   rebuild config.py's seat file names and rename chain.
 - `tools/`, called by adapters: `rulebook.py`, `idle-compact.py`, `codex-seat.py`,
   `trust.py`, `catalog.py`, `desktop-mcp.py`.
-- `tests/`: `smoke.sh` runs offline; its live mode, `live.sh`, makes real calls;
-  `every_file.py` checks imports and case counts.
-  `fixtures/`: screens and an `echo` adapter.
+- `tests/`: offline `smoke.sh`, live `live.sh`; `every_file.py` checks imports/cases,
+  admits files by live memory and CPU pressure; `fixtures/`: screens, `echo` adapter.
 - Also: `config.default.toml` (model to harness and provider), `orchestrator.md` (the seat
   rulebook), `templates/`, `browser/`, `docs/`.
 

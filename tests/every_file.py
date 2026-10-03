@@ -6,8 +6,8 @@ unseen.  It is no part of smoke.sh and never touches its lock: it holds no smoke
 waits for none.  Each file runs once, in a process of its own from the checkout's root with
 no stdin, and without the caller's AGENTKIT_*/AK_* variables: a file started from inside a run
 must not pass for part of it (AGENTKIT_RUN, AK_RUN_DEPTH, AK_PARENT_RUN ...).  As many run at
-once as the host's idle cores and free memory fit, read as the loop reads them for heavy suites;
-in a run holding its merge turn, at least the cores its raised CPU weight entitles it to.
+once as live memory fits; waiting files can outnumber cores. Before each start it samples
+CPU pressure, admitting nothing during contention, and rereads host and cgroup headroom.
 A failing file, or one reporting no executed cases, fails the whole and is named with its
 last lines. Unittest's tally reports the count; other scripts print TESTS_RUN=<count> after
 their checks. Python imports under agentkit/, tools/, bin/ and tests/ must be from the
@@ -23,15 +23,17 @@ import subprocess
 import sys
 import time
 import tokenize
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, host, orch
+from agentkit import host, orch
 
-FILE_CPUS = 1.0     # one test file's cost: one Python process, one core busy at most,
-FILE_MEM_MB = 230   # and the largest file's measured peak with what it starts, 229 MB
+FILE_MEM_MB = 230   # reservation floor: the measured peak was 229 MB with children;
+                    # bigger hosts fit more files, busier or smaller hosts fit fewer
+POLL = 0.1          # ceiling on polling waits: contention pauses starts at the next sample,
+                    # while an idle host keeps admitting files even beyond its core count
 TAIL = 30           # a failing file's last lines: unittest ends on the traceback and tally
 
 
@@ -129,6 +131,39 @@ def run_file(root, path, env):
     return proc.returncode, proc.stdout.decode(errors="replace"), time.monotonic() - began
 
 
+def pool_limit(readings):
+    """A live memory bound, with no new starts while CPU is contended.
+
+    Reserve each active file's whole peak, even before its children allocate.
+    One is the progress floor on a small or unreadable host; pressure overrides
+    it, and absent pressure readings keep an otherwise larger pool serial.
+    """
+    pressure = host._reading(readings, "cpu_pressure", "slice_cpu_pressure")
+    quota = host._reading(readings, "slice_cpu_quota")
+    used = host._reading(readings, "slice_cpu_used")
+    if ((pressure is not None and pressure > 0)
+            or (quota is not None and used is not None and used >= quota)):
+        return 0
+    room = []
+    free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
+    if free is not None:
+        room.append(free)
+    slice_used = host._reading(readings, "slice_memory_used_mb")
+    slice_high = host._reading(readings, "slice_memory_high_mb")
+    if slice_used is not None and slice_high is not None:
+        room.append(slice_high - slice_used)
+    limits = readings.get("unit_limits")
+    if isinstance(limits, (tuple, list)):
+        for entry in limits:
+            unit = host._unit_memory({"unit_limits": [entry]})
+            if unit is not None:
+                room.append(unit[1] - unit[0])
+    unit = host._unit_memory(readings)
+    if unit is not None:
+        room.append(unit[1] - unit[0])
+    return max(1, int(min(room) / FILE_MEM_MB)) if room and pressure is not None else 1
+
+
 def main(root):
     errors = import_errors(root)
     if errors:
@@ -142,39 +177,38 @@ def main(root):
                       os.environ.get("AGENTKIT_SMOKE_LIVE", "0") == "1")
     todo = sorted(path for path in tests.glob("test_*.py") if path.stem not in skip)
     env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
-    # The host's idle cores -- the slice's CPU quota where it sets one, less the minute's load
-    # average -- and its free memory.  Not a tenth of a second's CPU reading, which would hold
-    # a sweep of minutes to that moment; and no more than are idle, since a timing test on an
-    # oversubscribed host fails by chance.  The heavy suites running already, this one among
-    # them, are in that load: none is a file to add on top.
-    readings = host.host_readings(slice_dir=orch.slice_cgroup)
-    cores = readings.get("slice_cpu_quota") or readings.get("cpus")
-    readings = dict(readings, slice_cpu_quota=None, cpus=cores)
-    # A run holding its merge turn weighs its scope above every other run's: the kernel owes
-    # this suite that share of the cores however busy the others keep them, so it counts no
-    # fewer idle.  Its share, not more: the others' weights, another repository's holder's
-    # among them, still claim the rest.
-    own = host.process_cgroup()
-    weights = host.cpu_weights(host.cgroup_path(own)) if own else None
-    load = host._reading(readings, "load", "load1", "load_1m")
-    if weights and weights[1] and weights[0] > min(weights[1]) and cores and load is not None:
-        entitled = cores * weights[0] / (weights[0] + sum(weights[1]))
-        readings["load"] = min(load, cores - entitled)
-    jobs = gate.derived_heavy_limit(readings, running=0, job_cpus=FILE_CPUS,
-                                   job_mem_mb=FILE_MEM_MB)
-    began, failed = time.monotonic(), 0
-    with ThreadPoolExecutor(jobs) as pool:
-        running = {pool.submit(run_file, root, path, env): path for path in todo}
-        for done in as_completed(running):
-            name = running[done].relative_to(root)
-            code, out, took = done.result()
-            if code == 0 and cases_run(out) > 0:
-                print(f"PASS  {name} ({took:.0f}s)", flush=True)
-                continue
-            failed += 1
-            reason = f"exit {code}" if code else "no tests ran"
-            print(f"FAIL  {name}: {reason} after {took:.0f}s, its last lines:")
-            print("\n".join(f"      {line}" for line in out.splitlines()[-TAIL:]), flush=True)
+    pending = iter(todo)
+    path = next(pending, None)
+    began, failed, jobs = time.monotonic(), 0, 0
+    with ThreadPoolExecutor(max(1, len(todo))) as pool:
+        running = {}
+        while path is not None or running:
+            for done in list(running):
+                if not done.done():
+                    continue
+                name = running.pop(done).relative_to(root)
+                code, out, took = done.result()
+                if code == 0 and cases_run(out) > 0:
+                    print(f"PASS  {name} ({took:.0f}s)", flush=True)
+                    continue
+                failed += 1
+                reason = f"exit {code}" if code else "no tests ran"
+                print(f"FAIL  {name}: {reason} after {took:.0f}s, its last lines:")
+                print("\n".join(f"      {line}" for line in out.splitlines()[-TAIL:]), flush=True)
+            if path is not None:
+                readings = host.host_readings(slice_dir=orch.slice_cgroup,
+                                              pressure_window=POLL, all_limits=True)
+                # One start per sample lets its startup show in the next CPU reading;
+                # submitting every file at once would bypass later pressure and memory changes.
+                if len(running) < pool_limit(readings):
+                    running[pool.submit(run_file, root, path, env)] = path
+                    jobs = max(jobs, len(running))
+                    path = next(pending, None)
+            if running:
+                wait(running, timeout=POLL if path is not None else None,
+                     return_when=FIRST_COMPLETED)
+            elif path is not None:
+                time.sleep(POLL)
     print(f"test files: {len(todo) - failed} passed, {failed} failed, {jobs} at once, "
           f"{time.monotonic() - began:.0f}s")
     return 1 if failed else 0
