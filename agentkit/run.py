@@ -6509,13 +6509,6 @@ def diff_lines(repo, base, head="HEAD"):
     return total
 
 
-def refuse_pr_size(repo, base, head):
-    size = diff_lines(repo, base, head)
-    ceiling, _ = history.pr_ceiling()
-    if ceiling is not None and size > ceiling:
-        raise config.Error(f"PR has {size} changed lines, over the {ceiling}-line ceiling; split it.")
-
-
 def history_finish(state, log=None):
     """Publish a terminal receipt and close the step this process was running, if any."""
     now = state.get("finished_at") or time.time()
@@ -10197,11 +10190,7 @@ def cmd_status(argv):
     if not wanted:
         print(f"{hidden} older run(s) hidden; ak run status --history [--json] shows full history")
     if show_history and not wanted and not machine:
-        from . import terminal
         print("\n".join(scoreboard_lines()))
-        ceiling, source = history.pr_ceiling()
-        value = f"{ceiling} changed lines" if ceiling is not None else "none"
-        print("\n".join(terminal.wrap(f"PR size ceiling: {value} ({source})", terminal.content_width())))
         for repo in history.finished_repos():
             line = size_summary_line(repo)
             if line:
@@ -12178,8 +12167,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     fetch(repo, "origin", f"pull/{number}/head", base, check=True)
     git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}")
     base_sha = git(repo, "merge-base", f"origin/{base}", head)
-    if is_own:
-        refuse_pr_size(repo, base_sha, head)
     if prior.get("worktree"):
         wt, branch = Path(prior["worktree"]), prior["branch"]
         if advancing:
@@ -12528,7 +12515,7 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
 
 def review_pr_main(cfg, opts, flags, argv, resumed):
     url = opts["--review-pr"]
-    owner, name, number = PR_PARTS.match(url).groups()
+    _, name, number = PR_PARTS.match(url).groups()
     if resumed:
         run_dir = Path(resumed)
     else:
@@ -12550,13 +12537,6 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
         if flags["--bg"]:
             try:
                 receipt = run_record.read_state(run_dir) or {}
-                # Usage probes can spend model calls: check own PR size before the pick.
-                if receipt.get("own_pr"):
-                    info = pr_view(url)
-                    repo = checkout_for(f"{owner}/{name}", logger(run_dir, True))
-                    base, head = info["baseRefName"], info["headRefOid"]
-                    fetch(repo, "origin", f"pull/{number}/head", base, check=True)
-                    refuse_pr_size(repo, git(repo, "merge-base", f"origin/{base}", head), head)
                 reviewer = preset_review_model(cfg, opts, run_workers(cfg, receipt),
                                                reviewers=receipt.get("reviewers"))
             except config.Error as exc:
@@ -12704,15 +12684,11 @@ def main(argv):
             raise config.Error(f"no such task file: {task_path}")
         meta, body, title = taskfile.parse_task(task_path)
         # reject malformed commands before allocating a run directory, as well as a task
-        # bigger than one behaviour or over the round budget, or whose `repo:` names no home
-        # here, which nothing waives, and a job that looks already under way in the same
-        # repository -- unless --anyway says to start regardless.  A run's own child launch
-        # never runs the already-under-way check.
+        # over the round budget or whose `repo:` names no home here, which nothing waives,
+        # and a job that looks already under way in the same repository -- unless --anyway
+        # says to start regardless.  A run's own child launch never runs the
+        # already-under-way check.
         cmds = taskfile.done_when(body, task_path)
-        refusal = taskfile.task_size_refusal(body, cmds)
-        if refusal:
-            print(f"ak run: {refusal}; split it into one behaviour per task", file=sys.stderr)
-            return 2
         refusal = taskfile.rounds_refusal(meta.get("rounds"), "task rounds")
         if refusal:
             print(f"ak run: {refusal}", file=sys.stderr)
