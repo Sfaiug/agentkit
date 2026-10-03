@@ -213,8 +213,7 @@ class _GateHold:
             self.files.close()
 
 
-def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
-                        job_mem_mb=HEAVY_MEM_MB):
+def derived_heavy_limit(readings=None, running=None):
     """Running suites plus how many more the live headroom fits; at least one.
 
     The slice's idle cores over one suite's 0.7, and its free memory over 0.4 GB,
@@ -224,8 +223,7 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     which a shell beside the slice reads like a worker inside it; where
     no slice answers, the host's idle cores and free memory stand in.  An
     unreadable gate fails open to the other resource, and to one suite where
-    neither answers.  `job_cpus` and `job_mem_mb` are one job's cost, for jobs
-    other than a heavy suite.
+    neither answers.
     """
     if running is None:
         running = _heavy_running()
@@ -256,9 +254,9 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
             mem_free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
     candidates = []
     if cpu_free is not None:
-        candidates.append(int(cpu_free / job_cpus))
+        candidates.append(int(cpu_free / HEAVY_CPUS))
     if mem_free is not None:
-        candidates.append(int(mem_free / job_mem_mb))
+        candidates.append(int(mem_free / HEAVY_MEM_MB))
     if not candidates:
         return 1
     return max(1, running + max(0, min(candidates)))
