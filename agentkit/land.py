@@ -11,9 +11,9 @@ it check themselves alone on their own turns.  Only a tested tree carries the su
 evidence.  Offers `passed`, `waiting` and `together` for `run.final_check`.
 
 `check_line` checks each parked stack by its tree.  A red stack after a green one wakes only
-its newest member to fix, then later stacks are rebuilt without it.  Conflicting followers
-wait for their own head check. A red target gets one repair first; the checker owns no
-member's process or delivery.
+its newest member to fix, then later stacks are rebuilt without it.  Conflicts with the bare
+target wake members to fix at once; conflicts only with earlier members wait. A red target
+gets one repair first; the checker owns no member's process or delivery.
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -262,6 +262,7 @@ def _member_commit(repo, state, head):
 
 
 def _stack_member(repo, state, top, upstream, opened):
+    """Integrate a reviewed head in scratch; no scratch means setup failed."""
     from . import run
     head = state["review"]["head_sha"]
     code, out = _member_commit(repo, state, head)
@@ -272,7 +273,7 @@ def _stack_member(repo, state, top, upstream, opened):
     code, out = run.git_out(repo, "worktree", "add", "--detach", str(scratch), head)
     opened.callback(run.git_out, repo, "worktree", "remove", "--force", str(scratch))
     if code:
-        return scratch, f"[exit {code}]\nERROR: checkout of {head} failed\n{out}"
+        return None, f"[exit {code}]\nERROR: checkout of {head} failed\n{out}"
     lp = SimpleNamespace(state=state, wt=scratch,
                          base_sha=state.get("base_sha") or
                          run.git(scratch, "merge-base", head, top))
@@ -311,13 +312,18 @@ def _check_members(turn, members, repo, tip, target_tree, log):
         with ExitStack() as opened:
             top, stacks = tip, []
             for member, saved in pending:
-                scratch, text = _stack_member(repo, saved, top, upstream, opened)
+                # Earlier changes can hide a target conflict, so try the bare tip first.
+                scratch, text = _stack_member(repo, saved, tip, upstream, opened)
                 if text:
-                    if member == directory:
+                    if member == directory or scratch is not None:
                         log_path = member / "lander.log"
                         log_path.write_text(text)
                         verdicts[member] = {"fix": {"line": run.first_failure(text), "log": str(log_path)}}
                     continue
+                if top != tip:
+                    scratch, text = _stack_member(repo, saved, top, upstream, opened)
+                    if text:
+                        continue
                 top = run.git(scratch, "rev-parse", "HEAD")
                 tree = run.git(scratch, "rev-parse", "HEAD^{tree}")
                 stacks.append((member, saved, scratch, tree))

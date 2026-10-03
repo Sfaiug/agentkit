@@ -23,13 +23,69 @@ from agentkit import config, muse_usage, usage, usage_probe
 # Loaded only by fixture children. HTTPS is replaced before the real adapter imports it;
 # even a regression that tries another network route can reach only the loopback bridge.
 NETWORK = r'''
-import http.client, json, os, pathlib, socket, subprocess, sys
+import fcntl, http.client, json, os, pathlib, socket, subprocess, sys, threading, time
+from types import SimpleNamespace
 root = pathlib.Path(os.environ["MUSE_FIXTURE"])
 original_connect = socket.socket.connect
 def local_connect(sock, address):
     assert isinstance(address, tuple) and address[0] in ("127.0.0.1", "::1"), "external network forbidden"
     return original_connect(sock, address)
 socket.socket.connect = local_connect
+
+def late(module):
+    at = float(os.environ["AGENTKIT_MUSE_USAGE_WORK_DEADLINE"]) - .01
+    module.time = SimpleNamespace(monotonic=lambda: at, time=module.time.time,
+                                  sleep=module.time.sleep)
+    with (root / "late").open("a") as fh:
+        fh.write(json.dumps({"process": pathlib.Path(sys.argv[0]).stem,
+                             "left": float(os.environ["AGENTKIT_MUSE_USAGE_WORK_DEADLINE"]) - at}) + "\n")
+
+def ready(kind):
+    path = root / "pids"
+    rows = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    for row in reversed(rows):
+        if row["kind"] != kind:
+            continue
+        try:
+            os.kill(row["pid"], 0)
+        except ProcessLookupError:
+            continue
+        if any(child["kind"] == "descendant" and child["parent"] == row["pid"] for child in rows):
+            return True
+    return False
+
+communicate, event_wait = subprocess.Popen.communicate, threading.Event.wait
+def completed(proc, *args, **kwargs):
+    if pathlib.Path(sys.argv[0]).name == "usage_probe.py" and os.environ.get("RESPONSE") in ("timeout", "drip"):
+        # Expire after the hung fixture has descendants, not while a busy host starts it.
+        while proc.poll() is None:
+            if ready("network"):
+                timeout = kwargs["timeout"]
+                assert 0 < timeout <= float(os.environ["AGENTKIT_MUSE_USAGE_TIMEOUT"])
+                raise subprocess.TimeoutExpired(proc.args, timeout)
+            time.sleep(.01)
+    result = communicate(proc, *args, **kwargs)
+    if os.environ.get("RESPONSE") == "near_deadline" and pathlib.Path(sys.argv[0]).name == "usage_probe.py":
+        late(sys.modules["__main__"])
+    return result
+subprocess.Popen.communicate = completed
+
+def waited(event, timeout=None):
+    if sys._getframe(1).f_code.co_name == "key_from_muse" and os.environ.get("CREDENTIAL") == "timeout":
+        assert 0 < timeout <= float(os.environ["AGENTKIT_MUSE_USAGE_TIMEOUT"]) / 2
+        while not ready("muse"):
+            time.sleep(.01)
+        return False
+    return event_wait(event, timeout)
+threading.Event.wait = waited
+
+flock = fcntl.flock
+def locking(fh, operation):
+    if os.environ.get("RESPONSE") == "overlap" and operation == fcntl.LOCK_EX:
+        with (root / "callers").open("a") as out:
+            out.write(f"{os.getpid()}\n")
+    return flock(fh, operation)
+fcntl.flock = locking
 
 class Connection:
     def __init__(self, host, port, timeout):
@@ -50,6 +106,8 @@ class Connection:
             "read": lambda obj, count: obj.stream.read(count)})()
         response.status = int(self.proc.stdout.readline())
         response.stream = self.proc.stdout
+        if os.environ.get("RESPONSE") == "near_deadline":
+            late(sys.modules["__main__"])
         return response
     def close(self):
         if self.proc:
@@ -64,7 +122,7 @@ from urllib.parse import urlsplit
 root = pathlib.Path(os.environ["MUSE_FIXTURE"])
 kind = pathlib.Path(sys.argv[0]).name
 with (root / "pids").open("a") as fh:
-    fh.write(json.dumps({"pid": os.getpid(), "kind": kind, "args": sys.argv}) + "\n")
+    fh.write(json.dumps({"pid": os.getpid(), "parent": os.getppid(), "kind": kind, "args": sys.argv}) + "\n")
 signal.signal(signal.SIGTERM, signal.SIG_IGN)
 if kind == "descendant":
     time.sleep(60)
@@ -86,7 +144,6 @@ if kind == "muse":
     assert os.environ["MUSE_NO_AUTO_UPDATE"] == "1"
     assert pathlib.Path(os.environ["XDG_DATA_HOME"]).is_relative_to(root)
     if os.environ.get("CREDENTIAL") != "timeout":
-        time.sleep(float(os.environ.get("CREDENTIAL_DELAY", "0")))
         url = urlsplit(sys.argv[sys.argv.index("--base-url") + 1])
         conn = http.client.HTTPConnection(url.hostname, url.port, timeout=1)
         conn.request("GET", "/muse-code/models", headers={"authorization": "Bearer " + os.environ["FIXTURE_SECRET"]})
@@ -95,14 +152,16 @@ if kind == "muse":
     time.sleep(60)
 else:
     mode = os.environ.get("RESPONSE", "success")
-    if mode == "timeout":
+    if mode in ("timeout", "cancel"):
         time.sleep(60)  # hung DNS/headers: no per-socket timeout can rescue this fake
     if mode == "drip":
         print(200, flush=True)
         while True:
             print(": keepalive", flush=True)
             time.sleep(.06)
-    time.sleep(float(os.environ.get("RESPONSE_DELAY", "0")))
+    if mode == "overlap":
+        while len((root / "callers").read_text().splitlines()) < 2:
+            time.sleep(.01)
     status = {"capacity": 429, "quota": 429, "server": 503}.get(mode, 200)
     print(status, flush=True)
     if status != 200:
@@ -171,12 +230,12 @@ raise AssertionError("this regression needs no tmux server")
             "XDG_CONFIG_HOME": str(self.auth.parent.parent), "XDG_DATA_HOME": str(self.root / "data"),
             "TMPDIR": str(scratch), "PYTHONPATH": str(self.site), "PYTHONDONTWRITEBYTECODE": "1",
             "MUSE_FIXTURE": str(self.root), "FIXTURE_SECRET": self.secret, "META_API_KEY": self.secret,
-            "AGENTKIT_MUSE_USAGE_TIMEOUT": "2", "AGENTKIT_MUSE_USAGE_MODEL": "ignored-env-model",
+            "AGENTKIT_MUSE_USAGE_TIMEOUT": "45", "AGENTKIT_MUSE_USAGE_MODEL": "ignored-env-model",
             "AGENTKIT_ADAPTER_DIR": str(self.fixture_repo / "adapters"), "AGENTKIT_SESSION": "",
             "AGENTKIT_ACCOUNT": "",
             "AGENTKIT_RUN_DIR": "", "AGENTKIT_DISCORD_WEBHOOK": "off", "NO_COLOR": "1",
             "AGENTKIT_TMUX_SOCKET": "agentkit-test", "TMUX_TMPDIR": str(sockets), "TMUX": "",
-            "RESPONSE": "success", "RESPONSE_DELAY": "0", "CREDENTIAL": "success", "CREDENTIAL_DELAY": "0",
+            "RESPONSE": "success", "CREDENTIAL": "success",
         }
         self.stack.enter_context(patch.dict(os.environ, env))
         for name in (usage_probe.DEADLINE_ENV, usage_probe.WORK_DEADLINE_ENV):
@@ -227,22 +286,18 @@ raise AssertionError("this regression needs no tmux server")
     def direct(self, helper=False):
         script = "muse-usage.sh" if helper else "muse.sh"
         argv = [str(self.fixture_repo / "adapters" / script)] + ([] if helper else ["usage"])
-        started = time.monotonic()
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.children.append(proc)
-        stdout, stderr = proc.communicate(timeout=float(os.environ["AGENTKIT_MUSE_USAGE_TIMEOUT"]) + 2)
+        stdout, stderr = proc.communicate(timeout=60)
         self.assertEqual(proc.returncode, 0, stderr)
         self.assertEqual(stderr, "")
-        self.assertLess(time.monotonic() - started, float(os.environ["AGENTKIT_MUSE_USAGE_TIMEOUT"]) + .5)
         data = json.loads(stdout)
         self.assert_safe(data)
         self.assert_clean()
         return data
 
     def collect(self):
-        started = time.monotonic()
         data = usage.collect(self.cfg)["meta"]
-        self.assertLess(time.monotonic() - started, float(os.environ["AGENTKIT_MUSE_USAGE_TIMEOUT"]) + .5)
         self.assert_safe(data)
         self.assert_clean()
         return data
@@ -292,15 +347,23 @@ raise AssertionError("this regression needs no tmux server")
         self.assertEqual(len(self.records("requests")), 1)
 
     def test_near_deadline_success_is_kept_by_caller(self):
-        # Leave startup room under load; this answer still outlasts a halved work budget.
-        os.environ.update(AGENTKIT_MUSE_USAGE_TIMEOUT="5", RESPONSE_DELAY="3.05")
-        started = time.monotonic()
-        self.assertIsNone(self.collect()["error"])
-        self.assertGreater(time.monotonic() - started, 3.0)
+        # Real adapters and descendants run, but clock readings at the response and cleanup
+        # are pinned just before the work deadline; host scheduling cannot spend that margin.
+        os.environ["RESPONSE"] = "near_deadline"
+        with patch.object(usage_probe.subprocess, "run", wraps=subprocess.run) as captured:
+            data = self.collect()
+        self.assertIsNone(data["error"])
+        self.assertEqual([m["used"] for m in data["meters"]], [0, 22])
+        captured.assert_called_once()
+        self.assertNotIn("timeout", captured.call_args.kwargs)   # the supervisor owns it
+        self.assertEqual({row["process"] for row in self.records("late")},
+                         {"muse_usage", "usage_probe"})
+        for row in self.records("late"):
+            self.assertAlmostEqual(row["left"], .01)
         self.assertEqual(len(self.records("requests")), 1)
 
     def test_credential_extraction_timeout_and_success_clean_descendants(self):
-        os.environ.update(META_API_KEY="", CREDENTIAL="timeout", AGENTKIT_MUSE_USAGE_TIMEOUT="1.6")
+        os.environ.update(META_API_KEY="", CREDENTIAL="timeout")
         data = self.direct()
         self.assertEqual(data["meters"], [])
         self.assertIn("credential extraction timed out", data["error"])
@@ -308,7 +371,7 @@ raise AssertionError("this regression needs no tmux server")
         self.assertEqual(len([p for p in self.records("pids") if p["kind"] == "muse"]), 1)
         self.assertEqual(self.records("requests"), [])
         self.age("usage-meta-probe.json", 1801)
-        os.environ.update(CREDENTIAL="success", CREDENTIAL_DELAY=".1", AGENTKIT_MUSE_USAGE_TIMEOUT="2")
+        os.environ["CREDENTIAL"] = "success"
         self.assertIsNone(self.collect()["error"])
         self.assertEqual(len(self.records("requests")), 1)
         self.assertEqual(list((self.root / "tmp").iterdir()), [])
@@ -316,7 +379,7 @@ raise AssertionError("this regression needs no tmux server")
     def test_model_timeouts_bound_hung_headers_and_dripping_stream(self):
         for mode in ("timeout", "drip"):
             with self.subTest(mode=mode):
-                os.environ.update(RESPONSE=mode, AGENTKIT_MUSE_USAGE_TIMEOUT="1.2")
+                os.environ["RESPONSE"] = mode
                 (self.state / "usage.json").unlink(missing_ok=True)
                 (self.state / "usage-meta-probe.json").unlink(missing_ok=True)
                 self.minute()
@@ -392,15 +455,17 @@ raise AssertionError("this regression needs no tmux server")
         self.assertEqual(len(self.records("requests")), 1)   # the paid probe keeps its ten minutes
 
     def test_overlapping_reads_make_one_request(self):
-        os.environ["RESPONSE_DELAY"] = ".3"
+        # The response waits until both adapters try their cache lock, not for a fixed sleep.
+        os.environ["RESPONSE"] = "overlap"
         # Wait for both callers before checking PIDs: one may still be cleaning the shared probe.
         argv = [str(self.fixture_repo / "adapters" / "muse.sh"), "usage"]
         with ThreadPoolExecutor(max_workers=2) as pool:
-            results = list(pool.map(lambda _: subprocess.run(argv, capture_output=True, text=True, timeout=4), range(2)))
+            results = list(pool.map(lambda _: subprocess.run(argv, capture_output=True, text=True, timeout=60), range(2)))
         for proc in results:
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertIsNone(json.loads(proc.stdout)["error"])
         self.assert_clean()
+        self.assertEqual(len((self.root / "callers").read_text().splitlines()), 2)
         self.assertEqual(len(self.records("requests")), 1)
 
     def test_caller_bounds_even_an_adapter_that_ignores_the_contract(self):
@@ -409,7 +474,7 @@ root = pathlib.Path(os.environ["MUSE_FIXTURE"])
 subprocess.Popen([str(root / "bin" / "network")])
 time.sleep(60)
 ''')
-        os.environ.update(RESPONSE="timeout", AGENTKIT_MUSE_USAGE_TIMEOUT="1.2")
+        os.environ["RESPONSE"] = "timeout"
         data = self.collect()
         self.assertIn("timed out", data["error"])
 
@@ -421,17 +486,28 @@ time.sleep(60)
         self.assertIn("config.toml", self.direct()["error"])
         self.assertEqual(self.records("requests"), [])
 
+    def test_short_budgets_set_one_deadline_and_reserve_cleanup(self):
+        for seconds in (1.2, 1.6, 3, 45):
+            with self.subTest(seconds=seconds), \
+                    patch.dict(os.environ, AGENTKIT_MUSE_USAGE_TIMEOUT=str(seconds)), \
+                    patch.object(usage_probe.time, "monotonic", return_value=100):
+                argv, env = usage_probe.command(["fixture"])
+                self.assertEqual(argv[-1], "fixture")
+                self.assertAlmostEqual(float(env[usage_probe.DEADLINE_ENV]), 100 + seconds)
+                self.assertAlmostEqual(float(env[usage_probe.WORK_DEADLINE_ENV]),
+                                       100 + seconds - min(2, seconds / 5))
+
     def test_cancelled_direct_probe_reaps_descendants(self):
-        os.environ["RESPONSE"] = "timeout"
+        os.environ["RESPONSE"] = "cancel"
         argv = [str(self.fixture_repo / "adapters" / "muse.sh"), "usage"]
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.children.append(proc)
-        deadline = time.monotonic() + 1
+        deadline = time.monotonic() + 10
         while not any(p["kind"] == "descendant" for p in self.records("pids")):
             self.assertLess(time.monotonic(), deadline, "fixture did not start")
             time.sleep(.01)
         proc.terminate()
-        stdout, stderr = proc.communicate(timeout=2)
+        stdout, stderr = proc.communicate(timeout=60)
         self.assertEqual(stderr, "")
         self.assertIn("cancelled", json.loads(stdout)["error"])
         self.assert_clean()

@@ -16,7 +16,6 @@ OpenCode config, and the only process signalled is the test's own child.
 import json
 import os
 from pathlib import Path
-import re
 import shlex
 import subprocess
 import tempfile
@@ -28,25 +27,10 @@ from test_config_matrix import DOWN, ENTER, LEFT, REPO, RIGHT, Screen, highlight
 from agentkit import config, terminal
 
 CHILD = r"""
-import os, sys, time
+import os, sys
 sys.path.insert(0, os.environ["MATRIX_REPO"])
 from contextlib import closing
 from agentkit import menu, terminal, update
-
-# Measure in the child: the parent's reader can be scheduled after the frame is drawn.
-read_key, frame, pressed = terminal.read_key, terminal.frame, None
-def measured_key(*args, **kwargs):
-    global pressed
-    key = read_key(*args, **kwargs)
-    if key is not None:
-        pressed = time.monotonic()
-    return key
-def measured_frame(*args, **kwargs):
-    spots = frame(*args, **kwargs)
-    if pressed is not None:
-        print(f"<frame {time.monotonic() - pressed:.6f}>", flush=True)
-    return spots
-terminal.read_key, terminal.frame = measured_key, measured_frame
 
 update.version = lambda harness: ""
 update.agentkit_version = lambda: "abc1234"
@@ -74,16 +58,13 @@ EFFORT_KEYS = "  ↑↓←→ move   ⏎ effort   esc back"
 
 
 def timed(screen, keys, shown):
-    """The child's seconds from reading `keys` to drawing the frame showing `shown`."""
-    mark = len(screen.text())
+    """Seconds from `keys` to the screen showing `shown`, read every 2 ms."""
+    mark, start = len(screen.text()), time.monotonic()
     os.write(screen.master, keys)
-
-    def ready(text):
-        text = terminal.ANSI.sub("", text[mark:])
-        at = text.find(shown)
-        return re.search(r"<frame ([\d.]+)>", text[at:]) if at >= 0 else None
-    found = screen.until(ready, f"{shown} drawn")
-    return float(found.group(1))
+    while shown not in terminal.ANSI.sub("", screen.text()[mark:]):
+        screen.case.assertLess(time.monotonic() - start, 10, f"{shown} never drawn")
+        time.sleep(0.002)
+    return time.monotonic() - start
 
 
 class EffortStep(unittest.TestCase):

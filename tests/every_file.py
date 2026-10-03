@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""The rest of the `tests:` suite: every tests/test_*.py the smoke.sh run before it did not.
+"""The rest of the `tests:` suite: every tests/test_*.py smoke.sh does not run.
 
-AGENTS.md runs this after smoke.sh, so a file no task happened to list cannot go red on main
+AGENTS.md runs this beside smoke.sh, so a file no task happened to list cannot go red on main
 unseen.  It is no part of smoke.sh and never touches its lock: it holds no smoke target and
 waits for none.  Each file runs once, in a process of its own from the checkout's root with
 no stdin, and without the caller's AGENTKIT_*/AK_* variables: a file started from inside a run
 must not pass for part of it (AGENTKIT_RUN, AK_RUN_DEPTH, AK_PARENT_RUN ...).  As many run at
 once as live memory fits; waiting files can outnumber cores. Before each start it samples
 CPU pressure, waiting while it is high, and rereads host and cgroup headroom.
+Unknown files start first, then longest first by their last measured time on this host,
+kept under ~/.cache/agentkit/test-times/<hostname>/ outside the checkout.
 A failing file, or one reporting no executed cases, fails the whole and is named with its
 last lines. Unittest's tally reports the count; other scripts print TESTS_RUN=<count> after
 their checks. Python imports under agentkit/, tools/, bin/ and tests/ must be from the
@@ -186,6 +188,28 @@ def pool_limit(readings):
     return max(1, int(min(room) / FILE_MEM_MB)) if room and pressure is not None else 1
 
 
+def last_time(path):
+    try:
+        took = float(path.read_text())
+        if 0 <= took < float("inf"):
+            return took
+    except (OSError, ValueError):
+        pass
+    return float("inf")
+
+
+def save_time(path, took):
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Pieces write separate files; atomic replacement also lets other suites read them.
+        with tempfile.TemporaryDirectory(dir=path.parent) as scratch:
+            saved = Path(scratch) / path.name
+            saved.write_text(str(took))
+            saved.replace(path)
+    except OSError:
+        pass  # A missing or unwritable cache must not stop the checks.
+
+
 def main(root):
     try:
         number, total = shard()
@@ -198,7 +222,7 @@ def main(root):
             print(f"FAIL  {error}", flush=True)
         return 1
     tests = root / "tests"
-    # smoke.sh ran in the mode this caller's environment gave it
+    # smoke.sh runs in the mode this caller's environment gives it
     skip = smoke_runs((tests / "smoke.sh").read_text(),
                       os.environ.get("AGENTKIT_SMOKE_OFFLINE", "0") == "1",
                       os.environ.get("AGENTKIT_SMOKE_LIVE", "0") == "1")
@@ -206,6 +230,8 @@ def main(root):
     # Exclude everything smoke runs before dividing the rest, regardless of its piece.
     owners = shares({path: path.stat().st_size for path in todo}, total)
     todo = [path for path in todo if owners[path] == number]
+    cache = Path.home() / ".cache/agentkit/test-times" / os.uname().nodename
+    todo.sort(key=lambda path: last_time(cache / path.name), reverse=True)
     env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
     pending = iter(todo)
     path = next(pending, None)
@@ -218,6 +244,7 @@ def main(root):
                     continue
                 name = running.pop(done).relative_to(root)
                 code, out, took = done.result()
+                save_time(cache / name.name, took)
                 if code == 0 and cases_run(out) > 0:
                     print(f"PASS  {name} ({took:.0f}s)", flush=True)
                     continue

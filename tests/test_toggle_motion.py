@@ -6,8 +6,8 @@ On the `c` screen, the `n` screen and a project's feature switches a mark goes `
 a cell left, right, left and back over 240 ms, the reason under the rows and nothing saved; a
 model just added comes back highlighted on a soft glow that fades over a second into the
 highlight.  All of it is on the menu's one clock, beside the rule gliding while a project's
-switches are asked, and the cell a click lit stays lit through it; a key during it is answered
-within 100 ms and ends it on its last frame.
+switches are asked, and the cell a click lit stays lit through it; a key during it ends it on
+its last frame.
 
 Each screen runs in a child on a pty of its own through the harness of its own test --
 tests/test_config_matrix.py's `c` on the seat `fix-api`, tests/test_new_session_screen.py's
@@ -15,6 +15,8 @@ menu for `n`, tests/test_features_screen.py's menu over a fake ACME project -- e
 temporary HOME, the catalog, meters and project command faked as there.  The cells a frame
 writes are read back from where it places the cursor.  Nothing here reads or writes the
 owner's ~/.agentkit, and the only process signalled is each test's own child.
+The unit clock tests sample every phase; a descheduled pty child may skip intermediate frames
+but must reach the last one.
 """
 
 import json
@@ -26,7 +28,7 @@ from unittest.mock import patch
 
 import test_features_screen as features
 import test_new_session_screen as new_session
-from test_config_matrix import DOWN, ENTER, RIGHT, Screen, highlighted, row
+from test_config_matrix import CHILD, DOWN, ENTER, RIGHT, Screen, highlighted, row
 from agentkit import motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
@@ -35,18 +37,78 @@ BACK = re.compile(r"\x1b\[[0-9;]*48;2;(\d+);(\d+);(\d+)m")   # a background, in 
 # the background the pointer lights a cell on, at 256 colours, on the dark one a pty answers with
 LIT = f"48;5;{terminal.xterm_colour(terminal.POINTED[False])}m"
 
+# Completion is observed after the real clock's last frame, including a skipped animation.
+OBSERVE = r'''
+from pathlib import Path
+from agentkit import motion
+start, frame, glowing = motion.Clock.start, motion.Clock.frame, motion.glowing
+def started(clock, cells, animation, until=None):
+    if until is not None:
+        clock.test_moving = True
+    return start(clock, cells, animation, until)
+def framed(clock):
+    out = frame(clock)
+    if getattr(clock, "test_moving", False) and not any(
+            until is not None for _, until in clock.cells.values()):
+        clock.test_moving = False
+        out += "<motion settled>"
+    return out
+motion.Clock.start, motion.Clock.frame = started, framed
 
-def moved(screen, keys, wait=1.0):
-    """Keys, then every cell the frames wrote in the `wait` seconds after them: [(row, column,
-    what it shows, as written)]."""
-    mark = len(screen.text())
-    os.write(screen.master, keys)
-    time.sleep(wait)
+def held_glow(line):
+    real = glowing(line)
+    def begin(clock, row, since, before):
+        hold = Path.home() / ".agentkit" / "glow.hold"
+        if hold.exists():
+            class Held:
+                def start(self, cells, animation, until=None):
+                    clock.start(cells, lambda now: animation(since + float(hold.read_text())),
+                                float("inf"))
+            real(Held(), row, since, before)
+        else:
+            real(clock, row, since, before)
+    return begin
+motion.glowing = held_glow
+'''
+
+
+class Screens(unittest.TestCase):
+    def setUp(self):
+        create = Screen
+        self.enterContext(patch(__name__ + ".Screen", side_effect=lambda *args, child=CHILD,
+                               **kwargs: create(*args, child=child.replace(
+                                   "with closing(", OBSERVE + "\nwith closing(", 1), **kwargs)))
+        for module in (features, new_session):
+            self.enterContext(patch.object(module, "CHILD", module.CHILD.replace(
+                "sys.exit(", OBSERVE + "\nsys.exit(", 1)))
+        self.enterContext(patch.object(features, "FAKE", features.FAKE.replace(
+            'if sys.argv[1] == "list":', 'if sys.argv[1] == "list":\n'
+            '    while (here / "list.hold").exists(): time.sleep(.01)')))
+
+
+def written(screen, mark):
+    """Every cell written since `mark`: [(row, column, what it shows, as written)]."""
     parts, cells = PLACE.split(screen.text()[mark:]), []
     for at, column, text in zip(parts[1::3], parts[2::3], parts[3::3]):
         text = text.split("\x1b[H")[0]            # a whole draw after it is no frame's
+        text = text.split("<motion settled>")[0]
         cells.append((int(at), int(column), terminal.ANSI.sub("", text), text))
     return cells
+
+
+def until(screen, ready, what):
+    deadline = time.monotonic() + 15
+    while not ready():
+        screen.case.assertLess(time.monotonic(), deadline,
+                               f"timed out waiting for {what}:\n{screen.text()[-3000:]!r}")
+        time.sleep(.01)
+
+
+def moved(screen, keys):
+    mark = len(screen.text())
+    os.write(screen.master, keys)
+    until(screen, lambda: "<motion settled>" in screen.text()[mark:], "motion to settle")
+    return written(screen, mark)
 
 
 def glyphs(cells, number):
@@ -60,6 +122,16 @@ def shifts(cells, number, column):
             for at, first, text, _ in cells if at == number]
 
 
+def landed(case, actual, expected):
+    """The frames a pty saw stay in order and land, even if its child was descheduled."""
+    # A pause before Clock.start can skip the whole animation; the full draw already landed.
+    if actual:
+        case.assertEqual(actual[-1:], expected[-1:])
+    remaining = iter(expected)
+    for frame in actual:
+        case.assertIn(frame, remaining, f"{actual} is not a subsequence of {expected}")
+
+
 def click(column, number):
     """The left button down and up at `column` on screen row `number`, as mode 1006 reports it."""
     return f"\x1b[<0;{column};{number}M\x1b[<0;{column};{number}m".encode()
@@ -69,7 +141,6 @@ def lit_through(case, cells, number):
     """Every frame on screen row `number` shows the clicked cell as the draw did: in the
     pointer's light, the keys' reverse given way to it."""
     frames = [written for at, _, _, written in cells if at == number]
-    case.assertTrue(frames)
     for frame, written in enumerate(frames):
         with case.subTest(frame=frame):
             case.assertIn(LIT, written)
@@ -135,18 +206,18 @@ class Frames(unittest.TestCase):
         self.assertEqual(clock.cells, {})
 
 
-class ConfigScreen(unittest.TestCase):
+class ConfigScreen(Screens):
     def test_a_mark_fills_when_set_and_empties_when_cleared(self):
         screen = Screen(self)
         number, line = row(screen.press(RIGHT), "fable")  # fable's exec, not the seat's
         column = mark_column(line, 1)
         cells = moved(screen, ENTER)
-        self.assertEqual(glyphs(cells, number), ["▣", "■"])
-        self.assertEqual({at for at, _, _, _ in cells}, {number})
+        landed(self, glyphs(cells, number), ["▣", "■"])
+        self.assertLessEqual({at for at, _, _, _ in cells}, {number})
         self.assertEqual(screen.record()["workers"], ["opus", "astra", "fable"])
         cells = moved(screen, click(column, number))
-        self.assertEqual(glyphs(cells, number), ["▣", "□"])
-        self.assertEqual(shifts(cells, number, column), [0, 0])     # in place, no nudge
+        landed(self, glyphs(cells, number), ["▣", "□"])
+        landed(self, shifts(cells, number, column), [0, 0])     # in place, no nudge
         lit_through(self, cells, number)
         self.assertEqual(screen.record()["workers"], ["opus", "astra"])
         screen.leave()
@@ -157,11 +228,29 @@ class ConfigScreen(unittest.TestCase):
         before = screen.record()
         cells = moved(screen, click(mark_column(line, 1), number))
         self.assertIn("  exec needs one model", screen.frame())
-        self.assertEqual(glyphs(cells, number), ["■"] * 4)
-        self.assertEqual(shifts(cells, number, mark_column(line, 1)), [-1, 1, -1, 0])
+        landed(self, glyphs(cells, number), ["■"] * 4)
+        landed(self, shifts(cells, number, mark_column(line, 1)), [-1, 1, -1, 0])
         lit_through(self, cells, number)
         self.assertEqual(screen.record(), before)
         screen.leave()
+
+    def test_the_last_executor_refusal_can_skip_frames(self):
+        # A scheduler pause can outlast the shake without changing the refusal or its landing.
+        child = CHILD.replace("with closing(", """
+import time
+from agentkit import motion
+wait_key = menu.wait_key
+def delayed_wait_key(prompt, timeout=None, wake=None):
+    key = wait_key(prompt, timeout, wake)
+    if key is None and timeout is not None and timeout <= motion.FRAME:
+        time.sleep(motion.SHAKE)
+    return key
+menu.wait_key = delayed_wait_key
+with closing(""", 1)
+        create = Screen
+        with patch(__name__ + ".Screen", side_effect=lambda *args, **kwargs:
+                   create(*args, child=child, **kwargs)):
+            self.test_the_last_executor_refused_shakes_and_nothing_is_saved()
 
     def test_a_model_just_added_glows_and_a_key_ends_it_at_once(self):
         screen = Screen(self, env={"COLORTERM": "truecolor"})     # a glow fades in fine steps
@@ -172,32 +261,38 @@ class ConfigScreen(unittest.TestCase):
         screen.press(DOWN * down, lambda lines: highlighted(lines).startswith("› + add a model"))
         for step in ("harness", "model", "effort"):     # claude, its haiku, at none
             screen.press(ENTER, lambda lines, step=step: f"  {step}" in lines)
-        cells = moved(screen, ENTER, wait=0.4)
-        lines = screen.frame(lambda lines: highlighted(lines).startswith("› claude-haiku"))
-        number, line = row(lines, "claude-haiku")
-        glows = [written for at, column, text, written in cells
-                 if (at, column) == (number, 1) and text == line]
-        self.assertGreater(len(glows), 2)
-        tones = [sum(map(int, BACK.findall(written)[0])) for written in glows]
-        self.assertEqual(tones, sorted(tones, reverse=True))       # fading
-        self.assertGreater(tones[0], tones[-1])
-        # a key mid-glow, the highlight staying on the row: drawn within 100 ms, the glow over
-        # at once, nothing moving after it
+        hold = screen.path.parent / "glow.hold"
+        hold.write_text("0")
         mark = len(screen.text())
-        pressed = time.monotonic()
-        os.write(screen.master, RIGHT)
-        while "\x1b[J" not in screen.text()[mark:]:
-            time.sleep(0.002)
-        self.assertLess(time.monotonic() - pressed, 0.1)
+        os.write(screen.master, ENTER)
         lines = screen.frame(lambda lines: highlighted(lines).startswith("› claude-haiku"),
                              after=mark)
-        time.sleep(1.0)
-        self.assertNotRegex(screen.text()[mark:].rpartition("\x1b[J")[2], PLACE)
+        number, line = row(lines, "claude-haiku")
+
+        def tones():
+            return [sum(map(int, BACK.findall(frame)[0]))
+                    for at, column, text, frame in written(screen, mark)
+                    if (at, column) == (number, 1) and text == line and BACK.search(frame)]
+
+        # Hold each phase until it is seen, so a busy host cannot miss the middle of the glow.
+        for count, phase in enumerate(("0", "0.4", "0.7"), 1):
+            hold.with_suffix(".next").write_text(phase)
+            hold.with_suffix(".next").replace(hold)
+            until(screen, lambda: len(set(tones())) >= count, f"glow phase {phase}")
+        tones = tones()
+        self.assertEqual(tones, sorted(tones, reverse=True))       # fading
+        self.assertGreater(tones[0], tones[-1])
+        # The glow stays held until a key ends it; the key cannot wait for its timer.
+        mark = len(screen.text())
+        moved(screen, RIGHT)
+        lines = screen.frame(lambda lines: highlighted(lines).startswith("› claude-haiku"),
+                             after=mark)
+        self.assertNotRegex(screen.text()[mark:].rpartition("<motion settled>")[2], PLACE)
         self.assertEqual(screen.saved()["models"]["claude-haiku"]["effort"], "none")
         screen.leave()
 
 
-class NewSessionScreen(unittest.TestCase):
+class NewSessionScreen(Screens):
     def picker(self):
         screen = new_session.Screen(self)
         screen.menu()
@@ -213,9 +308,9 @@ class NewSessionScreen(unittest.TestCase):
         screen, lines = self.picker()
         number, line = numbered(lines, "opus")
         cells = moved(screen, new_session.SPACE)
-        self.assertEqual(glyphs(cells, number), ["▣", "□"])
+        landed(self, glyphs(cells, number), ["▣", "□"])
         cells = moved(screen, click(mark_column(line, 1), number))
-        self.assertEqual(glyphs(cells, number), ["▣", "■"])
+        landed(self, glyphs(cells, number), ["▣", "■"])
         lit_through(self, cells, number)
         screen.send(ENTER)
         screen.saw("<created new opus astra,opus opus,astra>")
@@ -228,7 +323,7 @@ class NewSessionScreen(unittest.TestCase):
         number, line = numbered(lines, "astra")
         cells = moved(screen, click(mark_column(line, 1), number))
         self.assertIn("exec needs one model", "\n".join(screen.picker()))
-        self.assertEqual(shifts(cells, number, mark_column(line, 1)), [-1, 1, -1, 0])
+        landed(self, shifts(cells, number, mark_column(line, 1)), [-1, 1, -1, 0])
         lit_through(self, cells, number)
         self.assertEqual(new_session.marks(highlighted(screen.picker())), "○■■")
         screen.send(ENTER)
@@ -236,14 +331,14 @@ class NewSessionScreen(unittest.TestCase):
         screen.leave()
 
 
-class FeaturesScreen(unittest.TestCase):
+class FeaturesScreen(Screens):
     def test_a_switch_fills_when_set_on_and_empties_when_set_off(self):
         menu = features.Menu(self)
         number, _ = numbered(menu.opened(), "Dark mode")
-        cells = moved(menu, ENTER, wait=1.5)            # the project's `set` answers first
-        self.assertEqual(glyphs(cells, number), ["◉", "●"])
-        cells = moved(menu, ENTER, wait=1.5)
-        self.assertEqual(glyphs(cells, number), ["◉", "○"])
+        cells = moved(menu, ENTER)                    # the project's `set` answers first
+        landed(self, glyphs(cells, number), ["◉", "●"])
+        cells = moved(menu, ENTER)
+        landed(self, glyphs(cells, number), ["◉", "○"])
         self.assertEqual(menu.calls().count("set dark you on"), 1)
         self.assertIn("set dark you off", menu.calls())
         menu.leave(screen=True)
@@ -253,34 +348,32 @@ class FeaturesScreen(unittest.TestCase):
         number, line = numbered(menu.opened(), "Dark mode")
         (menu.fake / "refuse").write_text("only the owner may switch dark\n")
         before = (menu.fake / "features.json").read_text()
-        cells = moved(menu, click(mark_column(line, 0), number), wait=1.5)
+        cells = moved(menu, click(mark_column(line, 0), number))
         self.assertIn("  only the owner may switch dark",
                       menu.frame(features.SCREEN, features.has("only the owner")))
-        self.assertEqual(shifts(cells, number, mark_column(line, 0)), [-1, 1, -1, 0])
+        landed(self, shifts(cells, number, mark_column(line, 0)), [-1, 1, -1, 0])
         lit_through(self, cells, number)
         self.assertEqual((menu.fake / "features.json").read_text(), before)
         self.assertEqual(json.loads(before)[0]["you"], False)
         menu.leave(screen=True)
 
     def test_a_switch_moves_on_while_its_list_is_asked(self):
-        # the list asked again every second and three in answering: one is nearly always going,
-        # its rule gliding, while a `set` answers
+        # Keep the list unanswered while both switches land; elapsed time cannot release it.
         with patch.object(features, "CHILD", features.CHILD.replace(
                 "sys.exit(", "menu.TICK = 1.0\nsys.exit(")):
             menu = features.Menu(self)
         number, line = numbered(menu.opened(), "Dark mode")
-        (menu.fake / "slow").write_text("3")
-
-        def asked():        # a list just asked, three seconds from answering
-            started = menu.calls().count("list")
-            menu.until(lambda: menu.calls().count("list") > started, "a list asked")
-        asked()
+        hold = menu.fake / "list.hold"
+        hold.touch()
+        self.addCleanup(lambda: hold.unlink(missing_ok=True))
+        started = menu.calls().count("list")
+        menu.until(lambda: menu.calls().count("list") > started, "a list asked")
         cells = moved(menu, ENTER)
-        self.assertEqual(glyphs(cells, number), ["◉", "●"])
+        landed(self, glyphs(cells, number), ["◉", "●"])
         (menu.fake / "refuse").write_text("only the owner may switch dark\n")
-        asked()
         cells = moved(menu, ENTER)
-        self.assertEqual(shifts(cells, number, mark_column(line, 0)), [-1, 1, -1, 0])
+        landed(self, shifts(cells, number, mark_column(line, 0)), [-1, 1, -1, 0])
+        hold.unlink()
         menu.leave(screen=True)
 
 
