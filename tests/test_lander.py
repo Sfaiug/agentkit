@@ -179,11 +179,11 @@ class Lander(LanderFixture, unittest.TestCase):
         red = self.member("acme-fix", joined=2, **{"broken.txt": "broken\n"})
         self.advance()
         owner = {"pid": 5678, "process_identity": {"boot": "fixture", "ticks": 2}}
+        land.check_line(self.turn)
+        self.assertCountEqual([call.args[0] for call in self.wake.call_args_list],
+                              [green.name, red.name])
         for directory, verdict in ((green, "land"), (red, "fix")):
             with self.subTest(verdict=verdict):
-                land.check_line(self.turn)
-                self.wake.assert_called_once_with(directory.name, unittest.mock.ANY)
-                self.wake.reset_mock()
                 parked = record.read_state(directory)
                 self.assertIn(verdict, parked["waiting_on"])
                 with (patch.object(config, "load", return_value={}),

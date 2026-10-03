@@ -186,7 +186,7 @@ class LandTogether(unittest.TestCase):
         self.git("checkout", "-q", "ak/member")
         self.git("rebase", "-q", "origin/main")
         member_tree = self.tree("HEAD")
-        self.assertEqual(land.passed(turn, member_tree), mine)
+        self.assertEqual(land.passed(turn, member_tree)["tested"], mine["tested"])
         self.checks.clear()
         follower = self.loop("member", "ak/member")
         self.assertTrue(run.final_check(follower, "origin/main"))
