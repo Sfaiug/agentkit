@@ -247,7 +247,7 @@ class UsageRow(Sandbox):
                  "░    0% left · resets Thu 22:00"),
                 (100, "░   21% left · resets Sun 00:00 · 5h spent until 00:00 · "
                       "? claude usage exited 1",
-                 "░   69% left · resets Sun 00:00",
+                 "░   69% left · resets Sun 00:00 · 2 resets in hand",
                  "░    0% left · resets Thu 22:00")):
             lines = menu.usage_lines(self.cfg, width)
             self.assertTrue(all(terminal.cells(line) <= width for line in lines), lines)
