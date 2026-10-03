@@ -518,7 +518,8 @@ sys.exit(item.get("rc", 0))
         with patch.object(run.worker, "call", side_effect=AssertionError("worker")), patch.object(
                 run, "integrate", return_value=True), patch.object(
                 run, "push", side_effect=AssertionError("push")), patch.object(run, "announce"), patch.object(
-                run, "git", return_value=SHA), contextlib.redirect_stdout(io.StringIO()):
+                run, "git", return_value=SHA), patch.object(run, "fetch", return_value=(0, "")), \
+                contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", "passed"]), 1)
             self.assertIn("# PASS, not merged: gh pr merge --squash failed", (d / "result.md").read_text())
             self.reply(key, {})
@@ -584,8 +585,9 @@ esac
         task = self.root / "task.md"
         task.write_text(f"---\nrepo: {repo}\nbase: main\n---\n# Different title\n\n"
                         "## Done when\n```bash\ntest \"$(cat delivered)\" = from-basename\n```\n")
+        # no user manager in XDG_RUNTIME_DIR: the foreground run is never moved into a unit
         env = dict(os.environ, HOME=str(home), AGENTKIT_ADAPTER_DIR=str(adapters),
-                   AK_SLOT_POLL=".05",
+                   AK_SLOT_POLL=".05", XDG_RUNTIME_DIR=str(self.root),
                    AK_HOST_READINGS=json.dumps({"free_mb": 4096, "mem_total_mb": 16384,
                                                 "load": 1, "cpus": 8,
                                                 "unit_memory_current_mb": 100,

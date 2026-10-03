@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # agentkit acceptance gate. Exits 0 only if every check passes.
-# Makes real (tiny) model calls on every harness this host has installed with its login --
-# minus any spent model, which check 3 skips by name; one harness with its login is all the
-# suite needs -- plus one full `ak run`, which merges its
-# own PR into a private repository under the caller's own account; the rest drive
-# the loop offline through fake adapters, and check 9a waits out the real transient backoff
-# (60s + 300s), which is why it starts at the top and is collected at the bottom.
+# The checks drive the loop offline through fake adapters and reach nothing outside the host;
+# check 9's fake runs advance a test clock through the unchanged transient backoff.
+# The live mode, AGENTKIT_SMOKE_LIVE=1 (tests/live.sh),
+# adds real (tiny) model calls on every harness this host has installed with its login --
+# minus any spent model, which check 3 skips by name; one harness with its login is all that
+# mode needs -- plus one full `ak run`, which merges its own PR into a private repository
+# under the caller's own account.
 # Self-contained: every `ak` here is this checkout's bin/ak (PATH is prefixed with it, so a
 # worktree tests itself), and install.sh is exercised against a throwaway HOME under $WORK, which
 # it treats as a sandbox: no packages, no logins, no crontab.  Every tmux server it touches is
@@ -1527,7 +1528,7 @@ else
 fi
 
 # --- 0: no test can end a session that is not this suite's own --------------
-# A kill-server in a branch test once took down a live orchestrator, so this reads the two test
+# A kill-server in a branch test once took down a live orchestrator, so this reads the test
 # files themselves: a line that ends a server or a session has to go through one of the helpers
 # above (`tm`, `tmj`, `tmd`, and 20e's two), or name the test socket itself.  A bare tmux kill
 # fails here rather than on somebody's running seat.  The isolation those helpers rest on -- a
@@ -1539,7 +1540,8 @@ fi
 # name (ovtmux), and not a word in a sentence; every line grep -n prints starts with its path,
 # so no line here begins with the command.  Written without an alternation on purpose: ugrep,
 # which some boxes install as grep, does not match `(^|[^-])` the way GNU and BSD grep do.
-STRAY=$(grep -nE 'kill-(server|session)' "$REPO/tests/smoke.sh" "$REPO/tests/e2e-fresh.sh" \
+STRAY=$(grep -nE 'kill-(server|session)' "$REPO/tests/smoke.sh" "$REPO/tests/live.sh" \
+          "$REPO/tests/e2e-fresh.sh" \
         | grep -E '[^-a-z]tmux ' | grep -v -- '-L agentkit-test' || true)
 ISOLATED=1
 grep -q '^export TMUX_TMPDIR="$WORK/tmux"$' "$REPO/tests/smoke.sh" || ISOLATED=0
@@ -1645,8 +1647,8 @@ with open(sys.argv[2], "w") as fh:
     fh.write(re.sub(r"(?m)^workers = .*$", "workers = " + json.dumps(names), text, count=1))
 PY
 }
-# The first sleeps out the real 60s + 300s transient backoff, so they both start now,
-# alongside the real model calls, and check 9 collects them. Fake HOME + fake adapters: no
+# Only these two runs advance a test clock, so retry checks never hold up the suite.
+# They start now and check 9 collects them. Fake HOME + fake adapters: no
 # network, no real runs dir -- and --no-merge, because these throwaway repos have no origin
 # and check 4 owns the merge.
 retrylaunch() {   # retrylaunch <tag> <executor behaviour> <reviewer behaviour> [workers json]
@@ -1668,14 +1670,42 @@ PY
     # Distinct titles: the run id is the minute plus the slug, and these two start
     # together.  One shared id would make either run's sweep signal the other's turn.
     sed -e "s|__REPO__|$R|" -e "s|__TITLE__|Smoke retry $1|" "$WORK/retry-task.md" >"$WORK/task-$1.md"
-    HOME="$H" AGENTKIT_ADAPTER_DIR="$D" ak run "$WORK/task-$1.md" --rounds 1 --exec opus \
-      --review astra --no-merge
+    HOME="$H" AGENTKIT_ADAPTER_DIR="$D" PYTHONPATH="$REPO" python3 - "$REPO/bin/ak" \
+      run "$WORK/task-$1.md" --rounds 1 --exec opus --review astra --no-merge <<'PY_RETRY_CLOCK'
+import runpy, sys, time
+from types import SimpleNamespace
+from unittest.mock import patch
+from agentkit import run
+
+now = time.time()
+def sleep(seconds):
+    global now
+    now += seconds
+    print(f"test clock advanced {seconds}s", flush=True)
+
+clock = SimpleNamespace(time=lambda: now, sleep=sleep)
+wait = run.transient_wait
+def wait_on_clock(out_dir, delay):
+    # Exercise the real wait and its record; every other clock stays real.
+    with patch.object(run, "time", clock):
+        wait(out_dir, delay)
+
+with patch.object(run, "transient_wait", wait_on_clock):
+    sys.argv = sys.argv[1:]
+    runpy.run_path(sys.argv[0], run_name="__main__")
+PY_RETRY_CLOCK
     echo "rc=$?" ) >"$WORK/$1.log" 2>&1 &
 }
 # the executor's round has no spare pair to hand to, so it retries its own session twice
 retrylaunch retry-exec flaky pass '["opus", "astra"]'
 retrylaunch retry-review work dead    # reviewer never comes back -> fall back to another provider
 
+# Checks 1 to 5, and 6, 6b, 6d, 31a, 31d and 31e below, need the outside world: real models,
+# GitHub, Discord, live meters, the shared browser.  They run only in the live mode, which
+# tests/live.sh starts before a host takes new code and when a harness upgrades; the landing
+# suite reaches nothing beyond loopback.  Offline twins run in both modes: 19 the delivery
+# path, 41 and 8a-8g the meters, 20e and 20f the seats, 31b and 31c the MCP wiring.
+if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 1: usage --------------------------------------------------------------
 model_unavailable() {   # missing binary/login, or nothing; a broken saved login exits 1
   PYTHONPATH="$REPO" python3 - "$@" <<'PY'
@@ -1919,7 +1949,7 @@ skip_spent() {   # skip_spent <check labels> <required models...>
   for model in "$@"; do
     spent=$(spent_until "$model")
     if [ -n "$spent" ]; then
-      skip_checks "$checks" "required model $model has a spent ${spent%% *} window until ${spent#* }"
+      skip_spent_checks "$checks" "required model $model has a spent ${spent%% *} window until ${spent#* }"
       return 0
     fi
     skip_unavailable "$checks" "$model" && return 0
@@ -1965,7 +1995,7 @@ snapshot.write_text(json.dumps({"providers": providers}))
 print(text.strip() or word)
 PY
   ) || return 1
-  skip_checks "$checks" "required model $model was refused: $why"
+  skip_spent_checks "$checks" "required model $model was refused: $why"
 }
 printf 'Create a file hello.txt containing exactly: hello\nThen run %s hand-in done.\nThen reply with only the word DONE.\n' "$REPO/bin/ak" \
   >"$WORK/p-make.txt"
@@ -1980,7 +2010,7 @@ for pair in "${HARNESSES[@]}"; do
   CHECKS=3a/3b; [ $# = 0 ] || CHECKS=3c
   SPENT=$(spent_until "$M")
   if [ -n "$SPENT" ]; then
-    skip_checks "$CHECKS" "$M ($H): the ${SPENT%% *} subscription window is spent until"\
+    skip_spent_checks "$CHECKS" "$M ($H): the ${SPENT%% *} subscription window is spent until"\
          "${SPENT#* }, so every call would be a 429"
     continue
   fi
@@ -2004,7 +2034,7 @@ os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
     CALLRC=$?
     if skip_refused 3c "$M" "$CALLRC" "$WORK/o-$M"; then continue; fi
     if [ "$CALLRC" = 0 ] && grep -qiwF "$WORD" "$WORK/o-$M/final.md" 2>/dev/null; then
-      ok "3c $M ($H): $1 at $2 replied $WORD"
+      ok_call "3c $M ($H): $1 at $2 replied $WORD"
     else
       no "3c $M ($H): $1 at $2 did not reply $WORD: final.md = $(head -c 120 "$WORK/o-$M/final.md" 2>/dev/null)"
       diagnose "$CALLRC" "$WORK/$M.log" "$A" run "$1" "$2" "$R" "$WORK/p-word.txt" "$WORK/o-$M"
@@ -2024,7 +2054,7 @@ os.execve(sys.argv[1], sys.argv[1:], config.child_env())' \
      PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import hand_in
 review = hand_in.read(sys.argv[1])
 assert review is not None and review.done' "$WORK/o-$M/hand-in.jsonl"; then
-    ok "3a $M ($H): wrote hello.txt, final.md non-empty, handed in a checked record"
+    ok_call "3a $M ($H): wrote hello.txt, final.md non-empty, handed in a checked record"
   else
     no "3a $M ($H): hello.txt=$([ -f "$R/hello.txt" ] && echo yes || echo no)"
     diagnose "$CALLRC" "$WORK/$M.log" ak worker "$M" "$WORK/p-make.txt" --workspace "$R" --out "$WORK/o-$M"
@@ -2037,7 +2067,7 @@ assert review is not None and review.done' "$WORK/o-$M/hand-in.jsonl"; then
     RESUMERC=$?
     if skip_refused 3b "$M" "$RESUMERC" "$WORK/o-$M-2"; then continue; fi
     if [ "$RESUMERC" = 0 ] && grep -qi 'hello\.txt' "$WORK/o-$M-2/final.md" 2>/dev/null; then
-      ok "3b $M ($H): resumed session $SID recalled hello.txt"
+      ok_call "3b $M ($H): resumed session $SID recalled hello.txt"
     else
       no "3b $M ($H) resume: final.md = $(head -c 120 "$WORK/o-$M-2/final.md" 2>/dev/null)"
       diagnose "$RESUMERC" "$WORK/$M-2.log" ak worker "$M" "$WORK/p-ask.txt" --workspace "$R" --out "$WORK/o-$M-2" --session "$SID"
@@ -2057,8 +2087,20 @@ done
 # The target is the first free one of the pool above, so this is the one check that may wait:
 # taken before the seed, given back once the delivery on it is read.  A suite that finds none
 # free before its wait runs out fails this check alone and runs the rest.
-if skip_spent 4/4b/4c/4d opus astra; then
-  :   # skip before cloning or resetting the remote baseline, not after a worker's 429
+# Its executor and reviewer are the pair ak would pick now from the suite's snapshot, so it runs
+# on whichever configured models have budget, and skips only when every one it can run is spent,
+# or when it can run none.
+PAIR=$(python3 "$REPO/tests/check4_pair.py" "$WORK/usage-real.json" \
+  "$SMOKE_CALLER_HOME/.agentkit/state/usage.json")
+PAIRRC=$? EXEC=${PAIR% *} REVIEW=${PAIR#* }
+if [ "$PAIRRC" = 3 ]; then
+  skip_checks 4/4b/4c/4d "the configured models are not on this host: $PAIR"
+elif [ "$PAIRRC" != 0 ]; then
+  no "4 ak run: picking its executor and reviewer exited $PAIRRC"
+  skip_checks 4b/4c/4d "prerequisite run did not happen: no executor and reviewer were picked"
+elif [ -z "$PAIR" ]; then
+  # skip before cloning or resetting the remote baseline, not after a worker's 429
+  skip_spent_checks 4/4b/4c/4d "every model this host can run has a spent window"
 elif ! smoke_lock_hold "$SMOKE_LOCK_WAIT"; then
   no "4 ak run: every smoke target is still another suite's after ${SMOKE_LOCK_WAIT}s; none was this suite's to reset"
   skip_checks 4b/4c/4d "prerequisite run did not happen: every smoke target is another suite's"
@@ -2120,7 +2162,7 @@ MD
 # how check 4d reads what the run would have said.
 ( [ "$SRC" = 0 ] || { cat "$WORK/seed.log"; exit "$SRC"; }
   cd "$CLONE" && AGENTKIT_DISCORD_WEBHOOK=off ak run "$WORK/task.md" --rounds 2 \
-    --exec opus --review astra ) >"$WORK/run.log" 2>&1
+    --exec "$EXEC" --review "$REVIEW" ) >"$WORK/run.log" 2>&1
 RC=$?
 # take the run id from this run's own log, not from a glob that can match an older smoke run
 RUNID=$(sed -n 's/^\[[0-9:]*\] run \([^:]*\): .*$/\1/p' "$WORK/run.log" | head -1)
@@ -2136,10 +2178,11 @@ smoke_lock_drop
 if [ "$RC" = 0 ] && [ -n "$RUNDIR" ] && grep -q '^VERDICT: PASS' "$RUNDIR/result.md" 2>/dev/null &&
    grep -q '^merged: yes$' "$RUNDIR/result.md" && grep -q '^pr: https://' "$RUNDIR/result.md" &&
    [ "$DELIVERYRC" = 0 ]; then
-  ok "4 ak run: $(grep '^pr: ' "$RUNDIR/result.md") merged; done-when passed on fetched origin/main"
+  ok "4 ak run: $(grep '^pr: ' "$RUNDIR/result.md") merged, $EXEC executing and $REVIEW reviewing;"\
+     "done-when passed on fetched origin/main"
 else
   no "4 ak run: exit=$RC rundir=${RUNDIR:-none} delivery-exit=$DELIVERYRC"
-  diagnose "$RC" "$WORK/run.log" ak run "$WORK/task.md" --rounds 2 --exec opus --review astra
+  diagnose "$RC" "$WORK/run.log" ak run "$WORK/task.md" --rounds 2 --exec "$EXEC" --review "$REVIEW"
 fi
 
 # --- 4b: ak run clean takes the worktree back down -------------------------
@@ -2205,6 +2248,7 @@ else
   no "5 ak notify --check exited $NRC with no webhook configured; expected 2"
   sed 's/^/      /' "$WORK/notify.log" | head -3
 fi
+fi
 
 # --- 5b: --check exit codes, offline -----------------------------------------
 # 2 means "nothing configured" and nothing else, so the orchestrator can tell an unset webhook
@@ -2268,6 +2312,7 @@ else
   sed 's/^/      /' "$NGH/guard.log" "$WORK/guard-nosink.log" | head -8
 fi
 
+if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 6: orch selection -----------------------------------------------------
 # The pick stands on check 1's meters; when the provider throttled those probes the pick
 # has nothing to stand on either.  One retry a minute later, then the same skip the gate
@@ -2360,6 +2405,7 @@ grep -q 'muse --yolo --provider meta --model muse-spark' "$WORK/orch-spark.log" 
 grep -q 'idle-compact.py -- claude ' "$WORK/orch-fable.log" || ORCH2=1
 [ "$ORCH2" = 0 ] && ok "6b ak orch: astra prints a codex command with its model, spark a muse one, fable a claude one" \
                  || no "6b ak orch per-harness command: $(tail -1 "$WORK/orch-astra.log")"
+fi
 
 # --- 6c: each seat applies its own models, a dry run records none (offline) --
 # A fresh HOME and a current empty-meter cache ensure selection and usage never probe a provider.
@@ -2431,11 +2477,12 @@ else
   no "6c session picker"; sed 's/^/      /' "$WORK/session-pick.log" | head -8
 fi
 
+if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 6d: a named seat, really started --------------------------------------
 # Not a dry run: `ak orch <name>` creates the tmux session, the harness's own TUI paints in it,
-# `ak orch list` shows it and `ak orch stop` takes it down. The poll accepts directory trust,
-# declines updates (ak update owns those), and continues without trusting new hooks. This seat
-# makes no model request and must not approve any of the caller's hooks just to reach the TUI.
+# `ak orch list` shows it and `ak orch stop` takes it down. The poll accepts directory trust
+# and declines updates (ak update owns those). The seat trusts its own hooks on its command
+# line, so a "Hooks need review" screen fails it. This seat makes no model request.
 # A direct invocation outside ~/code keeps its checkout when Project defaults to none.
 if ! SEATWHY=$(model_unavailable astra seat); then
   no "6d: required model astra login check failed: $SEATWHY"
@@ -2449,21 +2496,15 @@ SEATRC=$?
 PANE=""
 for _ in $(seq 1 30); do
   PANE=$(tm capture-pane -p -t smoke-astra 2>/dev/null)
-  if grep -q 'Hooks need review' <<<"$PANE" &&
-     grep -q '3\. Continue without trusting' <<<"$PANE"; then
-    tm send-keys -t smoke-astra 3 Enter
-    sleep 2
-    continue
-  fi
-  grep -q 'Hooks need review' <<<"$PANE" && { sleep 2; continue; }
+  grep -q 'Hooks need review' <<<"$PANE" && break
   grep -q 'OpenAI Codex' <<<"$PANE" && break
   grep -q 'Do you trust' <<<"$PANE" && tm send-keys -t smoke-astra Enter
   grep -q 'Update available' <<<"$PANE" && tm send-keys -t smoke-astra Down Enter
   sleep 2
 done
 cp "$HOME/.agentkit/state/session-smoke-astra.json" "$WORK/seat-before-dry-run.json"
-# A trusted SessionStart hook can verify ownership; declining new hooks leaves an explicit
-# fresh-start record. Neither path may invent an id or claim ownership from directory history.
+# Codex runs SessionStart with the first turn, which verifies ownership; before one, the record
+# is an explicit fresh start. Neither may invent an id or claim ownership from directory history.
 PYTHONPATH="$REPO" python3 - "$WORK/seat-before-dry-run.json" <<'PYSEAT'
 import json, sys
 from agentkit.harness import codex
@@ -2504,6 +2545,7 @@ else
   no "6d ak orch seat: exit=$SEATRC dry=$SEATDRY unchanged=$SEATUNCHANGED listed=$SEATLIST env=$SEATENV stop=$SEATSTOP nopin=$SEATNOPIN record-kept=$SEATKEPT"
   printf '%s\n' "$PANE" | head -12 | sed 's/^/      /'
   tm kill-session -t =smoke-astra 2>/dev/null
+fi
 fi
 fi
 
@@ -3014,9 +3056,12 @@ else
 fi
 
 # --- 9: transient worker failures are retried, not scored (offline) --------
-wait   # the two runs launched at the top; the first spent 60s + 300s of real transient backoff
+wait   # the two runs launched at the top, with their own clock for transient waits
 if grep -q '^rc=0$' "$WORK/retry-exec.log" && grep -q 'retrying in 60s' "$WORK/retry-exec.log" &&
-   grep -q 'retrying in 300s' "$WORK/retry-exec.log" && grep -q ' PASS, .* -> ' "$WORK/retry-exec.log"; then
+   grep -q 'retrying in 300s' "$WORK/retry-exec.log" &&
+   grep -q '^test clock advanced 60s$' "$WORK/retry-exec.log" &&
+   grep -q '^test clock advanced 300s$' "$WORK/retry-exec.log" &&
+   grep -q ' PASS, .* -> ' "$WORK/retry-exec.log"; then
   ok "9a ak run retried an executor that died on an API error twice, then passed"
 else
   no "9a ak run executor retry"; grep -E 'WARN|ERROR|rc=' "$WORK/retry-exec.log" | head -6 | sed 's/^/      /'
@@ -5052,11 +5097,13 @@ else
 fi
 
 # --- 31: the shared browser and the desktop ---------------------------------
-# 31a-c are offline and run on every machine. 31d and 31e make real model calls through the
+# 31b and 31c are offline and run on every machine; the rest run in the live mode alone.  31a
+# reads the host's own browser stack.  31d and 31e make real model calls through the
 # MCP servers `ak browser mcp-register` wrote, so they only run where the shared Chromium is
 # actually listening on 9222 -- the server. On a Mac they are skipped, not failed. Where the
 # browser answers but its shared MCP server does not, they fail without installing anything:
 # the suite never touches the machine-wide service itself.
+if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 BST=0
 ak browser status >"$WORK/browser-status.txt" 2>&1 || BST=$?
 BSO=$(cat "$WORK/browser-status.txt")
@@ -5069,6 +5116,7 @@ if [ "$BST" = 0 ] &&
 else
   no "31a ak browser status exited $BST"
   sed 's/^/      /' "$WORK/browser-status.txt" | head -8
+fi
 fi
 
 # 31b: mcp-register writes both servers into a claude and a codex config that already hold
@@ -5154,6 +5202,7 @@ else
   no "31c tools/desktop-mcp.py over stdio: $(head -c 200 "$WORK/desktop-err.log")"
 fi
 
+if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # 31d/31e: real calls, only where the shared browser is up.
 if python3 -c "
 import sys, urllib.request
@@ -5216,6 +5265,7 @@ except Exception:
   fi
 else
   skip_checks 31d/31e "the shared browser is not on this host: nothing listens on 127.0.0.1:9222"
+fi
 fi
 
 # --- 32: a notification resolves only after an interactive open and fresh progress (offline) ---
@@ -5951,7 +6001,7 @@ doc = json.loads(content)
 assert doc["model"] == "mimo/mimo-v2.6-pro#high", doc["model"]   # the shipped `high`
 variant = doc["provider"]["mimo"]["models"]["mimo-v2.6-pro"]["variants"]["high"]
 assert variant == {"extraBody": {"thinking": {"type": "enabled"}}}, variant   # thinking on
-assert doc["agents"]["build"]["system"].startswith("# You are the orchestrator"), "rulebook"
+assert "# You are the orchestrator\n" in doc["agents"]["build"]["system"], "rulebook"
 assert doc["plugins"][0].endswith("hooks/opencode-seat"), doc["plugins"]
 PY
 # (b) a worker turn executes through the adapter: final, session and appended usage
@@ -5996,6 +6046,6 @@ else
   no "47 host run queue"; cat "$WORK/v5am.log"
 fi
 
-echo "coverage: offline fixtures plus the live harness/GitHub/browser checks labeled above"
+echo "coverage: offline fixtures, plus the live mode's harness/GitHub/browser checks labeled above"
 echo "NOT EXERCISED: clean-host installation or interactive logins (separate certification)"
 finish

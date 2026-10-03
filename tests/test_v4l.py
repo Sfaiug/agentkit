@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -504,41 +505,41 @@ class Babysitter(unittest.TestCase):
 
 
 class RunsAndSmoke(unittest.TestCase):
-    def test_smoke_codex_startup_continues_without_trusting_hooks(self):
+    def test_smoke_codex_startup_rejects_hook_review(self):
         source = (REPO / "tests/smoke.sh").read_text()
         block = source[source.index("# --- 6d:"):source.index("# --- 7:")]
         poll = block[block.index('PANE=""'):block.index('\ncp "$HOME/')]
-        with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
-            script = '''set -uo pipefail
+        ready = next(line.strip().removesuffix(" &&") for line in block.splitlines()
+                     if "&& ! grep -q 'Hooks need review'" in line)
+        script = '''set -uo pipefail
 tm() {
   case "$1" in
     capture-pane)
-      if [ -f "$WORK/continued" ]; then
-        echo 'OpenAI Codex'
-      elif [ -f "$WORK/first-frame" ]; then
-        touch "$WORK/options-visible"
-        cat "$REPO/tests/fixtures/codex-hooks-review-pane.txt"
-      else
-        touch "$WORK/first-frame"
-        echo 'Hooks need review'  # a partial frame must not get any answer yet
-      fi ;;
+      case "$FRAME" in
+        prompt) echo 'OpenAI Codex' ;;
+        partial) printf 'OpenAI Codex\\nHooks need review\\n' ;;
+        full) cat "$REPO/tests/fixtures/codex-hooks-review-pane.txt" ;;
+      esac ;;
     send-keys)
       printf '%s\\n' "$*" >>"$WORK/keys"
-      [ "$*" = 'send-keys -t smoke-astra 3 Enter' ] || return 1
-      [ -f "$WORK/options-visible" ] || return 1
-      touch "$WORK/continued" ;;
+      return 1 ;;
     *) return 1 ;;
   esac
 }
 sleep() { :; }
 '''
-            env = {**os.environ, "WORK": directory, "REPO": str(REPO)}
-            result = subprocess.run(["bash", "-c", script + poll + '\nprintf "%s" "$PANE"'],
-                                    env=env, text=True, capture_output=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout, "OpenAI Codex")
-            self.assertEqual((Path(directory) / "keys").read_text(),
-                             "send-keys -t smoke-astra 3 Enter\n")
+        for frame, expected in (("prompt", 0), ("partial", 1), ("full", 1)):
+            with self.subTest(frame=frame), \
+                    tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
+                env = {**os.environ, "WORK": directory, "REPO": str(REPO),
+                       "FRAME": frame, "SEATLIST": "1"}
+                result = subprocess.run(
+                    ["bash", "-c", script + poll + '\nprintf "%s" "$PANE"\n' + ready],
+                    env=env, text=True, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                self.assertIn("OpenAI Codex" if frame == "prompt" else "Hooks need review",
+                              result.stdout)
+                self.assertFalse((Path(directory) / "keys").exists())
 
     def test_smoke_notification_number_ignores_the_callers_resumable_seats(self):
         source = (REPO / "tests/smoke.sh").read_text()
@@ -607,7 +608,7 @@ esac
 
     def test_smoke_checks_forced_harnesses_when_the_default_is_not_claude(self):
         source = (REPO / "tests/smoke.sh").read_text()
-        block = source[source.index("# --- 6: orch"):source.index("# --- 6c:")]
+        block = source[source.index("# --- 6: orch"):source.index("\nfi\n\n# --- 6c:")]
         with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             root = Path(directory)
             fake = root / "tmux"
@@ -640,7 +641,7 @@ esac
         helpers = "spent_until()" + source.split("spent_until()", 1)[1].split("\nprintf 'Create", 1)[0]
         helpers = f'. "{REPO}/tests/acceptance.sh"\n' + helpers
         run_block = source[source.index("# --- 4:"):source.index("# --- 5:")]
-        mcp_block = source[source.index("# 31d/31e:"):source.index("# --- 32:")]
+        mcp_block = source[source.index("# 31d/31e:"):source.index("\nfi\n\n# --- 32:")]
         with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             root = Path(directory)
             for name, answer in (("gh", ""), ("claude", "BROWSER_TABS=0 DESKTOP=ok"),
@@ -656,22 +657,28 @@ esac
             # an all-skipped suite is INCOMPLETE and exits 0 here; `ak update`'s gate runs this
             # file with AGENTKIT_ACCEPTANCE_REQUIRED=1, which would make it exit 2
             env = {**os.environ, "HOME": directory, "WORK": directory, "REPO": str(REPO),
+                   "SMOKE_CALLER_HOME": directory,
                    "PATH": f"{root}:{os.environ['PATH']}", "AGENTKIT_ACCEPTANCE_REQUIRED": "0"}
-            for spent in ("anthropic", "openai", None):
-                providers = {provider: {"meters": [{"name": "weekly", "used": 100 if provider == spent else 10,
-                    "exhausted": provider == spent, "resets_at": 9999999999}]}
-                    for provider in ("anthropic", "openai")}
+
+            def spend(*spent):
+                providers = {provider: {"meters": [{"name": "weekly_all", "used": 100 if provider in spent else 10,
+                    "exhausted": provider in spent, "resets_at": 9999999999}]}
+                    for provider in dict.fromkeys(("anthropic", "openai", *spent)) if provider}
                 (root / "usage-real.json").write_text(json.dumps({"providers": providers}))
+
+            # check 4 runs on whichever configured model has budget, so only every one spent skips it
+            spend(*tomllib.loads((REPO / "config.default.toml").read_text())["providers"])
+            result = subprocess.run(["bash", "-c", helpers + "\n" + run_block + '\nfinish'], env=env,
+                                    text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for label in ("4", "4b", "4c", "4d"):
+                self.assertIn(f"SKIP  {label}: every model this host can run has a spent window", result.stdout)
+            self.assertIn("0 passed, 0 failed, 4 skipped", result.stdout)
+            self.assertFalse((root / "calls").exists())
+            self.assertFalse((root / "task.md").exists())
+            for spent in ("anthropic", "openai", None):
+                spend(spent)
                 with self.subTest(spent=spent):
-                    if spent:
-                        result = subprocess.run(["bash", "-c", helpers + "\n" + run_block + '\nfinish'], env=env,
-                                                text=True, capture_output=True)
-                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                        for label in ("4", "4b", "4c", "4d"):
-                            self.assertIn(f"SKIP  {label}:", result.stdout)
-                        self.assertIn("0 passed, 0 failed, 4 skipped", result.stdout)
-                        self.assertFalse((root / "calls").exists())
-                        self.assertFalse((root / "task.md").exists())
                     script = helpers + "\n" + mcp_block + '\nfinish'
                     result = subprocess.run(["bash", "-c", script], env=env, text=True, capture_output=True)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -896,7 +903,7 @@ esac
         source = (REPO / "tests/smoke.sh").read_text()
         newrepo = source[source.index("newrepo()"):source.index('echo "workdir:')]
         calls = source[source.index("# --- 3:"):source.index("# --- 4:")]
-        mcp = source[source.index("# 31d/31e:"):source.index("# --- 32:")]
+        mcp = source[source.index("# 31d/31e:"):source.index("\nfi\n\n# --- 32:")]
         # Every live entry point is a shell fake. The stream checker returns the
         # worker's exit, or a fixture assertion failure after a successful turn.
         fakes = r'''

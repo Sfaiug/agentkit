@@ -4,6 +4,7 @@ import json
 import math
 import os
 import sqlite3
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -58,6 +59,19 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("task_checks", "INTEGER"), ("task_files", "TEXT"), ("orchestrator", "TEXT"),
               ("changed_lines", "INTEGER"))
 
+REVIEWS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS reviews (
+    run_id TEXT,
+    review_id TEXT,
+    harness TEXT,
+    model TEXT,
+    blocking INTEGER,
+    followup INTEGER,
+    note INTEGER,
+    PRIMARY KEY (run_id, review_id)
+)
+"""
+
 
 def path():
     """The history database follows the configured HOME, including test homes."""
@@ -73,6 +87,7 @@ def _connect(*, readonly=False):
     database.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database, timeout=2)
     connection.execute(SCHEMA)
+    connection.execute(REVIEWS_SCHEMA)
     have = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
     for name, kind in MIGRATIONS:
         if name not in have:
@@ -206,6 +221,35 @@ def add_tokens(run_id, role, tokens, *, log=None):
     _write(lambda connection: connection.execute(
         f"UPDATE runs SET {column}=COALESCE({column},0)+? WHERE run_id=?",
         (int(tokens), run_id)), log)
+
+
+def record_review(run_id, review_id, *, harness, model, blocking, followup, note, log=None):
+    """Keep one finished review's weighed counts, including landing reviews in the same round.
+
+    Its output directory identifies it, so recording it again cannot count it twice; only
+    runs already recorded in history can contribute.
+    """
+    _write(lambda connection: connection.execute(
+        "INSERT INTO reviews (run_id, review_id, harness, model, blocking, followup, note) "
+        "SELECT run_id, ?,?,?,?,?,? FROM runs WHERE run_id=? "
+        "ON CONFLICT(run_id, review_id) DO NOTHING",
+        (review_id, harness, model, blocking, followup, note, run_id)), log)
+
+
+def review_counts(harness, model):
+    """Finished reviews, blocking findings, follow-ups and notes for the identity that ran."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                return connection.execute(
+                    "SELECT COUNT(*), COALESCE(SUM(blocking),0), COALESCE(SUM(followup),0), "
+                    "COALESCE(SUM(note),0) FROM reviews JOIN runs USING (run_id) "
+                    f"WHERE harness=? AND model=? AND {REAL_WORK}", (harness, model)).fetchone()
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return (0, 0, 0, 0)
 
 
 def open_step(run_id, step, at=None, *, log=None):
@@ -464,6 +508,90 @@ def size_summary(repo, limit=SUMMARY_TASKS):
     return (median([rounds for rounds, _, _ in rows]),
             median(over_words) if over_words else None,
             median(over_points) if over_points else None)
+
+
+def scoreboard(now=None):
+    """Two weeks of ended work, newest first, and the installed ak's committed size.
+
+    Shares use all ended runs; merge time and token medians use merged runs only.
+    Changed lines survive run cleanup as evidence of a merge; older, unsized merges
+    need their run record. Missing token measurements never become free work.
+    """
+    now = time.time() if now is None else now
+    week = 7 * 86400
+
+    def git(*args):
+        try:
+            result = subprocess.run(["git", "-C", str(config.REPO), *args],
+                                    capture_output=True, timeout=10)
+            if result.returncode == 0 or (args[0] == "grep" and result.returncode == 1):
+                return result.stdout
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return None
+
+    common = git("rev-parse", "--git-common-dir")
+    own_names = {config.REPO.name}
+    if common:
+        own_names.add((config.REPO / os.fsdecode(common).strip()).resolve().parent.name)
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                rows = [dict(row) for row in connection.execute(
+                    "SELECT * FROM runs WHERE finished_at >= ? AND finished_at <= ? "
+                    "AND final_state IN ('pass','fail','error','blocked','exhausted') "
+                    f"AND {REAL_WORK}", (now - 2 * week, now))]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        rows = []
+
+    board = {"products": [], "ak": []}
+    for end in (now, now - week):
+        ended = [row for row in rows if end - week <= row["finished_at"] and
+                 (row["finished_at"] <= end if end == now else row["finished_at"] < end)]
+        total_tokens = sum((row.get(role + "_tokens") or 0)
+                           for row in ended for role in ("executor", "reviewer"))
+        for label in board:
+            group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
+            if not group:
+                board[label].append(None)
+                continue
+            merged = [row for row in group if row.get("changed_lines") is not None or
+                      (record.read_state(config.RUNS / row["run_id"]) or {}).get("merged")]
+            hours = [(row["finished_at"] - row["started_at"]) / 3600 for row in merged
+                     if row.get("started_at") is not None and row["started_at"] <= row["finished_at"]]
+            tokens = [row["executor_tokens"] + row["reviewer_tokens"] for row in merged
+                      if row.get("executor_tokens") is not None and row.get("reviewer_tokens") is not None]
+            stats = {"runs": len(group), "merged": len(merged),
+                     "first_round": sum(row["rounds_used"] == 1 for row in merged) / len(group),
+                     "unmerged": sum(row["final_state"] in ("fail", "error", "blocked", "exhausted")
+                                     for row in group if row not in merged) / len(group),
+                     "hours": median(hours) if hours else None,
+                     "tokens": median(tokens) if tokens else None}
+            if label == "ak":
+                spent = sum((row.get(role + "_tokens") or 0)
+                            for row in group for role in ("executor", "reviewer"))
+                stats["token_share"] = spent / total_tokens if total_tokens else None
+            board[label].append(stats)
+
+    def size(ref):
+        if not ref:
+            return None
+        code = git("grep", "-I", "-h", "--no-color", "-e", "^", ref, "--",
+                   "agentkit/", "bin/", "hooks/", "adapters/", "tools/", "install.sh")
+        readme = git("show", f"{ref}:README.md")
+        if code is None and readme is None:
+            return None
+        return {"code_lines": code.count(b"\n") if code is not None else None,
+                "readme_words": len(readme.decode("utf-8", "replace").split()) if readme is not None else None}
+
+    before = git("rev-list", "--first-parent", "-1",
+                 "--before=" + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - week)), "HEAD")
+    board["size"] = [size("HEAD"), size(before.decode().strip() if before else None)]
+    return board
 
 
 def event_tokens(path):

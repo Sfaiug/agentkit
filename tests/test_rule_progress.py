@@ -198,9 +198,10 @@ class RuleProgress(unittest.TestCase):
         self.addCleanup(home.cleanup)
         ran, out = [], io.StringIO()
 
-        def run(cmd, **kwargs):
+        def run(cmd, **kwargs):     # origin/main is ahead and has no tests/live.sh
             ran.append(cmd[3] if cmd[0] == "git" else Path(cmd[0]).name)
-            return subprocess.CompletedProcess(cmd, 0, "", "")
+            return subprocess.CompletedProcess(cmd, int(cmd[3:4] == ["cat-file"]),
+                                               "acme\n" if cmd[3:4] == ["rev-parse"] else "", "")
 
         def progress(done, total):
             with redirect_stdout(out):
@@ -213,14 +214,14 @@ class RuleProgress(unittest.TestCase):
                 patch.object(config, "STATE", Path(home.name)), \
                 patch.object(update.subprocess, "run", run), redirect_stdout(io.StringIO()):
             update.update_agentkit(progress)
-        self.assertEqual(ran, ["fetch", "pull", "install.sh"])
+        self.assertEqual(ran, ["fetch", "rev-parse", "cat-file", "merge", "install.sh"])
         lines = out.getvalue().splitlines()
         frames = [(lines[n - 1], line) for n, line in enumerate(lines) if set(line) <= set("━─")
                   and line]
         self.assertEqual([header[:19] for header, _ in frames], ["agentkit · updating"] * 4)
         self.assertEqual([rule.count("━") for _, rule in frames], [0, 20, 40, 60])
         self.assertEqual({len(rule) for _, rule in frames}, {60})
-        for other in ("█", "░", "#", "/3", "fetch", "pull", "install", "Updating"):
+        for other in ("█", "░", "#", "/3", "fetch", "merge", "install", "Updating"):
             self.assertNotIn(other, out.getvalue())       # no bar and no step but the rule's
 
     def test_a_two_second_list_glides_and_lands(self):

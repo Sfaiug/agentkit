@@ -822,6 +822,15 @@ def current_session():
     return resolve_session(name) if name else None
 
 
+def check_stop_owner(owner):
+    """A seat stops only its own work; the owner outside a seat may stop anything."""
+    caller = current_session()
+    if caller and isinstance(owner, str) and owner:
+        owner = resolve_session(owner)
+        if owner != caller:
+            raise Error(f"owned by seat {owner}; message that seat instead")
+
+
 def _validate_session(cfg, name, data):
     if not isinstance(data, dict):
         raise Error(f"{session_path(name)}: expected a JSON object")

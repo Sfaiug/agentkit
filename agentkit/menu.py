@@ -2002,6 +2002,7 @@ def usage_lines(cfg, width):
     and `NN% left`.  A provider that lists `accounts` has one row per account in config
     order, the provider's name numbered in roman numerals (`Claude I`, `Claude II`), each
     from its own reading; a provider without them keeps its single row.  After the percentage, joined with ` · ` and each only when it applies:
+    `62,469 credits left` for the credits it can spend past a spent window;
     `resets <weekday> <HH:MM>` from that meter, or `resets <day> <month>` more than six days
     out in a window longer than a week; one note per scoped meter whose figure differs
     (`Fable 41%`); `5h 40% left` for the 5-hour window, or `5h spent until 14:00` once it
@@ -2050,7 +2051,7 @@ def usage_lines(cfg, width):
         five = session_note(prov, now)
         # In the order the row reads them, each with how much it is worth keeping (`fitting`).
         notes = [(rank, part) for rank, part in
-                 [(0, resets_note(week, now)),
+                 [(-1, usage.credits_note(prov)), (0, resets_note(week, now)),
                   *((3, note) for note in scoped_notes(cfg, name, readable, week)),
                   *((five,) if five else ()),
                   (1, fault(prov)), (1, usage.as_of(prov, now))] if part]
@@ -2481,9 +2482,9 @@ def model_body(cfg, name, at=None):
     """A model's own screen's lines, and where its rows sit on them: {line: (row, cells)}, the
     cells `left` and `right` the arrows of the value on that line, counted from 1 (`under`).
 
-    Its model id and its effort, each between the arrows that step it, then `Remove`;
-    `at` is the highlighted row.  On a phone, where a label and its value do not fit on
-    one line, the value goes under its label.
+    Its model id and its effort, each between the arrows that step it, then `Remove` and
+    its reviewing so far; `at` is the highlighted row. On a phone, where a label and its
+    value do not fit on one line, the value goes under its label.
     """
     entry, room = cfg["models"][name], terminal.layout_width()
     arrows = "‹ {} ›" if terminal.utf8() else "< {} >"
@@ -2502,6 +2503,11 @@ def model_body(cfg, name, at=None):
             places[len(lines)] = (row, [(first, first + 1, "left"), (last - 1, last, "right")]
                                   if number == len(parts) - 1 and value else [])
             lines.append(terminal.highlight(line, number == 0) if row == at else line)
+    reviewed, caught, already, unproven = history.review_counts(entry.get("harness"), entry.get("model"))
+    summary = (f"Reviewed {reviewed} time{'s' if reviewed != 1 else ''} · caught {caught} · "
+               f"{already} already on main · {unproven} unproven" if reviewed
+               else "Not used as a reviewer yet")
+    lines.extend(["", *("  " + part for part in terminal.wrap(summary, room - 2))])
     return lines, places
 
 

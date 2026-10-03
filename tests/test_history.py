@@ -335,7 +335,7 @@ class HistoryTests(unittest.TestCase):
                 run.execute(Fixture(), "executor", "the task", "executor")
         self.assertEqual(history.get("r1")["executor_tokens"], 460)
 
-    def test_row_records_every_role_but_status_shows_only_task_size(self):
+    def test_row_records_every_role_but_status_never_scores_models(self):
         state = self.home / "state"
         state.mkdir()
         (state / "session-seat.json").write_text(json.dumps(

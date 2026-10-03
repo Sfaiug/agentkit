@@ -1678,15 +1678,12 @@ def look_at(session, cfg=None, pane=None, now=None):
         return harness, {}
 
 
-def plan_progress(name):
-    """(done, total) from the session's plan, or (0, 0) without one.
+def plan_text(name):
+    """The session's latest plan, or an empty string without one.
 
-    The orchestrator keeps `~/.agentkit/state/plan-<session>.md` as a markdown list;
-    lines starting with `- [x]` are done, `- [ ]` plus `- [x]` are the total. No plan
-    or zero total means no bar. An orchestrator renamed with `ak orch rename` still
+    An orchestrator renamed with `ak orch rename` still
     writes under the name it was launched with, so a plan under any name whose rename
     pointers lead here is this session's, and of several the one written last wins.
-    The menu row and the status bar read this through `menu.seat_progress`.
     """
     plans = []
     for each in [name] + [old for old, now in config.session_aliases().items() if now == name]:
@@ -1696,11 +1693,15 @@ def plan_progress(name):
         except (OSError, config.Error):
             continue
     try:
-        text = max(plans)[1].read_text(encoding="utf-8") if plans else ""
+        return max(plans)[1].read_text(encoding="utf-8", errors="replace") if plans else ""
     except OSError:
-        return (0, 0)
+        return ""
+
+
+def plan_progress(name):
+    """(done, total) from the session's latest plan, or (0, 0) without one."""
     done = total = 0
-    for line in text.splitlines():
+    for line in plan_text(name).splitlines():
         stripped = line.lstrip()
         if stripped.startswith("- [x]"):
             done += 1
@@ -2859,13 +2860,14 @@ def done_holds(name, live, notice, began, said, dry_run):
 
 def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     """The end-of-turn rule where no hook can hold it: a turn ends with a question, a done or a
-    run to wait on, and a seat that stopped on none of the three is told to get on with it.
+    run or live job to wait on, and a seat that stopped on none of the three is told to get on
+    with it.
 
     An unanswered question of this seat's own never reaches here -- health() leaves those
     alone -- so what is left to read is the last paragraph on the screen, the `done` on record
-    and the runs.  The whole pane and not its content lines, because a paragraph is what the
-    blank line above it makes one and pane_tail keeps none: "Which one?" with a decision under
-    it is not a question the user was left with.
+    and the runs and jobs.  The whole pane and not its content lines, because a paragraph is
+    what the blank line above it makes one and pane_tail keeps none: "Which one?" with a
+    decision under it is not a question the user was left with.
 
     A run of its own parked and undecided holds the stop past a run going, an `ak wait` and a
     `done`, as it holds the hook's.  A wait whose session has stopped is tell_waits' to end, with
@@ -2895,7 +2897,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     seat is read once more first, because a composer the user has begun typing into is theirs
     and a line appended to it would send what they are still writing.
     """
-    from . import run as run_mod   # here, not at the top, as health()'s own import is
+    from . import job as jobs, run as run_mod   # here, not at the top, as health()'s own import is
     if not stop_enforced(harness):
         return
     name = session["name"]
@@ -2929,7 +2931,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     # replaced, and not going -- or `stalled`, which nothing resumes
     parked = [run for run, record, going in mine if (not going or record.get("state") == "stalled")
               and run_mod.unfinished(record, records)]
-    if not parked and any(going for *_, going in mine):
+    if not parked and (any(going for *_, going in mine) or jobs.job_waiting(name)):
         return
     nudged = {}
     if parked:
@@ -3000,7 +3002,13 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     readings = (prov.get("accounts") or {}) if accounts else {current: prov}
 
     def spent(account):
+        # Out of window and of credits: credits left still answer turns.
         return usage.model_exhausted(cfg, model, {provider: readings.get(account, {})})[0]
+
+    def window(account):
+        # Credits cost money, so a seat leaves them for a window that takes it.
+        return not spent(account) and not usage.on_credits(
+            cfg, model, {provider: readings.get(account, {})})
 
     lines = content_lines(harness, pane_tail(pane))
     line = recorded_error(harness, name)
@@ -3035,14 +3043,18 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     elif not refusal and observed and not observed.get("handled") and not dry_run:
         seat_write(name, usage_refusal=None)
     if not waiting and not refusal and not spent(current):
-        if (accounts and current != home and home in readings and not spent(home)
-                and live.get("state") == "at_prompt"
+        # An idle seat comes home once home has a window, and leaves credits for any window.
+        moves = [a for a in orch.account_order(cfg, model, readings, home) if a != current
+                 and window(a) and (a == home or not window(current))]
+        if (moves and live.get("state") == "at_prompt"
                 and not _turn_in_flight(harness, live)[0]
                 and orch.resumable(record)):
             if dry_run:
-                log(f"would move {name} back to {home}")
+                log(f"would move {name} to {moves[0]}")
                 return True
-            if orch.harness_plugin(harness).seat_auth(home)[0] is not True:
+            target = next((a for a in moves
+                           if orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
+            if target is None:
                 return False
             with state_lock():
                 current_seat = orch.find(name)
@@ -3052,7 +3064,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                         or pane_text(current_seat) != pane):
                     return True
                 try:
-                    orch.resume(cfg, name, log=log, hand_over=False, account=home)
+                    orch.resume(cfg, name, log=log, hand_over=False, account=target)
                 except (config.Error, OSError) as exc:
                     log(f"WARN {name}: {provider} account reopen failed: {exc}")
                     return True
@@ -3076,10 +3088,11 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     eligible = {a: readings[a] for a in (accounts or [current]) if a in readings
                 and not spent(a) and (owned or a == current)
                 and (a != current or waiting or not refusal or refilled)}
-    # Keep the existing login when it has refilled. Probe only possible moves, in order,
-    # before the owner-action check: a slow adapter must not undo a stop or typing.
-    order = ([current] if current in eligible else []) + [
-        a for a in orch.account_order(cfg, model, eligible, home) if a != current]
+    # Keep the existing login when it has refilled, or on its credits when no window takes
+    # the seat. Probe only possible moves, in order, before the owner-action check: a slow
+    # adapter must not undo a stop or typing.
+    order = sorted(orch.account_order(cfg, model, eligible, home),
+                   key=lambda a: (not window(a), a != current))
     target = next((a for a in order if a == current
                    or orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
     with state_lock():

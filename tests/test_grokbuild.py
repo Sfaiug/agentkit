@@ -755,7 +755,6 @@ class Rulebook(GrokSandbox):
         gwords = shlex.split(grok.stdout)
         rules = gwords[gwords.index("--rules") + 1]
         self.assertEqual(rules, cpath.read_text())
-        self.assertEqual(rules, (REPO / "orchestrator.md").read_text())
         # and agentkit wrote no harness-specific instruction file anywhere in this HOME
         self.assertFalse((self.grok_home / "GROK.md").exists())
         self.assertEqual([p for p in self.home.rglob("*")

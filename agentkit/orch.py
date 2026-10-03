@@ -128,6 +128,7 @@ _MANAGER = {}              # whether this host has a user systemd manager, asked
 _OOM_POLICY = {}           # whether its scopes take OOMPolicy=continue, asked once too,
 _OOM_POLICY_LOCK = threading.Lock()   # ... however many of a job's threads launch at once
 _SLICE = {}                # ... and what its slice says about itself, for the same reason
+_LITERAL = {}              # ... and the `systemd-run` a seat's scope runs, and with what
 _PROCESSES = {}            # the last reading of the process table, when, and whether it is held
 
 
@@ -138,15 +139,20 @@ def choose(cfg, providers):
     reason to pass the default over is that it cannot be spent at all: its gate meter, or the
     5h session window it runs inside, reads 100% used.  Then the first model in list order that
     can still be spent takes the seat.  Never refuses either -- a refusal costs more than an
-    overspend, so with every model spent the default is launched anyway with a WARN.
+    overspend, so with every model spent the default is launched anyway with a WARN.  A model
+    on credits (`usage.on_credits`) goes after every one with a window left.
     """
     default = cfg["defaults"]["orchestrator"]
-    notes = []
+    notes, credits = [], None
     for name in [default, *(name for name in config.offered(cfg) if name != default)]:
         spent, why = usage.model_spent(cfg, name, providers)
-        if not spent:
+        if not spent and not usage.on_credits(cfg, name, providers):
             return name, "; ".join([why] + notes)
+        if not spent and credits is None:
+            credits = name, "; ".join([why] + notes)
         notes.append(f"skipped {name}: {why}")
+    if credits:
+        return credits
     return default, (f"WARN {'; '.join(notes)}; every model is exhausted, "
                      f"launching {default} anyway")
 
@@ -193,20 +199,21 @@ def account_order(cfg, model, readings, first=None):
 
     `first` -- a seat's home; for a new seat the provider's `seat_account`, else the usual
     login -- first while it has room for this model, the rest by room: a seat lives where
-    its owner follows it, and only spills over when that one is spent.
+    its owner follows it, and only spills over when that one is spent.  An account on
+    credits (`usage.on_credits`) has room only after every one with a window left.
     """
     provider = config.model(cfg, model)["provider"]
 
     def rank(account):
         providers = {provider: readings[account]}
         amount, unknown = usage.model_budget(cfg, model, providers)
-        return usage.model_exhausted(cfg, model, providers)[0], unknown is not None, -amount
+        return (usage.model_exhausted(cfg, model, providers)[0],
+                usage.on_credits(cfg, model, providers), unknown is not None, -amount)
     accounts = config.accounts(cfg, provider) or list(readings)
     ordered = sorted((a for a in accounts if a in readings), key=rank)
     if first is None:
         first = (cfg["providers"].get(provider) or {}).get("seat_account", config.DEFAULT_ACCOUNT)
-    if first in ordered and not usage.model_exhausted(
-            cfg, model, {provider: readings[first]})[0]:
+    if first in ordered and not any(rank(first)[:2]):
         ordered = [first, *(a for a in ordered if a != first)]
     return ordered
 
@@ -379,6 +386,36 @@ def scope_oom_policy():
                 version = int(found.group(1)) if found else 0
             _OOM_POLICY["answer"] = version >= 253
         return _OOM_POLICY["answer"]
+
+
+def seat_scope_run():
+    """The `systemd-run` a seat's pane runs, by its full path, and the switch it is handed.
+
+    From systemd 258 a scope expands `${NAME}` and `$$` in the command it runs, the way a
+    service does, and a harness's arguments are its own to the letter -- a path, a receipt, a
+    JSON value.  `--expand-environment=no` came in 254 and is harmless before 258; an older
+    `systemd-run` refuses it, and the scope with it.  So the binary asked its version is the
+    one the pane runs: a tmux server keeps the PATH it was started with, and a bare name
+    there may find another.  Its full path, too: the pane starts in the seat's own directory,
+    where a path found through a relative PATH entry names another file or none.  Such a one
+    is joined to this directory as found, never tidied: a `..` after a symlink leaves the
+    place the link points to, not the link's own directory.  An absolute one needs no
+    directory, which a long-lived caller's may no longer have.  Asked once per process.
+    """
+    if "argv" not in _LITERAL:
+        found_at = shutil.which("systemd-run")
+        if found_at and not os.path.isabs(found_at):
+            found_at = os.path.join(os.getcwd(), found_at)
+        found_at = found_at or "systemd-run"
+        try:
+            said = subprocess.run([found_at, "--version"], capture_output=True, text=True,
+                                  stdin=subprocess.DEVNULL, timeout=SLICE_WAIT).stdout
+        except (OSError, subprocess.SubprocessError):
+            said = ""
+        found = re.match(r"\s*systemd (\d+)", said)
+        _LITERAL["argv"] = [found_at, *(["--expand-environment=no"]
+                                        if found and int(found.group(1)) >= 254 else [])]
+    return _LITERAL["argv"]
 
 
 def can_scope():
@@ -669,6 +706,59 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
     return spawn(argv, env, lower_nice=nice).pid
 
 
+def scope_self(unit, target_slice, properties=(), placement=None):
+    """Move this very process into a new scope `unit` in `target_slice`; True once it is there.
+
+    The scope `in_slice` makes around a child, made around a process that already runs: the
+    user manager is handed this pid, so nothing is started or exec'd and the process keeps its
+    terminal, its signals and its pid.  `properties` are the `systemd-run -p` ones, which the
+    manager takes typed here: a size in mebibytes as bytes, a number as one, the rest as words.
+    Only this process's own cgroup is believed, once it names the scope.  Where no scope can be
+    made the process stays where it is, and `placement` says why.
+    """
+    def unplaced(reason):
+        if placement is not None:
+            placement.update(scope="none", scope_reason=reason)
+        return False
+
+    if not user_manager():
+        return unplaced("no user systemd manager")
+    if not can_scope():
+        # the kernel lets the manager move only what it was delegated (see `can_scope`)
+        return unplaced("started outside the user manager, which cannot move it")
+    typed = []
+    for assignment in properties:
+        if assignment == "-p":
+            continue
+        name, _, value = assignment.partition("=")
+        if value.endswith("M") and value[:-1].isdigit():
+            typed += [name, "t", str(int(value[:-1]) * 1024 * 1024)]
+        else:
+            typed += [name, "t" if value.isdigit() else "s", value]
+    try:
+        asked = subprocess.run(
+            ["busctl", "--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
+             "org.freedesktop.systemd1.Manager", "StartTransientUnit", "ssa(sv)a(sa(sv))",
+             f"{unit}.scope", "fail", str(2 + len(typed) // 3), "PIDs", "au", "1",
+             str(os.getpid()), "Slice", "s", target_slice, *typed, "0"],
+            capture_output=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+            env=bus_env(), timeout=SLICE_WAIT)
+        failed = (f"busctl failed ({asked.stderr.strip() or f'exit {asked.returncode}'})"
+                  if asked.returncode != 0 else None)
+    except (OSError, subprocess.SubprocessError) as exc:
+        failed = f"busctl failed ({exc})"
+    # The cgroup is the answer whatever the client says: the manager queues the move as a job,
+    # so one it took before the reply was lost or late may still land, and is waited for.
+    deadline = time.monotonic() + SLICE_WAIT
+    while not host.cgroup_contains(f"/{unit}.scope"):
+        if time.monotonic() >= deadline:
+            return unplaced(failed or f"{unit}.scope never took this process")
+        time.sleep(0.02)
+    if placement is not None:
+        placement["scope"] = unit
+    return True
+
+
 def stop_scope(scope, log=lambda _: None, wait=True):
     """Ask systemd to stop a detached run's unit, including escaped grandchildren.
 
@@ -686,7 +776,14 @@ def stop_scope(scope, log=lambda _: None, wait=True):
     command = ["systemctl", "--user", "stop"]
     try:
         if not wait:
-            subprocess.Popen([*command, *units], stdin=subprocess.DEVNULL,
+            if (threading.current_thread() is threading.main_thread()
+                    and any(host.cgroup_contains(f"/{unit}") for unit in units)):
+                # This process is in what it stops and on its way out: the stop is for what it
+                # leaves behind, and the exit status a foreground caller reads stays its own.
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            # queued, not waited for: a systemctl inside the scope, ignoring SIGTERM as this
+            # process now does, would otherwise wait on a stop that waits on it
+            subprocess.Popen([*command, *units, "--no-block"], stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              start_new_session=True, env=bus_env())
             return True
@@ -703,6 +800,21 @@ def stop_scope(scope, log=lambda _: None, wait=True):
     if refused:
         log(f"WARN could not stop {scope}: systemctl exited {refused[0]}")
     return not refused and 0 in codes
+
+
+def set_cpu_weight(unit, weight):
+    """Ask the user manager to weigh `unit` so until it ends; whether it did.
+
+    The manager's own word rather than a write to the unit's cgroup, which it would put
+    back on its next reload.
+    """
+    try:
+        return subprocess.run(["systemctl", "--user", "set-property", "--runtime", unit,
+                               f"CPUWeight={weight}"], stdin=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              env=bus_env(), timeout=SLICE_WAIT).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def slice_cgroup():
@@ -1632,6 +1744,25 @@ def set_runs(name, tally, socket=None):
         pass
 
 
+def seat_command(name, cmd, socket=None):
+    """The pane's command line: the harness, started inside a scope of its own in the seats slice.
+
+    A pane is in whatever slice its server was started in, and a server already up -- started
+    by hand, or before seats were placed -- is in none of agentkit's.  So the harness is put
+    there as it starts, the way `in_slice` puts a server, rather than found and moved later.
+    Every launch names a new scope, so a respawn never meets the one the last harness may
+    have left behind.  The bus is the one `user_manager` found: a server started from cron
+    never told its panes where it is.  Where no manager answers, the command runs plainly.
+    """
+    if not user_manager():
+        return shlex.join(cmd)
+    unit = f"agentkit-seat-{name}-{uuid.uuid4().hex[:8]}"
+    run, *literal = seat_scope_run()
+    return shlex.join(["env", f"XDG_RUNTIME_DIR={bus_env()['XDG_RUNTIME_DIR']}",
+                       run, "--user", f"--slice={seat_slice_name(socket)}", "--scope",
+                       "--quiet", f"--unit={unit}", *literal, "--", *cmd])
+
+
 def start(name, cwd, cmd, orchestrator):
     """Create the seat detached with AGENTKIT_SESSION in its environment, and mark it as ours.
 
@@ -1650,10 +1781,11 @@ def start(name, cwd, cmd, orchestrator):
     # a harness that exits as it starts would otherwise take the session with it.  On a server
     # that is not up this says so and does nothing, and `-f` below is what dresses that one.
     # Its answer is also what says whether this command is the one starting the server: only
-    # that one can put the server, and every pane under it, in agentkit's slice.
+    # that one can put the server in agentkit's slice.  The harness goes in either way.
     running = tmux_out("source-file", str(conf))[0] == 0
     rc, out = tmux_out("-f", str(conf), "new-session", "-d", "-s", name, "-c", str(cwd),
-                       *env, shlex.join(cmd), unit=None if running else f"agentkit-seat-{name}")
+                       *env, seat_command(name, cmd),
+                       unit=None if running else f"agentkit-seat-{name}")
     if rc != 0:
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
     # set-option takes the session name plain: it is the one target that rejects `=name`
@@ -1947,8 +2079,8 @@ def launch(name, model, cwd, cmd, conversation, session=None):
                                  socket=server)
             if rc or owner != name:
                 target = f"={name}:"
-        rc, out = tmux_out("respawn-pane", "-k", "-t", target, shlex.join(cmd),
-                           socket=server)
+        rc, out = tmux_out("respawn-pane", "-k", "-t", target,
+                           seat_command(name, cmd, server), socket=server)
         if rc != 0:
             raise config.Error(f"cannot resume the session {name}: {out}")
         tmux_out("set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}", socket=server)
@@ -2649,6 +2781,8 @@ def cmd_stop(argv):
     """
     if len(argv) != 1:
         raise config.Error("usage: ak orch stop <name>")
+    name = config.resolve_session(argv[0])
+    config.check_stop_owner(name)
     from . import notify, watch
     # Stopping the session this runs in -- the overlay's `x`, or `ak orch stop` from the seat
     # itself -- hangs this very process up halfway through, and the menu redraws the moment
@@ -2659,7 +2793,6 @@ def cmd_stop(argv):
     old = signal.signal(signal.SIGHUP, signal.SIG_IGN)
     try:
         from . import run as run_mod
-        name = config.resolve_session(argv[0])
         # Unfinished runs stop before the lock: each one costs up to STALL_KILL_WAIT
         # inside kill_tree, and nothing it touches is the seat's state. The peek is
         # best effort -- the lock below decides authoritatively -- so a name nobody
@@ -2763,7 +2896,65 @@ def cmd_project(argv):
         if config.update_session(name, repo=str(repo), filed=True) is None:
             raise config.Error(f"no orchestrator session {name!r}")
     print(f"filed {name} under {repo.name}")
+    flight = in_flight(name, repo)
+    print(f"in flight on {repo.name}, plan around it:" if flight
+          else f"nothing else in flight on {repo.name}")
+    room = terminal.layout_width() - 4
+    for seat, lines, files in flight:
+        for part in terminal.wrap(seat, room + 2):
+            print(f"  {part}")
+        for line in lines:
+            for part in terminal.wrap(f"plan: {line}", room):
+                print(f"    {part}")
+        if files:
+            for part in terminal.wrap(f"changing: {', '.join(sorted(files))}", room):
+                print(f"    {part}")
     return 0
+
+
+PLAN_OPEN = re.compile(r"^\s*- \[ \] (.+)$")
+
+
+def in_flight(name, repo):
+    """What the other seats filed under the same checkout have in flight, so two sessions
+    never build the same thing unaware: [(seat, open plan lines, changed files)] by name.
+
+    A seat's open lines are its plan's unticked ones; its files are what its going runs
+    change against their base, committed or not, or a queued run's task `files:`.  A seat
+    with neither is left out.
+    """
+    from . import menu, run, watch   # here, not at the top: menu imports this module
+    target = checkout_of(repo)
+    seats = {seat: ([], set()) for seat, record in sorted(config.session_records().items())
+             if seat != name and target and checkout_of(record.get("repo")) == target}
+    for seat, (lines, _) in seats.items():
+        plan = watch.plan_text(seat)
+        lines.extend(m.group(1).strip() for m in map(PLAN_OPEN.match, plan.splitlines()) if m)
+    for directory in run_record.run_dirs():
+        state = run_record.read_state(directory) or {}
+        seat = run.launched_session(state)
+        if seat in seats and not menu.smoke_run(state) and run.going(state):
+            seats[seat][1].update(changed_files(state, directory))
+    return [(seat, lines, files) for seat, (lines, files) in seats.items() if lines or files]
+
+
+def changed_files(state, directory):
+    """Tracked paths a run's worktree changes against its base, committed or not; before it
+    has a worktree, the pathspecs its saved task's `files:` allows."""
+    tree, base = state.get("worktree"), state.get("base_sha")
+    if tree and base and os.path.isdir(tree):
+        try:
+            done = subprocess.run(["git", "-C", tree, "diff", "--name-only", "-z",
+                                   "--no-renames", base, "--"], capture_output=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return []
+        return [path for path in os.fsdecode(done.stdout).split("\0") if path] \
+            if done.returncode == 0 else []
+    from . import task
+    try:
+        return task.task_files(directory / "task.md")
+    except (OSError, ValueError, config.Error):
+        return []
 
 
 def set_solo(name, enabled=None):

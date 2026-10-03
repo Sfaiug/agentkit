@@ -255,19 +255,22 @@ class Seat(unittest.TestCase):
     # --- (d) a repaint is not the seat doing anything -----------------------
 
     def test_v5e_d_a_resize_and_its_repaint_do_not_defer_the_compaction(self):
+        height = 40
+
         def resize(test, proc, master):
-            fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+            nonlocal height
+            height = 24 if height == 40 else 40
+            fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", height, 80, 0, 0))
             os.kill(proc.pid, signal.SIGWINCH)
 
         command = manifest_command("claude")
-        _, quiet = self.run_seat(FAKE_TOKENS=40000, FAKE_STOP_ON="/compact", FAKE_LIFE=15)
-        _, events = self.run_seat(script=[(1.0, resize)], FAKE_TOKENS=40000, FAKE_REPAINT=1,
+        # Separate processes have unrelated poll schedules. Keep repainting through the
+        # deadline instead: counting repaints as activity would put compaction past it.
+        script = [(tick * POLL, resize) for tick in range(2, int(DEADLINE / POLL))]
+        _, events = self.run_seat(script=script, FAKE_TOKENS=40000, FAKE_REPAINT=1,
                                   FAKE_STOP_ON="/compact", FAKE_LIFE=15)
-        self.assertTrue(any(event["event"] == "repaint" for event in events), events)
-        elapsed = self.assert_compacted(events, command)
-        # ... and the 2 KB the resize made it draw bought it no time at all: the same seat with
-        # nothing to repaint is the control, and both land on the same poll of the same grid
-        self.assertLess(elapsed, self.compacted_after(quiet, command) + POLL / 2, (quiet, events))
+        self.assertGreaterEqual(sum(event["event"] == "repaint" for event in events), 2, events)
+        self.assert_compacted(events, command)
 
     # --- (e) the owner is in the seat ---------------------------------------
 
