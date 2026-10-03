@@ -1,6 +1,6 @@
 """A worker turn's failure counts only in whole words the harness itself said.
 
-A `429` or `529` inside a longer number -- a request id, a byte count -- is no refusal, and a
+A `402`, `429` or `529` inside a longer number -- a request id, a byte count -- is no refusal, and a
 quota word in the model's own answer parks nothing and waits for nothing.  The words the loop
 used to keep itself now live in the harness package and each adapter manifest's `[stall]`, and
 still hand a turn over or wait it out as before.  Fake adapters answer from a plan file, the
@@ -16,12 +16,14 @@ import sys
 import tempfile
 import time
 import tomllib
+from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, harness, orch, run, usage, watch  # noqa: E402
+from fixtures.hand_in import scripted
 
 # Every harness's adapter: `auth` answers yes, and `run` plays the next row of plan.json, the
 # last row again once it is the only one left, ending by the row's signal where it names one.
@@ -44,6 +46,8 @@ if row.get("signal"):
 sys.exit(row.get("code", 0))
 '''
 DONE = {"code": 0, "final.md": "## Summary\nDone.\n"}
+BILLING = ("run ended with Failed: API error 402 [request_id=req_acme]: "
+           "Billing verification failed. Please check your payment method. (billing_error)")
 
 
 class Clock:
@@ -63,7 +67,7 @@ def stall(harness):
 
 class QuotaWordsBounded(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix="ak-quota-words-")
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-quota-words-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = root = Path(tmp.name)
         self.stack = ExitStack()
@@ -74,7 +78,7 @@ class QuotaWordsBounded(unittest.TestCase):
         self.adapters.mkdir()
         for manifest in (REPO / "adapters").glob("*.toml"):
             script = self.adapters / f"{manifest.stem}.sh"
-            script.write_text(f"#!{sys.executable}\n{ADAPTER}")
+            script.write_text(f"#!{sys.executable}\n{scripted(ADAPTER)}")
             script.chmod(0o755)
         env = {k: v for k, v in os.environ.items()
                if k not in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR",
@@ -104,6 +108,53 @@ class QuotaWordsBounded(unittest.TestCase):
         return run.call_retrying(self.cfg, model, "Do the task.", self.work,
                                  self.root / "run" / "round-1" / "executor", "executor", None,
                                  self.lines.append, limit=120)
+
+    def test_billing_refusal_parks_each_harness_s_account_and_hands_over_the_round(self):
+        models = {entry["harness"]: name for name, entry in self.cfg["models"].items()}
+        self.account = "second"
+        for adapter in sorted(self.adapters.glob("*.sh")):
+            name, model = adapter.stem, models[adapter.stem]
+            with self.subTest(harness=name):
+                self.marked.clear()
+                provider = config.model(self.cfg, model)["provider"]
+                other = "astra" if provider == "anthropic" else "opus"
+                run_dir = config.RUNS / name
+                state = {"executor": model, "reviewer": other, "workers": [model, other],
+                         "reviewers": [other], "round_summaries": []}
+                lp = SimpleNamespace(cfg=self.cfg, state=state, run_dir=run_dir, wt=self.work,
+                                     executor=model, reviewer=other, exec_sid=None, rnd=1,
+                                     scratch=True, turn_limit=120, log=self.lines.append,
+                                     save=lambda: None, role=lambda role: role,
+                                     dir=lambda part: run_dir / "round-1" / part)
+                (self.adapters / "plan.json").write_text(json.dumps([
+                    {"code": 1, "final.md": BILLING}, DONE]))
+                with patch.object(run, "collect_usage", return_value={}):
+                    self.assertEqual(run.execute(lp, "executor", "Do the task.", "executor"),
+                                     DONE["final.md"])
+                self.assertEqual(harness.load(name).failure(BILLING)[0], harness.SPENT)
+                self.assertEqual(lp.executor, other)
+                self.assertEqual(state["executor_history"][0]["to"], other)
+                self.assertIn((self.cfg, provider, None, "second"), self.marked)
+                prompt = run_dir / "round-1" / f"executor-{other}" / "prompt.md"
+                self.assertIn("Another model started this round", prompt.read_text())
+                self.sleep.assert_not_called()
+
+    def test_a_402_inside_a_longer_number_parks_nothing_on_any_harness(self):
+        models = {entry["harness"]: name for name, entry in self.cfg["models"].items()}
+        said = "Stopped: request req_14020 wrote 14020 bytes in 1.402s."
+        for adapter in sorted(self.adapters.glob("*.sh")):
+            with self.subTest(harness=adapter.stem):
+                code, text, session, dead = self.turn(
+                    models[adapter.stem],
+                    {"code": 1, "final.md": said, "stderr.log": "exit after 14020ms\n"})
+                self.assertEqual((code, text, session, dead), (1, said, "s1", False))
+                self.assertEqual(self.marked, [])
+                self.sleep.assert_not_called()
+
+    def test_billing_words_also_park_a_harness_without_a_manifest(self):
+        for word in ("402", "billing_error", "payment required"):
+            with self.subTest(word=word):
+                self.assertEqual(harness.load("acme").failure(word), (harness.SPENT, word))
 
     def test_a_429_or_529_inside_a_longer_number_neither_parks_nor_waits(self):
         # Every one of these harnesses lists `429` as a spent window and `529` as a refusal.
